@@ -14,6 +14,7 @@ const HEADER_MAP: Record<string, string> = {
   status: '상태',
   dependencies: '선행작업',
   workEffort: '작업공수',
+  deliverables: '산출물',
 };
 
 const REVERSE_HEADER_MAP: Record<string, keyof Task> = Object.entries(HEADER_MAP).reduce(
@@ -22,11 +23,27 @@ const REVERSE_HEADER_MAP: Record<string, keyof Task> = Object.entries(HEADER_MAP
 );
 
 export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileName: string = 'wbs_export.xlsx') => {
+  // Use context wbsMap (which has user-configured prefixes like W1, T1.1).
+  // For tasks beyond maxLevel (wbsMap value is ''), derive from parent's WBS number.
+  const exportWbsMap = new Map<string, string>();
+  const fillWbs = (parentId: string | null) => {
+    const children = tasks.filter(t => t.parentId === parentId);
+    children.forEach((child, index) => {
+      const contextVal = wbsMap.get(child.id);
+      if (contextVal) {
+        exportWbsMap.set(child.id, contextVal);
+      } else {
+        const parentWbs = parentId ? (exportWbsMap.get(parentId) || '') : '';
+        exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
+      }
+      fillWbs(child.id);
+    });
+  };
+  fillWbs(null);
+
   // Prepare data for export
   const data = tasks.map((task) => ({
-    [HEADER_MAP.wbsId]: wbsMap.get(task.id) || '',
-    [HEADER_MAP.id]: task.id,
-    [HEADER_MAP.parentId]: task.parentId || '',
+    [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
     [HEADER_MAP.name]: task.name,
     [HEADER_MAP.startDate]: task.startDate,
     [HEADER_MAP.endDate]: task.endDate,
@@ -35,6 +52,7 @@ export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileNa
     [HEADER_MAP.status]: task.status,
     [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
     [HEADER_MAP.workEffort]: task.workEffort || 0,
+    [HEADER_MAP.deliverables]: task.deliverables || '',
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);

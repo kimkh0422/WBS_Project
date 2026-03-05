@@ -11,7 +11,7 @@ import { LayoutGrid, List, Plus, Download, Upload, ChevronDown, FolderPlus, Tras
 import { cn } from './lib/utils';
 import { Task, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcel } from './lib/excel';
-import { exportBackupToJson, parseBackupJson, BackupData } from './lib/export';
+import { exportBackupToJson, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { WBSSettingsModal } from './components/WBSSettingsModal';
 
@@ -40,6 +40,7 @@ function WBSApp() {
     deleteAllTasks,
     wbsMap,
     restoreBackup,
+    mergeBackups,
     exportFullBackup
   } = useWBS();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +119,12 @@ function WBSApp() {
     data: null,
   });
 
+  const [multiMergeConfirm, setMultiMergeConfirm] = useState<{ isOpen: boolean; dataArray: BackupData[]; fileCount: number }>({
+    isOpen: false,
+    dataArray: [],
+    fileCount: 0,
+  });
+
   // Error Alert State
   const [errorAlert, setErrorAlert] = useState<{ isOpen: boolean; message: string }>({
     isOpen: false,
@@ -154,7 +161,9 @@ function WBSApp() {
 
   const handleExportBackup = () => {
     const backupData = exportFullBackup();
-    const fileName = `wbs_full_backup_${new Date().toISOString().split('T')[0]}.json`;
+    const fileName = currentProject
+      ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
+      : `wbs_full_backup_${new Date().toISOString().split('T')[0]}.json`;
     exportBackupToJson(backupData, fileName);
     setIsExportMenuOpen(false);
   };
@@ -191,15 +200,23 @@ function WBSApp() {
   };
 
   const handleBackupFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
     try {
-      const parsedData = await parseBackupJson(file);
-      setBackupConfirm({
-        isOpen: true,
-        data: parsedData,
-      });
+      if (files.length === 1) {
+        // Single file: full restore behavior
+        const parsedData = await parseBackupJson(files[0]);
+        setBackupConfirm({ isOpen: true, data: parsedData });
+      } else {
+        // Multiple files: merge as separate projects
+        const parsedDataArray = await parseMultipleBackupJsons(files);
+        setMultiMergeConfirm({
+          isOpen: true,
+          dataArray: parsedDataArray,
+          fileCount: files.length,
+        });
+      }
     } catch (error: any) {
       console.error(error);
       setErrorAlert({
@@ -209,6 +226,11 @@ function WBSApp() {
     } finally {
       if (backupInputRef.current) backupInputRef.current.value = '';
     }
+  };
+
+  const executeMultiMerge = () => {
+    mergeBackups(multiMergeConfirm.dataArray);
+    setMultiMergeConfirm({ isOpen: false, dataArray: [], fileCount: 0 });
   };
 
   const executeImport = () => {
@@ -236,7 +258,7 @@ function WBSApp() {
           </div>
           <div>
             <div className="flex items-baseline gap-2">
-              <h1 className="text-xl font-bold tracking-tight leading-none">WBS 관리자</h1>
+              <h1 className="text-xl font-bold tracking-tight leading-none">지엠티 WBS 매니저</h1>
               <span className="text-[10px] font-mono text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
                 v{__APP_VERSION__}
               </span>
@@ -404,6 +426,7 @@ function WBSApp() {
             ref={backupInputRef}
             onChange={handleBackupFileChange}
             accept=".json"
+            multiple
             className="hidden"
           />
 
@@ -432,7 +455,7 @@ function WBSApp() {
                       onClick={handleImportBackupClick}
                       className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]"
                     >
-                      전체 백업 복원 (JSON)
+                      JSON 파일 가져오기 (다중 선택 가능)
                     </button>
                   </div>
                 </>

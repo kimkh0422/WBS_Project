@@ -33,6 +33,7 @@ interface WBSContextType {
   deleteAllTasks: () => void;
   wbsMap: Map<string, string>;
   restoreBackup: (data: BackupData) => void;
+  mergeBackups: (dataArray: BackupData[]) => void;
   exportFullBackup: () => BackupData;
 }
 
@@ -342,6 +343,58 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const mergeBackups = (dataArray: BackupData[]) => {
+    let firstNewProjectId: string | null = null;
+
+    setProjects(prevProjects => {
+      let updatedProjects = [...prevProjects];
+
+      dataArray.forEach(data => {
+        // Build a map from old project ID -> new UUID
+        const projectIdMap = new Map<string, string>();
+        data.projects.forEach(p => {
+          projectIdMap.set(p.id, uuidv4());
+        });
+
+        // Build a map from old task ID -> new UUID
+        const taskIdMap = new Map<string, string>();
+        data.tasks.forEach(t => {
+          taskIdMap.set(t.id, uuidv4());
+        });
+
+        // Remap projects
+        const remappedProjects: Project[] = data.projects.map(p => ({
+          ...p,
+          id: projectIdMap.get(p.id)!,
+        }));
+
+        if (remappedProjects.length > 0 && firstNewProjectId === null) {
+          firstNewProjectId = remappedProjects[0].id;
+        }
+
+        // Remap tasks with new IDs, projectIds, parentIds, and dependency IDs
+        const remappedTasks: Task[] = data.tasks.map(t => ({
+          ...t,
+          id: taskIdMap.get(t.id)!,
+          projectId: projectIdMap.get(t.projectId) || t.projectId,
+          parentId: t.parentId ? (taskIdMap.get(t.parentId) || t.parentId) : null,
+          dependencies: t.dependencies?.map(depId => taskIdMap.get(depId) || depId),
+        }));
+
+        updatedProjects = [...updatedProjects, ...remappedProjects];
+
+        setAllTasks(prevTasks => [...prevTasks, ...remappedTasks]);
+      });
+
+      return updatedProjects;
+    });
+
+    // Switch to the first newly imported project
+    if (firstNewProjectId) {
+      setCurrentProjectId(firstNewProjectId);
+    }
+  };
+
   const exportFullBackup = (): BackupData => {
     return {
       version: '1.0',
@@ -376,6 +429,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       deleteAllTasks,
       wbsMap,
       restoreBackup,
+      mergeBackups,
       exportFullBackup
     }}>
       {children}
