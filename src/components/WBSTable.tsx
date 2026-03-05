@@ -118,7 +118,6 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
-  const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
 
   // Delete Confirmation State
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
@@ -482,27 +481,6 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
     setLastSelectedId(null);
   };
 
-  const executeBulkWorkEffort = () => {
-    const value = parseFloat(bulkWorkEffort);
-    if (isNaN(value) || value < 0) return;
-    Array.from(selectedTaskIds).forEach(id => {
-      updateTask(id, { workEffort: value });
-    });
-    setBulkWorkEffort('');
-    setSelectedTaskIds(new Set());
-    setLastSelectedId(null);
-  };
-
-  const executeBulkStatus = () => {
-    if (!bulkStatus) return;
-    Array.from(selectedTaskIds).forEach(id => {
-      updateTask(id, { status: bulkStatus });
-    });
-    setBulkStatus('');
-    setSelectedTaskIds(new Set());
-    setLastSelectedId(null);
-  };
-
   const SortIcon = ({ column }: { column: keyof Task }) => {
     if (sortConfig?.key !== column) return <ArrowUpDown size={12} className="opacity-30" />;
     return sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
@@ -773,76 +751,6 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
 
           <div className="h-4 w-px bg-stone-200" />
 
-          <div className="flex items-center gap-2 mr-2">
-            <select
-              value={bulkStatus}
-              onChange={(e) => setBulkStatus(e.target.value as TaskStatus | '')}
-              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-            >
-              <option value="">상태 일괄 변경...</option>
-              <option value="todo">할 일</option>
-              <option value="in-progress">진행 중</option>
-              <option value="done">완료</option>
-              <option value="blocked">차단됨</option>
-            </select>
-            <button
-              onClick={executeBulkStatus}
-              disabled={!bulkStatus}
-              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
-            >
-              적용
-            </button>
-          </div>
-
-          <div className="h-4 w-px bg-stone-200" />
-
-          <div className="flex items-center gap-2 mr-2">
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={bulkWorkEffort}
-              onChange={(e) => setBulkWorkEffort(e.target.value)}
-              placeholder="공수(일) 일괄 지정..."
-              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-40"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') executeBulkWorkEffort();
-              }}
-            />
-            <button
-              onClick={executeBulkWorkEffort}
-              disabled={bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))}
-              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
-            >
-              적용
-            </button>
-          </div>
-
-          <div className="h-4 w-px bg-stone-200" />
-
-          <div className="flex items-center gap-2 mr-2">
-            <select
-              value={bulkStatus}
-              onChange={(e) => setBulkStatus(e.target.value as TaskStatus | '')}
-              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-            >
-              <option value="">상태 일괄 변경...</option>
-              <option value="todo">할 일</option>
-              <option value="in-progress">진행 중</option>
-              <option value="done">완료</option>
-              <option value="blocked">차단됨</option>
-            </select>
-            <button
-              onClick={executeBulkStatus}
-              disabled={!bulkStatus}
-              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
-            >
-              적용
-            </button>
-          </div>
-
-          <div className="h-4 w-px bg-stone-200" />
-
           <button
             onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
             className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
@@ -856,6 +764,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
           >
             <X size={14} />
           </button>
+        </div>
         </div>
       )}
 

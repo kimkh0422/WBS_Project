@@ -41,7 +41,9 @@ function WBSApp() {
     wbsMap,
     restoreBackup,
     mergeBackups,
-    exportFullBackup
+    exportFullBackup,
+    undo,
+    canUndo
   } = useWBS();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
