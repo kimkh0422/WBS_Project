@@ -20,6 +20,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
     progress: 0,
+    workEffort: 0.5,
     assignee: '',
     status: 'todo',
     parentId: null,
@@ -41,6 +42,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
         progress: 0,
+        workEffort: 0.5,
         assignee: '',
         status: 'todo',
         parentId: null,
@@ -313,15 +315,15 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">작업 공수 (M/D)</label>
+                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">작업 공수 (D)</label>
                 <input
                   type="number"
                   min="0"
-                  step="0.1"
-                  value={formData.workEffort || ''}
+                  step="0.5"
+                  value={formData.workEffort ?? ''}
                   onChange={(e) => setFormData({ ...formData, workEffort: parseFloat(e.target.value) })}
                   className="input-field"
-                  placeholder="0.0"
+                  placeholder="0.5"
                 />
               </div>
 

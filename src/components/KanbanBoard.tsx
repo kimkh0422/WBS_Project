@@ -347,6 +347,7 @@ export function KanbanBoard() {
       startDate: new Date().toISOString().split('T')[0],
       endDate: new Date().toISOString().split('T')[0],
       progress: 0,
+      workEffort: 0.5,
       assignee: '',
       parentId: null,
     });
