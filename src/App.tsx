@@ -7,7 +7,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
 import { AIAnalysisModal } from './components/AIAnalysisModal';
 import { WBSProvider, useWBS } from './context/WBSContext';
-import { LayoutGrid, List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2 } from 'lucide-react';
+import { LayoutGrid, List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, Undo2 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Task, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcel } from './lib/excel';
@@ -41,7 +41,8 @@ function WBSApp() {
     wbsMap,
     restoreBackup,
     exportFullBackup,
-    undo
+    undo,
+    canUndo
   } = useWBS();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -374,6 +375,18 @@ function WBSApp() {
               <Columns size={16} />
             </button>
           </div>
+
+          <div className="h-6 w-px bg-[var(--color-line)] mx-2"></div>
+
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="btn-ghost disabled:opacity-30 disabled:cursor-not-allowed"
+            title="되돌리기 (Ctrl+Z)"
+          >
+            <Undo2 size={16} />
+            <span className="hidden md:inline">되돌리기</span>
+          </button>
 
           <div className="h-6 w-px bg-[var(--color-line)] mx-2"></div>
 
