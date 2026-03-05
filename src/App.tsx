@@ -7,7 +7,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
 import { AIAnalysisModal } from './components/AIAnalysisModal';
 import { WBSProvider, useWBS } from './context/WBSContext';
-import { LayoutGrid, List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2 } from 'lucide-react';
+import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { Task, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcel } from './lib/excel';
@@ -346,50 +346,65 @@ function WBSApp() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="flex bg-stone-100 p-1 rounded-lg border border-[var(--color-line)]">
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {/* View Switcher */}
+          <div className="flex bg-stone-100 p-0.5 rounded-lg border border-[var(--color-line)]">
+            {([
+              { key: 'list', icon: <List size={14} />, label: '목록', title: '리스트 뷰' },
+              { key: 'kanban', icon: <Columns size={14} />, label: '칸반', title: '칸반 보드' },
+            ] as const).map(({ key, icon, label, title }) => (
+              <button
+                key={key}
+                onClick={() => setView(key)}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-md transition-all text-xs font-medium flex items-center gap-1.5",
+                  view === key ? "bg-white shadow-sm text-[var(--color-ink)]" : "text-stone-500 hover:text-[var(--color-ink)]"
+                )}
+                title={title}
+              >
+                {icon}
+                <span className="hidden xl:inline">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
+
+          {/* Utility icon buttons */}
+          <div className="flex items-center">
             <button
-              onClick={() => setView('list')}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                view === 'list' ? "bg-white shadow-sm text-[var(--color-ink)]" : "text-stone-500 hover:text-[var(--color-ink)]"
-              )}
-              title="리스트 뷰"
+              onClick={() => setIsSettingsModalOpen(true)}
+              className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-[var(--color-ink)] transition-colors"
+              title="WBS ID 설정"
             >
-              <List size={16} />
+              <Settings2 size={15} />
             </button>
             <button
-              onClick={() => setView('gantt')}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                view === 'gantt' ? "bg-white shadow-sm text-[var(--color-ink)]" : "text-stone-500 hover:text-[var(--color-ink)]"
-              )}
-              title="간트 차트 (전체)"
+              onClick={() => setIsShortcutsOpen(true)}
+              className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-[var(--color-ink)] transition-colors"
+              title="키보드 단축키"
             >
-              <LayoutGrid size={16} />
+              <Keyboard size={15} />
             </button>
             <button
-              onClick={() => setView('kanban')}
+              onClick={() => setIsFilterOpen(!isFilterOpen)}
               className={cn(
-                "p-1.5 rounded-md transition-all",
-                view === 'kanban' ? "bg-white shadow-sm text-[var(--color-ink)]" : "text-stone-500 hover:text-[var(--color-ink)]"
+                "p-2 hover:bg-stone-100 rounded-lg transition-colors relative",
+                hasActiveFilters ? "text-[var(--color-accent)]" : "text-stone-400 hover:text-[var(--color-ink)]"
               )}
-              title="칸반 보드"
+              title="필터"
             >
-              <Columns size={16} />
+              <Filter size={15} />
+              {hasActiveFilters && (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" />
+              )}
             </button>
           </div>
 
-          <div className="h-6 w-px bg-[var(--color-line)] mx-2"></div>
+          <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
 
-          <button
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="btn-ghost"
-            title="WBS ID 설정"
-          >
-            <Settings2 size={16} />
-            <span className="hidden md:inline">설정</span>
-          </button>
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+          <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" className="hidden" />
 
           <button
             onClick={() => setIsShortcutsOpen(true)}
@@ -434,21 +449,17 @@ function WBSApp() {
             <div className="relative">
               <button
                 onClick={() => setIsImportMenuOpen(!isImportMenuOpen)}
-                className="btn-secondary flex items-center gap-2"
-                title="가져오기"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] text-stone-600 hover:bg-stone-50 rounded-lg transition-all active:scale-95"
               >
-                <Upload size={14} />
-                <span className="hidden lg:inline">가져오기</span>
-                <ChevronDown size={12} className="opacity-70" />
+                <Upload size={13} />
+                <span>가져오기</span>
+                <ChevronDown size={11} className="opacity-50" />
               </button>
               {isImportMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsImportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
-                    <button
-                      onClick={handleImportClick}
-                      className="w-full text-left px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors"
-                    >
+                  <div className="absolute top-full right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+                    <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors">
                       현재 작업 가져오기 (Excel)
                     </button>
                     <button
@@ -465,30 +476,23 @@ function WBSApp() {
             <div className="relative">
               <button
                 onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
-                className="btn-secondary flex items-center gap-2"
-                title="내보내기"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] text-stone-600 hover:bg-stone-50 rounded-lg transition-all active:scale-95"
               >
-                <Download size={14} />
-                <span className="hidden lg:inline">내보내기</span>
-                <ChevronDown size={12} className="opacity-70" />
+                <Download size={13} />
+                <span>내보내기</span>
+                <ChevronDown size={11} className="opacity-50" />
               </button>
               {isExportMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsExportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
+                  <div className="absolute top-full right-0 mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
                     <button
-                      onClick={() => {
-                        handleExport();
-                        setIsExportMenuOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-stone-600 hover:bg-stone-50 transition-colors"
+                      onClick={() => { handleExport(); setIsExportMenuOpen(false); }}
+                      className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors"
                     >
                       현재 프로젝트 (Excel)
                     </button>
-                    <button
-                      onClick={handleExportBackup}
-                      className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]"
-                    >
+                    <button onClick={handleExportBackup} className="w-full text-left px-4 py-2.5 text-xs text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]">
                       전체 데이터 백업 (JSON)
                     </button>
                   </div>
@@ -498,28 +502,31 @@ function WBSApp() {
 
             <button
               onClick={() => setIsDeleteAllConfirmOpen(true)}
-              className="btn-secondary flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              className="p-2 hover:bg-red-50 rounded-lg text-red-300 hover:text-red-500 transition-colors"
               title="모든 작업 삭제"
             >
-              <Trash2 size={14} />
-              <span className="hidden lg:inline">전체 삭제</span>
+              <Trash2 size={15} />
             </button>
           </div>
 
+          <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
+
+          {/* AI Analysis */}
           <button
             onClick={() => setIsAIModalOpen(true)}
-            className="btn-secondary flex items-center gap-2 ml-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-colors"
             title="AI 분석"
           >
-            <Sparkles size={16} />
-            <span className="hidden lg:inline">AI 분석</span>
+            <Sparkles size={13} />
+            <span>AI 분석</span>
           </button>
 
+          {/* Primary CTA */}
           <button
             onClick={() => setIsModalOpen(true)}
-            className="btn-primary flex items-center gap-2 ml-2 shadow-md shadow-stone-200"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-[var(--color-ink)] text-white rounded-lg hover:bg-stone-800 transition-all active:scale-95 shadow-sm"
           >
-            <Plus size={16} />
+            <Plus size={15} />
             <span>새 작업</span>
           </button>
         </div>

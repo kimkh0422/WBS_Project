@@ -75,40 +75,40 @@
 .data-row {
   display: grid;
   align-items: center;
-  @apply border-b border-[var(--color-line)] bg-white transition-colors duration-150 text-xs border-l-4 border-l-transparent min-h-[28px];
+  @apply border-b border-stone-100 bg-white transition-colors duration-150 text-xs border-l-4 border-l-transparent min-h-[34px];
 }
 
 .data-header {
   display: grid;
   align-items: center;
-  @apply bg-stone-100/80 backdrop-blur border-b border-[var(--color-line)] sticky top-0 z-10;
+  @apply bg-stone-50 border-b-2 border-stone-200 sticky top-0 z-10;
 }
 
 .col-header {
-  @apply px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-stone-500 select-none flex items-center gap-1;
+  @apply px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400 select-none flex items-center gap-1;
 }
 
 .data-cell {
-  @apply px-2 py-0.5 text-xs truncate flex items-center h-full border-r border-transparent;
+  @apply px-2.5 py-1 text-xs truncate flex items-center h-full;
 }
 
 /* Status Badges */
 .badge {
-  @apply px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border;
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide;
 }
 
 .badge-todo {
-  @apply bg-stone-100 text-stone-600 border-stone-200;
+  @apply bg-stone-100 text-stone-500;
 }
 
 .badge-progress {
-  @apply bg-blue-50 text-blue-700 border-blue-100;
+  @apply bg-blue-100 text-blue-600;
 }
 
 .badge-done {
-  @apply bg-emerald-50 text-emerald-700 border-emerald-100;
+  @apply bg-emerald-100 text-emerald-600;
 }
 
 .badge-blocked {
-  @apply bg-red-50 text-red-700 border-red-100;
+  @apply bg-red-100 text-red-600;
 }

@@ -114,7 +114,8 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
     gridTemplateColumns: `${columnWidths.grip}px ${columnWidths.checkbox}px ${columnWidths.expand}px ${columnWidths.wbsId}px minmax(${columnWidths.name}px, 1fr) ${columnWidths.startDate}px ${columnWidths.endDate}px ${columnWidths.workEffort}px ${columnWidths.assignee}px ${columnWidths.status}px ${columnWidths.deliverables}px ${columnWidths.actions}px`
   };
 
-  // Bulk Assign State
+  // Bulk Edit State
+  const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
@@ -439,14 +440,24 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
     setLastSelectedId(null);
   };
 
-  const executeBulkAssign = () => {
-    if (!bulkAssignee.trim()) return;
-    Array.from(selectedTaskIds).forEach(id => {
-      updateTask(id, { assignee: bulkAssignee });
-    });
+  const executeBulkEdit = () => {
+    const updates: Partial<Task> = {};
+    if (bulkStatus) updates.status = bulkStatus;
+    if (bulkAssignee.trim()) updates.assignee = bulkAssignee.trim();
+    if (bulkWorkEffort !== '') {
+      const val = parseFloat(bulkWorkEffort);
+      if (!isNaN(val) && val >= 0) updates.workEffort = val;
+    }
+    if (bulkProgress !== '') {
+      const val = parseInt(bulkProgress, 10);
+      if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = val;
+    }
+    if (Object.keys(updates).length === 0) return;
+    Array.from(selectedTaskIds).forEach(id => updateTask(id, updates));
+    setBulkStatus('');
     setBulkAssignee('');
-    setSelectedTaskIds(new Set());
-    setLastSelectedId(null);
+    setBulkWorkEffort('');
+    setBulkProgress('');
   };
 
   const executeBulkWorkEffort = () => {
@@ -674,35 +685,46 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
         </div>
       </div>
 
-      {/* Bulk Action Bar */}
-      {selectedTaskIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white shadow-xl border border-stone-200 rounded-full px-6 py-3 flex items-center gap-4 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200">
-          <div className="text-sm font-medium text-stone-600">
-            {selectedTaskIds.size}개의 작업 선택됨
-          </div>
-          <div className="h-4 w-px bg-stone-200" />
-
-          <div className="flex items-center gap-2 mr-2">
-            <input
-              type="text"
-              value={bulkAssignee}
-              onChange={(e) => setBulkAssignee(e.target.value)}
-              placeholder="담당자 일괄 지정..."
-              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-40"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') executeBulkAssign();
-              }}
-            />
-            <button
-              onClick={executeBulkAssign}
-              disabled={!bulkAssignee.trim()}
-              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
-            >
-              적용
-            </button>
+      {/* Bulk Action Bar - 다중선택(2개 이상)일 경우에만 표시 */}
+      {selectedTaskIds.size > 1 && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white shadow-2xl border border-stone-200 rounded-2xl z-50 animate-in slide-in-from-bottom-4 fade-in duration-200 overflow-hidden min-w-max">
+          {/* Header */}
+          <div className="bg-blue-600 px-4 py-2 flex items-center justify-between gap-6">
+            <span className="text-xs font-bold text-white tracking-wide">일괄 수정</span>
+            <div className="flex items-center gap-2">
+              <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {selectedTaskIds.size}개 선택됨
+              </span>
+              <button
+                onClick={() => { setSelectedTaskIds(new Set()); setBulkStatus(''); setBulkAssignee(''); setBulkWorkEffort(''); setBulkProgress(''); }}
+                className="text-white/60 hover:text-white transition-colors"
+                title="선택 해제"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
-          <div className="h-4 w-px bg-stone-200" />
+          {/* Fields + Actions */}
+          <div className="px-4 py-3 flex items-end gap-3">
+            {/* 상태 */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">상태</label>
+              <select
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value as TaskStatus | '')}
+                className={cn(
+                  "px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer",
+                  bulkStatus ? "border-blue-400 text-blue-700 font-medium" : "border-stone-200 text-stone-500"
+                )}
+              >
+                <option value="">변경 없음</option>
+                <option value="todo">할 일</option>
+                <option value="in-progress">진행 중</option>
+                <option value="done">완료</option>
+                <option value="blocked">지연됨</option>
+              </select>
+            </div>
 
           <div className="flex items-center gap-2 mr-2">
             <input
