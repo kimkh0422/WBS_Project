@@ -144,12 +144,12 @@ interface KanbanColumnProps {
   key?: React.Key;
   column: typeof COLUMNS[0];
   tasks: Task[];
-  wbsMap: Map<string, string>;
+  displayWbsMap: Map<string, string>;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: TaskStatus, name: string) => void;
 }
 
-function KanbanColumn({ column, tasks, wbsMap, onTaskClick, onAddTask }: KanbanColumnProps) {
+function KanbanColumn({ column, tasks, displayWbsMap, onTaskClick, onAddTask }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({
     id: column.id,
     data: {
@@ -207,7 +207,7 @@ function KanbanColumn({ column, tasks, wbsMap, onTaskClick, onAddTask }: KanbanC
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
-            <KanbanCard key={task.id} task={task} wbsId={wbsMap.get(task.id)} onClick={onTaskClick} />
+            <KanbanCard key={task.id} task={task} wbsId={displayWbsMap.get(task.id)} onClick={onTaskClick} />
           ))}
         </SortableContext>
 
@@ -252,7 +252,7 @@ function KanbanColumn({ column, tasks, wbsMap, onTaskClick, onAddTask }: KanbanC
 }
 
 export function KanbanBoard() {
-  const { tasks, updateTask, addTask, deleteTask, wbsMap } = useWBS();
+  const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap } = useWBS();
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -390,7 +390,7 @@ export function KanbanBoard() {
               key={column.id}
               column={column}
               tasks={tasksByStatus[column.id]}
-              wbsMap={wbsMap}
+              displayWbsMap={displayWbsMap}
               onTaskClick={handleTaskClick}
               onAddTask={handleAddTask}
             />
@@ -399,7 +399,7 @@ export function KanbanBoard() {
 
         <DragOverlay dropAnimation={dropAnimation}>
           {activeTask ? (
-            <KanbanCard task={activeTask} wbsId={wbsMap.get(activeTask.id)} isOverlay />
+            <KanbanCard task={activeTask} wbsId={displayWbsMap.get(activeTask.id)} isOverlay />
           ) : null}
         </DragOverlay>
       </DndContext>

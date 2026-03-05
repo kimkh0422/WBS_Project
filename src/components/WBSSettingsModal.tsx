@@ -121,7 +121,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                 <option value={4}>4 레벨까지만 표시</option>
                                 <option value={5}>5 레벨 표기 허용</option>
                             </select>
-                            <p className="text-[10px] text-stone-400 mt-1">이 레벨보다 깊은 하위 작업은 ID가 표시되지 않습니다.</p>
+                            <p className="text-[10px] text-stone-400 mt-1">모든 레벨에 ID가 부여되지만, 이 레벨보다 깊은 작업은 작업명에 ID가 표시되지 않습니다.</p>
                         </div>
                     </div>
 

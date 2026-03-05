@@ -14,7 +14,7 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions }: TaskModalProps) {
-  const { wbsMap, addTask, updateTask } = useWBS();
+  const { wbsMap, displayWbsMap, addTask, updateTask } = useWBS();
   const [formData, setFormData] = useState<Partial<Task>>({
     name: '',
     startDate: new Date().toISOString().split('T')[0],
@@ -265,7 +265,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                     <option value="">없음 (최상위)</option>
                     {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
                       <option key={task.id} value={task.id}>
-                        {wbsMap.get(task.id) ? `${wbsMap.get(task.id)} ` : ''}{task.name}
+                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </option>
                     ))}
                   </select>
@@ -340,7 +340,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                     .filter(t => t.id !== initialData?.id) // Cannot depend on self
                     .map((task) => (
                       <option key={task.id} value={task.id}>
-                        {wbsMap.get(task.id) ? `${wbsMap.get(task.id)} ` : ''}{task.name}
+                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </option>
                     ))}
                 </select>

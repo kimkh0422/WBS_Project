@@ -32,6 +32,7 @@ interface WBSContextType {
   importTasks: (tasks: Task[]) => void;
   deleteAllTasks: () => void;
   wbsMap: Map<string, string>;
+  displayWbsMap: Map<string, string>;
   restoreBackup: (data: BackupData) => void;
   mergeBackups: (dataArray: BackupData[]) => void;
   exportFullBackup: () => BackupData;
@@ -71,9 +72,12 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   // Derived state for current project's tasks
   const tasks = allTasks.filter(t => t.projectId === currentProjectId);
 
-  // Generate WBS Map (ID to prefix string like "W1.1")
-  const wbsMap = React.useMemo(() => {
+  // Generate WBS Maps
+  // wbsMap: 모든 레벨에 ID 부여 (export, WBS ID 컬럼 등에서 사용)
+  // displayWbsMap: maxLevel 설정에 따라 표시 여부 제어 (작업명 prefix에서 사용)
+  const { wbsMap, displayWbsMap } = React.useMemo(() => {
     const map = new Map<string, string>();
+    const displayMap = new Map<string, string>();
     const { level1Prefix, level2Prefix, level3Prefix, maxLevel } = wbsSettings;
 
     const buildWbs = (parentId: string | null, parentPrefixStr: string, depth: number) => {
@@ -92,17 +96,13 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
           wbsId = `${parentPrefixStr}.${index + 1}`;
         }
 
-        let finalDisplayId = wbsId;
-        if (depth > maxLevel) {
-          finalDisplayId = '';
-        }
-
-        map.set(child.id, finalDisplayId);
+        map.set(child.id, wbsId);
+        displayMap.set(child.id, depth <= maxLevel ? wbsId : '');
         buildWbs(child.id, wbsId, depth + 1);
       });
     };
     buildWbs(null, '', 1);
-    return map;
+    return { wbsMap: map, displayWbsMap: displayMap };
   }, [tasks, wbsSettings]);
 
   useEffect(() => {
@@ -428,6 +428,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       importTasks,
       deleteAllTasks,
       wbsMap,
+      displayWbsMap,
       restoreBackup,
       mergeBackups,
       exportFullBackup
