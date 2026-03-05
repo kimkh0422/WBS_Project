@@ -136,6 +136,12 @@ function WBSApp() {
     data: null,
   });
 
+  const [mergeConfirm, setMergeConfirm] = useState<{ isOpen: boolean; backups: BackupData[]; summary: { projects: number; tasks: number } }>({
+    isOpen: false,
+    backups: [],
+    summary: { projects: 0, tasks: 0 },
+  });
+
   const [multiMergeConfirm, setMultiMergeConfirm] = useState<{ isOpen: boolean; dataArray: BackupData[]; fileCount: number }>({
     isOpen: false,
     dataArray: [],
@@ -202,6 +208,28 @@ function WBSApp() {
     setIsImportMenuOpen(false);
   };
 
+  const handleMergeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    try {
+      const parsedDataArray = await parseMultipleBackupJsons(files);
+      setMultiMergeConfirm({
+        isOpen: true,
+        dataArray: parsedDataArray,
+        fileCount: files.length,
+      });
+    } catch (error: any) {
+      console.error(error);
+      setErrorAlert({
+        isOpen: true,
+        message: error.message || '백업 파일을 읽는 중 오류가 발생했습니다.\n유효한 JSON 백업 파일인지 확인해주세요.',
+      });
+    } finally {
+      if (mergeInputRef.current) mergeInputRef.current.value = '';
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -250,6 +278,11 @@ function WBSApp() {
     } finally {
       if (backupInputRef.current) backupInputRef.current.value = '';
     }
+  };
+
+  const executeMergeImport = () => {
+    mergeBackups(mergeConfirm.backups);
+    setMergeConfirm({ isOpen: false, backups: [], summary: { projects: 0, tasks: 0 } });
   };
 
   const executeMultiMerge = () => {

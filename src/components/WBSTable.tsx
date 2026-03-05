@@ -31,7 +31,7 @@ interface WBSTableProps {
 }
 
 export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
-  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, reorderTask, wbsSettings, wbsMap, displayWbsMap } = useWBS();
+  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, reorderTask, wbsSettings, wbsMap, displayWbsMap } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -118,6 +118,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
+  const [bulkProgress, setBulkProgress] = useState('');
 
   // Delete Confirmation State
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
