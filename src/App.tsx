@@ -45,6 +45,7 @@ function WBSApp() {
   } = useWBS();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+  const mergeInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Resizable Panes State
@@ -175,6 +176,11 @@ function WBSApp() {
 
   const handleImportBackupClick = () => {
     backupInputRef.current?.click();
+    setIsImportMenuOpen(false);
+  };
+
+  const handleMergeImportClick = () => {
+    mergeInputRef.current?.click();
     setIsImportMenuOpen(false);
   };
 
@@ -444,6 +450,14 @@ function WBSApp() {
             multiple
             className="hidden"
           />
+          <input
+            type="file"
+            ref={mergeInputRef}
+            onChange={handleMergeFileChange}
+            accept=".json"
+            multiple
+            className="hidden"
+          />
 
           <div className="flex gap-2">
             <div className="relative">
@@ -461,6 +475,12 @@ function WBSApp() {
                   <div className="absolute top-full right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
                     <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors">
                       현재 작업 가져오기 (Excel)
+                    </button>
+                    <button
+                      onClick={handleMergeImportClick}
+                      className="w-full text-left px-4 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-[var(--color-line)]"
+                    >
+                      프로젝트 추가 가져오기 (JSON)
                     </button>
                     <button
                       onClick={handleImportBackupClick}
@@ -714,6 +734,16 @@ function WBSApp() {
         message={`정말로 전체 데이터를 복원하시겠습니까? (프로젝트 ${backupConfirm.data?.projects.length}개, 작업 ${backupConfirm.data?.tasks.length}개 포함)\n\n경고: 애플리케이션의 현재 모든 데이터가 백업 내용으로 덮어씌워지며 복구할 수 없습니다!`}
         confirmLabel="전체 복원"
         isDanger={true}
+      />
+
+      <ConfirmDialog
+        isOpen={mergeConfirm.isOpen}
+        onClose={() => setMergeConfirm({ ...mergeConfirm, isOpen: false })}
+        onConfirm={executeMergeImport}
+        title="프로젝트 추가 가져오기"
+        message={`${mergeConfirm.backups.length}개의 파일에서 프로젝트 ${mergeConfirm.summary.projects}개, 작업 ${mergeConfirm.summary.tasks}개를 추가로 가져옵니다.\n\n각 파일의 프로젝트가 현재 데이터에 병합되며, 기존 데이터는 유지됩니다.`}
+        confirmLabel="추가 가져오기"
+        isDanger={false}
       />
 
       <ConfirmDialog
