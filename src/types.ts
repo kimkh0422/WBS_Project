@@ -9,6 +9,7 @@ export interface Project {
   id: string;
   name: string;
   description?: string;
+  startDate?: string; // ISO string (YYYY-MM-DD)
 }
 
 export interface Task {
@@ -40,7 +41,8 @@ export const MOCK_PROJECTS: Project[] = [
   {
     id: 'p1',
     name: '알파 프로토콜',
-    description: '차세대 위성 항법 시스템 개발 프로젝트'
+    description: '차세대 위성 항법 시스템 개발 프로젝트',
+    startDate: '2026-03-01'
   }
 ];
 

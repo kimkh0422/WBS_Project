@@ -17,7 +17,7 @@ interface WBSContextType {
   setCurrentProjectId: (id: string) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
-  addProject: (name: string, description?: string) => void;
+  addProject: (name: string, description?: string, startDate?: string) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string) => string;
@@ -124,11 +124,12 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     setWbsSettings(prev => ({ ...prev, ...updates }));
   };
 
-  const addProject = (name: string, description?: string) => {
+  const addProject = (name: string, description?: string, startDate?: string) => {
     const newProject: Project = {
       id: uuidv4(),
       name,
-      description
+      description,
+      startDate
     };
     setProjects(prev => [...prev, newProject]);
     setCurrentProjectId(newProject.id);

@@ -6,22 +6,25 @@ import { Project } from '../types';
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (name: string, description: string) => void;
+  onSave: (name: string, description: string, startDate?: string) => void;
   project?: Project | null;
 }
 
 export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [startDate, setStartDate] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       if (project) {
         setName(project.name);
         setDescription(project.description || '');
+        setStartDate(project.startDate || '');
       } else {
         setName('');
         setDescription('');
+        setStartDate('');
       }
     }
   }, [isOpen, project]);
@@ -49,7 +52,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSave(name, description);
+    onSave(name, description, startDate || undefined);
     onClose();
   };
 
@@ -91,6 +94,19 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
               className="input-field min-h-[80px]"
               placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
             />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+              프로젝트 시작일
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="input-field"
+            />
+            <p className="text-[10px] text-stone-400 mt-1">프로젝트의 시작 날짜를 설정하세요 (선택 사항)...</p>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-line)] mt-2">

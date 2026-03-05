@@ -130,12 +130,12 @@ function WBSApp() {
     addTask(taskData);
   };
 
-  const handleSaveProject = (name: string, description: string) => {
+  const handleSaveProject = (name: string, description: string, startDate?: string) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description });
+      updateProject(editingProject.id, { name, description, startDate });
       setEditingProject(null);
     } else {
-      addProject(name, description);
+      addProject(name, description, startDate);
     }
     setIsProjectModalOpen(false);
   };
