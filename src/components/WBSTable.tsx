@@ -31,7 +31,7 @@ interface WBSTableProps {
 }
 
 export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
-  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, reorderTask, wbsSettings, wbsMap } = useWBS();
+  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, reorderTask, wbsSettings, wbsMap, displayWbsMap } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -549,6 +549,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
                       task={task}
                       tasks={tasks}
                       wbsId={wbsMap.get(task.id)}
+                      displayWbsId={displayWbsMap.get(task.id)}
                       isSelected={selectedTaskIds.has(task.id)}
                       filters={filters}
                       onSelect={handleSelect}
@@ -767,6 +768,7 @@ interface SortableTaskRowProps {
   task: Task & { depth?: number };
   tasks: Task[];
   wbsId?: string;
+  displayWbsId?: string;
   isSelected: boolean;
   filters: FilterState;
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
@@ -785,6 +787,7 @@ function SortableTaskRow({
   task,
   tasks,
   wbsId,
+  displayWbsId,
   isSelected,
   filters,
   onSelect,
@@ -892,7 +895,7 @@ function SortableTaskRow({
             onDoubleClick={() => setInlineEditingNameId(task.id)}
             title="더블 클릭 또는 F2를 눌러 이름 수정"
           >
-            {wbsId ? `${wbsId} ` : ''}{task.name}
+            {displayWbsId ? `${displayWbsId} ` : ''}{task.name}
           </span>
         )}
       </div>

@@ -40,7 +40,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 ];
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttChartProps) {
-  const { tasks, updateTask, deleteTask, wbsMap } = useWBS();
+  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
 
@@ -439,7 +439,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttCh
             {!hideSidebar && (
               <div className="flex-shrink-0 border-r border-[var(--color-line)] bg-white sticky left-0 z-30 py-4 lg:block md:hidden hidden" style={{ width: sidebarWidth }}>
                 {visibleTasks.map(t => {
-                  const prefix = wbsMap.get(t.id) ? `${wbsMap.get(t.id)} ` : '';
+                  const prefix = displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ` : '';
                   return (
                     <div
                       key={t.id}
@@ -542,12 +542,12 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttCh
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
                       style={{ left, width: Math.max(width - 4, 4) }}
-                      title={`${wbsMap.get(task.id) ? wbsMap.get(task.id) + ' ' : ''}${task.name}: ${effectiveStartDate} → ${effectiveEndDate}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}: ${effectiveStartDate} → ${effectiveEndDate}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white font-medium truncate pr-8 drop-shadow-md pointer-events-none" style={{ width: 'calc(100% - 12px)' }}>
-                          {wbsMap.get(task.id) ? `${wbsMap.get(task.id)} ` : ''}{task.name}
+                          {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                         </span>
                       )}
 
@@ -575,7 +575,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttCh
 
                     {width < 80 && !isBeingDragged && (
                       <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 whitespace-nowrap pointer-events-none" style={{ left: left + width + 8 }}>
-                        {wbsMap.get(task.id) ? `${wbsMap.get(task.id)} ` : ''}{task.name}
+                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </span>
                     )}
                   </div>
