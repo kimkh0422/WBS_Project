@@ -40,7 +40,8 @@ function WBSApp() {
     deleteAllTasks,
     wbsMap,
     restoreBackup,
-    exportFullBackup
+    exportFullBackup,
+    undo
   } = useWBS();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +83,20 @@ function WBSApp() {
       window.removeEventListener('mouseup', stopResizing);
     };
   }, [resize, stopResizing]);
+
+  useEffect(() => {
+    const handleUndo = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Only undo if no input/textarea is focused
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener('keydown', handleUndo);
+    return () => window.removeEventListener('keydown', handleUndo);
+  }, [undo]);
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
@@ -146,9 +161,11 @@ function WBSApp() {
   };
 
   const handleExport = () => {
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
     const fileName = currentProject
-      ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`
-      : `wbs_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
+      : `wbs_export_${timestamp}.xlsx`;
     exportToExcel(tasks, wbsMap, fileName);
   };
 

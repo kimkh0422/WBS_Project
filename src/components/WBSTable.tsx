@@ -31,7 +31,7 @@ interface WBSTableProps {
 }
 
 export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
-  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, reorderTask, wbsSettings, wbsMap } = useWBS();
+  const { tasks, toggleExpand, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, reorderTask, wbsSettings, wbsMap } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -289,14 +289,12 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
         e.preventDefault();
         if (!isSortedOrFiltered && selectedTaskIds.size > 0) {
           // Sort selected IDs by their actual visual order so indents process correctly top-to-bottom
-          const orderedSelectedTasks = visibleTasks.filter(t => selectedTaskIds.has(t.id));
-          orderedSelectedTasks.forEach(t => {
-            if (e.shiftKey) {
-              outdentTask(t.id);
-            } else {
-              indentTask(t.id);
-            }
-          });
+          const orderedIds = visibleTasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.id);
+          if (e.shiftKey) {
+            outdentTasks(orderedIds);
+          } else {
+            indentTasks(orderedIds);
+          }
         }
       } else if (e.key === 'Delete') {
         e.preventDefault();
@@ -325,6 +323,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
               startDate: today,
               endDate: today,
               progress: 0,
+              workEffort: 0.5,
               assignee: '',
               status: 'todo',
               parentId: task.id
@@ -353,7 +352,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTaskIds, lastSelectedId, visibleTasks, editingTask, moveTask, indentTask, outdentTask, tasks, sortConfig, filters]);
+  }, [selectedTaskIds, lastSelectedId, visibleTasks, editingTask, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters]);
 
   const handleQuickAddCancel = () => {
     setInlineAddingTaskId(null);
@@ -370,6 +369,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
       startDate: new Date().toISOString().split('T')[0],
       endDate: new Date().toISOString().split('T')[0],
       progress: 0,
+      workEffort: 0.5,
       assignee: '',
       status: 'todo'
     }, insertTargetId || undefined);
@@ -410,6 +410,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
       startDate: today,
       endDate: today,
       progress: 0,
+      workEffort: 0.5,
       assignee: '',
       status: 'todo',
       parentId: null,

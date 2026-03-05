@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Task, Project, MOCK_TASKS, MOCK_PROJECTS } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
@@ -27,6 +27,8 @@ interface WBSContextType {
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;
+  indentTasks: (ids: string[]) => void;
+  outdentTasks: (ids: string[]) => void;
   toggleExpand: (id: string) => void;
   reorderTask: (id: string, overId: string) => void;
   importTasks: (tasks: Task[]) => void;
@@ -34,6 +36,8 @@ interface WBSContextType {
   wbsMap: Map<string, string>;
   restoreBackup: (data: BackupData) => void;
   exportFullBackup: () => BackupData;
+  undo: () => void;
+  canUndo: boolean;
 }
 
 const WBSContext = createContext<WBSContextType | undefined>(undefined);
@@ -57,6 +61,23 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     return parsed.map((t: any) => ({ ...t, projectId: t.projectId || defaultProjectId }));
   });
 
+  const historyRef = useRef<Task[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const allTasksRef = useRef<Task[]>([]);
+
+  const saveHistory = () => {
+    historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
+    setCanUndo(true);
+  };
+
+  const undo = () => {
+    if (historyRef.current.length === 0) return;
+    const previous = historyRef.current[historyRef.current.length - 1];
+    historyRef.current = historyRef.current.slice(0, -1);
+    setCanUndo(historyRef.current.length > 0);
+    setAllTasks(previous);
+  };
+
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(() => {
     const saved = localStorage.getItem('wbs-settings');
     return saved ? JSON.parse(saved) : {
@@ -66,6 +87,9 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       maxLevel: 3,
     };
   });
+
+  // Keep ref in sync with state
+  allTasksRef.current = allTasks;
 
   // Derived state for current project's tasks
   const tasks = allTasks.filter(t => t.projectId === currentProjectId);
@@ -154,6 +178,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string) => {
+    saveHistory();
     const task: Task = {
       ...newTask,
       id: uuidv4(),
@@ -174,16 +199,19 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateTask = (id: string, updates: Partial<Task>) => {
+    saveHistory();
     setAllTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
     );
   };
 
   const deleteTask = (id: string) => {
+    saveHistory();
     setAllTasks((prev) => prev.filter((t) => t.id !== id && t.parentId !== id));
   };
 
   const moveTask = (id: string, direction: 'up' | 'down') => {
+    saveHistory();
     setAllTasks(prev => {
       const projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
@@ -221,6 +249,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const reorderTask = (id: string, overId: string) => {
+    saveHistory();
     setAllTasks(prev => {
       const projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
@@ -240,6 +269,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const indentTask = (id: string) => {
+    saveHistory();
     setAllTasks(prev => {
       const projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
@@ -264,6 +294,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const outdentTask = (id: string) => {
+    saveHistory();
     setAllTasks(prev => {
       const projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
@@ -294,6 +325,60 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const indentTasks = (ids: string[]) => {
+    saveHistory();
+    setAllTasks(prev => {
+      let projectTasks = prev.filter(t => t.projectId === currentProjectId);
+      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+
+      for (const id of ids) {
+        const task = projectTasks.find(t => t.id === id);
+        if (!task) continue;
+        const siblings = projectTasks.filter(t => t.parentId === task.parentId);
+        const indexInSiblings = siblings.findIndex(t => t.id === id);
+        if (indexInSiblings > 0) {
+          const newParent = siblings[indexInSiblings - 1];
+          projectTasks = projectTasks.map(t => {
+            if (t.id === id) return { ...t, parentId: newParent.id };
+            if (t.id === newParent.id) return { ...t, expanded: true };
+            return t;
+          });
+        }
+      }
+
+      return [...otherTasks, ...projectTasks];
+    });
+  };
+
+  const outdentTasks = (ids: string[]) => {
+    saveHistory();
+    setAllTasks(prev => {
+      let projectTasks = prev.filter(t => t.projectId === currentProjectId);
+      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+
+      for (const id of ids) {
+        const task = projectTasks.find(t => t.id === id);
+        if (!task || !task.parentId) continue;
+        const parent = projectTasks.find(t => t.id === task.parentId);
+        if (!parent) continue;
+        const newParentId = parent.parentId;
+
+        projectTasks = projectTasks.map(t =>
+          t.id === id ? { ...t, parentId: newParentId } : t
+        );
+
+        const taskIndex = projectTasks.findIndex(t => t.id === id);
+        const taskObj = projectTasks[taskIndex];
+        projectTasks = [...projectTasks];
+        projectTasks.splice(taskIndex, 1);
+        const parentIndex = projectTasks.findIndex(t => t.id === parent.id);
+        projectTasks.splice(parentIndex + 1, 0, taskObj);
+      }
+
+      return [...otherTasks, ...projectTasks];
+    });
+  };
+
   const toggleExpand = (id: string) => {
     setAllTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t))
@@ -301,6 +386,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const importTasks = (newTasks: Task[]) => {
+    saveHistory();
     // Assign imported tasks to current project
     const tasksWithProject = newTasks.map(t => ({
       ...t,
@@ -315,6 +401,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addTasks = (newTasks: Task[]) => {
+    saveHistory();
     const tasksWithProject = newTasks.map(t => ({
       ...t,
       projectId: currentProjectId
@@ -323,6 +410,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteAllTasks = () => {
+    saveHistory();
     setAllTasks(prev => prev.filter(t => t.projectId !== currentProjectId));
   };
 
@@ -370,12 +458,16 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       reorderTask,
       indentTask,
       outdentTask,
+      indentTasks,
+      outdentTasks,
       toggleExpand,
       importTasks,
       deleteAllTasks,
       wbsMap,
       restoreBackup,
-      exportFullBackup
+      exportFullBackup,
+      undo,
+      canUndo
     }}>
       {children}
     </WBSContext.Provider>
