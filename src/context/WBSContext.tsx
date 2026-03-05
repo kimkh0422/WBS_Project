@@ -34,6 +34,7 @@ interface WBSContextType {
   wbsMap: Map<string, string>;
   restoreBackup: (data: BackupData) => void;
   exportFullBackup: () => BackupData;
+  mergeBackups: (backups: BackupData[]) => { addedProjects: number; addedTasks: number };
 }
 
 const WBSContext = createContext<WBSContextType | undefined>(undefined);
@@ -351,6 +352,49 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     };
   };
 
+  const mergeBackups = (backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
+    const newProjects: Project[] = [];
+    const newTasks: Task[] = [];
+
+    for (const backup of backups) {
+      // Map old project IDs → new UUIDs
+      const projectIdMap = new Map<string, string>();
+      for (const project of backup.projects) {
+        const newId = uuidv4();
+        projectIdMap.set(project.id, newId);
+        newProjects.push({ ...project, id: newId });
+      }
+
+      // Map old task IDs → new UUIDs
+      const taskIdMap = new Map<string, string>();
+      for (const task of backup.tasks) {
+        taskIdMap.set(task.id, uuidv4());
+      }
+
+      // Remap task relationships
+      for (const task of backup.tasks) {
+        const newProjectId = projectIdMap.get(task.projectId);
+        if (!newProjectId) continue; // skip tasks whose project is not in this backup
+        newTasks.push({
+          ...task,
+          id: taskIdMap.get(task.id)!,
+          projectId: newProjectId,
+          parentId: task.parentId ? (taskIdMap.get(task.parentId) ?? null) : null,
+          dependencies: task.dependencies?.map(depId => taskIdMap.get(depId) ?? depId) ?? [],
+        });
+      }
+    }
+
+    setProjects(prev => [...prev, ...newProjects]);
+    setAllTasks(prev => [...prev, ...newTasks]);
+
+    if (newProjects.length > 0) {
+      setCurrentProjectId(newProjects[0].id);
+    }
+
+    return { addedProjects: newProjects.length, addedTasks: newTasks.length };
+  };
+
   return (
     <WBSContext.Provider value={{
       tasks,
@@ -375,7 +419,8 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       deleteAllTasks,
       wbsMap,
       restoreBackup,
-      exportFullBackup
+      exportFullBackup,
+      mergeBackups,
     }}>
       {children}
     </WBSContext.Provider>
