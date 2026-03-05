@@ -89,48 +89,6 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttCh
     }
   }, [tasks, filters, sortConfig]);
 
-  if (visibleTasks.length === 0) return (
-    <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
-      {tasks.length === 0 ? '등록된 작업이 없습니다. 새 작업을 추가해 보세요.' : '필터와 일치하는 작업이 없습니다.'}
-    </div>
-  );
-
-  const dates = visibleTasks.flatMap(t => [parseISO(t.startDate), parseISO(t.endDate)]).filter(d => !isNaN(d.getTime()));
-
-  if (dates.length === 0) return (
-    <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
-      유효하지 않은 날짜가 포함되어 있습니다. 데이터를 확인해 주세요.
-    </div>
-  );
-
-  const minDate = startOfWeek(addDays(min(dates), -7));
-  const maxDate = endOfWeek(addDays(max(dates), 7));
-  const totalDays = differenceInDays(maxDate, minDate) + 1;
-
-  const sidebarWidth = hideSidebar ? 0 : 240;
-
-  const ROW_HEIGHT = 28;
-  const VIEW_PADDING_TOP = 16;
-
-  // Calculate auto-fit dayWidth based on container
-  const containerWidth = containerRef.current?.clientWidth || window.innerWidth;
-  const availableWidth = containerWidth - sidebarWidth - 20;
-  const autoDayWidth = Math.max(2, Math.floor(availableWidth / totalDays));
-
-  // Find closest zoom level for display
-  const autoZoomLevel = ZOOM_LEVELS.reduce((prev, curr) =>
-    Math.abs(curr.dayWidth - autoDayWidth) < Math.abs(prev.dayWidth - autoDayWidth) ? curr : prev
-  );
-
-  const currentZoomEntry = zoomIndex === -1 ? { ...autoZoomLevel, dayWidth: autoDayWidth } : ZOOM_LEVELS[zoomIndex];
-  const dayWidth = currentZoomEntry.dayWidth;
-  const viewMode: ViewMode = currentZoomEntry.mode;
-
-  const totalWidth = totalDays * dayWidth;
-  const days = eachDayOfInterval({ start: minDate, end: maxDate });
-  const months = eachMonthOfInterval({ start: minDate, end: maxDate });
-  const weeks = eachWeekOfInterval({ start: minDate, end: maxDate });
-
   // Keyboard hotkeys - only when mounted
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -248,6 +206,47 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false }: GanttCh
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, taskId });
   };
+
+  // Early returns must come after all hooks
+  if (visibleTasks.length === 0) return (
+    <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+      {tasks.length === 0 ? '등록된 작업이 없습니다. 새 작업을 추가해 보세요.' : '필터와 일치하는 작업이 없습니다.'}
+    </div>
+  );
+
+  const dates = visibleTasks.flatMap(t => [parseISO(t.startDate), parseISO(t.endDate)]).filter(d => !isNaN(d.getTime()));
+
+  if (dates.length === 0) return (
+    <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+      유효하지 않은 날짜가 포함되어 있습니다. 데이터를 확인해 주세요.
+    </div>
+  );
+
+  const minDate = startOfWeek(addDays(min(dates), -7));
+  const maxDate = endOfWeek(addDays(max(dates), 7));
+  const totalDays = differenceInDays(maxDate, minDate) + 1;
+
+  const sidebarWidth = hideSidebar ? 0 : 240;
+
+  const ROW_HEIGHT = 28;
+  const VIEW_PADDING_TOP = 16;
+
+  const containerWidth = containerRef.current?.clientWidth || window.innerWidth;
+  const availableWidth = containerWidth - sidebarWidth - 20;
+  const autoDayWidth = Math.max(2, Math.floor(availableWidth / totalDays));
+
+  const autoZoomLevel = ZOOM_LEVELS.reduce((prev, curr) =>
+    Math.abs(curr.dayWidth - autoDayWidth) < Math.abs(prev.dayWidth - autoDayWidth) ? curr : prev
+  );
+
+  const currentZoomEntry = zoomIndex === -1 ? { ...autoZoomLevel, dayWidth: autoDayWidth } : ZOOM_LEVELS[zoomIndex];
+  const dayWidth = currentZoomEntry.dayWidth;
+  const viewMode: ViewMode = currentZoomEntry.mode;
+
+  const totalWidth = totalDays * dayWidth;
+  const days = eachDayOfInterval({ start: minDate, end: maxDate });
+  const months = eachMonthOfInterval({ start: minDate, end: maxDate });
+  const weeks = eachWeekOfInterval({ start: minDate, end: maxDate });
 
   // Keep dayWidthRef in sync for drag calculations
   dayWidthRef.current = dayWidth;

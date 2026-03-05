@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { X, Sparkles, Loader2, Check, AlertCircle, Settings } from 'lucide-react';
+import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -29,7 +29,9 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
   const [error, setError] = useState<string | null>(null);
   const [generatedTasks, setGeneratedTasks] = useState<Task[]>([]);
   const [step, setStep] = useState<'input' | 'preview' | 'settings'>('input');
+  const [analysisMode, setAnalysisMode] = useState<'generate' | 'reanalyze' | 'dependency'>('generate');
   const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [dependencyResults, setDependencyResults] = useState<{ taskId: string; dependsOn: string[] }[]>([]);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini-api-key') || '');
   const [tempApiKey, setTempApiKey] = useState('');
 
@@ -217,6 +219,90 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
     }
   };
 
+  const handleDependencyAnalysis = async () => {
+    if (!apiKey) { setTempApiKey(''); setStep('settings'); return; }
+    if (existingTasks.length === 0) return;
+
+    setIsLoading(true);
+    setAnalysisMode('dependency');
+    setError(null);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const taskList = existingTasks.map(t => ({
+        id: t.id,
+        name: t.name,
+        parentId: t.parentId,
+        startDate: t.startDate,
+        endDate: t.endDate,
+      }));
+
+      const prompt = `
+        당신은 프로젝트 관리 전문가입니다. 다음 WBS 작업 목록을 분석하여 작업 간의 선행관계(Finish-to-Start 의존성)를 파악해 주세요.
+
+        작업 목록 (JSON):
+        ${JSON.stringify(taskList, null, 2)}
+
+        요구사항:
+        1. 논리적으로 선행되어야 하는 작업 관계만 연결하세요 (예: 설계가 완료되어야 개발 가능).
+        2. 같은 레벨의 형제 작업 간 순서 관계, 또는 다른 상위 작업에 속한 작업 간의 명확한 의존성만 포함하세요.
+        3. 상위 작업이 하위 작업에 의존하거나, 하위 작업이 상위 작업에 의존하는 관계는 제외하세요.
+        4. 선행관계가 없는 작업은 결과에 포함하지 마세요.
+        5. dependsOn 배열에는 반드시 위 목록에 있는 실제 id 값만 사용하세요.
+        6. 반드시 "dependencies" 키를 포함하는 유효한 JSON 객체만 반환하세요.
+
+        응답 스키마:
+        {
+          "dependencies": [
+            { "taskId": "작업의id", "dependsOn": ["선행작업id1", "선행작업id2"] }
+          ]
+        }
+      `;
+
+      const result = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json" }
+      });
+
+      const responseText = result.text;
+      if (!responseText) throw new Error("AI로부터 응답이 없습니다.");
+
+      const parsed = JSON.parse(responseText);
+      if (!parsed.dependencies || !Array.isArray(parsed.dependencies)) {
+        throw new Error("AI 응답 형식이 올바르지 않습니다.");
+      }
+
+      // Validate IDs exist in existingTasks
+      const validIds = new Set(existingTasks.map(t => t.id));
+      const validated = parsed.dependencies
+        .filter((d: any) => validIds.has(d.taskId))
+        .map((d: any) => ({
+          taskId: d.taskId,
+          dependsOn: (d.dependsOn || []).filter((id: string) => validIds.has(id)),
+        }))
+        .filter((d: any) => d.dependsOn.length > 0);
+
+      setDependencyResults(validated);
+      setStep('preview');
+    } catch (err: any) {
+      console.error("Dependency Analysis Error:", err);
+      setError(err.message || "선행관계 분석에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImportDependencies = () => {
+    const depMap = new Map(dependencyResults.map(d => [d.taskId, d.dependsOn]));
+    const updatedTasks = existingTasks.map(t => ({
+      ...t,
+      dependencies: depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || []),
+    }));
+    onImport(updatedTasks, true);
+    handleClose();
+  };
+
   const handleImport = () => {
     onImport(generatedTasks, isReanalyzing);
     handleClose();
@@ -225,7 +311,9 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
   const handleClose = () => {
     setInputText('');
     setGeneratedTasks([]);
+    setDependencyResults([]);
     setStep('input');
+    setAnalysisMode('generate');
     setError(null);
     setIsLoading(false);
     setIsReanalyzing(false);
@@ -243,7 +331,10 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
               {step === 'settings' ? <Settings size={18} /> : <Sparkles size={18} />}
             </div>
             <h2 className="font-bold text-lg text-[var(--color-ink)]">
-              {step === 'settings' ? 'API 설정' : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과' : 'AI 프로젝트 분석'}
+              {step === 'settings' ? 'API 설정'
+                : step === 'preview' && analysisMode === 'dependency' ? '선행관계 분석 결과'
+                : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과'
+                : 'AI 프로젝트 분석'}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -323,6 +414,51 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
                 </div>
               )}
             </div>
+          ) : analysisMode === 'dependency' ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-stone-700">감지된 선행관계 ({dependencyResults.length}건)</h3>
+                <button onClick={() => setStep('input')} className="text-xs text-stone-500 hover:text-[var(--color-ink)] underline">
+                  다시 분석
+                </button>
+              </div>
+              {dependencyResults.length === 0 ? (
+                <div className="text-center py-10 text-stone-400 text-sm">
+                  명확한 선행관계가 감지되지 않았습니다.
+                </div>
+              ) : (
+                <div className="border border-stone-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto bg-stone-50">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-stone-100 text-stone-500 font-medium text-xs uppercase sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2">작업명</th>
+                        <th className="px-4 py-2">선행 작업 (이것이 완료되어야 시작 가능)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-200">
+                      {dependencyResults.map((dep) => {
+                        const task = existingTasks.find(t => t.id === dep.taskId);
+                        const predecessors = dep.dependsOn.map(id => existingTasks.find(t => t.id === id)?.name).filter(Boolean);
+                        return (
+                          <tr key={dep.taskId} className="bg-white hover:bg-stone-50">
+                            <td className="px-4 py-2 font-medium text-stone-800 truncate max-w-[180px]">{task?.name || dep.taskId}</td>
+                            <td className="px-4 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {predecessors.map((name, i) => (
+                                  <span key={i} className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-xs">
+                                    {name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -395,18 +531,32 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
               </button>
 
               {existingTasks.length > 0 && (
-                <button
-                  onClick={() => handleAnalyze(true)}
-                  disabled={isLoading}
-                  className="btn-secondary text-purple-600 border-purple-200 hover:bg-purple-50 flex items-center gap-2"
-                >
-                  {isLoading && isReanalyzing ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={16} />
-                  )}
-                  현재 작업 재분석
-                </button>
+                <>
+                  <button
+                    onClick={handleDependencyAnalysis}
+                    disabled={isLoading}
+                    className="btn-secondary text-blue-600 border-blue-200 hover:bg-blue-50 flex items-center gap-2"
+                  >
+                    {isLoading && analysisMode === 'dependency' ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <GitBranch size={16} />
+                    )}
+                    선행관계 분석
+                  </button>
+                  <button
+                    onClick={() => handleAnalyze(true)}
+                    disabled={isLoading}
+                    className="btn-secondary text-purple-600 border-purple-200 hover:bg-purple-50 flex items-center gap-2"
+                  >
+                    {isLoading && isReanalyzing ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={16} />
+                    )}
+                    현재 작업 재분석
+                  </button>
+                </>
               )}
 
               <button
@@ -425,6 +575,20 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
                     WBS 생성
                   </>
                 )}
+              </button>
+            </>
+          ) : analysisMode === 'dependency' ? (
+            <>
+              <button onClick={() => { setStep('input'); setAnalysisMode('generate'); }} className="btn-ghost">
+                취소
+              </button>
+              <button
+                onClick={handleImportDependencies}
+                disabled={dependencyResults.length === 0}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Check size={16} />
+                선행관계 적용
               </button>
             </>
           ) : (

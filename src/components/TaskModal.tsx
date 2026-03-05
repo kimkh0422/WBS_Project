@@ -169,6 +169,30 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   };
 
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          setFormData(prev => ({
+            ...prev,
+            description: (prev.description ? prev.description + '\n' : '') + `![image](${dataUrl})`
+          }));
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[90vh] flex flex-col">

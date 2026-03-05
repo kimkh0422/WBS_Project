@@ -64,6 +64,7 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
     workEffort: 50,
     assignee: 70,
     status: 70,
+    deliverables: 120,
     actions: 70
   });
 
@@ -110,11 +111,13 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
   }, [resizingCol, startX, startWidth]);
 
   const gridStyle = {
-    gridTemplateColumns: `${columnWidths.grip}px ${columnWidths.checkbox}px ${columnWidths.expand}px ${columnWidths.wbsId}px minmax(${columnWidths.name}px, 1fr) ${columnWidths.startDate}px ${columnWidths.endDate}px ${columnWidths.workEffort}px ${columnWidths.assignee}px ${columnWidths.status}px ${columnWidths.actions}px`
+    gridTemplateColumns: `${columnWidths.grip}px ${columnWidths.checkbox}px ${columnWidths.expand}px ${columnWidths.wbsId}px minmax(${columnWidths.name}px, 1fr) ${columnWidths.startDate}px ${columnWidths.endDate}px ${columnWidths.workEffort}px ${columnWidths.assignee}px ${columnWidths.status}px ${columnWidths.deliverables}px ${columnWidths.actions}px`
   };
 
   // Bulk Assign State
   const [bulkAssignee, setBulkAssignee] = useState('');
+  const [bulkWorkEffort, setBulkWorkEffort] = useState('');
+  const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
 
   // Delete Confirmation State
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
@@ -446,6 +449,27 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
     setLastSelectedId(null);
   };
 
+  const executeBulkWorkEffort = () => {
+    const value = parseFloat(bulkWorkEffort);
+    if (isNaN(value) || value < 0) return;
+    Array.from(selectedTaskIds).forEach(id => {
+      updateTask(id, { workEffort: value });
+    });
+    setBulkWorkEffort('');
+    setSelectedTaskIds(new Set());
+    setLastSelectedId(null);
+  };
+
+  const executeBulkStatus = () => {
+    if (!bulkStatus) return;
+    Array.from(selectedTaskIds).forEach(id => {
+      updateTask(id, { status: bulkStatus });
+    });
+    setBulkStatus('');
+    setSelectedTaskIds(new Set());
+    setLastSelectedId(null);
+  };
+
   const SortIcon = ({ column }: { column: keyof Task }) => {
     if (sortConfig?.key !== column) return <ArrowUpDown size={12} className="opacity-30" />;
     return sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
@@ -525,6 +549,11 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
               >
                 상태 <SortIcon column="status" />
                 <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, 'status'); }} />
+              </div>
+
+              <div className="col-header relative">
+                산출물
+                <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'deliverables')} />
               </div>
 
               <div className="col-header justify-end relative">
@@ -667,6 +696,53 @@ export function WBSTable({ filters, sortConfig, onSort }: WBSTableProps) {
             <button
               onClick={executeBulkAssign}
               disabled={!bulkAssignee.trim()}
+              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
+            >
+              적용
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-stone-200" />
+
+          <div className="flex items-center gap-2 mr-2">
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={bulkWorkEffort}
+              onChange={(e) => setBulkWorkEffort(e.target.value)}
+              placeholder="공수(일) 일괄 지정..."
+              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-40"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') executeBulkWorkEffort();
+              }}
+            />
+            <button
+              onClick={executeBulkWorkEffort}
+              disabled={bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))}
+              className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
+            >
+              적용
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-stone-200" />
+
+          <div className="flex items-center gap-2 mr-2">
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value as TaskStatus | '')}
+              className="px-3 py-1.5 text-sm border border-stone-200 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="">상태 일괄 변경...</option>
+              <option value="todo">할 일</option>
+              <option value="in-progress">진행 중</option>
+              <option value="done">완료</option>
+              <option value="blocked">차단됨</option>
+            </select>
+            <button
+              onClick={executeBulkStatus}
+              disabled={!bulkStatus}
               className="text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 px-3 py-1.5 rounded-full transition-colors"
             >
               적용
@@ -918,6 +994,9 @@ function SortableTaskRow({
       </div>
       <div className="data-cell">
         <StatusBadge status={task.status} />
+      </div>
+      <div className="data-cell text-xs text-stone-600 truncate" title={task.deliverables || ''}>
+        {task.deliverables || '-'}
       </div>
       <div className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button

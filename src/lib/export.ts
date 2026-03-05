@@ -24,7 +24,7 @@ export const exportBackupToJson = (data: BackupData, fileName: string = 'wbs_bac
     URL.revokeObjectURL(url);
 };
 
-export const parseBackupJson = (file: File): Promise<BackupData> => {
+const parseSingleBackupJson = (file: File): Promise<BackupData> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
 
@@ -35,13 +35,10 @@ export const parseBackupJson = (file: File): Promise<BackupData> => {
 
                 // Basic validation
                 if (!data.projects || !Array.isArray(data.projects)) {
-                    throw new Error('유효하지 않은 백업 파일: 프로젝트 데이터 누락');
+                    throw new Error(`${file.name}: 유효하지 않은 백업 파일 - 프로젝트 데이터 누락`);
                 }
                 if (!data.tasks || !Array.isArray(data.tasks)) {
-                    throw new Error('유효하지 않은 백업 파일: 작업 데이터 누락');
-                }
-                if (!data.settings) {
-                    throw new Error('유효하지 않은 백업 파일: 설정 데이터 누락');
+                    throw new Error(`${file.name}: 유효하지 않은 백업 파일 - 작업 데이터 누락`);
                 }
 
                 resolve(data as BackupData);
@@ -53,4 +50,12 @@ export const parseBackupJson = (file: File): Promise<BackupData> => {
         reader.onerror = (error) => reject(error);
         reader.readAsText(file);
     });
+};
+
+export const parseBackupJson = (file: File): Promise<BackupData> => {
+    return parseSingleBackupJson(file);
+};
+
+export const parseMultipleBackupJsons = (files: File[]): Promise<BackupData[]> => {
+    return Promise.all(files.map(parseSingleBackupJson));
 };
