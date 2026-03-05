@@ -23,29 +23,30 @@ set /a PATCH+=1
 set NEW_VERSION=!MAJOR!.!MINOR!.!PATCH!
 
 echo ----------------------------------------
-echo 현재 버전: v!CURRENT_VERSION!
-echo 배포 버전: v!NEW_VERSION!
+echo Current version : v!CURRENT_VERSION!
+echo New version     : v!NEW_VERSION!
 echo ----------------------------------------
 
-set /p COMMIT_MSG="커밋 메시지를 입력하세요: "
-if "!COMMIT_MSG!"=="" set COMMIT_MSG=버전 업데이트
+set /p COMMIT_MSG=Commit message: 
+if "!COMMIT_MSG!"=="" set COMMIT_MSG=version update
 
 git add .
 git commit -m "v!NEW_VERSION!: !COMMIT_MSG!"
 
-if !errorlevel! neq 0 (
-    echo 변경사항이 없거나 커밋에 실패했습니다.
+if %ERRORLEVEL% neq 0 (
+    echo No changes to commit or commit failed.
     pause
-    exit /b !errorlevel!
+    exit /b 1
 )
 
 git push origin main
 
-if !errorlevel! equ 0 (
+if %ERRORLEVEL% equ 0 (
     echo !NEW_VERSION! > "%VERSION_FILE%"
-    echo 배포가 성공적으로 완료되었습니다! (v!NEW_VERSION!)
+    echo.
+    echo Successfully deployed v!NEW_VERSION!
 ) else (
-    echo 푸시 중 오류가 발생했습니다.
+    echo Push failed.
 )
 
 pause

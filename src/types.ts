@@ -26,7 +26,7 @@ export interface Task {
   workEffort?: number; // Man-days
   description?: string;
   checklist?: { id: string; text: string; completed: boolean }[];
-  imageUrls?: string[];
+  deliverables?: string;
 }
 
 export interface FilterState {

@@ -224,6 +224,7 @@ function WBSApp() {
   };
 
   const hasActiveFilters = filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate;
+  const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">
@@ -234,7 +235,12 @@ function WBSApp() {
             <Briefcase size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight leading-none">WBS 관리자</h1>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-xl font-bold tracking-tight leading-none">WBS 관리자</h1>
+              <span className="text-[10px] font-mono text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                v{__APP_VERSION__}
+              </span>
+            </div>
 
             <div className="relative mt-1">
               <button
@@ -516,13 +522,16 @@ function WBSApp() {
             </div>
             <div className="w-full sm:w-auto">
               <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">담당자</label>
-              <input
-                type="text"
+              <select
                 value={filters.assignee}
                 onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
-                placeholder="이름 검색..."
                 className="input-field min-w-[160px]"
-              />
+              >
+                <option value="">모든 담당자</option>
+                {allAssignees.map(assignee => (
+                  <option key={assignee} value={assignee}>{assignee}</option>
+                ))}
+              </select>
             </div>
             <div className="w-full sm:w-auto">
               <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">시작일</label>

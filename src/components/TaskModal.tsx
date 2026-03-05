@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Task, TaskStatus } from '../types';
-import { X, Plus, Trash2, Image as ImageIcon, GripVertical, CornerDownRight } from 'lucide-react';
+import { X, Plus, Trash2, GripVertical, CornerDownRight } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 
@@ -25,11 +25,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     parentId: null,
     description: '',
     checklist: [],
-    imageUrls: [],
+    deliverables: '',
   });
 
   const [newChecklistItem, setNewChecklistItem] = useState('');
-  const [newImageUrl, setNewImageUrl] = useState('');
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
@@ -47,7 +46,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         parentId: null,
         description: '',
         checklist: [],
-        imageUrls: [],
+        deliverables: '',
       });
     }
   }, [initialData, isOpen]);
@@ -124,26 +123,6 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     }));
   };
 
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64String = event.target?.result as string;
-            setFormData(prev => ({
-              ...prev,
-              imageUrls: [...(prev.imageUrls || []), base64String]
-            }));
-          };
-          reader.readAsDataURL(file);
-        }
-      }
-    }
-  };
-
   const handleConvertToSubtask = (item: { id: string; text: string }) => {
     if (!initialData || !initialData.id) return; // Must have an existing task to add a subtask to
 
@@ -189,21 +168,6 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     }));
   };
 
-  const handleAddImage = () => {
-    if (!newImageUrl.trim()) return;
-    setFormData(prev => ({
-      ...prev,
-      imageUrls: [...(prev.imageUrls || []), newImageUrl.trim()]
-    }));
-    setNewImageUrl('');
-  };
-
-  const handleRemoveImage = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      imageUrls: (prev.imageUrls || []).filter((_, i) => i !== index)
-    }));
-  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm p-4">
@@ -479,64 +443,15 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 </div>
               </div>
 
-              {/* Images */}
+              {/* Deliverables */}
               <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">첨부 이미지</label>
-
-                <div className="flex gap-2 mb-3">
-                  <div className="relative flex-1">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                      <ImageIcon size={14} />
-                    </div>
-                    <input
-                      type="url"
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddImage();
-                        }
-                      }}
-                      placeholder="이미지 URL 입력..."
-                      className="input-field pl-9"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddImage}
-                    disabled={!newImageUrl.trim()}
-                    className="btn-secondary px-3"
-                  >
-                    추가
-                  </button>
-                </div>
-
-                {formData.imageUrls && formData.imageUrls.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {formData.imageUrls.map((url, index) => (
-                      <div key={index} className="relative group aspect-video rounded-lg overflow-hidden border border-stone-200 bg-stone-50">
-                        <img
-                          src={url}
-                          alt={`Attachment ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Invalid+Image';
-                          }}
-                        />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveImage(index)}
-                            className="bg-white text-red-600 p-1.5 rounded-full hover:bg-red-50 transition-colors shadow-sm"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">산출물</label>
+                <textarea
+                  value={formData.deliverables || ''}
+                  onChange={(e) => setFormData({ ...formData, deliverables: e.target.value })}
+                  placeholder="이 작업의 산출물을 입력하세요 (예: 보고서, 설계서, 소스코드 등)"
+                  className="input-field h-24 resize-none"
+                />
               </div>
             </div>
           </div>

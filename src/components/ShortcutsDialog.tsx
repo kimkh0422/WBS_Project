@@ -17,6 +17,8 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps) {
     { label: '동일 레벨 아래 추가', keys: ['Enter'] },
     { label: '작업 수정', keys: ['F2'] },
     { label: '작업 삭제', keys: ['Delete'] },
+    { label: '간트차트 확대', keys: ['+'] },
+    { label: '간트차트 축소', keys: ['-'] },
   ];
 
   return (
@@ -29,14 +31,14 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps) {
             </div>
             <h2 className="text-lg font-bold text-stone-800">키보드 단축키</h2>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="text-stone-400 hover:text-stone-600 p-1 hover:bg-stone-100 rounded-lg transition-colors"
           >
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="p-4 space-y-1">
           {shortcuts.map((shortcut, index) => (
             <div key={index} className="flex items-center justify-between p-2 hover:bg-stone-50 rounded-lg group">
@@ -59,7 +61,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps) {
             </div>
           ))}
         </div>
-        
+
         <div className="p-4 bg-stone-50 border-t border-stone-100 text-xs text-stone-500 text-center">
           단축키는 작업 목록이 활성화되어 있고 필터가 적용되지 않은 상태에서 사용할 수 있습니다.
         </div>
