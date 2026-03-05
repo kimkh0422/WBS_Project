@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "WBS Manager (Vite)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npm", "run", "dev"],
       "port": 3000
     }
   ]
