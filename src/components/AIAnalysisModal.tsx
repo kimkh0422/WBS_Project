@@ -25,6 +25,7 @@ interface AIResponseTask {
 
 export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, existingTasks = [] }: AIAnalysisModalProps) {
   const [inputText, setInputText] = useState('');
+  const [userRequest, setUserRequest] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedTasks, setGeneratedTasks] = useState<Task[]>([]);
@@ -106,6 +107,8 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
           
           현재 날짜: ${new Date().toISOString().split('T')[0]}
           
+          ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
+          
           현재 작업 목록 (JSON):
           ${tasksJson}
           
@@ -135,6 +138,8 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
           당신은 프로젝트 관리 전문가입니다. 다음 프로젝트 설명을 분석하여 체계적인 WBS(Work Breakdown Structure)를 작성해 주세요.
           
           현재 날짜: ${new Date().toISOString().split('T')[0]}
+          
+          ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
           
           입력 텍스트:
           "${inputText}"
@@ -243,6 +248,8 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
         작업 목록 (JSON):
         ${JSON.stringify(taskList, null, 2)}
 
+        ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
+
         요구사항:
         1. 논리적으로 선행되어야 하는 작업 관계만 연결하세요 (예: 설계가 완료되어야 개발 가능).
         2. 같은 레벨의 형제 작업 간 순서 관계, 또는 다른 상위 작업에 속한 작업 간의 명확한 의존성만 포함하세요.
@@ -294,8 +301,8 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
   };
 
   const handleImportDependencies = () => {
-    const depMap = new Map(dependencyResults.map(d => [d.taskId, d.dependsOn]));
-    const updatedTasks = existingTasks.map(t => ({
+    const depMap = new Map<string, string[]>(dependencyResults.map(d => [d.taskId, d.dependsOn]));
+    const updatedTasks: Task[] = existingTasks.map(t => ({
       ...t,
       dependencies: depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || []),
     }));
@@ -310,6 +317,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
 
   const handleClose = () => {
     setInputText('');
+    setUserRequest('');
     setGeneratedTasks([]);
     setDependencyResults([]);
     setStep('input');
@@ -333,8 +341,8 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
             <h2 className="font-bold text-lg text-[var(--color-ink)]">
               {step === 'settings' ? 'API 설정'
                 : step === 'preview' && analysisMode === 'dependency' ? '선행관계 분석 결과'
-                : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과'
-                : 'AI 프로젝트 분석'}
+                  : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과'
+                    : 'AI 프로젝트 분석'}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -400,12 +408,23 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
                 AI가 분석하여 단계별로 그룹화된 체계적인 WBS를 생성합니다.
               </p>
               <textarea
-                className="w-full h-64 p-4 rounded-xl border border-stone-200 focus:border-[var(--color-accent)] focus:ring-2 focus:ring-blue-100 outline-none resize-none text-sm leading-relaxed"
+                className="w-full h-48 p-4 rounded-xl border border-stone-200 focus:border-[var(--color-accent)] focus:ring-2 focus:ring-blue-100 outline-none resize-none text-sm leading-relaxed"
                 placeholder="예시: 새로운 전자상거래 웹사이트를 구축해야 합니다. 기획, 디자인, 개발(프론트엔드/백엔드), 테스트 단계로 진행될 예정입니다. 주요 기능으로는 회원가입, 상품 목록, 장바구니, 결제 시스템이 필요하며, 전체 일정은 약 3개월입니다..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isLoading}
               />
+
+              <div>
+                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">AI 추가 요청 사항 (선택)</label>
+                <textarea
+                  className="w-full h-16 p-3 rounded-lg border border-stone-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none resize-none text-sm leading-relaxed"
+                  placeholder="예: 설계는 반드시 개발 이전에 완료되어야 함. 특정 담당자에게 작업이 집중되지 않도록 배분할 것."
+                  value={userRequest}
+                  onChange={(e) => setUserRequest(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
 
               {error && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2">

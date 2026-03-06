@@ -14,7 +14,7 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask } = useWBS();
+  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings } = useWBS();
   const [formData, setFormData] = useState<Partial<Task>>({
     name: '',
     startDate: new Date().toISOString().split('T')[0],
@@ -178,7 +178,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     for (const item of Array.from(items)) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
-        const file = item.getAsFile();
+        const file = (item as any).getAsFile();
         if (!file) continue;
 
         const reader = new FileReader();
@@ -276,13 +276,20 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                   <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">상태</label>
                   <select
                     value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as TaskStatus })}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      const config = wbsSettings.statusConfigs.find(c => c.id === newStatus);
+                      const updates: Partial<Task> = { status: newStatus };
+                      if (config && config.progress !== undefined) {
+                        updates.progress = config.progress;
+                      }
+                      setFormData(prev => ({ ...prev, ...updates }));
+                    }}
                     className="input-field"
                   >
-                    <option value="todo">할 일</option>
-                    <option value="in-progress">진행 중</option>
-                    <option value="done">완료</option>
-                    <option value="blocked">지연됨</option>
+                    {wbsSettings.statusConfigs.map(config => (
+                      <option key={config.id} value={config.id}>{config.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -321,7 +328,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                   min="0"
                   step="0.5"
                   value={formData.workEffort ?? ''}
-                  onChange={(e) => setFormData({ ...formData, workEffort: parseFloat(e.target.value) })}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFormData({ ...formData, workEffort: v === '' ? undefined : parseFloat(v) });
+                  }}
                   className="input-field"
                   placeholder="0.5"
                 />

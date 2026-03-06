@@ -1,22 +1,36 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Task, Project, MOCK_TASKS, MOCK_PROJECTS } from '../types';
+import { Task, Project, MOCK_TASKS, MOCK_PROJECTS, TaskStatus } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
+import { addDays, differenceInDays, format, parseISO } from 'date-fns';
+
+export interface StatusConfig {
+  id: string;
+  name: string;
+  progress: number;
+  color?: string;
+}
 
 export interface WBSSettings {
+  appTitle: string;
   level1Prefix: string;
   level2Prefix: string;
   level3Prefix: string;
   maxLevel: number;
+  statusConfigs: StatusConfig[];
+  tableColumns?: { id: string; visible: boolean }[];
 }
 
 interface WBSContextType {
+  allTasks: Task[];
   tasks: Task[];
   projects: Project[];
   currentProjectId: string;
   setCurrentProjectId: (id: string) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
+  treeExpandLevel: number;
+  setTreeExpandLevel: (level: number) => void;
   addProject: (name: string, description?: string, startDate?: string) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -30,6 +44,7 @@ interface WBSContextType {
   indentTasks: (ids: string[]) => void;
   outdentTasks: (ids: string[]) => void;
   toggleExpand: (id: string) => void;
+  expandToLevel: (level: number) => void;
   reorderTask: (id: string, overId: string) => void;
   importTasks: (tasks: Task[]) => void;
   deleteAllTasks: () => void;
@@ -80,21 +95,77 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     setAllTasks(previous);
   };
 
+  const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
+    { id: 'todo', name: '할 일', progress: 0, color: 'bg-stone-100 border-stone-200' },
+    { id: 'in-progress', name: '진행 중', progress: 10, color: 'bg-blue-50 border-blue-100' },
+    { id: 'blocked', name: '지연됨', progress: 50, color: 'bg-red-50 border-red-100' },
+    { id: 'done', name: '완료', progress: 100, color: 'bg-green-50 border-green-100' }
+  ];
+
+  const DEFAULT_SETTINGS: WBSSettings = {
+    appTitle: '지엠티 WBS 매니저',
+    level1Prefix: 'W',
+    level2Prefix: 'W',
+    level3Prefix: 'T',
+    maxLevel: 3,
+    statusConfigs: DEFAULT_STATUS_CONFIGS,
+    tableColumns: [
+      { id: 'wbsId', visible: true },
+      { id: 'name', visible: true },
+      { id: 'startDate', visible: true },
+      { id: 'endDate', visible: true },
+      { id: 'workEffort', visible: true },
+      { id: 'assignee', visible: true },
+      { id: 'status', visible: true },
+      { id: 'deliverables', visible: true },
+    ],
+  };
+
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(() => {
     const saved = localStorage.getItem('wbs-settings');
-    return saved ? JSON.parse(saved) : {
-      level1Prefix: 'W',
-      level2Prefix: 'W',
-      level3Prefix: 'T',
-      maxLevel: 3,
-    };
+    if (!saved) return DEFAULT_SETTINGS;
+
+    try {
+      const parsed = JSON.parse(saved);
+
+      // Migration: convert old statusNames/statusProgress to statusConfigs
+      let statusConfigs = parsed.statusConfigs;
+      if (!statusConfigs && (parsed.statusNames || parsed.statusProgress)) {
+        statusConfigs = (['todo', 'in-progress', 'blocked', 'done'] as const).map(id => ({
+          id,
+          name: parsed.statusNames?.[id] || (id === 'todo' ? '할 일' : id === 'in-progress' ? '진행 중' : id === 'blocked' ? '지연됨' : '완료'),
+          progress: parsed.statusProgress?.[id] !== undefined ? parsed.statusProgress[id] : (id === 'todo' ? 0 : id === 'in-progress' ? 10 : id === 'blocked' ? 50 : 100),
+          color: id === 'todo' ? 'bg-stone-100 border-stone-200' : id === 'in-progress' ? 'bg-blue-50 border-blue-100' : id === 'blocked' ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'
+        }));
+      }
+
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        appTitle: parsed.appTitle || DEFAULT_SETTINGS.appTitle,
+        statusConfigs: statusConfigs || DEFAULT_STATUS_CONFIGS,
+        tableColumns: Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
+          ? parsed.tableColumns
+              .filter((c: any) => c && typeof c.id === 'string')
+              .map((c: any) => ({ id: String(c.id), visible: c.visible !== false }))
+          : DEFAULT_SETTINGS.tableColumns,
+      };
+    } catch (e) {
+      console.error('Failed to parse wbs-settings', e);
+      return DEFAULT_SETTINGS;
+    }
+  });
+
+  const [treeExpandLevel, setTreeExpandLevel] = useState<number>(() => {
+    const base = (wbsSettings?.maxLevel ?? 3) + 1;
+    return Math.min(9, Math.max(1, base));
   });
 
   // Keep ref in sync with state
   allTasksRef.current = allTasks;
 
   // Derived state for current project's tasks
-  const tasks = allTasks.filter(t => t.projectId === currentProjectId);
+  const tasks = currentProjectId === 'all' ? allTasks : allTasks.filter(t => t.projectId === currentProjectId);
 
   // Generate WBS Maps
   // wbsMap: 모든 레벨에 ID 부여 (export, WBS ID 컬럼 등에서 사용)
@@ -161,7 +232,30 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateProject = (id: string, updates: Partial<Project>) => {
-    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    setProjects(prev => {
+      const project = prev.find(p => p.id === id);
+      if (project && updates.startDate && updates.startDate !== project.startDate) {
+        // Shift task dates if project start date changes
+        const oldStart = parseISO(project.startDate || format(new Date(), 'yyyy-MM-dd'));
+        const newStart = parseISO(updates.startDate);
+        const diff = differenceInDays(newStart, oldStart);
+
+        if (diff !== 0) {
+          saveHistory();
+          setAllTasks(currentTasks => currentTasks.map(t => {
+            if (t.projectId === id) {
+              return {
+                ...t,
+                startDate: format(addDays(parseISO(t.startDate), diff), 'yyyy-MM-dd'),
+                endDate: format(addDays(parseISO(t.endDate), diff), 'yyyy-MM-dd')
+              };
+            }
+            return t;
+          }));
+        }
+      }
+      return prev.map(p => p.id === id ? { ...p, ...updates } : p);
+    });
   };
 
   const deleteProject = (id: string) => {
@@ -179,37 +273,161 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const syncParentRollups = (allTasks: Task[], parentId: string | null): Task[] => {
+    if (!parentId) return allTasks;
+
+    const children = allTasks.filter(t => t.parentId === parentId);
+    if (children.length === 0) return allTasks;
+
+    // Period rollup: min(startDate), max(endDate)
+    let minStart = children[0].startDate;
+    let maxEnd = children[0].endDate;
+
+    // Effort rollup: sum(children.workEffort)
+    let totalEffort = 0;
+
+    for (const child of children) {
+      if (child.startDate && child.startDate < minStart) minStart = child.startDate;
+      if (child.endDate && child.endDate > maxEnd) maxEnd = child.endDate;
+      const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
+      totalEffort += effort;
+    }
+
+    const parent = allTasks.find(t => t.id === parentId);
+    if (!parent) return allTasks;
+
+    const parentEffort = typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : undefined;
+    const shouldUpdate =
+      parent.startDate !== minStart ||
+      parent.endDate !== maxEnd ||
+      parentEffort !== totalEffort;
+
+    const updatedTasks = shouldUpdate
+      ? allTasks.map(t =>
+          t.id === parentId ? { ...t, startDate: minStart, endDate: maxEnd, workEffort: totalEffort } : t
+        )
+      : allTasks;
+
+    return syncParentRollups(updatedTasks, parent.parentId);
+  };
+
+  const recomputeProjectRollups = (allTasks: Task[], projectId: string): Task[] => {
+    if (!projectId || projectId === 'all') return allTasks;
+
+    const projectTasks = allTasks.filter(t => t.projectId === projectId);
+    if (projectTasks.length === 0) return allTasks;
+
+    const taskMap = new Map(projectTasks.map(t => [t.id, t] as const));
+    const hasChildren = new Set<string>();
+    for (const t of projectTasks) {
+      if (t.parentId && taskMap.has(t.parentId)) hasChildren.add(t.parentId);
+    }
+    if (hasChildren.size === 0) return allTasks;
+
+    const depthMemo = new Map<string, number>();
+    const getDepth = (id: string): number => {
+      const cached = depthMemo.get(id);
+      if (cached !== undefined) return cached;
+      const t = taskMap.get(id);
+      if (!t || !t.parentId || !taskMap.has(t.parentId)) {
+        depthMemo.set(id, 0);
+        return 0;
+      }
+      const d = getDepth(t.parentId) + 1;
+      depthMemo.set(id, d);
+      return d;
+    };
+
+    const parentIds = Array.from(hasChildren).sort((a, b) => getDepth(b) - getDepth(a));
+    let next = allTasks;
+    for (const pid of parentIds) {
+      next = syncParentRollups(next, pid);
+    }
+    return next;
+  };
+
+  // One-time migration/safety: ensure stored parent rows reflect children (period/effort).
+  useEffect(() => {
+    const projectIds = Array.from(new Set(allTasks.map(t => t.projectId))).filter(Boolean) as string[];
+    let rolled = allTasks;
+    for (const pid of projectIds) {
+      rolled = recomputeProjectRollups(rolled, pid);
+    }
+    if (rolled !== allTasks) setAllTasks(rolled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string) => {
     saveHistory();
     const task: Task = {
       ...newTask,
       id: uuidv4(),
-      projectId: currentProjectId
+      projectId: currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId
     };
     setAllTasks((prev) => {
+      let nextTasks: Task[];
       if (insertAfterId) {
         const index = prev.findIndex(t => t.id === insertAfterId);
         if (index !== -1) {
           const newTasks = [...prev];
           newTasks.splice(index + 1, 0, task);
-          return newTasks;
+          nextTasks = newTasks;
+        } else {
+          nextTasks = [...prev, task];
         }
+      } else {
+        nextTasks = [...prev, task];
       }
-      return [...prev, task];
+      return syncParentRollups(nextTasks, task.parentId);
     });
     return task.id;
   };
 
   const updateTask = (id: string, updates: Partial<Task>) => {
     saveHistory();
-    setAllTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
-    );
+    setAllTasks((prev) => {
+      const task = prev.find(t => t.id === id);
+      if (!task) return prev;
+
+      const updatedTask = { ...task, ...updates };
+      const nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
+
+      const affectsRollup =
+        Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
+        Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
+        Object.prototype.hasOwnProperty.call(updates, 'workEffort');
+
+      if (!affectsRollup) return nextTasks;
+
+      const hasChildren = prev.some(t => t.parentId === id && t.projectId === task.projectId);
+      // If this task is a parent, its own values must reflect children.
+      // Otherwise, sync parent rollups upward.
+      return hasChildren ? syncParentRollups(nextTasks, id) : syncParentRollups(nextTasks, task.parentId);
+    });
   };
 
   const deleteTask = (id: string) => {
     saveHistory();
-    setAllTasks((prev) => prev.filter((t) => t.id !== id && t.parentId !== id));
+    setAllTasks((prev) => {
+      const taskToDelete = prev.find(t => t.id === id);
+      if (!taskToDelete) return prev;
+
+      // Recursive helper to get all descendant IDs
+      const getAllDescendantIds = (parentId: string, currentList: Task[]): string[] => {
+        const children = currentList.filter(t => t.parentId === parentId);
+        let ids = children.map(c => c.id);
+        children.forEach(child => {
+          ids = [...ids, ...getAllDescendantIds(child.id, currentList)];
+        });
+        return ids;
+      };
+
+      const idsToDelete = [id, ...getAllDescendantIds(id, prev)];
+      const deleteSet = new Set(idsToDelete);
+
+      const nextTasks = prev.filter((t) => !deleteSet.has(t.id));
+      return syncParentRollups(nextTasks, taskToDelete.parentId);
+    });
   };
 
   const moveTask = (id: string, direction: 'up' | 'down') => {
@@ -289,7 +507,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
           if (t.id === newParent.id) return { ...t, expanded: true };
           return t;
         });
-        return [...otherTasks, ...updatedProjectTasks];
+        return recomputeProjectRollups([...otherTasks, ...updatedProjectTasks], currentProjectId);
       }
       return prev;
     });
@@ -315,15 +533,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
         return t;
       });
 
-      // Reorder to be after the old parent
-      const taskIndex = tempProjectTasks.findIndex(t => t.id === id);
-      const taskObj = tempProjectTasks[taskIndex];
-      tempProjectTasks.splice(taskIndex, 1);
-
-      const parentIndex = tempProjectTasks.findIndex(t => t.id === parent.id);
-      tempProjectTasks.splice(parentIndex + 1, 0, taskObj);
-
-      return [...otherTasks, ...tempProjectTasks];
+      return recomputeProjectRollups([...otherTasks, ...tempProjectTasks], currentProjectId);
     });
   };
 
@@ -333,9 +543,14 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       let projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
 
+      const selectedIds = new Set(ids);
       for (const id of ids) {
         const task = projectTasks.find(t => t.id === id);
         if (!task) continue;
+
+        // Skip if parent is also selected (will move with parent)
+        if (task.parentId && selectedIds.has(task.parentId)) continue;
+
         const siblings = projectTasks.filter(t => t.parentId === task.parentId);
         const indexInSiblings = siblings.findIndex(t => t.id === id);
         if (indexInSiblings > 0) {
@@ -348,7 +563,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      return [...otherTasks, ...projectTasks];
+      return recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
     });
   };
 
@@ -358,9 +573,14 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       let projectTasks = prev.filter(t => t.projectId === currentProjectId);
       const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
 
+      const selectedIds = new Set(ids);
       for (const id of ids) {
         const task = projectTasks.find(t => t.id === id);
         if (!task || !task.parentId) continue;
+
+        // Skip if parent is also selected (will move with parent)
+        if (selectedIds.has(task.parentId)) continue;
+
         const parent = projectTasks.find(t => t.id === task.parentId);
         if (!parent) continue;
         const newParentId = parent.parentId;
@@ -368,16 +588,9 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
         projectTasks = projectTasks.map(t =>
           t.id === id ? { ...t, parentId: newParentId } : t
         );
-
-        const taskIndex = projectTasks.findIndex(t => t.id === id);
-        const taskObj = projectTasks[taskIndex];
-        projectTasks = [...projectTasks];
-        projectTasks.splice(taskIndex, 1);
-        const parentIndex = projectTasks.findIndex(t => t.id === parent.id);
-        projectTasks.splice(parentIndex + 1, 0, taskObj);
       }
 
-      return [...otherTasks, ...projectTasks];
+      return recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
     });
   };
 
@@ -385,6 +598,47 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     setAllTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t))
     );
+  };
+
+  const expandToLevel = (level: number) => {
+    const targetLevel = Math.max(1, Math.floor(level || 1));
+    setTreeExpandLevel(targetLevel);
+    saveHistory();
+    setAllTasks(prev => {
+      const relevant = currentProjectId === 'all'
+        ? prev
+        : prev.filter(t => t.projectId === currentProjectId);
+      const relevantIds = new Set(relevant.map(t => t.id));
+      const taskMap = new Map(relevant.map(t => [t.id, t]));
+
+      const depthMemo = new Map<string, number>();
+      const getDepth = (id: string): number => {
+        const cached = depthMemo.get(id);
+        if (cached !== undefined) return cached;
+        const t = taskMap.get(id);
+        if (!t || !t.parentId || !taskMap.has(t.parentId)) {
+          depthMemo.set(id, 0);
+          return 0;
+        }
+        const d = getDepth(t.parentId) + 1;
+        depthMemo.set(id, d);
+        return d;
+      };
+
+      const hasChildren = new Set<string>();
+      for (const t of relevant) {
+        if (t.parentId && taskMap.has(t.parentId)) hasChildren.add(t.parentId);
+      }
+
+      return prev.map(t => {
+        if (!relevantIds.has(t.id)) return t;
+        if (!hasChildren.has(t.id)) return t;
+        const nodeLevel = getDepth(t.id) + 1; // 1-based
+        const shouldExpand = nodeLevel < targetLevel;
+        if (!!t.expanded === shouldExpand) return t;
+        return { ...t, expanded: shouldExpand };
+      });
+    });
   };
 
   const importTasks = (newTasks: Task[]) => {
@@ -396,10 +650,13 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     }));
 
     // Remove existing tasks for this project and add new ones
-    setAllTasks(prev => [
-      ...prev.filter(t => t.projectId !== currentProjectId),
-      ...tasksWithProject
-    ]);
+    setAllTasks(prev => {
+      const next = [
+        ...prev.filter(t => t.projectId !== currentProjectId),
+        ...tasksWithProject
+      ];
+      return recomputeProjectRollups(next, currentProjectId);
+    });
   };
 
   const addTasks = (newTasks: Task[]) => {
@@ -408,17 +665,27 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       ...t,
       projectId: currentProjectId
     }));
-    setAllTasks(prev => [...prev, ...tasksWithProject]);
+    setAllTasks(prev => recomputeProjectRollups([...prev, ...tasksWithProject], currentProjectId));
   };
 
   const deleteAllTasks = () => {
     saveHistory();
-    setAllTasks(prev => prev.filter(t => t.projectId !== currentProjectId));
+    if (currentProjectId === 'all') {
+      setAllTasks([]);
+    } else {
+      setAllTasks(prev => prev.filter(t => t.projectId !== currentProjectId));
+    }
   };
 
   const restoreBackup = (data: BackupData) => {
     setProjects(data.projects);
-    setAllTasks(data.tasks);
+    // Ensure parent levels reflect children (period/effort rollups)
+    const projectIds = Array.from(new Set(data.tasks.map(t => t.projectId))).filter(Boolean) as string[];
+    let rolled = data.tasks;
+    for (const pid of projectIds) {
+      rolled = recomputeProjectRollups(rolled, pid);
+    }
+    setAllTasks(rolled);
     setWbsSettings(data.settings);
 
     // Ensure current project is valid
@@ -486,12 +753,15 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WBSContext.Provider value={{
+      allTasks,
       tasks,
       projects,
       currentProjectId,
       setCurrentProjectId,
       wbsSettings,
       updateWbsSettings,
+      treeExpandLevel,
+      setTreeExpandLevel,
       addProject,
       updateProject,
       deleteProject,
@@ -506,6 +776,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       indentTasks,
       outdentTasks,
       toggleExpand,
+      expandToLevel,
       importTasks,
       deleteAllTasks,
       wbsMap,

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { X, Settings2 } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
+import { TaskStatus } from '../types';
 
 interface WBSSettingsModalProps {
     isOpen: boolean;
@@ -8,21 +9,78 @@ interface WBSSettingsModalProps {
 }
 
 export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
-    const { wbsSettings, updateWbsSettings } = useWBS();
+    const { wbsSettings, updateWbsSettings, projects, updateProject } = useWBS();
 
+    const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
     const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
     const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
     const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
     const [maxLevel, setMaxLevel] = useState(wbsSettings.maxLevel);
+    const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
+    const [projectDates, setProjectDates] = useState<Record<string, string>>({});
+    const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
+
+    const TABLE_COLUMN_LABELS: Record<string, string> = useMemo(() => ({
+        wbsId: 'ID',
+        name: '작업명',
+        startDate: '시작일',
+        endDate: '종료일',
+        workEffort: '공수(d)',
+        assignee: '담당자',
+        status: '상태',
+        deliverables: '산출물',
+    }), []);
+
+    const DEFAULT_TABLE_COLUMNS = useMemo(() => ([
+        { id: 'wbsId', visible: true },
+        { id: 'name', visible: true },
+        { id: 'startDate', visible: true },
+        { id: 'endDate', visible: true },
+        { id: 'workEffort', visible: true },
+        { id: 'assignee', visible: true },
+        { id: 'status', visible: true },
+        { id: 'deliverables', visible: true },
+    ]), []);
+
+    const normalizedTableColumns = useMemo(() => {
+        const incoming = (tableColumns && tableColumns.length > 0) ? tableColumns : (wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
+        const seen = new Set<string>();
+        const cleaned = incoming
+            .filter(c => c && typeof c.id === 'string')
+            .map(c => ({ id: c.id, visible: c.visible !== false }))
+            .filter(c => {
+                if (seen.has(c.id)) return false;
+                seen.add(c.id);
+                return true;
+            });
+
+        // Ensure required columns exist (especially name)
+        const ensureIds = DEFAULT_TABLE_COLUMNS.map(c => c.id);
+        for (const id of ensureIds) {
+            if (!seen.has(id)) cleaned.push({ id, visible: true });
+        }
+
+        // Keep name always visible
+        return cleaned.map(c => c.id === 'name' ? { ...c, visible: true } : c);
+    }, [tableColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
 
     useEffect(() => {
         if (isOpen) {
+            setAppTitle(wbsSettings.appTitle);
             setLevel1(wbsSettings.level1Prefix);
             setLevel2(wbsSettings.level2Prefix);
             setLevel3(wbsSettings.level3Prefix);
             setMaxLevel(wbsSettings.maxLevel);
+            setStatusConfigs(wbsSettings.statusConfigs);
+            setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
+
+            const initialDates: Record<string, string> = {};
+            projects.forEach(p => {
+                initialDates[p.id] = p.startDate || '';
+            });
+            setProjectDates(initialDates);
         }
-    }, [isOpen, wbsSettings]);
+    }, [isOpen, wbsSettings, projects]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -47,85 +105,300 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
         updateWbsSettings({
+            appTitle: appTitle.trim(),
             level1Prefix: level1.trim(),
             level2Prefix: level2.trim(),
             level3Prefix: level3.trim(),
             maxLevel: Number(maxLevel),
+            statusConfigs: statusConfigs,
+            tableColumns: normalizedTableColumns,
         });
+
+        Object.entries(projectDates).forEach(([id, date]) => {
+            const project = projects.find(p => p.id === id);
+            if (project && project.startDate !== date) {
+                updateProject(id, { startDate: date });
+            }
+        });
+
         onClose();
     };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)]">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[94vh] flex flex-col">
                 <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50">
                     <div className="flex items-center gap-2 text-[var(--color-ink)]">
                         <Settings2 size={18} />
-                        <h2 className="text-lg font-bold">WBS ID 표시 설정</h2>
+                        <h2 className="text-lg font-bold">WBS 설정</h2>
                     </div>
                     <button onClick={onClose} className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]">
                         <X size={18} />
                     </button>
                 </div>
 
-                <form onSubmit={handleSave} className="p-6 space-y-5">
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">1레벨 접두사 (예: W)</label>
-                            <input
-                                type="text"
-                                value={level1}
-                                onChange={(e) => setLevel1(e.target.value)}
-                                className="input-field"
-                                placeholder="W"
-                                maxLength={3}
-                            />
-                            <p className="text-[10px] text-stone-400 mt-1">예: W1, W2</p>
+                <form onSubmit={handleSave} className="flex-1 overflow-y-auto">
+                    <div className="p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        {/* Left Column */}
+                        <div className="space-y-8">
+                            {/* Application Settings */}
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2 flex items-center gap-2">
+                                    기본 설정
+                                </h3>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">웹 타이틀</label>
+                                    <input
+                                        type="text"
+                                        value={appTitle}
+                                        onChange={(e) => setAppTitle(e.target.value)}
+                                        placeholder="지엠티 WBS 매니저"
+                                        className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* WBS ID Settings */}
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">WBS ID 표시 영역</h3>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">1레벨 접두사 (예: W)</label>
+                                        <input
+                                            type="text"
+                                            value={level1}
+                                            onChange={(e) => setLevel1(e.target.value)}
+                                            className="input-field"
+                                            placeholder="W"
+                                            maxLength={3}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">2레벨 접두사 (예: W)</label>
+                                        <input
+                                            type="text"
+                                            value={level2}
+                                            onChange={(e) => setLevel2(e.target.value)}
+                                            className="input-field"
+                                            placeholder="W"
+                                            maxLength={3}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">3레벨 접두사 (예: T)</label>
+                                        <input
+                                            type="text"
+                                            value={level3}
+                                            onChange={(e) => setLevel3(e.target.value)}
+                                            className="input-field"
+                                            placeholder="T"
+                                            maxLength={3}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="pt-2">
+                                    <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">최대 표시 레벨</label>
+                                    <select
+                                        value={maxLevel}
+                                        onChange={(e) => setMaxLevel(Number(e.target.value))}
+                                        className="input-field bg-stone-50"
+                                    >
+                                        <option value={2}>2 레벨까지만 표시</option>
+                                        <option value={3}>3 레벨까지만 표시 (기본값)</option>
+                                        <option value={4}>4 레벨까지만 표시</option>
+                                        <option value={5}>5 레벨 표기 허용</option>
+                                    </select>
+                                    <p className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">작업 레벨이 표시 레벨을 초과할 경우 ID가 숨겨집니다.</p>
+                                </div>
+                            </div>
                         </div>
 
-                        <div>
-                            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">2레벨 접두사 (예: W)</label>
-                            <input
-                                type="text"
-                                value={level2}
-                                onChange={(e) => setLevel2(e.target.value)}
-                                className="input-field"
-                                placeholder="W"
-                                maxLength={3}
-                            />
-                            <p className="text-[10px] text-stone-400 mt-1">예: W1.1, W1.2</p>
+                        {/* Middle Column */}
+                        <div className="space-y-8">
+                            {/* Table Columns */}
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-stone-200 pb-2">
+                                    <h3 className="font-bold text-sm text-[var(--color-ink)]">표 필드(컬럼) 표시/순서</h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTableColumns(DEFAULT_TABLE_COLUMNS)}
+                                        className="p-1 hover:bg-stone-100 text-stone-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                                        title="기본값으로 복원"
+                                    >
+                                        <RotateCcw size={14} />
+                                        기본값
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {normalizedTableColumns.map((col, idx) => {
+                                        const label = TABLE_COLUMN_LABELS[col.id] || col.id;
+                                        const isName = col.id === 'name';
+                                        return (
+                                            <div key={col.id} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white">
+                                                <div className="text-stone-300">
+                                                    <GripVertical size={14} />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-xs font-semibold text-stone-700 truncate">{label}</div>
+                                                    <div className="text-[10px] text-stone-400 font-mono truncate">{col.id}</div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={isName}
+                                                    onClick={() => {
+                                                        setTableColumns(prev => (prev || []).map(p => p.id === col.id ? { ...p, visible: !p.visible } : p));
+                                                    }}
+                                                    className={`p-1.5 rounded-md transition-colors ${isName ? 'opacity-40 cursor-not-allowed' : 'hover:bg-stone-50'}`}
+                                                    title={isName ? '작업명은 항상 표시됩니다.' : (col.visible ? '숨기기' : '보이기')}
+                                                >
+                                                    {col.visible ? <Eye size={14} className="text-stone-600" /> : <EyeOff size={14} className="text-stone-400" />}
+                                                </button>
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        disabled={idx === 0}
+                                                        onClick={() => {
+                                                            setTableColumns(prev => {
+                                                                const arr = [...(prev || normalizedTableColumns)];
+                                                                const i = arr.findIndex(x => x.id === col.id);
+                                                                if (i <= 0) return arr;
+                                                                const next = [...arr];
+                                                                [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                                                                return next;
+                                                            });
+                                                        }}
+                                                        className="p-1.5 rounded-md hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                        title="위로"
+                                                    >
+                                                        <ArrowUp size={14} className="text-stone-600" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={idx === normalizedTableColumns.length - 1}
+                                                        onClick={() => {
+                                                            setTableColumns(prev => {
+                                                                const arr = [...(prev || normalizedTableColumns)];
+                                                                const i = arr.findIndex(x => x.id === col.id);
+                                                                if (i < 0 || i >= arr.length - 1) return arr;
+                                                                const next = [...arr];
+                                                                [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                                                                return next;
+                                                            });
+                                                        }}
+                                                        className="p-1.5 rounded-md hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                        title="아래로"
+                                                    >
+                                                        <ArrowDown size={14} className="text-stone-600" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-[10px] text-stone-400 leading-relaxed">
+                                    작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시 반영됩니다.
+                                </p>
+                            </div>
                         </div>
 
-                        <div>
-                            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">3레벨 접두사 (예: T)</label>
-                            <input
-                                type="text"
-                                value={level3}
-                                onChange={(e) => setLevel3(e.target.value)}
-                                className="input-field"
-                                placeholder="T"
-                                maxLength={3}
-                            />
-                            <p className="text-[10px] text-stone-400 mt-1">예: T1.1.1, T1.1.2</p>
-                        </div>
+                        {/* Right Column */}
+                        <div className="space-y-8">
+                            {/* Status Name & Progress Settings */}
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-stone-200 pb-2">
+                                    <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭 및 진척도</h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const newId = `status-${Date.now()}`;
+                                            setStatusConfigs([...statusConfigs, { id: newId, name: '새 상태', progress: 0 }]);
+                                        }}
+                                        className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                                    >
+                                        <Plus size={14} />
+                                        상태 추가
+                                    </button>
+                                </div>
+                                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {statusConfigs.map((config, index) => (
+                                        <div key={config.id} className="flex gap-2 items-center group">
+                                            <div className="flex-1">
+                                                <input
+                                                    type="text"
+                                                    value={config.name}
+                                                    onChange={(e) => {
+                                                        const newConfigs = [...statusConfigs];
+                                                        newConfigs[index] = { ...config, name: e.target.value };
+                                                        setStatusConfigs(newConfigs);
+                                                    }}
+                                                    className="input-field py-1.5 text-xs"
+                                                    placeholder="명칭"
+                                                />
+                                            </div>
+                                            <div className="w-16 relative">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    value={config.progress}
+                                                    onChange={(e) => {
+                                                        const newConfigs = [...statusConfigs];
+                                                        newConfigs[index] = { ...config, progress: Number(e.target.value) };
+                                                        setStatusConfigs(newConfigs);
+                                                    }}
+                                                    className="input-field py-1.5 text-xs pr-5"
+                                                />
+                                                <span className="absolute right-1.5 top-1.5 text-[9px] text-stone-400 font-bold">%</span>
+                                            </div>
+                                            {statusConfigs.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setStatusConfigs(statusConfigs.filter((_, i) => i !== index));
+                                                    }}
+                                                    className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                                                    title="삭제"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="text-[10px] text-stone-400 mt-1 italic">작업 상태 변경 시 설정된 진척도가 자동으로 반영됩니다.</p>
+                            </div>
 
-                        <div className="pt-2">
-                            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">최대 표시 레벨</label>
-                            <select
-                                value={maxLevel}
-                                onChange={(e) => setMaxLevel(Number(e.target.value))}
-                                className="input-field bg-stone-50"
-                            >
-                                <option value={2}>2 레벨까지만 표시</option>
-                                <option value={3}>3 레벨까지만 표시 (기본값)</option>
-                                <option value={4}>4 레벨까지만 표시</option>
-                                <option value={5}>5 레벨 표기 허용</option>
-                            </select>
-                            <p className="text-[10px] text-stone-400 mt-1">모든 레벨에 ID가 부여되지만, 이 레벨보다 깊은 작업은 작업명에 ID가 표시되지 않습니다.</p>
+                            {/* Project Start Dates Settings */}
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">프로젝트 시작일 관리</h3>
+                                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {projects.map((p) => (
+                                        <div key={p.id} className="flex items-center justify-between gap-3 bg-white p-2 border border-stone-100 rounded-lg">
+                                            <div className="flex-1 truncate">
+                                                <label className="text-xs font-bold text-stone-600 truncate block" title={p.name}>
+                                                    {p.name}
+                                                </label>
+                                            </div>
+                                            <div className="flex-shrink-0">
+                                                <input
+                                                    type="date"
+                                                    value={projectDates[p.id] || ''}
+                                                    onChange={(e) => setProjectDates({ ...projectDates, [p.id]: e.target.value })}
+                                                    className="input-field py-1 text-[11px] h-7 w-28"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="pt-4 flex justify-end gap-3 border-t border-[var(--color-line)] mt-2">
+                    <div className="p-6 pt-4 flex justify-end gap-3 border-t border-[var(--color-line)] bg-white sticky bottom-0">
                         <button
                             type="button"
                             onClick={onClose}

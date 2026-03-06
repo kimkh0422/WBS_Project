@@ -1,38 +1,34 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Noto Sans KR", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
 
-  --color-bg: #F5F5F4;
-  /* Stone 100 */
+  --color-bg: #F8FAFC;
   --color-surface: #FFFFFF;
-  --color-ink: #1C1917;
-  /* Stone 900 */
-  --color-line: #E7E5E4;
-  /* Stone 200 */
+  --color-ink: #0F172A;
+  --color-ink-muted: #64748B;
+  --color-line: #E2E8F0;
+  --color-line-soft: #F1F5F9;
   --color-accent: #2563EB;
-  /* Blue 600 */
   --color-accent-hover: #1D4ED8;
-  /* Blue 700 */
+  --color-accent-soft: #EFF6FF;
   --color-danger: #DC2626;
-  /* Red 600 */
+  --color-danger-soft: #FEF2F2;
   --color-success: #16A34A;
-  /* Green 600 */
+  --color-success-soft: #F0FDF4;
   --color-warning: #D97706;
-  /* Amber 600 */
 }
 
 @layer base {
   body {
-    @apply bg-[var(--color-bg)] text-[var(--color-ink)] font-sans antialiased selection:bg-[var(--color-ink)] selection:text-white;
+    @apply bg-[var(--color-bg)] text-[var(--color-ink)] font-sans antialiased selection:bg-blue-200 selection:text-slate-900;
   }
 
   /* Custom Scrollbar */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -40,29 +36,33 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-stone-300 rounded-full hover:bg-stone-400 transition-colors;
+    @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-[var(--color-ink)] text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-stone-800 transition-all active:scale-95 shadow-sm;
+    @apply bg-[var(--color-ink)] text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-slate-800 transition-all duration-200 active:scale-[0.98] shadow-sm;
   }
 
   .btn-secondary {
-    @apply bg-white border border-[var(--color-line)] text-[var(--color-ink)] px-4 py-2 rounded-lg font-medium text-sm hover:bg-stone-50 transition-all active:scale-95 shadow-sm;
+    @apply bg-white border border-[var(--color-line)] text-[var(--color-ink)] px-4 py-2 rounded-xl font-medium text-sm hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 active:scale-[0.98] shadow-sm;
   }
 
   .btn-ghost {
-    @apply text-[var(--color-ink)] px-3 py-2 rounded-lg font-medium text-sm hover:bg-black/5 transition-all;
+    @apply text-[var(--color-ink-muted)] px-3 py-2 rounded-xl font-medium text-sm hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors duration-200;
   }
 
   .input-field {
-    @apply w-full bg-white border border-[var(--color-line)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-ink)]/10 focus:border-[var(--color-ink)] transition-all placeholder:text-stone-400;
+    @apply w-full bg-white border border-[var(--color-line)] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all duration-200 placeholder:text-slate-400;
   }
 
   .card {
     @apply bg-white border border-[var(--color-line)] rounded-xl shadow-sm;
+  }
+
+  .card-elevated {
+    @apply bg-white rounded-xl shadow-md border border-slate-100;
   }
 }
 
@@ -75,21 +75,24 @@
 .data-row {
   display: grid;
   align-items: center;
-  @apply border-b border-stone-100 bg-white transition-colors duration-150 text-xs border-l-4 border-l-transparent min-h-[34px];
+  @apply border-b border-slate-200/70 bg-white transition-colors duration-150 text-xs border-l-4 border-l-transparent;
+  height: var(--row-height, 34px);
 }
 
 .data-header {
   display: grid;
   align-items: center;
-  @apply bg-stone-50 border-b-2 border-stone-200 sticky top-0 z-10;
+  @apply bg-slate-50/80 border-b-2 border-slate-200 sticky top-0 z-10;
 }
 
 .col-header {
-  @apply px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400 select-none flex items-center gap-1;
+  @apply px-2.5 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 select-none flex items-center gap-1;
 }
 
 .data-cell {
-  @apply px-2.5 py-1 text-xs truncate flex items-center h-full;
+  @apply px-2.5 text-xs truncate flex items-center h-full;
+  padding-top: calc(var(--cell-padding, 4px));
+  padding-bottom: calc(var(--cell-padding, 4px));
 }
 
 /* Status Badges */

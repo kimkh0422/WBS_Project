@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'in-progress' | 'done' | 'blocked';
+export type TaskStatus = string;
 
 export type SortConfig = {
   key: keyof Task;
@@ -31,6 +31,7 @@ export interface Task {
 }
 
 export interface FilterState {
+  projectId: string; // 'all' or specific project id
   status: TaskStatus | 'all';
   assignee: string;
   startDate: string;
