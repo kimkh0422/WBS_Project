@@ -21,6 +21,7 @@ import { TutorialModal } from './components/TutorialModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
 import { v4 as uuidv4 } from 'uuid';
+import logo from './assets/logo.png';
 
 function formatCommitDate(value: string) {
   try {
@@ -493,7 +494,7 @@ function WBSApp() {
             onClick={() => window.location.reload()}
             title="새로고침"
           >
-            <img src="/src/assets/logo.png" alt="GMT Logo" className="w-8 h-8 object-contain" />
+            <img src={logo} alt="GMT Logo" className="w-8 h-8 object-contain" />
           </div>
           <div>
             <div className="flex items-baseline gap-2">
