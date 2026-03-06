@@ -102,6 +102,7 @@ function WBSApp() {
     wbsSettings,
     expandToLevel,
     setTreeExpandLevel,
+    isLoading,
   } = useWBS();
 
   const { push: pushToast, tipOnce } = useToast();
@@ -484,6 +485,18 @@ function WBSApp() {
   const hasActiveFilters = filterOn && (filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate);
   const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
   const effectiveFilters: FilterState = filterOn ? filters : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '' };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--color-bg)] font-sans text-[var(--color-ink)] gap-4">
+        <div className="flex items-center gap-3 text-stone-500">
+          <Loader2 size={28} className="animate-spin text-[var(--color-accent)]" />
+          <span className="text-lg font-medium">데이터를 불러오는 중...</span>
+        </div>
+        <p className="text-xs text-stone-400">Supabase DB에서 데이터를 가져오고 있습니다</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">

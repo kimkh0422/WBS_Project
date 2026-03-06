@@ -1,0 +1,250 @@
+import { supabase, ProjectRow, TaskRow, SettingsRow } from './supabase';
+import type { Task, Project } from '../types';
+import type { WBSSettings } from '../context/WBSContext';
+import type { BackupData } from './export';
+
+// ─── 변환 헬퍼 ────────────────────────────────────────────────────────────────
+
+function toTaskRow(task: Task, sortOrder: number): TaskRow {
+  return {
+    id: task.id,
+    project_id: task.projectId,
+    parent_id: task.parentId ?? null,
+    name: task.name,
+    start_date: task.startDate ?? '',
+    end_date: task.endDate ?? '',
+    progress: task.progress ?? 0,
+    assignee: task.assignee ?? '',
+    status: task.status ?? 'todo',
+    expanded: task.expanded ?? false,
+    dependencies: task.dependencies ?? [],
+    work_effort: task.workEffort ?? null,
+    description: task.description ?? null,
+    checklist: (task.checklist ?? []) as { id: string; text: string; completed: boolean }[],
+    deliverables: task.deliverables ?? null,
+    sort_order: sortOrder,
+  };
+}
+
+function fromTaskRow(row: TaskRow): Task {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    parentId: row.parent_id,
+    name: row.name,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    progress: row.progress,
+    assignee: row.assignee,
+    status: row.status as Task['status'],
+    expanded: row.expanded,
+    dependencies: row.dependencies ?? [],
+    workEffort: row.work_effort ?? undefined,
+    description: row.description ?? undefined,
+    checklist: row.checklist ?? [],
+    deliverables: row.deliverables ?? undefined,
+  };
+}
+
+function toProjectRow(project: Project): ProjectRow {
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description ?? null,
+    start_date: project.startDate ?? null,
+  };
+}
+
+function fromProjectRow(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    startDate: row.start_date ?? undefined,
+  };
+}
+
+function toSettingsRow(settings: WBSSettings): SettingsRow {
+  return {
+    id: 'default',
+    level1_prefix: settings.level1Prefix,
+    level2_prefix: settings.level2Prefix,
+    level3_prefix: settings.level3Prefix,
+    max_level: settings.maxLevel,
+  };
+}
+
+function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
+  return {
+    level1Prefix: row.level1_prefix,
+    level2Prefix: row.level2_prefix,
+    level3Prefix: row.level3_prefix,
+    maxLevel: row.max_level,
+  };
+}
+
+// ─── 조회 ─────────────────────────────────────────────────────────────────────
+
+export async function fetchProjects(): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data as ProjectRow[]).map(fromProjectRow);
+}
+
+export async function fetchTasks(): Promise<Task[]> {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return (data as TaskRow[]).map(fromTaskRow);
+}
+
+export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
+  const { data, error } = await supabase
+    .from('wbs_settings')
+    .select('*')
+    .eq('id', 'default')
+    .maybeSingle();
+  if (error) throw error;
+  return data ? fromSettingsRow(data as SettingsRow) : null;
+}
+
+// ─── 삽입/업데이트 ────────────────────────────────────────────────────────────
+
+export async function upsertProject(project: Project): Promise<void> {
+  const { error } = await supabase
+    .from('projects')
+    .upsert(toProjectRow(project));
+  if (error) throw error;
+}
+
+export async function upsertTask(task: Task, sortOrder: number): Promise<void> {
+  const { error } = await supabase
+    .from('tasks')
+    .upsert(toTaskRow(task, sortOrder));
+  if (error) throw error;
+}
+
+export async function upsertTasks(tasks: Task[]): Promise<void> {
+  if (tasks.length === 0) return;
+  const rows = tasks.map((t, i) => toTaskRow(t, i));
+  const { error } = await supabase.from('tasks').upsert(rows);
+  if (error) throw error;
+}
+
+export async function upsertSettings(settings: WBSSettings): Promise<void> {
+  const { error } = await supabase
+    .from('wbs_settings')
+    .upsert(toSettingsRow(settings));
+  if (error) throw error;
+}
+
+// ─── 삭제 ─────────────────────────────────────────────────────────────────────
+
+export async function deleteProjectFromDB(id: string): Promise<void> {
+  const { error } = await supabase.from('projects').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteTaskFromDB(id: string): Promise<void> {
+  // 하위 tasks는 DB에서 parent_id 참조 삭제 처리 (ON DELETE CASCADE 미설정으로 수동 처리)
+  const { error } = await supabase.from('tasks').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteTasksFromDB(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('tasks').delete().in('id', ids);
+  if (error) throw error;
+}
+
+export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('project_id', projectId);
+  if (error) throw error;
+}
+
+// ─── 전체 백업 복원 ───────────────────────────────────────────────────────────
+
+export async function restoreBackupToDB(data: BackupData): Promise<void> {
+  // 기존 데이터 전체 삭제 후 재삽입
+  const { error: delTasksErr } = await supabase
+    .from('tasks')
+    .delete()
+    .not('id', 'is', null);
+  if (delTasksErr) throw delTasksErr;
+
+  const { error: delProjErr } = await supabase
+    .from('projects')
+    .delete()
+    .not('id', 'is', null);
+  if (delProjErr) throw delProjErr;
+
+  if (data.projects.length > 0) {
+    const { error } = await supabase
+      .from('projects')
+      .insert(data.projects.map(toProjectRow));
+    if (error) throw error;
+  }
+
+  if (data.tasks.length > 0) {
+    const rows = data.tasks.map((t, i) => toTaskRow(t, i));
+    const { error } = await supabase.from('tasks').insert(rows);
+    if (error) throw error;
+  }
+
+  if (data.settings) {
+    await upsertSettings(data.settings);
+  }
+}
+
+// ─── localStorage 마이그레이션 ────────────────────────────────────────────────
+
+export async function migrateFromLocalStorage(): Promise<boolean> {
+  const savedProjects = localStorage.getItem('wbs-projects');
+  const savedTasks = localStorage.getItem('wbs-tasks');
+
+  if (!savedProjects && !savedTasks) return false;
+
+  try {
+    const projects: Project[] = savedProjects ? JSON.parse(savedProjects) : [];
+    const tasks: Task[] = savedTasks ? JSON.parse(savedTasks) : [];
+    const savedSettings = localStorage.getItem('wbs-settings');
+    const settings: WBSSettings | null = savedSettings ? JSON.parse(savedSettings) : null;
+
+    if (projects.length > 0) {
+      const { error } = await supabase
+        .from('projects')
+        .upsert(projects.map(toProjectRow));
+      if (error) throw error;
+    }
+
+    if (tasks.length > 0) {
+      const rows = tasks.map((t, i) => toTaskRow(t, i));
+      const { error } = await supabase.from('tasks').upsert(rows);
+      if (error) throw error;
+    }
+
+    if (settings) {
+      await upsertSettings(settings);
+    }
+
+    // 마이그레이션 완료 후 localStorage 정리
+    localStorage.removeItem('wbs-projects');
+    localStorage.removeItem('wbs-tasks');
+    localStorage.removeItem('wbs-settings');
+    localStorage.removeItem('wbs-current-project');
+
+    console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
+    return true;
+  } catch (err) {
+    console.error('[DB] 마이그레이션 실패:', err);
+    return false;
+  }
+}
