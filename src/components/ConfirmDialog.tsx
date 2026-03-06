@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -23,6 +23,8 @@ export function ConfirmDialog({
   cancelLabel = '취소',
   isDanger = false,
 }: ConfirmDialogProps) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if typing in an input inside a modal (though ConfirmDialog has no inputs, good practice)
@@ -33,10 +35,6 @@ export function ConfirmDialog({
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        onConfirm();
-        onClose();
       }
     };
 
@@ -45,6 +43,13 @@ export function ConfirmDialog({
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, onConfirm]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    // Ensure Enter works reliably by focusing the primary action.
+    // (window keydown may not fire depending on focus, e.g. DevTools.)
+    queueMicrotask(() => confirmButtonRef.current?.focus());
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -65,18 +70,20 @@ export function ConfirmDialog({
           <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{message}</p>
         </div>
 
-        <div className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30">
-          <button
-            onClick={onClose}
-            className="btn-ghost"
-          >
+        <form
+          className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onConfirm();
+            onClose();
+          }}
+        >
+          <button type="button" onClick={onClose} className="btn-ghost">
             {cancelLabel}
           </button>
           <button
-            onClick={() => {
-              onConfirm();
-              onClose();
-            }}
+            ref={confirmButtonRef}
+            type="submit"
             className={cn(
               "btn-primary",
               isDanger && "bg-red-600 hover:bg-red-700"
@@ -84,7 +91,7 @@ export function ConfirmDialog({
           >
             {confirmLabel}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

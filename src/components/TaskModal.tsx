@@ -175,7 +175,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    for (const item of Array.from(items)) {
+    for (const item of Array.from(items) as DataTransferItem[]) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
         const file = (item as any).getAsFile();

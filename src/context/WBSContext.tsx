@@ -27,6 +27,8 @@ interface WBSContextType {
   projects: Project[];
   currentProjectId: string;
   setCurrentProjectId: (id: string) => void;
+  selectedTaskIds: string[];
+  setSelectedTaskIds: (ids: string[]) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
   treeExpandLevel: number;
@@ -69,6 +71,14 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem('wbs-current-project');
     return saved || projects[0]?.id || '';
   });
+
+  // Shared selection for cross-view highlighting (Table ↔ Gantt)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+
+  // Reset selection when switching projects
+  useEffect(() => {
+    setSelectedTaskIds([]);
+  }, [currentProjectId]);
 
   const [allTasks, setAllTasks] = useState<Task[]>(() => {
     const saved = localStorage.getItem('wbs-tasks');
@@ -609,7 +619,7 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
         ? prev
         : prev.filter(t => t.projectId === currentProjectId);
       const relevantIds = new Set(relevant.map(t => t.id));
-      const taskMap = new Map(relevant.map(t => [t.id, t]));
+      const taskMap = new Map<string, Task>(relevant.map(t => [t.id, t] as const));
 
       const depthMemo = new Map<string, number>();
       const getDepth = (id: string): number => {
@@ -643,29 +653,32 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
 
   const importTasks = (newTasks: Task[]) => {
     saveHistory();
-    // Assign imported tasks to current project
+    // Assign imported tasks to current project.
+    // If user is currently on "all", fall back to the first project (same behavior as addTask()).
+    const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
     const tasksWithProject = newTasks.map(t => ({
       ...t,
-      projectId: currentProjectId
+      projectId: effectiveProjectId
     }));
 
     // Remove existing tasks for this project and add new ones
     setAllTasks(prev => {
       const next = [
-        ...prev.filter(t => t.projectId !== currentProjectId),
+        ...prev.filter(t => t.projectId !== effectiveProjectId),
         ...tasksWithProject
       ];
-      return recomputeProjectRollups(next, currentProjectId);
+      return recomputeProjectRollups(next, effectiveProjectId);
     });
   };
 
   const addTasks = (newTasks: Task[]) => {
     saveHistory();
+    const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
     const tasksWithProject = newTasks.map(t => ({
       ...t,
-      projectId: currentProjectId
+      projectId: effectiveProjectId
     }));
-    setAllTasks(prev => recomputeProjectRollups([...prev, ...tasksWithProject], currentProjectId));
+    setAllTasks(prev => recomputeProjectRollups([...prev, ...tasksWithProject], effectiveProjectId));
   };
 
   const deleteAllTasks = () => {
@@ -758,6 +771,8 @@ export function WBSProvider({ children }: { children: React.ReactNode }) {
       projects,
       currentProjectId,
       setCurrentProjectId,
+      selectedTaskIds,
+      setSelectedTaskIds,
       wbsSettings,
       updateWbsSettings,
       treeExpandLevel,

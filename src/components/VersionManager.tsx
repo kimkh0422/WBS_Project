@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, History, Tag, Clock, CheckCircle2 } from 'lucide-react';
+import { X, History, Clock, CheckCircle2 } from 'lucide-react';
 
 interface VersionHistory {
     version: string;
@@ -9,34 +9,17 @@ interface VersionHistory {
 
 const HISTORY_DATA: VersionHistory[] = [
     {
-        version: '1.2.0',
+        version: '0.1.0',
         date: '2026-03-06',
         changes: [
             'UI 한글화 (메뉴, 툴팁, 모달 등)',
             '프로젝트 선택 UI 개선 (가독성 강화)',
             '로고 디자인 조정 및 새로고침 기능 추가',
             '단축키 사이드바 표시/숨김 옵션 추가',
-            '하단 푸터 구성 및 라이선스 정보 추가'
-        ]
-    },
-    {
-        version: '1.1.0',
-        date: '2026-03-05',
-        changes: [
-            '상태 명칭 커스텀 기능 추가',
-            '상태별 자동 진척도 연동 시스템 구현',
-            '칸반 보드 내 카드 삭제 및 이름 수정 기능',
-            '전체 프로젝트 보기 모드 추가'
-        ]
-    },
-    {
-        version: '1.0.0',
-        date: '2026-03-01',
-        changes: [
-            'WBS 매니저 최초 런칭',
-            'WBS 목록 및 간트 차트 연동',
-            'AI 작업 분석 및 자동 생성 기능',
-            'Excel/JSON 데이터 가져오기 및 내보내기'
+            '하단 푸터 구성 및 라이선스 정보 추가',
+            '상태 명칭 커스텀 및 상태별 자동 진척도 연동',
+            '칸반 보드 카드 편집(이름 수정/삭제) 및 전체 프로젝트 보기',
+            'AI 작업 분석/자동 생성, Excel/JSON 가져오기·내보내기'
         ]
     }
 ];
@@ -50,6 +33,23 @@ interface VersionManagerProps {
 export function VersionManager({ isOpen, onClose, currentVersion }: VersionManagerProps) {
     if (!isOpen) return null;
 
+    const commitDateText = (() => {
+        try {
+            const d = new Date(__APP_COMMIT_DATE__);
+            if (Number.isNaN(d.getTime())) return __APP_COMMIT_DATE__;
+            return d.toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        } catch {
+            return __APP_COMMIT_DATE__;
+        }
+    })();
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[80vh]">
@@ -61,6 +61,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
                         <div>
                             <h2 className="text-lg font-bold text-stone-800">버전 히스토리</h2>
                             <p className="text-[11px] text-stone-400 font-medium">현재 버전: v{currentVersion}</p>
+                            <p className="text-[11px] text-stone-400 font-medium">수정일: {commitDateText}</p>
                         </div>
                     </div>
                     <button

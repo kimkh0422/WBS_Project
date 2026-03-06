@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate } from '../lib/utils';
-import { ChevronRight, ChevronDown, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks } from 'lucide-react';
+import { ChevronRight, ChevronDown, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2 } from 'lucide-react';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { ContextMenu } from './ContextMenu';
@@ -32,6 +32,7 @@ interface WBSTableProps {
   syncScrollRef?: React.RefObject<HTMLDivElement>;
   onRowHeightChange?: (h: number) => void;
   hotkeysEnabled?: boolean;
+  onOpenColumnSettings?: () => void;
 }
 
 type TableColumnId = 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'assignee' | 'status' | 'deliverables';
@@ -51,22 +52,42 @@ function getLevelStyle(level: number) {
   switch (level) {
     // GanttChart getLevelStyle의 레벨 컬러와 일치
     // 요청: 행 전체 배경색으로 레벨 구분
-    case 1: return { rowBg: 'rgba(168, 85, 247, 0.12)' }; // purple-500
-    case 2: return { rowBg: 'rgba(59, 130, 246, 0.12)' }; // blue-500
-    case 3: return { rowBg: 'rgba(16, 185, 129, 0.12)' }; // emerald-500
-    default: return { rowBg: 'rgba(168, 162, 158, 0.08)' }; // stone-400
+    case 1: return { rowBg: 'rgba(147, 51, 234, 0.20)' }; // purple-600
+    case 2: return { rowBg: 'rgba(37, 99, 235, 0.20)' }; // blue-600
+    case 3: return { rowBg: 'rgba(5, 150, 105, 0.20)' }; // emerald-600
+    default: return { rowBg: 'rgba(87, 83, 78, 0.14)' }; // stone-600-ish
   }
 }
 
-export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeightChange, hotkeysEnabled = true }: WBSTableProps) {
-  const { tasks, toggleExpand, expandToLevel, treeExpandLevel, setTreeExpandLevel, deleteTask, updateTask, addTask, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, reorderTask, wbsSettings, wbsMap, displayWbsMap } = useWBS();
+export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeightChange, hotkeysEnabled = true, onOpenColumnSettings }: WBSTableProps) {
+  const {
+    tasks,
+    toggleExpand,
+    expandToLevel,
+    treeExpandLevel,
+    setTreeExpandLevel,
+    deleteTask,
+    updateTask,
+    addTask,
+    moveTask,
+    indentTask,
+    outdentTask,
+    indentTasks,
+    outdentTasks,
+    reorderTask,
+    wbsSettings,
+    wbsMap,
+    displayWbsMap,
+    selectedTaskIds: sharedSelectedTaskIds,
+    setSelectedTaskIds: setSharedSelectedTaskIds
+  } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
 
   // Context Menu State
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'task' | 'header'; taskId?: string } | null>(null);
 
   // Clipboard state for copy-paste
   const CLIPBOARD_KEY = 'wbs-task-clipboard-v1';
@@ -221,7 +242,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
   const maxTreeLevel = useMemo(() => {
     if (tasks.length === 0) return 1;
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
+    const taskMap = new Map<string, Task>(tasks.map(t => [t.id, t] as const));
     const memo = new Map<string, number>();
     const depth = (id: string): number => {
       const cached = memo.get(id);
@@ -315,8 +336,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   }, [tasks, filters, sortConfig]);
 
   // Selection Logic
+  const setSelection = (next: Set<string>) => {
+    setSelectedTaskIds(next);
+    setSharedSelectedTaskIds(Array.from(next));
+  };
+
   const handleSelect = (taskId: string, multi: boolean, range: boolean) => {
-    const newSelected = new Set(multi ? selectedTaskIds : []);
+    const newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
 
     if (range && anchorTaskId) {
       const currentIndex = visibleTasks.findIndex(t => t.id === taskId);
@@ -345,15 +371,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       setAnchorTaskId(taskId);
     }
 
-    setSelectedTaskIds(newSelected);
+    setSelection(newSelected);
     setLastSelectedId(taskId);
   };
 
   const handleSelectAll = () => {
     if (selectedTaskIds.size === visibleTasks.length) {
-      setSelectedTaskIds(new Set());
+      setSelection(new Set());
     } else {
-      setSelectedTaskIds(new Set(visibleTasks.map(t => t.id)));
+      setSelection(new Set(visibleTasks.map(t => t.id)));
     }
   };
 
@@ -388,6 +414,95 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       if (target.tagName === 'INPUT') {
         const type = (target as HTMLInputElement).type;
         if (type !== 'checkbox' && type !== 'radio') return;
+      }
+
+      // Allow paste even when no row is selected (e.g. focus on empty space)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // Paste copied tasks into current project (supports cross-project via localStorage clipboard)
+        e.preventDefault();
+        const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
+        if (clipboard.length === 0) return;
+
+        // Paste target: if a row is selected, insert after it; otherwise append to the end.
+        const fallbackInsertAfterId = visibleTasks.length > 0 ? visibleTasks[visibleTasks.length - 1].id : undefined;
+        const baseInsertAfterId: string | undefined = lastSelectedId ?? fallbackInsertAfterId;
+
+        // If a row is selected, paste as siblings under its parent; otherwise paste as root items.
+        const selectedTask = lastSelectedId ? tasks.find(t => t.id === lastSelectedId) : undefined;
+        const pasteParentId: string | null = selectedTask?.parentId ?? null;
+
+        // IMPORTANT:
+        // addTask() generates a NEW id. If we precompute ids and set parentId/dependencies
+        // with those fake ids, children become orphans and won't render.
+        // So we build mapping from OLD -> ACTUAL NEW id returned from addTask().
+        const clipboardIdSet = new Set(clipboard.map(t => t.id));
+        const idToNewId = new Map<string, string>();
+
+        let insertAfterId: string | undefined = baseInsertAfterId;
+        const addedIds: string[] = [];
+
+        // Add tasks ensuring parents are created before children.
+        const pending = [...clipboard];
+        let safety = 0;
+        while (pending.length > 0 && safety < clipboard.length * 4) {
+          const idx = pending.findIndex(t => !t.parentId || !clipboardIdSet.has(t.parentId) || idToNewId.has(t.parentId));
+          const t = idx === -1 ? pending[0] : pending[idx];
+          pending.splice(idx === -1 ? 0 : idx, 1);
+
+          const isRootOfCopy = !(t.parentId && clipboardIdSet.has(t.parentId));
+          const newParentId = isRootOfCopy
+            ? pasteParentId
+            : (idToNewId.get(t.parentId!) ?? pasteParentId);
+
+          // Strip fields that shouldn't be copied as-is / computed fields.
+          // We also postpone dependency remap until all ids exist.
+          const { id: _id, projectId: _pid, depth: _depth, dependencies: _deps, ...rest } = t as any;
+          const addedId = addTask(
+            {
+              ...rest,
+              parentId: newParentId,
+              expanded: true,
+              dependencies: undefined,
+            },
+            isRootOfCopy ? insertAfterId : undefined
+          );
+
+          if (isRootOfCopy) insertAfterId = addedId;
+          idToNewId.set(t.id, addedId);
+          addedIds.push(addedId);
+          safety += 1;
+        }
+
+        // Remap dependencies inside the copied set after all ids are known
+        for (const t of clipboard) {
+          const newId = idToNewId.get(t.id);
+          if (!newId) continue;
+          const mappedDeps = (t.dependencies ?? [])
+            .filter(depId => clipboardIdSet.has(depId))
+            .map(depId => idToNewId.get(depId))
+            .filter(Boolean) as string[];
+          if (mappedDeps.length > 0) {
+            updateTask(newId, { dependencies: mappedDeps });
+          }
+        }
+
+        // Select newly pasted tasks
+        if (addedIds.length > 0) {
+          setSelection(new Set(addedIds));
+          setLastSelectedId(addedIds[addedIds.length - 1]);
+        }
+        return;
+      }
+
+      const effectiveSelectedIds =
+        selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : (sharedSelectedTaskIds || []);
+
+      if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
+        e.preventDefault();
+        if (effectiveSelectedIds.length > 0) {
+          setDeleteConfirm({ isOpen: true, taskIds: effectiveSelectedIds });
+        }
+        return;
       }
 
       if (!lastSelectedId) return;
@@ -436,11 +551,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             indentTasks(orderedIds);
           }
         }
-      } else if (e.key === 'Delete') {
-        e.preventDefault();
-        if (selectedTaskIds.size > 0) {
-          setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
-        }
       } else if (e.key === 'Enter') {
         e.preventDefault();
         if (selectedTaskIds.size === 1) {
@@ -474,7 +584,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               updateTask(task.id, { expanded: true });
             }
 
-            setSelectedTaskIds(new Set([newId]));
+            setSelection(new Set([newId]));
             setLastSelectedId(newId);
             setInlineEditingNameId(newId);
           }
@@ -507,62 +617,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             // ignore storage errors (private mode, quota, etc.)
           }
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // Paste copied tasks into current project (supports cross-project via localStorage clipboard)
-        e.preventDefault();
-        const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
-        if (clipboard.length === 0) return;
-
-        // Build new ID map so we can remap parent IDs within the copied set
-        const idMap = new Map<string, string>();
-        clipboard.forEach(t => { idMap.set(t.id, uuidv4()); });
-
-        // Paste target: insert after the currently selected row; keep same parent (sibling paste).
-        const selectedTask = lastSelectedId ? tasks.find(t => t.id === lastSelectedId) : undefined;
-        const pasteParentId: string | null = selectedTask?.parentId ?? null;
-
-        // Remap parent IDs:
-        // - If a task's original parent is also in the copied set, keep the newly mapped ID (preserve internal hierarchy)
-        // - Otherwise (root of copied set), make it a sibling group under pasteParentId
-        const newTasks: Task[] = clipboard.map(t => {
-          const newId = idMap.get(t.id)!;
-          const newParentId =
-            t.parentId && idMap.has(t.parentId)
-              ? idMap.get(t.parentId)!
-              : pasteParentId;
-          const deps = (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!);
-          return {
-            ...t,
-            id: newId,
-            parentId: newParentId,
-            dependencies: deps.length > 0 ? deps : undefined,
-            expanded: true,
-          };
-        });
-
-        // Insert all tasks. For root-level tasks (whose parentId == pasteParentId),
-        // insert one after another (each new one after the previous added); for
-        // child tasks, just append them (addTask will place them in tree order).
-        let insertAfterId: string | undefined = lastSelectedId ?? undefined;
-        const addedIds: string[] = [];
-        for (const nt of newTasks) {
-          const { id: _id, projectId: _pid, depth: _depth, ...rest } = nt as any;
-          // Only track insertAfterId for root-level pasted tasks
-          const isRootOfPaste = nt.parentId === pasteParentId;
-          const addedId = addTask(rest, isRootOfPaste ? insertAfterId : undefined);
-          if (isRootOfPaste) insertAfterId = addedId;
-          addedIds.push(addedId);
-        }
-
-        // Select newly pasted tasks
-        setSelectedTaskIds(new Set(addedIds));
-        setLastSelectedId(addedIds[addedIds.length - 1]);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, selectedTaskIds, lastSelectedId, visibleTasks, editingTask, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask]);
+  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask]);
 
   const handleQuickAddCancel = () => {
     setInlineAddingTaskId(null);
@@ -589,7 +649,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     setInsertTargetId(null);
 
     // Select the newly added task so pressing Enter again adds below it
-    setSelectedTaskIds(new Set([newId]));
+    setSelection(new Set([newId]));
     setLastSelectedId(newId);
   };
 
@@ -633,7 +693,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     if (!selectedTaskIds.has(taskId)) {
       handleSelect(taskId, false, false);
     }
-    setContextMenu({ x: e.clientX, y: e.clientY, taskId });
+    setContextMenu({ x: e.clientX, y: e.clientY, type: 'task', taskId });
+  };
+
+  const handleHeaderContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, type: 'header' });
   };
 
   const handleDeleteClick = (taskId: string) => {
@@ -684,11 +749,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
     // 4. Update selection
     if (nextSelectId) {
-      setSelectedTaskIds(new Set([nextSelectId]));
+      setSelection(new Set([nextSelectId]));
       setLastSelectedId(nextSelectId);
       setAnchorTaskId(nextSelectId);
     } else {
-      setSelectedTaskIds(new Set());
+      setSelection(new Set());
       setLastSelectedId(null);
       setAnchorTaskId(null);
     }
@@ -725,7 +790,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       updateTask(id, { workEffort: value });
     });
     setBulkWorkEffort('');
-    setSelectedTaskIds(new Set());
+    setSelection(new Set());
     setLastSelectedId(null);
   };
 
@@ -739,7 +804,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       updateTask(id, updates);
     });
     setBulkStatus('');
-    setSelectedTaskIds(new Set());
+    setSelection(new Set());
     setLastSelectedId(null);
   };
 
@@ -750,7 +815,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       updateTask(id, { assignee: value });
     });
     setBulkAssignee('');
-    setSelectedTaskIds(new Set());
+    setSelection(new Set());
     setLastSelectedId(null);
   };
 
@@ -882,45 +947,55 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const content = (
     <>
       {/* === Summary Bar === */}
-      {summaryStats && (
+      {(isSplitView || summaryStats) && (
         <div className={cn(
-          "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
-          summaryStats.isSelection ? "border-blue-200 bg-blue-50" : "border-[var(--color-line)]"
+          // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
+          isSplitView
+            ? "h-11 flex items-center gap-0 border-b px-4 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto whitespace-nowrap"
+            : "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
+          summaryStats?.isSelection ? "border-blue-200 bg-blue-50" : "border-[var(--color-line)]"
         )}>
-          {summaryStats.isSelection && (
-            <span className="text-[10px] font-bold text-blue-500 mr-3 bg-blue-100 px-2 py-0.5 rounded-full">선택 {summaryStats.taskCount}개</span>
-          )}
-          <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
-          <Divider />
-          <StatChip icon={<Clock size={12} />} label="총 공수" value={`${summaryStats.totalEffort.toLocaleString()}일`} />
-          <Divider />
-          <StatChip icon={<TrendingUp size={12} />} label="평균 진척" value={`${summaryStats.avgProgress}%`} />
-          <Divider />
-          <StatChip icon={<CalendarDays size={12} />} label="기간" value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`} />
+          {summaryStats ? (
+            <>
+              {summaryStats.isSelection && (
+                <span className="text-[10px] font-bold text-blue-500 mr-3 bg-blue-100 px-2 py-0.5 rounded-full">선택 {summaryStats.taskCount}개</span>
+              )}
+              <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
+              <Divider />
+              <StatChip icon={<Clock size={12} />} label="총 공수" value={`${summaryStats.totalEffort.toLocaleString()}일`} />
+              <Divider />
+              <StatChip icon={<TrendingUp size={12} />} label="평균 진척" value={`${summaryStats.avgProgress}%`} />
+              <Divider />
+              <StatChip icon={<CalendarDays size={12} />} label="기간" value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`} />
 
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">레벨 펼치기</span>
-            <select
-              className="h-7 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              value={treeExpandLevel}
-              onChange={(e) => {
-                const lv = parseInt(e.target.value, 10);
-                setTreeExpandLevel(lv);
-                expandToLevel(lv);
-              }}
-              title="레벨 기준 펼치기"
-            >
-              {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map(lv => (
-                <option key={lv} value={lv}>{lv}레벨</option>
-              ))}
-            </select>
-          </div>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">레벨 펼치기</span>
+                <select
+                  className="h-7 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  value={treeExpandLevel}
+                  onChange={(e) => {
+                    const lv = parseInt(e.target.value, 10);
+                    setTreeExpandLevel(lv);
+                    expandToLevel(lv);
+                  }}
+                  title="레벨 기준 펼치기"
+                >
+                  {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map(lv => (
+                    <option key={lv} value={lv}>{lv}레벨</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            // split view에서만 높이 유지를 위한 빈 내용
+            <div className="flex-1" />
+          )}
         </div>
       )}
       <div className={cn("w-full pb-20", isSplitView && "flex-1 min-h-0 flex flex-col")} style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}>
         {/* Split view: 헤더를 스크롤 밖에 두어 표·간트 행만 스크롤로 1:1 맞춤 */}
         {isSplitView && (
-          <div className="data-header flex-shrink-0 border-b border-slate-200 bg-slate-50/80" style={headerStyle}>
+          <div className="data-header flex-shrink-0 border-b border-slate-200 bg-slate-50/80" style={headerStyle} onContextMenu={handleHeaderContextMenu}>
             <div className="col-header justify-center relative">
               <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
             </div>
@@ -958,7 +1033,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
           <div className="min-w-fit w-full bg-white relative">
             {/* Non-split: 헤더는 스크롤 안에 (기존 동작) */}
             {!isSplitView && (
-              <div className="data-header" style={gridStyle}>
+              <div className="data-header" style={gridStyle} onContextMenu={handleHeaderContextMenu}>
                 <div className="col-header justify-center relative">
                   <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
                 </div>
@@ -1145,7 +1220,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                 {selectedTaskIds.size}개 선택됨
               </span>
               <button
-                onClick={() => { setSelectedTaskIds(new Set()); setBulkStatus(''); setBulkAssignee(''); setBulkWorkEffort(''); setBulkProgress(''); }}
+                onClick={() => { setSelection(new Set()); setBulkStatus(''); setBulkAssignee(''); setBulkWorkEffort(''); setBulkProgress(''); }}
                 className="text-white/60 hover:text-white transition-colors"
                 title="선택 해제"
               >
@@ -1233,7 +1308,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               삭제
             </button>
             <button
-              onClick={() => setSelectedTaskIds(new Set())}
+              onClick={() => setSelection(new Set())}
               className="p-1.5 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
             >
               <X size={14} />
@@ -1255,48 +1330,63 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
-          actions={[
-            {
-              label: '수정',
-              icon: <Edit2 size={14} />,
-              onClick: () => {
-                const task = tasks.find(t => t.id === contextMenu.taskId);
-                if (task) setEditingTask(task);
-              }
-            },
-            {
-              label: '하위 작업 추가',
-              icon: <CornerDownRight size={14} />,
-              onClick: () => {
-                const parent = tasks.find(t => t.id === contextMenu.taskId);
-                if (parent) {
-                  const today = new Date().toISOString().split('T')[0];
-                  setEditingTask({
-                    id: '', // New task marker
-                    parentId: parent.id,
-                    name: '',
-                    startDate: today,
-                    endDate: today,
-                    progress: 0,
-                    assignee: '',
-                    status: 'todo'
-                  } as Task);
-                }
-              }
-            },
-            {
-              label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
-              icon: <Trash2 size={14} />,
-              danger: true,
-              onClick: () => {
-                if (selectedTaskIds.size > 1 && selectedTaskIds.has(contextMenu.taskId)) {
-                  setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
-                } else {
-                  handleDeleteClick(contextMenu.taskId);
-                }
-              }
-            }
-          ]}
+          actions={
+            contextMenu.type === 'header'
+              ? [
+                  {
+                    label: '컬럼 설정',
+                    icon: <Settings2 size={14} />,
+                    onClick: () => onOpenColumnSettings?.(),
+                  },
+                ]
+              : [
+                  {
+                    label: '수정',
+                    icon: <Edit2 size={14} />,
+                    onClick: () => {
+                      const task = tasks.find(t => t.id === contextMenu.taskId);
+                      if (task) setEditingTask(task);
+                    }
+                  },
+                  {
+                    label: '하위 작업 추가',
+                    icon: <CornerDownRight size={14} />,
+                    onClick: () => {
+                      const parent = tasks.find(t => t.id === contextMenu.taskId);
+                      if (parent) {
+                        const today = new Date().toISOString().split('T')[0];
+                        setEditingTask({
+                          id: '', // New task marker
+                          parentId: parent.id,
+                          name: '',
+                          startDate: today,
+                          endDate: today,
+                          progress: 0,
+                          assignee: '',
+                          status: 'todo'
+                        } as Task);
+                      }
+                    }
+                  },
+                  {
+                    label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
+                    icon: <Trash2 size={14} />,
+                    danger: true,
+                    onClick: () => {
+                      if (selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)) {
+                        setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
+                      } else if (contextMenu.taskId) {
+                        handleDeleteClick(contextMenu.taskId);
+                      }
+                    }
+                  },
+                  {
+                    label: '컬럼 설정',
+                    icon: <Settings2 size={14} />,
+                    onClick: () => onOpenColumnSettings?.(),
+                  },
+                ]
+          }
         />
       )}
 

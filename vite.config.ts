@@ -3,9 +3,17 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import fs from 'fs';
+import { execSync } from 'child_process';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const commitDate = (() => {
+    try {
+      return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch {
+      return new Date().toISOString();
+    }
+  })();
   return {
     plugins: [react(), tailwindcss()],
     define: {
@@ -13,6 +21,7 @@ export default defineConfig(({ mode }) => {
       '__APP_VERSION__': JSON.stringify(
         fs.existsSync('./version.txt') ? fs.readFileSync('./version.txt', 'utf-8').trim() : '0.0.0'
       ),
+      '__APP_COMMIT_DATE__': JSON.stringify(commitDate),
     },
     resolve: {
       alias: {

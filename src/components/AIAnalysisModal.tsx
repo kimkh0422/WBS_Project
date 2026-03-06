@@ -1,12 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch } from 'lucide-react';
+import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { Task, TaskStatus } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
+
+type Attachment = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  text: string;
+  truncated?: boolean;
+};
 
 interface AIAnalysisModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onBusyChange?: (busy: boolean) => void;
   onImport: (tasks: Task[], replace?: boolean) => void;
   currentProjectId: string;
   existingTasks?: Task[];
@@ -23,7 +34,7 @@ interface AIResponseTask {
   subtasks?: AIResponseTask[];
 }
 
-export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, existingTasks = [] }: AIAnalysisModalProps) {
+export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, currentProjectId, existingTasks = [] }: AIAnalysisModalProps) {
   const [inputText, setInputText] = useState('');
   const [userRequest, setUserRequest] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,6 +46,24 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
   const [dependencyResults, setDependencyResults] = useState<{ taskId: string; dependsOn: string[] }[]>([]);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini-api-key') || '');
   const [tempApiKey, setTempApiKey] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    onBusyChange?.(isLoading);
+    return () => {
+      onBusyChange?.(false);
+    };
+  }, [isLoading, onBusyChange]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,6 +83,104 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const formatBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    const v = bytes / Math.pow(1024, i);
+    const s = v >= 10 || i === 0 ? v.toFixed(0) : v.toFixed(1);
+    return `${s} ${units[i]}`;
+  };
+
+  const readFileAsText = (file: File) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = (e) => reject(e);
+      reader.readAsText(file);
+    });
+  };
+
+  const excelFileToMarkdown = async (file: File): Promise<{ text: string; truncated: boolean }> => {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return { text: '(엑셀 시트가 없습니다)', truncated: false };
+    const ws = wb.Sheets[sheetName];
+
+    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+    if (!rows || rows.length === 0) return { text: '(빈 시트)', truncated: false };
+
+    const MAX_ROWS = 60;
+    const MAX_COLS = 18;
+    const limited = rows.slice(0, MAX_ROWS).map(r => (Array.isArray(r) ? r.slice(0, MAX_COLS) : []));
+    const truncated = rows.length > MAX_ROWS || Math.max(...limited.map(r => r.length), 0) > MAX_COLS;
+
+    const headerRow = (limited[0] ?? []).map(v => String(v ?? '').trim());
+    const safeHeader = headerRow.map((h, i) => (h ? h : `컬럼${i + 1}`));
+
+    const bodyRows = limited.slice(1).map(r => safeHeader.map((_, i) => String(r?.[i] ?? '').replace(/\r?\n/g, ' ').trim()));
+    const esc = (s: string) => s.replace(/\|/g, '\\|');
+
+    const mdLines: string[] = [];
+    mdLines.push(`시트: ${sheetName}`);
+    mdLines.push('');
+    mdLines.push(`| ${safeHeader.map(esc).join(' | ')} |`);
+    mdLines.push(`| ${safeHeader.map(() => '---').join(' | ')} |`);
+    for (const r of bodyRows) {
+      mdLines.push(`| ${r.map(v => esc(v)).join(' | ')} |`);
+    }
+    if (truncated) mdLines.push('', '(표는 일부만 첨부되었습니다: 행/열 제한)');
+    return { text: mdLines.join('\n'), truncated };
+  };
+
+  const attachmentBlock = useMemo(() => {
+    if (attachments.length === 0) return '';
+    const parts = attachments.map(a => {
+      const meta = `파일명: ${a.name} (${formatBytes(a.size)})`;
+      const content = a.text?.trim() ? a.text.trim() : '(내용 없음)';
+      return `---\n${meta}\n\n${content}\n`;
+    });
+    return `\n\n[첨부파일 내용]\n${parts.join('\n')}`.trim();
+  }, [attachments]);
+
+  const hasAnyInput = inputText.trim().length > 0 || attachmentBlock.trim().length > 0;
+
+  const addFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setError(null);
+
+    const next: Attachment[] = [];
+    for (const f of files) {
+      try {
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        const isExcel = ext === 'xlsx' || ext === 'xls' || ext === 'xlsm' || f.type.includes('spreadsheet') || f.type.includes('excel');
+        const textResult = isExcel
+          ? await excelFileToMarkdown(f)
+          : { text: await readFileAsText(f), truncated: false };
+
+        // Hard guard against huge prompts
+        const MAX_CHARS = 40_000;
+        const isTrunc = textResult.truncated || textResult.text.length > MAX_CHARS;
+        const clipped = textResult.text.length > MAX_CHARS ? `${textResult.text.slice(0, MAX_CHARS)}\n\n(내용이 길어 일부만 첨부되었습니다: 글자수 제한)` : textResult.text;
+
+        next.push({
+          id: crypto.randomUUID(),
+          name: f.name,
+          type: f.type,
+          size: f.size,
+          text: clipped,
+          truncated: isTrunc,
+        });
+      } catch (e: any) {
+        console.error('Failed to read attachment', f?.name, e);
+        setError(`파일을 읽는 중 오류가 발생했습니다: ${f?.name || '알 수 없는 파일'}`);
+      }
+    }
+    if (next.length > 0) setAttachments(prev => [...prev, ...next]);
+  };
+
+  // Keep component mounted even when closed so background analysis can continue.
   if (!isOpen) return null;
 
   const handleSaveApiKey = () => {
@@ -74,7 +201,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
       return;
     }
 
-    if (!useExisting && !inputText.trim()) return;
+    if (!useExisting && !hasAnyInput) return;
 
     setIsLoading(true);
     setIsReanalyzing(useExisting);
@@ -134,6 +261,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
           }
         `;
       } else {
+        const combinedInput = [inputText.trim(), attachmentBlock.trim()].filter(Boolean).join('\n\n');
         prompt = `
           당신은 프로젝트 관리 전문가입니다. 다음 프로젝트 설명을 분석하여 체계적인 WBS(Work Breakdown Structure)를 작성해 주세요.
           
@@ -142,7 +270,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
           ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
           
           입력 텍스트:
-          "${inputText}"
+          "${combinedInput}"
           
           요구사항:
           1. 프로젝트를 주요 단계(Phase) 또는 작업 유형(예: 기획, 디자인, 개발, 테스트, 배포 등)으로 그룹화하여 최상위 작업으로 설정하세요.
@@ -213,14 +341,17 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
 
       parsed.tasks.forEach((t: AIResponseTask) => processTask(t));
 
-      setGeneratedTasks(flattenedTasks);
-      setStep('preview');
+      if (isMountedRef.current) {
+        // Auto-import on completion (skip preview)
+        onImport(flattenedTasks, useExisting);
+        handleResetAndClose();
+      }
 
     } catch (err: any) {
       console.error("AI Analysis Error:", err);
-      setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
+      if (isMountedRef.current) setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   };
 
@@ -290,13 +421,15 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
         }))
         .filter((d: any) => d.dependsOn.length > 0);
 
-      setDependencyResults(validated);
-      setStep('preview');
+      if (isMountedRef.current) {
+        setDependencyResults(validated);
+        setStep('preview');
+      }
     } catch (err: any) {
       console.error("Dependency Analysis Error:", err);
-      setError(err.message || "선행관계 분석에 실패했습니다.");
+      if (isMountedRef.current) setError(err.message || "선행관계 분석에 실패했습니다.");
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
   };
 
@@ -307,24 +440,35 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
       dependencies: depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || []),
     }));
     onImport(updatedTasks, true);
-    handleClose();
+    handleResetAndClose();
   };
 
   const handleImport = () => {
     onImport(generatedTasks, isReanalyzing);
-    handleClose();
+    handleResetAndClose();
   };
 
-  const handleClose = () => {
+  const handleReset = () => {
     setInputText('');
     setUserRequest('');
     setGeneratedTasks([]);
     setDependencyResults([]);
+    setAttachments([]);
+    setIsDragActive(false);
     setStep('input');
     setAnalysisMode('generate');
     setError(null);
     setIsLoading(false);
     setIsReanalyzing(false);
+  };
+
+  const handleResetAndClose = () => {
+    handleReset();
+    onClose();
+  };
+
+  // Background-friendly close: hide modal but keep state/results.
+  const handleHide = () => {
     onClose();
   };
 
@@ -358,7 +502,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
                 <Settings size={18} />
               </button>
             )}
-            <button onClick={handleClose} className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]" title="닫기">
+            <button onClick={handleHide} className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]" title="닫기">
               <X size={18} />
             </button>
           </div>
@@ -407,6 +551,126 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
                 프로젝트 요구사항, 회의록 또는 대략적인 계획을 아래에 붙여넣으세요.
                 AI가 분석하여 단계별로 그룹화된 체계적인 WBS를 생성합니다.
               </p>
+
+              {/* Attachments (Drag & Drop) */}
+              <div
+                className={[
+                  "rounded-xl border border-dashed p-4 transition-all select-none",
+                  isDragActive
+                    ? "border-purple-400 bg-purple-50/60"
+                    : "border-stone-200 bg-stone-50/60 hover:bg-stone-50",
+                ].join(' ')}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(true);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(false);
+                }}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDragActive(false);
+                  const dropped = Array.from(e.dataTransfer.files || []) as File[];
+                  await addFiles(dropped);
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={["p-2 rounded-lg border", isDragActive ? "bg-white border-purple-200 text-purple-600" : "bg-white border-stone-200 text-stone-500"].join(' ')}>
+                    <UploadCloud size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-stone-700 truncate">파일을 드래그해서 추가 (선택)</p>
+                        <p className="text-xs text-stone-500 mt-0.5">
+                          지원: <span className="font-mono">.xlsx .xls .md .txt .csv</span> (내용은 브라우저에서만 읽어 AI 입력에 포함됩니다)
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isLoading}
+                          className="btn-secondary text-stone-700 border-stone-200 hover:bg-white flex items-center gap-2"
+                        >
+                          <UploadCloud size={16} />
+                          파일 선택
+                        </button>
+                        {attachments.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setAttachments([])}
+                            disabled={isLoading}
+                            className="btn-ghost text-red-500 hover:bg-red-50 flex items-center gap-2"
+                            title="첨부파일 모두 제거"
+                          >
+                            <Trash2 size={16} />
+                            제거
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {attachments.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {attachments.map(a => {
+                          const isExcel = a.name.toLowerCase().endsWith('.xlsx') || a.name.toLowerCase().endsWith('.xls') || a.name.toLowerCase().endsWith('.xlsm');
+                          return (
+                            <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg bg-white border border-stone-200">
+                              <div className={["p-1.5 rounded-md border", isExcel ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-blue-50 border-blue-200 text-blue-700"].join(' ')}>
+                                {isExcel ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs font-semibold text-stone-700 truncate">{a.name}</p>
+                                  <span className="text-[10px] text-stone-400 font-mono shrink-0">{formatBytes(a.size)}</span>
+                                  {a.truncated && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
+                                      일부만 첨부
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))}
+                                disabled={isLoading}
+                                className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
+                                title="첨부 제거"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept=".xlsx,.xls,.xlsm,.md,.txt,.csv,text/plain,text/markdown,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []) as File[];
+                    if (files.length > 0) await addFiles(files);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                />
+              </div>
+
               <textarea
                 className="w-full h-48 p-4 rounded-xl border border-stone-200 focus:border-[var(--color-accent)] focus:ring-2 focus:ring-blue-100 outline-none resize-none text-sm leading-relaxed"
                 placeholder="예시: 새로운 전자상거래 웹사이트를 구축해야 합니다. 기획, 디자인, 개발(프론트엔드/백엔드), 테스트 단계로 진행될 예정입니다. 주요 기능으로는 회원가입, 상품 목록, 장바구니, 결제 시스템이 필요하며, 전체 일정은 약 3개월입니다..."
@@ -545,7 +809,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
             </>
           ) : step === 'input' ? (
             <>
-              <button onClick={handleClose} className="btn-ghost mr-auto">
+              <button onClick={handleHide} className="btn-ghost mr-auto">
                 취소
               </button>
 
@@ -580,7 +844,7 @@ export function AIAnalysisModal({ isOpen, onClose, onImport, currentProjectId, e
 
               <button
                 onClick={() => handleAnalyze(false)}
-                disabled={!inputText.trim() || isLoading}
+                disabled={!hasAnyInput || isLoading}
                 className="btn-primary bg-purple-600 hover:bg-purple-700 border-transparent flex items-center gap-2"
               >
                 {isLoading && !isReanalyzing ? (

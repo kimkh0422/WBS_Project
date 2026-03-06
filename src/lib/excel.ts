@@ -22,6 +22,521 @@ const REVERSE_HEADER_MAP: Record<string, keyof Task> = Object.entries(HEADER_MAP
   {}
 );
 
+const normalizeHeader = (s: unknown) =>
+  String(s ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[()【】\[\]{}]/g, '')
+    .replace(/[*·:]/g, '');
+
+const toIsoDate = (val: unknown): string | '' => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') {
+    const s = val.trim();
+    // Already ISO-ish
+    const iso = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (iso) {
+      const y = iso[1];
+      const m = iso[2].padStart(2, '0');
+      const d = iso[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return '';
+  }
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    // Excel date serial
+    const parsed = XLSX.SSF.parse_date_code(val);
+    if (!parsed) return '';
+    const y = String(parsed.y).padStart(4, '0');
+    const m = String(parsed.m).padStart(2, '0');
+    const d = String(parsed.d).padStart(2, '0');
+    if (parsed.y && parsed.m && parsed.d) return `${y}-${m}-${d}`;
+    return '';
+  }
+  return '';
+};
+
+const toNumber = (val: unknown): number | undefined => {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === 'number' && Number.isFinite(val)) return val;
+  const s = String(val).trim();
+  if (!s) return undefined;
+  // "80%" -> 80
+  const pct = s.match(/^(\d+(?:\.\d+)?)\s*%$/);
+  if (pct) return Number(pct[1]);
+  const n = Number(s.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const parseStatus = (val: unknown): TaskStatus | '' => {
+  const s = normalizeHeader(val);
+  if (!s) return '';
+  if (['todo', '할일', '할일', '대기', '미착수', 'notstarted', 'open'].includes(s)) return 'todo';
+  if (['in-progress', 'inprogress', '진행', '진행중', '진행중', 'doing', 'wip'].includes(s)) return 'in-progress';
+  if (['done', '완료', '종료', 'closed', 'finish', 'finished'].includes(s)) return 'done';
+  if (['blocked', '지연', '지연됨', '중단', '막힘', 'hold'].includes(s)) return 'blocked';
+  return '';
+};
+
+const normalizeWbsKey = (val: unknown): string => {
+  const raw = String(val ?? '').trim();
+  if (!raw) return '';
+  // keep dots for hierarchy, remove spaces
+  const s = raw.replace(/\s+/g, '');
+  // common formats: "1.2.3", "W1.2", "T1.1.3", "1-2-3"
+  return s.replace(/-/g, '.');
+};
+
+const guessColumnIndex = (headers: string[], candidates: string[]) => {
+  const normalized = headers.map(normalizeHeader);
+  const normCandidates = candidates.map(normalizeHeader).filter(Boolean);
+
+  // 1) Exact match
+  for (const c of normCandidates) {
+    const idx = normalized.indexOf(c);
+    if (idx !== -1) return idx;
+  }
+
+  // 2) Fuzzy match (contains)
+  for (const c of normCandidates) {
+    if (c.length < 2) continue;
+    for (let i = 0; i < normalized.length; i++) {
+      const h = normalized[i];
+      if (!h) continue;
+      if (h.includes(c) || c.includes(h)) return i;
+    }
+  }
+
+  return -1;
+};
+
+const fillMergedHeaders = (headers: string[]) => {
+  const out = [...headers];
+  for (let i = 1; i < out.length; i++) {
+    if (!String(out[i] ?? '').trim() && String(out[i - 1] ?? '').trim()) {
+      out[i] = out[i - 1];
+    }
+  }
+  return out;
+};
+
+const adjustIndexForMergedHeader = (rows: any[][], headers: string[], idx: number) => {
+  if (idx < 0) return idx;
+  const target = normalizeHeader(headers[idx]);
+  if (!target) return idx;
+
+  const sample = rows.slice(0, Math.min(60, rows.length));
+  const nonEmptyCount = (col: number) => {
+    if (col < 0) return 0;
+    let c = 0;
+    for (const r of sample) {
+      const v = Array.isArray(r) ? r[col] : undefined;
+      if (String(v ?? '').trim()) c += 1;
+    }
+    return c;
+  };
+
+  const here = nonEmptyCount(idx);
+  const right = idx + 1 < headers.length && normalizeHeader(headers[idx + 1]) === target ? nonEmptyCount(idx + 1) : -1;
+  const left = idx - 1 >= 0 && normalizeHeader(headers[idx - 1]) === target ? nonEmptyCount(idx - 1) : -1;
+
+  // If adjacent column under the same (merged) header has far more values, use it.
+  if (right >= 0 && right > here * 2) return idx + 1;
+  if (left >= 0 && left > here * 2) return idx - 1;
+  return idx;
+};
+
+const scoreHeaderRow = (headers: string[]) => {
+  const nameIdx = guessColumnIndex(headers, ['작업명', '작업*', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
+  const wbsIdx = guessColumnIndex(headers, ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS']);
+  const startIdx = guessColumnIndex(headers, ['시작일', '시작일*', '시작', 'start', 'startdate', 'from']);
+  const endIdx = guessColumnIndex(headers, ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate']);
+  const assigneeIdx = guessColumnIndex(headers, ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서']);
+  const progressIdx = guessColumnIndex(headers, [
+    '실적*',
+    '실적',
+    '실적진척률',
+    '%workcomplete',
+    '진행률',
+    '진행',
+    '진척률',
+    '진척율',
+    'progress',
+    'percent',
+    '%',
+  ]);
+  const statusIdx = guessColumnIndex(headers, ['상태', 'status', '진행상태', 'state']);
+  const effortIdx = guessColumnIndex(headers, [
+    '작업공수',
+    '공수',
+    'effort',
+    '총작업량',
+    '작업량',
+    'man/day',
+    'man-day',
+    'man day',
+    'manday',
+    'md',
+    'duration',
+  ]);
+  let score = 0;
+  if (nameIdx >= 0) score += 6;
+  if (wbsIdx >= 0) score += 3;
+  if (startIdx >= 0) score += 3;
+  if (endIdx >= 0) score += 3;
+  if (assigneeIdx >= 0) score += 1;
+  if (progressIdx >= 0) score += 1;
+  if (statusIdx >= 0) score += 1;
+  if (effortIdx >= 0) score += 1;
+  return score;
+};
+
+const pickBestSheetAndHeader = (workbook: XLSX.WorkBook) => {
+  let best: { sheetName: string; headerRowIndex: number; score: number; approxRows: number } | null = null;
+
+  for (const sheetName of workbook.SheetNames) {
+    const ws = workbook.Sheets[sheetName];
+    if (!ws) continue;
+    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+    if (!rows || rows.length === 0) continue;
+
+    const scanLimit = Math.min(80, rows.length);
+    let sheetBest = { headerRowIndex: 0, score: -1 };
+    for (let i = 0; i < scanLimit; i++) {
+      const header = (rows[i] ?? []).map(h => String(h ?? '').trim());
+      const s = scoreHeaderRow(header);
+      if (s > sheetBest.score) sheetBest = { headerRowIndex: i, score: s };
+    }
+
+    const approxRows = rows.length;
+    if (!best) {
+      best = { sheetName, headerRowIndex: sheetBest.headerRowIndex, score: sheetBest.score, approxRows };
+      continue;
+    }
+
+    // Prefer higher score; break ties by larger sheet (likely the schedule)
+    if (sheetBest.score > best.score || (sheetBest.score === best.score && approxRows > best.approxRows)) {
+      best = { sheetName, headerRowIndex: sheetBest.headerRowIndex, score: sheetBest.score, approxRows };
+    }
+  }
+
+  // Fallback: first sheet
+  return best ?? { sheetName: workbook.SheetNames[0], headerRowIndex: 0, score: 0, approxRows: 0 };
+};
+
+export type ExcelImportFieldId =
+  | 'wbsKey'
+  | 'name'
+  | 'startDate'
+  | 'endDate'
+  | 'assignee'
+  | 'progress'
+  | 'status'
+  | 'workEffort'
+  | 'deliverables'
+  | 'description';
+
+export type ExcelImportMappingItem = {
+  fieldId: ExcelImportFieldId;
+  fieldLabel: string;
+  header: string;
+  columnIndex: number; // 0-based
+  note?: string;
+};
+
+export type ExcelImportMeta = {
+  sheetName: string;
+  headerRowIndex: number; // 0-based
+  headerRow: string[];
+  mode: 'known' | 'smart';
+  mapped: ExcelImportMappingItem[];
+  unmappedHeaders: { header: string; columnIndex: number }[];
+};
+
+export type ExcelImportParseResult = {
+  tasks: Task[];
+  meta: ExcelImportMeta;
+};
+
+const FIELD_LABELS: Record<ExcelImportFieldId, string> = {
+  wbsKey: 'WBS',
+  name: '작업명',
+  startDate: '시작일',
+  endDate: '완료일/종료일',
+  assignee: '담당자',
+  progress: '진척/실적(%)',
+  status: '상태',
+  workEffort: '공수/작업량',
+  deliverables: '산출물',
+  description: '비고/설명',
+};
+
+const buildUnmappedHeaders = (headerRow: string[], mappedCols: number[]) => {
+  const mapped = new Set(mappedCols.filter(n => n >= 0));
+  const out: { header: string; columnIndex: number }[] = [];
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i] ?? '').trim();
+    if (!h) continue;
+    if (mapped.has(i)) continue;
+    out.push({ header: h, columnIndex: i });
+  }
+  return out;
+};
+
+export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseResult> => {
+  const buf = await file.arrayBuffer();
+  const workbook = XLSX.read(buf, { type: 'array' });
+  const picked = pickBestSheetAndHeader(workbook);
+  const worksheet = workbook.Sheets[picked.sheetName];
+  if (!worksheet) {
+    return {
+      tasks: [],
+      meta: {
+        sheetName: picked.sheetName,
+        headerRowIndex: picked.headerRowIndex,
+        headerRow: [],
+        mode: 'smart',
+        mapped: [],
+        unmappedHeaders: [],
+      },
+    };
+  }
+
+  const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' }) as any[][];
+  if (!rawRows || rawRows.length === 0) {
+    return {
+      tasks: [],
+      meta: {
+        sheetName: picked.sheetName,
+        headerRowIndex: picked.headerRowIndex,
+        headerRow: [],
+        mode: 'smart',
+        mapped: [],
+        unmappedHeaders: [],
+      },
+    };
+  }
+
+  const headerRowIndex = Math.max(0, Math.min(picked.headerRowIndex, rawRows.length - 1));
+  const headerRowRaw = (rawRows[headerRowIndex] ?? []).map(h => String(h ?? '').trim());
+  const headerRow = fillMergedHeaders(headerRowRaw);
+
+  // Detect whether this is our exported format (Korean headers)
+  const hasKnownHeader = headerRow.some(h => REVERSE_HEADER_MAP[h] !== undefined);
+  if (hasKnownHeader) {
+    const tasks: Task[] = [];
+    for (const row of rawRows.slice(headerRowIndex + 1)) {
+      const cells = Array.isArray(row) ? row : [];
+      const rowObj: Record<string, any> = {};
+      for (let i = 0; i < headerRow.length; i++) {
+        const key = headerRow[i];
+        if (!key) continue;
+        rowObj[key] = cells[i];
+      }
+
+      const task: any = {};
+      Object.keys(rowObj).forEach((header) => {
+        const key = REVERSE_HEADER_MAP[header];
+        if (!key) return;
+        const v = rowObj[header];
+        if (key === 'dependencies') {
+          task[key] = v ? String(v).split(',').map((s: string) => s.trim()) : [];
+        } else if (key === 'parentId') {
+          task[key] = v ? String(v) : null;
+        } else if (key === 'id') {
+          task[key] = String(v);
+        } else if (key === 'progress' || key === 'workEffort') {
+          task[key] = toNumber(v) ?? 0;
+        } else {
+          task[key] = v;
+        }
+      });
+
+      if (!task.name) continue;
+      if (!task.id) task.id = crypto.randomUUID();
+      if (!task.status) task.status = 'todo';
+      if (task.progress === undefined || task.progress === null) task.progress = 0;
+      if (!task.expanded) task.expanded = true;
+      if (task.parentId === undefined) task.parentId = null;
+      if (!task.dependencies) task.dependencies = [];
+      tasks.push(task as Task);
+    }
+
+    const mapped: ExcelImportMappingItem[] = [];
+    const add = (fieldId: ExcelImportFieldId, headerName: string) => {
+      const col = headerRow.indexOf(headerName);
+      mapped.push({
+        fieldId,
+        fieldLabel: FIELD_LABELS[fieldId],
+        header: headerName,
+        columnIndex: col,
+      });
+    };
+    add('wbsKey', HEADER_MAP.wbsId);
+    add('name', HEADER_MAP.name);
+    add('startDate', HEADER_MAP.startDate);
+    add('endDate', HEADER_MAP.endDate);
+    add('progress', HEADER_MAP.progress);
+    add('assignee', HEADER_MAP.assignee);
+    add('status', HEADER_MAP.status);
+    add('workEffort', HEADER_MAP.workEffort);
+    add('deliverables', HEADER_MAP.deliverables);
+
+    return {
+      tasks,
+      meta: {
+        sheetName: picked.sheetName,
+        headerRowIndex,
+        headerRow,
+        mode: 'known',
+        mapped,
+        unmappedHeaders: buildUnmappedHeaders(headerRow, mapped.map(m => m.columnIndex)),
+      },
+    };
+  }
+
+  // Smart parsing for arbitrary Excel structures (including .xlsm templates where header isn't first row)
+  const body = rawRows.slice(headerRowIndex + 1);
+  const headers = headerRow;
+
+  const nameIdx = guessColumnIndex(headers, ['작업명', '작업*', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
+  const wbsIdx = guessColumnIndex(headers, ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS']);
+  const startIdx = guessColumnIndex(headers, ['시작일', '시작일*', '시작', 'start', 'startdate', 'from']);
+  const endIdx = guessColumnIndex(headers, ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate']);
+  const assigneeIdx = guessColumnIndex(headers, ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서']);
+  const progressIdx = guessColumnIndex(headers, [
+    '실적*',
+    '실적',
+    '실적진척률',
+    '%workcomplete',
+    '진행률',
+    '진행',
+    '진척률',
+    '진척율',
+    'progress',
+    'percent',
+    '%',
+  ]);
+  const statusIdx = guessColumnIndex(headers, ['상태', 'status', '진행상태', 'state']);
+  const effortIdx = guessColumnIndex(headers, [
+    '작업공수',
+    '공수',
+    'effort',
+    '총작업량',
+    '작업량',
+    'man/day',
+    'man-day',
+    'man day',
+    'manday',
+    'md',
+    'duration',
+  ]);
+  const deliverablesIdx = guessColumnIndex(headers, ['산출물', 'deliverable', 'deliverables', 'output', '결과물']);
+  const descriptionIdx = guessColumnIndex(headers, ['비고', '설명', 'note', 'notes', 'comment', 'remarks', 'remark']);
+
+  const nameCol = adjustIndexForMergedHeader(body, headers, nameIdx);
+  const wbsCol = adjustIndexForMergedHeader(body, headers, wbsIdx);
+  const startCol = adjustIndexForMergedHeader(body, headers, startIdx);
+  const endCol = adjustIndexForMergedHeader(body, headers, endIdx);
+  const assigneeCol = adjustIndexForMergedHeader(body, headers, assigneeIdx);
+  const progressCol = adjustIndexForMergedHeader(body, headers, progressIdx);
+  const statusCol = adjustIndexForMergedHeader(body, headers, statusIdx);
+  const effortCol = adjustIndexForMergedHeader(body, headers, effortIdx);
+  const deliverablesCol = adjustIndexForMergedHeader(body, headers, deliverablesIdx);
+  const descriptionCol = adjustIndexForMergedHeader(body, headers, descriptionIdx);
+
+  const mapped: ExcelImportMappingItem[] = [
+    { fieldId: 'wbsKey', fieldLabel: FIELD_LABELS.wbsKey, header: headers[wbsCol] ?? '', columnIndex: wbsCol, note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'name', fieldLabel: FIELD_LABELS.name, header: headers[nameCol] ?? '', columnIndex: nameCol, note: nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'startDate', fieldLabel: FIELD_LABELS.startDate, header: headers[startCol] ?? '', columnIndex: startCol, note: startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'endDate', fieldLabel: FIELD_LABELS.endDate, header: headers[endCol] ?? '', columnIndex: endCol, note: endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'assignee', fieldLabel: FIELD_LABELS.assignee, header: headers[assigneeCol] ?? '', columnIndex: assigneeCol, note: assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'progress', fieldLabel: FIELD_LABELS.progress, header: headers[progressCol] ?? '', columnIndex: progressCol, note: progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'status', fieldLabel: FIELD_LABELS.status, header: headers[statusCol] ?? '', columnIndex: statusCol, note: statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'workEffort', fieldLabel: FIELD_LABELS.workEffort, header: headers[effortCol] ?? '', columnIndex: effortCol, note: effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'deliverables', fieldLabel: FIELD_LABELS.deliverables, header: headers[deliverablesCol] ?? '', columnIndex: deliverablesCol, note: deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'description', fieldLabel: FIELD_LABELS.description, header: headers[descriptionCol] ?? '', columnIndex: descriptionCol, note: descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined },
+  ];
+
+  // Reuse existing smart parsing to build tasks (kept identical to parseExcel() behavior)
+  const wbsToTaskId = new Map<string, string>();
+  const pendingParentByWbs = new Map<string, string>(); // childId -> parentWbsKey
+  const tasks: Task[] = [];
+  const today = new Date().toISOString().split('T')[0];
+
+  for (const row of body) {
+    const cells = Array.isArray(row) ? row : [];
+    const name = nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '';
+    const wbsKey = wbsCol >= 0 ? normalizeWbsKey(cells[wbsCol]) : '';
+
+    const hasAny = (name || wbsKey || String(cells.join('')).trim());
+    if (!hasAny) continue;
+    if (!name) continue;
+
+    const startDate = startCol >= 0 ? toIsoDate(cells[startCol]) : '';
+    const endDate = endCol >= 0 ? toIsoDate(cells[endCol]) : '';
+    const assignee = assigneeCol >= 0 ? String(cells[assigneeCol] ?? '').trim() : '';
+    const deliverables = deliverablesCol >= 0 ? String(cells[deliverablesCol] ?? '').trim() : '';
+    const description = descriptionCol >= 0 ? String(cells[descriptionCol] ?? '').trim() : '';
+
+    let progress = progressCol >= 0 ? (toNumber(cells[progressCol]) ?? 0) : 0;
+    if (progress > 0 && progress <= 1) progress = progress * 100;
+    const status = statusCol >= 0 ? (parseStatus(cells[statusCol]) || 'todo') : 'todo';
+    const workEffort = effortCol >= 0 ? (toNumber(cells[effortCol]) ?? undefined) : undefined;
+
+    const id = crypto.randomUUID();
+    const task: Task = {
+      id,
+      projectId: '', // set by import pipeline
+      parentId: null,
+      name,
+      startDate: startDate || today,
+      endDate: endDate || (startDate || today),
+      progress: Math.max(0, Math.min(100, Math.round(progress))),
+      assignee,
+      status,
+      expanded: true,
+      dependencies: [],
+      ...(workEffort !== undefined ? { workEffort } : {}),
+      ...(deliverables ? { deliverables } : {}),
+      ...(description ? { description } : {}),
+    };
+
+    if (wbsKey) {
+      wbsToTaskId.set(wbsKey, id);
+      const parts = wbsKey.split('.').filter(Boolean);
+      if (parts.length > 1) {
+        const parentWbs = parts.slice(0, -1).join('.');
+        pendingParentByWbs.set(id, parentWbs);
+      }
+    }
+
+    tasks.push(task);
+  }
+
+  if (pendingParentByWbs.size > 0) {
+    for (const t of tasks) {
+      const parentWbs = pendingParentByWbs.get(t.id);
+      if (!parentWbs) continue;
+      const pid = wbsToTaskId.get(parentWbs);
+      if (pid) t.parentId = pid;
+    }
+  }
+
+  return {
+    tasks,
+    meta: {
+      sheetName: picked.sheetName,
+      headerRowIndex,
+      headerRow,
+      mode: 'smart',
+      mapped,
+      unmappedHeaders: buildUnmappedHeaders(headerRow, mapped.map(m => m.columnIndex)),
+    },
+  };
+};
+
 export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileName: string = 'wbs_export.xlsx') => {
   // Use context wbsMap (which has user-configured prefixes like W1, T1.1).
   // For tasks beyond maxLevel (wbsMap value is ''), derive from parent's WBS number.
@@ -62,54 +577,5 @@ export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileNa
 };
 
 export const parseExcel = (file: File): Promise<Task[]> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      try {
-        const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-        const tasks: Task[] = jsonData.map((row: any) => {
-          const task: any = {};
-
-          // Map headers back to keys
-          Object.keys(row).forEach((header) => {
-            const key = REVERSE_HEADER_MAP[header];
-            if (key) {
-              if (key === 'dependencies') {
-                task[key] = row[header] ? String(row[header]).split(',').map(s => s.trim()) : [];
-              } else if (key === 'parentId') {
-                task[key] = row[header] ? String(row[header]) : null;
-              } else if (key === 'id') {
-                task[key] = String(row[header]);
-              } else if (key === 'progress' || key === 'workEffort') {
-                task[key] = Number(row[header]) || 0;
-              } else {
-                task[key] = row[header];
-              }
-            }
-          });
-
-          // Default values for missing fields
-          if (!task.id) task.id = crypto.randomUUID();
-          if (!task.status) task.status = 'todo';
-          if (!task.progress) task.progress = 0;
-          if (!task.expanded) task.expanded = true;
-
-          return task as Task;
-        });
-
-        resolve(tasks);
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    reader.onerror = (error) => reject(error);
-    reader.readAsBinaryString(file);
-  });
+  return parseExcelWithMeta(file).then(r => r.tasks);
 };

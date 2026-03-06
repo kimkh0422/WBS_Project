@@ -126,7 +126,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[94vh] flex flex-col">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[94vh] flex flex-col">
                 <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50">
                     <div className="flex items-center gap-2 text-[var(--color-ink)]">
                         <Settings2 size={18} />
@@ -138,7 +138,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                 </div>
 
                 <form onSubmit={handleSave} className="flex-1 overflow-y-auto">
-                    <div className="p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="p-6 md:p-8 grid grid-cols-1 xl:grid-cols-3 gap-8">
                         {/* Left Column */}
                         <div className="space-y-8">
                             {/* Application Settings */}
@@ -233,18 +233,18 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                     </button>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div className="flex flex-col gap-2.5">
                                     {normalizedTableColumns.map((col, idx) => {
                                         const label = TABLE_COLUMN_LABELS[col.id] || col.id;
                                         const isName = col.id === 'name';
                                         return (
-                                            <div key={col.id} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white">
-                                                <div className="text-stone-300">
+                                            <div key={col.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border border-stone-200 bg-white">
+                                                <div className="text-stone-300 shrink-0">
                                                     <GripVertical size={14} />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="text-xs font-semibold text-stone-700 truncate">{label}</div>
-                                                    <div className="text-[10px] text-stone-400 font-mono truncate">{col.id}</div>
+                                                    <div className="text-sm font-semibold text-stone-800 leading-snug whitespace-normal break-words">{label}</div>
+                                                    <div className="text-[11px] text-stone-500 font-mono leading-snug whitespace-normal break-all">{col.id}</div>
                                                 </div>
                                                 <button
                                                     type="button"

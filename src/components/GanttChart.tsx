@@ -24,10 +24,10 @@ type TaskWithDepth = Task & { depth: number };
 
 function getLevelStyle(level: number) {
   switch (level) {
-    case 1: return { border: 'border-l-purple-500', bar: 'bg-purple-500/90 border-purple-600' };
-    case 2: return { border: 'border-l-blue-500', bar: 'bg-blue-500/90 border-blue-600' };
-    case 3: return { border: 'border-l-emerald-500', bar: 'bg-emerald-500/90 border-emerald-600' };
-    default: return { border: 'border-l-stone-400', bar: 'bg-stone-500/90 border-stone-600' };
+    case 1: return { border: 'border-l-purple-600', bar: 'bg-purple-600 border-purple-800' };
+    case 2: return { border: 'border-l-blue-600', bar: 'bg-blue-600 border-blue-800' };
+    case 3: return { border: 'border-l-emerald-600', bar: 'bg-emerald-600 border-emerald-800' };
+    default: return { border: 'border-l-stone-500', bar: 'bg-stone-600 border-stone-800' };
   }
 }
 
@@ -55,9 +55,10 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 ];
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
-  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap } = useWBS();
+  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds } = useWBS();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
+  const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
 
   const formatMd = (iso: string) => {
     try {
@@ -84,7 +85,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   // visibleTasks 로직을 WBSTable과 동일하게 맞춰 표·간트 행 정렬이 일치하도록 함
   const visibleTasks = useMemo((): TaskWithDepth[] => {
     const hasFilters = filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate;
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
+    const taskMap = new Map<string, Task>(tasks.map(t => [t.id, t] as const));
 
     const getDepth = (taskId: string): number => {
       const task = taskMap.get(taskId);
@@ -429,6 +430,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     return (
       <>
         <div className="w-full h-full flex flex-col bg-white">
+          {/* 표의 Summary Bar(h-11)와 높이 맞춤용 스페이서 */}
+          <div className="h-11 flex-shrink-0 border-b border-[var(--color-line)] bg-stone-50" />
           {/* 헤더 고정 (스크롤 밖) */}
           <div className="flex flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">
             <div className="relative" style={{ width: Math.max(totalWidth, containerWidth), height: 60 }}>
@@ -505,6 +508,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 })}
               </svg>
               {visibleTasks.map((task, index) => {
+                const isSelected = selectedSet.has(task.id);
                 const isBeingDragged = dragPreview?.taskId === task.id;
                 const effectiveStartDate = isBeingDragged ? dragPreview!.startDate : task.startDate;
                 const effectiveEndDate = isBeingDragged ? dragPreview!.endDate : task.endDate;
@@ -520,11 +524,21 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const barColor = statusColors[task.status] || statusColors.todo;
                 const effortText = formatEffort(task.workEffort);
                 return (
-                  <div key={task.id} className="relative group hover:bg-stone-50 transition-colors" style={{ width: totalWidth, height: ROW_HEIGHT }} onContextMenu={(e) => handleContextMenu(e, task.id)}>
+                  <div
+                    key={task.id}
+                    className={cn("relative group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
+                    style={{ width: totalWidth, height: ROW_HEIGHT }}
+                    onContextMenu={(e) => handleContextMenu(e, task.id)}
+                  >
                     <div
                       onDoubleClick={() => setEditingTask(task)}
                       onMouseDown={(e) => handleBarMouseDown(e, task)}
-                      className={cn("absolute top-0 rounded shadow-sm overflow-hidden transition-all border", lvStyle.bar, isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110')}
+                      className={cn(
+                        "absolute top-0 rounded shadow-sm overflow-hidden transition-all border",
+                        lvStyle.bar,
+                        isSelected && !isBeingDragged ? "ring-2 ring-blue-300/80" : "",
+                        isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
+                      )}
                       style={{ left, width: Math.max(width - 4, 4), height: ROW_HEIGHT }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}: ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}
                     >
@@ -547,6 +561,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </span>
                     )}
+                    {isSelected && (
+                      <div className="absolute inset-0 pointer-events-none ring-1 ring-blue-300/70" />
+                    )}
                   </div>
                 );
               })}
@@ -559,9 +576,10 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           <ContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
-            items={[
-              { label: '편집', onClick: () => { setEditingTask(tasks.find(t => t.id === contextMenu.taskId) || null); setContextMenu(null); } },
-              { label: '삭제', onClick: () => { deleteTask(contextMenu.taskId); setContextMenu(null); }, danger: true },
+            onClose={() => setContextMenu(null)}
+            actions={[
+              { label: '편집', onClick: () => { setEditingTask(tasks.find(t => t.id === contextMenu.taskId) || null); } },
+              { label: '삭제', onClick: () => { deleteTask(contextMenu.taskId); }, danger: true },
             ]}
           />
         )}
@@ -705,6 +723,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
               {/* Task Bars */}
               {visibleTasks.map((task, index) => {
+                const isSelected = selectedSet.has(task.id);
                 // Use preview dates during drag
                 const isBeingDragged = dragPreview?.taskId === task.id;
                 const effectiveStartDate = isBeingDragged ? dragPreview!.startDate : task.startDate;
@@ -725,7 +744,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 return (
                   <div
                     key={task.id}
-                    className="relative group hover:bg-stone-50 transition-colors"
+                    className={cn("relative group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
                     style={{ width: totalWidth, height: ROW_HEIGHT }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
@@ -736,6 +755,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       className={cn(
                         "absolute top-0 rounded shadow-sm overflow-hidden transition-all border",
                         lvStyle.bar,
+                        isSelected && !isBeingDragged ? "ring-2 ring-blue-300/80" : "",
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
                       style={{ left, width: Math.max(width - 4, 4), height: ROW_HEIGHT }}
@@ -774,6 +794,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 whitespace-nowrap pointer-events-none" style={{ left: left + width + 8 }}>
                         {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </span>
+                    )}
+                    {isSelected && (
+                      <div className="absolute inset-0 pointer-events-none ring-1 ring-blue-300/70" />
                     )}
                   </div>
                 );
