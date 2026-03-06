@@ -1,7 +1,49 @@
-import { supabase, ProjectRow, TaskRow, SettingsRow } from './supabase';
+import { supabase, ProjectRow, TaskRow, SettingsRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
+
+const PROJECTS_STORAGE_KEY = 'wbs-projects';
+const TASKS_STORAGE_KEY = 'wbs-tasks';
+const SETTINGS_STORAGE_KEY = 'wbs-settings';
+const CURRENT_PROJECT_STORAGE_KEY = 'wbs-current-project';
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadProjectsFromLocal(): Project[] {
+  return readJson<Project[]>(PROJECTS_STORAGE_KEY, []);
+}
+
+function saveProjectsToLocal(projects: Project[]) {
+  writeJson(PROJECTS_STORAGE_KEY, projects);
+}
+
+function loadTasksFromLocal(): Task[] {
+  return readJson<Task[]>(TASKS_STORAGE_KEY, []);
+}
+
+function saveTasksToLocal(tasks: Task[]) {
+  writeJson(TASKS_STORAGE_KEY, tasks);
+}
+
+function loadSettingsFromLocal(): Partial<WBSSettings> | null {
+  return readJson<Partial<WBSSettings> | null>(SETTINGS_STORAGE_KEY, null);
+}
+
+function saveSettingsToLocal(settings: WBSSettings) {
+  writeJson(SETTINGS_STORAGE_KEY, settings);
+}
 
 // ─── 변환 헬퍼 ────────────────────────────────────────────────────────────────
 
@@ -86,6 +128,9 @@ function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
 // ─── 조회 ─────────────────────────────────────────────────────────────────────
 
 export async function fetchProjects(): Promise<Project[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    return loadProjectsFromLocal();
+  }
   const { data, error } = await supabase
     .from('projects')
     .select('*')
@@ -95,6 +140,9 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 export async function fetchTasks(): Promise<Task[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    return loadTasksFromLocal();
+  }
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
@@ -104,6 +152,9 @@ export async function fetchTasks(): Promise<Task[]> {
 }
 
 export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
+  if (!isSupabaseConfigured || !supabase) {
+    return loadSettingsFromLocal();
+  }
   const { data, error } = await supabase
     .from('wbs_settings')
     .select('*')
@@ -116,6 +167,14 @@ export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
 // ─── 삽입/업데이트 ────────────────────────────────────────────────────────────
 
 export async function upsertProject(project: Project): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    const projects = loadProjectsFromLocal();
+    const next = projects.some(p => p.id === project.id)
+      ? projects.map(p => p.id === project.id ? project : p)
+      : [...projects, project];
+    saveProjectsToLocal(next);
+    return;
+  }
   const { error } = await supabase
     .from('projects')
     .upsert(toProjectRow(project));
@@ -123,6 +182,13 @@ export async function upsertProject(project: Project): Promise<void> {
 }
 
 export async function upsertTask(task: Task, sortOrder: number): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    const tasks = loadTasksFromLocal().filter(t => t.id !== task.id);
+    const insertAt = Math.max(0, Math.min(sortOrder, tasks.length));
+    tasks.splice(insertAt, 0, task);
+    saveTasksToLocal(tasks);
+    return;
+  }
   const { error } = await supabase
     .from('tasks')
     .upsert(toTaskRow(task, sortOrder));
@@ -131,12 +197,20 @@ export async function upsertTask(task: Task, sortOrder: number): Promise<void> {
 
 export async function upsertTasks(tasks: Task[]): Promise<void> {
   if (tasks.length === 0) return;
+  if (!isSupabaseConfigured || !supabase) {
+    saveTasksToLocal(tasks);
+    return;
+  }
   const rows = tasks.map((t, i) => toTaskRow(t, i));
   const { error } = await supabase.from('tasks').upsert(rows);
   if (error) throw error;
 }
 
 export async function upsertSettings(settings: WBSSettings): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveSettingsToLocal(settings);
+    return;
+  }
   const { error } = await supabase
     .from('wbs_settings')
     .upsert(toSettingsRow(settings));
@@ -146,23 +220,41 @@ export async function upsertSettings(settings: WBSSettings): Promise<void> {
 // ─── 삭제 ─────────────────────────────────────────────────────────────────────
 
 export async function deleteProjectFromDB(id: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveProjectsToLocal(loadProjectsFromLocal().filter(p => p.id !== id));
+    saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== id));
+    return;
+  }
   const { error } = await supabase.from('projects').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteTaskFromDB(id: string): Promise<void> {
   // 하위 tasks는 DB에서 parent_id 참조 삭제 처리 (ON DELETE CASCADE 미설정으로 수동 처리)
+  if (!isSupabaseConfigured || !supabase) {
+    saveTasksToLocal(loadTasksFromLocal().filter(t => t.id !== id));
+    return;
+  }
   const { error } = await supabase.from('tasks').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteTasksFromDB(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
+  if (!isSupabaseConfigured || !supabase) {
+    const idSet = new Set(ids);
+    saveTasksToLocal(loadTasksFromLocal().filter(t => !idSet.has(t.id)));
+    return;
+  }
   const { error } = await supabase.from('tasks').delete().in('id', ids);
   if (error) throw error;
 }
 
 export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== projectId));
+    return;
+  }
   const { error } = await supabase
     .from('tasks')
     .delete()
@@ -173,6 +265,12 @@ export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
 // ─── 전체 백업 복원 ───────────────────────────────────────────────────────────
 
 export async function restoreBackupToDB(data: BackupData): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveProjectsToLocal(data.projects);
+    saveTasksToLocal(data.tasks);
+    saveSettingsToLocal(data.settings);
+    return;
+  }
   // 기존 데이터 전체 삭제 후 재삽입
   const { error: delTasksErr } = await supabase
     .from('tasks')
@@ -207,6 +305,7 @@ export async function restoreBackupToDB(data: BackupData): Promise<void> {
 // ─── localStorage 마이그레이션 ────────────────────────────────────────────────
 
 export async function migrateFromLocalStorage(): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
   const savedProjects = localStorage.getItem('wbs-projects');
   const savedTasks = localStorage.getItem('wbs-tasks');
 
@@ -239,7 +338,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     localStorage.removeItem('wbs-projects');
     localStorage.removeItem('wbs-tasks');
     localStorage.removeItem('wbs-settings');
-    localStorage.removeItem('wbs-current-project');
+    localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
 
     console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
     return true;

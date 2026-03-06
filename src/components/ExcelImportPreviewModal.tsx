@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ExcelImportMeta } from '../lib/excel';
 
@@ -27,6 +27,15 @@ const colToLetter = (n: number) => {
     x = Math.floor((x - 1) / 26);
   }
   return s;
+};
+
+const colRangeLabel = (indices?: number[], fallback?: number) => {
+  const cols = (Array.isArray(indices) && indices.length > 0)
+    ? [...indices].filter(n => n >= 0).sort((a, b) => a - b)
+    : (typeof fallback === 'number' && fallback >= 0 ? [fallback] : []);
+  if (cols.length === 0) return '-';
+  if (cols.length === 1) return `${colToLetter(cols[0])} (${cols[0] + 1})`;
+  return `${colToLetter(cols[0])}~${colToLetter(cols[cols.length - 1])} (${cols[0] + 1}~${cols[cols.length - 1] + 1})`;
 };
 
 export function ExcelImportPreviewModal({
@@ -73,6 +82,9 @@ export function ExcelImportPreviewModal({
 
   if (!isOpen) return null;
 
+  const effortTooltip =
+    '공수(MD)는 1인 1일 기준입니다. 엑셀에 공수 값이 없으면 시작~종료의 근무일수(주말 제외, 양끝 포함)로 자동 산정됩니다.';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
@@ -96,6 +108,12 @@ export function ExcelImportPreviewModal({
             총 <span className="font-bold">{totalTaskCount.toLocaleString()}</span>개의 작업을 가져옵니다.
             <div className="text-[12px] text-slate-500 mt-1">
               아래는 엑셀 컬럼이 앱 필드로 어떻게 매칭되었는지의 자동 감지 결과입니다.
+            </div>
+            <div className="mt-2 inline-flex items-center gap-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+              <Info size={14} className="text-slate-500" />
+              <span title={effortTooltip} className="cursor-help">
+                공수(MD) 안내: 미입력 시 기간(근무일수, 주말 제외)로 자동 산정됩니다.
+              </span>
             </div>
           </div>
 
@@ -138,7 +156,18 @@ export function ExcelImportPreviewModal({
                             const ok = m.columnIndex >= 0 && String(m.header ?? '').trim();
                             return (
                               <div key={m.fieldId} className="grid grid-cols-12 text-sm">
-                                <div className="col-span-3 px-3 py-2 font-semibold text-slate-700">{m.fieldLabel}</div>
+                                <div className="col-span-3 px-3 py-2 font-semibold text-slate-700 flex items-center gap-1.5">
+                                  <span>{m.fieldLabel}</span>
+                                  {m.fieldId === 'workEffort' && (
+                                    <span
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded-full cursor-help"
+                                      title={effortTooltip}
+                                    >
+                                      <Info size={12} className="text-slate-500" />
+                                      MD
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="col-span-7 px-3 py-2 border-l border-slate-200">
                                   <span className={cn("font-medium", ok ? "text-slate-800" : "text-red-600")}>
                                     {ok ? m.header : '미매칭'}
@@ -150,7 +179,7 @@ export function ExcelImportPreviewModal({
                                   )}
                                 </div>
                                 <div className="col-span-2 px-3 py-2 border-l border-slate-200 text-right font-mono text-[12px] text-slate-600">
-                                  {m.columnIndex >= 0 ? `${colToLetter(m.columnIndex)} (${m.columnIndex + 1})` : '-'}
+                                  {colRangeLabel(m.columnIndices, m.columnIndex)}
                                 </div>
                               </div>
                             );

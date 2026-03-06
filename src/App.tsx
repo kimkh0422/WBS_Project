@@ -72,7 +72,7 @@ function WBSApp() {
   const [isAIBusy, setIsAIBusy] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
-  const [isShortcutsVisible, setIsShortcutsVisible] = useState(true);
+  const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -475,11 +475,26 @@ function WBSApp() {
   };
 
   const handleDashboardNavigate = (newView: any, newFilters: Partial<FilterState>) => {
+    // 대시보드 카드 클릭 시, 해당 조건으로 필터된 내역을 바로 보여주기 위한 내비게이션
     setView(newView);
-    setFilters(prev => ({ ...prev, ...newFilters }));
+
+    // 기존 필터를 초기 상태로 리셋한 뒤 대시보드에서 전달된 필터만 적용
+    setFilters(() => ({
+      projectId: 'all',
+      status: 'all',
+      assignee: '',
+      startDate: '',
+      endDate: '',
+      ...newFilters,
+    }));
+
+    // 특정 프로젝트 카드일 경우, 현재 프로젝트도 함께 전환
     if (newFilters.projectId && newFilters.projectId !== 'all') {
       setCurrentProjectId(newFilters.projectId);
     }
+
+    // 대시보드에서 들어온 경우에는 필터를 항상 켜서 바로 반영
+    setFilterOn(true);
   };
 
   const hasActiveFilters = filterOn && (filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate);

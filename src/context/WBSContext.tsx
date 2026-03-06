@@ -98,6 +98,7 @@ const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'workEffort', visible: true },
     { id: 'assignee', visible: true },
     { id: 'status', visible: true },
+    { id: 'progress', visible: true },
     { id: 'deliverables', visible: true },
   ],
 };

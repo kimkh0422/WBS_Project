@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate } from '../lib/utils';
-import { ChevronRight, ChevronDown, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw } from 'lucide-react';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { ContextMenu } from './ContextMenu';
@@ -35,7 +35,7 @@ interface WBSTableProps {
   onOpenColumnSettings?: () => void;
 }
 
-type TableColumnId = 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'assignee' | 'status' | 'deliverables';
+type TableColumnId = 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'assignee' | 'status' | 'progress' | 'deliverables';
 
 const StatChip = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
   <div className="flex items-center gap-1.5 px-3 py-1">
@@ -87,7 +87,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
 
   // Context Menu State
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'task' | 'header'; taskId?: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'task' | 'header'; taskId?: string; columnId?: 'progress' | 'status' } | null>(null);
 
   // Clipboard state for copy-paste
   const CLIPBOARD_KEY = 'wbs-task-clipboard-v1';
@@ -131,9 +131,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     name: 300,
     startDate: 85,
     endDate: 85,
-    workEffort: 50,
+    workEffort: 56,
     assignee: 70,
     status: 70,
+    progress: 70,
     deliverables: 120,
     actions: 70
   });
@@ -188,6 +189,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     { id: 'workEffort', visible: true },
     { id: 'assignee', visible: true },
     { id: 'status', visible: true },
+    { id: 'progress', visible: true },
     { id: 'deliverables', visible: true },
   ];
 
@@ -688,12 +690,26 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     setQuickAddName('');
   };
 
-  const handleContextMenu = (e: React.MouseEvent, taskId: string) => {
+  const handleContextMenu = (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => {
     e.preventDefault();
     if (!selectedTaskIds.has(taskId)) {
       handleSelect(taskId, false, false);
     }
-    setContextMenu({ x: e.clientX, y: e.clientY, type: 'task', taskId });
+    setContextMenu({ x: e.clientX, y: e.clientY, type: 'task', taskId, columnId });
+  };
+
+  const handleSyncProgressFromStatus = () => {
+    const idsToSync = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : (contextMenu?.taskId ? [contextMenu.taskId] : []);
+    const configs = wbsSettings.statusConfigs || [];
+    idsToSync.forEach((id) => {
+      const task = tasks.find((t) => t.id === id);
+      if (!task) return;
+      const config = configs.find((c: any) => c.id === task.status);
+      if (config && config.progress !== undefined) {
+        updateTask(id, { progress: config.progress });
+      }
+    });
+    setContextMenu(null);
   };
 
   const handleHeaderContextMenu = (e: React.MouseEvent) => {
@@ -907,6 +923,17 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             onClick={() => onSort('workEffort')}
           >
             공수(d) <SortIcon column="workEffort" />
+            {commonResize}
+          </div>
+        );
+      case 'progress':
+        return (
+          <div
+            key={id}
+            className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
+            onClick={() => onSort('progress')}
+          >
+            진척(%) <SortIcon column="progress" />
             {commonResize}
           </div>
         );
@@ -1340,6 +1367,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                   },
                 ]
               : [
+                  ...(contextMenu.columnId === 'progress' || contextMenu.columnId === 'status'
+                    ? [
+                        {
+                          label: '갱신',
+                          icon: <RefreshCw size={14} />,
+                          onClick: handleSyncProgressFromStatus,
+                        },
+                      ]
+                    : []),
                   {
                     label: '수정',
                     icon: <Edit2 size={14} />,
@@ -1416,7 +1452,7 @@ interface SortableTaskRowProps {
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
   onEdit: (task: Task) => void;
   onDeleteClick: (taskId: string) => void;
-  onContextMenu: (e: React.MouseEvent, taskId: string) => void;
+  onContextMenu: (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void;
   toggleExpand: (taskId: string) => void;
   gridStyle: React.CSSProperties;
   visibleColumnIds: TableColumnId[];
@@ -1486,7 +1522,7 @@ function SortableTaskRow({
       onClick={(e) => onSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
       tabIndex={0}
       onDoubleClick={() => onEdit(task)}
-      onContextMenu={(e) => onContextMenu(e, task.id)}
+      onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
       <div
         className="data-cell justify-center cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500"
@@ -1572,6 +1608,22 @@ function SortableTaskRow({
         if (colId === 'workEffort') {
           return <div key={colId} className="data-cell font-mono text-xs text-stone-600">{task.workEffort ? task.workEffort.toFixed(1) : '-'}</div>;
         }
+        if (colId === 'progress') {
+          return (
+            <div
+              key={colId}
+              className="data-cell font-mono text-xs text-stone-600"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onContextMenu(e, task.id, 'progress');
+              }}
+              title="마우스 우클릭: 갱신 메뉴 (상태에 해당하는 진척 비율로 동기화)"
+            >
+              {typeof task.progress === 'number' ? `${task.progress}%` : '-'}
+            </div>
+          );
+        }
         if (colId === 'assignee') {
           return (
             <div key={colId} className="data-cell text-xs text-stone-600 relative overflow-visible group/assignee" onClick={(e) => e.stopPropagation()}>
@@ -1608,6 +1660,11 @@ function SortableTaskRow({
                     }
                     updateTask(task.id, updates);
                   }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenu(e, task.id, 'status');
                 }}
                 className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 cursor-pointer truncate transition-colors appearance-none text-xs"
               >

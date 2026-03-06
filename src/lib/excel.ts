@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus } from '../types';
 
 // Map internal keys to Korean headers
@@ -46,13 +47,26 @@ const toIsoDate = (val: unknown): string | '' => {
   }
   if (typeof val === 'number' && Number.isFinite(val)) {
     // Excel date serial
-    const parsed = XLSX.SSF.parse_date_code(val);
-    if (!parsed) return '';
-    const y = String(parsed.y).padStart(4, '0');
-    const m = String(parsed.m).padStart(2, '0');
-    const d = String(parsed.d).padStart(2, '0');
-    if (parsed.y && parsed.m && parsed.d) return `${y}-${m}-${d}`;
-    return '';
+    const ssf = (XLSX as any)?.SSF;
+    if (ssf?.parse_date_code) {
+      const parsed = ssf.parse_date_code(val);
+      if (!parsed) return '';
+      const y = String(parsed.y).padStart(4, '0');
+      const m = String(parsed.m).padStart(2, '0');
+      const d = String(parsed.d).padStart(2, '0');
+      if (parsed.y && parsed.m && parsed.d) return `${y}-${m}-${d}`;
+      return '';
+    }
+
+    // Fallback: convert using Excel serial day count (1900 date system, with the 1900 leap-year bug baked in).
+    // 25569 = days between 1899-12-30 and 1970-01-01.
+    const ms = Math.round((val - 25569) * 86400 * 1000);
+    const dt = new Date(ms);
+    if (!Number.isFinite(dt.getTime())) return '';
+    const y = String(dt.getUTCFullYear()).padStart(4, '0');
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
   return '';
 };
@@ -69,6 +83,23 @@ const toNumber = (val: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
+const estimateWorkEffortFromDates = (startIso: string, endIso: string): number | undefined => {
+  const s = String(startIso ?? '').trim();
+  const e = String(endIso ?? '').trim();
+  if (!s || !e) return undefined;
+  const sd = parseISO(s);
+  const ed = parseISO(e);
+  if (!isValid(sd) || !isValid(ed)) return undefined;
+
+  const start = sd <= ed ? sd : ed;
+  const end = sd <= ed ? ed : sd;
+
+  // Inclusive business days (weekends excluded; holidays not considered)
+  const days = differenceInBusinessDays(end, start) + 1;
+  if (!Number.isFinite(days) || days <= 0) return 1;
+  return Math.max(0.5, Math.round(days * 10) / 10);
+};
+
 const parseStatus = (val: unknown): TaskStatus | '' => {
   const s = normalizeHeader(val);
   if (!s) return '';
@@ -77,6 +108,12 @@ const parseStatus = (val: unknown): TaskStatus | '' => {
   if (['done', '완료', '종료', 'closed', 'finish', 'finished'].includes(s)) return 'done';
   if (['blocked', '지연', '지연됨', '중단', '막힘', 'hold'].includes(s)) return 'blocked';
   return '';
+};
+
+const inferStatusFromProgress = (p: number): TaskStatus => {
+  if (!Number.isFinite(p) || p <= 0) return 'todo';
+  if (p >= 99.5) return 'done';
+  return 'in-progress';
 };
 
 const normalizeWbsKey = (val: unknown): string => {
@@ -242,6 +279,7 @@ export type ExcelImportMappingItem = {
   fieldLabel: string;
   header: string;
   columnIndex: number; // 0-based
+  columnIndices?: number[]; // for multi-column templates (e.g. XLGantt task name)
   note?: string;
 };
 
@@ -284,6 +322,26 @@ const buildUnmappedHeaders = (headerRow: string[], mappedCols: number[]) => {
   return out;
 };
 
+const findAllColumnIndices = (headers: string[], candidates: string[]) => {
+  const normalized = headers.map(normalizeHeader);
+  const normCandidates = new Set(candidates.map(normalizeHeader).filter(Boolean));
+  const out: number[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    if (!normalized[i]) continue;
+    if (normCandidates.has(normalized[i])) out.push(i);
+  }
+  return out;
+};
+
+const firstNonEmptyInColumns = (cells: any[], cols: number[]) => {
+  for (const c of cols) {
+    const v = cells?.[c];
+    const s = String(v ?? '').trim();
+    if (s) return s;
+  }
+  return '';
+};
+
 export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseResult> => {
   const buf = await file.arrayBuffer();
   const workbook = XLSX.read(buf, { type: 'array' });
@@ -322,10 +380,15 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const headerRowRaw = (rawRows[headerRowIndex] ?? []).map(h => String(h ?? '').trim());
   const headerRow = fillMergedHeaders(headerRowRaw);
 
-  // Detect whether this is our exported format (Korean headers)
-  const hasKnownHeader = headerRow.some(h => REVERSE_HEADER_MAP[h] !== undefined);
+  // Detect whether this is our exported format (Korean headers).
+  // NOTE: Some templates (e.g. XLGantt) contain a subset of these headers (like "산출물") but are NOT our format.
+  // So we require either core headers or a minimum number of matches.
+  const knownHeaderHits = headerRow.reduce((acc, h) => (REVERSE_HEADER_MAP[h] !== undefined ? acc + 1 : acc), 0);
+  const hasCoreKnownHeaders = headerRow.includes(HEADER_MAP.name) && (headerRow.includes(HEADER_MAP.startDate) || headerRow.includes(HEADER_MAP.endDate));
+  const hasKnownHeader = hasCoreKnownHeaders || knownHeaderHits >= 4;
   if (hasKnownHeader) {
     const tasks: Task[] = [];
+    const today = new Date().toISOString().split('T')[0];
     for (const row of rawRows.slice(headerRowIndex + 1)) {
       const cells = Array.isArray(row) ? row : [];
       const rowObj: Record<string, any> = {};
@@ -346,8 +409,13 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
           task[key] = v ? String(v) : null;
         } else if (key === 'id') {
           task[key] = String(v);
-        } else if (key === 'progress' || key === 'workEffort') {
+        } else if (key === 'progress') {
           task[key] = toNumber(v) ?? 0;
+        } else if (key === 'workEffort') {
+          const n = toNumber(v);
+          if (n !== undefined) task[key] = n;
+        } else if (key === 'startDate' || key === 'endDate') {
+          task[key] = toIsoDate(v);
         } else {
           task[key] = v;
         }
@@ -357,6 +425,12 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       if (!task.id) task.id = crypto.randomUUID();
       if (!task.status) task.status = 'todo';
       if (task.progress === undefined || task.progress === null) task.progress = 0;
+      if (!task.startDate) task.startDate = today;
+      if (!task.endDate) task.endDate = task.startDate;
+      if (task.workEffort === undefined) {
+        const est = estimateWorkEffortFromDates(task.startDate, task.endDate);
+        if (est !== undefined) task.workEffort = est;
+      }
       if (!task.expanded) task.expanded = true;
       if (task.parentId === undefined) task.parentId = null;
       if (!task.dependencies) task.dependencies = [];
@@ -364,13 +438,14 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     }
 
     const mapped: ExcelImportMappingItem[] = [];
-    const add = (fieldId: ExcelImportFieldId, headerName: string) => {
+    const add = (fieldId: ExcelImportFieldId, headerName: string, note?: string) => {
       const col = headerRow.indexOf(headerName);
       mapped.push({
         fieldId,
         fieldLabel: FIELD_LABELS[fieldId],
         header: headerName,
         columnIndex: col,
+        note,
       });
     };
     add('wbsKey', HEADER_MAP.wbsId);
@@ -380,7 +455,10 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     add('progress', HEADER_MAP.progress);
     add('assignee', HEADER_MAP.assignee);
     add('status', HEADER_MAP.status);
-    add('workEffort', HEADER_MAP.workEffort);
+    {
+      const col = headerRow.indexOf(HEADER_MAP.workEffort);
+      add('workEffort', HEADER_MAP.workEffort, col < 0 ? '미입력시 자동산정(기간)' : undefined);
+    }
     add('deliverables', HEADER_MAP.deliverables);
 
     return {
@@ -435,6 +513,10 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const deliverablesIdx = guessColumnIndex(headers, ['산출물', 'deliverable', 'deliverables', 'output', '결과물']);
   const descriptionIdx = guessColumnIndex(headers, ['비고', '설명', 'note', 'notes', 'comment', 'remarks', 'remark']);
 
+  // Some templates (notably XLGantt) represent task name across multiple columns with the same header (e.g. repeated "작업*").
+  // In that case, a single column mapping will only capture a subset (often higher levels).
+  const nameColsByHeader = findAllColumnIndices(headers, ['작업*', '작업명', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
+
   const nameCol = adjustIndexForMergedHeader(body, headers, nameIdx);
   const wbsCol = adjustIndexForMergedHeader(body, headers, wbsIdx);
   const startCol = adjustIndexForMergedHeader(body, headers, startIdx);
@@ -448,13 +530,29 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
   const mapped: ExcelImportMappingItem[] = [
     { fieldId: 'wbsKey', fieldLabel: FIELD_LABELS.wbsKey, header: headers[wbsCol] ?? '', columnIndex: wbsCol, note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'name', fieldLabel: FIELD_LABELS.name, header: headers[nameCol] ?? '', columnIndex: nameCol, note: nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined },
+    {
+      fieldId: 'name',
+      fieldLabel: FIELD_LABELS.name,
+      header: headers[nameCol] ?? '',
+      columnIndex: nameCol,
+      columnIndices: nameColsByHeader.length > 1 ? nameColsByHeader : undefined,
+      note: nameColsByHeader.length > 1 ? '레벨별 다중컬럼' : (nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined),
+    },
     { fieldId: 'startDate', fieldLabel: FIELD_LABELS.startDate, header: headers[startCol] ?? '', columnIndex: startCol, note: startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined },
     { fieldId: 'endDate', fieldLabel: FIELD_LABELS.endDate, header: headers[endCol] ?? '', columnIndex: endCol, note: endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined },
     { fieldId: 'assignee', fieldLabel: FIELD_LABELS.assignee, header: headers[assigneeCol] ?? '', columnIndex: assigneeCol, note: assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined },
     { fieldId: 'progress', fieldLabel: FIELD_LABELS.progress, header: headers[progressCol] ?? '', columnIndex: progressCol, note: progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined },
     { fieldId: 'status', fieldLabel: FIELD_LABELS.status, header: headers[statusCol] ?? '', columnIndex: statusCol, note: statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'workEffort', fieldLabel: FIELD_LABELS.workEffort, header: headers[effortCol] ?? '', columnIndex: effortCol, note: effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined },
+    {
+      fieldId: 'workEffort',
+      fieldLabel: FIELD_LABELS.workEffort,
+      header: headers[effortCol] ?? '',
+      columnIndex: effortCol,
+      note:
+        effortCol < 0
+          ? '미입력시 자동산정(기간)'
+          : (effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined),
+    },
     { fieldId: 'deliverables', fieldLabel: FIELD_LABELS.deliverables, header: headers[deliverablesCol] ?? '', columnIndex: deliverablesCol, note: deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined },
     { fieldId: 'description', fieldLabel: FIELD_LABELS.description, header: headers[descriptionCol] ?? '', columnIndex: descriptionCol, note: descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined },
   ];
@@ -467,7 +565,8 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
   for (const row of body) {
     const cells = Array.isArray(row) ? row : [];
-    const name = nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '';
+    const name = (nameColsByHeader.length > 1 ? firstNonEmptyInColumns(cells, nameColsByHeader) : '') ||
+      (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '');
     const wbsKey = wbsCol >= 0 ? normalizeWbsKey(cells[wbsCol]) : '';
 
     const hasAny = (name || wbsKey || String(cells.join('')).trim());
@@ -482,7 +581,8 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
     let progress = progressCol >= 0 ? (toNumber(cells[progressCol]) ?? 0) : 0;
     if (progress > 0 && progress <= 1) progress = progress * 100;
-    const status = statusCol >= 0 ? (parseStatus(cells[statusCol]) || 'todo') : 'todo';
+    const parsedStatus = statusCol >= 0 ? parseStatus(cells[statusCol]) : '';
+    const status = parsedStatus || inferStatusFromProgress(progress);
     const workEffort = effortCol >= 0 ? (toNumber(cells[effortCol]) ?? undefined) : undefined;
 
     const id = crypto.randomUUID();
@@ -498,7 +598,14 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       status,
       expanded: true,
       dependencies: [],
-      ...(workEffort !== undefined ? { workEffort } : {}),
+      ...(() => {
+        const baseStart = startDate || today;
+        const baseEnd = endDate || (startDate || today);
+        const est = estimateWorkEffortFromDates(baseStart, baseEnd);
+        if (workEffort !== undefined) return { workEffort };
+        if (est !== undefined) return { workEffort: est };
+        return {};
+      })(),
       ...(deliverables ? { deliverables } : {}),
       ...(description ? { description } : {}),
     };
@@ -532,7 +639,10 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       headerRow,
       mode: 'smart',
       mapped,
-      unmappedHeaders: buildUnmappedHeaders(headerRow, mapped.map(m => m.columnIndex)),
+      unmappedHeaders: buildUnmappedHeaders(
+        headerRow,
+        mapped.flatMap(m => (Array.isArray(m.columnIndices) && m.columnIndices.length > 0) ? m.columnIndices : [m.columnIndex])
+      ),
     },
   };
 };

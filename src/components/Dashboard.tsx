@@ -42,11 +42,40 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
         const doneStatus = wbsSettings.statusConfigs.find(c => c.progress === 100)?.id || 'done';
         const inProgressStatus = wbsSettings.statusConfigs.find(c => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
 
+        const totalTasks = allTasks.length;
+        const avgProgress = totalTasks > 0
+            ? Math.round(allTasks.reduce((sum, t) => sum + (t.progress || 0), 0) / totalTasks)
+            : 0;
+
+        // Global status counts across all projects
+        const statusCounts: Record<string, number> = {};
+        wbsSettings.statusConfigs.forEach(c => statusCounts[c.id] = 0);
+        allTasks.forEach(t => {
+            if (statusCounts[t.status] !== undefined) statusCounts[t.status]++;
+        });
+
+        // Global assignee counts
+        const assignees = Array.from(new Set(allTasks.map(t => t.assignee).filter(Boolean)));
+
+        // Earliest project start date
+        let earliestStartDate: string | null = null;
+        projects.forEach(p => {
+            if (p.startDate) {
+                if (!earliestStartDate || p.startDate < earliestStartDate) {
+                    earliestStartDate = p.startDate;
+                }
+            }
+        });
+
         return {
             totalProjects: projects.length,
-            totalTasks: allTasks.length,
+            totalTasks,
             totalDone: allTasks.filter(t => t.status === doneStatus).length,
             totalInProgress: allTasks.filter(t => t.status === inProgressStatus).length,
+            avgProgress,
+            statusCounts,
+            assigneeCount: assignees.length,
+            earliestStartDate,
         }
     }, [projects, allTasks, wbsSettings.statusConfigs]);
 
@@ -159,6 +188,12 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                                 onNavigate?.('list', { projectId: 'all', status: doneStatus, assignee: '' });
                             }}
                         />
+                        <SummaryCard
+                            title="평균 진척률"
+                            value={summary.avgProgress}
+                            subtitle="% 기준 전체 실적"
+                            highlight="text-emerald-600"
+                        />
                         <SummaryCard title="금일 접속자" value={visitorStats.daily} subtitle="" highlight="text-blue-600" />
                         <SummaryCard title="누적 접속자" value={visitorStats.total} subtitle="" highlight="text-purple-600" />
                     </div>
@@ -171,6 +206,26 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                         프로젝트별 상태
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {/* Overall portfolio card */}
+                        {projects.length > 0 && (
+                            <ProjectCard
+                                key="__all-projects"
+                                project={{
+                                    id: '__all-projects',
+                                    name: '전체 프로젝트',
+                                    description: '전체 포트폴리오 기준 합산 현황',
+                                    startDate: summary.earliestStartDate ?? undefined,
+                                    stats: {
+                                        total: summary.totalTasks,
+                                        statusCounts: summary.statusCounts,
+                                        progress: summary.avgProgress,
+                                        assigneeCount: summary.assigneeCount,
+                                    },
+                                }}
+                                onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
+                            />
+                        )}
+
                         {projectStats.map(project => (
                             <ProjectCard
                                 key={project.id}
