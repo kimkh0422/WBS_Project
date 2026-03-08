@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Task, TaskStatus } from '../types';
-import { X, Plus, Trash2, GripVertical, CornerDownRight } from 'lucide-react';
+import { Task, TaskStatus, TaskAssignment } from '../types';
+import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Target } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
+import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -14,11 +15,15 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings } = useWBS();
+  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId } = useWBS();
+  const taskProjectId = initialData?.projectId ?? currentProjectId;
+  const taskProject = projects.find(p => p.id === taskProjectId);
+  const projectAssignments: TaskAssignment[] = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
+  const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
   const [formData, setFormData] = useState<Partial<Task>>({
     name: '',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: defaultDate,
+    endDate: defaultDate,
     progress: 0,
     workEffort: 0.5,
     assignee: '',
@@ -27,20 +32,27 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     description: '',
     checklist: [],
     deliverables: '',
+    isMilestone: false,
+    baselineStartDate: undefined,
+    baselineEndDate: undefined,
+    baselineWorkEffort: undefined,
   });
 
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     if (initialData) {
-      setFormData(initialData);
+      const { assignments: _a, ...rest } = initialData as any;
+      setFormData(rest);
     } else {
+      const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
       setFormData({
         name: '',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0],
+        startDate: defaultDate,
+        endDate: defaultDate,
         progress: 0,
         workEffort: 0.5,
         assignee: '',
@@ -49,9 +61,13 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         description: '',
         checklist: [],
         deliverables: '',
+        isMilestone: false,
+        baselineStartDate: undefined,
+        baselineEndDate: undefined,
+        baselineWorkEffort: undefined,
       });
     }
-  }, [initialData, isOpen]);
+  }, [initialData, isOpen, taskProject?.startDate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -74,17 +90,48 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   if (!isOpen) return null;
 
+  const dependencyCount = formData.dependencies?.length ?? 0;
+  const deliverablesCount = formData.deliverables?.trim() ? formData.deliverables!.split(',').map(s => s.trim()).filter(Boolean).length : 0;
+  const effortHelpText = '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다. 기간 자동: 시작일+공수→종료일. 공수 역산: 시작~종료일→공수.';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const toSave = { ...formData, assignments: formData.assignments ?? initialData?.assignments ?? [] } as Partial<Task>;
+    if (initialData?.id) {
+      type LockedField = NonNullable<Task['userLockedFields']>[number];
+      const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
+      if (formData.startDate !== initialData.startDate) locked.add('startDate');
+      if (formData.endDate !== initialData.endDate) locked.add('endDate');
+      const depA = (formData.dependencies ?? []).slice().sort();
+      const depB = (initialData.dependencies ?? []).slice().sort();
+      const depsChanged = depA.length !== depB.length || depA.some((id, i) => id !== depB[i]);
+      if (depsChanged) locked.add('dependencies');
+      if (formData.workEffort !== initialData.workEffort) locked.add('workEffort');
+      toSave.userLockedFields = Array.from(locked);
+    }
     if (initialData && initialData.id === '') {
-      // It's a new task pre-filled (e.g. from context menu "Add Child")
-      // We need to strip the ID so the context adds a new one
-      const { id, ...rest } = formData as Task;
+      const { id, ...rest } = toSave as Task & { id?: string };
       onSave(rest);
     } else {
-      onSave(formData as any);
+      onSave(toSave as any);
     }
     onClose();
+  };
+
+  const assigneeOptions = Array.from(new Set([...(projectAssignments.map(a => a.assignee)), ...parentOptions.map(t => t.assignee).filter(Boolean)]));
+
+  const handleApplyEndDateFromEffort = () => {
+    const start = formData.startDate || new Date().toISOString().split('T')[0];
+    const effort = typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : 1;
+    const end = computeEndDateFromEffort(start, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+    setFormData(prev => ({ ...prev, startDate: start, endDate: end }));
+  };
+
+  const handleApplyWorkEffortFromDates = () => {
+    const start = formData.startDate || new Date().toISOString().split('T')[0];
+    const end = formData.endDate || start;
+    const effort = computeWorkEffortFromDates(start, end, projectAssignments.length > 0 ? projectAssignments : undefined);
+    setFormData(prev => ({ ...prev, workEffort: effort }));
   };
 
   const handleDeleteClick = () => {
@@ -196,328 +243,223 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-      <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[90vh] flex flex-col">
-        <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50 flex-shrink-0">
-          <h2 className="font-bold text-lg text-[var(--color-ink)]">{initialData ? '작업 수정' : '새 작업'}</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]">
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 backdrop-blur-sm p-2">
+      <div className="bg-glass-elevated w-full max-w-5xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60 h-[90vh] max-h-[900px] flex flex-col">
+        <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200/50 bg-white/40 flex-shrink-0">
+          <h2 className="font-bold text-lg tracking-tight text-[var(--color-ink)]">{initialData ? '작업 수정' : '새 작업'}</h2>
+          <button type="button" onClick={onClose} className="p-1.5 hover:bg-white/60 rounded-full transition-all text-slate-400 hover:text-slate-800" aria-label="닫기">
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Left Column: Basic Info */}
-            <div className="space-y-5">
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">작업명</label>
-                <input
-                  required
-                  type="text"
-                  list="task-name-suggestions"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="input-field"
-                  placeholder="작업 이름을 입력하세요..."
-                  autoFocus
-                />
-                <datalist id="task-name-suggestions">
-                  <option value="기획" />
-                  <option value="디자인" />
-                  <option value="프론트엔드 개발" />
-                  <option value="백엔드 개발" />
-                  <option value="테스트" />
-                  <option value="배포" />
-                  <option value="문서화" />
-                  <option value="미팅" />
-                </datalist>
-              </div>
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4">
+          <div className="h-full grid grid-cols-1 lg:grid-cols-3 gap-5 content-start">
+            <div className="lg:col-span-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-3">기본 정보</p>
+            </div>
+            <div className="lg:col-span-2">
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">작업명</label>
+              <input
+                required
+                type="text"
+                list="task-name-suggestions"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="input-field py-2 text-sm"
+                placeholder="작업 이름..."
+                autoFocus
+              />
+              <datalist id="task-name-suggestions">
+                <option value="기획" /><option value="디자인" /><option value="프론트엔드 개발" /><option value="백엔드 개발" /><option value="테스트" /><option value="배포" /><option value="문서화" /><option value="미팅" />
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">상위 작업</label>
+              <select
+                value={formData.parentId || ''}
+                onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
+                className="input-field py-2 text-sm"
+              >
+                <option value="">없음 (최상위)</option>
+                {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
+                  <option key={task.id} value={task.id}>{displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">상태</label>
+              <select
+                value={formData.status}
+                onChange={(e) => {
+                  const newStatus = e.target.value;
+                  const config = wbsSettings.statusConfigs.find(c => c.id === newStatus);
+                  setFormData(prev => ({ ...prev, status: newStatus, progress: config?.progress ?? prev.progress }));
+                }}
+                className="input-field py-2 text-sm"
+              >
+                {wbsSettings.statusConfigs.map(config => <option key={config.id} value={config.id}>{config.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
+                <span className="inline-flex items-center gap-1">
+                  담당자
+                  <span className="inline-flex items-center cursor-help text-stone-400 hover:text-stone-600" title="투입비율은 프로젝트 설정에서 적용됩니다." aria-label="안내">
+                    <Info size={12} />
+                  </span>
+                </span>
+              </label>
+              <select
+                value={formData.assignee || ''}
+                onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                className="input-field py-2 text-sm"
+              >
+                <option value="">선택 안 함</option>
+                {assigneeOptions.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {initialData?.assignments && initialData.assignments.length > 0 && (
+                <p className="text-[11px] text-stone-600 mt-1.5 font-medium" role="note">
+                  투입율: {initialData.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}
+                </p>
+              )}
+              <p className="text-[10px] text-stone-500 mt-1" role="note">투입비율은 프로젝트 설정에서 적용됩니다.</p>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">시작일</label>
-                  <input
-                    required
-                    type="date"
-                    value={formData.startDate?.split('T')[0]}
-                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">종료일</label>
-                  <input
-                    required
-                    type="date"
-                    value={formData.endDate?.split('T')[0]}
-                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    className="input-field"
-                  />
-                </div>
+            <div className="lg:col-span-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-3">일정</p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">시작일</label>
+              <input required type="date" value={formData.startDate?.split('T')[0]} onChange={(e) => setFormData({ ...formData, startDate: e.target.value })} className="input-field py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">종료일</label>
+              <input required type="date" value={formData.endDate?.split('T')[0]} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} className="input-field py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">진행률 %</label>
+              <input type="number" min="0" max="100" value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) || 0 })} className="input-field py-2 text-sm" />
+            </div>
+            <div className="lg:col-span-2 flex items-end">
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1 w-full">작업 공수 (D)</label>
+            </div>
+            <div className="lg:col-span-2 flex gap-2 items-center flex-wrap -mt-1">
+              <input type="number" min="0" step="0.5" value={formData.workEffort ?? ''} onChange={(e) => setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-2 text-sm w-20" placeholder="0.5" aria-label="작업 공수" />
+              <button type="button" onClick={handleApplyEndDateFromEffort} className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200 transition-colors" title="시작일·공수·투입비율 → 종료일"><Calculator size={12} /> 기간 자동</button>
+              <button type="button" onClick={handleApplyWorkEffortFromDates} className="px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-100 rounded-lg border border-stone-200 transition-colors" title="시작일·종료일 → 공수">공수 역산</button>
+              <span className="inline-flex items-center cursor-help text-stone-400 hover:text-stone-600 p-1" title={effortHelpText} aria-label="공수 도움말">
+                <button type="button" onClick={() => setShowHelp(!showHelp)} className="rounded focus:ring-2 focus:ring-indigo-300" aria-expanded={showHelp} aria-label="도움말 토글">
+                  <Info size={14} />
+                </button>
+              </span>
+            </div>
+            {showHelp && (
+              <div className="lg:col-span-3 rounded-xl bg-blue-50/90 border border-blue-100 p-3 text-xs text-stone-600" role="status">
+                {effortHelpText}
               </div>
+            )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">상위 작업</label>
-                  <select
-                    value={formData.parentId || ''}
-                    onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
-                    className="input-field"
-                  >
-                    <option value="">없음 (최상위)</option>
-                    {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
-                      <option key={task.id} value={task.id}>
-                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">상태</label>
-                  <select
-                    value={formData.status}
+            <div className="lg:col-span-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-2">작업 옵션</p>
+              <div className="flex items-center gap-6 flex-wrap rounded-xl bg-slate-50/80 border border-slate-100 px-4 py-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                  <input type="checkbox" checked={!!formData.isMilestone} onChange={(e) => { const checked = e.target.checked; setFormData(prev => ({ ...prev, isMilestone: checked, ...(checked && prev.startDate ? { endDate: prev.startDate, workEffort: 0 } : {}) })); }} className="rounded border-stone-300 text-indigo-600 focus:ring-indigo-500" />
+                  <Flag size={14} className="text-amber-500 shrink-0" aria-hidden />
+                  <span>마일스톤</span>
+                  <span className="text-[10px] text-stone-400 font-normal">(이정표, 일정 한 시점)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!(formData.baselineStartDate || formData.baselineEndDate)}
                     onChange={(e) => {
-                      const newStatus = e.target.value;
-                      const config = wbsSettings.statusConfigs.find(c => c.id === newStatus);
-                      const updates: Partial<Task> = { status: newStatus };
-                      if (config && config.progress !== undefined) {
-                        updates.progress = config.progress;
-                      }
-                      setFormData(prev => ({ ...prev, ...updates }));
+                      const checked = e.target.checked;
+                      setFormData(prev => ({
+                        ...prev,
+                        ...(checked
+                          ? {
+                              baselineStartDate: prev.startDate || new Date().toISOString().split('T')[0],
+                              baselineEndDate: prev.endDate || prev.startDate || new Date().toISOString().split('T')[0],
+                              baselineWorkEffort: typeof prev.workEffort === 'number' ? prev.workEffort : prev.workEffort ?? 0.5,
+                            }
+                          : { baselineStartDate: undefined, baselineEndDate: undefined, baselineWorkEffort: undefined }),
+                      }));
                     }}
-                    className="input-field"
-                  >
-                    {wbsSettings.statusConfigs.map(config => (
-                      <option key={config.id} value={config.id}>{config.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">담당자</label>
-                  <select
-                    value={formData.assignee || ''}
-                    onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
-                    className="input-field"
-                  >
-                    <option value="">배정 안됨 (새 담당자는 표에서 입력)</option>
-                    {Array.from(new Set(parentOptions.map(t => t.assignee).filter(Boolean))).map(assignee => (
-                      <option key={assignee} value={assignee}>{assignee}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">진행률 (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={formData.progress}
-                    onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) })}
-                    className="input-field"
+                    className="rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
                   />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">작업 공수 (D)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={formData.workEffort ?? ''}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setFormData({ ...formData, workEffort: v === '' ? undefined : parseFloat(v) });
-                  }}
-                  className="input-field"
-                  placeholder="0.5"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">의존성 (다중 선택: Ctrl/Cmd + 클릭)</label>
-                <select
-                  multiple
-                  value={formData.dependencies || []}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => option.value);
-                    setFormData({ ...formData, dependencies: selected });
-                  }}
-                  className="input-field h-24"
-                >
-                  {parentOptions
-                    .filter(t => t.id !== initialData?.id) // Cannot depend on self
-                    .map((task) => (
-                      <option key={task.id} value={task.id}>
-                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
-                      </option>
-                    ))}
-                </select>
-                <p className="text-[10px] text-stone-400 mt-1">이 작업이 시작되기 전에 완료되어야 하는 작업들을 선택하세요.</p>
+                  <Target size={14} className="text-slate-500 shrink-0" aria-hidden />
+                  <span>베이스라인</span>
+                  <span className="text-[10px] text-stone-400 font-normal">(기준 일정 비교용)</span>
+                </label>
               </div>
             </div>
 
-            {/* Right Column: Extended Details */}
-            <div className="space-y-6">
-              {/* Description */}
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5 flex justify-between">
-                  <span>설명</span>
-                  <span className="text-[9px] text-stone-400 font-normal normal-case">이미지를 붙여넣기(Ctrl+V)할 수 있습니다.</span>
-                </label>
-                <textarea
-                  value={formData.description || ''}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  onPaste={handlePaste}
-                  className="input-field min-h-[100px] resize-y"
-                  placeholder="작업에 대한 상세 설명을 입력하세요..."
-                />
-              </div>
+            <div className="lg:col-span-3">
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
+                의존성 (Ctrl+클릭 다중선택)
+                {dependencyCount > 0 && <span className="ml-1.5 font-normal text-indigo-600">· 선택 {dependencyCount}개</span>}
+              </label>
+              <select multiple value={formData.dependencies || []} onChange={(e) => setFormData({ ...formData, dependencies: Array.from(e.target.selectedOptions, (o: HTMLOptionElement) => o.value) })} className="input-field py-2 text-sm min-h-[4.5rem] dependency-select">
+                {parentOptions.filter(t => t.id !== initialData?.id).map((task, idx) => <option key={task.id} value={task.id}>#{idx + 1} {task.name}</option>)}
+              </select>
+            </div>
 
-              {/* Checklist */}
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span>체크리스트</span>
-                    {initialData && initialData.id && formData.checklist && formData.checklist.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleConvertAllToSubtasks}
-                        className="text-stone-400 hover:text-blue-500 flex items-center gap-1 group/convert transition-colors"
-                        title="모든 항목을 하위 작업으로 변환"
-                      >
-                        <CornerDownRight size={12} className="group-hover/convert:translate-x-0.5 transition-transform" />
-                        전체 하위작업으로 변환
-                      </button>
-                    )}
+            <div className="lg:col-span-3">
+              <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-3">설명 · 체크리스트 · 산출물</p>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">설명</label>
+              <textarea value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} onPaste={handlePaste} className="input-field py-1.5 text-sm min-h-[5rem] resize-y" placeholder="상세 설명 (이미지 Ctrl+V)" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1 flex items-center justify-between">
+                <span>체크리스트</span>
+                <span className="text-stone-400 font-normal tabular-nums">{formData.checklist?.filter(i => i.completed).length || 0}/{formData.checklist?.length || 0}</span>
+              </label>
+              {initialData?.id && formData.checklist && formData.checklist.length > 0 && (
+                <button type="button" onClick={handleConvertAllToSubtasks} className="text-[10px] text-blue-600 hover:underline mb-1">전체→하위작업</button>
+              )}
+              <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                {formData.checklist?.map((item, index) => (
+                  <div key={item.id} className="flex items-center gap-1 group">
+                    <input type="checkbox" checked={item.completed} onChange={() => handleToggleChecklist(item.id)} className="rounded border-stone-300 text-blue-600 cursor-pointer" />
+                    <input type="text" value={item.text} onChange={(e) => { const c = [...(formData.checklist || [])]; c[index].text = e.target.value; setFormData({ ...formData, checklist: c }); }} className={`flex-1 min-w-0 py-0.5 text-xs border-0 bg-transparent focus:ring-0 ${item.completed ? 'line-through text-stone-400' : ''}`} />
+                    {initialData?.id && <button type="button" onClick={() => handleConvertToSubtask(item)} className="p-0.5 text-stone-400 hover:text-blue-500 opacity-0 group-hover:opacity-100" title="하위 작업으로 변환"><CornerDownRight size={12} /></button>}
+                    <button type="button" onClick={() => handleDeleteChecklist(item.id)} className="p-0.5 text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100" title="삭제"><X size={12} /></button>
                   </div>
-                  <span className="text-stone-400 font-normal">
-                    {formData.checklist?.filter(i => i.completed).length || 0} / {formData.checklist?.length || 0}
-                  </span>
-                </label>
-
-                {/* Progress Bar for Checklist */}
-                {formData.checklist && formData.checklist.length > 0 && (
-                  <div className="h-1.5 w-full bg-stone-100 rounded-full mb-3 overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 transition-all duration-300"
-                      style={{ width: `${(formData.checklist.filter(i => i.completed).length / formData.checklist.length) * 100}%` }}
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-2 mb-3 max-h-[150px] overflow-y-auto pr-1">
-                  {formData.checklist?.map((item, index) => (
-                    <div key={item.id} className="flex items-start gap-2 group">
-                      <div className="pt-1 cursor-grab text-stone-300 hover:text-stone-500">
-                        <GripVertical size={14} />
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={item.completed}
-                        onChange={() => handleToggleChecklist(item.id)}
-                        className="mt-1 rounded border-stone-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                      <input
-                        type="text"
-                        value={item.text}
-                        onChange={(e) => {
-                          const newChecklist = [...(formData.checklist || [])];
-                          newChecklist[index].text = e.target.value;
-                          setFormData({ ...formData, checklist: newChecklist });
-                        }}
-                        className={`flex-1 bg-transparent border-none text-sm p-0 focus:ring-0 ${item.completed ? 'text-stone-400 line-through' : 'text-stone-700'}`}
-                      />
-                      <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        {initialData && initialData.id && (
-                          <button
-                            type="button"
-                            onClick={() => handleConvertToSubtask(item)}
-                            className="text-stone-400 hover:text-blue-500 p-1"
-                            title="하위 작업으로 변환"
-                          >
-                            <CornerDownRight size={14} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteChecklist(item.id)}
-                          className="text-stone-300 hover:text-red-500 p-1"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newChecklistItem}
-                    onChange={(e) => setNewChecklistItem(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddChecklist();
-                      }
-                    }}
-                    placeholder="항목 추가..."
-                    className="input-field flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddChecklist}
-                    disabled={!newChecklistItem.trim()}
-                    className="btn-secondary px-3"
-                  >
-                    추가
-                  </button>
-                </div>
+                ))}
               </div>
-
-              {/* Deliverables */}
-              <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">산출물</label>
-                <textarea
-                  value={formData.deliverables || ''}
-                  onChange={(e) => setFormData({ ...formData, deliverables: e.target.value })}
-                  placeholder="이 작업의 산출물을 입력하세요 (예: 보고서, 설계서, 소스코드 등)"
-                  className="input-field h-24 resize-none"
-                />
+              <div className="flex gap-1 mt-1">
+                <input type="text" value={newChecklistItem} onChange={(e) => setNewChecklistItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddChecklist())} placeholder="항목 추가" className="input-field py-1 text-sm flex-1" />
+                <button type="button" onClick={handleAddChecklist} disabled={!newChecklistItem.trim()} className="btn-secondary py-1 px-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">추가</button>
               </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1 flex items-center justify-between">
+                <span>산출물</span>
+                <span className="text-stone-400 font-normal tabular-nums">{deliverablesCount > 0 ? `${deliverablesCount}개` : '비어 있음'}</span>
+              </label>
+              <input type="text" value={formData.deliverables || ''} onChange={(e) => setFormData({ ...formData, deliverables: e.target.value })} placeholder="보고서, 설계서 등 (쉼표로 구분)" className="input-field py-2 text-sm" />
             </div>
           </div>
-
         </form>
-        <div className="p-4 flex justify-between items-center border-t border-[var(--color-line)] bg-stone-50 flex-shrink-0">
+        <div className="px-4 py-3 flex justify-between items-center border-t border-slate-200/50 bg-slate-50/50 flex-shrink-0 gap-4">
           <div>
             {onDelete && initialData && (
               <button
                 type="button"
                 onClick={handleDeleteClick}
-                className="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-xl text-sm font-medium transition-colors"
               >
                 작업 삭제
               </button>
             )}
           </div>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-ghost"
-            >
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-ghost">
               취소
             </button>
-            <button
-              type="button" // Change to button since form submission is separated
-              onClick={handleSubmit}
-              className="btn-primary"
-            >
+            <button type="button" onClick={(e) => { e.preventDefault(); handleSubmit(e as React.FormEvent); }} className="btn-primary">
               저장
             </button>
           </div>

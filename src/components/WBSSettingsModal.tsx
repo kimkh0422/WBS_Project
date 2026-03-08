@@ -12,6 +12,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     const { wbsSettings, updateWbsSettings, projects, updateProject } = useWBS();
 
     const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
+    const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath !== false);
     const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
     const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
     const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
@@ -27,8 +28,10 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
         endDate: '종료일',
         workEffort: '공수(d)',
         assignee: '담당자',
+        allocation: '투입율',
         status: '상태',
         deliverables: '산출물',
+        dependencies: '선행작업',
     }), []);
 
     const DEFAULT_TABLE_COLUMNS = useMemo(() => ([
@@ -38,8 +41,11 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
         { id: 'endDate', visible: true },
         { id: 'workEffort', visible: true },
         { id: 'assignee', visible: true },
+        { id: 'allocation', visible: true },
         { id: 'status', visible: true },
+        { id: 'progress', visible: true },
         { id: 'deliverables', visible: true },
+        { id: 'dependencies', visible: true },
     ]), []);
 
     const normalizedTableColumns = useMemo(() => {
@@ -67,6 +73,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     useEffect(() => {
         if (isOpen) {
             setAppTitle(wbsSettings.appTitle);
+            setShowCriticalPath(wbsSettings.showCriticalPath !== false);
             setLevel1(wbsSettings.level1Prefix);
             setLevel2(wbsSettings.level2Prefix);
             setLevel3(wbsSettings.level3Prefix);
@@ -106,6 +113,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
         e.preventDefault();
         updateWbsSettings({
             appTitle: appTitle.trim(),
+            showCriticalPath,
             level1Prefix: level1.trim(),
             level2Prefix: level2.trim(),
             level3Prefix: level3.trim(),
@@ -156,6 +164,19 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                         className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                     />
                                 </div>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        id="showCriticalPath"
+                                        checked={showCriticalPath}
+                                        onChange={(e) => setShowCriticalPath(e.target.checked)}
+                                        className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="showCriticalPath" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
+                                        크리티컬 패스 표시
+                                    </label>
+                                </div>
+                                <p className="text-[10px] text-stone-400 leading-relaxed">간트 차트·작업표에서 크리티컬 패스 작업을 빨간색으로 강조합니다.</p>
                             </div>
 
                             {/* WBS ID Settings */}

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
-import { Task, TaskStatus } from '../types';
+import { Task, TaskStatus, Project } from '../types';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -94,7 +94,7 @@ const estimateWorkEffortFromDates = (startIso: string, endIso: string): number |
   const start = sd <= ed ? sd : ed;
   const end = sd <= ed ? ed : sd;
 
-  // Inclusive business days (weekends excluded; holidays not considered)
+  // 불러오기 시 내용 변경 없이: 주말만 제외(공휴일 미반영), 원본 기간 기준 공수 추정
   const days = differenceInBusinessDays(end, start) + 1;
   if (!Number.isFinite(days) || days <= 0) return 1;
   return Math.max(0.5, Math.round(days * 10) / 10);
@@ -647,7 +647,29 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   };
 };
 
-export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileName: string = 'wbs_export.xlsx') => {
+/** 작업별 투입율만 반환 (예: "10%" 또는 "10%, 20%"). task 배정 없으면 프로젝트 설정값 사용 */
+function getAllocationRateString(
+  task: Task,
+  projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>
+): string {
+  const assignments = task.assignments?.length
+    ? task.assignments
+    : (task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : []);
+  return assignments.length
+    ? assignments.map(a => `${a.allocationPercent}%`).join(', ')
+    : '';
+}
+
+export const exportToExcel = (
+  tasks: Task[],
+  wbsMap: Map<string, string>,
+  fileName: string = 'wbs_export.xlsx',
+  projects: Project[] = []
+) => {
+  const projectAssignmentsByProjectId = new Map(
+    projects.map(p => [p.id, p.assignments ?? []])
+  );
+
   // Use context wbsMap (which has user-configured prefixes like W1, T1.1).
   // For tasks beyond maxLevel (wbsMap value is ''), derive from parent's WBS number.
   const exportWbsMap = new Map<string, string>();
@@ -666,19 +688,23 @@ export const exportToExcel = (tasks: Task[], wbsMap: Map<string, string>, fileNa
   };
   fillWbs(null);
 
-  // Prepare data for export
-  const data = tasks.map((task) => ({
-    [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
-    [HEADER_MAP.name]: task.name,
-    [HEADER_MAP.startDate]: task.startDate,
-    [HEADER_MAP.endDate]: task.endDate,
-    [HEADER_MAP.progress]: task.progress,
-    [HEADER_MAP.assignee]: task.assignee,
-    [HEADER_MAP.status]: task.status,
-    [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
-    [HEADER_MAP.workEffort]: task.workEffort || 0,
-    [HEADER_MAP.deliverables]: task.deliverables || '',
-  }));
+  // Prepare data for export (투입율: 담당자별 비율만, 작업 배정 없으면 프로젝트 설정값)
+  const data = tasks.map((task) => {
+    const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
+    return {
+      [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
+      [HEADER_MAP.name]: task.name,
+      [HEADER_MAP.startDate]: task.startDate,
+      [HEADER_MAP.endDate]: task.endDate,
+      [HEADER_MAP.progress]: task.progress,
+      [HEADER_MAP.assignee]: task.assignee,
+      '투입율': allocationRate,
+      [HEADER_MAP.status]: task.status,
+      [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
+      [HEADER_MAP.workEffort]: task.workEffort || 0,
+      [HEADER_MAP.deliverables]: task.deliverables || '',
+    };
+  });
 
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();

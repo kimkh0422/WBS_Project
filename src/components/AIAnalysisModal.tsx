@@ -1,9 +1,14 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
-import { Task, TaskStatus } from '../types';
+import { Task, TaskStatus, Project } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
+import { useToast } from './Toast';
+import { applyDependencySchedule } from '../lib/schedule';
+import { buildTasksInTreeOrderWithWbs } from '../lib/taskView';
+
+const DEP_PROGRESS_TOAST_ID = 'wbs-dep-analysis-progress';
 
 type Attachment = {
   id: string;
@@ -21,6 +26,7 @@ interface AIAnalysisModalProps {
   onImport: (tasks: Task[], replace?: boolean) => void;
   currentProjectId: string;
   existingTasks?: Task[];
+  projects?: Project[];
 }
 
 interface AIResponseTask {
@@ -34,7 +40,8 @@ interface AIResponseTask {
   subtasks?: AIResponseTask[];
 }
 
-export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, currentProjectId, existingTasks = [] }: AIAnalysisModalProps) {
+export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, currentProjectId, existingTasks = [], projects = [] }: AIAnalysisModalProps) {
+  const { push: pushToast, dismiss: dismissToast } = useToast();
   const [inputText, setInputText] = useState('');
   const [userRequest, setUserRequest] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -44,6 +51,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   const [analysisMode, setAnalysisMode] = useState<'generate' | 'reanalyze' | 'dependency'>('generate');
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [dependencyResults, setDependencyResults] = useState<{ taskId: string; dependsOn: string[] }[]>([]);
+  const [dependencyAnalysisInBackground, setDependencyAnalysisInBackground] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini-api-key') || '');
   const [tempApiKey, setTempApiKey] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -82,6 +90,11 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  const projectAssignmentsByProjectId = useMemo(
+    () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
+    [projects]
+  );
 
   const formatBytes = (bytes: number) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -182,6 +195,8 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
   // Keep component mounted even when closed so background analysis can continue.
   if (!isOpen) return null;
+  // 선행관계 분석 중에는 창을 숨기고 알림으로만 진행 상황 표시
+  if (dependencyAnalysisInBackground) return null;
 
   const handleSaveApiKey = () => {
     if (!tempApiKey.trim()) {
@@ -342,8 +357,9 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       parsed.tasks.forEach((t: AIResponseTask) => processTask(t));
 
       if (isMountedRef.current) {
-        // Auto-import on completion (skip preview)
-        onImport(flattenedTasks, useExisting);
+        const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
+        const adjusted = applyDependencySchedule(flattenedTasks, projectAssignmentsByProjectId);
+        onImport(adjusted, useExisting);
         handleResetAndClose();
       }
 
@@ -363,8 +379,20 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     setAnalysisMode('dependency');
     setError(null);
 
+    pushToast('선행관계 분석 중...', {
+      variant: 'info',
+      id: DEP_PROGRESS_TOAST_ID,
+      durationMs: 60 * 60 * 1000,
+    });
+    setDependencyAnalysisInBackground(true);
+
     try {
       const ai = new GoogleGenAI({ apiKey });
+      const treeOrder = buildTasksInTreeOrderWithWbs(existingTasks);
+      const steppedLines = treeOrder.map(({ task, depth, wbsCode }) => {
+        const indent = '  '.repeat(depth);
+        return `${indent}${wbsCode} [id: ${task.id}] ${task.name}`;
+      });
       const taskList = existingTasks.map(t => ({
         id: t.id,
         name: t.name,
@@ -376,7 +404,10 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       const prompt = `
         당신은 프로젝트 관리 전문가입니다. 다음 WBS 작업 목록을 분석하여 작업 간의 선행관계(Finish-to-Start 의존성)를 파악해 주세요.
 
-        작업 목록 (JSON):
+        전체 WBS (계층 순서, 위→아래, 레벨·WBS 반영):
+        ${steppedLines.join('\n')}
+
+        작업 목록 (JSON, id 참조용):
         ${JSON.stringify(taskList, null, 2)}
 
         ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
@@ -422,12 +453,33 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
         .filter((d: any) => d.dependsOn.length > 0);
 
       if (isMountedRef.current) {
-        setDependencyResults(validated);
-        setStep('preview');
+        setDependencyAnalysisInBackground(false);
+        dismissToast(DEP_PROGRESS_TOAST_ID);
+        if (validated.length === 0) {
+          pushToast('감지된 선행관계가 없습니다.', { variant: 'info' });
+          handleResetAndClose();
+          return;
+        }
+        const depMap = new Map<string, string[]>(validated.map((d) => [d.taskId, d.dependsOn]));
+        const withDeps: Task[] = existingTasks.map((t) => ({
+          ...t,
+          dependencies: t.userLockedFields?.includes('dependencies')
+            ? (t.dependencies ?? [])
+            : (depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || [])),
+        }));
+        const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
+        onImport(withConsistentDates, true);
+        pushToast(`선행관계 ${validated.length}건 적용. 일정·공휴일·투입인력(과업무 방지) 반영`, { variant: 'success' });
+        handleResetAndClose();
       }
     } catch (err: any) {
       console.error("Dependency Analysis Error:", err);
-      if (isMountedRef.current) setError(err.message || "선행관계 분석에 실패했습니다.");
+      if (isMountedRef.current) {
+        setDependencyAnalysisInBackground(false);
+        setError(err.message || "선행관계 분석에 실패했습니다.");
+        dismissToast(DEP_PROGRESS_TOAST_ID);
+        pushToast('선행관계 분석에 실패했습니다.', { variant: 'warning' });
+      }
     } finally {
       if (isMountedRef.current) setIsLoading(false);
     }
@@ -435,16 +487,20 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
   const handleImportDependencies = () => {
     const depMap = new Map<string, string[]>(dependencyResults.map(d => [d.taskId, d.dependsOn]));
-    const updatedTasks: Task[] = existingTasks.map(t => ({
+    const withDeps: Task[] = existingTasks.map(t => ({
       ...t,
-      dependencies: depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || []),
+      dependencies: t.userLockedFields?.includes('dependencies')
+        ? (t.dependencies ?? [])
+        : (depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || [])),
     }));
-    onImport(updatedTasks, true);
+    const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
+    onImport(withConsistentDates, true);
     handleResetAndClose();
   };
 
   const handleImport = () => {
-    onImport(generatedTasks, isReanalyzing);
+    const adjusted = applyDependencySchedule(generatedTasks, projectAssignmentsByProjectId);
+    onImport(adjusted, isReanalyzing);
     handleResetAndClose();
   };
 
@@ -453,6 +509,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     setUserRequest('');
     setGeneratedTasks([]);
     setDependencyResults([]);
+    setDependencyAnalysisInBackground(false);
     setAttachments([]);
     setIsDragActive(false);
     setStep('input');
@@ -710,36 +767,52 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
                   명확한 선행관계가 감지되지 않았습니다.
                 </div>
               ) : (
-                <div className="border border-stone-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto bg-stone-50">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-stone-100 text-stone-500 font-medium text-xs uppercase sticky top-0">
-                      <tr>
-                        <th className="px-4 py-2">작업명</th>
-                        <th className="px-4 py-2">선행 작업 (이것이 완료되어야 시작 가능)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-200">
-                      {dependencyResults.map((dep) => {
-                        const task = existingTasks.find(t => t.id === dep.taskId);
-                        const predecessors = dep.dependsOn.map(id => existingTasks.find(t => t.id === id)?.name).filter(Boolean);
-                        return (
-                          <tr key={dep.taskId} className="bg-white hover:bg-stone-50">
-                            <td className="px-4 py-2 font-medium text-stone-800 truncate max-w-[180px]">{task?.name || dep.taskId}</td>
-                            <td className="px-4 py-2">
-                              <div className="flex flex-wrap gap-1">
-                                {predecessors.map((name, i) => (
-                                  <span key={i} className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-xs">
-                                    {name}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
+                (() => {
+                  const treeOrder = buildTasksInTreeOrderWithWbs(existingTasks);
+                  const depMap = new Map(dependencyResults.map(d => [d.taskId, d.dependsOn]));
+                  const taskById = new Map(existingTasks.map(t => [t.id, t]));
+                  return (
+                    <div className="border border-stone-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto bg-stone-50">
+                      <table className="w-full text-sm text-left">
+                        <thead className="bg-stone-100 text-stone-500 font-medium text-xs uppercase sticky top-0">
+                          <tr>
+                            <th className="px-2 py-2 w-16">WBS</th>
+                            <th className="px-2 py-2">작업명</th>
+                            <th className="px-4 py-2">선행 작업 (이것이 완료되어야 시작 가능)</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody className="divide-y divide-stone-200">
+                          {treeOrder.map(({ task, depth, wbsCode }) => {
+                            const dependsOn = depMap.get(task.id) ?? [];
+                            const predecessors = dependsOn.map(id => taskById.get(id)?.name).filter(Boolean);
+                            return (
+                              <tr key={task.id} className="bg-white hover:bg-stone-50">
+                                <td className="px-2 py-2 font-mono text-stone-600 whitespace-nowrap">{wbsCode}</td>
+                                <td className="px-2 py-2 font-medium text-stone-800 truncate max-w-[200px]" style={{ paddingLeft: `${12 + depth * 20}px` }}>
+                                  {depth > 0 && <span className="text-stone-400 mr-1">↳</span>}
+                                  {task.name}
+                                </td>
+                                <td className="px-4 py-2">
+                                  {predecessors.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {predecessors.map((name, i) => (
+                                        <span key={i} className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-xs">
+                                          {name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-stone-300">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
               )}
             </div>
           ) : (

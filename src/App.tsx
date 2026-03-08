@@ -5,10 +5,11 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
-import { WBSProvider, useWBS } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, HelpCircle } from 'lucide-react';
+import { useWBS } from './context/WBSContext';
+import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, HelpCircle, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle } from 'lucide-react';
+import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
-import { Task, FilterState, TaskStatus, SortConfig } from './types';
+import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
 import { exportBackupToJson, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
 import { Dashboard } from './components/Dashboard';
@@ -20,7 +21,9 @@ import { PasswordGuard } from './components/PasswordGuard';
 import { TutorialModal } from './components/TutorialModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
+import { ShareModal } from './components/ShareModal';
 import { v4 as uuidv4 } from 'uuid';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
 import logo from './assets/logo.png';
 
 function formatCommitDate(value: string) {
@@ -79,12 +82,16 @@ function WBSApp() {
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
+  const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
+  const [isDeleteEverythingConfirmOpen, setIsDeleteEverythingConfirmOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
-
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const {
     addTask,
     addTasks,
     tasks,
+    allTasks,
     importTasks,
     projects,
     currentProjectId,
@@ -93,12 +100,17 @@ function WBSApp() {
     updateProject,
     deleteProject,
     deleteAllTasks,
+    deleteAllTasksInAllProjects,
+    deleteEverything,
     wbsMap,
     restoreBackup,
     mergeBackups,
     exportFullBackup,
     undo,
     canUndo,
+    redo,
+    canRedo,
+    selectedTaskIds,
     wbsSettings,
     expandToLevel,
     setTreeExpandLevel,
@@ -116,7 +128,7 @@ function WBSApp() {
   // Scroll sync refs for split-view
   const wbsScrollRef = useRef<HTMLDivElement>(null);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
-  const [sharedRowHeight, setSharedRowHeight] = useState(34);
+  const [sharedRowHeight, setSharedRowHeight] = useState(20);
   const isSyncingScroll = useRef(false);
 
   // Sync vertical scroll between WBSTable and GanttChart (행만 스크롤되므로 scrollTop 1:1 동기화)
@@ -229,17 +241,18 @@ function WBSApp() {
   }, [resize, stopResizing]);
 
   useEffect(() => {
-    const handleUndo = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+    const handleUndoRedo = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
-        undo();
+        if (e.shiftKey) redo();
+        else undo();
       }
     };
-    window.addEventListener('keydown', handleUndo);
-    return () => window.removeEventListener('keydown', handleUndo);
-  }, [undo]);
+    window.addEventListener('keydown', handleUndoRedo);
+    return () => window.removeEventListener('keydown', handleUndoRedo);
+  }, [undo, redo]);
 
   useEffect(() => {
     const handleHelpHotkey = (e: KeyboardEvent) => {
@@ -289,10 +302,12 @@ function WBSApp() {
     assignee: '',
     startDate: '',
     endDate: '',
+    milestoneOnly: false,
   });
 
-  const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
   const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
+  const [isDeleteChoiceOpen, setIsDeleteChoiceOpen] = useState(false);
 
   // Filter on/off (when on, filter bar and filters apply)
   const [filterOn, setFilterOn] = useState(false);
@@ -327,12 +342,12 @@ function WBSApp() {
 
   const handleSaveTask = (taskData: any) => addTask(taskData);
 
-  const handleSaveProject = (name: string, description: string, startDate?: string) => {
+  const handleSaveProject = (name: string, description: string, startDate?: string, assignments?: Project['assignments']) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description, startDate });
+      updateProject(editingProject.id, { name, description, startDate, assignments });
       setEditingProject(null);
     } else {
-      addProject(name, description, startDate);
+      addProject(name, description, startDate, assignments);
     }
     setIsProjectModalOpen(false);
   };
@@ -340,6 +355,21 @@ function WBSApp() {
   const handleDeleteAll = () => {
     deleteAllTasks();
     setIsDeleteAllConfirmOpen(false);
+    setIsProjectDropdownOpen(false);
+  };
+
+  const handleDeleteAllProjects = () => {
+    deleteAllTasksInAllProjects();
+    setIsDeleteAllProjectsConfirmOpen(false);
+    setIsDeleteChoiceOpen(false);
+    setIsProjectDropdownOpen(false);
+  };
+
+  const handleDeleteEverything = () => {
+    deleteEverything();
+    setIsDeleteEverythingConfirmOpen(false);
+    setIsDeleteChoiceOpen(false);
+    setIsProjectDropdownOpen(false);
   };
 
   const handleDeleteProject = () => {
@@ -356,7 +386,7 @@ function WBSApp() {
     const fileName = currentProject
       ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
       : `wbs_export_${timestamp}.xlsx`;
-    exportToExcel(tasks, wbsMap, fileName);
+    exportToExcel(tasks, wbsMap, fileName, projects);
   };
 
   const handleExportBackup = () => {
@@ -497,9 +527,9 @@ function WBSApp() {
     setFilterOn(true);
   };
 
-  const hasActiveFilters = filterOn && (filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate);
+  const hasActiveFilters = filterOn && (filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly);
   const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
-  const effectiveFilters: FilterState = filterOn ? filters : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '' };
+  const effectiveFilters: FilterState = filterOn ? filters : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false };
 
   if (isLoading) {
     return (
@@ -514,13 +544,14 @@ function WBSApp() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">
-      <header className="bg-white border-b border-[var(--color-line)] px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm z-50 sticky top-0">
+    <div className={cn("min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900", isFullscreen && "overflow-hidden")}>
+      {!isFullscreen && (
+      <header className="bg-glass-elevated border-b border-slate-200/50 px-6 py-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-[0_2px_15px_rgba(0,0,0,0.03)] z-50 sticky top-0">
         <div className="flex items-center gap-4">
           <div
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => window.location.reload()}
-            title="새로고침"
+            title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
           >
             <img src={logo} alt="GMT Logo" className="w-8 h-8 object-contain" />
           </div>
@@ -550,6 +581,7 @@ function WBSApp() {
                   tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
                 }}
                 className="flex items-center gap-2 p-1.5 hover:bg-stone-50 rounded-lg transition-all"
+                title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
               >
                 <div className="flex flex-col items-start">
                   <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider leading-none mb-1">현재 프로젝트</span>
@@ -565,7 +597,7 @@ function WBSApp() {
                   <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
                   <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100 origin-top-left">
                     <div className="p-1">
-                      <div className="px-3 py-2 text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</div>
+                      <div className="px-3 py-2 text-[10px] font-bold uppercase text-stone-400 tracking-wider" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">프로젝트 목록</div>
                       <div
                         className={cn(
                           "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
@@ -575,6 +607,7 @@ function WBSApp() {
                           setCurrentProjectId('all');
                           setIsProjectDropdownOpen(false);
                         }}
+                        title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
                       >
                         <span className="truncate flex-1">전체</span>
                       </div>
@@ -592,16 +625,18 @@ function WBSApp() {
                           }}
                         >
                           <span className="truncate flex-1">{project.name}</span>
-                          <div className="flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                            <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1"><Edit size={12} /></button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집: 이름·설명·시작일·투입인원을 수정합니다."><Edit size={12} /></button>
                             {projects.length > 1 && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setProjectToDelete(project);
+                                  setIsProjectDropdownOpen(false);
                                   setIsDeleteProjectConfirmOpen(true);
                                 }}
-                                className="text-stone-400 hover:text-red-500 p-1"
+                                className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                title="프로젝트 삭제: 이 프로젝트와 소속된 모든 작업을 삭제합니다."
                               >
                                 <Trash2 size={12} />
                               </button>
@@ -610,7 +645,7 @@ function WBSApp() {
                         </div>
                       ))}
                       <div className="border-t border-[var(--color-line)] my-1"></div>
-                      <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors">
+                      <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성하고 이름·설명·시작일·투입인원을 설정합니다.">
                         <FolderPlus size={14} /> 새 프로젝트
                       </button>
                     </div>
@@ -622,12 +657,32 @@ function WBSApp() {
         </div>
 
         <div className="flex flex-wrap gap-1.5 items-center">
-          <div className="flex bg-stone-100 p-0.5 rounded-lg border border-[var(--color-line)]">
-            <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" />
-            <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표 + 간트 분할 보기" />
-            <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="표만 보기" />
-            <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="간트차트만 보기" />
-            <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" />
+          {/* 툴바: 되돌리기 / 다시실행 */}
+          <div className="flex items-center gap-0.5 mr-1">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="p-2 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-[var(--color-ink)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="실행 취소: 방금 한 작업을 되돌립니다. (Ctrl+Z)"
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="p-2 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-[var(--color-ink)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="다시 실행: 취소한 작업을 다시 적용합니다. (Ctrl+Shift+Z)"
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
+          <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
+          <div className="flex bg-slate-100/60 backdrop-blur-sm p-1 rounded-xl border border-slate-200/80 shadow-inner">
+            <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
+            <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
+            <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
+            <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
+            <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." />
           </div>
 
           <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
@@ -639,7 +694,7 @@ function WBSApp() {
                 tipOnce('menu.ai', 'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에는 창을 닫아도 백그라운드에서 계속 진행돼요.');
               }}
               className="p-2 hover:bg-stone-100 rounded-lg text-purple-500 hover:text-purple-600 transition-colors"
-              title={isAIBusy ? "AI 분석 중 (백그라운드)" : "AI 프로젝트 분석"}
+              title={isAIBusy ? "AI 분석 중: 백그라운드에서 진행됩니다. 완료 시 알림이 표시됩니다." : "AI 프로젝트 분석: 문서를 업로드하면 AI가 WBS 구조와 작업을 자동 생성합니다."}
             >
               {isAIBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             </button>
@@ -649,10 +704,11 @@ function WBSApp() {
                 tipOnce('menu.settings', '설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 변경할 수 있어요.');
               }}
               className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-[var(--color-ink)] transition-colors"
-              title="설정"
+              title="설정: 앱 제목, WBS 번호 형식, 상태/진척도, 표 컬럼 표시·순서, 크리티컬 패스 표시 등을 변경합니다."
             >
               <Settings2 size={15} />
             </button>
+            {false && (
             <button
               onClick={() => {
                 setIsTutorialOpen(true);
@@ -663,6 +719,7 @@ function WBSApp() {
             >
               <HelpCircle size={15} />
             </button>
+            )}
             <button
               onClick={() => {
                 setIsShortcutsVisible(!isShortcutsVisible);
@@ -672,7 +729,7 @@ function WBSApp() {
                 "p-2 hover:bg-stone-100 rounded-lg transition-colors",
                 isShortcutsVisible ? "text-[var(--color-accent)] bg-blue-50" : "text-stone-400 hover:text-[var(--color-ink)]"
               )}
-              title="단축키 표시 설정"
+              title="단축키: 사용 가능한 키보드 단축키 목록을 표시합니다. (표에서 Ctrl+A 후 Del로 일괄 삭제 등)"
             >
               <Keyboard size={15} />
             </button>
@@ -692,7 +749,7 @@ function WBSApp() {
                 ? "bg-blue-600 text-white border-blue-600"
                 : "bg-white text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700"
             )}
-            title={filterOn ? "필터 끄기" : "필터 켜기"}
+            title={filterOn ? "필터 끄기: 상태·담당자·기간 필터를 비활성화합니다." : "필터 켜기: 상태(할일/진행중/완료), 담당자, 기간, 마일스톤으로 작업을 좁혀 볼 수 있어요."}
           >
             <Filter size={14} />
             <span>필터</span>
@@ -707,16 +764,17 @@ function WBSApp() {
                   tipOnce('menu.import', '가져오기: Excel/JSON 데이터를 불러와 작업을 추가하거나 복원할 수 있어요.');
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] rounded-lg hover:bg-stone-50 transition-all"
+                title="가져오기: Excel 또는 JSON 파일에서 작업 데이터를 불러옵니다."
               >
                 <Upload size={13} /> <span>가져오기</span> <ChevronDown size={11} className="opacity-50" />
               </button>
               {isImportMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsImportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-1.5 w-48 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
-                    <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors">현재 작업 가져오기 (Excel)</button>
-                    <button onClick={handleMergeImportClick} className="w-full text-left px-4 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-[var(--color-line)]">프로젝트 추가 가져오기 (JSON)</button>
-                    <button onClick={handleImportBackupClick} className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]">전체 백업 데이터 가져오기 (JSON)</button>
+                  <div className="absolute top-full right-0 mt-1.5 w-56 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
+                    <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors" title="Excel(.xlsx) 파일에서 작업 목록을 가져와 현재 프로젝트에 추가합니다.">현재 작업 가져오기 (Excel)</button>
+                    <button onClick={handleMergeImportClick} className="w-full text-left px-4 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-[var(--color-line)]" title="여러 JSON 백업 파일을 병합해 기존 프로젝트에 새 프로젝트를 추가합니다.">프로젝트 추가 가져오기 (JSON)</button>
+                    <button onClick={handleImportBackupClick} className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]" title="전체 백업 JSON으로 모든 데이터를 복원합니다. 현재 데이터가 덮어씌워집니다.">전체 백업 데이터 가져오기 (JSON)</button>
                   </div>
                 </>
               )}
@@ -729,15 +787,16 @@ function WBSApp() {
                   tipOnce('menu.export', '내보내기: Excel로 내보내거나 전체 데이터를 JSON 백업으로 저장할 수 있어요.');
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] rounded-lg hover:bg-stone-50 transition-all"
+                title="내보내기: Excel 또는 JSON 파일로 데이터를 저장합니다."
               >
                 <Download size={13} /> <span>내보내기</span> <ChevronDown size={11} className="opacity-50" />
               </button>
               {isExportMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsExportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
-                    <button onClick={() => { handleExport(); setIsExportMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors">현재 프로젝트 내보내기 (Excel)</button>
-                    <button onClick={handleExportBackup} className="w-full text-left px-4 py-2.5 text-xs text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]">전체 데이터 백업 (JSON)</button>
+                  <div className="absolute top-full right-0 mt-1.5 w-56 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
+                    <button onClick={() => { handleExport(); setIsExportMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors" title="현재 프로젝트의 작업을 Excel(.xlsx) 파일로 내보냅니다. 엑셀에서 편집 후 다시 가져올 수 있어요.">현재 프로젝트 내보내기 (Excel)</button>
+                    <button onClick={handleExportBackup} className="w-full text-left px-4 py-2.5 text-xs text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]" title="프로젝트·작업·설정 전체를 JSON 백업으로 저장합니다. 나중에 전체 복원에 사용해요.">전체 데이터 백업 (JSON)</button>
                   </div>
                 </>
               )}
@@ -745,11 +804,11 @@ function WBSApp() {
 
             <button
               onClick={() => {
-                setIsDeleteAllConfirmOpen(true);
-                tipOnce('menu.deleteAll', '모든 작업 삭제는 현재 프로젝트의 작업을 전체 삭제합니다. (되돌리기: Ctrl+Z)');
+                setIsDeleteChoiceOpen(true);
+                tipOnce('menu.deleteAll', '전체 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택할 수 있습니다.');
               }}
               className="p-2 hover:bg-red-50 rounded-lg text-red-300 hover:text-red-500 transition-colors"
-              title="모든 작업 삭제"
+              title="삭제: 전체 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택합니다."
             >
               <Trash2 size={15} />
             </button>
@@ -758,43 +817,93 @@ function WBSApp() {
           <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
 
           <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="p-2 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+            title={isFullscreen ? '전체화면 해제: 일반 화면으로 돌아갑니다.' : '전체화면: 헤더·푸터를 숨기고 작업 영역만 크게 표시합니다.'}
+          >
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
             onClick={() => {
               setIsModalOpen(true);
               tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
             }}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold bg-[var(--color-ink)] text-white rounded-lg hover:bg-stone-800 transition-all shadow-sm"
+            className="btn-primary flex items-center gap-1.5"
+            title="새 작업: 작업명, 기간, 공수, 담당자, 상태 등을 입력해 새 작업을 추가합니다. 표 화면에서는 Enter로도 추가할 수 있어요."
           >
             <Plus size={15} /> <span>새 작업</span>
           </button>
         </div>
       </header>
+      )}
 
       {/* Filter bar: one row of buttons when filter is On */}
-      {filterOn && (
-        <div className="bg-white border-b border-[var(--color-line)] px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0">
-          <span className="text-[11px] font-bold text-stone-500 shrink-0 mr-1">상태</span>
+      {filterOn && !isFullscreen && (
+        <div className="bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 overflow-x-auto shrink-0 shadow-sm z-40">
+          <span className="text-[11px] font-bold text-slate-500 shrink-0 mr-1 uppercase tracking-wide" title="상태별로 작업을 필터링합니다.">상태</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.status === 'all' ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}>전체</button>
+            <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.status === 'all' ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="모든 상태의 작업 표시">전체</button>
             {wbsSettings.statusConfigs.map(config => (
-              <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.status === config.id ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}>{config.name}</button>
+              <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.status === config.id ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
             ))}
           </div>
-          <span className="text-[11px] font-bold text-stone-500 shrink-0 mx-2">담당자</span>
+          <span className="text-[11px] font-bold text-stone-500 shrink-0 mx-2" title="담당자별로 작업을 필터링합니다.">담당자</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", !filters.assignee ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}>전체</button>
+            <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", !filters.assignee ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="모든 담당자의 작업 표시">전체</button>
             {allAssignees.map(a => (
-              <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.assignee === a ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}>{a}</button>
+              <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.assignee === a ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title={`${a} 담당 작업만 표시`}>{a}</button>
             ))}
+          </div>
+          <span className="text-[11px] font-bold text-stone-500 shrink-0 mx-2" title="마일스톤(이정표) 작업만 보기">마일스톤</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => setFilters(f => ({ ...f, milestoneOnly: false }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap flex items-center gap-1", !filters.milestoneOnly ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="모든 작업 표시">전체</button>
+            <button onClick={() => setFilters(f => ({ ...f, milestoneOnly: true }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap flex items-center gap-1", filters.milestoneOnly ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="마일스톤으로 지정된 이정표 작업만 표시"><Flag size={12} className="opacity-80" /> 마일스톤만</button>
+          </div>
+          <span className="text-[11px] font-bold text-stone-500 shrink-0 mx-2" title="기간별로 작업을 필터링합니다.">기간</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", !filters.startDate && !filters.endDate ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="기간 제한 없이 모든 작업 표시">전체</button>
+            <button
+              onClick={() => {
+                const today = format(new Date(), 'yyyy-MM-dd');
+                setFilters(f => ({ ...f, startDate: today, endDate: today }));
+              }}
+              className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.startDate && filters.endDate && filters.startDate === filters.endDate && filters.startDate === format(new Date(), 'yyyy-MM-dd') ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}
+              title="오늘과 기간이 겹치는 작업만 표시"
+            >
+              금일
+            </button>
+            <button
+              onClick={() => {
+                const now = new Date();
+                const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+                const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+                setFilters(f => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
+              }}
+              className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.startDate && filters.endDate && filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")}
+              title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
+            >
+              금주
+            </button>
           </div>
           {hasActiveFilters && (
-            <button onClick={() => setFilters(f => ({ ...f, status: 'all', assignee: '', startDate: '', endDate: '' }))} className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-all shrink-0 ml-auto">
+            <button onClick={() => setFilters(f => ({ ...f, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false }))} className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50 hover:bg-red-100 transition-all shrink-0 ml-auto">
               <X size={10} /> 초기화
             </button>
           )}
         </div>
       )}
 
-      <main className="flex-1 overflow-hidden flex flex-row relative">
+      {isFullscreen && (
+        <div className="absolute top-2 right-2 z-[60] flex items-center gap-2">
+          <button
+            onClick={() => setIsFullscreen(false)}
+            className="px-3 py-1.5 rounded-lg bg-white/90 shadow border border-stone-200 text-sm font-medium text-stone-700 hover:bg-stone-50"
+          >
+            전체화면 해제
+          </button>
+        </div>
+      )}
+      <main className={cn("flex-1 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
           {view === 'list' ? (
             <div ref={containerRef} className={cn("relative flex h-full w-full", isDraggingResizer && "cursor-col-resize select-none")}>
@@ -807,6 +916,7 @@ function WBSApp() {
                   onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                   onSort={(key) => {
                     setSortConfig(current => {
+                      if (key === 'wbs' && current?.key === 'wbs') return null;
                       if (current?.key === key) {
                         if (current.direction === 'asc') return { key, direction: 'desc' };
                         return null;
@@ -832,6 +942,7 @@ function WBSApp() {
                 onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                 onSort={(key) => {
                   setSortConfig(current => {
+                    if (key === 'wbs' && current?.key === 'wbs') return null;
                     if (current?.key === key) {
                       if (current.direction === 'asc') return { key, direction: 'desc' };
                       return null;
@@ -842,7 +953,7 @@ function WBSApp() {
               />
             </div>
           ) : view === 'gantt' ? (
-            <GanttChart filters={effectiveFilters} sortConfig={sortConfig} />
+            <GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} />
           ) : view === 'dashboard' ? (
             <Dashboard onNavigate={handleDashboardNavigate} />
           ) : (
@@ -862,13 +973,16 @@ function WBSApp() {
         onBusyChange={setIsAIBusy}
         onImport={(newTasks, replace) => {
           if (replace) {
-            importTasks(newTasks);
+            const { overloads } = computeWorkloadOverloads(newTasks, projects);
+            const toImport = overloads.length > 0 ? fixOverloadByExtending(newTasks, projects, overloads) : newTasks;
+            importTasks(toImport);
           } else {
             addTasks(newTasks);
           }
         }}
         currentProjectId={currentProjectId}
         existingTasks={tasks}
+        projects={projects}
       />
       <VersionManager
         isOpen={isVersionHistoryOpen}
@@ -876,7 +990,92 @@ function WBSApp() {
         currentVersion={__APP_VERSION__}
       />
 
-      <ConfirmDialog isOpen={isDeleteAllConfirmOpen} onClose={() => setIsDeleteAllConfirmOpen(false)} onConfirm={handleDeleteAll} title="모든 작업 삭제" message={`'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`} confirmLabel="전체 삭제" isDanger={true} />
+      {/* 삭제 유형 선택: 전체 삭제 / 프로젝트 선택 삭제 / 현재 프로젝트 작업 삭제 */}
+      {isDeleteChoiceOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
+            <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-red-500" size={20} />
+                <h2 className="text-lg font-bold text-[var(--color-ink)]">삭제 유형 선택</h2>
+              </div>
+              <button onClick={() => setIsDeleteChoiceOpen(false)} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">
+                삭제 방식을 선택하세요.
+              </p>
+              <div className="mt-4 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteChoiceOpen(false);
+                    setIsDeleteAllProjectsConfirmOpen(true);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                >
+                  <span className="block font-semibold">전체 삭제</span>
+                  <span className="block text-xs text-red-600 mt-0.5">모든 프로젝트의 작업을 전체 삭제합니다. 프로젝트는 유지됩니다.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteChoiceOpen(false);
+                    setIsDeleteEverythingConfirmOpen(true);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl border-2 border-red-300 bg-red-100/80 hover:bg-red-200 text-red-800 font-medium text-sm transition-colors"
+                >
+                  <span className="block font-semibold">프로젝트 유지 없이 모두 삭제</span>
+                  <span className="block text-xs text-red-700 mt-0.5">모든 프로젝트와 작업을 삭제하고, 새 프로젝트 1개만 생성합니다.</span>
+                </button>
+                {projects.length > 1 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-slate-500 mt-3">프로젝트 선택해서 삭제</p>
+                    {projects.map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => {
+                          setIsDeleteChoiceOpen(false);
+                          setProjectToDelete(project);
+                          setIsDeleteProjectConfirmOpen(true);
+                        }}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                      >
+                        <span className="block font-semibold">{project.name}</span>
+                        <span className="block text-xs text-red-600 mt-0.5">프로젝트와 소속된 모든 작업을 삭제합니다.</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {currentProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDeleteChoiceOpen(false);
+                      setIsDeleteAllConfirmOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                  >
+                    <span className="block font-semibold">현재 프로젝트 작업만 삭제</span>
+                    <span className="block text-xs text-red-600 mt-0.5">'{currentProject.name}'의 작업만 삭제하고 프로젝트는 유지합니다.</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end p-5 border-t border-slate-100 bg-slate-50/30">
+              <button type="button" onClick={() => setIsDeleteChoiceOpen(false)} className="btn-ghost">
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <ConfirmDialog isOpen={isDeleteAllConfirmOpen} onClose={() => setIsDeleteAllConfirmOpen(false)} onConfirm={handleDeleteAll} title="모든 작업 삭제" message={currentProjectId === 'all' ? '모든 프로젝트의 작업을 전체 삭제하시겠습니까?' : `'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`} confirmLabel="삭제" isDanger={true} />
+      <ConfirmDialog isOpen={isDeleteAllProjectsConfirmOpen} onClose={() => setIsDeleteAllProjectsConfirmOpen(false)} onConfirm={handleDeleteAllProjects} title="전체 삭제" message="모든 프로젝트의 작업을 전체 삭제하시겠습니까? 프로젝트는 유지됩니다." confirmLabel="전체 삭제" isDanger={true} />
+      <ConfirmDialog isOpen={isDeleteEverythingConfirmOpen} onClose={() => setIsDeleteEverythingConfirmOpen(false)} onConfirm={handleDeleteEverything} title="프로젝트 유지 없이 모두 삭제" message="모든 프로젝트와 작업을 삭제하고 새 프로젝트 1개만 생성합니다. 이 작업은 되돌릴 수 없습니다." confirmLabel="모두 삭제" isDanger={true} />
       <ConfirmDialog
         isOpen={isDeleteProjectConfirmOpen}
         onClose={() => { setIsDeleteProjectConfirmOpen(false); setProjectToDelete(null); }}
@@ -896,11 +1095,12 @@ function WBSApp() {
       <ConfirmDialog isOpen={backupConfirm.isOpen} onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })} onConfirm={executeRestoreBackup} title="전체 백업 복원" message="애플리케이션의 현재 모든 데이터가 백업 내용으로 덮어씌워집니다." confirmLabel="전체 복원" isDanger={true} />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
-
+      <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} projectName={currentProject?.name} />
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .xlsm" multiple className="hidden" />
       <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" multiple className="hidden" />
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
 
+      {!isFullscreen && (
       <footer className="bg-white border-t border-[var(--color-line)] p-4 text-center mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2">
           <div className="flex items-center gap-3">
@@ -909,18 +1109,23 @@ function WBSApp() {
           <p className="text-[10px] text-stone-400 font-medium whitespace-nowrap">© 2026 GMT Corporation. All rights reserved.</p>
         </div>
       </footer>
+      )}
     </div>
+  );
+}
+
+function AppWithProviders() {
+  return (
+    <PasswordGuard>
+      <WBSApp />
+    </PasswordGuard>
   );
 }
 
 export default function App() {
   return (
-    <WBSProvider>
-      <ToastProvider>
-        <PasswordGuard>
-          <WBSApp />
-        </PasswordGuard>
-      </ToastProvider>
-    </WBSProvider>
+    <ToastProvider>
+      <AppWithProviders />
+    </ToastProvider>
   );
 }

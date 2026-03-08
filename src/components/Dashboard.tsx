@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
-import { Briefcase, Clock, LayoutGrid, Users } from 'lucide-react';
+import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
 import { cn } from '../lib/utils';
-
+import { startOfWeek, endOfWeek, format } from 'date-fns';
+import { ko } from 'date-fns/locale';
 export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: any) => void }) {
     const { projects, allTasks, wbsSettings } = useWBS();
 
@@ -67,17 +68,50 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
             }
         });
 
+        const totalMilestones = allTasks.filter(t => t.isMilestone).length;
+
         return {
             totalProjects: projects.length,
             totalTasks,
             totalDone: allTasks.filter(t => t.status === doneStatus).length,
             totalInProgress: allTasks.filter(t => t.status === inProgressStatus).length,
+            totalMilestones,
             avgProgress,
             statusCounts,
             assigneeCount: assignees.length,
             earliestStartDate,
         }
     }, [projects, allTasks, wbsSettings.statusConfigs]);
+
+    // 마일스톤 목록 (날짜순)
+    const milestones = useMemo(() => {
+        return allTasks
+            .filter(t => t.isMilestone)
+            .map(t => ({
+                ...t,
+                projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
+            }))
+            .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+    }, [allTasks, projects]);
+
+    // 금주 일정: 이번 주(월~일)와 기간이 겹치는 작업
+    const { weekStartStr, weekEndStr, weekLabel, thisWeekTasks } = useMemo(() => {
+        const now = new Date();
+        const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+        const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+        const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+        const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
+        const weekLabel = `${format(weekStart, 'M/d', { locale: ko })} ~ ${format(weekEnd, 'M/d', { locale: ko })}`;
+        const tasks = allTasks.filter(t => {
+            const start = t.startDate || '';
+            const end = t.endDate || '';
+            return start <= weekEndStr && end >= weekStartStr;
+        }).map(t => ({
+            ...t,
+            projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
+        })).sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+        return { weekStartStr, weekEndStr, weekLabel, thisWeekTasks: tasks };
+    }, [allTasks, projects]);
 
     // Calculate stats by assignee
     const assigneeStats = useMemo(() => {
@@ -148,7 +182,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
     }, []);
 
     return (
-        <div className="h-full overflow-y-auto bg-slate-50/60 p-6 md:p-8">
+        <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-6 md:p-8">
             <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
                 {/* Header Summary */}
@@ -194,8 +228,118 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                             subtitle="% 기준 전체 실적"
                             highlight="text-emerald-600"
                         />
+                        <SummaryCard
+                            title="마일스톤"
+                            value={summary.totalMilestones}
+                            subtitle=""
+                            highlight="text-amber-600"
+                            onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
+                        />
                         <SummaryCard title="금일 접속자" value={visitorStats.daily} subtitle="" highlight="text-blue-600" />
                         <SummaryCard title="누적 접속자" value={visitorStats.total} subtitle="" highlight="text-purple-600" />
+                    </div>
+                </section>
+
+                {/* Milestones */}
+                {milestones.length > 0 && (
+                    <section>
+                        <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+                            <Flag className="text-amber-500" size={24} />
+                            마일스톤
+                        </h2>
+                        <div className="card-elevated overflow-hidden">
+                            <ul className="divide-y divide-slate-100">
+                                {milestones.map(task => (
+                                    <li
+                                        key={task.id}
+                                        onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' })}
+                                        className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                                    >
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
+                                            <Flag size={18} className="text-amber-600" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
+                                            <div className="text-xs text-slate-500 mt-0.5">{task.projectName} · {task.startDate}</div>
+                                        </div>
+                                        <span className={cn(
+                                            "text-xs font-medium px-2.5 py-1 rounded-full border",
+                                            task.status === 'done' ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                                            task.status === 'in-progress' ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
+                                            "bg-slate-50 text-slate-600 border-slate-100"
+                                        )}>
+                                            {wbsSettings.statusConfigs.find(c => c.id === task.status)?.name ?? task.status}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </section>
+                )}
+
+                {/* 금주 일정 */}
+                <section>
+                    <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+                        <CalendarDays className="text-sky-500" size={24} />
+                        금주 일정
+                        <span className="text-sm font-normal text-slate-500">({weekLabel})</span>
+                    </h2>
+                    <div className="card-elevated overflow-hidden">
+                        <div className="px-6 py-4 bg-gradient-to-r from-sky-50 to-indigo-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                            <span className="text-sm text-slate-600">
+                                이번 주에 진행 중이거나 예정인 작업 <strong className="text-[var(--color-ink)]">{thisWeekTasks.length}</strong>건
+                            </span>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-100 text-sky-700 border border-sky-200 hover:bg-sky-200 transition-colors"
+                                >
+                                    표·간트에서 보기
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate?.('gantt', { projectId: 'all', status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })}
+                                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-200 transition-colors"
+                                >
+                                    간트에서 보기
+                                </button>
+                            </div>
+                        </div>
+                        {thisWeekTasks.length === 0 ? (
+                            <div className="px-6 py-8 text-center text-slate-500 text-sm">
+                                이번 주에 해당하는 일정이 없습니다.
+                            </div>
+                        ) : (
+                            <ul className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                                {thisWeekTasks.map(task => (
+                                    <li
+                                        key={task.id}
+                                        onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })}
+                                        className="flex items-center gap-4 px-6 py-3 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                                    >
+                                        <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center">
+                                            <CalendarDays size={14} className="text-sky-600" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
+                                            <div className="text-xs text-slate-500 mt-0.5">
+                                                {task.projectName} · {task.startDate} ~ {task.endDate}
+                                                {task.isMilestone && <span className="ml-2 text-amber-600">마일스톤</span>}
+                                            </div>
+                                        </div>
+                                        <span className={cn(
+                                            "text-xs font-medium px-2.5 py-1 rounded-full border shrink-0",
+                                            task.status === 'done' ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                                            task.status === 'in-progress' ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
+                                            "bg-slate-50 text-slate-600 border-slate-100"
+                                        )}>
+                                            {wbsSettings.statusConfigs.find(c => c.id === task.status)?.name ?? task.status}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 </section>
 
@@ -263,11 +407,12 @@ function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: st
         <div
             onClick={onClick}
             className={cn(
-                "bg-white rounded-xl p-5 border border-[var(--color-line)] shadow-sm flex flex-col justify-center transform hover:scale-[1.02] transition-transform",
-                onClick && "cursor-pointer hover:border-[var(--color-accent)]/30 hover:shadow-md"
+                "card-elevated p-6 flex flex-col justify-center transform hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group/card",
+                onClick && "cursor-pointer hover:border-indigo-200"
             )}
         >
-            <div className="text-sm font-medium text-slate-500 mb-1">{title}</div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent group-hover/card:via-indigo-400 transition-colors duration-500 opacity-0 group-hover/card:opacity-100" />
+            <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">{title}</div>
             <div className={cn("text-3xl font-bold tracking-tight", highlight || "text-[var(--color-ink)]")}>{value}</div>
             {subtitle && <div className="text-xs text-slate-400 mt-1">{subtitle}</div>}
         </div>
@@ -282,12 +427,12 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
         <div
             onClick={onClick}
             className={cn(
-                "bg-white rounded-xl border border-[var(--color-line)] shadow-sm overflow-hidden hover:shadow-md transition-shadow group",
-                onClick && "cursor-pointer hover:border-[var(--color-accent)]/30"
+                "card flex flex-col overflow-hidden group",
+                onClick && "cursor-pointer hover:border-indigo-200"
             )}
         >
-            <div className="p-5 border-b border-slate-200 bg-slate-50/50">
-                <h3 className="text-lg font-bold text-[var(--color-ink)] mb-1 truncate" title={project.name}>
+            <div className="p-6 border-b border-slate-100 bg-gradient-to-br from-white to-slate-50/30">
+                <h3 className="text-[17px] font-bold text-[var(--color-ink)] mb-1.5 truncate group-hover:text-indigo-600 transition-colors" title={project.name}>
                     {project.name}
                 </h3>
                 <p className="text-xs text-slate-500 line-clamp-1 mb-3 h-4">
@@ -295,10 +440,10 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
                 </p>
 
                 <div className="flex items-center gap-2 mb-2">
-                    <div className="text-xs font-semibold text-slate-500 w-12">진행률</div>
-                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="text-[11px] font-bold text-slate-500 w-12 tracking-wide">진행률</div>
+                    <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
                         <div
-                            className="h-full bg-[var(--color-accent)] transition-all duration-1000 ease-out"
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
                             style={{ width: `${s.progress}%` }}
                         />
                     </div>
@@ -306,14 +451,14 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
                 </div>
             </div>
 
-            <div className="p-5">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <div className="p-6 flex-1 flex flex-col justify-between bg-white">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                     {wbsSettings.statusConfigs.map(config => {
                         // Extract color classes from template or config
                         let colorClasses = "bg-slate-50 text-slate-600 border border-slate-100";
-                        if (config.id === 'done') colorClasses = "bg-emerald-50 text-emerald-600 border border-emerald-100";
-                        if (config.id === 'in-progress') colorClasses = "bg-blue-50 text-blue-600 border border-blue-100";
-                        if (config.id === 'blocked') colorClasses = "bg-red-50 text-red-600 border border-red-100";
+                        if (config.id === 'done') colorClasses = "bg-emerald-50 text-emerald-600 border border-emerald-100/50 shadow-sm";
+                        if (config.id === 'in-progress') colorClasses = "bg-indigo-50 text-indigo-600 border border-indigo-100/50 shadow-sm";
+                        if (config.id === 'blocked') colorClasses = "bg-red-50 text-red-600 border border-red-100/50 shadow-sm";
 
                         return (
                             <StatBadge
@@ -326,15 +471,14 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
                     })}
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-500 pt-3 border-t border-slate-200">
-                    <div className="flex items-center gap-1">
-                        <Clock size={12} />
+                <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 pt-4 border-t border-slate-100/80">
+                    <div className="flex items-center gap-1.5">
+                        <Clock size={13} className="text-slate-300" />
                         <span>시작: {project.startDate ? project.startDate : '미정'}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                        <span>총 작업 {s.total}개</span>
-                        <span className="text-slate-300">|</span>
-                        <span>팀원 {s.assigneeCount}명</span>
+                    <div className="flex items-center gap-1.5">
+                        <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">작업 {s.total}</span>
+                        <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">팀원 {s.assigneeCount}</span>
                     </div>
                 </div>
             </div>
@@ -350,11 +494,11 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
         <div
             onClick={onClick}
             className={cn(
-                "bg-white rounded-xl p-5 border border-[var(--color-line)] shadow-sm hover:shadow-md transition-shadow",
-                onClick && "cursor-pointer hover:border-purple-200"
+                "card p-5 group",
+                onClick && "cursor-pointer hover:border-indigo-200"
             )}
         >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-[var(--color-ink)] font-bold text-lg">
                         {stat.name.substring(0, 1)}
@@ -370,8 +514,8 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
                 </div>
             </div>
 
-            <div className="space-y-3">
-                <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+            <div className="space-y-4">
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
                     {wbsSettings.statusConfigs.map(config => {
                         const count = stat.statusCounts[config.id] || 0;
                         const pct = (count / total) * 100;
@@ -379,7 +523,7 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
 
                         let color = "bg-slate-300";
                         if (config.id === 'done') color = "bg-emerald-400";
-                        if (config.id === 'in-progress') color = "bg-blue-400";
+                        if (config.id === 'in-progress') color = "bg-indigo-400";
                         if (config.id === 'blocked') color = "bg-red-400";
 
                         return (
@@ -401,7 +545,7 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
 
                         let dotColor = "bg-slate-300";
                         if (config.id === 'done') dotColor = "bg-emerald-400";
-                        if (config.id === 'in-progress') dotColor = "bg-blue-400";
+                        if (config.id === 'in-progress') dotColor = "bg-indigo-400";
                         if (config.id === 'blocked') dotColor = "bg-red-400";
 
                         return (
@@ -419,9 +563,9 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
 
 function StatBadge({ label, count, color, key }: { label: string; count: number; color: string; key?: React.Key }) {
     return (
-        <div key={key} className={`flex flex-col items-center justify-center p-2 rounded-lg ${color}`}>
-            <span className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-80">{label}</span>
-            <span className="text-xl font-bold">{count}</span>
+        <div key={key} className={`flex flex-col items-center justify-center p-2.5 rounded-xl transition-transform group-hover:scale-105 duration-300 ${color}`}>
+            <span className="text-[10px] font-bold uppercase tracking-widest mb-1 opacity-80">{label}</span>
+            <span className="text-xl font-black">{count}</span>
         </div>
     );
 }

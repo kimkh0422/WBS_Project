@@ -1,15 +1,29 @@
 export type TaskStatus = string;
 
 export type SortConfig = {
-  key: keyof Task;
+  key: keyof Task | 'wbs';
   direction: 'asc' | 'desc';
 } | null;
+
+/** 프로젝트별 투입인원·투입비율. 작업의 기간/공수 계산에 사용 */
+export interface ProjectAssignment {
+  assignee: string;
+  allocationPercent: number;
+}
 
 export interface Project {
   id: string;
   name: string;
   description?: string;
   startDate?: string; // ISO string (YYYY-MM-DD)
+  /** 프로젝트별 투입인원·투입비율. 이 프로젝트 소속 작업의 기간·공수 계산에 적용 */
+  assignments?: ProjectAssignment[];
+}
+
+/** 투입인원 1명: 담당자 + 투입비율(0~100%) */
+export interface TaskAssignment {
+  assignee: string;
+  allocationPercent: number; // 10, 20, 30, ... 100
 }
 
 export interface Task {
@@ -20,14 +34,28 @@ export interface Task {
   startDate: string; // ISO string
   endDate: string; // ISO string
   progress: number; // 0-100
-  assignee: string;
+  assignee: string; // 단일 담당자(하위호환) 또는 대표 표시용
   status: TaskStatus;
   expanded?: boolean; // UI state for tree view
   dependencies?: string[]; // Array of predecessor task IDs
-  workEffort?: number; // Man-days
+  workEffort?: number; // Man-days (작업 공수)
+  /** 투입인원별 담당자·투입비율. 있으면 이 값으로 투입공수·기간 계산에 사용 */
+  assignments?: TaskAssignment[];
   description?: string;
   checklist?: { id: string; text: string; completed: boolean }[];
   deliverables?: string;
+  /** 서버 갱신 시각(ISO). 동시 수정 감지(낙관적 잠금)용 */
+  updatedAt?: string;
+  /** 마일스톤 여부. true면 일정 상 하나의 시점(이정표)으로 표시 */
+  isMilestone?: boolean;
+  /** 베이스라인 시작일. 설정 시 해당 작업의 기준 일정으로 사용 */
+  baselineStartDate?: string;
+  /** 베이스라인 종료일 */
+  baselineEndDate?: string;
+  /** 베이스라인 공수(일) */
+  baselineWorkEffort?: number;
+  /** 사용자가 수동 수정한 항목. AI 업데이트 시 이 필드들은 덮어쓰지 않음 */
+  userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort')[];
 }
 
 export interface FilterState {
@@ -36,6 +64,8 @@ export interface FilterState {
   assignee: string;
   startDate: string;
   endDate: string;
+  /** true면 마일스톤 작업만 표시 */
+  milestoneOnly?: boolean;
 }
 
 export const MOCK_PROJECTS: Project[] = [

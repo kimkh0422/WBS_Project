@@ -1,16 +1,19 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
+export interface ContextMenuAction {
+  label?: string;
+  onClick?: () => void;
+  icon?: React.ReactNode;
+  danger?: boolean;
+  divider?: boolean;
+}
+
 interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
-  actions: {
-    label: string;
-    onClick: () => void;
-    icon?: React.ReactNode;
-    danger?: boolean;
-  }[];
+  actions: ContextMenuAction[];
 }
 
 export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
@@ -39,21 +42,25 @@ export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
       style={style}
       onClick={(e) => e.stopPropagation()}
     >
-      {actions.map((action, index) => (
-        <button
-          key={index}
-          onClick={() => {
-            action.onClick();
-            onClose();
-          }}
-          className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors ${
-            action.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'
-          }`}
-        >
-          {action.icon && <span className="w-4 h-4">{action.icon}</span>}
-          {action.label}
-        </button>
-      ))}
+      {actions.map((action, index) =>
+        action.divider ? (
+          <hr key={index} className="my-1 border-t border-gray-200" />
+        ) : (
+          <button
+            key={index}
+            onClick={() => {
+              action.onClick?.();
+              onClose();
+            }}
+            className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors ${
+              action.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'
+            }`}
+          >
+            {action.icon && <span className="w-4 h-4">{action.icon}</span>}
+            {action.label}
+          </button>
+        )
+      )}
     </div>,
     document.body
   );

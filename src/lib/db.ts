@@ -1,5 +1,5 @@
 import { supabase, ProjectRow, TaskRow, SettingsRow, isSupabaseConfigured } from './supabase';
-import type { Task, Project } from '../types';
+import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
 
@@ -65,6 +65,10 @@ function toTaskRow(task: Task, sortOrder: number): TaskRow {
     checklist: (task.checklist ?? []) as { id: string; text: string; completed: boolean }[],
     deliverables: task.deliverables ?? null,
     sort_order: sortOrder,
+    is_milestone: task.isMilestone ?? false,
+    baseline_start_date: task.baselineStartDate ?? null,
+    baseline_end_date: task.baselineEndDate ?? null,
+    baseline_work_effort: task.baselineWorkEffort ?? null,
   };
 }
 
@@ -85,6 +89,11 @@ function fromTaskRow(row: TaskRow): Task {
     description: row.description ?? undefined,
     checklist: row.checklist ?? [],
     deliverables: row.deliverables ?? undefined,
+    updatedAt: row.updated_at ?? undefined,
+    isMilestone: row.is_milestone ?? false,
+    baselineStartDate: row.baseline_start_date ?? undefined,
+    baselineEndDate: row.baseline_end_date ?? undefined,
+    baselineWorkEffort: row.baseline_work_effort ?? undefined,
   };
 }
 
@@ -94,15 +103,20 @@ function toProjectRow(project: Project): ProjectRow {
     name: project.name,
     description: project.description ?? null,
     start_date: project.startDate ?? null,
+    assignments: (project.assignments ?? []).map(a => ({ assignee: a.assignee, allocation_percent: a.allocationPercent })),
   };
 }
 
 function fromProjectRow(row: ProjectRow): Project {
+  const assignments: ProjectAssignment[] = Array.isArray(row.assignments)
+    ? row.assignments.map((a: { assignee: string; allocation_percent: number }) => ({ assignee: a.assignee, allocationPercent: a.allocation_percent }))
+    : [];
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     startDate: row.start_date ?? undefined,
+    assignments: assignments.length > 0 ? assignments : undefined,
   };
 }
 
@@ -181,18 +195,34 @@ export async function upsertProject(project: Project): Promise<void> {
   if (error) throw error;
 }
 
-export async function upsertTask(task: Task, sortOrder: number): Promise<void> {
+/** 단일 작업 저장. 동시 수정 시 conflict: true 반환(낙관적 잠금). */
+export async function upsertTask(
+  task: Task,
+  sortOrder: number
+): Promise<{ conflict?: boolean }> {
   if (!isSupabaseConfigured || !supabase) {
     const tasks = loadTasksFromLocal().filter(t => t.id !== task.id);
     const insertAt = Math.max(0, Math.min(sortOrder, tasks.length));
     tasks.splice(insertAt, 0, task);
     saveTasksToLocal(tasks);
-    return;
+    return {};
   }
-  const { error } = await supabase
-    .from('tasks')
-    .upsert(toTaskRow(task, sortOrder));
+  const row = toTaskRow(task, sortOrder);
+  if (task.updatedAt != null && task.updatedAt !== '') {
+    const { data, error } = await supabase
+      .from('tasks')
+      .update(row)
+      .eq('id', task.id)
+      .eq('updated_at', task.updatedAt)
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    if (data == null) return { conflict: true };
+    return {};
+  }
+  const { error } = await supabase.from('tasks').upsert(row);
   if (error) throw error;
+  return {};
 }
 
 export async function upsertTasks(tasks: Task[]): Promise<void> {
@@ -252,13 +282,31 @@ export async function deleteTasksFromDB(ids: string[]): Promise<void> {
 
 export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
   if (!isSupabaseConfigured || !supabase) {
-    saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== projectId));
+    if (projectId) {
+      saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== projectId));
+    } else {
+      saveTasksToLocal([]);
+    }
     return;
   }
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('project_id', projectId);
+  if (projectId) {
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('project_id', projectId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('tasks').delete().not('id', 'is', null);
+    if (error) throw error;
+  }
+}
+
+export async function deleteAllProjectsFromDB(): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveProjectsToLocal([]);
+    return;
+  }
+  const { error } = await supabase.from('projects').delete().not('id', 'is', null);
   if (error) throw error;
 }
 
