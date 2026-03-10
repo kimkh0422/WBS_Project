@@ -6,7 +6,7 @@ export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
 if (!isSupabaseConfigured) {
   console.warn(
-    '[Supabase] 환경변수가 설정되지 않았습니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하거나 .env.example을 참고하세요. (미설정 시 로컬 저장 모드로 동작)'
+    '[Supabase] 환경변수가 설정되지 않았습니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하세요.'
   );
 }
 
@@ -27,6 +27,26 @@ export interface ProjectRow {
   description: string | null;
   start_date: string | null;
   assignments: ProjectAssignmentRow[] | null;
+  owner_id?: string | null;
+  created_at?: string;
+}
+
+export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';
+
+export interface ProjectMemberRow {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: ProjectMemberRole;
+  invited_at?: string;
+}
+
+export interface ProjectInviteRow {
+  id: string;
+  project_id: string;
+  token: string;
+  role: 'editor' | 'viewer';
+  expires_at: string;
   created_at?: string;
 }
 
@@ -61,4 +81,14 @@ export interface SettingsRow {
   level2_prefix: string;
   level3_prefix: string;
   max_level: number;
+}
+
+export interface ProfileRow {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  created_at?: string;
+  is_admin: boolean;
+  /** 사용자 맞춤 레벨별 색상 [{r,g,b}, ...]. null이면 기본값 사용 */
+  level_colors?: Array<{ r: number; g: number; b: number }> | null;
 }

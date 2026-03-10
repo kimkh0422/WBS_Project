@@ -8,7 +8,7 @@ import { ContextMenu } from './ContextMenu';
 import { Edit2, Trash2, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildVisibleTasks, TaskWithDepth } from '../lib/taskView';
-import { levelBarBg, levelBorderColor } from '../lib/levelColors';
+import { useLevelColors } from '../context/LevelColorsContext';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
@@ -63,6 +63,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
   const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings } = useWBS();
+  const { levelBarBg, levelBorderColor } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
@@ -554,6 +555,29 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               </div>
             </div>
           </div>
+          {/* 상단 줌 바 - 항상 보이도록 */}
+          <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 border-b border-stone-200 bg-stone-50/80">
+            <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">축소</span>
+            <input
+              type="range"
+              min={0}
+              max={ZOOM_LEVELS.length - 1}
+              step={1}
+              value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
+              onChange={(e) => setZoomIndex(Number(e.target.value))}
+              className="w-32 h-1.5 accent-indigo-500 cursor-pointer flex-1 max-w-[120px]"
+              title="간트 확대/축소"
+            />
+            <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">확대</span>
+            <button
+              onClick={() => setZoomIndex(-1)}
+              className={cn("text-[11px] px-2 py-1 rounded transition-colors", zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
+              title="전체 맞춤"
+            >
+              맞춤
+            </button>
+            <span className="text-[11px] font-mono text-stone-500 w-10">{zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}</span>
+          </div>
           {/* 스크롤 영역 = 행만 (표와 동기화) */}
           <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white">
             <div className="relative" style={{ width: totalWidth, height: visibleTasks.length * ROW_HEIGHT }}>
@@ -910,23 +934,50 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         />
       )}
 
-      {/* Row Height Slider - 간트 단독 뷰에서 줄높이 조절 */}
-      {onRowHeightChange != null && (
-        <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
-          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
+      {/* 상단 줌/줄간격 - 간트 단독 뷰 (하단은 잘려서 안 보일 수 있음) */}
+      <div className="fixed top-24 right-6 z-40 flex items-center gap-4 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
+        {/* 줌 슬라이더 - 항상 표시 */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">축소</span>
           <input
             type="range"
-            min={15}
-            max={64}
-            step={2}
-            value={propRowHeight ?? 34}
-            onChange={(e) => onRowHeightChange(Number(e.target.value))}
+            min={0}
+            max={ZOOM_LEVELS.length - 1}
+            step={1}
+            value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
+            onChange={(e) => setZoomIndex(Number(e.target.value))}
             className="w-24 h-1.5 accent-indigo-500 cursor-pointer"
-            title={`줄간격: ${propRowHeight ?? 34}px`}
+            title="간트 확대/축소"
           />
-          <span className="text-[11px] font-bold text-slate-600 w-7 text-right">{propRowHeight ?? 34}</span>
+          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">확대</span>
+          <button
+            onClick={() => setZoomIndex(-1)}
+            className={cn("text-[11px] px-2 py-0.5 rounded transition-colors", zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
+            title="전체 맞춤"
+          >
+            맞춤
+          </button>
         </div>
-      )}
+        {onRowHeightChange != null && (
+          <>
+            <div className="w-px h-5 bg-stone-200" />
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
+              <input
+                type="range"
+                min={15}
+                max={64}
+                step={2}
+                value={propRowHeight ?? 34}
+                onChange={(e) => onRowHeightChange(Number(e.target.value))}
+                className="w-24 h-1.5 accent-indigo-500 cursor-pointer"
+                title={`줄간격: ${propRowHeight ?? 34}px`}
+              />
+              <span className="text-[11px] font-bold text-slate-600 w-7 text-right">{propRowHeight ?? 34}</span>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }

@@ -1,48 +1,14 @@
-import { supabase, ProjectRow, TaskRow, SettingsRow, isSupabaseConfigured } from './supabase';
+import { supabase, ProjectRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProfileRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
 
-const PROJECTS_STORAGE_KEY = 'wbs-projects';
-const TASKS_STORAGE_KEY = 'wbs-tasks';
-const SETTINGS_STORAGE_KEY = 'wbs-settings';
-const CURRENT_PROJECT_STORAGE_KEY = 'wbs-current-project';
+const SUPABASE_REQUIRED = 'Supabase 설정이 필요합니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하세요.';
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) as T : fallback;
-  } catch {
-    return fallback;
+function requireSupabase(): asserts supabase is NonNullable<typeof supabase> {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error(SUPABASE_REQUIRED);
   }
-}
-
-function writeJson(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function loadProjectsFromLocal(): Project[] {
-  return readJson<Project[]>(PROJECTS_STORAGE_KEY, []);
-}
-
-function saveProjectsToLocal(projects: Project[]) {
-  writeJson(PROJECTS_STORAGE_KEY, projects);
-}
-
-function loadTasksFromLocal(): Task[] {
-  return readJson<Task[]>(TASKS_STORAGE_KEY, []);
-}
-
-function saveTasksToLocal(tasks: Task[]) {
-  writeJson(TASKS_STORAGE_KEY, tasks);
-}
-
-function loadSettingsFromLocal(): Partial<WBSSettings> | null {
-  return readJson<Partial<WBSSettings> | null>(SETTINGS_STORAGE_KEY, null);
-}
-
-function saveSettingsToLocal(settings: WBSSettings) {
-  writeJson(SETTINGS_STORAGE_KEY, settings);
 }
 
 // ─── 변환 헬퍼 ────────────────────────────────────────────────────────────────
@@ -104,6 +70,7 @@ function toProjectRow(project: Project): ProjectRow {
     description: project.description ?? null,
     start_date: project.startDate ?? null,
     assignments: (project.assignments ?? []).map(a => ({ assignee: a.assignee, allocation_percent: a.allocationPercent })),
+    owner_id: project.ownerId ?? null,
   };
 }
 
@@ -117,6 +84,7 @@ function fromProjectRow(row: ProjectRow): Project {
     description: row.description ?? undefined,
     startDate: row.start_date ?? undefined,
     assignments: assignments.length > 0 ? assignments : undefined,
+    ownerId: row.owner_id ?? undefined,
   };
 }
 
@@ -142,22 +110,26 @@ function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
 // ─── 조회 ─────────────────────────────────────────────────────────────────────
 
 export async function fetchProjects(): Promise<Project[]> {
-  if (!isSupabaseConfigured || !supabase) {
-    return loadProjectsFromLocal();
-  }
-  const { data, error } = await supabase
+  requireSupabase();
+  const { data, error } = await supabase!
     .from('projects')
     .select('*')
     .order('created_at', { ascending: true });
   if (error) throw error;
-  return (data as ProjectRow[]).map(fromProjectRow);
+  const rows = (data ?? []) as ProjectRow[];
+  const seen = new Set<string>();
+  return rows
+    .filter(row => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    })
+    .map(fromProjectRow);
 }
 
 export async function fetchTasks(): Promise<Task[]> {
-  if (!isSupabaseConfigured || !supabase) {
-    return loadTasksFromLocal();
-  }
-  const { data, error } = await supabase
+  requireSupabase();
+  const { data, error } = await supabase!
     .from('tasks')
     .select('*')
     .order('sort_order', { ascending: true });
@@ -166,10 +138,8 @@ export async function fetchTasks(): Promise<Task[]> {
 }
 
 export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
-  if (!isSupabaseConfigured || !supabase) {
-    return loadSettingsFromLocal();
-  }
-  const { data, error } = await supabase
+  requireSupabase();
+  const { data, error } = await supabase!
     .from('wbs_settings')
     .select('*')
     .eq('id', 'default')
@@ -178,18 +148,39 @@ export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
   return data ? fromSettingsRow(data as SettingsRow) : null;
 }
 
+/** 프로필에서 레벨별 색상 조회. 로그인 사용자용. */
+export async function fetchProfileLevelColors(userId: string): Promise<Array<{ r: number; g: number; b: number }> | null> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('profiles')
+    .select('level_colors')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  const colors = (data as { level_colors?: unknown } | null)?.level_colors;
+  if (!Array.isArray(colors)) return null;
+  const valid = colors.filter(
+    (c): c is { r: number; g: number; b: number } =>
+      c && typeof c === 'object' && typeof (c as any).r === 'number' && typeof (c as any).g === 'number' && typeof (c as any).b === 'number'
+  );
+  return valid.length > 0 ? valid : null;
+}
+
+/** 프로필에 레벨별 색상 저장. colors가 null이면 기본값 사용(DB에서 제거). */
+export async function updateProfileLevelColors(userId: string, colors: Array<{ r: number; g: number; b: number }> | null): Promise<void> {
+  requireSupabase();
+  const { error } = await supabase!
+    .from('profiles')
+    .update({ level_colors: colors })
+    .eq('id', userId);
+  if (error) throw error;
+}
+
 // ─── 삽입/업데이트 ────────────────────────────────────────────────────────────
 
 export async function upsertProject(project: Project): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    const projects = loadProjectsFromLocal();
-    const next = projects.some(p => p.id === project.id)
-      ? projects.map(p => p.id === project.id ? project : p)
-      : [...projects, project];
-    saveProjectsToLocal(next);
-    return;
-  }
-  const { error } = await supabase
+  requireSupabase();
+  const { error } = await supabase!
     .from('projects')
     .upsert(toProjectRow(project));
   if (error) throw error;
@@ -200,16 +191,10 @@ export async function upsertTask(
   task: Task,
   sortOrder: number
 ): Promise<{ conflict?: boolean }> {
-  if (!isSupabaseConfigured || !supabase) {
-    const tasks = loadTasksFromLocal().filter(t => t.id !== task.id);
-    const insertAt = Math.max(0, Math.min(sortOrder, tasks.length));
-    tasks.splice(insertAt, 0, task);
-    saveTasksToLocal(tasks);
-    return {};
-  }
+  requireSupabase();
   const row = toTaskRow(task, sortOrder);
   if (task.updatedAt != null && task.updatedAt !== '') {
-    const { data, error } = await supabase
+    const { data, error } = await supabase!
       .from('tasks')
       .update(row)
       .eq('id', task.id)
@@ -220,28 +205,22 @@ export async function upsertTask(
     if (data == null) return { conflict: true };
     return {};
   }
-  const { error } = await supabase.from('tasks').upsert(row);
+  const { error } = await supabase!.from('tasks').upsert(row);
   if (error) throw error;
   return {};
 }
 
 export async function upsertTasks(tasks: Task[]): Promise<void> {
   if (tasks.length === 0) return;
-  if (!isSupabaseConfigured || !supabase) {
-    saveTasksToLocal(tasks);
-    return;
-  }
+  requireSupabase();
   const rows = tasks.map((t, i) => toTaskRow(t, i));
-  const { error } = await supabase.from('tasks').upsert(rows);
+  const { error } = await supabase!.from('tasks').upsert(rows);
   if (error) throw error;
 }
 
 export async function upsertSettings(settings: WBSSettings): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    saveSettingsToLocal(settings);
-    return;
-  }
-  const { error } = await supabase
+  requireSupabase();
+  const { error } = await supabase!
     .from('wbs_settings')
     .upsert(toSettingsRow(settings));
   if (error) throw error;
@@ -250,98 +229,164 @@ export async function upsertSettings(settings: WBSSettings): Promise<void> {
 // ─── 삭제 ─────────────────────────────────────────────────────────────────────
 
 export async function deleteProjectFromDB(id: string): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    saveProjectsToLocal(loadProjectsFromLocal().filter(p => p.id !== id));
-    saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== id));
-    return;
-  }
-  const { error } = await supabase.from('projects').delete().eq('id', id);
+  requireSupabase();
+  const { error } = await supabase!.from('projects').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteTaskFromDB(id: string): Promise<void> {
-  // 하위 tasks는 DB에서 parent_id 참조 삭제 처리 (ON DELETE CASCADE 미설정으로 수동 처리)
-  if (!isSupabaseConfigured || !supabase) {
-    saveTasksToLocal(loadTasksFromLocal().filter(t => t.id !== id));
-    return;
-  }
-  const { error } = await supabase.from('tasks').delete().eq('id', id);
+  requireSupabase();
+  const { error } = await supabase!.from('tasks').delete().eq('id', id);
   if (error) throw error;
 }
 
 export async function deleteTasksFromDB(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  if (!isSupabaseConfigured || !supabase) {
-    const idSet = new Set(ids);
-    saveTasksToLocal(loadTasksFromLocal().filter(t => !idSet.has(t.id)));
-    return;
-  }
-  const { error } = await supabase.from('tasks').delete().in('id', ids);
+  requireSupabase();
+  const { error } = await supabase!.from('tasks').delete().in('id', ids);
   if (error) throw error;
 }
 
 export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    if (projectId) {
-      saveTasksToLocal(loadTasksFromLocal().filter(t => t.projectId !== projectId));
-    } else {
-      saveTasksToLocal([]);
-    }
-    return;
-  }
+  requireSupabase();
   if (projectId) {
-    const { error } = await supabase
+    const { error } = await supabase!
       .from('tasks')
       .delete()
       .eq('project_id', projectId);
     if (error) throw error;
   } else {
-    const { error } = await supabase.from('tasks').delete().not('id', 'is', null);
+    const { error } = await supabase!.from('tasks').delete().not('id', 'is', null);
     if (error) throw error;
   }
 }
 
 export async function deleteAllProjectsFromDB(): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    saveProjectsToLocal([]);
-    return;
-  }
-  const { error } = await supabase.from('projects').delete().not('id', 'is', null);
+  requireSupabase();
+  const { error } = await supabase!.from('projects').delete().not('id', 'is', null);
   if (error) throw error;
+}
+
+// ─── 프로젝트 멤버 및 초대 ────────────────────────────────────────────────────
+
+export async function fetchProjectMembers(projectId: string): Promise<ProjectMemberRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_members')
+    .select('*')
+    .eq('project_id', projectId);
+  if (error) throw error;
+  return (data ?? []) as ProjectMemberRow[];
+}
+
+export async function createProjectInvite(projectId: string, role: 'editor' | 'viewer' = 'editor'): Promise<{ token: string; url: string } | null> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_invites')
+    .insert({ project_id: projectId, role })
+    .select('token')
+    .single();
+  if (error) throw error;
+  const token = data?.token as string;
+  const url = `${window.location.origin}${window.location.pathname}?invite=${token}`;
+  return token ? { token, url } : null;
+}
+
+export async function acceptInvite(token: string): Promise<{ success: boolean; projectId?: string; error?: string }> {
+  requireSupabase();
+  const { data, error } = await supabase!.rpc('accept_invite', { invite_token: token });
+  if (error) return { success: false, error: error.message };
+  const result = data as { success: boolean; project_id?: string; error?: string };
+  return {
+    success: result.success,
+    projectId: result.project_id,
+    error: result.error,
+  };
+}
+
+export async function removeProjectMember(projectId: string, userId: string): Promise<void> {
+  requireSupabase();
+  const { error } = await supabase!
+    .from('project_members')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+// ─── 회원 관리 (관리자) ────────────────────────────────────────────────────────
+
+export async function fetchProfiles(): Promise<ProfileRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProfileRow[];
+}
+
+/** 회원명(full_name) 업데이트 - 본인 또는 관리자만 가능 */
+export async function updateProfileFullName(userId: string, fullName: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  const { error } = await supabase!
+    .from('profiles')
+    .update({ full_name: fullName.trim() || null })
+    .eq('id', userId);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function checkIsAdmin(): Promise<boolean> {
+  requireSupabase();
+  const { data, error } = await supabase!.rpc('ensure_profile');
+  if (error) return false;
+  const result = data as { is_admin?: boolean };
+  return result?.is_admin === true;
+}
+
+/** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제) */
+export async function deleteMemberAsAdmin(userId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  const { data, error } = await supabase!.functions.invoke('admin-delete-user', {
+    body: { userId },
+  });
+  if (error) return { success: false, error: error.message };
+  const result = data as { success?: boolean; error?: string };
+  if (result?.error) return { success: false, error: result.error };
+  return { success: true };
 }
 
 // ─── 전체 백업 복원 ───────────────────────────────────────────────────────────
 
-export async function restoreBackupToDB(data: BackupData): Promise<void> {
-  if (!isSupabaseConfigured || !supabase) {
-    saveProjectsToLocal(data.projects);
-    saveTasksToLocal(data.tasks);
-    saveSettingsToLocal(data.settings);
-    return;
-  }
+export async function restoreBackupToDB(data: BackupData, ownerId?: string): Promise<void> {
+  requireSupabase();
   // 기존 데이터 전체 삭제 후 재삽입
-  const { error: delTasksErr } = await supabase
+  const { error: delTasksErr } = await supabase!
     .from('tasks')
     .delete()
     .not('id', 'is', null);
   if (delTasksErr) throw delTasksErr;
 
-  const { error: delProjErr } = await supabase
+  const { error: delProjErr } = await supabase!
     .from('projects')
     .delete()
     .not('id', 'is', null);
   if (delProjErr) throw delProjErr;
 
   if (data.projects.length > 0) {
-    const { error } = await supabase
-      .from('projects')
-      .insert(data.projects.map(toProjectRow));
+    const rows = data.projects.map(p => {
+      const row = toProjectRow(p);
+      if (ownerId) row.owner_id = ownerId;
+      return row;
+    });
+    const { error } = await supabase!.from('projects').insert(rows);
     if (error) throw error;
   }
 
   if (data.tasks.length > 0) {
     const rows = data.tasks.map((t, i) => toTaskRow(t, i));
-    const { error } = await supabase.from('tasks').insert(rows);
+    const { error } = await supabase!.from('tasks').insert(rows);
     if (error) throw error;
   }
 
@@ -350,10 +395,15 @@ export async function restoreBackupToDB(data: BackupData): Promise<void> {
   }
 }
 
-// ─── localStorage 마이그레이션 ────────────────────────────────────────────────
+// ─── localStorage 마이그레이션 (Supabase로 이전 시 기존 데이터 가져오기) ────────
 
-export async function migrateFromLocalStorage(): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return false;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuid(s: string): boolean {
+  return typeof s === 'string' && UUID_REGEX.test(s);
+}
+
+export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean> {
+  requireSupabase();
   const savedProjects = localStorage.getItem('wbs-projects');
   const savedTasks = localStorage.getItem('wbs-tasks');
 
@@ -365,16 +415,40 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     const savedSettings = localStorage.getItem('wbs-settings');
     const settings: WBSSettings | null = savedSettings ? JSON.parse(savedSettings) : null;
 
-    if (projects.length > 0) {
-      const { error } = await supabase
-        .from('projects')
-        .upsert(projects.map(toProjectRow));
+    const projectIdMap = new Map<string, string>();
+    const taskIdMap = new Map<string, string>();
+    const { v4: uuidv4 } = await import('uuid');
+
+    const projectsWithUuid = projects.map(p => {
+      const newId = isValidUuid(p.id) ? p.id : uuidv4();
+      if (!isValidUuid(p.id)) projectIdMap.set(p.id, newId);
+      return { ...p, id: newId, ownerId: p.ownerId ?? ownerId };
+    });
+
+    tasks.forEach(t => {
+      if (!isValidUuid(t.id)) taskIdMap.set(t.id, uuidv4());
+    });
+    const tasksWithUuid = tasks.map(t => {
+      const newId = taskIdMap.get(t.id) ?? t.id;
+      const newProjectId = projectIdMap.get(t.projectId) ?? (isValidUuid(t.projectId) ? t.projectId : projectsWithUuid[0]?.id);
+      const newParentId = t.parentId ? (taskIdMap.get(t.parentId) ?? (isValidUuid(t.parentId) ? t.parentId : null)) : null;
+      const newDeps = (t.dependencies ?? []).map(d => taskIdMap.get(d) ?? (isValidUuid(d) ? d : null)).filter(Boolean) as string[];
+      return { ...t, id: newId, projectId: newProjectId ?? t.projectId, parentId: newParentId, dependencies: newDeps };
+    });
+
+    if (projectsWithUuid.length > 0) {
+      const rows = projectsWithUuid.map(p => {
+        const row = toProjectRow(p);
+        if (ownerId) row.owner_id = ownerId;
+        return row;
+      });
+      const { error } = await supabase!.from('projects').upsert(rows);
       if (error) throw error;
     }
 
-    if (tasks.length > 0) {
-      const rows = tasks.map((t, i) => toTaskRow(t, i));
-      const { error } = await supabase.from('tasks').upsert(rows);
+    if (tasksWithUuid.length > 0) {
+      const rows = tasksWithUuid.map((t, i) => toTaskRow(t, i));
+      const { error } = await supabase!.from('tasks').upsert(rows);
       if (error) throw error;
     }
 
@@ -386,7 +460,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     localStorage.removeItem('wbs-projects');
     localStorage.removeItem('wbs-tasks');
     localStorage.removeItem('wbs-settings');
-    localStorage.removeItem(CURRENT_PROJECT_STORAGE_KEY);
+    localStorage.removeItem('wbs-current-project');
 
     console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
     return true;

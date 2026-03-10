@@ -1,13 +1,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { WBSProvider } from './context/WBSContext';
+import { AuthProvider } from './context/AuthContext';
+import { LevelColorsProvider } from './context/LevelColorsContext';
 import App from './App.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <WBSProvider onConcurrentConflict={() => {}}>
-      <App />
-    </WBSProvider>
+    <AuthProvider>
+      <LevelColorsProvider>
+        <App />
+      </LevelColorsProvider>
+    </AuthProvider>
   </StrictMode>,
 );

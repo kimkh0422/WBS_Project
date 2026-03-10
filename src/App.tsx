@@ -5,23 +5,31 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
-import { useWBS } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, HelpCircle, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle } from 'lucide-react';
+import { useWBS, WBSProvider } from './context/WBSContext';
+import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, HelpCircle, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users } from 'lucide-react';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
 import { exportBackupToJson, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
+import { acceptInvite, checkIsAdmin, fetchProfiles } from './lib/db';
+import { isSupabaseConfigured } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
+import { ProjectsPage } from './components/ProjectsPage';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
 import { AIAnalysisModal } from './components/AIAnalysisModal';
 import { WBSSettingsModal } from './components/WBSSettingsModal';
 import { VersionManager } from './components/VersionManager';
-import { PasswordGuard } from './components/PasswordGuard';
+import { LoginScreen } from './components/LoginScreen';
+import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
+import { useAuth } from './context/AuthContext';
 import { TutorialModal } from './components/TutorialModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
 import { ShareModal } from './components/ShareModal';
+import { MembersModal } from './components/MembersModal';
+import { AdminPasswordModal } from './components/AdminPasswordModal';
+import { ExportModal } from './components/ExportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
 import logo from './assets/logo.png';
@@ -68,7 +76,8 @@ function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
 }
 
 function WBSApp() {
-  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard'>('list');
+  const { user, signOut } = useAuth();
+  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard' | 'projects'>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
@@ -78,7 +87,8 @@ function WBSApp() {
   const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
@@ -86,6 +96,11 @@ function WBSApp() {
   const [isDeleteEverythingConfirmOpen, setIsDeleteEverythingConfirmOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
+  const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
+  const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const {
     addTask,
@@ -119,6 +134,95 @@ function WBSApp() {
 
   const { push: pushToast, tipOnce } = useToast();
   const prevAIBusyRef = useRef(false);
+
+  // 관리자 여부 확인 (DB 또는 Shift+F12 비밀번호 오버라이드)
+  useEffect(() => {
+    if (!user?.id || isLoading) return;
+    checkIsAdmin().then(setIsAdmin).catch(() => setIsAdmin(false));
+  }, [user?.id, isLoading]);
+
+  const effectiveIsAdmin = isAdmin || adminOverride;
+
+  // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchProfiles().then(setProfiles).catch(() => setProfiles([]));
+  }, [user?.id]);
+
+  const profileMap = React.useMemo(() => {
+    const m: Record<string, string> = {};
+    profiles.forEach(p => {
+      const name = p.full_name && String(p.full_name).trim();
+      m[p.id] = name || p.email || '(이메일 없음)';
+    });
+    return m;
+  }, [profiles]);
+
+  const currentUserDisplay = React.useMemo(() => {
+    if (!user) return '';
+    const profile = profiles.find(p => p.id === user.id) as { full_name?: string | null } | undefined;
+    const name = profile?.full_name || (user.user_metadata as { full_name?: string } | undefined)?.full_name;
+    return (name && String(name).trim()) || user.email || '사용자';
+  }, [user, profiles]);
+
+  const taskCountByProject = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    projects.forEach(p => { m[p.id] = 0; });
+    allTasks.forEach(t => {
+      if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
+    });
+    return m;
+  }, [projects, allTasks]);
+
+  // 프로젝트 목록 중복 제거: 동일 (이름, 소유자) 조합은 작업 수가 많은 것 하나만 표시
+  const uniqueProjects = React.useMemo(() => {
+    const byKey = new Map<string, Project>();
+    for (const p of projects) {
+      const key = `${p.name}::${p.ownerId ?? ''}`;
+      const existing = byKey.get(key);
+      const count = taskCountByProject[p.id] ?? 0;
+      const existingCount = existing ? (taskCountByProject[existing.id] ?? 0) : 0;
+      if (!existing || count > existingCount) byKey.set(key, p);
+    }
+    return Array.from(byKey.values());
+  }, [projects, taskCountByProject]);
+
+  // Shift+F12: 관리자 모드 전환
+  useEffect(() => {
+    const handleAdminHotkey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (e.shiftKey && e.key === 'F12') {
+        e.preventDefault();
+        setIsAdminPasswordModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleAdminHotkey);
+    return () => window.removeEventListener('keydown', handleAdminHotkey);
+  }, []);
+
+  // 초대 링크 수락 (?invite=token)
+  useEffect(() => {
+    if (isLoading) return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('invite');
+    if (!token) return;
+    acceptInvite(token).then(result => {
+      if (result.success && result.projectId) {
+        setCurrentProjectId(result.projectId);
+        pushToast('프로젝트에 참여했습니다.', { variant: 'success' });
+      } else {
+        pushToast(result.error || '초대 수락에 실패했습니다.', { variant: 'error' });
+      }
+      params.delete('invite');
+      const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    }).catch(() => {
+      pushToast('초대 수락에 실패했습니다.', { variant: 'error' });
+      params.delete('invite');
+      window.history.replaceState({}, '', window.location.pathname);
+    });
+  }, [isLoading, setCurrentProjectId, pushToast]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +306,7 @@ function WBSApp() {
   const navigateWithTip = useCallback((nextView: typeof view) => {
     setView(nextView);
     if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
+    if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
     if (nextView === 'list') tipOnce('nav.all', '전체: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
     if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
     if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
@@ -380,22 +485,31 @@ function WBSApp() {
     setIsDeleteProjectConfirmOpen(false);
   };
 
-  const handleExport = () => {
+  const handleExportFromModal = (params: { scope: 'all' | 'selected'; format: 'excel' | 'json'; projectIds: string[] }) => {
+    const { format, projectIds } = params;
     const now = new Date();
     const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-    const fileName = currentProject
-      ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
-      : `wbs_export_${timestamp}.xlsx`;
-    exportToExcel(tasks, wbsMap, fileName, projects);
-  };
+    const filteredProjects = projects.filter(p => projectIds.includes(p.id));
+    const filteredTasks = allTasks.filter(t => t.projectId && projectIds.includes(t.projectId));
 
-  const handleExportBackup = () => {
-    const backupData = exportFullBackup();
-    const fileName = currentProject
-      ? `wbs_${currentProject.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
-      : `wbs_full_backup_${new Date().toISOString().split('T')[0]}.json`;
-    exportBackupToJson(backupData, fileName);
-    setIsExportMenuOpen(false);
+    if (format === 'excel') {
+      const fileName = filteredProjects.length === 1
+        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
+        : `wbs_export_${timestamp}.xlsx`;
+      exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects);
+    } else {
+      const fullBackup = exportFullBackup();
+      const partialBackup: BackupData = {
+        ...fullBackup,
+        projects: filteredProjects,
+        tasks: filteredTasks,
+      };
+      const fileName = filteredProjects.length === 1
+        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
+        : `wbs_backup_${timestamp}.json`;
+      exportBackupToJson(partialBackup, fileName);
+    }
+    pushToast('내보내기가 완료되었습니다.');
   };
 
   const handleImportClick = () => {
@@ -589,6 +703,11 @@ function WBSApp() {
                     <span className="max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
                     <ChevronDown size={14} className="text-stone-400" />
                   </div>
+                  {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
+                    <span className="text-[9px] text-stone-400 truncate max-w-[200px] mt-0.5" title={profileMap[currentProject.ownerId] ?? currentProject.ownerId}>
+                      {currentProject.ownerId === user?.id ? '내 프로젝트' : (profileMap[currentProject.ownerId] ?? '(알 수 없음)')}
+                    </span>
+                  )}
                 </div>
               </button>
 
@@ -610,9 +729,10 @@ function WBSApp() {
                         title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
                       >
                         <span className="truncate flex-1">전체</span>
+                        <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
                       </div>
                       <div className="h-px bg-stone-100 my-1 mx-2" />
-                      {projects.map(project => (
+                      {uniqueProjects.map(project => (
                         <div
                           key={project.id}
                           className={cn(
@@ -624,10 +744,21 @@ function WBSApp() {
                             setIsProjectDropdownOpen(false);
                           }}
                         >
-                          <span className="truncate flex-1">{project.name}</span>
+                          <div className="truncate flex-1 min-w-0 flex flex-col">
+                            <span className="truncate flex items-center gap-1.5">
+                              {project.name}
+                              <span className="text-[10px] text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개)</span>
+                            </span>
+                            {effectiveIsAdmin && project.ownerId && (
+                              <span className="text-[10px] text-stone-400 truncate mt-0.5" title={profileMap[project.ownerId] ?? project.ownerId}>
+                                {project.ownerId === user?.id ? '내 프로젝트' : (profileMap[project.ownerId] ?? '(알 수 없음)')}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유: 팀원을 초대하고 멤버를 관리합니다."><Share2 size={12} /></button>
                             <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집: 이름·설명·시작일·투입인원을 수정합니다."><Edit size={12} /></button>
-                            {projects.length > 1 && (
+                            {uniqueProjects.length > 1 && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -645,8 +776,11 @@ function WBSApp() {
                         </div>
                       ))}
                       <div className="border-t border-[var(--color-line)] my-1"></div>
-                      <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성하고 이름·설명·시작일·투입인원을 설정합니다.">
+                      <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성합니다.">
                         <FolderPlus size={14} /> 새 프로젝트
+                      </button>
+                      <button onClick={() => { setIsProjectDropdownOpen(false); setView('projects'); }} className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors" title="프로젝트 관리 페이지로 이동합니다.">
+                        <Briefcase size={14} /> 프로젝트 관리
                       </button>
                     </div>
                   </div>
@@ -679,6 +813,7 @@ function WBSApp() {
           <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
           <div className="flex bg-slate-100/60 backdrop-blur-sm p-1 rounded-xl border border-slate-200/80 shadow-inner">
             <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
+            <NavButton active={view === 'projects'} onClick={() => navigateWithTip('projects')} icon={<Briefcase size={14} />} label="프로젝트" title="프로젝트 관리: 생성·편집·공유·일괄 삭제를 할 수 있습니다." />
             <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
             <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
             <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
@@ -697,6 +832,29 @@ function WBSApp() {
               title={isAIBusy ? "AI 분석 중: 백그라운드에서 진행됩니다. 완료 시 알림이 표시됩니다." : "AI 프로젝트 분석: 문서를 업로드하면 AI가 WBS 구조와 작업을 자동 생성합니다."}
             >
               {isAIBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            </button>
+            {effectiveIsAdmin && (
+              <button
+                onClick={() => setIsMembersModalOpen(true)}
+                className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-teal-600 transition-colors"
+                title="회원 관리: 가입한 회원 목록을 확인합니다."
+              >
+                <Users size={15} />
+              </button>
+            )}
+            <span
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-stone-500 bg-stone-50 rounded-lg border border-stone-100"
+              title={`로그인: ${currentUserDisplay}${user?.email && currentUserDisplay !== user.email ? ` (${user.email})` : ''}`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
+              {currentUserDisplay}
+            </span>
+            <button
+              onClick={() => signOut()}
+              className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-red-500 transition-colors"
+              title={`로그아웃 (${user?.email ?? '사용자'})`}
+            >
+              <LogOut size={15} />
             </button>
             <button
               onClick={() => {
@@ -780,27 +938,16 @@ function WBSApp() {
               )}
             </div>
 
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setIsExportMenuOpen(!isExportMenuOpen);
-                  tipOnce('menu.export', '내보내기: Excel로 내보내거나 전체 데이터를 JSON 백업으로 저장할 수 있어요.');
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] rounded-lg hover:bg-stone-50 transition-all"
-                title="내보내기: Excel 또는 JSON 파일로 데이터를 저장합니다."
-              >
-                <Download size={13} /> <span>내보내기</span> <ChevronDown size={11} className="opacity-50" />
-              </button>
-              {isExportMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsExportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-1.5 w-56 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
-                    <button onClick={() => { handleExport(); setIsExportMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors" title="현재 프로젝트의 작업을 Excel(.xlsx) 파일로 내보냅니다. 엑셀에서 편집 후 다시 가져올 수 있어요.">현재 프로젝트 내보내기 (Excel)</button>
-                    <button onClick={handleExportBackup} className="w-full text-left px-4 py-2.5 text-xs text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]" title="프로젝트·작업·설정 전체를 JSON 백업으로 저장합니다. 나중에 전체 복원에 사용해요.">전체 데이터 백업 (JSON)</button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              onClick={() => {
+                setIsExportModalOpen(true);
+                tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON)을 선택할 수 있어요.');
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] rounded-lg hover:bg-stone-50 transition-all"
+              title="내보내기: 전체 또는 프로젝트 선택, Excel 또는 JSON 형식으로 저장합니다."
+            >
+              <Download size={13} /> <span>내보내기</span>
+            </button>
 
             <button
               onClick={() => {
@@ -838,7 +985,7 @@ function WBSApp() {
       )}
 
       {/* Filter bar: one row of buttons when filter is On */}
-      {filterOn && !isFullscreen && (
+      {filterOn && !isFullscreen && view !== 'projects' && (
         <div className="bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 overflow-x-auto shrink-0 shadow-sm z-40">
           <span className="text-[11px] font-bold text-slate-500 shrink-0 mr-1 uppercase tracking-wide" title="상태별로 작업을 필터링합니다.">상태</span>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -956,6 +1103,8 @@ function WBSApp() {
             <GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} />
           ) : view === 'dashboard' ? (
             <Dashboard onNavigate={handleDashboardNavigate} />
+          ) : view === 'projects' ? (
+            <ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} />
           ) : (
             <KanbanBoard filters={effectiveFilters} />
           )}
@@ -1045,7 +1194,14 @@ function WBSApp() {
                         className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
                       >
                         <span className="block font-semibold">{project.name}</span>
-                        <span className="block text-xs text-red-600 mt-0.5">프로젝트와 소속된 모든 작업을 삭제합니다.</span>
+                        <span className="block text-xs text-red-600 mt-0.5">
+                          프로젝트와 소속된 모든 작업을 삭제합니다.
+                          {effectiveIsAdmin && project.ownerId && (
+                            <span className="block text-red-500/80 mt-0.5">
+                              소유: {project.ownerId === user?.id ? '내 프로젝트' : (profileMap[project.ownerId] ?? '(알 수 없음)')}
+                            </span>
+                          )}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1095,7 +1251,35 @@ function WBSApp() {
       <ConfirmDialog isOpen={backupConfirm.isOpen} onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })} onConfirm={executeRestoreBackup} title="전체 백업 복원" message="애플리케이션의 현재 모든 데이터가 백업 내용으로 덮어씌워집니다." confirmLabel="전체 복원" isDanger={true} />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
-      <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} projectName={currentProject?.name} />
+      <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} projectId={currentProject?.id} projectName={currentProject?.name} isOwner={currentProject?.ownerId === user?.id} />
+      <MembersModal
+        isOpen={isMembersModalOpen}
+        onClose={() => setIsMembersModalOpen(false)}
+        currentUserId={user?.id}
+        onDeleted={() => pushToast('회원이 삭제되었습니다.', { variant: 'success' })}
+      />
+      <AdminPasswordModal
+        isOpen={isAdminPasswordModalOpen}
+        onClose={() => setIsAdminPasswordModalOpen(false)}
+        onSuccess={() => {
+          setAdminOverride(true);
+          sessionStorage.setItem('wbs-admin-override', 'true');
+          setIsAdminPasswordModalOpen(false);
+          pushToast('관리자 모드로 전환되었습니다.', { variant: 'success' });
+        }}
+      />
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        projects={projects}
+        allTasks={allTasks}
+        selectedProjectIds={exportSelectedProjectIds}
+        onSelectedProjectIdsChange={setExportSelectedProjectIds}
+        wbsMap={wbsMap}
+        wbsSettings={wbsSettings}
+        currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
+        onExport={handleExportFromModal}
+      />
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .xlsm" multiple className="hidden" />
       <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" multiple className="hidden" />
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
@@ -1115,10 +1299,30 @@ function WBSApp() {
 }
 
 function AppWithProviders() {
+  const { user, loading } = useAuth();
+  const { push: pushToast } = useToast();
+
+  if (!isSupabaseConfigured) {
+    return <SupabaseSetupScreen />;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-900">
+        <div className="text-white/80 text-sm">로딩 중...</div>
+      </div>
+    );
+  }
+  if (!user) {
+    return <LoginScreen />;
+  }
   return (
-    <PasswordGuard>
+    <WBSProvider
+      onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 새로고침됩니다.', { variant: 'warning' })}
+      onDbError={(msg) => pushToast(msg, { variant: 'error' })}
+    >
       <WBSApp />
-    </PasswordGuard>
+    </WBSProvider>
   );
 }
 

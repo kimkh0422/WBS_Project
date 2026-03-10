@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
@@ -146,40 +148,42 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
         })).sort((a, b) => b.total - a.total);
     }, [allTasks, wbsSettings.statusConfigs]);
 
-    // Visitor tracking logic
+    // Visitor tracking: DB 기반 (Supabase)
+    const { user } = useAuth();
     const [visitorStats, setVisitorStats] = React.useState({ daily: 0, total: 0 });
 
     React.useEffect(() => {
-        const today = new Date().toISOString().split('T')[0];
-        const savedTotal = localStorage.getItem('wbs-visit-total') || '0';
-        const savedDaily = localStorage.getItem('wbs-visit-daily') || '0';
-        const savedDate = localStorage.getItem('wbs-visit-date') || today;
-
-        let newTotal = parseInt(savedTotal);
-        let newDaily = parseInt(savedDaily);
-
-        // Check if session started
-        const sessionActive = sessionStorage.getItem('wbs-session-active');
-        if (!sessionActive) {
-            newTotal += 1;
-            if (savedDate !== today) {
-                newDaily = 1;
-            } else {
-                newDaily += 1;
-            }
-            sessionStorage.setItem('wbs-session-active', 'true');
-            localStorage.setItem('wbs-visit-total', newTotal.toString());
-            localStorage.setItem('wbs-visit-daily', newDaily.toString());
-            localStorage.setItem('wbs-visit-date', today);
-        } else if (savedDate !== today) {
-            // New day while session still active (unlikely but possible)
-            newDaily = 1;
-            localStorage.setItem('wbs-visit-daily', newDaily.toString());
-            localStorage.setItem('wbs-visit-date', today);
+        if (!isSupabaseConfigured || !supabase || !user) {
+            setVisitorStats({ daily: 0, total: 0 });
+            return;
         }
 
-        setVisitorStats({ daily: newDaily, total: newTotal });
-    }, []);
+        const run = async () => {
+            // 세션당 하루 1회만 기록
+            let sessionId = sessionStorage.getItem('wbs-visit-session-id');
+            if (!sessionId) {
+                sessionId = crypto.randomUUID();
+                sessionStorage.setItem('wbs-visit-session-id', sessionId);
+            }
+
+            try {
+                await supabase.rpc('record_visit', { p_session_id: sessionId });
+            } catch {
+                // 무시 (이미 기록된 경우 등)
+            }
+
+            try {
+                const { data } = await supabase.rpc('get_visitor_stats');
+                if (data && typeof data.daily === 'number' && typeof data.total === 'number') {
+                    setVisitorStats({ daily: data.daily, total: data.total });
+                }
+            } catch {
+                setVisitorStats({ daily: 0, total: 0 });
+            }
+        };
+
+        run();
+    }, [user?.id]);
 
     return (
         <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-6 md:p-8">

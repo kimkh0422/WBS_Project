@@ -18,6 +18,8 @@ export interface Project {
   startDate?: string; // ISO string (YYYY-MM-DD)
   /** 프로젝트별 투입인원·투입비율. 이 프로젝트 소속 작업의 기간·공수 계산에 적용 */
   assignments?: ProjectAssignment[];
+  /** 프로젝트 소유자 (Supabase auth.users id) */
+  ownerId?: string;
 }
 
 /** 투입인원 1명: 담당자 + 투입비율(0~100%) */

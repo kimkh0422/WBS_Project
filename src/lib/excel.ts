@@ -660,55 +660,90 @@ function getAllocationRateString(
     : '';
 }
 
+/** Excel 시트명: 31자 제한, \ / ? * [ ] : 문자 불가 */
+function toSheetName(name: string, used: Set<string>): string {
+  let s = String(name || 'Sheet')
+    .replace(/[\\/?*[\]:]/g, '')
+    .trim()
+    .slice(0, 31);
+  if (!s) s = 'Sheet';
+  let base = s;
+  let n = 1;
+  while (used.has(s)) {
+    s = `${base.slice(0, 28)}_${n}`.slice(0, 31);
+    n++;
+  }
+  used.add(s);
+  return s;
+}
+
+/** 프로젝트 ID → 프로젝트명 맵. 여러 프로젝트 내보낼 때 시트명용 */
+export type ProjectNameMap = Map<string, string>;
+
 export const exportToExcel = (
   tasks: Task[],
   wbsMap: Map<string, string>,
   fileName: string = 'wbs_export.xlsx',
-  projects: Project[] = []
+  projects: Project[] = [],
+  projectNameMap?: ProjectNameMap
 ) => {
   const projectAssignmentsByProjectId = new Map(
     projects.map(p => [p.id, p.assignments ?? []])
   );
+  const nameMap = projectNameMap ?? new Map(projects.map(p => [p.id, p.name]));
 
-  // Use context wbsMap (which has user-configured prefixes like W1, T1.1).
-  // For tasks beyond maxLevel (wbsMap value is ''), derive from parent's WBS number.
-  const exportWbsMap = new Map<string, string>();
-  const fillWbs = (parentId: string | null) => {
-    const children = tasks.filter(t => t.parentId === parentId);
-    children.forEach((child, index) => {
-      const contextVal = wbsMap.get(child.id);
-      if (contextVal) {
-        exportWbsMap.set(child.id, contextVal);
-      } else {
-        const parentWbs = parentId ? (exportWbsMap.get(parentId) || '') : '';
-        exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
-      }
-      fillWbs(child.id);
-    });
-  };
-  fillWbs(null);
+  // 프로젝트별로 작업 그룹화 (projects 순서 유지)
+  const tasksByProject = new Map<string, Task[]>();
+  for (const p of projects) {
+    tasksByProject.set(p.id, tasks.filter(t => t.projectId === p.id));
+  }
 
-  // Prepare data for export (투입율: 담당자별 비율만, 작업 배정 없으면 프로젝트 설정값)
-  const data = tasks.map((task) => {
-    const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
-    return {
-      [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
-      [HEADER_MAP.name]: task.name,
-      [HEADER_MAP.startDate]: task.startDate,
-      [HEADER_MAP.endDate]: task.endDate,
-      [HEADER_MAP.progress]: task.progress,
-      [HEADER_MAP.assignee]: task.assignee,
-      '투입율': allocationRate,
-      [HEADER_MAP.status]: task.status,
-      [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
-      [HEADER_MAP.workEffort]: task.workEffort || 0,
-      [HEADER_MAP.deliverables]: task.deliverables || '',
-    };
-  });
-
-  const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Tasks');
+  const usedSheetNames = new Set<string>();
+
+  for (const project of projects) {
+    const projectTasks = tasksByProject.get(project.id) ?? [];
+    if (projectTasks.length === 0 && projects.length > 1) continue; // 빈 프로젝트 시트 생략
+
+    // 해당 프로젝트 작업만으로 WBS 맵 생성
+    const exportWbsMap = new Map<string, string>();
+    const fillWbs = (parentId: string | null) => {
+      const children = projectTasks.filter(t => t.parentId === parentId);
+      children.forEach((child, index) => {
+        const contextVal = wbsMap.get(child.id);
+        if (contextVal) {
+          exportWbsMap.set(child.id, contextVal);
+        } else {
+          const parentWbs = parentId ? (exportWbsMap.get(parentId) || '') : '';
+          exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
+        }
+        fillWbs(child.id);
+      });
+    };
+    fillWbs(null);
+
+    const data = projectTasks.map((task) => {
+      const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
+      return {
+        [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
+        [HEADER_MAP.name]: task.name,
+        [HEADER_MAP.startDate]: task.startDate,
+        [HEADER_MAP.endDate]: task.endDate,
+        [HEADER_MAP.progress]: task.progress,
+        [HEADER_MAP.assignee]: task.assignee,
+        '투입율': allocationRate,
+        [HEADER_MAP.status]: task.status,
+        [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
+        [HEADER_MAP.workEffort]: task.workEffort || 0,
+        [HEADER_MAP.deliverables]: task.deliverables || '',
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const sheetName = toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  }
+
   XLSX.writeFile(workbook, fileName);
 };
 

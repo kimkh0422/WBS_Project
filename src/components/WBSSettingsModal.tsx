@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
+import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
+import { LEVEL_COLORS } from '../lib/levelColors';
 import { TaskStatus } from '../types';
 
 interface WBSSettingsModalProps {
@@ -8,8 +10,21 @@ interface WBSSettingsModalProps {
     onClose: () => void;
 }
 
+const DEFAULT_LEVEL_COLORS: RgbColor[] = [...LEVEL_COLORS];
+
+function rgbToHex(r: number, g: number, b: number): string {
+    return '#' + [r, g, b].map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
+}
+
+function hexToRgb(hex: string): RgbColor | null {
+    const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return null;
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+
 export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     const { wbsSettings, updateWbsSettings, projects, updateProject } = useWBS();
+    const { levelColors, setLevelColors } = useLevelColors();
 
     const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
     const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath !== false);
@@ -20,6 +35,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
     const [projectDates, setProjectDates] = useState<Record<string, string>>({});
     const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
+    const [levelColorsState, setLevelColorsState] = useState<RgbColor[]>(DEFAULT_LEVEL_COLORS);
 
     const TABLE_COLUMN_LABELS: Record<string, string> = useMemo(() => ({
         wbsId: 'ID',
@@ -80,6 +96,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
             setMaxLevel(wbsSettings.maxLevel);
             setStatusConfigs(wbsSettings.statusConfigs);
             setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
+            setLevelColorsState(levelColors && levelColors.length >= 5 ? [...levelColors] : [...DEFAULT_LEVEL_COLORS]);
 
             const initialDates: Record<string, string> = {};
             projects.forEach(p => {
@@ -87,7 +104,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
             });
             setProjectDates(initialDates);
         }
-    }, [isOpen, wbsSettings, projects]);
+    }, [isOpen, wbsSettings, projects, levelColors]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -121,6 +138,8 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
             statusConfigs: statusConfigs,
             tableColumns: normalizedTableColumns,
         });
+
+        setLevelColors(levelColorsState);
 
         Object.entries(projectDates).forEach(([id, date]) => {
             const project = projects.find(p => p.id === id);
@@ -234,6 +253,51 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                     </select>
                                     <p className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">작업 레벨이 표시 레벨을 초과할 경우 ID가 숨겨집니다.</p>
                                 </div>
+                            </div>
+
+                            {/* 레벨별 색상 */}
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-stone-200 pb-2">
+                                    <h3 className="font-bold text-sm text-[var(--color-ink)] flex items-center gap-2">
+                                        <Palette size={16} />
+                                        레벨별 색상
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLevelColorsState([...DEFAULT_LEVEL_COLORS])}
+                                        className="p-1 hover:bg-stone-100 text-stone-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                                        title="기본값으로 복원"
+                                    >
+                                        <RotateCcw size={14} />
+                                        기본값
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-5 gap-3">
+                                    {[1, 2, 3, 4, 5].map((lev) => {
+                                        const c = levelColorsState[lev - 1] ?? DEFAULT_LEVEL_COLORS[lev - 1];
+                                        const hex = rgbToHex(c.r, c.g, c.b);
+                                        return (
+                                            <div key={lev} className="flex flex-col gap-1.5">
+                                                <label className="text-[10px] font-bold text-stone-500">레벨 {lev}</label>
+                                                <input
+                                                    type="color"
+                                                    value={hex}
+                                                    onChange={(e) => {
+                                                        const rgb = hexToRgb(e.target.value);
+                                                        if (rgb) {
+                                                            const next = [...levelColorsState];
+                                                            while (next.length < lev) next.push(DEFAULT_LEVEL_COLORS[next.length] ?? { r: 87, g: 83, b: 78 });
+                                                            next[lev - 1] = rgb;
+                                                            setLevelColorsState(next);
+                                                        }
+                                                    }}
+                                                    className="w-full h-9 rounded-lg border border-stone-200 cursor-pointer"
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-[10px] text-stone-400 leading-relaxed">작업표·간트 차트에서 레벨별로 적용됩니다. 사용자별로 저장됩니다.</p>
                             </div>
                         </div>
 

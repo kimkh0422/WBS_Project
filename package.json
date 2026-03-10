@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "db:migrate-profiles": "node scripts/run-profiles-migration.mjs",
+    "db:open-migration": "node scripts/open-migration-in-browser.mjs",
+    "db:fix-profiles-rls": "node scripts/open-fix-migration.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -35,6 +38,8 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
