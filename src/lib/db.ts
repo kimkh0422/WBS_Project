@@ -74,6 +74,12 @@ function toProjectRow(project: Project): ProjectRow {
   };
 }
 
+/** assignments 컬럼이 없는 구 스키마용 (PGRST204 fallback) */
+function toProjectRowMinimal(project: Project): Omit<ProjectRow, 'assignments'> & { assignments?: never } {
+  const { assignments: _a, ...rest } = toProjectRow(project);
+  return rest;
+}
+
 function fromProjectRow(row: ProjectRow): Project {
   const assignments: ProjectAssignment[] = Array.isArray(row.assignments)
     ? row.assignments.map((a: { assignee: string; allocation_percent: number }) => ({ assignee: a.assignee, allocationPercent: a.allocation_percent }))
@@ -148,41 +154,58 @@ export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
   return data ? fromSettingsRow(data as SettingsRow) : null;
 }
 
-/** 프로필에서 레벨별 색상 조회. 로그인 사용자용. */
+/** 프로필에서 레벨별 색상 조회. 로그인 사용자용. profiles 없으면 null 반환. */
 export async function fetchProfileLevelColors(userId: string): Promise<Array<{ r: number; g: number; b: number }> | null> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('profiles')
-    .select('level_colors')
-    .eq('id', userId)
-    .maybeSingle();
-  if (error) throw error;
-  const colors = (data as { level_colors?: unknown } | null)?.level_colors;
-  if (!Array.isArray(colors)) return null;
-  const valid = colors.filter(
-    (c): c is { r: number; g: number; b: number } =>
-      c && typeof c === 'object' && typeof (c as any).r === 'number' && typeof (c as any).g === 'number' && typeof (c as any).b === 'number'
-  );
-  return valid.length > 0 ? valid : null;
+  try {
+    const { data, error } = await supabase!
+      .from('profiles')
+      .select('level_colors')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) return null;
+    const colors = (data as { level_colors?: unknown } | null)?.level_colors;
+    if (!Array.isArray(colors)) return null;
+    const valid = colors.filter(
+      (c): c is { r: number; g: number; b: number } =>
+        c && typeof c === 'object' && typeof (c as any).r === 'number' && typeof (c as any).g === 'number' && typeof (c as any).b === 'number'
+    );
+    return valid.length > 0 ? valid : null;
+  } catch {
+    return null;
+  }
 }
 
-/** 프로필에 레벨별 색상 저장. colors가 null이면 기본값 사용(DB에서 제거). */
+/** 프로필에 레벨별 색상 저장. colors가 null이면 기본값 사용(DB에서 제거). profiles 없으면 무시. */
 export async function updateProfileLevelColors(userId: string, colors: Array<{ r: number; g: number; b: number }> | null): Promise<void> {
   requireSupabase();
-  const { error } = await supabase!
-    .from('profiles')
-    .update({ level_colors: colors })
-    .eq('id', userId);
-  if (error) throw error;
+  try {
+    const { error } = await supabase!
+      .from('profiles')
+      .update({ level_colors: colors })
+      .eq('id', userId);
+    if (error) return;
+  } catch {
+    // profiles 테이블 없음 등 - 무시
+  }
 }
 
 // ─── 삽입/업데이트 ────────────────────────────────────────────────────────────
 
+function isAssignmentsSchemaError(err: { code?: string; message?: string }): boolean {
+  const msg = (err.message ?? '').toLowerCase();
+  return err.code === 'PGRST204' || msg.includes("'assignments'") || msg.includes('assignments');
+}
+
 export async function upsertProject(project: Project): Promise<void> {
   requireSupabase();
-  const { error } = await supabase!
-    .from('projects')
-    .upsert(toProjectRow(project));
+  const row = toProjectRow(project);
+  const { error } = await supabase!.from('projects').upsert(row);
+  if (error && isAssignmentsSchemaError(error)) {
+    const { error: err2 } = await supabase!.from('projects').upsert(toProjectRowMinimal(project));
+    if (err2) throw err2;
+    return;
+  }
   if (error) throw error;
 }
 
@@ -316,33 +339,47 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 
 // ─── 회원 관리 (관리자) ────────────────────────────────────────────────────────
 
+/** 회원 목록. profiles 테이블 없으면 [] 반환. */
 export async function fetchProfiles(): Promise<ProfileRow[]> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as ProfileRow[];
+  try {
+    const { data, error } = await supabase!
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) return [];
+    return (data ?? []) as ProfileRow[];
+  } catch {
+    return [];
+  }
 }
 
-/** 회원명(full_name) 업데이트 - 본인 또는 관리자만 가능 */
+/** 회원명(full_name) 업데이트 - 본인 또는 관리자만 가능. profiles 없으면 success: false. */
 export async function updateProfileFullName(userId: string, fullName: string): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
-  const { error } = await supabase!
-    .from('profiles')
-    .update({ full_name: fullName.trim() || null })
-    .eq('id', userId);
-  if (error) return { success: false, error: error.message };
-  return { success: true };
+  try {
+    const { error } = await supabase!
+      .from('profiles')
+      .update({ full_name: fullName.trim() || null })
+      .eq('id', userId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch {
+    return { success: false, error: 'profiles 테이블을 사용할 수 없습니다.' };
+  }
 }
 
+/** 관리자 여부. ensure_profile RPC 없으면 false 반환. */
 export async function checkIsAdmin(): Promise<boolean> {
   requireSupabase();
-  const { data, error } = await supabase!.rpc('ensure_profile');
-  if (error) return false;
-  const result = data as { is_admin?: boolean };
-  return result?.is_admin === true;
+  try {
+    const { data, error } = await supabase!.rpc('ensure_profile');
+    if (error) return false;
+    const result = data as { is_admin?: boolean };
+    return result?.is_admin === true;
+  } catch {
+    return false;
+  }
 }
 
 /** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제) */
@@ -380,7 +417,16 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
       if (ownerId) row.owner_id = ownerId;
       return row;
     });
-    const { error } = await supabase!.from('projects').insert(rows);
+    let { error } = await supabase!.from('projects').insert(rows);
+    if (error && isAssignmentsSchemaError(error)) {
+      const minimalRows = data.projects.map(p => {
+        const r = toProjectRowMinimal(p) as Record<string, unknown>;
+        if (ownerId) r.owner_id = ownerId;
+        return r;
+      });
+      const res = await supabase!.from('projects').insert(minimalRows);
+      error = res.error;
+    }
     if (error) throw error;
   }
 
@@ -442,7 +488,16 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
         if (ownerId) row.owner_id = ownerId;
         return row;
       });
-      const { error } = await supabase!.from('projects').upsert(rows);
+      let { error } = await supabase!.from('projects').upsert(rows);
+      if (error && isAssignmentsSchemaError(error)) {
+        const minimalRows = projectsWithUuid.map(p => {
+          const r = toProjectRowMinimal(p) as Record<string, unknown>;
+          if (ownerId) r.owner_id = ownerId;
+          return r;
+        });
+        const res = await supabase!.from('projects').upsert(minimalRows);
+        error = res.error;
+      }
       if (error) throw error;
     }
 
@@ -465,7 +520,7 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
     console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
     return true;
   } catch (err) {
-    console.error('[DB] 마이그레이션 실패:', err);
+    if (import.meta.env.DEV) console.warn('[DB] 마이그레이션 실패:', err);
     return false;
   }
 }

@@ -9,6 +9,8 @@
     "db:migrate-profiles": "node scripts/run-profiles-migration.mjs",
     "db:open-migration": "node scripts/open-migration-in-browser.mjs",
     "db:fix-profiles-rls": "node scripts/open-fix-migration.mjs",
+    "db:fix-rls": "node scripts/run-rls-fix.mjs",
+    "db:fix-rls-open": "node scripts/open-rls-fix.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

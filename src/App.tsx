@@ -93,7 +93,6 @@ function WBSApp() {
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
   const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
-  const [isDeleteEverythingConfirmOpen, setIsDeleteEverythingConfirmOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
@@ -116,7 +115,6 @@ function WBSApp() {
     deleteProject,
     deleteAllTasks,
     deleteAllTasksInAllProjects,
-    deleteEverything,
     wbsMap,
     restoreBackup,
     mergeBackups,
@@ -466,13 +464,6 @@ function WBSApp() {
   const handleDeleteAllProjects = () => {
     deleteAllTasksInAllProjects();
     setIsDeleteAllProjectsConfirmOpen(false);
-    setIsDeleteChoiceOpen(false);
-    setIsProjectDropdownOpen(false);
-  };
-
-  const handleDeleteEverything = () => {
-    deleteEverything();
-    setIsDeleteEverythingConfirmOpen(false);
     setIsDeleteChoiceOpen(false);
     setIsProjectDropdownOpen(false);
   };
@@ -1168,17 +1159,6 @@ function WBSApp() {
                   <span className="block font-semibold">전체 삭제</span>
                   <span className="block text-xs text-red-600 mt-0.5">모든 프로젝트의 작업을 전체 삭제합니다. 프로젝트는 유지됩니다.</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDeleteChoiceOpen(false);
-                    setIsDeleteEverythingConfirmOpen(true);
-                  }}
-                  className="w-full text-left px-4 py-3 rounded-xl border-2 border-red-300 bg-red-100/80 hover:bg-red-200 text-red-800 font-medium text-sm transition-colors"
-                >
-                  <span className="block font-semibold">프로젝트 유지 없이 모두 삭제</span>
-                  <span className="block text-xs text-red-700 mt-0.5">모든 프로젝트와 작업을 삭제하고, 새 프로젝트 1개만 생성합니다.</span>
-                </button>
                 {projects.length > 1 && (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-slate-500 mt-3">프로젝트 선택해서 삭제</p>
@@ -1231,7 +1211,6 @@ function WBSApp() {
       )}
       <ConfirmDialog isOpen={isDeleteAllConfirmOpen} onClose={() => setIsDeleteAllConfirmOpen(false)} onConfirm={handleDeleteAll} title="모든 작업 삭제" message={currentProjectId === 'all' ? '모든 프로젝트의 작업을 전체 삭제하시겠습니까?' : `'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`} confirmLabel="삭제" isDanger={true} />
       <ConfirmDialog isOpen={isDeleteAllProjectsConfirmOpen} onClose={() => setIsDeleteAllProjectsConfirmOpen(false)} onConfirm={handleDeleteAllProjects} title="전체 삭제" message="모든 프로젝트의 작업을 전체 삭제하시겠습니까? 프로젝트는 유지됩니다." confirmLabel="전체 삭제" isDanger={true} />
-      <ConfirmDialog isOpen={isDeleteEverythingConfirmOpen} onClose={() => setIsDeleteEverythingConfirmOpen(false)} onConfirm={handleDeleteEverything} title="프로젝트 유지 없이 모두 삭제" message="모든 프로젝트와 작업을 삭제하고 새 프로젝트 1개만 생성합니다. 이 작업은 되돌릴 수 없습니다." confirmLabel="모두 삭제" isDanger={true} />
       <ConfirmDialog
         isOpen={isDeleteProjectConfirmOpen}
         onClose={() => { setIsDeleteProjectConfirmOpen(false); setProjectToDelete(null); }}

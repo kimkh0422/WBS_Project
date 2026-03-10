@@ -80,8 +80,6 @@ interface WBSContextType {
   deleteAllTasks: () => void;
   /** 모든 프로젝트의 작업을 전체 삭제 (현재 프로젝트 무관) */
   deleteAllTasksInAllProjects: () => void;
-  /** 모든 작업·프로젝트 삭제 후 새 프로젝트 1개 생성 (프로젝트 유지 없이 모두 삭제) */
-  deleteEverything: () => void;
   wbsMap: Map<string, string>;
   displayWbsMap: Map<string, string>;
   restoreBackup: (data: BackupData) => void;
@@ -252,7 +250,7 @@ export function WBSProvider({
   const { user } = useAuth();
   const handleDbError = React.useCallback(
     (err: unknown, fallback: string) => {
-      console.error(fallback, err);
+      if (import.meta.env.DEV) console.warn(fallback, err);
       const msg = err instanceof Error ? err.message : fallback;
       onDbError?.(msg);
     },
@@ -366,7 +364,7 @@ export function WBSProvider({
           setCurrentProjectId(validId);
         }
       } catch (err) {
-        console.error('[DB] 데이터 로딩 실패:', err);
+        if (import.meta.env.DEV) console.warn('[DB] 데이터 로딩 실패:', err);
         handleDbError(err, 'DB 연결 실패. 로컬 데이터를 사용합니다. 저장이 되지 않을 수 있습니다.');
         // 폴백: localStorage → 목업 데이터 (파싱 실패 시 목업만 사용)
         try {
@@ -381,7 +379,7 @@ export function WBSProvider({
           setWbsSettings(parsedSettings);
           setCurrentProjectId((Array.isArray(fallbackProjects) && fallbackProjects[0]?.id) ? fallbackProjects[0].id : (MOCK_PROJECTS[0]?.id ?? ''));
         } catch (fallbackErr) {
-          console.error('[DB] 폴백 데이터 로딩 실패, 목업 사용:', fallbackErr);
+          if (import.meta.env.DEV) console.warn('[DB] 폴백 데이터 로딩 실패, 목업 사용:', fallbackErr);
           setProjects(MOCK_PROJECTS);
           setAllTasks(applyRollupsToTasks(MOCK_TASKS));
           setWbsSettings(DEFAULT_SETTINGS);
@@ -399,16 +397,18 @@ export function WBSProvider({
   }, [currentProjectId]);
 
   // ─── Supabase Realtime: 다른 사용자 변경 시 작업 목록 자동 갱신 ─────────────
+  // VITE_REALTIME_ENABLED=false 시 비활성화 (WebSocket 400 오류 등 연결 실패 시 사용)
 
   const realtimeRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeEnabled = import.meta.env.VITE_REALTIME_ENABLED !== 'false';
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase || isLoading) return;
+    if (!isSupabaseConfigured || !supabase || isLoading || !realtimeEnabled) return;
 
     const refetchTasks = () => {
       fetchTasks()
         .then(fresh => setAllTasks(applyRollupsToTasks(fresh)))
-        .catch(err => console.error('[Realtime] 작업 목록 갱신 실패:', err));
+        .catch(err => { if (import.meta.env.DEV) console.warn('[Realtime] 작업 목록 갱신 실패:', err); });
     };
 
     const debouncedRefetch = () => {
@@ -435,7 +435,7 @@ export function WBSProvider({
         realtimeRefetchTimeoutRef.current = null;
       }
     };
-  }, [isLoading]);
+  }, [isLoading, realtimeEnabled]);
 
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
@@ -1128,18 +1128,6 @@ export function WBSProvider({
     deleteAllTasksFromDB('').catch(err => handleDbError(err, '전체 삭제에 실패했습니다.'));
   };
 
-  const deleteEverything = () => {
-    saveHistory();
-    const newProject: Project = { id: uuidv4(), name: '새 프로젝트', ownerId };
-    setProjects([newProject]);
-    setAllTasks([]);
-    setCurrentProjectId(newProject.id);
-    deleteAllTasksFromDB('')
-      .then(() => deleteAllProjectsFromDB())
-      .then(() => upsertProject(newProject))
-      .catch(err => handleDbError(err, '전체 삭제/생성에 실패했습니다.'));
-  };
-
   // ─── 백업 ─────────────────────────────────────────────────────────────────
 
   const restoreBackup = (data: BackupData) => {
@@ -1216,7 +1204,6 @@ export function WBSProvider({
       importTasks,
       deleteAllTasks,
       deleteAllTasksInAllProjects,
-      deleteEverything,
       wbsMap,
       displayWbsMap,
       restoreBackup,
