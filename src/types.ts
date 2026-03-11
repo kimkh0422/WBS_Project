@@ -16,10 +16,13 @@ export interface Project {
   name: string;
   description?: string;
   startDate?: string; // ISO string (YYYY-MM-DD)
+  endDate?: string; // ISO string (YYYY-MM-DD). WBS 작업은 이 기간 범위를 벗어날 수 없음
   /** 프로젝트별 투입인원·투입비율. 이 프로젝트 소속 작업의 기간·공수 계산에 적용 */
   assignments?: ProjectAssignment[];
   /** 프로젝트 소유자 (Supabase auth.users id) */
   ownerId?: string;
+  /** 작업 최소 공수 기준(일). 0.5, 1, 3 등. WBS 작업 세부 분류에 사용 */
+  minWorkEffortDays?: number;
 }
 
 /** 투입인원 1명: 담당자 + 투입비율(0~100%) */

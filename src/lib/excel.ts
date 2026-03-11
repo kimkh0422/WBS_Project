@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus, Project } from '../types';
+import { randomUUID } from './utils';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
   wbsId: 'WBS번호',
+  level: '레벨',
   id: '시스템ID',
   parentId: '상위작업ID',
   name: '작업명',
@@ -264,6 +266,7 @@ const pickBestSheetAndHeader = (workbook: XLSX.WorkBook) => {
 
 export type ExcelImportFieldId =
   | 'wbsKey'
+  | 'level'
   | 'name'
   | 'startDate'
   | 'endDate'
@@ -299,6 +302,7 @@ export type ExcelImportParseResult = {
 
 const FIELD_LABELS: Record<ExcelImportFieldId, string> = {
   wbsKey: 'WBS',
+  level: '레벨',
   name: '작업명',
   startDate: '시작일',
   endDate: '완료일/종료일',
@@ -422,7 +426,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       });
 
       if (!task.name) continue;
-      if (!task.id) task.id = crypto.randomUUID();
+      if (!task.id) task.id = randomUUID();
       if (!task.status) task.status = 'todo';
       if (task.progress === undefined || task.progress === null) task.progress = 0;
       if (!task.startDate) task.startDate = today;
@@ -437,6 +441,29 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       tasks.push(task as Task);
     }
 
+    // WBS 기반 상위작업 해석 (엑셀 내보내기 포맷 재임포트 시 계층 복원)
+    const wbsToTaskId = new Map<string, string>();
+    const pendingParentByWbs = new Map<string, string>();
+    for (const t of tasks) {
+      const wbsKey = normalizeWbsKey((t as any).wbsId);
+      if (wbsKey) {
+        wbsToTaskId.set(wbsKey, t.id);
+        const parts = wbsKey.split('.').filter(Boolean);
+        if (parts.length > 1) {
+          const parentWbs = parts.slice(0, -1).join('.');
+          pendingParentByWbs.set(t.id, parentWbs);
+        }
+      }
+    }
+    for (const t of tasks) {
+      if (t.parentId != null) continue;
+      const parentWbs = pendingParentByWbs.get(t.id);
+      if (!parentWbs) continue;
+      const pid = wbsToTaskId.get(parentWbs);
+      if (pid) t.parentId = pid;
+    }
+    for (const t of tasks) delete (t as any).wbsId;
+
     const mapped: ExcelImportMappingItem[] = [];
     const add = (fieldId: ExcelImportFieldId, headerName: string, note?: string) => {
       const col = headerRow.indexOf(headerName);
@@ -449,6 +476,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       });
     };
     add('wbsKey', HEADER_MAP.wbsId);
+    add('level', HEADER_MAP.level);
     add('name', HEADER_MAP.name);
     add('startDate', HEADER_MAP.startDate);
     add('endDate', HEADER_MAP.endDate);
@@ -585,7 +613,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     const status = parsedStatus || inferStatusFromProgress(progress);
     const workEffort = effortCol >= 0 ? (toNumber(cells[effortCol]) ?? undefined) : undefined;
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const task: Task = {
       id,
       projectId: '', // set by import pipeline
@@ -707,6 +735,7 @@ export const exportToExcel = (
 
     // 해당 프로젝트 작업만으로 WBS 맵 생성
     const exportWbsMap = new Map<string, string>();
+    const orderedTasks: Task[] = [];
     const fillWbs = (parentId: string | null) => {
       const children = projectTasks.filter(t => t.parentId === parentId);
       children.forEach((child, index) => {
@@ -717,15 +746,19 @@ export const exportToExcel = (
           const parentWbs = parentId ? (exportWbsMap.get(parentId) || '') : '';
           exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
         }
+        orderedTasks.push(child);
         fillWbs(child.id);
       });
     };
     fillWbs(null);
 
-    const data = projectTasks.map((task) => {
+    const data = orderedTasks.map((task) => {
+      const wbsCode = exportWbsMap.get(task.id) || '';
+      const level = wbsCode ? wbsCode.split('.').filter(Boolean).length : 1;
       const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
       return {
-        [HEADER_MAP.wbsId]: exportWbsMap.get(task.id) || '',
+        [HEADER_MAP.wbsId]: wbsCode,
+        [HEADER_MAP.level]: level,
         [HEADER_MAP.name]: task.name,
         [HEADER_MAP.startDate]: task.startDate,
         [HEADER_MAP.endDate]: task.endDate,

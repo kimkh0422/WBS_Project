@@ -85,12 +85,23 @@ function matchesFilters(task: Task, filters: FilterState) {
   if (filters.assignee && !task.assignee.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
   const taskStart = toDateStr(task.startDate);
   const taskEnd = toDateStr(task.endDate);
+  const hasTaskStart = !!taskStart;
+  const hasTaskEnd = !!taskEnd;
   if (filters.startDate && filters.endDate) {
     // 기간 겹침: task가 [startDate, endDate]와 하루라도 겹치면 표시
-    if (taskStart > filters.endDate || taskEnd < filters.startDate) return false;
+    if (hasTaskStart && hasTaskEnd) {
+      if (taskStart > filters.endDate || taskEnd < filters.startDate) return false;
+    } else if (hasTaskStart) {
+      // 종료일 없음: 시작일이 금주 내/이전이면 겹침(진행중 작업)
+      if (taskStart > filters.endDate) return false;
+    } else if (hasTaskEnd) {
+      // 시작일 없음: 종료일이 금주 내/이후면 겹침
+      if (taskEnd < filters.startDate) return false;
+    }
+    // 둘 다 없으면 겹침 여부 불명 → 포함(금주업무 필터 시 누락 방지)
   } else {
-    if (filters.startDate && taskEnd < filters.startDate) return false;
-    if (filters.endDate && taskStart > filters.endDate) return false;
+    if (filters.startDate && hasTaskEnd && taskEnd < filters.startDate) return false;
+    if (filters.endDate && hasTaskStart && taskStart > filters.endDate) return false;
   }
   if (filters.milestoneOnly && !task.isMilestone) return false;
   return true;

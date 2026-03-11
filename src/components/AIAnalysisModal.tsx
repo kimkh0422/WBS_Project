@@ -1,14 +1,18 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
+import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
 import { Task, TaskStatus, Project } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import { useToast } from './Toast';
 import { applyDependencySchedule } from '../lib/schedule';
 import { buildTasksInTreeOrderWithWbs } from '../lib/taskView';
+import { randomUUID } from '../lib/utils';
+
+import { WBS_CORRECTION_PROMPT_KEY, DEFAULT_WBS_CORRECTION_PROMPT } from '../lib/wbsCorrectionPrompt';
 
 const DEP_PROGRESS_TOAST_ID = 'wbs-dep-analysis-progress';
+const REANALYZE_PROGRESS_TOAST_ID = 'wbs-reanalyze-progress';
 
 type Attachment = {
   id: string;
@@ -37,6 +41,8 @@ interface AIResponseTask {
   assignee: string;
   progress: number;
   workEffort: number;
+  description?: string;
+  deliverables?: string;
   subtasks?: AIResponseTask[];
 }
 
@@ -52,10 +58,15 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [dependencyResults, setDependencyResults] = useState<{ taskId: string; dependsOn: string[] }[]>([]);
   const [dependencyAnalysisInBackground, setDependencyAnalysisInBackground] = useState(false);
+  const [reanalyzeInBackground, setReanalyzeInBackground] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini-api-key') || '');
   const [tempApiKey, setTempApiKey] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [wbsCorrectionPrompt, setWbsCorrectionPrompt] = useState(() =>
+    localStorage.getItem(WBS_CORRECTION_PROMPT_KEY) || DEFAULT_WBS_CORRECTION_PROMPT
+  );
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
 
@@ -72,6 +83,16 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       onBusyChange?.(false);
     };
   }, [isLoading, onBusyChange]);
+
+  const handleWbsCorrectionPromptChange = (value: string) => {
+    setWbsCorrectionPrompt(value);
+    localStorage.setItem(WBS_CORRECTION_PROMPT_KEY, value);
+  };
+
+  const handleResetWbsCorrectionPrompt = () => {
+    setWbsCorrectionPrompt(DEFAULT_WBS_CORRECTION_PROMPT);
+    localStorage.setItem(WBS_CORRECTION_PROMPT_KEY, DEFAULT_WBS_CORRECTION_PROMPT);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -95,6 +116,32 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
     [projects]
   );
+
+  const currentProject = useMemo(
+    () => projects.find((p) => p.id === currentProjectId),
+    [projects, currentProjectId]
+  );
+
+  const projectConstraintsBlock = useMemo(() => {
+    if (!currentProject) return '프로젝트가 선택되지 않았거나 제약조건이 없습니다.';
+    const parts: string[] = [];
+    if (currentProject.startDate) parts.push(`- 프로젝트 시작일: ${currentProject.startDate}`);
+    if (currentProject.endDate) parts.push(`- 프로젝트 종료일: ${currentProject.endDate}`);
+    if (currentProject.minWorkEffortDays != null) {
+      parts.push(`- 최소 WBS 작업공수 (일): ${currentProject.minWorkEffortDays} (작업 공수는 ${currentProject.minWorkEffortDays} 단위로 분해: 0.5d, 1d 등)`);
+    }
+    const assignments = currentProject.assignments ?? [];
+    if (assignments.length > 0) {
+      parts.push('- 투입인원별 투입율 (반드시 이 담당자·비율로 작업 배정):');
+      assignments.forEach((a) => {
+        parts.push(`  · ${a.assignee}: ${a.allocationPercent}%`);
+      });
+      parts.push('- 작업기간 계산: 작업기간(일) = 작업공수 ÷ (투입율/100). 예: 공수 2d, 50% → 4일');
+      parts.push('- 동일 담당자의 작업 일정은 겹치지 않도록 배치하세요.');
+    }
+    if (parts.length === 0) return '프로젝트 제약조건이 설정되지 않았습니다.';
+    return parts.join('\n');
+  }, [currentProject]);
 
   const formatBytes = (bytes: number) => {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -158,6 +205,11 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   }, [attachments]);
 
   const hasAnyInput = inputText.trim().length > 0 || attachmentBlock.trim().length > 0;
+  const canProceed = hasAnyInput || existingTasks.length > 0;
+
+  useEffect(() => {
+    if (canProceed && error === '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.') setError(null);
+  }, [canProceed, error]);
 
   const addFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -178,7 +230,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
         const clipped = textResult.text.length > MAX_CHARS ? `${textResult.text.slice(0, MAX_CHARS)}\n\n(내용이 길어 일부만 첨부되었습니다: 글자수 제한)` : textResult.text;
 
         next.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           name: f.name,
           type: f.type,
           size: f.size,
@@ -197,6 +249,8 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   if (!isOpen) return null;
   // 선행관계 분석 중에는 창을 숨기고 알림으로만 진행 상황 표시
   if (dependencyAnalysisInBackground) return null;
+  // 현재 작업 재분석 중에는 창을 숨기고 백그라운드에서 동작
+  if (reanalyzeInBackground) return null;
 
   const handleSaveApiKey = () => {
     if (!tempApiKey.trim()) {
@@ -211,16 +265,31 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
   const handleAnalyze = async (useExisting: boolean = false) => {
     if (!apiKey) {
+      pushToast('API 키를 먼저 설정해 주세요.', { variant: 'warning' });
       setTempApiKey('');
       setStep('settings');
       return;
     }
 
-    if (!useExisting && !hasAnyInput) return;
+    if (!canProceed) {
+      pushToast('프로젝트 설명을 입력하거나 파일을 첨부해 주세요.', { variant: 'warning' });
+      setError('프로젝트 설명을 입력하거나 파일을 첨부해 주세요.');
+      return;
+    }
+    const effectiveUseExisting = useExisting || (!hasAnyInput && existingTasks.length > 0);
 
     setIsLoading(true);
-    setIsReanalyzing(useExisting);
+    setIsReanalyzing(effectiveUseExisting);
     setError(null);
+
+    if (effectiveUseExisting) {
+      setReanalyzeInBackground(true);
+      pushToast('WBS 재분석 중...', {
+        variant: 'info',
+        id: REANALYZE_PROGRESS_TOAST_ID,
+        durationMs: 60 * 60 * 1000,
+      });
+    }
 
     try {
       if (!apiKey) {
@@ -231,7 +300,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
       let prompt = '';
 
-      if (useExisting) {
+      if (effectiveUseExisting) {
         const tasksJson = JSON.stringify(existingTasks.map(t => ({
           name: t.name,
           startDate: t.startDate,
@@ -241,73 +310,97 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
           progress: t.progress,
           workEffort: t.workEffort,
           parentId: t.parentId,
-          id: t.id
+          id: t.id,
+          description: t.description,
+          deliverables: t.deliverables
         })), null, 2);
 
-        prompt = `
-          당신은 프로젝트 관리 전문가입니다. 현재 등록된 다음 WBS 작업 목록을 분석하여 더 체계적이고 논리적인 구조로 재구성(Restructure)해 주세요.
-          
-          현재 날짜: ${new Date().toISOString().split('T')[0]}
-          
-          ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
-          
-          현재 작업 목록 (JSON):
-          ${tasksJson}
-          
-          요구사항:
-          1. 기존 작업들의 내용을 유지하면서, 프로젝트를 주요 단계(Phase) 또는 작업 유형별로 더 명확하게 그룹화하세요.
-          2. 계층 구조가 불분명한 작업들을 적절한 상위 작업 아래로 배치하세요.
-          3. 작업 이름(name)을 작성할 때 번호나 'WP', 'Task' 같은 접두사(예: "WP1.", "Task1.1.")를 절대 포함하지 마세요. 오직 순수한 작업 이름만 작성하세요.
-          4. 일정(시작일, 종료일)이 비논리적인 경우(예: 하위 작업이 상위 작업 범위를 벗어남) 현실적으로 조정하세요.
-          5. 중복되거나 누락된 단계가 있다면 보완하세요.
-          6. 반드시 "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
-          7. 모든 작업 이름과 설명은 반드시 **한국어**로 작성되어야 합니다.
-          
-          작업 스키마:
-          {
-            "name": "string",
-            "startDate": "YYYY-MM-DD",
-            "endDate": "YYYY-MM-DD",
-            "status": "todo" | "in-progress" | "done" | "blocked",
-            "assignee": "string",
-            "progress": number,
-            "workEffort": number,
-            "subtasks": [] (동일한 작업 객체의 선택적 배열)
-          }
-        `;
+        let promptBody = wbsCorrectionPrompt.includes('[프로젝트 제약조건]')
+          ? wbsCorrectionPrompt.replace('[프로젝트 제약조건]', projectConstraintsBlock)
+          : `[프로젝트 제약조건]\n${projectConstraintsBlock}\n\n` + wbsCorrectionPrompt;
+        promptBody = promptBody.replace(
+          '[여기에 기존 WBS 붙여넣기]',
+          `현재 날짜: ${new Date().toISOString().split('T')[0]}\n\n${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n\n` : ''}현재 작업 목록 (JSON):\n${tasksJson}`
+        );
+
+        prompt = `${promptBody}
+
+[JSON 출력 요구사항]
+위 기준에 따라 교정한 WBS를 다음 형식으로 반환하세요. 반드시 "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
+- 작업 이름(name)에 번호나 'WP', 'Task' 같은 접두사를 포함하지 마세요.
+- 모든 작업 이름과 설명은 한국어로 작성하세요.
+
+작업 스키마:
+{
+  "name": "string",
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "status": "todo" | "in-progress" | "done" | "blocked",
+  "assignee": "string",
+  "progress": number,
+  "workEffort": number,
+  "description": "string (선택)",
+  "deliverables": "string (선택)",
+  "subtasks": [] (동일한 작업 객체의 선택적 배열)
+}`;
       } else {
         const combinedInput = [inputText.trim(), attachmentBlock.trim()].filter(Boolean).join('\n\n');
+        const minEffort = currentProject?.minWorkEffortDays ?? 0.5;
+        const effortUnit = minEffort === 0.5 ? '0.5d 단위' : minEffort === 1 ? '1d 단위' : `${minEffort}d 단위`;
         prompt = `
-          당신은 프로젝트 관리 전문가입니다. 다음 프로젝트 설명을 분석하여 체계적인 WBS(Work Breakdown Structure)를 작성해 주세요.
-          
-          현재 날짜: ${new Date().toISOString().split('T')[0]}
-          
-          ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n` : ''}
-          
-          입력 텍스트:
-          "${combinedInput}"
-          
-          요구사항:
-          1. 프로젝트를 주요 단계(Phase) 또는 작업 유형(예: 기획, 디자인, 개발, 테스트, 배포 등)으로 그룹화하여 최상위 작업으로 설정하세요.
-          2. 각 주요 단계 아래에 세부 작업(Subtask)을 계층적으로 구성하세요.
-          3. 작업 이름(name)을 작성할 때 번호나 'WP', 'Task' 같은 접두사(예: "WP1.", "Task1.1.")를 절대 포함하지 마세요. 오직 순수한 작업 이름만 작성하세요.
-          4. 현재 날짜를 기준으로 현실적인 시작일과 종료일을 추정하세요. 상위 작업의 기간은 하위 작업들의 기간을 포괄해야 합니다.
-          5. 진행률(0-100), 작업 노력(일 단위), 상태(todo, in-progress, done)를 추정하세요.
-          6. 반드시 "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
-          7. 구조는 중첩되어야 합니다: 작업은 "subtasks" 배열을 가질 수 있습니다.
-          8. 모든 작업 이름과 설명은 반드시 **한국어**로 작성되어야 합니다.
-          
-          작업 스키마:
-          {
-            "name": "string",
-            "startDate": "YYYY-MM-DD",
-            "endDate": "YYYY-MM-DD",
-            "status": "todo" | "in-progress" | "done" | "blocked",
-            "assignee": "string",
-            "progress": number,
-            "workEffort": number,
-            "subtasks": []
-          }
+당신은 프로젝트 관리 전문가(PMO)입니다.
+
+다음 프로젝트 설명을 분석하여 PMO 표준에 따라 체계적인 WBS(Work Breakdown Structure)를 작성해 주세요.
+
+현재 날짜: ${new Date().toISOString().split('T')[0]}
+
+[프로젝트 제약조건] (반드시 준수)
+${projectConstraintsBlock}
+
+${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n\n` : ''}
+입력 텍스트:
+"${combinedInput}"
+
+[WBS 생성 기준 - PMO 표준]
+
+1. 마일스톤 기준: 3~5개 주요 마일스톤을 Level 1로 구성 (요구사항 분석 → 시스템 설계 → 개발 및 구현 → 시험 및 검증 → 결과 정리 및 보고)
+
+2. WBS 레벨 구조:
+   - Level 1: 마일스톤/프로젝트 단계
+   - Level 2: 주요 작업 그룹, 대표 산출물
+   - Level 3: 산출물 생성 작업 단위, 구체적 산출물
+   - Level 4: 실제 실행 작업 (공수 0.5d~2d, 하나의 행동 중심)
+   - Level 5: 필요 시 체크리스트
+
+3. 작업 분해: Level 3 작업은 반드시 Level 4로 분해. 공수 2d 이상이면 Level 4/5로 분해. 작업 공수는 ${effortUnit}로 분해.
+
+4. 선행관계: 분석→설계, 설계→개발, 개발→시험 반드시 포함. 실제 작업 의존성만 선행작업으로 설정.
+
+5. 일정: 작업기간 = 작업공수 ÷ (투입율/100). 동일 담당자 작업 일정 겹치지 않음. 프로젝트 시작일~종료일 범위 내에서 생성.
+
+6. 담당자: 작업 성격에 맞는 담당자 지정. 프로젝트에 투입인원이 설정되어 있으면 그 인원들로 배정.
+
+7. 산출물: 각 작업에 description(작업설명), deliverables(산출물) 포함.
+
+[JSON 출력 요구사항]
+- 반드시 "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
+- 작업 이름(name)에 번호나 'WP', 'Task' 같은 접두사를 포함하지 마세요.
+- 모든 작업 이름과 설명은 한국어로 작성하세요.
+- 구조는 중첩: 작업은 "subtasks" 배열을 가질 수 있습니다.
+
+작업 스키마:
+{
+  "name": "string",
+  "startDate": "YYYY-MM-DD",
+  "endDate": "YYYY-MM-DD",
+  "status": "todo" | "in-progress" | "done" | "blocked",
+  "assignee": "string",
+  "progress": number,
+  "workEffort": number,
+  "description": "string (선택)",
+  "deliverables": "string (선택)",
+  "subtasks": [] (동일한 작업 객체의 선택적 배열)
+}
         `;
       }
 
@@ -319,12 +412,17 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
       const responseText = result.text;
       if (!responseText) {
-        throw new Error("AI로부터 응답이 없습니다.");
+        throw new Error("AI로부터 응답이 없습니다. API 키와 네트워크 연결을 확인해 주세요.");
       }
-      const parsed = JSON.parse(responseText);
-
+      let parsed: { tasks?: unknown[] };
+      try {
+        const jsonStr = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        throw new Error("AI 응답을 파싱할 수 없습니다. 다시 시도해 주세요.");
+      }
       if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
-        throw new Error("AI 응답 형식이 올바르지 않습니다.");
+        throw new Error("AI 응답 형식이 올바르지 않습니다. (tasks 배열 필요)");
       }
 
       // Process and flatten the tasks
@@ -344,7 +442,9 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
           progress: aiTask.progress || 0,
           workEffort: aiTask.workEffort || 1,
           expanded: true,
-          dependencies: []
+          dependencies: [],
+          ...(aiTask.description && { description: aiTask.description }),
+          ...(aiTask.deliverables && { deliverables: aiTask.deliverables })
         };
 
         flattenedTasks.push(task);
@@ -359,13 +459,26 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       if (isMountedRef.current) {
         const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
         const adjusted = applyDependencySchedule(flattenedTasks, projectAssignmentsByProjectId);
-        onImport(adjusted, useExisting);
+        onImport(adjusted, effectiveUseExisting);
+        if (effectiveUseExisting) {
+          dismissToast(REANALYZE_PROGRESS_TOAST_ID);
+          pushToast('WBS 재분석 완료', { variant: 'success' });
+        } else {
+          pushToast(`WBS ${adjusted.length}개 작업 생성 완료`, { variant: 'success' });
+        }
         handleResetAndClose();
       }
 
     } catch (err: any) {
       console.error("AI Analysis Error:", err);
-      if (isMountedRef.current) setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
+      if (isMountedRef.current) {
+        if (effectiveUseExisting) {
+          setReanalyzeInBackground(false);
+          dismissToast(REANALYZE_PROGRESS_TOAST_ID);
+          pushToast('WBS 재분석에 실패했습니다.', { variant: 'warning' });
+        }
+        setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
+      }
     } finally {
       if (isMountedRef.current) setIsLoading(false);
     }
@@ -510,6 +623,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     setGeneratedTasks([]);
     setDependencyResults([]);
     setDependencyAnalysisInBackground(false);
+    setReanalyzeInBackground(false);
     setAttachments([]);
     setIsDragActive(false);
     setStep('input');
@@ -520,8 +634,8 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   };
 
   const handleResetAndClose = () => {
+    onClose(); // 먼저 닫아서 완료 후 모달이 다시 팝업되지 않도록
     handleReset();
-    onClose();
   };
 
   // Background-friendly close: hide modal but keep state/results.
@@ -607,6 +721,11 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
               <p className="text-sm text-stone-600">
                 프로젝트 요구사항, 회의록 또는 대략적인 계획을 아래에 붙여넣으세요.
                 AI가 분석하여 단계별로 그룹화된 체계적인 WBS를 생성합니다.
+                {existingTasks.length > 0 && (
+                  <span className="block mt-1.5 text-purple-600 font-medium">
+                    기존 작업이 있습니다. 입력 없이 버튼을 누르면 기존 WBS를 PMO 기준으로 업데이트합니다.
+                  </span>
+                )}
               </p>
 
               {/* Attachments (Drag & Drop) */}
@@ -747,6 +866,46 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
                 />
               </div>
 
+              {existingTasks.length > 0 && (
+                <div className="border border-stone-200 rounded-xl overflow-hidden bg-stone-50/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowPromptEditor(!showPromptEditor)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-stone-100/80 transition-colors"
+                  >
+                    <span className="text-sm font-bold text-stone-700 flex items-center gap-2">
+                      {showPromptEditor ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      WBS 자동교정 프롬프트 편집
+                    </span>
+                    <span className="text-xs text-stone-500">현재 작업 재분석 시 사용</span>
+                  </button>
+                  {showPromptEditor && (
+                    <div className="p-3 pt-0 space-y-2 border-t border-stone-200">
+                      <p className="text-xs text-stone-500">
+                        <code className="bg-stone-200 px-1 rounded">[여기에 기존 WBS 붙여넣기]</code>는 실제 WBS 데이터로, <code className="bg-stone-200 px-1 rounded">[프로젝트 제약조건]</code>은 프로젝트 시작일·종료일·투입인원·최소 공수로 자동 치환됩니다.
+                      </p>
+                      <textarea
+                        className="w-full h-48 p-3 rounded-lg border border-stone-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none resize-y text-sm leading-relaxed font-mono"
+                        placeholder={DEFAULT_WBS_CORRECTION_PROMPT}
+                        value={wbsCorrectionPrompt}
+                        onChange={(e) => handleWbsCorrectionPromptChange(e.target.value)}
+                        disabled={isLoading}
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleResetWbsCorrectionPrompt}
+                          className="btn-ghost text-stone-500 hover:text-stone-700 flex items-center gap-1.5 text-xs"
+                        >
+                          <RotateCcw size={14} />
+                          기본값 복원
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2">
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
@@ -886,38 +1045,10 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
                 취소
               </button>
 
-              {existingTasks.length > 0 && (
-                <>
-                  <button
-                    onClick={handleDependencyAnalysis}
-                    disabled={isLoading}
-                    className="btn-secondary text-blue-600 border-blue-200 hover:bg-blue-50 flex items-center gap-2"
-                  >
-                    {isLoading && analysisMode === 'dependency' ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <GitBranch size={16} />
-                    )}
-                    선행관계 분석
-                  </button>
-                  <button
-                    onClick={() => handleAnalyze(true)}
-                    disabled={isLoading}
-                    className="btn-secondary text-purple-600 border-purple-200 hover:bg-purple-50 flex items-center gap-2"
-                  >
-                    {isLoading && isReanalyzing ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Sparkles size={16} />
-                    )}
-                    현재 작업 재분석
-                  </button>
-                </>
-              )}
-
               <button
                 onClick={() => handleAnalyze(false)}
-                disabled={!hasAnyInput || isLoading}
+                disabled={isLoading}
+                title={!canProceed ? '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.' : !apiKey ? 'API 키를 먼저 설정해 주세요.' : hasAnyInput ? '새 WBS 생성' : '기존 작업을 PMO 기준으로 업데이트'}
                 className="btn-primary bg-purple-600 hover:bg-purple-700 border-transparent flex items-center gap-2"
               >
                 {isLoading && !isReanalyzing ? (
@@ -928,7 +1059,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    WBS 생성
+                    {hasAnyInput ? 'WBS 생성' : '기존 작업 업데이트'}
                   </>
                 )}
               </button>

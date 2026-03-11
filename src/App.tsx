@@ -6,16 +6,17 @@ import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, HelpCircle, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users } from 'lucide-react';
+import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, Copy } from 'lucide-react';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
-import { exportBackupToJson, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
+import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
 import { acceptInvite, checkIsAdmin, fetchProfiles } from './lib/db';
 import { isSupabaseConfigured } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { ProjectsPage } from './components/ProjectsPage';
+import { AllocationOverviewPage } from './components/AllocationOverviewPage';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
 import { AIAnalysisModal } from './components/AIAnalysisModal';
 import { WBSSettingsModal } from './components/WBSSettingsModal';
@@ -23,9 +24,9 @@ import { VersionManager } from './components/VersionManager';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
-import { TutorialModal } from './components/TutorialModal';
 import { ToastProvider, useToast } from './components/Toast';
 import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
+import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
@@ -77,13 +78,12 @@ function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
 
 function WBSApp() {
   const { user, signOut } = useAuth();
-  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard' | 'projects'>('list');
+  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard' | 'projects' | 'allocation'>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isAIBusy, setIsAIBusy] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
@@ -101,6 +101,8 @@ function WBSApp() {
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => sessionStorage.getItem('wbs-backup-banner-dismissed') === '1');
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const {
     addTask,
     addTasks,
@@ -113,6 +115,7 @@ function WBSApp() {
     addProject,
     updateProject,
     deleteProject,
+    copyProject,
     deleteAllTasks,
     deleteAllTasksInAllProjects,
     wbsMap,
@@ -231,6 +234,7 @@ function WBSApp() {
   const wbsScrollRef = useRef<HTMLDivElement>(null);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
   const [sharedRowHeight, setSharedRowHeight] = useState(20);
+  const [rowHeights, setRowHeights] = useState<number[]>([]);
   const isSyncingScroll = useRef(false);
 
   // Sync vertical scroll between WBSTable and GanttChart (행만 스크롤되므로 scrollTop 1:1 동기화)
@@ -305,6 +309,7 @@ function WBSApp() {
     setView(nextView);
     if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
     if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
+    if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
     if (nextView === 'list') tipOnce('nav.all', '전체: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
     if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
     if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
@@ -356,28 +361,6 @@ function WBSApp() {
     window.addEventListener('keydown', handleUndoRedo);
     return () => window.removeEventListener('keydown', handleUndoRedo);
   }, [undo, redo]);
-
-  useEffect(() => {
-    const handleHelpHotkey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-
-      if (e.key === 'F1') {
-        e.preventDefault();
-        setIsTutorialOpen(true);
-        return;
-      }
-
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === '?') {
-        e.preventDefault();
-        setIsTutorialOpen(true);
-      }
-    };
-
-    window.addEventListener('keydown', handleHelpHotkey);
-    return () => window.removeEventListener('keydown', handleHelpHotkey);
-  }, []);
 
   useEffect(() => {
     const handleExpandLevelHotkey = (e: KeyboardEvent) => {
@@ -445,12 +428,12 @@ function WBSApp() {
 
   const handleSaveTask = (taskData: any) => addTask(taskData);
 
-  const handleSaveProject = (name: string, description: string, startDate?: string, assignments?: Project['assignments']) => {
+  const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description, startDate, assignments });
+      updateProject(editingProject.id, { name, description, startDate, endDate, assignments, minWorkEffortDays });
       setEditingProject(null);
     } else {
-      addProject(name, description, startDate, assignments);
+      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays);
     }
     setIsProjectModalOpen(false);
   };
@@ -476,7 +459,7 @@ function WBSApp() {
     setIsDeleteProjectConfirmOpen(false);
   };
 
-  const handleExportFromModal = (params: { scope: 'all' | 'selected'; format: 'excel' | 'json'; projectIds: string[] }) => {
+  const handleExportFromModal = (params: { scope: 'all' | 'selected'; format: 'excel' | 'json' | 'markdown'; projectIds: string[] }) => {
     const { format, projectIds } = params;
     const now = new Date();
     const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
@@ -488,6 +471,11 @@ function WBSApp() {
         ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
         : `wbs_export_${timestamp}.xlsx`;
       exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects);
+    } else if (format === 'markdown') {
+      const fileName = filteredProjects.length === 1
+        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
+        : `wbs_export_${timestamp}.md`;
+      exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects);
     } else {
       const fullBackup = exportFullBackup();
       const partialBackup: BackupData = {
@@ -593,19 +581,34 @@ function WBSApp() {
     setMultiMergeConfirm({ isOpen: false, dataArray: [], fileCount: 0 });
   };
 
-  const executeImport = () => {
-    // Ensure imported tasks are visible even when user is on "전체(all)" or has project filter set.
-    const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || currentProjectId) : currentProjectId;
-    importTasks(importPreview.tasks);
-    if (currentProjectId === 'all' && effectiveProjectId && effectiveProjectId !== 'all') {
-      setCurrentProjectId(effectiveProjectId);
-    }
+  const executeImport = (targetProjectId: string, newProjectName?: string) => {
+    importTasks(importPreview.tasks, targetProjectId, newProjectName);
+    if (targetProjectId !== '__new__') setCurrentProjectId(targetProjectId);
     setFilters(prev => ({ ...prev, projectId: 'all' }));
     setImportPreview({ isOpen: false, tasks: [], files: [] });
   };
 
   const executeRestoreBackup = () => {
     if (backupConfirm.data) restoreBackup(backupConfirm.data);
+    setBackupConfirm({ isOpen: false, data: null });
+  };
+
+  const executeRestoreBackupIntoProject = (targetProjectId: string) => {
+    if (!backupConfirm.data) return;
+    const idMap = new Map<string, string>();
+    const remappedTasks = backupConfirm.data.tasks.map(t => {
+      const newId = uuidv4();
+      idMap.set(t.id, newId);
+      return { ...t, id: newId };
+    }).map(t => ({
+      ...t,
+      projectId: targetProjectId,
+      parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
+      dependencies: (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!),
+      expanded: true,
+    }));
+    importTasks(remappedTasks, targetProjectId);
+    setCurrentProjectId(targetProjectId);
     setBackupConfirm({ isOpen: false, data: null });
   };
 
@@ -651,7 +654,25 @@ function WBSApp() {
   return (
     <div className={cn("min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900", isFullscreen && "overflow-hidden")}>
       {!isFullscreen && (
-      <header className="bg-glass-elevated border-b border-slate-200/50 px-6 py-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-[0_2px_15px_rgba(0,0,0,0.03)] z-50 sticky top-0">
+      <header className={cn("bg-glass-elevated border-b border-slate-200/50 shadow-[0_2px_15px_rgba(0,0,0,0.03)] z-50 sticky top-0 safe-top transition-all duration-200", isHeaderCollapsed ? "py-2 px-3 md:py-3 md:px-6" : "px-4 md:px-6 py-3")}>
+        {/* 모바일 접힌 상태: 최소 바 */}
+        <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
+          <div className="flex items-center gap-2 min-w-0">
+            <button type="button" onClick={() => window.location.reload()} className="shrink-0">
+              <img src={logo} alt="GMT Logo" className="w-7 h-7 object-contain" />
+            </button>
+            <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
+          </div>
+          <button
+            onClick={() => setIsHeaderCollapsed(false)}
+            className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
+            title="메뉴 펼치기"
+          >
+            <ChevronDown size={20} />
+          </button>
+        </div>
+        {/* 전체 헤더: 모바일에서 접혀 있으면 숨김 */}
+        <div className={cn("flex flex-col md:flex-row justify-between items-start md:items-center gap-4", isHeaderCollapsed && "hidden md:flex")}>
         <div className="flex items-center gap-4">
           <div
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
@@ -691,7 +712,7 @@ function WBSApp() {
                 <div className="flex flex-col items-start">
                   <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider leading-none mb-1">현재 프로젝트</span>
                   <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
-                    <span className="max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
+                    <span className="max-w-[140px] sm:max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
                     <ChevronDown size={14} className="text-stone-400" />
                   </div>
                   {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
@@ -748,6 +769,7 @@ function WBSApp() {
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유: 팀원을 초대하고 멤버를 관리합니다."><Share2 size={12} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사: 이 프로젝트와 작업을 복사해 내 프로젝트로 새로 만듭니다."><Copy size={12} /></button>
                             <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집: 이름·설명·시작일·투입인원을 수정합니다."><Edit size={12} /></button>
                             {uniqueProjects.length > 1 && (
                               <button
@@ -781,7 +803,7 @@ function WBSApp() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 items-center">
+        <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
           {/* 툴바: 되돌리기 / 다시실행 */}
           <div className="flex items-center gap-0.5 mr-1">
             <button
@@ -802,9 +824,10 @@ function WBSApp() {
             </button>
           </div>
           <div className="h-5 w-px bg-[var(--color-line)] mx-0.5" />
-          <div className="flex bg-slate-100/60 backdrop-blur-sm p-1 rounded-xl border border-slate-200/80 shadow-inner">
+          <div className="flex bg-slate-100/60 backdrop-blur-sm p-1 rounded-xl border border-slate-200/80 shadow-inner overflow-x-auto md:overflow-visible shrink-0">
             <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
             <NavButton active={view === 'projects'} onClick={() => navigateWithTip('projects')} icon={<Briefcase size={14} />} label="프로젝트" title="프로젝트 관리: 생성·편집·공유·일괄 삭제를 할 수 있습니다." />
+            <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
             <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
             <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
             <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
@@ -857,18 +880,6 @@ function WBSApp() {
             >
               <Settings2 size={15} />
             </button>
-            {false && (
-            <button
-              onClick={() => {
-                setIsTutorialOpen(true);
-                tipOnce('menu.tutorial', '처음이라면 튜토리얼에서 기본 사용 흐름을 빠르게 익힐 수 있어요.');
-              }}
-              className="p-2 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-[var(--color-ink)] transition-colors"
-              title="사용법 튜토리얼 (F1 또는 ?)"
-            >
-              <HelpCircle size={15} />
-            </button>
-            )}
             <button
               onClick={() => {
                 setIsShortcutsVisible(!isShortcutsVisible);
@@ -921,9 +932,9 @@ function WBSApp() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsImportMenuOpen(false)}></div>
                   <div className="absolute top-full right-0 mt-1.5 w-56 bg-white rounded-xl shadow-xl border border-[var(--color-line)] overflow-hidden z-50">
-                    <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors" title="Excel(.xlsx) 파일에서 작업 목록을 가져와 현재 프로젝트에 추가합니다.">현재 작업 가져오기 (Excel)</button>
+                    <button onClick={handleImportClick} className="w-full text-left px-4 py-2.5 text-xs text-stone-600 hover:bg-stone-50 transition-colors" title="Excel(.xlsx) 파일에서 작업을 가져옵니다. 덮어쓸 프로젝트를 선택할 수 있습니다.">현재 작업 가져오기 (Excel)</button>
                     <button onClick={handleMergeImportClick} className="w-full text-left px-4 py-2 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-[var(--color-line)]" title="여러 JSON 백업 파일을 병합해 기존 프로젝트에 새 프로젝트를 추가합니다.">프로젝트 추가 가져오기 (JSON)</button>
-                    <button onClick={handleImportBackupClick} className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]" title="전체 백업 JSON으로 모든 데이터를 복원합니다. 현재 데이터가 덮어씌워집니다.">전체 백업 데이터 가져오기 (JSON)</button>
+                    <button onClick={handleImportBackupClick} className="w-full text-left px-4 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 transition-colors border-t border-[var(--color-line)]" title="백업 JSON을 가져옵니다. 전체 복원 또는 선택한 프로젝트에 덮어쓰기를 선택할 수 있습니다.">전체 백업 데이터 가져오기 (JSON)</button>
                   </div>
                 </>
               )}
@@ -932,10 +943,10 @@ function WBSApp() {
             <button
               onClick={() => {
                 setIsExportModalOpen(true);
-                tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON)을 선택할 수 있어요.');
+                tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택할 수 있어요.');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-[var(--color-line)] rounded-lg hover:bg-stone-50 transition-all"
-              title="내보내기: 전체 또는 프로젝트 선택, Excel 또는 JSON 형식으로 저장합니다."
+              title="내보내기: 전체 또는 프로젝트 선택, Excel·JSON·Markdown 형식으로 저장합니다."
             >
               <Download size={13} /> <span>내보내기</span>
             </button>
@@ -971,13 +982,45 @@ function WBSApp() {
           >
             <Plus size={15} /> <span>새 작업</span>
           </button>
+          <button
+            onClick={() => setIsHeaderCollapsed(true)}
+            className="md:hidden p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
+            title="메뉴 접어서 표 넓게 보기"
+          >
+            <ChevronUp size={18} />
+          </button>
+        </div>
         </div>
       </header>
       )}
 
-      {/* Filter bar: one row of buttons when filter is On */}
-      {filterOn && !isFullscreen && view !== 'projects' && (
-        <div className="bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 overflow-x-auto shrink-0 shadow-sm z-40">
+      {/* 백업 안내 배너: 안정화 전 정기 내보내기 권장 */}
+      {!isFullscreen && !isBackupBannerDismissed && (
+        <div className="bg-amber-50/90 border-b border-amber-200/80 px-4 py-3 flex flex-wrap items-center justify-center gap-2 text-amber-800 text-sm sm:text-sm">
+          <AlertTriangle size={16} className="shrink-0 text-amber-600" />
+          <span>아직 프로그램 안정화 전이므로, 정기적으로 <strong>내보내기</strong>로 백업을 하시기 바랍니다.</span>
+          <button
+            onClick={() => setIsExportModalOpen(true)}
+            className="ml-2 px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-200/80 hover:bg-amber-300 text-amber-900 transition-colors"
+          >
+            바로 내보내기
+          </button>
+          <button
+            onClick={() => {
+              setIsBackupBannerDismissed(true);
+              sessionStorage.setItem('wbs-backup-banner-dismissed', '1');
+            }}
+            className="ml-2 p-1 rounded hover:bg-amber-200/80 text-amber-600 hover:text-amber-800 transition-colors"
+            title="닫기"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Filter bar: 모바일에서 헤더 접힌 상태면 숨김 */}
+      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && (
+        <div className={cn("bg-slate-50/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex flex-wrap md:flex-nowrap items-center gap-2 overflow-x-auto shrink-0 shadow-sm z-40", isHeaderCollapsed && "hidden md:flex")}>
           <span className="text-[11px] font-bold text-slate-500 shrink-0 mr-1 uppercase tracking-wide" title="상태별로 작업을 필터링합니다.">상태</span>
           <div className="flex items-center gap-1.5 shrink-0">
             <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all whitespace-nowrap", filters.status === 'all' ? "bg-blue-600 text-white border-blue-600" : "bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100")} title="모든 상태의 작업 표시">전체</button>
@@ -1044,13 +1087,14 @@ function WBSApp() {
       <main className={cn("flex-1 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
           {view === 'list' ? (
-            <div ref={containerRef} className={cn("relative flex h-full w-full", isDraggingResizer && "cursor-col-resize select-none")}>
-              <div className="flex-shrink-0 overflow-hidden h-full flex flex-col" style={{ width: `${wbsTableWidth}%` }}>
+            <div ref={containerRef} className={cn("relative flex h-full w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
+              <div className="flex-shrink-0 overflow-hidden h-full flex flex-col list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
                 <WBSTable
                   filters={effectiveFilters}
                   sortConfig={sortConfig}
                   syncScrollRef={wbsScrollRef}
                   onRowHeightChange={setSharedRowHeight}
+                  onRowHeightsChange={setRowHeights}
                   onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                   onSort={(key) => {
                     setSortConfig(current => {
@@ -1064,12 +1108,12 @@ function WBSApp() {
                   }} />
               </div>
               <div
-                className="absolute top-0 bottom-0 w-1 bg-stone-200 hover:bg-blue-400 cursor-col-resize transition-all z-10"
+                className="absolute top-0 bottom-0 w-1 bg-stone-200 hover:bg-blue-400 cursor-col-resize transition-all z-10 list-resizer hidden md:block"
                 style={{ left: `calc(${wbsTableWidth}% - 2px)` }}
                 onMouseDown={startResizing}
               />
-              <div className="flex-shrink-0 overflow-hidden bg-stone-50/30" style={{ width: `${100 - wbsTableWidth}%` }}>
-                <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} syncScrollRef={ganttScrollRef} />
+              <div className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block" style={{ width: `${100 - wbsTableWidth}%` }}>
+                <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} syncScrollRef={ganttScrollRef} />
               </div>
             </div>
           ) : view === 'table' ? (
@@ -1096,6 +1140,11 @@ function WBSApp() {
             <Dashboard onNavigate={handleDashboardNavigate} />
           ) : view === 'projects' ? (
             <ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} />
+          ) : view === 'allocation' ? (
+            <AllocationOverviewPage
+              onEditProject={(p) => { setEditingProject(p); setIsProjectModalOpen(true); }}
+              onNavigateToWork={(projectId) => { setCurrentProjectId(projectId); setView('list'); }}
+            />
           ) : (
             <KanbanBoard filters={effectiveFilters} />
           )}
@@ -1106,7 +1155,6 @@ function WBSApp() {
       <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} />
       <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} />
       <WBSSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} />
-      <TutorialModal isOpen={isTutorialOpen} onClose={() => setIsTutorialOpen(false)} />
       <AIAnalysisModal
         isOpen={isAIModalOpen}
         onClose={() => setIsAIModalOpen(false)}
@@ -1117,7 +1165,32 @@ function WBSApp() {
             const toImport = overloads.length > 0 ? fixOverloadByExtending(newTasks, projects, overloads) : newTasks;
             importTasks(toImport);
           } else {
-            addTasks(newTasks);
+            const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : (currentProjectId || projects[0]?.id || '');
+            if (effectiveProjectId) {
+              addTasks(newTasks);
+            } else {
+              importTasks(newTasks, '__new__', newTasks[0]?.name || 'AI 생성 프로젝트');
+            }
+          }
+          // AI에서 도출된 담당자를 해당 프로젝트 투입 인원 현황에 자동 추가
+          const projectId = newTasks[0]?.projectId;
+          if (projectId && newTasks.length > 0 && projects.some((p) => p.id === projectId)) {
+            const currentAssignments = projects.find((p) => p.id === projectId)?.assignments ?? [];
+            const existingNames = new Set(currentAssignments.map((a) => (a.assignee || '').trim()).filter(Boolean));
+            const assigneesFromTasks = new Set<string>();
+            newTasks.forEach((t) => {
+              const a = (t.assignee || '').trim();
+              if (a) assigneesFromTasks.add(a);
+              (t.assignments ?? []).forEach((a2) => {
+                const n = (a2.assignee || '').trim();
+                if (n) assigneesFromTasks.add(n);
+              });
+            });
+            const toAdd = [...assigneesFromTasks].filter((name) => !existingNames.has(name));
+            if (toAdd.length > 0) {
+              const merged = [...currentAssignments, ...toAdd.map((assignee) => ({ assignee, allocationPercent: 100 }))];
+              updateProject(projectId, { assignments: merged });
+            }
           }
         }}
         currentProjectId={currentProjectId}
@@ -1226,8 +1299,18 @@ function WBSApp() {
         onConfirm={executeImport}
         totalTaskCount={importPreview.tasks.length}
         files={importPreview.files}
+        projects={projects}
+        currentProjectId={currentProjectId}
       />
-      <ConfirmDialog isOpen={backupConfirm.isOpen} onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })} onConfirm={executeRestoreBackup} title="전체 백업 복원" message="애플리케이션의 현재 모든 데이터가 백업 내용으로 덮어씌워집니다." confirmLabel="전체 복원" isDanger={true} />
+      <BackupRestoreModal
+        isOpen={backupConfirm.isOpen}
+        onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })}
+        onConfirmFull={executeRestoreBackup}
+        onConfirmIntoProject={executeRestoreBackupIntoProject}
+        data={backupConfirm.data}
+        projects={projects}
+        currentProjectId={currentProjectId}
+      />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
       <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} projectId={currentProject?.id} projectName={currentProject?.name} isOwner={currentProject?.ownerId === user?.id} />
@@ -1264,7 +1347,7 @@ function WBSApp() {
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
 
       {!isFullscreen && (
-      <footer className="bg-white border-t border-[var(--color-line)] p-4 text-center mt-auto">
+      <footer className="bg-white border-t border-[var(--color-line)] p-4 text-center mt-auto safe-bottom">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2">
           <div className="flex items-center gap-3">
             <p className="text-[11px] font-bold text-stone-500">지엠티 운영기술개발실</p>

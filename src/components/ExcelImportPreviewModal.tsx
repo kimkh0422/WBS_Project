@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ExcelImportMeta } from '../lib/excel';
+import type { Project } from '../types';
 
 type ImportFilePreview = {
   fileName: string;
@@ -9,12 +10,16 @@ type ImportFilePreview = {
   meta: ExcelImportMeta;
 };
 
+export const IMPORT_TARGET_NEW = '__new__';
+
 interface ExcelImportPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (targetProjectId: string, newProjectName?: string) => void;
   totalTaskCount: number;
   files: ImportFilePreview[];
+  projects: Project[];
+  currentProjectId: string;
 }
 
 const colToLetter = (n: number) => {
@@ -44,9 +49,14 @@ export function ExcelImportPreviewModal({
   onConfirm,
   totalTaskCount,
   files,
+  projects,
+  currentProjectId,
 }: ExcelImportPreviewModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const [openFiles, setOpenFiles] = useState<Record<string, boolean>>({});
+  const effectiveCurrent = currentProjectId === 'all' ? (projects[0]?.id ?? '') : currentProjectId;
+  const [targetProjectId, setTargetProjectId] = useState<string>(effectiveCurrent || IMPORT_TARGET_NEW);
+  const [newProjectName, setNewProjectName] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -76,6 +86,13 @@ export function ExcelImportPreviewModal({
     });
   }, [isOpen, files]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const next = effectiveCurrent || IMPORT_TARGET_NEW;
+    setTargetProjectId(prev => (projects.some(p => p.id === prev) ? prev : next));
+    setNewProjectName(prev => prev || `가져온 프로젝트 (${new Date().toLocaleDateString('ko-KR')})`);
+  }, [isOpen, effectiveCurrent, projects]);
+
   const hasAnyUnmapped = useMemo(() => {
     return files.some(f => f.meta.unmappedHeaders.length > 0);
   }, [files]);
@@ -104,9 +121,35 @@ export function ExcelImportPreviewModal({
         </div>
 
         <div className="p-6 space-y-4 max-h-[70vh] overflow-auto">
-          <div className="text-sm text-slate-700">
-            총 <span className="font-bold">{totalTaskCount.toLocaleString()}</span>개의 작업을 가져옵니다.
-            <div className="text-[12px] text-slate-500 mt-1">
+          <div className="space-y-3">
+            <div className="text-sm text-slate-700">
+              총 <span className="font-bold">{totalTaskCount.toLocaleString()}</span>개의 작업을 가져옵니다.
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">덮어쓸 프로젝트</label>
+              <select
+                value={targetProjectId}
+                onChange={(e) => setTargetProjectId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (기존 덮어쓰기)
+                  </option>
+                ))}
+                <option value={IMPORT_TARGET_NEW}>+ 새 프로젝트 생성</option>
+              </select>
+              {targetProjectId === IMPORT_TARGET_NEW && (
+                <input
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="프로젝트 이름"
+                  className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              )}
+            </div>
+            <div className="text-[12px] text-slate-500">
               아래는 엑셀 컬럼이 앱 필드로 어떻게 매칭되었는지의 자동 감지 결과입니다.
             </div>
             <div className="mt-2 inline-flex items-center gap-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
@@ -214,7 +257,7 @@ export function ExcelImportPreviewModal({
           className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30"
           onSubmit={(e) => {
             e.preventDefault();
-            onConfirm();
+            onConfirm(targetProjectId, targetProjectId === IMPORT_TARGET_NEW ? newProjectName : undefined);
             onClose();
           }}
         >

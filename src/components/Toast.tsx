@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { X, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, randomUUID } from '../lib/utils';
 
 type ToastVariant = 'info' | 'success' | 'warning';
 
@@ -54,7 +54,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const push = useCallback((message: string, options?: ToastOptions) => {
     const variant: ToastVariant = options?.variant ?? 'info';
     const durationMs = options?.durationMs ?? 3500;
-    const id = options?.id ?? crypto.randomUUID();
+    const id = options?.id ?? randomUUID();
 
     setItems(prev => {
       // De-dupe by id
@@ -85,7 +85,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="fixed right-4 bottom-4 z-[100] flex flex-col gap-2 w-[320px] max-w-[calc(100vw-2rem)] pointer-events-none">
+      <div className="fixed right-4 left-4 sm:left-auto bottom-4 z-[100] flex flex-col gap-2 w-auto sm:w-[320px] max-w-[calc(100vw-2rem)] pointer-events-none fixed-bottom-safe">
         {items.map((t) => (
           <div
             key={t.id}
@@ -99,7 +99,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div className="flex items-start gap-2 p-3">
               <div className="mt-0.5 shrink-0">{iconFor(t.variant)}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-semibold text-slate-800 leading-snug whitespace-pre-wrap break-keep">
+                <div className="text-sm sm:text-[12px] font-semibold text-slate-800 leading-snug whitespace-pre-wrap break-keep">
                   {t.message}
                 </div>
               </div>

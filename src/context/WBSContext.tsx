@@ -47,6 +47,8 @@ export interface WBSSettings {
   tableColumns?: { id: string; visible: boolean }[];
   /** 크리티컬 패스 표시 여부 (간트·표에서 강조) */
   showCriticalPath?: boolean;
+  /** 셀 텍스트 줄바꿈 여부. true면 줄바꿈 허용·행 높이 자동 확장 */
+  wrapTextInCells?: boolean;
 }
 
 interface WBSContextType {
@@ -61,12 +63,16 @@ interface WBSContextType {
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
   treeExpandLevel: number;
   setTreeExpandLevel: (level: number) => void;
-  addProject: (name: string, description?: string, startDate?: string, assignments?: Project['assignments']) => void;
+  addProject: (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
+  /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
+  copyProject: (sourceProjectId: string) => void;
   addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string) => string;
   addTasks: (tasks: Task[]) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
+  updateTask: (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => void;
+  /** 여러 작업에 동일한 수정 일괄 적용 (일정 변경 없을 때만 사용, 충돌 방지) */
+  updateTasksBulk: (taskIds: string[], updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;
@@ -76,7 +82,7 @@ interface WBSContextType {
   toggleExpand: (id: string) => void;
   expandToLevel: (level: number) => void;
   reorderTask: (id: string, overId: string) => void;
-  importTasks: (tasks: Task[]) => void;
+  importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => void;
   deleteAllTasks: () => void;
   /** 모든 프로젝트의 작업을 전체 삭제 (현재 프로젝트 무관) */
   deleteAllTasksInAllProjects: () => void;
@@ -129,7 +135,8 @@ const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'deliverables', visible: true },
     { id: 'dependencies', visible: true },
   ],
-  showCriticalPath: true,
+  showCriticalPath: false,
+  wrapTextInCells: false,
 };
 
 // ─── 롤업 헬퍼 ────────────────────────────────────────────────────────────────
@@ -227,7 +234,8 @@ function parseSettings(raw: any): WBSSettings {
       tableColumns: Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
         ? parsed.tableColumns.filter((c: any) => c && typeof c.id === 'string').map((c: any) => ({ id: String(c.id), visible: c.visible !== false }))
         : DEFAULT_SETTINGS.tableColumns,
-      showCriticalPath: parsed.showCriticalPath !== false,
+      showCriticalPath: parsed.showCriticalPath === true,
+      wrapTextInCells: parsed.wrapTextInCells === true,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -401,6 +409,9 @@ export function WBSProvider({
 
   const realtimeRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeEnabled = import.meta.env.VITE_REALTIME_ENABLED !== 'false';
+  /** 동시 수정 충돌 시 토스트/refetch 중복 방지 (2초 내 재호출 스킵) */
+  const lastConflictRef = useRef<number>(0);
+  const CONFLICT_DEBOUNCE_MS = 2000;
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase || isLoading || !realtimeEnabled) return;
@@ -525,8 +536,8 @@ export function WBSProvider({
 
   // ─── 프로젝트 CRUD ────────────────────────────────────────────────────────
 
-  const addProject = (name: string, description?: string, startDate?: string, assignments?: Project['assignments']) => {
-    const newProject: Project = { id: uuidv4(), name, description, startDate, assignments, ownerId: ownerId };
+  const addProject = (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
+    const newProject: Project = { id: uuidv4(), name, description, startDate, endDate, assignments, minWorkEffortDays, ownerId: ownerId };
     setProjects(prev => [...prev, newProject]);
     setCurrentProjectId(newProject.id);
     upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
@@ -535,51 +546,72 @@ export function WBSProvider({
   const updateProject = (id: string, updates: Partial<Project>) => {
     setProjects(prev => {
       const project = prev.find(p => p.id === id);
-      if (project && updates.startDate && updates.startDate !== project.startDate) {
-        const newStart = updates.startDate;
+      const newStart = updates.startDate ?? project?.startDate;
+      const newEnd = updates.endDate ?? project?.endDate;
+      const startChanged = project && updates.startDate !== undefined && updates.startDate !== project.startDate;
+      const endChanged = project && updates.endDate !== undefined && updates.endDate !== project.endDate;
+      const needsTaskClamp = startChanged || (endChanged && newEnd && (!project?.endDate || newEnd < project.endDate));
+
+      if (project && needsTaskClamp) {
         saveHistory();
         setAllTasks(currentTasks => {
           const projectAssignmentsMap = new Map<string, TaskAssignment[]>(prev.map(p => [p.id, p.assignments ?? []]));
           const holidays = getHolidaysForTaskDates(currentTasks);
           let shifted = currentTasks.map(t => {
             if (t.projectId !== id) return t;
-            if (t.startDate && t.startDate < newStart) {
+            let taskStart = t.startDate;
+            let taskEnd = t.endDate;
+
+            if (newStart && taskStart && taskStart < newStart) {
               const assignments = (t.assignments && t.assignments.length > 0)
                 ? t.assignments
                 : projectAssignmentsMap.get(t.projectId);
-              const start = parseISO(t.startDate);
-              const end = parseISO(t.endDate);
-              let newEnd: string;
+              const start = parseISO(taskStart);
+              const end = parseISO(taskEnd);
+              let computedEnd: string;
               if (typeof t.workEffort === 'number' && t.workEffort > 0) {
-                newEnd = computeEndDateFromEffort(newStart, t.workEffort, assignments, holidays);
+                computedEnd = computeEndDateFromEffort(newStart, t.workEffort, assignments, holidays);
               } else if (isValid(start) && isValid(end)) {
                 const durationDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
-                newEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
+                computedEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
               } else {
-                newEnd = newStart;
+                computedEnd = newStart;
               }
-              return { ...t, startDate: newStart, endDate: newEnd };
+              taskStart = newStart;
+              taskEnd = computedEnd;
+            }
+
+            if (newEnd && taskEnd && taskEnd > newEnd) {
+              taskEnd = newEnd;
+              if (taskStart && taskStart > taskEnd) {
+                taskStart = taskEnd;
+              }
+            }
+
+            if (taskStart !== t.startDate || taskEnd !== t.endDate) {
+              return { ...t, startDate: taskStart, endDate: taskEnd };
             }
             return t;
           });
 
-          // 3/9 이후 일정: 가장 먼저 시작하는 작업을 newStart 기준으로 전체 일정 조정
-          const projectTasksAfterClamp = shifted.filter(t => t.projectId === id && t.startDate && t.startDate >= newStart);
-          const earliestAfter = projectTasksAfterClamp.reduce<string | null>(
-            (min, t) => (!min || (t.startDate && t.startDate < min) ? (t.startDate || min) : min),
-            null
-          );
-          if (earliestAfter && earliestAfter > newStart) {
-            const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
-            if (deltaDays !== 0) {
-              shifted = shifted.map(t => {
-                if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
-                return {
-                  ...t,
-                  startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
-                  endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
-                };
-              });
+          if (startChanged && newStart) {
+            const projectTasksAfterClamp = shifted.filter(t => t.projectId === id && t.startDate && t.startDate >= newStart);
+            const earliestAfter = projectTasksAfterClamp.reduce<string | null>(
+              (min, t) => (!min || (t.startDate && t.startDate < min) ? (t.startDate || min) : min),
+              null
+            );
+            if (earliestAfter && earliestAfter > newStart) {
+              const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
+              if (deltaDays !== 0) {
+                shifted = shifted.map(t => {
+                  if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
+                  return {
+                    ...t,
+                    startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
+                    endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
+                  };
+                });
+              }
             }
           }
 
@@ -606,11 +638,71 @@ export function WBSProvider({
     deleteProjectFromDB(id).catch(err => handleDbError(err, '프로젝트 삭제에 실패했습니다.'));
   };
 
+  const copyProject = (sourceProjectId: string) => {
+    const source = projects.find(p => p.id === sourceProjectId);
+    if (!source) return;
+    const sourceTasks = allTasks.filter(t => t.projectId === sourceProjectId);
+    const newProjectId = uuidv4();
+    const newProject: Project = {
+      id: newProjectId,
+      name: `${source.name} (복사본)`,
+      description: source.description,
+      startDate: source.startDate,
+      endDate: source.endDate,
+      assignments: source.assignments?.map(a => ({ ...a })),
+      minWorkEffortDays: source.minWorkEffortDays,
+      ownerId: ownerId ?? undefined,
+    };
+    const taskIdMap = new Map<string, string>();
+    for (const t of sourceTasks) taskIdMap.set(t.id, uuidv4());
+    const newTasks: Task[] = sourceTasks.map(t => {
+      const newId = taskIdMap.get(t.id)!;
+      const newParentId = t.parentId ? (taskIdMap.get(t.parentId) ?? null) : null;
+      const newDeps = (t.dependencies ?? [])
+        .map(depId => taskIdMap.get(depId))
+        .filter((id): id is string => !!id);
+      return {
+        ...t,
+        id: newId,
+        projectId: newProjectId,
+        parentId: newParentId,
+        dependencies: newDeps,
+        updatedAt: undefined,
+      };
+    });
+    saveHistory();
+    setProjects(prev => [...prev, newProject]);
+    setCurrentProjectId(newProject.id);
+    setAllTasks(prev => {
+      const combined = [...prev, ...newTasks];
+      const rolled = recomputeProjectRollups(combined, newProjectId);
+      upsertProject(newProject).catch(err => handleDbError(err, '복사된 프로젝트 저장에 실패했습니다.'));
+      upsertTasks(rolled.filter(t => t.projectId === newProjectId)).catch(err => handleDbError(err, '복사된 작업 저장에 실패했습니다.'));
+      return rolled;
+    });
+  };
+
   // ─── 작업 CRUD ────────────────────────────────────────────────────────────
+
+  const clampTaskToProjectRange = (t: Task, proj?: Project): Task => {
+    if (!proj) return t;
+    let start = t.startDate;
+    let end = t.endDate;
+    if (proj.startDate && start && start < proj.startDate) start = proj.startDate;
+    if (proj.endDate && end && end > proj.endDate) end = proj.endDate;
+    if (start && end && start > end) start = end;
+    if (start !== t.startDate || end !== t.endDate) return { ...t, startDate: start, endDate: end };
+    return t;
+  };
 
   const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string): string => {
     saveHistory();
-    const task: Task = { ...newTask, id: uuidv4(), projectId: currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId };
+    const projectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
+    const project = projects.find(p => p.id === projectId);
+    const task: Task = clampTaskToProjectRange(
+      { ...newTask, id: uuidv4(), projectId } as Task,
+      project
+    );
     setAllTasks(prev => {
       let nextTasks: Task[];
       if (insertAfterId) {
@@ -629,7 +721,10 @@ export function WBSProvider({
   const addTasks = (newTasks: Task[]) => {
     saveHistory();
     const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
-    const tasksWithProject = newTasks.map(t => ({ ...t, projectId: effectiveProjectId }));
+    const project = projects.find(p => p.id === effectiveProjectId);
+    const tasksWithProject = newTasks.map(t =>
+      clampTaskToProjectRange({ ...t, projectId: effectiveProjectId }, project)
+    );
     setAllTasks(prev => {
       const result = recomputeProjectRollups([...prev, ...tasksWithProject], effectiveProjectId);
       upsertTasks(result).catch(err => handleDbError(err, '작업 저장에 실패했습니다.'));
@@ -637,7 +732,8 @@ export function WBSProvider({
     });
   };
 
-  const updateTask = (id: string, updates: Partial<Task>) => {
+  const updateTask = (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => {
+    const skipCascade = options?.skipCascade ?? false;
     saveHistory();
     setAllTasks(prev => {
       const task = prev.find(t => t.id === id);
@@ -664,8 +760,8 @@ export function WBSProvider({
         const workEffort = updates.workEffort !== undefined ? updates.workEffort : task.workEffort;
         const startDateLocked = taskLockedFields.has('startDate');
 
-        if (Object.prototype.hasOwnProperty.call(updates, 'endDate') && !startDateLocked) {
-          // 종료일만 변경된 경우: 기간 유지하여 시작일 역산
+        if (Object.prototype.hasOwnProperty.call(updates, 'endDate') && !Object.prototype.hasOwnProperty.call(updates, 'startDate') && !startDateLocked) {
+          // 종료일만 변경된 경우(시작일 미지정): 기간 유지하여 시작일 역산. 간트 드래그 등으로 둘 다 명시된 경우는 그대로 사용
           const computedStart = computeStartDateFromEndDate(
             newEnd,
             workEffort,
@@ -679,7 +775,8 @@ export function WBSProvider({
           }
         }
 
-        if (!endDateLocked) {
+        if (!endDateLocked && !Object.prototype.hasOwnProperty.call(updates, 'endDate')) {
+          // 종료일이 호출자에 의해 명시되지 않은 경우에만 계산 (간트 드래그로 종료일만 늘린 경우 보존)
           if (typeof workEffort === 'number' && workEffort > 0) {
             resolvedUpdates.endDate = computeEndDateFromEffort(
               resolvedUpdates.startDate ?? newStart,
@@ -709,11 +806,13 @@ export function WBSProvider({
         }
       }
 
-      const updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
+      let updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
+      const project = projects.find(p => p.id === task.projectId);
+      updatedTask = clampTaskToProjectRange(updatedTask, project);
       let nextTasks = prev.map(t => t.id === id ? updatedTask : t);
 
-      // 시작일/종료일/공수 변경 시: 연관된 업무(후행/하위)만 일정 재계산
-      if (hasScheduleChange && task.projectId) {
+      // 시작일/종료일/공수 변경 시: 연관된 업무(후행/하위)만 일정 재계산 (간트 드래그 시 skipCascade로 연쇄 반영 생략)
+      if (hasScheduleChange && task.projectId && !skipCascade) {
         const projectTaskList = nextTasks.filter(t => t.projectId === task.projectId);
         const dateLocked = new Set(projectTaskList.filter(t => (t.userLockedFields ?? []).includes('startDate') || (t.userLockedFields ?? []).includes('endDate')).map(t => t.id));
 
@@ -821,6 +920,9 @@ export function WBSProvider({
         upsertTask(updatedTask, sortOrder >= 0 ? sortOrder : 0)
           .then(r => {
             if (r?.conflict) {
+              const now = Date.now();
+              if (now - lastConflictRef.current < CONFLICT_DEBOUNCE_MS) return;
+              lastConflictRef.current = now;
               fetchTasks().then(fresh => setAllTasks(applyRollupsToTasks(fresh)));
               onConcurrentConflict?.();
             }
@@ -828,6 +930,24 @@ export function WBSProvider({
           .catch(err => handleDbError(err, '작업 수정 저장에 실패했습니다.'));
       }
       return result;
+    });
+  };
+
+  const updateTasksBulk = (taskIds: string[], updates: Partial<Task>) => {
+    const hasScheduleChange =
+      Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
+      Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
+      Object.prototype.hasOwnProperty.call(updates, 'workEffort') ||
+      Object.prototype.hasOwnProperty.call(updates, 'dependencies');
+    if (hasScheduleChange || taskIds.length === 0) return;
+    saveHistory();
+    const idSet = new Set(taskIds);
+    setAllTasks(prev => {
+      const next = prev.map(t =>
+        idSet.has(t.id) ? { ...t, ...updates } : t
+      );
+      upsertTasks(next).catch(err => handleDbError(err, '일괄 수정 저장에 실패했습니다.'));
+      return next;
     });
   };
 
@@ -845,12 +965,7 @@ export function WBSProvider({
           baselineWorkEffort: t.workEffort,
         };
       });
-      next.filter(t => idSet.has(t.id)).forEach(task => {
-        const sortOrder = next.indexOf(task);
-        upsertTask(task, sortOrder >= 0 ? sortOrder : 0)
-          .then(r => { if (r?.conflict) { fetchTasks().then(fresh => setAllTasks(applyRollupsToTasks(fresh))); onConcurrentConflict?.(); } })
-          .catch(err => handleDbError(err, '베이스라인 저장에 실패했습니다.'));
-      });
+      upsertTasks(next).catch(err => handleDbError(err, '베이스라인 저장에 실패했습니다.'));
       return next;
     });
   };
@@ -1101,9 +1216,16 @@ export function WBSProvider({
 
   // ─── 가져오기 / 삭제 ──────────────────────────────────────────────────────
 
-  const importTasks = (newTasks: Task[]) => {
+  const importTasks = (newTasks: Task[], targetProjectId?: string, newProjectName?: string) => {
     saveHistory();
-    const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
+    let effectiveProjectId = targetProjectId ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
+    if (effectiveProjectId === '__new__' && newProjectName) {
+      const newProject: Project = { id: uuidv4(), name: newProjectName.trim() || '가져온 프로젝트', ownerId: ownerId ?? undefined };
+      setProjects(prev => [...prev, newProject]);
+      setCurrentProjectId(newProject.id);
+      effectiveProjectId = newProject.id;
+      upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 생성에 실패했습니다.'));
+    }
     const tasksWithProject = newTasks.map(t => ({ ...t, projectId: effectiveProjectId }));
     setAllTasks(prev => {
       const result = recomputeProjectRollups([...prev.filter(t => t.projectId !== effectiveProjectId), ...tasksWithProject], effectiveProjectId);
@@ -1189,9 +1311,11 @@ export function WBSProvider({
       addProject,
       updateProject,
       deleteProject,
+      copyProject,
       addTask,
       addTasks,
       updateTask,
+      updateTasksBulk,
       deleteTask,
       moveTask,
       reorderTask,

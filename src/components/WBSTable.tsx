@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock } from 'lucide-react';
@@ -34,6 +34,8 @@ interface WBSTableProps {
   onSort: (key: keyof Task | 'wbs') => void;
   syncScrollRef?: React.RefObject<HTMLDivElement>;
   onRowHeightChange?: (h: number) => void;
+  /** 줄바꿈 켜짐 시 측정된 행 높이 배열을 전달 (표·간트 동기화용) */
+  onRowHeightsChange?: (heights: number[]) => void;
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
 }
@@ -56,6 +58,20 @@ const COLUMN_TOOLTIPS: Record<TableColumnId, string> = {
 };
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
+
+const DEFAULT_TABLE_COLUMNS: { id: 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'assignee' | 'allocation' | 'status' | 'progress' | 'deliverables' | 'dependencies'; visible: boolean }[] = [
+  { id: 'wbsId', visible: true },
+  { id: 'name', visible: true },
+  { id: 'startDate', visible: true },
+  { id: 'endDate', visible: true },
+  { id: 'workEffort', visible: true },
+  { id: 'assignee', visible: true },
+  { id: 'allocation', visible: true },
+  { id: 'status', visible: true },
+  { id: 'progress', visible: true },
+  { id: 'deliverables', visible: true },
+  { id: 'dependencies', visible: true },
+];
 
 const StatChip = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
   <div className="flex items-center gap-1.5 px-3 py-1">
@@ -100,7 +116,7 @@ function getTaskDetailTooltip(
   return lines.join('\n');
 }
 
-export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeightChange, hotkeysEnabled = true, onOpenColumnSettings }: WBSTableProps) {
+export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings }: WBSTableProps) {
   const {
     tasks,
     projects,
@@ -111,6 +127,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     setTreeExpandLevel,
     deleteTask,
     updateTask,
+    updateTasksBulk,
     addTask,
     moveTask,
     indentTask,
@@ -139,8 +156,16 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       return new Set<string>();
     }
   }, [tasks, projectAssignmentsByProjectId]);
-  const showCriticalPath = wbsSettings?.showCriticalPath !== false;
+  const showCriticalPath = wbsSettings?.showCriticalPath === true;
+  const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
+
+  // visibleTasks must be defined early - used by many hooks below
+  const visibleTasks = useMemo(
+    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: false }),
+    [tasks, filters, sortConfig]
+  );
+
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -176,12 +201,29 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   // F2 Inline Name Edit state
   const [inlineEditingNameId, setInlineEditingNameId] = useState<string | null>(null);
 
-  // Global list of assignees for datalist autocomplete
+  /** 셀 단위 인라인 편집: { taskId, columnId } */
+  const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+
+  // Global list of assignees for datalist autocomplete (bulk edit 등): 프로젝트 투입인원 + 작업 담당자
   const allAssignees = useMemo(() => {
+    const fromProjects = projects.flatMap(p => (p.assignments ?? []).map(a => a.assignee).filter(Boolean));
     const fromAssignee = tasks.map(t => t.assignee).filter(Boolean);
     const fromAssignments = tasks.flatMap(t => (t.assignments || []).map(a => a.assignee).filter(Boolean));
-    return Array.from(new Set([...fromAssignee, ...fromAssignments]));
-  }, [tasks]);
+    return Array.from(new Set([...fromProjects, ...fromAssignee, ...fromAssignments])).sort();
+  }, [projects, tasks]);
+
+  // 프로젝트별 담당자 옵션: 프로젝트 등록 인원 + 해당 프로젝트 작업에 이미 배정된 인원
+  const assigneeOptionsByProjectId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const p of projects) {
+      const fromProject = (p.assignments ?? []).map(a => a.assignee).filter(Boolean);
+      const fromTasks = tasks
+        .filter(t => t.projectId === p.id)
+        .flatMap(t => [t.assignee, ...(t.assignments || []).map(a => a.assignee)].filter(Boolean));
+      map.set(p.id, Array.from(new Set([...fromProject, ...fromTasks])).sort());
+    }
+    return map;
+  }, [projects, tasks]);
 
   // Custom Column Widths
   const DEFAULT_COLUMN_WIDTHS = {
@@ -246,20 +288,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     };
   }, [resizingCol, startX, startWidth]);
 
-  const DEFAULT_TABLE_COLUMNS: { id: TableColumnId; visible: boolean }[] = [
-    { id: 'wbsId', visible: true },
-    { id: 'name', visible: true },
-    { id: 'startDate', visible: true },
-    { id: 'endDate', visible: true },
-    { id: 'workEffort', visible: true },
-    { id: 'assignee', visible: true },
-    { id: 'allocation', visible: true },
-    { id: 'status', visible: true },
-    { id: 'progress', visible: true },
-    { id: 'deliverables', visible: true },
-    { id: 'dependencies', visible: true },
-  ];
-
   const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
     const cols = (wbsSettings as any)?.tableColumns;
     const incoming = Array.isArray(cols) && (cols.length > 0) ? cols : DEFAULT_TABLE_COLUMNS;
@@ -281,7 +309,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     }
 
     return cleaned.map(c => c.id === 'name' ? { ...c, visible: true } : c);
-  }, [wbsSettings, DEFAULT_TABLE_COLUMNS]);
+  }, [wbsSettings]);
 
   const visibleColumnIds = useMemo(() => tableColumns.filter(c => c.visible).map(c => c.id), [tableColumns]);
 
@@ -331,13 +359,51 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
   useEffect(() => {
     // Keep selection within bounds if data changes.
-    setTreeExpandLevel(prev => Math.min(Math.max(1, prev), Math.max(1, maxTreeLevel)));
+    setTreeExpandLevel(prev => {
+      const next = Math.min(Math.max(1, prev), Math.max(1, maxTreeLevel));
+      return prev !== next ? next : prev;
+    });
   }, [maxTreeLevel, setTreeExpandLevel]);
 
-  const handleSetRowHeight = (h: number) => {
+  // 줄바꿈 켜짐 + split view: 표 행 높이 측정 후 간트에 전달
+  const lastHeightsRef = useRef<number[]>([]);
+  const visibleTaskIdsKey = useMemo(() => visibleTasks.map(t => t.id).join(','), [visibleTasks]);
+  useEffect(() => {
+    if (!wrapTextInCells || !syncScrollRef?.current || !onRowHeightsChange) {
+      if (onRowHeightsChange && !wrapTextInCells) onRowHeightsChange([]);
+      return;
+    }
+    const measure = () => {
+      const scrollEl = syncScrollRef.current;
+      if (!scrollEl) return;
+      const rows = scrollEl.querySelectorAll<HTMLElement>('[id^="task-row-"]');
+      const heights = Array.from(rows).map(el => el.offsetHeight);
+      if (heights.length === 0) return;
+      // 변경된 경우에만 콜백 호출 (Maximum update depth 방지)
+      const prev = lastHeightsRef.current;
+      if (prev.length !== heights.length || prev.some((h, i) => h !== heights[i])) {
+        lastHeightsRef.current = heights;
+        // 다음 틱으로 지연해 동기적 setState 루프 방지
+        const cb = onRowHeightsChange;
+        queueMicrotask(() => cb(heights));
+      }
+    };
+    const raf = requestAnimationFrame(() => {
+      measure();
+      requestAnimationFrame(measure); // 한 프레임 더 대기 (줄바꿈 레이아웃 완료)
+    });
+    const observer = new ResizeObserver(measure);
+    observer.observe(syncScrollRef.current);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [wrapTextInCells, syncScrollRef, visibleTaskIdsKey, onRowHeightsChange, rowHeight]);
+
+  const handleSetRowHeight = useCallback((h: number) => {
     setRowHeight(h);
     onRowHeightChange?.(h);
-  };
+  }, [onRowHeightChange]);
 
   // Delete Confirmation State
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
@@ -346,11 +412,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   });
 
   // WBS ID Generation map logic was moved to WBSContext
-
-  const visibleTasks = useMemo(
-    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: false }),
-    [tasks, filters, sortConfig]
-  );
 
   /** taskId → 표 행 순번(1부터). 선행작업 셀에서 #1, #2 형태로 표시 */
   const taskIdToSeqNum = useMemo(() => {
@@ -851,7 +912,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = val;
     }
     if (Object.keys(updates).length === 0) return;
-    Array.from(selectedTaskIds).forEach(id => updateTask(id, updates));
+    const ids = Array.from(selectedTaskIds);
+    if (Object.prototype.hasOwnProperty.call(updates, 'workEffort')) {
+      Array.from(ids).forEach(id => updateTask(id, updates));
+    } else {
+      updateTasksBulk(ids, updates);
+    }
     setBulkStatus('');
     setBulkAssignee('');
     setBulkWorkEffort('');
@@ -875,13 +941,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
   const executeBulkStatus = () => {
     if (!bulkStatus) return;
-    Array.from(selectedTaskIds).forEach(id => {
-      const updates: Partial<Task> = { status: bulkStatus };
-      if (wbsSettings?.statusProgress?.[bulkStatus] !== undefined) {
-        updates.progress = wbsSettings.statusProgress[bulkStatus];
-      }
-      updateTask(id, updates);
-    });
+    const updates: Partial<Task> = { status: bulkStatus };
+    if ((wbsSettings as any)?.statusProgress?.[bulkStatus] !== undefined) {
+      updates.progress = (wbsSettings as any).statusProgress[bulkStatus];
+    }
+    updateTasksBulk(Array.from(selectedTaskIds), updates);
     setBulkStatus('');
     setSelection(new Set());
     setLastSelectedId(null);
@@ -890,9 +954,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const executeBulkAssignee = () => {
     const value = bulkAssignee.trim();
     if (!value) return;
-    Array.from(selectedTaskIds).forEach(id => {
-      updateTask(id, { assignee: value });
-    });
+    updateTasksBulk(Array.from(selectedTaskIds), { assignee: value });
     setBulkAssignee('');
     setSelection(new Set());
     setLastSelectedId(null);
@@ -1091,13 +1153,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
           isSplitView
             ? "h-11 flex items-center gap-0 border-b px-4 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto whitespace-nowrap"
             : "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
-          summaryStats?.isSelection ? "border-blue-200 bg-blue-50" : "border-[var(--color-line)]"
+          "border-[var(--color-line)]"
         )}>
           {summaryStats ? (
             <>
-              {summaryStats.isSelection && (
-                <span className="text-[10px] font-bold text-blue-500 mr-3 bg-blue-100 px-2 py-0.5 rounded-full">선택 {summaryStats.taskCount}개</span>
-              )}
               <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
               <Divider />
               <StatChip icon={<Clock size={12} />} label="총 공수" value={`${summaryStats.totalEffort.toLocaleString()}일`} />
@@ -1107,15 +1166,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               <StatChip icon={<CalendarDays size={12} />} label="기간" value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`} />
 
               <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={refreshProjectSchedule}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-md transition-colors"
-                  title="선행관계에 맞게 시작일·종료일을 재계산합니다"
-                >
-                  <RefreshCw size={12} />
-                  일정 정렬
-                </button>
                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">레벨 펼치기</span>
                 <select
                   className="h-7 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -1173,7 +1223,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         <div
           ref={syncScrollRef}
           tabIndex={0}
-          className={cn("overflow-auto relative bg-[var(--color-bg)] outline-none focus:ring-0", isSplitView ? "flex-1 min-h-0" : "flex-1")}
+          className={cn("overflow-auto relative bg-[var(--color-bg)] outline-none focus:ring-0", isSplitView ? "flex-1 min-h-0" : "flex-1", wrapTextInCells && "wrap-text-in-cells")}
           onScroll={(e) => {
             // No-op here: App.tsx handles syncing from the other side if needed
           }}
@@ -1242,7 +1292,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                       visibleColumnIds={visibleColumnIds}
                       isInlineEditingName={inlineEditingNameId === task.id}
                       setInlineEditingNameId={setInlineEditingNameId}
+                      editingCell={editingCell}
+                      setEditingCell={setEditingCell}
                       allAssignees={allAssignees}
+                      assigneeOptionsByProjectId={assigneeOptionsByProjectId}
                       updateTask={updateTask}
                       statusConfigs={wbsSettings?.statusConfigs ?? []}
                       projectAssignmentsByProjectId={projectAssignmentsByProjectId}
@@ -1659,7 +1712,11 @@ interface SortableTaskRowProps {
   visibleColumnIds: TableColumnId[];
   isInlineEditingName: boolean;
   setInlineEditingNameId: (id: string | null) => void;
+  editingCell: { taskId: string; columnId: TableColumnId } | null;
+  setEditingCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
   allAssignees: string[];
+  /** projectId → 프로젝트 등록 인원 + 해당 프로젝트 작업 담당자 목록 */
+  assigneeOptionsByProjectId: Map<string, string[]>;
   updateTask: (id: string, updates: Partial<Task>) => void;
   statusConfigs: Array<{ id: string; name: string; progress?: number }>;
   /** projectId → assignments (for showing allocation when task has no assignments) */
@@ -1687,7 +1744,10 @@ function SortableTaskRowInner({
   visibleColumnIds,
   isInlineEditingName,
   setInlineEditingNameId,
+  editingCell,
+  setEditingCell,
   allAssignees,
+  assigneeOptionsByProjectId,
   updateTask,
   statusConfigs,
   projectAssignmentsByProjectId,
@@ -1812,7 +1872,7 @@ function SortableTaskRowInner({
                 />
               ) : (
                 <span
-                  className="font-medium text-[var(--color-ink)] truncate cursor-text flex items-center gap-1.5"
+                  className="font-medium text-[var(--color-ink)] cursor-text flex items-center gap-1.5"
                   onDoubleClick={() => setInlineEditingNameId(task.id)}
                   title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
                 >
@@ -1830,42 +1890,158 @@ function SortableTaskRowInner({
         const LockBadge = ({ field }: { field: 'startDate' | 'endDate' | 'workEffort' | 'dependencies' }) =>
           lockedFields.has(field) ? <Lock size={10} className="text-amber-600 flex-shrink-0" title="사용자 고정 (AI 업데이트 시 유지)" /> : null;
         if (colId === 'startDate') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1">
+            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
               <LockBadge field="startDate" />
-              {formatDate(task.startDate)}
+              {isEditing ? (
+                <input
+                  type="date"
+                  autoFocus
+                  defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = e.target.value;
+                    if (v && v !== (task.startDate?.slice(0, 10) ?? '')) {
+                      updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'startDate' }); }}
+                  title="더블클릭하여 수정"
+                >
+                  {formatDate(task.startDate)}
+                </span>
+              )}
             </div>
           );
         }
         if (colId === 'endDate') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1">
+            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
               <LockBadge field="endDate" />
-              {formatDate(task.endDate)}
+              {isEditing ? (
+                <input
+                  type="date"
+                  autoFocus
+                  defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = e.target.value;
+                    if (v && v !== (task.endDate?.slice(0, 10) ?? '')) {
+                      updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'endDate' }); }}
+                  title="더블클릭하여 수정"
+                >
+                  {formatDate(task.endDate)}
+                </span>
+              )}
             </div>
           );
         }
         if (colId === 'workEffort') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1">
+            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
               <LockBadge field="workEffort" />
-              {task.workEffort ? task.workEffort.toFixed(1) : '-'}
+              {isEditing ? (
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  autoFocus
+                  defaultValue={task.workEffort ?? ''}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v) && v >= 0 && v !== (task.workEffort ?? NaN)) {
+                      updateTask(task.id, { workEffort: v });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'workEffort' }); }}
+                  title="더블클릭하여 수정"
+                >
+                  {task.workEffort != null ? task.workEffort.toFixed(1) : '-'}
+                </span>
+              )}
             </div>
           );
         }
         if (colId === 'progress') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'progress';
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-xs text-stone-600"
+              className="data-cell font-mono text-xs text-stone-600 min-w-0"
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 onContextMenu(e, task.id, 'progress');
               }}
-              title="마우스 우클릭: 갱신 메뉴 (상태에 해당하는 진척 비율로 동기화)"
+              onClick={(e) => e.stopPropagation()}
+              title="더블클릭하여 수정 · 마우스 우클릭: 갱신 메뉴"
             >
-              {typeof task.progress === 'number' ? `${task.progress}%` : '-'}
+              {isEditing ? (
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  autoFocus
+                  defaultValue={typeof task.progress === 'number' ? task.progress : ''}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 0 && v <= 100 && v !== (task.progress ?? NaN)) {
+                      updateTask(task.id, { progress: v });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 inline-block"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'progress' }); }}
+                >
+                  {typeof task.progress === 'number' ? `${task.progress}%` : '-'}
+                </span>
+              )}
             </div>
           );
         }
@@ -1874,28 +2050,51 @@ function SortableTaskRowInner({
           const assigneeLabel = hasAssignments
             ? task.assignments!.map(a => `${a.assignee}(${a.allocationPercent}%)`).join(', ')
             : (task.assignee || '');
+          const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
+          // 프로젝트 투입인원 + 현재 담당자(목록에 없을 수 있음)를 선택 옵션으로
+          const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim()].filter(Boolean))).sort();
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 relative overflow-visible group/assignee truncate" onClick={(e) => e.stopPropagation()} title={hasAssignments ? assigneeLabel : undefined}>
+            <div key={colId} className="data-cell text-xs text-stone-600 relative overflow-visible group/assignee" onClick={(e) => e.stopPropagation()} title={hasAssignments ? assigneeLabel : undefined}>
               {hasAssignments ? (
-                <span className="truncate block">{assigneeLabel}</span>
+                <span className="block">{assigneeLabel}</span>
+              ) : assigneeOptions.length > 0 ? (
+                <select
+                  value={task.assignee || ''}
+                  onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
+                  className="w-full bg-transparent p-1 pr-6 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 transition-colors cursor-pointer appearance-none text-xs"
+                  title="프로젝트 투입인원 중에서 선택"
+                >
+                  <option value="">배정 안됨</option>
+                  {assigneeOptions.map(a => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
               ) : (
                 <>
-                  <select
+                  <input
+                    type="text"
+                    list={`assignee-datalist-${task.id}`}
                     value={task.assignee || ''}
-                    onChange={(e) => {
-                      if (e.target.value !== task.assignee) {
-                        updateTask(task.id, { assignee: e.target.value });
+                    onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (task.assignee || '').trim()) {
+                        updateTask(task.id, { assignee: v });
                       }
                     }}
-                    className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 cursor-pointer truncate transition-colors appearance-none"
-                  >
+                    placeholder="배정 ..."
+                    className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 transition-colors"
+                  />
+                  <datalist id={`assignee-datalist-${task.id}`}>
                     <option value="">배정 안됨</option>
-                    {allAssignees.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
-                    <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                  </div>
+                    {allAssignees.map(a => <option key={a} value={a} />)}
+                  </datalist>
                 </>
+              )}
+              {!hasAssignments && (
+                <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
+                  <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                </div>
               )}
             </div>
           );
@@ -1914,7 +2113,7 @@ function SortableTaskRowInner({
             ? relevant.map(a => `${a.allocationPercent}%`).join(', ')
             : '—';
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 font-mono truncate" title={hasRelevant ? allocationText : undefined}>
+            <div key={colId} className="data-cell text-xs text-stone-600 font-mono" title={hasRelevant ? allocationText : undefined}>
               {allocationText}
             </div>
           );
@@ -1940,7 +2139,7 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   onContextMenu(e, task.id, 'status');
                 }}
-                className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 cursor-pointer truncate transition-colors appearance-none text-xs"
+                className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 cursor-pointer transition-colors appearance-none text-xs"
               >
                 {statusConfigs.map((config) => (
                   <option key={config.id} value={config.id}>{config.name}</option>
@@ -1950,9 +2149,38 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'deliverables') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'deliverables';
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 truncate" title={task.deliverables || ''}>
-              {task.deliverables || '-'}
+            <div key={colId} className="data-cell text-xs text-stone-600 min-w-0" onClick={(e) => e.stopPropagation()}>
+              {isEditing ? (
+                <input
+                  type="text"
+                  autoFocus
+                  defaultValue={task.deliverables ?? ''}
+                  placeholder="산출물"
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (task.deliverables ?? '').trim()) {
+                      updateTask(task.id, { deliverables: v || undefined });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <span
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 block truncate"
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'deliverables' }); }}
+                  title={(task.deliverables || '') ? `${task.deliverables}\n더블클릭하여 수정` : '더블클릭하여 수정'}
+                >
+                  {task.deliverables || '-'}
+                </span>
+              )}
             </div>
           );
         }
@@ -2031,7 +2259,11 @@ function SortableTaskRowInner({
 }
 
 function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps) {
+  const editingCellSame =
+    prev.editingCell === next.editingCell ||
+    (!!prev.editingCell && !!next.editingCell && prev.editingCell.taskId === next.editingCell.taskId && prev.editingCell.columnId === next.editingCell.columnId);
   return (
+    editingCellSame &&
     prev.rowIndex === next.rowIndex &&
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&
@@ -2042,6 +2274,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.gridStyle === next.gridStyle &&
     prev.visibleColumnIds === next.visibleColumnIds &&
     prev.allAssignees === next.allAssignees &&
+    prev.assigneeOptionsByProjectId === next.assigneeOptionsByProjectId &&
     prev.statusConfigs === next.statusConfigs &&
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&

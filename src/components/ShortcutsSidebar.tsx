@@ -11,7 +11,6 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
             title: '공통',
             items: [
                 { label: '되돌리기', keys: ['Ctrl', 'Z'] },
-                { label: '튜토리얼 열기', keys: ['F1'], hint: '또는 Shift + / (?)' },
                 { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
                 { label: '줄높이 높이기', keys: ['Ctrl', '+'] },
                 { label: '줄높이 낮추기', keys: ['Ctrl', '-'] },

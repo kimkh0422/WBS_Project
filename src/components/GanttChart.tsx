@@ -18,6 +18,8 @@ interface GanttChartProps {
   sortConfig: SortConfig;
   hideSidebar?: boolean;
   rowHeight?: number;
+  /** 표에서 측정한 행별 높이 (줄바꿈 켜짐 시 표·간트 동기화) */
+  rowHeights?: number[];
   onRowHeightChange?: (height: number) => void;
   syncScrollRef?: React.RefObject<HTMLDivElement>;
   hotkeysEnabled?: boolean;
@@ -61,7 +63,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
   { mode: 'day', dayWidth: 90, label: '상세' },
 ];
 
-export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
+export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, rowHeights: propRowHeights, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
   const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings } = useWBS();
   const { levelBarBg, levelBorderColor } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -97,6 +99,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     [tasks, filters, sortConfig]
   );
 
+  const selectionRef = useRef({ selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask });
+  selectionRef.current = { selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask };
+
   const visibleTaskById = useMemo(
     () => new Map(visibleTasks.map(task => [task.id, task] as const)),
     [visibleTasks]
@@ -108,7 +113,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   );
 
   const criticalPathSet = useMemo(() => getCriticalPathTaskIds(tasks), [tasks]);
-  const showCriticalPath = wbsSettings?.showCriticalPath !== false;
+  const showCriticalPath = wbsSettings?.showCriticalPath === true;
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
 
   // Keyboard hotkeys - only when mounted
@@ -254,28 +259,30 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     const handleMouseUp = (e: MouseEvent) => {
       const drag = dragStateRef.current;
       if (drag) {
-        const moved = Math.abs(e.clientX - drag.startX) > 5 || Math.abs(e.clientY - drag.startY) > 5;
+        const moved = Math.abs(e.clientX - drag.startX) > 10 || Math.abs(e.clientY - drag.startY) > 10;
         if (moved) {
+          const { updateTask: upd } = selectionRef.current;
           for (const t of drag.tasks) {
             const startChanged = t.previewStartDate !== t.originalStartDate || t.previewEndDate !== t.originalEndDate;
             if (startChanged) {
-              updateTask(t.taskId, { startDate: t.previewStartDate, endDate: t.previewEndDate });
+              upd(t.taskId, { startDate: t.previewStartDate, endDate: t.previewEndDate }, { skipCascade: true });
             }
           }
         } else if (drag.type === 'move') {
           // 클릭(드래그 없음): 선택 처리
+          const { selectedTaskIds: sel, visibleTasks: vis, setSelectedTaskIds: setSel } = selectionRef.current;
           const taskId = drag.clickTaskId;
           const multi = drag.ctrlKey;
           const range = drag.shiftKey;
-          const current = new Set(selectedTaskIds);
+          const current = new Set(sel);
           let next: string[];
           if (range && anchorTaskIdRef.current) {
-            const idx = visibleTasks.findIndex(t => t.id === taskId);
-            const anchorIdx = visibleTasks.findIndex(t => t.id === anchorTaskIdRef.current);
+            const idx = vis.findIndex(t => t.id === taskId);
+            const anchorIdx = vis.findIndex(t => t.id === anchorTaskIdRef.current);
             if (idx !== -1 && anchorIdx !== -1) {
               const start = Math.min(idx, anchorIdx);
               const end = Math.max(idx, anchorIdx);
-              next = visibleTasks.slice(start, end + 1).map(t => t.id);
+              next = vis.slice(start, end + 1).map(t => t.id);
             } else {
               next = [...current, taskId];
             }
@@ -288,7 +295,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             next = [taskId];
             anchorTaskIdRef.current = taskId;
           }
-          setSelectedTaskIds(next);
+          setSel(next);
         }
         dragStateRef.current = null;
         setDragPreview(null);
@@ -303,7 +310,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [updateTask, selectedTaskIds, visibleTasks, setSelectedTaskIds]);
+  }, []);
 
   const handleContextMenu = (e: React.MouseEvent, taskId: string) => {
     e.preventDefault();
@@ -312,6 +319,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
   const ROW_HEIGHT = propRowHeight ?? 20;
   const VIEW_PADDING_TOP = 0;
+
+  const effectiveRowHeights = useMemo(() => {
+    if (propRowHeights && propRowHeights.length === visibleTasks.length) return propRowHeights;
+    return visibleTasks.map(() => ROW_HEIGHT);
+  }, [propRowHeights, visibleTasks.length, ROW_HEIGHT]);
+
+  const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 
   const dates = useMemo(
     () => visibleTasks.flatMap(t => [parseISO(t.startDate), parseISO(t.endDate)]).filter(d => !isNaN(d.getTime())),
@@ -338,13 +352,17 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
   const dependencyPaths = useMemo(() => {
     if (visibleTasks.length === 0 || dates.length === 0) return [];
+    const rowTops = effectiveRowHeights.reduce<number[]>((acc, _, i) => {
+      acc.push(i === 0 ? VIEW_PADDING_TOP : acc[i - 1] + effectiveRowHeights[i - 1]);
+      return acc;
+    }, []);
     return visibleTasks.flatMap((task, index) => {
       if (!task.dependencies || task.dependencies.length === 0) return [];
 
       const taskStart = parseISO(task.startDate);
       const taskOffsetDays = differenceInDays(taskStart, minDate);
       const taskLeft = taskOffsetDays * dayWidth;
-      const taskTop = VIEW_PADDING_TOP + index * ROW_HEIGHT + (ROW_HEIGHT / 2);
+      const taskTop = rowTops[index] + effectiveRowHeights[index] / 2;
 
       return task.dependencies.flatMap(depId => {
         const depTask = visibleTaskById.get(depId);
@@ -354,14 +372,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         const depEnd = parseISO(depTask.endDate);
         const depOffsetDays = differenceInDays(depEnd, minDate) + 1;
         const depRight = depOffsetDays * dayWidth;
-        const depTop = VIEW_PADDING_TOP + depIndex * ROW_HEIGHT + (ROW_HEIGHT / 2);
+        const depTop = rowTops[depIndex] + effectiveRowHeights[depIndex] / 2;
         const path = `M ${depRight} ${depTop} L ${depRight + 10} ${depTop} L ${depRight + 10} ${taskTop} L ${taskLeft} ${taskTop}`;
         const isCritical = effectiveCriticalPathSet.has(depId) && effectiveCriticalPathSet.has(task.id);
 
         return [{ key: `${depId}-${task.id}`, path, isCritical }];
       });
     });
-  }, [ROW_HEIGHT, VIEW_PADDING_TOP, dayWidth, minDate, visibleTaskById, visibleTaskIndexById, visibleTasks, dates.length, effectiveCriticalPathSet]);
+  }, [effectiveRowHeights, VIEW_PADDING_TOP, dayWidth, minDate, visibleTaskById, visibleTaskIndexById, visibleTasks, dates.length, effectiveCriticalPathSet]);
 
   if (visibleTasks.length === 0) return (
     <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
@@ -512,13 +530,35 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const isSplitView = !!syncScrollRef;
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
+  // 표의 Summary Bar(h-11)와 동일 높이로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
   if (isSplitView) {
     return (
       <>
         <div className="w-full h-full flex flex-col bg-white">
-          {/* 표의 Summary Bar(h-11)와 높이 맞춤용 스페이서 */}
-          <div className="h-11 flex-shrink-0 border-b border-[var(--color-line)] bg-stone-50" />
-          {/* 헤더 고정 (스크롤 밖) */}
+          {/* 표의 Summary Bar(h-11)와 동일 높이 - 줌 컨트롤을 이 안에 배치해 헤더 정렬 */}
+          <div className="h-11 flex-shrink-0 flex items-center gap-2 px-4 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto whitespace-nowrap">
+            <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
+            <input
+              type="range"
+              min={0}
+              max={ZOOM_LEVELS.length - 1}
+              step={1}
+              value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
+              onChange={(e) => setZoomIndex(Number(e.target.value))}
+              className="w-24 h-1.5 accent-indigo-500 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
+              title="간트 확대/축소"
+            />
+            <span className="text-[10px] font-bold text-slate-500 shrink-0">확대</span>
+            <button
+              onClick={() => setZoomIndex(-1)}
+              className={cn("text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0", zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
+              title="전체 맞춤"
+            >
+              맞춤
+            </button>
+            <span className="text-[10px] font-mono text-stone-500 w-8 shrink-0">{zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}</span>
+          </div>
+          {/* 헤더 고정 (스크롤 밖) - 표 data-header와 동일 높이(60px)로 일직선 정렬 */}
           <div className="flex flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">
             <div className="relative" style={{ width: Math.max(totalWidth, containerWidth), height: 60 }}>
               <div className="absolute right-2 top-2 z-50 flex gap-1 bg-white/95 backdrop-blur shadow-sm border border-stone-200 rounded-lg p-1">
@@ -555,32 +595,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               </div>
             </div>
           </div>
-          {/* 상단 줌 바 - 항상 보이도록 */}
-          <div className="flex-shrink-0 flex items-center gap-3 px-4 py-2 border-b border-stone-200 bg-stone-50/80">
-            <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">축소</span>
-            <input
-              type="range"
-              min={0}
-              max={ZOOM_LEVELS.length - 1}
-              step={1}
-              value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
-              onChange={(e) => setZoomIndex(Number(e.target.value))}
-              className="w-32 h-1.5 accent-indigo-500 cursor-pointer flex-1 max-w-[120px]"
-              title="간트 확대/축소"
-            />
-            <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">확대</span>
-            <button
-              onClick={() => setZoomIndex(-1)}
-              className={cn("text-[11px] px-2 py-1 rounded transition-colors", zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
-              title="전체 맞춤"
-            >
-              맞춤
-            </button>
-            <span className="text-[11px] font-mono text-stone-500 w-10">{zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}</span>
-          </div>
           {/* 스크롤 영역 = 행만 (표와 동기화) */}
           <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white">
-            <div className="relative" style={{ width: totalWidth, height: visibleTasks.length * ROW_HEIGHT }}>
+            <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 {renderGridColumns()}
               </div>
@@ -625,11 +642,12 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const statusColors = { todo: 'bg-stone-300 border-stone-400', 'in-progress': 'bg-blue-500 border-blue-600', done: 'bg-emerald-500 border-emerald-600', blocked: 'bg-red-500 border-red-600' };
                 const barColor = statusColors[task.status] || statusColors.todo;
                 const effortText = formatEffort(task.workEffort);
+                const rowH = effectiveRowHeights[index];
                 return (
                   <div
                     key={task.id}
                     className={cn("relative group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
-                    style={{ width: totalWidth, height: ROW_HEIGHT }}
+                    style={{ width: totalWidth, height: rowH }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     <div
@@ -641,12 +659,12 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         isSelected && !isBeingDragged && !isCritical ? "ring-2 ring-blue-300/80" : "",
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
-                      style={{ left, width: Math.max(width - 4, 4), height: ROW_HEIGHT, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }}
+                      style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignments?.length ? ` · 투입: ${task.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}` : task.assignee ? ` · ${task.assignee}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white font-medium truncate pr-8 drop-shadow-md pointer-events-none" style={{ width: 'calc(100% - 12px)' }}>
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white font-medium break-words pr-8 drop-shadow-md pointer-events-none line-clamp-2" style={{ width: 'calc(100% - 12px)' }}>
                           {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                         </span>
                       )}
@@ -659,7 +677,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       </div>
                     )}
                     {width < 80 && !isBeingDragged && (
-                      <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 whitespace-nowrap pointer-events-none" style={{ left: left + width + 8 }}>
+                      <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 break-words max-w-[200px] pointer-events-none" style={{ left: left + width + 8 }}>
                         {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </span>
                     )}
@@ -751,18 +769,18 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             {/* Left Column (Task Names) */}
             {!hideSidebar && (
               <div className="flex-shrink-0 border-r border-[var(--color-line)] bg-white sticky left-0 z-30 lg:block md:hidden hidden" style={{ width: sidebarWidth }}>
-                {visibleTasks.map(t => {
+                {visibleTasks.map((t, index) => {
                   const depth = t.depth ?? 0;
                   const level = depth + 1;
                   return (
                     <div
                       key={t.id}
                       className="flex items-center text-xs font-medium text-[var(--color-ink)] hover:bg-stone-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-stone-100"
-                      style={{ height: `${ROW_HEIGHT}px`, paddingLeft: `${depth * 16 + 16}px`, paddingRight: 16, borderLeftColor: levelBarBg(level) }}
+                      style={{ height: `${effectiveRowHeights[index] ?? ROW_HEIGHT}px`, paddingLeft: `${depth * 16 + 16}px`, paddingRight: 16, borderLeftColor: levelBarBg(level) }}
                       title={displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ${t.name}` : t.name}
                       onDoubleClick={() => setEditingTask(t)}
                     >
-                      <div className="truncate min-w-0">{displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ` : ''}{t.name}</div>
+                      <div className="break-words min-w-0">{displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ` : ''}{t.name}</div>
                     </div>
                   );
                 })}
@@ -770,7 +788,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             )}
 
             {/* Chart Body */}
-            <div className="relative" style={{ width: totalWidth, height: visibleTasks.length * ROW_HEIGHT }}>
+            <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               {/* Grid Background */}
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 {renderGridColumns()}
@@ -826,12 +844,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const level = depth + 1;
                 const isCritical = effectiveCriticalPathSet.has(task.id);
                 const effortText = formatEffort(task.workEffort);
+                const rowH = effectiveRowHeights[index] ?? ROW_HEIGHT;
 
                 return (
                   <div
                     key={task.id}
                     className={cn("relative group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
-                    style={{ width: totalWidth, height: ROW_HEIGHT }}
+                    style={{ width: totalWidth, height: rowH }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     {/* 마일스톤: 다이아몬드 / 일반 작업: 바 */}
@@ -849,8 +868,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       )}
                       style={
                         isMilestone
-                          ? { left: left + (dayWidth / 2) - 8, top: ROW_HEIGHT / 2 - 8, width: 16, height: 16 }
-                          : { left, width: Math.max(width - 4, 4), height: ROW_HEIGHT, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }
+                          ? { left: left + (dayWidth / 2) - 8, top: rowH / 2 - 8, width: 16, height: 16 }
+                          : { left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }
                       }
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}`}
                     >
@@ -885,7 +904,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                     )}
 
                     {(width < 80 || isMilestone) && !isBeingDragged && (
-                      <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 whitespace-nowrap pointer-events-none" style={{ left: (isMilestone ? left + (dayWidth / 2) - 8 + 16 : left + width) + 8 }}>
+                      <span className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 break-words max-w-[200px] pointer-events-none" style={{ left: (isMilestone ? left + (dayWidth / 2) - 8 + 16 : left + width) + 8 }}>
                         {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                       </span>
                     )}

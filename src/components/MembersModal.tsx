@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, Loader2, Trash2, Pencil, Check } from 'lucide-react';
-import { fetchProfiles, deleteMemberAsAdmin, updateProfileFullName } from '../lib/db';
+import { fetchProfiles, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole } from '../lib/db';
 import { ProfileRow } from '../lib/supabase';
 import { format } from 'date-fns';
 
@@ -20,6 +20,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
 
   const loadMembers = () => {
     setLoading(true);
@@ -60,6 +61,18 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
       setMembers(prev => prev.map(m => m.id === editingId ? { ...m, full_name: name || null } : m));
     } else {
       setError(result.error ?? '이름 저장에 실패했습니다.');
+    }
+  };
+
+  const setRole = async (member: ProfileRow, isAdmin: boolean) => {
+    if (member.id === currentUserId) return;
+    setSavingRoleId(member.id);
+    const result = await updateMemberRole(member.id, isAdmin);
+    setSavingRoleId(null);
+    if (result.success) {
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, is_admin: isAdmin } : m));
+    } else {
+      setError(result.error ?? '역할 변경에 실패했습니다.');
     }
   };
 
@@ -161,9 +174,24 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
                       {m.created_at ? format(new Date(m.created_at), 'yyyy-MM-dd HH:mm') : '-'}
                     </td>
                     <td className="py-3 px-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}>
-                        {m.is_admin ? '관리자' : '회원'}
-                      </span>
+                      {m.id === currentUserId ? (
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}>
+                          {m.is_admin ? '관리자' : '회원'}
+                        </span>
+                      ) : savingRoleId === m.id ? (
+                        <span className="text-stone-400 text-xs flex items-center gap-1">
+                          <Loader2 size={12} className="animate-spin" /> 변경 중
+                        </span>
+                      ) : (
+                        <select
+                          value={m.is_admin ? 'admin' : 'member'}
+                          onChange={(e) => setRole(m, e.target.value === 'admin')}
+                          className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                        >
+                          <option value="member">회원</option>
+                          <option value="admin">관리자</option>
+                        </select>
+                      )}
                     </td>
                     <td className="py-3 px-2 text-right">
                       {m.id !== currentUserId ? (

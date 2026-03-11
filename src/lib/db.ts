@@ -69,8 +69,10 @@ function toProjectRow(project: Project): ProjectRow {
     name: project.name,
     description: project.description ?? null,
     start_date: project.startDate ?? null,
+    end_date: project.endDate ?? null,
     assignments: (project.assignments ?? []).map(a => ({ assignee: a.assignee, allocation_percent: a.allocationPercent })),
     owner_id: project.ownerId ?? null,
+    min_work_effort_days: project.minWorkEffortDays ?? null,
   };
 }
 
@@ -84,13 +86,16 @@ function fromProjectRow(row: ProjectRow): Project {
   const assignments: ProjectAssignment[] = Array.isArray(row.assignments)
     ? row.assignments.map((a: { assignee: string; allocation_percent: number }) => ({ assignee: a.assignee, allocationPercent: a.allocation_percent }))
     : [];
+  const minDays = row.min_work_effort_days != null ? Number(row.min_work_effort_days) : undefined;
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     startDate: row.start_date ?? undefined,
+    endDate: row.end_date ?? undefined,
     assignments: assignments.length > 0 ? assignments : undefined,
     ownerId: row.owner_id ?? undefined,
+    minWorkEffortDays: minDays != null && Number.isFinite(minDays) ? minDays : undefined,
   };
 }
 
@@ -233,12 +238,17 @@ export async function upsertTask(
   return {};
 }
 
+const TASKS_UPSERT_BATCH_SIZE = 50;
+
 export async function upsertTasks(tasks: Task[]): Promise<void> {
   if (tasks.length === 0) return;
   requireSupabase();
-  const rows = tasks.map((t, i) => toTaskRow(t, i));
-  const { error } = await supabase!.from('tasks').upsert(rows);
-  if (error) throw error;
+  for (let i = 0; i < tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
+    const chunk = tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+    const rows = chunk.map((t, j) => toTaskRow(t, i + j));
+    const { error } = await supabase!.from('tasks').upsert(rows);
+    if (error) throw error;
+  }
 }
 
 export async function upsertSettings(settings: WBSSettings): Promise<void> {
@@ -369,6 +379,21 @@ export async function updateProfileFullName(userId: string, fullName: string): P
   }
 }
 
+/** 관리자: 회원 역할(is_admin) 변경. RLS로 관리자만 허용. */
+export async function updateMemberRole(userId: string, isAdmin: boolean): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { error } = await supabase!
+      .from('profiles')
+      .update({ is_admin: isAdmin })
+      .eq('id', userId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch {
+    return { success: false, error: 'profiles 테이블을 사용할 수 없습니다.' };
+  }
+}
+
 /** 관리자 여부. ensure_profile RPC 없으면 false 반환. */
 export async function checkIsAdmin(): Promise<boolean> {
   requireSupabase();
@@ -431,9 +456,12 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
   }
 
   if (data.tasks.length > 0) {
-    const rows = data.tasks.map((t, i) => toTaskRow(t, i));
-    const { error } = await supabase!.from('tasks').insert(rows);
-    if (error) throw error;
+    for (let i = 0; i < data.tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
+      const chunk = data.tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+      const rows = chunk.map((t, j) => toTaskRow(t, i + j));
+      const { error } = await supabase!.from('tasks').insert(rows);
+      if (error) throw error;
+    }
   }
 
   if (data.settings) {
@@ -502,9 +530,12 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
     }
 
     if (tasksWithUuid.length > 0) {
-      const rows = tasksWithUuid.map((t, i) => toTaskRow(t, i));
-      const { error } = await supabase!.from('tasks').upsert(rows);
-      if (error) throw error;
+      for (let i = 0; i < tasksWithUuid.length; i += TASKS_UPSERT_BATCH_SIZE) {
+        const chunk = tasksWithUuid.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+        const rows = chunk.map((t, j) => toTaskRow(t, i + j));
+        const { error } = await supabase!.from('tasks').upsert(rows);
+        if (error) throw error;
+      }
     }
 
     if (settings) {

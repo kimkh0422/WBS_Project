@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, FileJson } from 'lucide-react';
+import { X, Download, FileSpreadsheet, FileJson, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 
 export type ExportScope = 'all' | 'selected';
-export type ExportFormat = 'excel' | 'json';
+export type ExportFormat = 'excel' | 'json' | 'markdown';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -171,12 +171,12 @@ export function ExportModal({
           {/* 파일 형식 선택 */}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-2">파일 형식</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setFormat('excel')}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
                   format === 'excel'
                     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                     : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -189,7 +189,7 @@ export function ExportModal({
                 type="button"
                 onClick={() => setFormat('json')}
                 className={cn(
-                  "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
                   format === 'json'
                     ? "bg-amber-50 text-amber-700 border-amber-200"
                     : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -198,11 +198,26 @@ export function ExportModal({
                 <FileJson size={18} />
                 <span className="text-sm font-medium">JSON (.json)</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setFormat('markdown')}
+                className={cn(
+                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  format === 'markdown'
+                    ? "bg-slate-100 text-slate-800 border-slate-300"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                )}
+              >
+                <FileText size={18} />
+                <span className="text-sm font-medium">Markdown (.md)</span>
+              </button>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
               {format === 'excel'
                 ? '엑셀에서 편집 후 다시 가져올 수 있습니다.'
-                : '프로젝트·작업·설정을 백업 형식으로 저장합니다.'}
+                : format === 'json'
+                  ? '프로젝트·작업·설정을 백업 형식으로 저장합니다.'
+                  : '문서·위키에 붙여넣기 좋은 마크다운 형식입니다.'}
             </p>
           </div>
         </div>

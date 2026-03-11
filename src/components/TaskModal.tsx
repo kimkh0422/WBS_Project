@@ -4,6 +4,7 @@ import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Target } from 'luci
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
+import { randomUUID } from '../lib/utils';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
+  const [depsInput, setDepsInput] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -69,6 +71,16 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     }
   }, [initialData, isOpen, taskProject?.startDate]);
 
+  const depOptions = parentOptions.filter(t => t.id !== initialData?.id);
+  const idToNum = new Map(depOptions.map((t, i) => [t.id, i + 1]));
+  const numToId = new Map(depOptions.map((t, i) => [i + 1, t.id]));
+  const maxDepNum = depOptions.length;
+
+  useEffect(() => {
+    const nums = (formData.dependencies || []).map(id => idToNum.get(id)).filter((n): n is number => n != null).sort((a, b) => a - b);
+    setDepsInput(nums.join(', '));
+  }, [isOpen, formData.dependencies, parentOptions, initialData?.id]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -94,15 +106,36 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const deliverablesCount = formData.deliverables?.trim() ? formData.deliverables!.split(',').map(s => s.trim()).filter(Boolean).length : 0;
   const effortHelpText = '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다. 기간 자동: 시작일+공수→종료일. 공수 역산: 시작~종료일→공수.';
 
+  const parseDepsInput = (): string[] => {
+    const nums = depsInput
+      .split(/[\s,]+/)
+      .map(s => parseInt(s.trim(), 10))
+      .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
+    const unique = [...new Set(nums)];
+    return unique.map(n => numToId.get(n)).filter((id): id is string => id != null);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const toSave = { ...formData, assignments: formData.assignments ?? initialData?.assignments ?? [] } as Partial<Task>;
+    const parsedDeps = parseDepsInput();
+    const toMerge = { ...formData, dependencies: parsedDeps };
+    const start = toMerge.startDate || '';
+    const end = toMerge.endDate || start;
+    if (taskProject?.startDate && start < taskProject.startDate) {
+      alert(`작업 시작일은 프로젝트 시작일(${taskProject.startDate})보다 이전일 수 없습니다.`);
+      return;
+    }
+    if (taskProject?.endDate && end > taskProject.endDate) {
+      alert(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
+      return;
+    }
+    const toSave = { ...toMerge, assignments: toMerge.assignments ?? initialData?.assignments ?? [] } as Partial<Task>;
     if (initialData?.id) {
       type LockedField = NonNullable<Task['userLockedFields']>[number];
       const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
       if (formData.startDate !== initialData.startDate) locked.add('startDate');
       if (formData.endDate !== initialData.endDate) locked.add('endDate');
-      const depA = (formData.dependencies ?? []).slice().sort();
+      const depA = (toMerge.dependencies ?? []).slice().sort();
       const depB = (initialData.dependencies ?? []).slice().sort();
       const depsChanged = depA.length !== depB.length || depA.some((id, i) => id !== depB[i]);
       if (depsChanged) locked.add('dependencies');
@@ -118,12 +151,13 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     onClose();
   };
 
-  const assigneeOptions = Array.from(new Set([...(projectAssignments.map(a => a.assignee)), ...parentOptions.map(t => t.assignee).filter(Boolean)]));
+  const assigneeOptions = Array.from(new Set([...(projectAssignments.map(a => a.assignee)), ...parentOptions.map(t => t.assignee).filter(Boolean)])).filter(Boolean).sort();
 
   const handleApplyEndDateFromEffort = () => {
     const start = formData.startDate || new Date().toISOString().split('T')[0];
     const effort = typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : 1;
-    const end = computeEndDateFromEffort(start, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+    let end = computeEndDateFromEffort(start, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+    if (taskProject?.endDate && end > taskProject.endDate) end = taskProject.endDate;
     setFormData(prev => ({ ...prev, startDate: start, endDate: end }));
   };
 
@@ -148,7 +182,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   const handleAddChecklist = () => {
     if (!newChecklistItem.trim()) return;
-    const newItem = { id: crypto.randomUUID(), text: newChecklistItem.trim(), completed: false };
+    const newItem = { id: randomUUID(), text: newChecklistItem.trim(), completed: false };
     setFormData(prev => ({
       ...prev,
       checklist: [...(prev.checklist || []), newItem]
@@ -304,19 +338,23 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
               <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
                 <span className="inline-flex items-center gap-1">
                   담당자
-                  <span className="inline-flex items-center cursor-help text-stone-400 hover:text-stone-600" title="투입비율은 프로젝트 설정에서 적용됩니다." aria-label="안내">
+                  <span className="inline-flex items-center cursor-help text-stone-400 hover:text-stone-600" title="프로젝트 등록 인원을 선택하거나 직접 입력하여 추가할 수 있습니다. 투입비율은 프로젝트 설정에서 적용됩니다." aria-label="안내">
                     <Info size={12} />
                   </span>
                 </span>
               </label>
-              <select
+              <input
+                type="text"
+                list="task-modal-assignees"
                 value={formData.assignee || ''}
                 onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                placeholder="선택 또는 직접 입력"
                 className="input-field py-2 text-sm"
-              >
+              />
+              <datalist id="task-modal-assignees">
                 <option value="">선택 안 함</option>
-                {assigneeOptions.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
+                {assigneeOptions.map(a => <option key={a} value={a} />)}
+              </datalist>
               {initialData?.assignments && initialData.assignments.length > 0 && (
                 <p className="text-[11px] text-stone-600 mt-1.5 font-medium" role="note">
                   투입율: {initialData.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}
@@ -396,12 +434,29 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
             <div className="lg:col-span-3">
               <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
-                의존성 (Ctrl+클릭 다중선택)
+                의존성 (번호로 입력)
                 {dependencyCount > 0 && <span className="ml-1.5 font-normal text-indigo-600">· 선택 {dependencyCount}개</span>}
               </label>
-              <select multiple value={formData.dependencies || []} onChange={(e) => setFormData({ ...formData, dependencies: Array.from(e.target.selectedOptions, (o: HTMLOptionElement) => o.value) })} className="input-field py-2 text-sm min-h-[4.5rem] dependency-select">
-                {parentOptions.filter(t => t.id !== initialData?.id).map((task, idx) => <option key={task.id} value={task.id}>#{idx + 1} {task.name}</option>)}
-              </select>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="text"
+                  value={depsInput}
+                  onChange={(e) => setDepsInput(e.target.value)}
+                  onBlur={() => {
+                    const nums = depsInput
+                      .split(/[\s,]+/)
+                      .map(s => parseInt(s.trim(), 10))
+                      .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
+                    const unique = [...new Set(nums)];
+                    const ids = unique.map(n => numToId.get(n)).filter((id): id is string => id != null);
+                    setFormData(prev => ({ ...prev, dependencies: ids }));
+                    setDepsInput(unique.sort((a, b) => a - b).join(', '));
+                  }}
+                  placeholder="예: 1, 3, 4"
+                  className="input-field py-2 text-sm"
+                />
+                <p className="text-[10px] text-stone-500">쉼표 또는 공백으로 구분하여 선행 작업 번호 입력 (예: 1, 3, 4)</p>
+              </div>
             </div>
 
             <div className="lg:col-span-3">

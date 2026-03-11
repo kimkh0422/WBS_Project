@@ -131,6 +131,13 @@
   height: var(--row-height, 20px);
 }
 
+/* 줄바꿈 켜짐: 행 높이 자동 확장 */
+.wrap-text-in-cells .data-row {
+  height: auto;
+  min-height: var(--row-height, 20px);
+  align-items: flex-start;
+}
+
 .data-header {
   display: grid;
   align-items: center;
@@ -143,11 +150,20 @@
 }
 
 .data-cell {
-  @apply px-2.5 text-[13px] truncate flex items-center h-full;
+  @apply px-2.5 text-[13px] flex items-center min-h-full truncate;
   font-family: var(--font-sans);
   font-weight: 500;
   padding-top: calc(var(--cell-padding, 4px));
   padding-bottom: calc(var(--cell-padding, 4px));
+}
+
+/* 줄바꿈 켜짐: 말줄임 대신 줄바꿈 */
+.wrap-text-in-cells .data-cell {
+  @apply break-words;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
 
 /* Modals (use keyframes to avoid Tailwind v4 missing animate-in/fade-in/zoom-in) */
@@ -174,4 +190,89 @@
 /* TaskModal: 의존성 다중선택 - 선택된 옵션 강조 */
 .dependency-select option:checked {
   @apply bg-indigo-100 text-indigo-800 font-medium;
+}
+
+/* ========== 모바일 가독성·UX 개선 ========== */
+@media (max-width: 768px) {
+  /* iOS: input 16px 미만 시 포커스 시 자동 줌 방지 */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* 터치 영역 확대: 최소 44px 권장 */
+  .btn-primary, .btn-secondary, .btn-ghost {
+    min-height: 44px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .input-field {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 16px;
+  }
+
+  /* 표 셀·헤더 가독성 */
+  .data-cell {
+    font-size: 14px;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .data-row {
+    min-height: 44px;
+    height: max(var(--row-height, 20px), 44px);
+    align-items: center;
+  }
+
+  .col-header {
+    font-size: 11px;
+    padding: 10px 12px;
+  }
+
+  /* 모달 모바일 대응 */
+  .modal-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    max-height: 90vh;
+    border-radius: 1rem 1rem 0 0;
+  }
+
+  /* 터치 시 파란 하이라이트 제거 */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 헤더 아이콘 버튼 터치 영역 확대 */
+  header button[title] {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px;
+  }
+
+  /* 리스트 뷰: 모바일에서는 테이블만 전체 폭 표시 */
+  .list-split-view .list-table-pane {
+    width: 100% !important;
+  }
+}
+
+/* 세이프에리어: 노치·홈 인디케이터 대응 */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .safe-top {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  /* fixed 하단 요소(토스트 등) 세이프에리어 */
+  .fixed-bottom-safe {
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
 }

@@ -6,7 +6,7 @@ import { ALLOCATION_OPTIONS } from '../lib/schedule';
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (name: string, description: string, startDate?: string, assignments?: ProjectAssignment[]) => void;
+  onSave: (name: string, description: string, startDate?: string, endDate?: string, assignments?: ProjectAssignment[], minWorkEffortDays?: number) => void;
   project?: Project | null;
 }
 
@@ -14,7 +14,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  const [minWorkEffortDays, setMinWorkEffortDays] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
@@ -22,12 +24,16 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
         setName(project.name);
         setDescription(project.description || '');
         setStartDate(project.startDate || '');
+        setEndDate(project.endDate || '');
         setAssignments(project.assignments?.length ? [...project.assignments] : []);
+        setMinWorkEffortDays(project.minWorkEffortDays != null ? String(project.minWorkEffortDays) : '');
       } else {
         setName('');
         setDescription('');
         setStartDate('');
+        setEndDate('');
         setAssignments([]);
+        setMinWorkEffortDays('');
       }
     }
   }, [isOpen, project]);
@@ -55,7 +61,16 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onSave(name, description, startDate || undefined, assignments.length > 0 ? assignments : undefined);
+    if (startDate && endDate && startDate > endDate) {
+      alert('종료일은 시작일보다 이후여야 합니다.');
+      return;
+    }
+    const parsedMin = minWorkEffortDays.trim() ? parseFloat(minWorkEffortDays) : undefined;
+    if (parsedMin !== undefined && (Number.isNaN(parsedMin) || parsedMin < 0)) {
+      alert('최소 공수 기준은 0 이상의 숫자를 입력해 주세요.');
+      return;
+    }
+    onSave(name, description, startDate || undefined, endDate || undefined, assignments.length > 0 ? assignments : undefined, parsedMin);
     onClose();
   };
 
@@ -110,17 +125,46 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                프로젝트 시작일
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
+                프로젝트 종료일
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="input-field"
+              />
+            </div>
+          </div>
+          <p className="text-[10px] text-stone-400 -mt-2">WBS 작업은 이 기간 범위를 벗어날 수 없습니다. (선택 사항)</p>
+
           <div>
             <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-              프로젝트 시작일
+              작업 최소 공수 기준 (일)
             </label>
             <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              type="number"
+              min="0"
+              step="0.5"
+              value={minWorkEffortDays}
+              onChange={(e) => setMinWorkEffortDays(e.target.value)}
               className="input-field"
+              placeholder="예: 0.5, 1, 3 (선택 사항)"
             />
-            <p className="text-[10px] text-stone-400 mt-1">프로젝트의 시작 날짜를 설정하세요 (선택 사항)...</p>
+            <p className="text-[10px] text-stone-400 mt-1">WBS 작업 세부 분류에 사용됩니다. 0.5d, 1d, 3d 등 숫자로 입력.</p>
           </div>
 
           <div>
@@ -128,7 +172,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
               <UserPlus size={12} />
               프로젝트 투입인원 (투입비율)
             </label>
-            <p className="text-[10px] text-stone-400 mb-2">이 프로젝트에 투입되는 인원과 비율을 설정합니다. 작업별 기간·공수 계산에 적용됩니다.</p>
+            <p className="text-[10px] text-stone-400 mb-2">이 프로젝트에 투입되는 인원과 비율을 설정합니다. 작업별 기간·공수 계산에 적용됩니다. 담당자 이름은 프로젝트 내에서만 사용되며 필요 시 수정할 수 있습니다.</p>
             <div className="space-y-2">
               {assignments.map((a, i) => (
                 <div key={i} className="flex items-center gap-2">

@@ -26,8 +26,10 @@ export interface ProjectRow {
   name: string;
   description: string | null;
   start_date: string | null;
+  end_date: string | null;
   assignments: ProjectAssignmentRow[] | null;
   owner_id?: string | null;
+  min_work_effort_days?: number | null;
   created_at?: string;
 }
 

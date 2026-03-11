@@ -3,7 +3,7 @@ import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, randomUUID } from '../lib/utils';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: any) => void }) {
@@ -162,7 +162,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
             // 세션당 하루 1회만 기록
             let sessionId = sessionStorage.getItem('wbs-visit-session-id');
             if (!sessionId) {
-                sessionId = crypto.randomUUID();
+                sessionId = randomUUID();
                 sessionStorage.setItem('wbs-visit-session-id', sessionId);
             }
 

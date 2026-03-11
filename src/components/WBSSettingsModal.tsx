@@ -27,7 +27,8 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     const { levelColors, setLevelColors } = useLevelColors();
 
     const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
-    const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath !== false);
+    const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath === true);
+    const [wrapTextInCells, setWrapTextInCells] = useState(wbsSettings.wrapTextInCells === true);
     const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
     const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
     const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
@@ -89,7 +90,8 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
     useEffect(() => {
         if (isOpen) {
             setAppTitle(wbsSettings.appTitle);
-            setShowCriticalPath(wbsSettings.showCriticalPath !== false);
+            setShowCriticalPath(wbsSettings.showCriticalPath === true);
+            setWrapTextInCells(wbsSettings.wrapTextInCells === true);
             setLevel1(wbsSettings.level1Prefix);
             setLevel2(wbsSettings.level2Prefix);
             setLevel3(wbsSettings.level3Prefix);
@@ -131,6 +133,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
         updateWbsSettings({
             appTitle: appTitle.trim(),
             showCriticalPath,
+            wrapTextInCells,
             level1Prefix: level1.trim(),
             level2Prefix: level2.trim(),
             level3Prefix: level3.trim(),
@@ -196,6 +199,19 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                     </label>
                                 </div>
                                 <p className="text-[10px] text-stone-400 leading-relaxed">간트 차트·작업표에서 크리티컬 패스 작업을 빨간색으로 강조합니다.</p>
+                                <div className="flex items-center gap-3 mt-4">
+                                    <input
+                                        type="checkbox"
+                                        id="wrapTextInCells"
+                                        checked={wrapTextInCells}
+                                        onChange={(e) => setWrapTextInCells(e.target.checked)}
+                                        className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="wrapTextInCells" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
+                                        셀 텍스트 줄바꿈
+                                    </label>
+                                </div>
+                                <p className="text-[10px] text-stone-400 leading-relaxed">켜면 긴 텍스트가 줄바꿈되고, 행 높이가 내용에 맞게 자동으로 늘어납니다. 표·간트 동시 보기에서도 행 높이가 동기화됩니다.</p>
                             </div>
 
                             {/* WBS ID Settings */}

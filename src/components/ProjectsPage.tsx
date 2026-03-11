@@ -10,6 +10,7 @@ import {
   Trash2,
   Edit,
   Share2,
+  Copy,
   List,
   ChevronRight,
 } from 'lucide-react';
@@ -23,7 +24,7 @@ interface ProjectsPageProps {
 
 export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { user } = useAuth();
-  const { projects, allTasks, addProject, updateProject, deleteProject, setCurrentProjectId } = useWBS();
+  const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId } = useWBS();
   const { push: pushToast } = useToast();
 
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
@@ -79,12 +80,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return Array.from(byKey.values());
   }, [projects, taskCountByProject]);
 
-  const handleSaveProject = (name: string, description: string, startDate?: string, assignments?: Project['assignments']) => {
+  const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description, startDate, assignments });
+      updateProject(editingProject.id, { name, description, startDate, endDate, assignments, minWorkEffortDays });
       setEditingProject(null);
     } else {
-      addProject(name, description, startDate, assignments);
+      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays);
     }
     setIsProjectModalOpen(false);
   };
@@ -228,6 +229,13 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                       title="공유"
                     >
                       <Share2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => { copyProject(project.id); onNavigateToWork?.(); }}
+                      className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                      title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
+                    >
+                      <Copy size={16} />
                     </button>
                     <button
                       onClick={() => { setEditingProject(project); setIsProjectModalOpen(true); }}
