@@ -101,10 +101,13 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName }: Audit
               <tbody>
                 {entries.map(entry => {
                   const changeSummary = formatChangeSummary(entry.changes);
+                  const createdAt = new Date(entry.created_at);
+                  const createdAtFull = format(createdAt, 'yyyy.MM.dd HH:mm', { locale: ko });
+                  const createdAtDateOnly = format(createdAt, 'yyyy.MM.dd', { locale: ko });
                   return (
                     <tr key={entry.id} className="border-b border-stone-100 hover:bg-stone-50/50">
-                      <td className="py-2 px-2 text-stone-600 whitespace-nowrap">
-                        {format(new Date(entry.created_at), 'yyyy.MM.dd HH:mm', { locale: ko })}
+                      <td className="py-2 px-2 text-stone-600 whitespace-nowrap" title={createdAtFull}>
+                        {createdAtDateOnly}
                       </td>
                       <td className="py-2 px-2 text-stone-700">{entry.user_display ?? '—'}</td>
                       <td className="py-2 px-2 text-stone-600">{ENTITY_LABEL[entry.entity_type]}</td>

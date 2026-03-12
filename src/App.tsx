@@ -54,6 +54,20 @@ function formatCommitDate(value: string) {
   }
 }
 
+function formatCommitDateDateOnly(value: string) {
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleDateString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  } catch {
+    return value;
+  }
+}
+
 interface NavButtonProps {
   active: boolean;
   onClick: () => void;
@@ -98,7 +112,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
-  const [isDbSyncOpen, setIsDbSyncOpen] = useState(false);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
@@ -113,8 +126,22 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(() => sessionStorage.getItem('wbs-local-save-banner-dismissed') === '1');
   const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => sessionStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  // 메뉴(탭) 숨김: 기본으로 2개(대시보드/투입현황) 숨김.
+  // 필요 시 Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정해 덮어쓸 수 있음.
+  const hiddenViews = React.useMemo(() => {
+    const raw = (import.meta as any)?.env?.VITE_HIDDEN_VIEWS as string | undefined;
+    const value = typeof raw === 'string' && raw.trim().length > 0 ? raw : 'dashboard,allocation';
+    return new Set(
+      value
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+    );
+  }, []);
+
   const {
     addTask,
     addTasks,
@@ -147,6 +174,20 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     isLoading,
   } = useWBS();
 
+  const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
+  const initialSnapshotRef = useRef<{ projects: Project[]; allTasks: Task[] } | null>(null);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!initialSnapshotRef.current) {
+      initialSnapshotRef.current = { projects, allTasks };
+      return;
+    }
+    if (initialSnapshotRef.current.projects !== projects || initialSnapshotRef.current.allTasks !== allTasks) {
+      setHasUnsyncedChanges(true);
+    }
+  }, [projects, allTasks, isLoading]);
+
   const { push: pushToast, tipOnce } = useToast();
   const prevAIBusyRef = useRef(false);
 
@@ -161,6 +202,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       setFilters(prev => ({ ...prev, projectId: 'all' }));
     }
   }, [isLoading, projects.length]);
+
+  // 숨겨진 메뉴(view)로 진입한 경우 안전하게 기본 화면으로 이동
+  useEffect(() => {
+    if (hiddenViews.has(view)) setView('list');
+  }, [hiddenViews, view]);
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -468,6 +514,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
   const [isDeleteChoiceOpen, setIsDeleteChoiceOpen] = useState(false);
 
+  const selectProject = useCallback((projectId: string) => {
+    setCurrentProjectId(projectId);
+    setView('list'); // 프로젝트 선택 시 기본 "전체" 보기로 전환
+  }, [setCurrentProjectId]);
+
   // Filter on/off (when on, filter bar and filters apply)
   const [filterOn, setFilterOn] = useState(false);
 
@@ -581,12 +632,13 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   };
 
   const executeDbSync = async (scope: 'current' | 'all') => {
-    setIsDbSyncOpen(false);
     setIsDbSyncing(true);
     pushToast('DB에 반영 중입니다...', { variant: 'info', id: 'db-sync', durationMs: 8000 });
     try {
       await syncToDb(scope);
       pushToast('DB에 반영되었습니다.', { variant: 'success', id: 'db-sync', durationMs: 4000 });
+      setHasUnsyncedChanges(false);
+      initialSnapshotRef.current = { projects, allTasks };
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'DB 반영에 실패했습니다.';
       pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
@@ -594,6 +646,25 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       setIsDbSyncing(false);
     }
   };
+
+  // Ctrl+S: DB 반영 (로컬 저장은 자동, 단축키는 공유/반영용)
+  useEffect(() => {
+    const handleSaveHotkey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== 's') return;
+
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if (isDbSyncing) return;
+
+      e.preventDefault();
+      const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
+      void executeDbSync(scope);
+    };
+    window.addEventListener('keydown', handleSaveHotkey);
+    return () => window.removeEventListener('keydown', handleSaveHotkey);
+  }, [currentProjectId, isDbSyncing, executeDbSync]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -759,6 +830,26 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     ? filters
     : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false };
 
+  const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
+
+  const requestRefresh = useCallback(() => {
+    if (hasUnsyncedChanges) {
+      setIsRefreshConfirmOpen(true);
+    } else {
+      window.location.reload();
+    }
+  }, [hasUnsyncedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsyncedChanges) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsyncedChanges]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--color-bg)] font-sans text-[var(--color-ink)] gap-5">
@@ -782,8 +873,8 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         {/* 모바일 접힌 상태: 최소 바 */}
         <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
           <div className="flex items-center gap-2 min-w-0">
-            <button type="button" onClick={() => window.location.reload()} className="shrink-0">
-              <img src={logo} alt="GMT Logo" className="w-7 h-7 object-contain" />
+            <button type="button" onClick={requestRefresh} className="shrink-0">
+              <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain" />
             </button>
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
           </div>
@@ -800,10 +891,10 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         <div className="flex items-center gap-4">
           <div
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => window.location.reload()}
+            onClick={requestRefresh}
             title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
           >
-            <img src={logo} alt="GMT Logo" className="w-8 h-8 object-contain" />
+            <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain" />
           </div>
           <div>
             <div className="flex items-baseline gap-2">
@@ -819,7 +910,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                 <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
                 <span>v{__APP_VERSION__}</span>
                 <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
-                  · 수정일 {formatCommitDate(__APP_COMMIT_DATE__)}
+                  · 수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}
                 </span>
               </button>
             </div>
@@ -872,7 +963,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                           currentProjectId === 'all' ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
                         )}
                         onClick={() => {
-                          setCurrentProjectId('all');
+                          selectProject('all');
                           setIsProjectDropdownOpen(false);
                         }}
                         title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
@@ -902,7 +993,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                                 currentProjectId === project.id ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
                               )}
                               onClick={() => {
-                                setCurrentProjectId(project.id);
+                                selectProject(project.id);
                                 setIsProjectDropdownOpen(false);
                               }}
                             >
@@ -961,7 +1052,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
+        <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
           {/* 툴바: 되돌리기 / 다시실행 */}
           <div className="flex items-center gap-0.5 mr-1">
             <button
@@ -983,10 +1074,16 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           </div>
           <div className="toolbar-divider hidden md:block" />
           {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
-          <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
-            <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
-            <NavButton active={view === 'projects'} onClick={() => navigateWithTip('projects')} icon={<Briefcase size={14} />} label="프로젝트" title="프로젝트 관리: 생성·편집·공유·일괄 삭제를 할 수 있습니다." />
-            <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
+          <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
+            {!hiddenViews.has('dashboard') && (
+              <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
+            )}
+            {!hiddenViews.has('projects') && (
+              <NavButton active={view === 'projects'} onClick={() => navigateWithTip('projects')} icon={<Briefcase size={14} />} label="프로젝트" title="프로젝트 관리: 생성·편집·공유·일괄 삭제를 할 수 있습니다." />
+            )}
+            {!hiddenViews.has('allocation') && (
+              <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
+            )}
             <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
             <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
             <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
@@ -1005,16 +1102,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
               title={isAIBusy ? "AI 분석 중..." : "AI 프로젝트 분석"}
             >
               {isAIBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            </button>
-            <button
-              onClick={() => {
-                setIsVersionHistoryOpen(true);
-                tipOnce('menu.version', '버전 히스토리에서 변경 이력을 확인할 수 있어요.');
-              }}
-              className="icon-btn text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-              title={`버전 히스토리 (현재 v${__APP_VERSION__})`}
-            >
-              <History size={15} />
             </button>
             {effectiveIsAdmin && (
               <button
@@ -1112,7 +1199,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
             </div>
 
             <button
-              onClick={() => setIsDbSyncOpen(true)}
+              onClick={() => {
+                if (isDbSyncing) return;
+                const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
+                void executeDbSync(scope);
+              }}
               disabled={isDbSyncing}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-all",
@@ -1152,13 +1243,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           <div className="toolbar-divider" />
 
           <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="icon-btn text-slate-500 hover:text-[var(--color-ink)]"
-            title={isFullscreen ? '전체화면 해제' : '전체화면'}
-          >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-          <button
             onClick={() => {
               setIsModalOpen(true);
               tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
@@ -1180,11 +1264,21 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       </header>
       )}
 
-      {!isFullscreen && (
+      {!isFullscreen && !isLocalSaveBannerDismissed && (
         <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
           <span>
             기본 저장은 <strong>로컬</strong>입니다. 변경사항을 서버에 공유하려면 <strong>DB 반영</strong> 버튼을 눌러주세요.
           </span>
+          <button
+            onClick={() => {
+              setIsLocalSaveBannerDismissed(true);
+              sessionStorage.setItem('wbs-local-save-banner-dismissed', '1');
+            }}
+            className="ml-1 p-1 rounded-md hover:bg-sky-200/50 text-sky-500 hover:text-sky-800 transition-colors"
+            title="닫기"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
       {/* 백업 안내 배너 */}
@@ -1220,7 +1314,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
               value={filters.projectId}
               onChange={(e) => {
                 const pid = e.target.value;
-                setCurrentProjectId(pid);
+                selectProject(pid);
                 setFilters(f => ({ ...f, projectId: pid }));
               }}
               className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all max-w-[220px]"
@@ -1592,6 +1686,23 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
+      <ConfirmDialog
+        isOpen={isRefreshConfirmOpen}
+        onClose={() => setIsRefreshConfirmOpen(false)}
+        onConfirm={async () => {
+          const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
+          try {
+            await executeDbSync(scope);
+          } finally {
+            setIsRefreshConfirmOpen(false);
+            window.location.reload();
+          }
+        }}
+        title="새로고침 전 DB 저장"
+        message="DB(서버)에 반영되지 않은 변경사항이 있을 수 있습니다. DB에 저장한 뒤 새로고침하시겠습니까? (취소를 누르면 현재 화면에 머무릅니다.)"
+        confirmLabel="DB 저장 후 새로고침"
+        isDanger={false}
+      />
       <ShareModal
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
@@ -1644,60 +1755,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
         onExport={handleExportFromModal}
       />
-
-      {isDbSyncOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content max-w-md">
-            <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/30">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
-                  <Check className="text-emerald-600" size={18} />
-                </div>
-                <h2 className="text-lg font-bold text-[var(--color-ink)]">DB에 반영</h2>
-              </div>
-              <button onClick={() => setIsDbSyncOpen(false)} className="icon-btn text-slate-400 hover:text-slate-700">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 space-y-3">
-              <p className="text-sm text-slate-600 leading-relaxed">
-                로컬에 저장된 변경사항을 DB(Supabase)에 반영합니다. 병합 기준은 <strong>ID</strong>이며, 로컬에서 삭제한 작업도 DB에서 삭제됩니다.
-              </p>
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => executeDbSync('current')}
-                  disabled={currentProjectId === 'all' || !currentProjectId}
-                  className={cn(
-                    "w-full text-left px-4 py-3 rounded-xl border font-medium text-sm transition-colors",
-                    (currentProjectId === 'all' || !currentProjectId)
-                      ? "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
-                      : "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-700"
-                  )}
-                >
-                  <span className="block font-semibold">현재 프로젝트만 반영</span>
-                  <span className="block text-xs mt-0.5 opacity-80">
-                    {currentProjectId === 'all' ? '전체 보기 상태에서는 사용할 수 없습니다.' : '현재 선택한 프로젝트의 작업만 DB에 반영합니다.'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => executeDbSync('all')}
-                  className="w-full text-left px-4 py-3 rounded-xl border border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100 text-emerald-700 font-medium text-sm transition-colors"
-                >
-                  <span className="block font-semibold">전체 프로젝트 반영</span>
-                  <span className="block text-xs text-emerald-700/80 mt-0.5">로컬의 모든 프로젝트/작업/설정을 DB에 반영합니다.</span>
-                </button>
-              </div>
-            </div>
-            <div className="flex justify-end p-5 border-t border-slate-100 bg-slate-50/30">
-              <button type="button" onClick={() => setIsDbSyncOpen(false)} className="btn-ghost">
-                취소
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .xlsm" multiple className="hidden" />
       <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" multiple className="hidden" />

@@ -400,6 +400,91 @@ function stripIfKnownOptionalTaskColumn(row: TaskRow, columnName: string | null)
   return stripTaskOptionalColumns(row, [col]);
 }
 
+async function retryTaskRowsWithOptionalColumnFallback<T>(
+  rows: TaskRow[],
+  op: (payload: TaskRow[]) => Promise<{ error: any; data?: T }>
+): Promise<{ error: any; data?: T }> {
+  // PGRST204는 스키마 캐시 기준 "없는 컬럼"을 payload에 포함하면 발생.
+  // 환경마다 누락 컬럼이 1개 이상일 수 있어, 알려진 optional 컬럼은 순차적으로 제거하며 재시도한다.
+  let currentRows = rows;
+  const stripped = new Set<string>();
+  for (let attempt = 0; attempt < TASK_OPTIONAL_DB_COLUMNS.size + 1; attempt++) {
+    const res = await op(currentRows);
+    const err = res.error as { code?: string; message?: string } | null | undefined;
+    if (!err) return res;
+    const missing = getMissingColumnNameFromPgrst204(err);
+    const col = (missing ?? '').toLowerCase();
+    if (!col || !TASK_OPTIONAL_DB_COLUMNS.has(col) || stripped.has(col)) {
+      return res;
+    }
+    stripped.add(col);
+    currentRows = currentRows.map(r => stripTaskOptionalColumns(r, [col]));
+  }
+  return op(currentRows);
+}
+
+function orderTaskRowsParentsFirst(rows: TaskRow[]): TaskRow[] {
+  // tasks.parent_id has FK to tasks.id, so inserts must ensure parent exists.
+  // This orders rows so that any parent row comes before its children (stable by original order).
+  const byId = new Map<string, TaskRow>();
+  const originalIndex = new Map<string, number>();
+  rows.forEach((r, i) => {
+    byId.set(r.id, r);
+    originalIndex.set(r.id, i);
+  });
+
+  const childrenByParent = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  for (const r of rows) {
+    indegree.set(r.id, 0);
+  }
+
+  for (const r of rows) {
+    const pid = r.parent_id;
+    if (!pid) continue;
+    if (!byId.has(pid)) continue; // parent outside this payload -> ignore ordering constraint
+    childrenByParent.set(pid, [...(childrenByParent.get(pid) ?? []), r.id]);
+    indegree.set(r.id, (indegree.get(r.id) ?? 0) + 1);
+  }
+
+  const zero: string[] = rows
+    .map(r => r.id)
+    .filter(id => (indegree.get(id) ?? 0) === 0)
+    .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+
+  const outIds: string[] = [];
+  const queue = [...zero];
+  while (queue.length) {
+    const id = queue.shift()!;
+    outIds.push(id);
+    const kids = (childrenByParent.get(id) ?? []).slice().sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
+    for (const childId of kids) {
+      const next = (indegree.get(childId) ?? 0) - 1;
+      indegree.set(childId, next);
+      if (next === 0) {
+        // Insert while keeping overall stability
+        const insertAt = queue.findIndex(x => (originalIndex.get(x) ?? 0) > (originalIndex.get(childId) ?? 0));
+        if (insertAt === -1) queue.push(childId);
+        else queue.splice(insertAt, 0, childId);
+      }
+    }
+  }
+
+  // If cycles or anything unexpected, fall back to original order to avoid dropping data.
+  if (outIds.length !== rows.length) return rows;
+  return outIds.map(id => byId.get(id)!).filter(Boolean);
+}
+
+async function getAuthedUserId(): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertProject(project: Project): Promise<void> {
   requireSupabase();
   const existing = await supabase!
@@ -423,9 +508,16 @@ export async function upsertProject(project: Project): Promise<void> {
       throw error;
     }
   } else {
-    const { error } = await supabase!.from('projects').insert(row);
+    // 백업/가져오기 데이터에는 ownerId가 타 사용자로 들어있을 수 있음.
+    // RLS projects_insert는 owner_id = auth.uid()를 요구하므로,
+    // 신규 INSERT 시에는 현재 로그인 사용자를 owner로 강제한다.
+    const authedUserId = await getAuthedUserId();
+    const insertRow = { ...row, owner_id: authedUserId ?? row.owner_id };
+    const { error } = await supabase!.from('projects').insert(insertRow);
     if (error && isAssignmentsSchemaError(error)) {
-      const { error: err2 } = await supabase!.from('projects').insert(toProjectRowMinimal(project) as any);
+      const minimal = toProjectRowMinimal(project) as any;
+      const minimalWithOwner = authedUserId ? { ...minimal, owner_id: authedUserId } : minimal;
+      const { error: err2 } = await supabase!.from('projects').insert(minimalWithOwner);
       if (err2) throw err2;
     } else if (error) {
       throw error;
@@ -520,18 +612,34 @@ const TASKS_UPSERT_BATCH_SIZE = 50;
 export async function upsertTasks(tasks: Task[]): Promise<void> {
   if (tasks.length === 0) return;
   requireSupabase();
-  for (let i = 0; i < tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
-    const chunk = tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
-    const rows = chunk.map((t, j) => toTaskRow(t, i + j));
-    let { error } = await supabase!.from('tasks').upsert(rows);
-    if (error) {
-      const missing = getMissingColumnNameFromPgrst204(error);
-      if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
-        const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
-        const retry = await supabase!.from('tasks').upsert(minimalRows);
-        error = retry.error;
-      }
-    }
+  // PostgREST upsert can fail with 409 if the same conflict target (e.g. id) appears multiple times in one payload.
+  // Defensive: dedupe by task.id (keep last occurrence), while preserving the caller's relative order for sort_order.
+  const byId = new Map<string, Task>();
+  for (const t of tasks) {
+    if (!t?.id) continue;
+    byId.set(t.id, t);
+  }
+  const uniqueTasks: Task[] = [];
+  const seen = new Set<string>();
+  for (let i = tasks.length - 1; i >= 0; i--) {
+    const id = tasks[i]?.id;
+    if (!id || seen.has(id)) continue;
+    const latest = byId.get(id);
+    if (latest) uniqueTasks.push(latest);
+    seen.add(id);
+  }
+  uniqueTasks.reverse();
+
+  // Preserve caller's sort order, but insert/upsert with parents first to satisfy FK on parent_id.
+  const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
+  const orderedRows = orderTaskRowsParentsFirst(desiredRows);
+
+  for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
+    const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+    const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
+      const res = await supabase!.from('tasks').upsert(payload);
+      return { error: res.error };
+    });
     if (error) throw error;
   }
   const projectId = tasks[0]?.projectId ?? null;
@@ -993,18 +1101,31 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
   }
 
   if (data.tasks.length > 0) {
-    for (let i = 0; i < data.tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
-      const chunk = data.tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
-      const rows = chunk.map((t, j) => toTaskRow(t, i + j));
-      let { error } = await supabase!.from('tasks').insert(rows);
-      if (error) {
-        const missing = getMissingColumnNameFromPgrst204(error);
-        if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
-          const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
-          const retry = await supabase!.from('tasks').insert(minimalRows);
-          error = retry.error;
-        }
-      }
+    // Preserve backup order for sort_order, but insert parents first for FK.
+    const byId = new Map<string, Task>();
+    for (const t of data.tasks) {
+      if (!t?.id) continue;
+      byId.set(t.id, t);
+    }
+    const uniqueTasks: Task[] = [];
+    const seen = new Set<string>();
+    for (let i = data.tasks.length - 1; i >= 0; i--) {
+      const id = data.tasks[i]?.id;
+      if (!id || seen.has(id)) continue;
+      const latest = byId.get(id);
+      if (latest) uniqueTasks.push(latest);
+      seen.add(id);
+    }
+    uniqueTasks.reverse();
+
+    const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
+    const orderedRows = orderTaskRowsParentsFirst(desiredRows);
+    for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
+      const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+      const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
+        const res = await supabase!.from('tasks').insert(payload);
+        return { error: res.error };
+      });
       if (error) throw error;
     }
   }

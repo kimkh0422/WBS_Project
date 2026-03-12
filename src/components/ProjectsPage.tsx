@@ -22,6 +22,8 @@ interface ProjectsPageProps {
   onNavigateToWork?: (projectId?: string) => void;
 }
 
+type ProjectSortKey = 'default' | 'task_desc' | 'task_asc';
+
 export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { user } = useAuth();
   const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId } = useWBS();
@@ -38,6 +40,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
 
   useEffect(() => {
     if (!user?.id) return;
@@ -94,6 +97,21 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     });
   }, [projects]);
 
+  const sortedProjects = useMemo(() => {
+    if (projectSort === 'default') return uniqueProjects;
+    const copy = [...uniqueProjects];
+    const dir = projectSort === 'task_asc' ? 1 : -1;
+    copy.sort((a, b) => {
+      const ac = taskCountByProject[a.id] ?? 0;
+      const bc = taskCountByProject[b.id] ?? 0;
+      if (ac !== bc) return (ac - bc) * dir;
+      const nameCmp = a.name.localeCompare(b.name, 'ko');
+      if (nameCmp !== 0) return nameCmp;
+      return a.id.localeCompare(b.id);
+    });
+    return copy;
+  }, [uniqueProjects, projectSort, taskCountByProject]);
+
   const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
     if (editingProject) {
       updateProject(editingProject.id, { name, description, startDate, endDate, assignments, minWorkEffortDays });
@@ -142,6 +160,13 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     setShareProjectName(project.name);
   };
 
+  const selectZeroTaskProjects = () => {
+    const emptyIds = uniqueProjects
+      .filter(p => (taskCountByProject[p.id] ?? 0) === 0)
+      .map(p => p.id);
+    setSelectedProjectIds(new Set(emptyIds));
+  };
+
   const handleNavigateToWork = (projectId?: string) => {
     if (projectId) setCurrentProjectId(projectId);
     onNavigateToWork?.(projectId);
@@ -173,6 +198,33 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             >
               {selectedProjectIds.size >= uniqueProjects.length ? '선택 해제' : '전체 선택'}
             </button>
+            <button
+              onClick={selectZeroTaskProjects}
+              disabled={uniqueProjects.every(p => (taskCountByProject[p.id] ?? 0) > 0)}
+              className={cn(
+                "text-xs font-medium",
+                uniqueProjects.every(p => (taskCountByProject[p.id] ?? 0) > 0)
+                  ? "text-stone-300 cursor-not-allowed"
+                  : "text-stone-500 hover:text-[var(--color-accent)]"
+              )}
+              title="작업이 0개인 프로젝트만 선택"
+            >
+              0개만 선택
+            </button>
+            <div className="h-4 w-px bg-stone-200/80" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-stone-400">정렬</span>
+              <select
+                value={projectSort}
+                onChange={(e) => setProjectSort(e.target.value as ProjectSortKey)}
+                className="px-2 py-1 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all"
+                title="프로젝트 정렬"
+              >
+                <option value="default">기본</option>
+                <option value="task_desc">작업 많은 순</option>
+                <option value="task_asc">작업 적은 순</option>
+              </select>
+            </div>
             {selectedProjectIds.size > 0 && (
               <button
                 onClick={() => setIsBulkDeleteConfirmOpen(true)}
@@ -199,7 +251,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               </button>
             </div>
           ) : (
-            uniqueProjects.map(project => (
+            sortedProjects.map(project => (
               <div
                 key={project.id}
                 className={cn(

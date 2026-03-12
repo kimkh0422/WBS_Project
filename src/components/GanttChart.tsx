@@ -70,6 +70,78 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
 
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === 'undefined') return 240;
+    const raw = window.localStorage.getItem('wbs:gantt:sidebarWidth');
+    const n = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(n)) return 240;
+    return Math.min(520, Math.max(180, Math.round(n)));
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('wbs:gantt:sidebarWidth', String(sidebarWidth));
+    } catch {
+      // ignore
+    }
+  }, [sidebarWidth]);
+
+  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleSidebarResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebarResizeRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth]);
+
+  // 완료 처리 규칙:
+  // - leaf(최하위) 작업: status === 'done' 이면 완료
+  // - 상위 작업: 하위 leaf 작업들이 모두 완료면 완료로 간주(흑백 처리)
+  const allLeafDoneById = useMemo(() => {
+    const byId = new Map(tasks.map(t => [t.id, t] as const));
+    const childrenByParent = new Map<string, string[]>();
+    for (const t of tasks) {
+      if (!t.parentId) continue;
+      const arr = childrenByParent.get(t.parentId) ?? [];
+      arr.push(t.id);
+      childrenByParent.set(t.parentId, arr);
+    }
+
+    const memo = new Map<string, boolean>();
+    const visiting = new Set<string>();
+
+    const dfs = (id: string): boolean => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      if (visiting.has(id)) return false; // cycle guard
+      visiting.add(id);
+
+      const task = byId.get(id);
+      if (!task) {
+        visiting.delete(id);
+        memo.set(id, false);
+        return false;
+      }
+
+      const children = childrenByParent.get(id) ?? [];
+      let result: boolean;
+      if (children.length === 0) {
+        result = task.status === 'done';
+      } else {
+        result = children.every(childId => dfs(childId));
+      }
+
+      visiting.delete(id);
+      memo.set(id, result);
+      return result;
+    };
+
+    for (const t of tasks) dfs(t.id);
+    return memo;
+  }, [tasks]);
+
   const formatMd = (iso: string) => {
     try {
       return format(parseISO(iso), 'M/d', { locale: ko });
@@ -221,6 +293,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
+      const resize = sidebarResizeRef.current;
+      if (resize) {
+        const next = resize.startWidth + (e.clientX - resize.startX);
+        setSidebarWidth(Math.min(520, Math.max(180, Math.round(next))));
+        return;
+      }
+
       const drag = dragStateRef.current;
       if (!drag) return;
 
@@ -262,6 +341,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      if (sidebarResizeRef.current) {
+        sidebarResizeRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        return;
+      }
+
       const drag = dragStateRef.current;
       if (drag) {
         const moved = Math.abs(e.clientX - drag.startX) > 10 || Math.abs(e.clientY - drag.startY) > 10;
@@ -345,9 +431,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     [dates]
   );
   const totalDays = differenceInDays(maxDate, minDate) + 1;
-  const sidebarWidth = hideSidebar ? 0 : 240;
+  const effectiveSidebarWidth = hideSidebar ? 0 : sidebarWidth;
   const containerWidth = containerRef.current?.clientWidth || window.innerWidth;
-  const availableWidth = containerWidth - sidebarWidth - 20;
+  const availableWidth = containerWidth - effectiveSidebarWidth - 20;
   const autoDayWidth = Math.max(2, totalDays > 0 ? Math.floor(availableWidth / totalDays) : 40);
   const autoZoomLevel = ZOOM_LEVELS.reduce((prev, curr) =>
     Math.abs(curr.dayWidth - autoDayWidth) < Math.abs(prev.dayWidth - autoDayWidth) ? curr : prev
@@ -633,6 +719,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const isSelected = selectedSet.has(task.id);
                 const preview = dragPreview?.get(task.id);
                 const isBeingDragged = !!preview;
+                const isDone = allLeafDoneById.get(task.id) === true;
                 const effectiveStartDate = preview?.startDate ?? task.startDate;
                 const effectiveEndDate = preview?.endDate ?? task.endDate;
                 const start = parseISO(effectiveStartDate);
@@ -644,8 +731,6 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const depth = task.depth ?? 0;
                 const level = depth + 1;
                 const isCritical = effectiveCriticalPathSet.has(task.id);
-                const statusColors = { todo: 'bg-stone-300 border-stone-400', 'in-progress': 'bg-blue-500 border-blue-600', done: 'bg-emerald-500 border-emerald-600', blocked: 'bg-red-500 border-red-600' };
-                const barColor = statusColors[task.status] || statusColors.todo;
                 const effortText = formatEffort(task.workEffort);
                 const rowH = effectiveRowHeights[index];
                 return (
@@ -660,6 +745,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       onMouseDown={(e) => handleBarMouseDown(e, task)}
                       className={cn(
                         "absolute top-0 rounded shadow-sm overflow-hidden transition-all border",
+                        isDone && "gantt-completed",
                         isCritical && "ring-2 ring-red-500 border-red-600",
                         isSelected && !isBeingDragged && !isCritical ? "ring-2 ring-blue-300/80" : "",
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
@@ -720,15 +806,20 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           <div className="flex sticky top-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">
             {/* Sidebar Header */}
             {!hideSidebar && (
-              <div className="flex-shrink-0 border-r border-[var(--color-line)] bg-stone-100/90 backdrop-blur p-3 font-bold text-xs uppercase flex items-end sticky left-0 z-50 text-stone-500" style={{ width: sidebarWidth, height: 60 }}>
+              <div className="relative flex-shrink-0 border-r border-[var(--color-line)] bg-stone-100/90 backdrop-blur p-3 font-bold text-xs uppercase flex items-end sticky left-0 z-50 text-stone-500" style={{ width: sidebarWidth, height: 60 }}>
                 <div className="flex items-end w-full">
                   <span>작업</span>
                 </div>
+                <div
+                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-indigo-400/20"
+                  onMouseDown={handleSidebarResizeMouseDown}
+                  title="왼쪽 너비 조절"
+                />
               </div>
             )}
 
             {/* Timeline Header */}
-            <div className="relative" style={{ width: Math.max(totalWidth, containerWidth - sidebarWidth), height: 60 }}>
+            <div className="relative" style={{ width: Math.max(totalWidth, containerWidth - effectiveSidebarWidth), height: 60 }}>
               {/* Zoom Controls */}
               <div className="absolute right-2 top-2 z-50 flex gap-1 bg-white/95 backdrop-blur shadow-sm border border-stone-200 rounded-lg p-1">
                 <button
@@ -773,7 +864,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           <div className="flex relative">
             {/* Left Column (Task Names) */}
             {!hideSidebar && (
-              <div className="flex-shrink-0 border-r border-[var(--color-line)] bg-white sticky left-0 z-30 lg:block md:hidden hidden" style={{ width: sidebarWidth }}>
+              <div className="relative flex-shrink-0 border-r border-[var(--color-line)] bg-white sticky left-0 z-30 lg:block md:hidden hidden" style={{ width: sidebarWidth }}>
                 {visibleTasks.map((t, index) => {
                   const depth = t.depth ?? 0;
                   const level = depth + 1;
@@ -789,6 +880,11 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                     </div>
                   );
                 })}
+                <div
+                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-indigo-400/20"
+                  onMouseDown={handleSidebarResizeMouseDown}
+                  title="왼쪽 너비 조절"
+                />
               </div>
             )}
 
@@ -848,6 +944,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 const depth = task.depth ?? 0;
                 const level = depth + 1;
                 const isCritical = effectiveCriticalPathSet.has(task.id);
+                const isDone = allLeafDoneById.get(task.id) === true;
                 const effortText = formatEffort(task.workEffort);
                 const rowH = effectiveRowHeights[index] ?? ROW_HEIGHT;
 
@@ -864,6 +961,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       onMouseDown={(e) => handleBarMouseDown(e, task)}
                       className={cn(
                         "absolute top-0 overflow-hidden transition-all",
+                        isDone && "gantt-completed",
                         isMilestone
                           ? "rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm"
                           : "rounded shadow-sm border",

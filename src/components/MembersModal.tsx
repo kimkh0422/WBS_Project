@@ -205,13 +205,21 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted, onAppr
                     </td>
                     <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
                     <td className="py-3 px-2 text-stone-500">
-                      {m.created_at ? format(new Date(m.created_at), 'yyyy-MM-dd HH:mm') : '-'}
+                      {m.created_at ? (
+                        <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
+                          {format(new Date(m.created_at), 'yyyy-MM-dd')}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td className="py-3 px-2 text-stone-600 tabular-nums">
                       {m.login_count != null ? m.login_count : '-'}
                     </td>
                     <td className="py-3 px-2 text-stone-500">
-                      {m.last_visited_at ? format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm') : '-'}
+                      {m.last_visited_at ? (
+                        <span title={format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm')}>
+                          {format(new Date(m.last_visited_at), 'yyyy-MM-dd')}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td className="py-3 px-2">
                       {m.approved ? (

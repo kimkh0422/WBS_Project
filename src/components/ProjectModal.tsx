@@ -123,7 +123,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60">
+      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60 max-h-[calc(100vh-2rem)] flex flex-col">
         <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-white/40">
           <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-ink)]">
             {project ? '프로젝트 수정' : '새 프로젝트'}
@@ -133,7 +133,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           <div>
             <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
               프로젝트 이름 <span className="text-red-500">*</span>
@@ -273,23 +273,28 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
             </button>
           </div>
 
-          <div className="flex justify-end gap-3 pt-6 border-t border-slate-200/50 mt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-ghost"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={!name.trim()}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {project ? '저장' : '프로젝트 생성'}
-            </button>
-          </div>
         </form>
+
+        <div className="flex justify-end gap-3 p-6 border-t border-slate-200/50 bg-white/60 backdrop-blur sticky bottom-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              handleSubmit(e as unknown as React.FormEvent);
+            }}
+            disabled={!name.trim()}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {project ? '저장' : '프로젝트 생성'}
+          </button>
+        </div>
       </div>
     </div>
   );

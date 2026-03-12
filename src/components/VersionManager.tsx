@@ -54,6 +54,20 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
         try {
             const d = new Date(__APP_COMMIT_DATE__);
             if (Number.isNaN(d.getTime())) return __APP_COMMIT_DATE__;
+            return d.toLocaleDateString('ko-KR', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+        } catch {
+            return __APP_COMMIT_DATE__;
+        }
+    })();
+
+    const commitDateFullText = (() => {
+        try {
+            const d = new Date(__APP_COMMIT_DATE__);
+            if (Number.isNaN(d.getTime())) return __APP_COMMIT_DATE__;
             return d.toLocaleString('ko-KR', {
                 year: 'numeric',
                 month: '2-digit',
@@ -78,7 +92,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
                         <div>
                             <h2 className="text-lg font-bold text-stone-800">버전 히스토리</h2>
                             <p className="text-[11px] text-stone-400 font-medium">현재 버전: v{currentVersion}</p>
-                            <p className="text-[11px] text-stone-400 font-medium">수정일: {commitDateText}</p>
+                            <p className="text-[11px] text-stone-400 font-medium" title={commitDateFullText}>수정일: {commitDateText}</p>
                         </div>
                     </div>
                     <button

@@ -418,6 +418,17 @@ export function WBSProvider({
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase 설정이 필요합니다. (DB 반영 불가)');
     }
+    const toUserFacingDbError = (e: unknown): Error => {
+      if (e instanceof Error) return e;
+      if (e && typeof e === 'object') {
+        const anyE = e as any;
+        const msg = String(anyE.message ?? anyE.error_description ?? anyE.details ?? anyE.hint ?? '').trim();
+        const code = String(anyE.code ?? anyE.status ?? '').trim();
+        const composed = [code ? `[${code}]` : '', msg].filter(Boolean).join(' ');
+        if (composed) return new Error(composed);
+      }
+      return new Error('DB 반영에 실패했습니다.');
+    };
     const effectiveScope = scope === 'all' ? 'all' : 'current';
     const projectIds =
       effectiveScope === 'all'
@@ -427,52 +438,94 @@ export function WBSProvider({
     const projectIdSet = new Set(projectIds);
     const targetProjects = projects.filter(p => projectIdSet.has(p.id));
     const targetTasks = allTasks.filter(t => t.projectId && projectIdSet.has(t.projectId));
-    const targetDeletedProjectIds = effectiveScope === 'all'
+    const targetDeletedProjectIdsFromState = effectiveScope === 'all'
       ? Array.from(new Set(deletedProjectIds.filter(Boolean)))
       : [];
-    const deletionProjectIdSet = new Set(targetDeletedProjectIds);
 
-    // 1) Projects upsert (including new projects)
-    for (const p of targetProjects) {
-      await upsertProject(p);
-    }
-
-    // 2) Settings upsert (single row)
-    await upsertSettings(wbsSettings);
-
-    // 3) Tasks upsert (ID 기준 병합)
-    await upsertTasks(targetTasks);
-
-    // 4) Deletions (tombstones) apply
-    const deletions: string[] = [];
-    // 삭제된 프로젝트의 작업 tombstone도 함께 반영해야 함 (프로젝트 목록에서 빠져있기 때문)
-    const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
-    for (const pid of deletionPids) {
-      const ids = deletedTaskIdsByProject[pid] ?? [];
-      deletions.push(...ids);
-    }
-    const uniqueDeletionIds = Array.from(new Set(deletions.filter(Boolean)));
-    if (uniqueDeletionIds.length > 0) {
-      const BATCH = 200;
-      for (let i = 0; i < uniqueDeletionIds.length; i += BATCH) {
-        await deleteTasksFromDB(uniqueDeletionIds.slice(i, i + BATCH));
+    // Auto-prune: 작업 0개인 프로젝트는 로컬/DB에서 제거 (소유자 본인 프로젝트만)
+    // - 안전장치: 최소 1개 프로젝트는 남김
+    const taskCountByProject = (() => {
+      const m = new Map<string, number>();
+      for (const p of projects) m.set(p.id, 0);
+      for (const t of allTasks) {
+        if (!t?.projectId) continue;
+        if (!m.has(t.projectId)) continue;
+        m.set(t.projectId, (m.get(t.projectId) ?? 0) + 1);
       }
-    }
+      return m;
+    })();
+    const ownedProjectsInScope = targetProjects.filter(p => (p.ownerId ?? undefined) === ownerId);
+    const emptyOwnedProjectIdsInScope = ownedProjectsInScope
+      .filter(p => (taskCountByProject.get(p.id) ?? 0) === 0)
+      .map(p => p.id);
+    const canDeleteCount = Math.max(0, projects.length - 1);
+    const autoDeletedProjectIds = emptyOwnedProjectIdsInScope.slice(0, canDeleteCount);
 
-    // 5) Delete projects removed locally (scope=all only)
-    for (const pid of targetDeletedProjectIds) {
-      // 작업은 위에서 tombstone으로 먼저 삭제 시도 → FK 제약 회피
-      await deleteProjectFromDB(pid);
-    }
+    // Merge deletions (state + auto)
+    const targetDeletedProjectIds = effectiveScope === 'all'
+      ? Array.from(new Set([...targetDeletedProjectIdsFromState, ...autoDeletedProjectIds].filter(Boolean)))
+      : [];
+    const deletionProjectIdSet = new Set(targetDeletedProjectIds);
+    const targetProjectIdSetAfterAutoDelete = new Set(projectIds.filter(id => !deletionProjectIdSet.has(id)));
+    const targetProjectsAfterAutoDelete = targetProjects.filter(p => targetProjectIdSetAfterAutoDelete.has(p.id));
+    const targetTasksAfterAutoDelete = targetTasks.filter(t => t.projectId && targetProjectIdSetAfterAutoDelete.has(t.projectId));
 
-    // 6) Clear applied tombstones for target projects (and deleted projects in scope)
-    setDeletedTaskIdsByProject(prev => {
-      const next = { ...prev };
-      for (const pid of deletionPids) delete next[pid];
-      return next;
-    });
-    if (targetDeletedProjectIds.length > 0) {
-      setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+    try {
+      // Apply auto-prune locally (scope=all only)
+      if (effectiveScope === 'all' && autoDeletedProjectIds.length > 0) {
+        setDeletedProjectIds(prev => Array.from(new Set([...prev, ...autoDeletedProjectIds])));
+        setProjects(prev => prev.filter(p => !autoDeletedProjectIds.includes(p.id)));
+        setAllTasks(prev => prev.filter(t => !t.projectId || !autoDeletedProjectIds.includes(t.projectId)));
+        if (autoDeletedProjectIds.includes(currentProjectId)) {
+          const nextId = projects.find(p => !autoDeletedProjectIds.includes(p.id))?.id ?? '';
+          setCurrentProjectId(nextId);
+        }
+      }
+
+      // 1) Projects upsert (including new projects)
+      for (const p of targetProjectsAfterAutoDelete) {
+        await upsertProject(p);
+      }
+
+      // 2) Settings upsert (single row)
+      await upsertSettings(wbsSettings);
+
+      // 3) Tasks upsert (ID 기준 병합)
+      await upsertTasks(targetTasksAfterAutoDelete);
+
+      // 4) Deletions (tombstones) apply
+      const deletions: string[] = [];
+      // 삭제된 프로젝트의 작업 tombstone도 함께 반영해야 함 (프로젝트 목록에서 빠져있기 때문)
+      const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
+      for (const pid of deletionPids) {
+        const ids = deletedTaskIdsByProject[pid] ?? [];
+        deletions.push(...ids);
+      }
+      const uniqueDeletionIds = Array.from(new Set(deletions.filter(Boolean)));
+      if (uniqueDeletionIds.length > 0) {
+        const BATCH = 200;
+        for (let i = 0; i < uniqueDeletionIds.length; i += BATCH) {
+          await deleteTasksFromDB(uniqueDeletionIds.slice(i, i + BATCH));
+        }
+      }
+
+      // 5) Delete projects removed locally (scope=all only)
+      for (const pid of targetDeletedProjectIds) {
+        // 작업은 위에서 tombstone으로 먼저 삭제 시도 → FK 제약 회피
+        await deleteProjectFromDB(pid);
+      }
+
+      // 6) Clear applied tombstones for target projects (and deleted projects in scope)
+      setDeletedTaskIdsByProject(prev => {
+        const next = { ...prev };
+        for (const pid of deletionPids) delete next[pid];
+        return next;
+      });
+      if (targetDeletedProjectIds.length > 0) {
+        setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+      }
+    } catch (e) {
+      throw toUserFacingDbError(e);
     }
   };
 

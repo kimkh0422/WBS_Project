@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Lock, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import logo from '../assets/logo.png';
 
 export function LoginScreen() {
   const { signInWithEmail, signUpWithEmail } = useAuth();
@@ -49,8 +50,8 @@ export function LoginScreen() {
           <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-indigo-400/60 to-transparent" />
 
           <div className="flex flex-col items-center text-center space-y-7">
-            <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center group-hover:scale-105 transition-transform duration-500" style={{ boxShadow: '0 8px 30px rgba(99, 102, 241, 0.3)' }}>
-              <Lock className="text-white w-7 h-7" />
+            <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-500" style={{ boxShadow: '0 8px 30px rgba(15,23,42,0.4)' }}>
+              <img src={logo} alt="지엠티 프로젝트 매니저 로고" className="w-16 h-16 object-contain" />
             </div>
 
             <div className="space-y-2">

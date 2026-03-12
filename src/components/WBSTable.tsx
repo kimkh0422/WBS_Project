@@ -1032,12 +1032,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     return sortConfig!.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
   };
 
-  // Aggregate stats from visibleTasks (or selectedTasks if selection active)
+  // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
   const summaryStats = useMemo(() => {
-    const source = selectedTaskIds.size > 0
-      ? visibleTasks.filter(t => selectedTaskIds.has(t.id))
-      : visibleTasks;
-
+    const source = baseTasks;
     if (source.length === 0) return null;
 
     const totalEffort = source.reduce((sum, t) => sum + (t.workEffort || 0), 0);
@@ -1046,8 +1043,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     const endDate = source.reduce((max, t) => t.endDate > max ? t.endDate : max, source[0].endDate);
     const leafTasks = source.filter(t => !source.some(other => other.parentId === t.id));
 
-    return { totalEffort, avgProgress, startDate, endDate, taskCount: source.length, leafCount: leafTasks.length, isSelection: selectedTaskIds.size > 0 };
-  }, [visibleTasks, selectedTaskIds]);
+    return { totalEffort, avgProgress, startDate, endDate, taskCount: source.length, leafCount: leafTasks.length, isSelection: false };
+  }, [baseTasks]);
 
   const formatSummaryDate = (d: string) => {
     if (!d) return '-';
