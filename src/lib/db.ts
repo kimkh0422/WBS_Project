@@ -11,6 +11,41 @@ function requireSupabase(): asserts supabase is NonNullable<typeof supabase> {
   }
 }
 
+function rpcDisabledKey(fnName: string) {
+  return `wbs.rpc.disabled.${fnName}`;
+}
+
+function isRpcDisabled(fnName: string): boolean {
+  try {
+    return sessionStorage.getItem(rpcDisabledKey(fnName)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function disableRpc(fnName: string) {
+  try {
+    sessionStorage.setItem(rpcDisabledKey(fnName), '1');
+  } catch {
+    // ignore
+  }
+}
+
+function isRpcNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { status?: number; code?: string; message?: string; details?: string };
+  const status = e.status;
+  const code = (e.code || '').toString();
+  const msg = ((e.message || '') + ' ' + (e.details || '')).toLowerCase();
+  return (
+    status === 404 ||
+    code === 'PGRST202' ||
+    msg.includes('not found') ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the function')
+  );
+}
+
 // ─── 변환 헬퍼 ────────────────────────────────────────────────────────────────
 
 function toTaskRow(task: Task, sortOrder: number): TaskRow {
@@ -735,9 +770,14 @@ export async function fetchProfiles(): Promise<ProfileRow[]> {
 /** 회원별 접속 횟수·마지막 접속 시각 (관리자 전용 RPC). 실패 시 빈 객체. */
 export async function getMemberVisitStats(): Promise<Record<string, { login_count: number; last_visited_at: string | null }>> {
   if (!isSupabaseConfigured || !supabase) return {};
+  if (isRpcDisabled('get_member_visit_stats')) return {};
   try {
     const { data, error } = await supabase.rpc('get_member_visit_stats');
     if (error) {
+      if (isRpcNotFoundError(error)) {
+        disableRpc('get_member_visit_stats');
+        return {};
+      }
       const msg = error.message ?? '';
       // 마이그레이션 미적용/권한 문제는 UI에서 안내할 수 있도록 예외로 올림
       if (
@@ -765,17 +805,40 @@ export async function getMemberVisitStats(): Promise<Record<string, { login_coun
 /** 접근 가능한 프로젝트 소유자 표시명 조회 (RPC). profileMap 보강용. */
 export async function getProjectOwnerDisplayNames(ownerIds: string[]): Promise<Record<string, string>> {
   if (!isSupabaseConfigured || !supabase || ownerIds.length === 0) return {};
+  if (isRpcDisabled('get_project_owner_display_names')) return {};
   const unique = [...new Set(ownerIds.filter(Boolean))];
   if (unique.length === 0) return {};
   try {
     const { data, error } = await supabase.rpc('get_project_owner_display_names', { owner_ids: unique });
-    if (error) return {};
+    if (error) {
+      if (isRpcNotFoundError(error)) disableRpc('get_project_owner_display_names');
+      return {};
+    }
     const rows = (data ?? []) as { user_id: string; display_name: string }[];
     const out: Record<string, string> = {};
     rows.forEach(r => { out[r.user_id] = r.display_name || '(이메일 없음)'; });
     return out;
   } catch {
     return {};
+  }
+}
+
+export async function getVisitorStats(): Promise<{ daily: number; total: number }> {
+  if (!isSupabaseConfigured || !supabase) return { daily: 0, total: 0 };
+  if (isRpcDisabled('get_visitor_stats')) return { daily: 0, total: 0 };
+  try {
+    const { data, error } = await supabase.rpc('get_visitor_stats');
+    if (error) {
+      if (isRpcNotFoundError(error)) disableRpc('get_visitor_stats');
+      return { daily: 0, total: 0 };
+    }
+    const d = data as { daily?: number; total?: number } | null;
+    return {
+      daily: typeof d?.daily === 'number' ? d.daily : 0,
+      total: typeof d?.total === 'number' ? d.total : 0,
+    };
+  } catch {
+    return { daily: 0, total: 0 };
   }
 }
 
@@ -859,13 +922,38 @@ export async function updateMemberApproved(userId: string, approved: boolean): P
 /** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제) */
 export async function deleteMemberAsAdmin(userId: string): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
-  const { data, error } = await supabase!.functions.invoke('admin-delete-user', {
-    body: { userId },
-  });
-  if (error) return { success: false, error: error.message };
-  const result = data as { success?: boolean; error?: string };
-  if (result?.error) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const { data: sessionData } = await supabase!.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      return { success: false, error: '로그인이 필요합니다. 다시 로그인 후 시도하세요.' };
+    }
+
+    const { data, error } = await supabase!.functions.invoke('admin-delete-user', {
+      body: { userId },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (error) {
+      const msg = (error.message || '').toString();
+      if (msg.includes('Failed to send a request to the Edge Function')) {
+        return {
+          success: false,
+          error:
+            'Edge Function 요청에 실패했습니다. (1) `admin-delete-user` 함수가 배포되어 있는지, (2) 로컬이면 Supabase functions가 실행 중인지, (3) 네트워크/CORS 차단이 없는지 확인하세요.',
+        };
+      }
+      return { success: false, error: msg || '회원 삭제에 실패했습니다.' };
+    }
+    const result = data as { success?: boolean; error?: string } | null;
+    if (result?.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg || '회원 삭제에 실패했습니다.' };
+  }
 }
 
 // ─── 전체 백업 복원 ───────────────────────────────────────────────────────────

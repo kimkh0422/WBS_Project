@@ -38,7 +38,29 @@ export default defineConfig(({ mode }) => {
   const changelogSections = parseChangelog(changelogPath);
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      // 브라우저가 자동으로 요청하는 "기본 리소스"가 없을 때(특히 개발 중)
+      // 콘솔에 404가 반복적으로 찍히는 것을 방지한다.
+      {
+        name: 'silence-missing-default-assets',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            const url = (req.url || '').split('?')[0] || '';
+            const shouldSilence =
+              url === '/favicon.ico' ||
+              url === '/manifest.json' ||
+              url === '/manifest.webmanifest' ||
+              url === '/site.webmanifest' ||
+              url === '/apple-touch-icon.png';
+            if (!shouldSilence) return next();
+            res.statusCode = 204;
+            res.end();
+          });
+        },
+      },
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       '__APP_VERSION__': JSON.stringify(appVersion),

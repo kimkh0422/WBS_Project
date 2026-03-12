@@ -13,6 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PKG_PATH = path.join(ROOT, 'package.json');
 const CHANGELOG_PATH = path.join(ROOT, 'CHANGELOG.md');
+const VERSION_TXT_PATH = path.join(ROOT, 'version.txt');
 
 const bump = (version, type) => {
   const [major, minor, patch] = version.split('.').map(Number);
@@ -42,6 +43,13 @@ const next = bump(prev, versionType);
 pkg.version = next;
 fs.writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
 console.log(`package.json 버전: ${prev} → ${next}`);
+
+// version.txt도 함께 갱신 (push.bat / 표시용)
+try {
+  fs.writeFileSync(VERSION_TXT_PATH, `${next}\n`);
+} catch {
+  // ignore
+}
 
 // 2) 변경 내용: 인자로 받거나 최근 커밋 메시지
 let changeLines = process.argv[3]

@@ -7,29 +7,6 @@ chcp 65001 > nul 2> nul
 set START_DIR=%~dp0
 cd /d "%START_DIR%"
 
-set VERSION_FILE=version.txt
-if not exist "%VERSION_FILE%" (
-    echo 0.0.0 > "%VERSION_FILE%"
-)
-
-set /p CURRENT_VERSION=<"%VERSION_FILE%"
-set CURRENT_VERSION=!CURRENT_VERSION: =!
-set CURRENT_VERSION=!CURRENT_VERSION:v=!
-
-for /f "tokens=1,2,3 delims=." %%a in ("!CURRENT_VERSION!") do (
-    set MAJOR=%%a
-    set MINOR=%%b
-    set PATCH=%%c
-)
-
-set /a PATCH+=1
-set NEW_VERSION=!MAJOR!.!MINOR!.!PATCH!
-
-echo ----------------------------------------
-echo Current version : v!CURRENT_VERSION!
-echo New version     : v!NEW_VERSION!
-echo ----------------------------------------
-
 rem --- Read commit message via Notepad (한글 IME 지원) ---
 set "MSG_TMP=%TEMP%\wbs_push_msg_%RANDOM%.txt"
 powershell -NoProfile -Command "[IO.File]::WriteAllText('%MSG_TMP%', 'version update', [Text.UTF8Encoding]::new($false))"
@@ -37,11 +14,8 @@ echo.
 echo [Notepad에서 커밋 메시지를 입력한 뒤 저장하고 닫으세요]
 start /wait notepad "%MSG_TMP%"
 
-rem --- Bump version file before commit (so commit includes it) ---
-echo !NEW_VERSION! > "%VERSION_FILE%"
-
 rem --- Build commit message file from Notepad content (한글 깨짐 방지) ---
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$c=[IO.File]::ReadAllText('%MSG_TMP%', [Text.Encoding]::UTF8).Trim(); $m=($c -split [char]10)[0].Trim(); if ([string]::IsNullOrWhiteSpace($m)) {$m='version update'}; $msg='v%NEW_VERSION%: '+$m; $p=[IO.Path]::GetTempFileName(); [IO.File]::WriteAllText($p, $msg, [Text.UTF8Encoding]::new($false)); Write-Output $p"`) do set "MSG_FILE=%%F"
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$c=[IO.File]::ReadAllText('%MSG_TMP%', [Text.Encoding]::UTF8).Trim(); $m=($c -split [char]10)[0].Trim(); if ([string]::IsNullOrWhiteSpace($m)) {$m='version update'}; $p=[IO.Path]::GetTempFileName(); [IO.File]::WriteAllText($p, $m, [Text.UTF8Encoding]::new($false)); Write-Output $p"`) do set "MSG_FILE=%%F"
 del /q "%MSG_TMP%" > nul 2> nul
 
 git add .
@@ -53,6 +27,21 @@ if %ERRORLEVEL% neq 0 (
     pause
     exit /b 1
 )
+
+rem --- Read bumped version (hook updates package.json/CHANGELOG/version.txt) ---
+set VERSION_FILE=version.txt
+set NEW_VERSION=
+if exist "%VERSION_FILE%" (
+  set /p NEW_VERSION=<"%VERSION_FILE%"
+  set NEW_VERSION=!NEW_VERSION: =!
+  set NEW_VERSION=!NEW_VERSION:v=!
+)
+if "!NEW_VERSION!"=="" (
+  set NEW_VERSION=unknown
+)
+echo ----------------------------------------
+echo Released version : v!NEW_VERSION!
+echo ----------------------------------------
 
 rem --- Remove stale lock file if exists (e.g. from crashed git process) ---
 if exist ".git\index.lock" (

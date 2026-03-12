@@ -286,6 +286,7 @@ export function WBSProvider({
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(DEFAULT_SETTINGS);
   const [treeExpandLevel, setTreeExpandLevel] = useState<number>(() => Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
   const [deletedTaskIdsByProject, setDeletedTaskIdsByProject] = useState<Record<string, string[]>>({});
+  const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>([]);
 
   const historyRef = useRef<Task[][]>([]);
   const redoRef = useRef<Task[][]>([]);
@@ -308,14 +309,16 @@ export function WBSProvider({
       setIsLoading(true);
       try {
         // 모든 사용자: 로컬(IndexedDB/localStorage)에 저장된 데이터를 기본으로 로드
-        const [fallbackProjects, fallbackTasks, rawSettings, fallbackDeleted] = await Promise.all([
+        const [fallbackProjects, fallbackTasks, rawSettings, fallbackDeleted, fallbackDeletedProjects] = await Promise.all([
           loadJsonWithIdbFallback<Project[]>('wbs-projects'),
           loadJsonWithIdbFallback<Task[]>('wbs-tasks'),
           loadJsonWithIdbFallback<any>('wbs-settings'),
           loadJsonWithIdbFallback<Record<string, string[]>>('wbs-deleted-task-ids'),
+          loadJsonWithIdbFallback<string[]>('wbs-deleted-project-ids'),
         ]);
         const parsedSettings = parseSettings(rawSettings);
         setDeletedTaskIdsByProject(fallbackDeleted && typeof fallbackDeleted === 'object' ? fallbackDeleted : {});
+        setDeletedProjectIds(Array.isArray(fallbackDeletedProjects) ? fallbackDeletedProjects.filter(Boolean) : []);
         const projectsToUse = Array.isArray(fallbackProjects) ? fallbackProjects : [];
         const tasksToUse = Array.isArray(fallbackTasks) ? fallbackTasks : [];
 
@@ -394,9 +397,10 @@ export function WBSProvider({
         saveJsonWithIdbFallback('wbs-tasks', allTasks),
         saveJsonWithIdbFallback('wbs-settings', wbsSettings),
         saveJsonWithIdbFallback('wbs-deleted-task-ids', deletedTaskIdsByProject),
+        saveJsonWithIdbFallback('wbs-deleted-project-ids', deletedProjectIds),
       ]);
     })();
-  }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject]);
+  }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject, deletedProjectIds]);
 
   const recordDeletedTaskIds = (projectId: string, ids: string[]) => {
     const pid = String(projectId ?? '');
@@ -423,6 +427,10 @@ export function WBSProvider({
     const projectIdSet = new Set(projectIds);
     const targetProjects = projects.filter(p => projectIdSet.has(p.id));
     const targetTasks = allTasks.filter(t => t.projectId && projectIdSet.has(t.projectId));
+    const targetDeletedProjectIds = effectiveScope === 'all'
+      ? Array.from(new Set(deletedProjectIds.filter(Boolean)))
+      : [];
+    const deletionProjectIdSet = new Set(targetDeletedProjectIds);
 
     // 1) Projects upsert (including new projects)
     for (const p of targetProjects) {
@@ -437,7 +445,9 @@ export function WBSProvider({
 
     // 4) Deletions (tombstones) apply
     const deletions: string[] = [];
-    for (const pid of projectIds) {
+    // 삭제된 프로젝트의 작업 tombstone도 함께 반영해야 함 (프로젝트 목록에서 빠져있기 때문)
+    const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
+    for (const pid of deletionPids) {
       const ids = deletedTaskIdsByProject[pid] ?? [];
       deletions.push(...ids);
     }
@@ -449,12 +459,21 @@ export function WBSProvider({
       }
     }
 
-    // 5) Clear applied tombstones for target projects
+    // 5) Delete projects removed locally (scope=all only)
+    for (const pid of targetDeletedProjectIds) {
+      // 작업은 위에서 tombstone으로 먼저 삭제 시도 → FK 제약 회피
+      await deleteProjectFromDB(pid);
+    }
+
+    // 6) Clear applied tombstones for target projects (and deleted projects in scope)
     setDeletedTaskIdsByProject(prev => {
       const next = { ...prev };
-      for (const pid of projectIds) delete next[pid];
+      for (const pid of deletionPids) delete next[pid];
       return next;
     });
+    if (targetDeletedProjectIds.length > 0) {
+      setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+    }
   };
 
   useEffect(() => {
@@ -651,6 +670,10 @@ export function WBSProvider({
     if (projects.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
     const idsToDelete = allTasks.filter(t => t.projectId === id).map(t => t.id);
     if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);
+    setDeletedProjectIds(prev => {
+      if (!id) return prev;
+      return prev.includes(id) ? prev : [...prev, id];
+    });
     setProjects(prev => prev.filter(p => p.id !== id));
     setAllTasks(prev => prev.filter(t => t.projectId !== id));
     if (currentProjectId === id) setCurrentProjectId(projects.find(p => p.id !== id)?.id || '');

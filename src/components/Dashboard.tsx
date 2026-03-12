@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { getVisitorStats } from '../lib/db';
 import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
@@ -173,10 +174,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
             }
 
             try {
-                const { data } = await supabase.rpc('get_visitor_stats');
-                if (data && typeof data.daily === 'number' && typeof data.total === 'number') {
-                    setVisitorStats({ daily: data.daily, total: data.total });
-                }
+                const stats = await getVisitorStats();
+                setVisitorStats(stats);
             } catch {
                 setVisitorStats({ daily: 0, total: 0 });
             }

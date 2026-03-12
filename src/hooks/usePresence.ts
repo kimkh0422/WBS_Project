@@ -6,6 +6,13 @@ export interface PresenceUser {
   displayName: string;
 }
 
+const presenceEnabled = (() => {
+  // 프로젝트에 vite env 타입 선언이 없어서(import.meta.env.*) TS 에러가 날 수 있음.
+  // 런타임 동작만 필요하므로 안전하게 any로 접근.
+  const v = String((import.meta as any)?.env?.VITE_ENABLE_PRESENCE ?? '').toLowerCase();
+  return v === '1' || v === 'true';
+})();
+
 /**
  * Supabase Realtime Presence: 현재 프로젝트를 보고 있는 다른 사용자 목록.
  * projectId가 'all'이거나 빈 값이면 비활성화.
@@ -19,7 +26,9 @@ export function usePresence(
   const channelRef = useRef<{ untrack: () => Promise<void>; unsubscribe: () => void } | null>(null);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase || !projectId || projectId === 'all') {
+    // Presence는 필수 기능이 아니므로, 연결 실패 시 콘솔이 도배되지 않도록 "자동 비활성화" 한다.
+    // (환경에 따라 Realtime이 꺼져있거나 방화벽/프록시로 WebSocket이 차단될 수 있음)
+    if (!presenceEnabled || !isSupabaseConfigured || !supabase || !projectId || projectId === 'all') {
       setOthers([]);
       return;
     }
@@ -66,6 +75,18 @@ export function usePresence(
             display_name: currentUserDisplayName || '(이름 없음)',
           });
           updateOthers();
+          return;
+        }
+        // 연결 실패/타임아웃/닫힘 상태에서는 채널을 제거해 재시도를 멈춘다.
+        // (브라우저 콘솔에 WebSocket 에러가 반복적으로 찍히는 것을 방지)
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          try {
+            channel.unsubscribe();
+          } catch {
+            // ignore
+          }
+          channelRef.current = null;
+          setOthers([]);
         }
       });
 
