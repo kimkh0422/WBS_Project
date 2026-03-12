@@ -374,12 +374,27 @@ export async function upsertProject(project: Project): Promise<void> {
     .maybeSingle();
   const existingRow = (existing.data ?? null) as ProjectRow | null;
   const row = toProjectRow(project);
-  const { error } = await supabase!.from('projects').upsert(row);
-  if (error && isAssignmentsSchemaError(error)) {
-    const { error: err2 } = await supabase!.from('projects').upsert(toProjectRowMinimal(project));
-    if (err2) throw err2;
-  } else if (error) {
-    throw error;
+  // NOTE:
+  // RLS 환경에서 upsert(INSERT .. ON CONFLICT DO UPDATE)는 INSERT 정책의 WITH CHECK가
+  // "충돌로 UPDATE 되는 케이스"에도 적용되어, 소유자(owner)가 아닌 editor 사용자가
+  // 프로젝트를 저장할 때 실패할 수 있음. (UPDATE 정책은 통과해도 INSERT 체크에서 실패)
+  // 따라서 "존재하면 update, 없으면 insert"로 분기한다.
+  if (existingRow) {
+    const { error } = await supabase!.from('projects').update(row).eq('id', project.id);
+    if (error && isAssignmentsSchemaError(error)) {
+      const { error: err2 } = await supabase!.from('projects').update(toProjectRowMinimal(project) as any).eq('id', project.id);
+      if (err2) throw err2;
+    } else if (error) {
+      throw error;
+    }
+  } else {
+    const { error } = await supabase!.from('projects').insert(row);
+    if (error && isAssignmentsSchemaError(error)) {
+      const { error: err2 } = await supabase!.from('projects').insert(toProjectRowMinimal(project) as any);
+      if (err2) throw err2;
+    } else if (error) {
+      throw error;
+    }
   }
   const action: AuditAction = existingRow ? 'update' : 'create';
   const changes = existingRow ? diffProjectFields(existingRow, row) : undefined;
