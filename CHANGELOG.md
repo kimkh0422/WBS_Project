@@ -1,6 +1,15 @@
 # Changelog
 프로젝트 변경 이력입니다. 버전 표기는 `vMAJOR.MINOR.PATCH` 형식을 사용합니다.
 
+## v0.2.0 (2026-03-10)
+- Supabase 인증 및 프로젝트 공유 (멤버·초대 링크)
+- 프로필 관리 및 관리자 기능 (전체 프로젝트 조회)
+- RLS 무한 재귀 수정 (SECURITY DEFINER 함수 적용)
+- 관리자 프로젝트 생성 권한 추가
+- work_effort 소수 지원 (0.5일, 1.5일 등)
+- 프로필 full_name, level_colors (레벨별 색상 맞춤)
+- DB 기반 방문 통계 (record_visit, get_visitor_stats)
+
 ## v0.1.0 (2026-03-06)
 - UI 한글화 (메뉴, 툴팁, 모달 등)
 - 프로젝트 선택 UI 개선 (가독성 강화)

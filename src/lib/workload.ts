@@ -1,5 +1,5 @@
 import { parseISO, format, addDays, isValid } from 'date-fns';
-import type { Task, Project, TaskAssignment } from '../types';
+import type { Task, Project, TaskAssignment, ProjectAssignment } from '../types';
 import {
   addBusinessDaysEx,
   differenceInBusinessDaysEx,
@@ -27,16 +27,29 @@ export interface OverloadResult {
   taskIdToOverloadDates: Map<string, WorkloadDay[]>;
 }
 
+/** 해당 일자에 적용되는 투입비율. 월별 설정이 있으면 해당 월 값, 없으면 기본 allocationPercent */
+export function getEffectiveAllocationPercent(
+  assignment: { allocationPercent: number; monthlyAllocations?: Record<string, number> },
+  dateStr: string
+): number {
+  const yyyyMm = dateStr.slice(0, 7);
+  if (assignment.monthlyAllocations && assignment.monthlyAllocations[yyyyMm] !== undefined) {
+    return assignment.monthlyAllocations[yyyyMm];
+  }
+  return assignment.allocationPercent ?? 0;
+}
+
 function getAssignmentsForTask(
   task: Task,
-  projectAssignmentsByProjectId: Map<string, TaskAssignment[]>
-): TaskAssignment[] {
-  if (task.assignments && task.assignments.length > 0) return task.assignments;
+  projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>
+): ProjectAssignment[] {
+  if (task.assignments && task.assignments.length > 0) {
+    return task.assignments.map((a) => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
+  }
   if (task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
     if (pa && pa.length > 0) return pa;
   }
-  // task.assignee만 있고 배정 없으면 100% 단일 담당
   if (task.assignee) {
     return [{ assignee: task.assignee, allocationPercent: 100 }];
   }
@@ -50,7 +63,7 @@ export function computeWorkloadOverloads(
   tasks: Task[],
   projects: Project[]
 ): OverloadResult {
-  const projectAssignmentsByProjectId = new Map<string, TaskAssignment[]>();
+  const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>();
   projects.forEach((p) => {
     if (p.assignments && p.assignments.length > 0) {
       projectAssignmentsByProjectId.set(p.id, p.assignments);
@@ -83,7 +96,6 @@ export function computeWorkloadOverloads(
     );
 
     if (businessDays.length === 0) {
-      // 단일일 작업
       const d = task.startDate;
       for (const a of assignments) {
         if (!byAssigneeDate.has(a.assignee)) {
@@ -94,7 +106,7 @@ export function computeWorkloadOverloads(
           dateMap.set(d, { totalPercent: 0, taskIds: new Set() });
         }
         const cell = dateMap.get(d)!;
-        cell.totalPercent += a.allocationPercent || 0;
+        cell.totalPercent += getEffectiveAllocationPercent(a, d);
         cell.taskIds.add(task.id);
       }
     } else {
@@ -108,7 +120,7 @@ export function computeWorkloadOverloads(
             dateMap.set(dateStr, { totalPercent: 0, taskIds: new Set() });
           }
           const cell = dateMap.get(dateStr)!;
-          cell.totalPercent += a.allocationPercent || 0;
+          cell.totalPercent += getEffectiveAllocationPercent(a, dateStr);
           cell.taskIds.add(task.id);
         }
       }
@@ -148,7 +160,7 @@ export type FixStrategy = 'extend' | 'increaseAllocation';
  */
 function getLeafTasksByAssignee(
   tasks: Task[],
-  projectAssignmentsByProjectId: Map<string, TaskAssignment[]>
+  projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>
 ): Map<string, Task[]> {
   const leafTasks = tasks.filter(
     (t) =>
@@ -181,7 +193,7 @@ export function fixOverloadByExtending(
   if (overloads.length === 0) return tasks;
 
   const holidays = getHolidaysForTaskDates(tasks);
-  const projectAssignmentsByProjectId = new Map<string, TaskAssignment[]>();
+  const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>();
   projects.forEach((p) => {
     if (p.assignments && p.assignments.length > 0) {
       projectAssignmentsByProjectId.set(p.id, p.assignments);
@@ -281,7 +293,7 @@ export function fixOverloadByIncreasingAllocation(
   if (overloads.length === 0) return tasks;
 
   const holidays = getHolidaysForTaskDates(tasks);
-  const projectAssignmentsByProjectId = new Map<string, TaskAssignment[]>();
+  const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>();
   projects.forEach((p) => {
     if (p.assignments && p.assignments.length > 0) {
       projectAssignmentsByProjectId.set(p.id, p.assignments);

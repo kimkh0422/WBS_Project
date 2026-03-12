@@ -13,20 +13,20 @@ import {
   type WorkloadDay,
 } from '../lib/workload';
 import {
-  fetchProjects,
-  fetchTasks,
-  fetchSettings,
   upsertProject,
   upsertTask,
   upsertTasks,
   upsertSettings,
+  fetchProjects,
+  fetchTasks,
+  fetchSettings,
   deleteProjectFromDB,
   deleteTasksFromDB,
   deleteAllTasksFromDB,
   deleteAllProjectsFromDB,
   restoreBackupToDB,
-  migrateFromLocalStorage,
 } from '../lib/db';
+import { loadJsonWithIdbFallback, saveJsonWithIdbFallback, safeLocalGet } from '../lib/persist';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
@@ -82,7 +82,11 @@ interface WBSContextType {
   toggleExpand: (id: string) => void;
   expandToLevel: (level: number) => void;
   reorderTask: (id: string, overId: string) => void;
-  importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => void;
+  importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => Promise<void>;
+  /** 로컬에서 삭제된 작업 id 로그(삭제 반영용). */
+  deletedTaskIdsByProject: Record<string, string[]>;
+  /** 로컬 데이터를 DB(Supabase)에 수동 반영. */
+  syncToDb: (scope: 'current' | 'all') => Promise<void>;
   deleteAllTasks: () => void;
   /** 모든 프로젝트의 작업을 전체 삭제 (현재 프로젝트 무관) */
   deleteAllTasksInAllProjects: () => void;
@@ -123,11 +127,11 @@ const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
 ];
 
 const DEFAULT_SETTINGS: WBSSettings = {
-  appTitle: '지엠티 WBS 매니저',
+  appTitle: '지엠티 프로젝트 매니저',
   level1Prefix: 'W',
   level2Prefix: 'W',
   level3Prefix: 'T',
-  maxLevel: 3,
+  maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   tableColumns: [
     { id: 'wbsId', visible: true },
@@ -253,17 +257,17 @@ function parseSettings(raw: any): WBSSettings {
 
 export function WBSProvider({
   children,
+  useLocalOnly = false,
   onConcurrentConflict,
   onDbError,
-  useLocalOnly = false,
 }: {
   children: React.ReactNode;
+  /** true면 로컬(IndexedDB/localStorage)만 사용하고 DB는 읽지/쓰지 않음 */
+  useLocalOnly?: boolean;
   /** 동시 수정 충돌 시 호출(토스트 등 알림용). Supabase 사용 시에만 의미 있음. */
   onConcurrentConflict?: () => void;
   /** DB 저장 실패 시 호출(토스트 등 알림용). */
   onDbError?: (message: string) => void;
-  /** true면 DB 대신 localStorage만 사용(미승인 회원용). */
-  useLocalOnly?: boolean;
 }) {
   const { user } = useAuth();
   const handleDbError = React.useCallback(
@@ -280,7 +284,8 @@ export function WBSProvider({
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(DEFAULT_SETTINGS);
-  const [treeExpandLevel, setTreeExpandLevel] = useState<number>(4);
+  const [treeExpandLevel, setTreeExpandLevel] = useState<number>(() => Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
+  const [deletedTaskIdsByProject, setDeletedTaskIdsByProject] = useState<Record<string, string[]>>({});
 
   const historyRef = useRef<Task[][]>([]);
   const redoRef = useRef<Task[][]>([]);
@@ -299,95 +304,66 @@ export function WBSProvider({
   const ownerId = user?.id ?? undefined;
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !user?.id) {
-      setIsLoading(false);
-      return;
-    }
-    if (prevOwnerIdRef.current !== ownerId) {
-      initNewProjectPromiseRef.current = null;
-      prevOwnerIdRef.current = ownerId;
-    }
-
     const loadData = async () => {
       setIsLoading(true);
       try {
-        // 미승인 회원: 로컬 전용 — DB 대신 localStorage에서만 로드
-        if (useLocalOnly) {
-          const savedProjects = localStorage.getItem('wbs-projects');
-          const savedTasks = localStorage.getItem('wbs-tasks');
-          const savedSettings = localStorage.getItem('wbs-settings');
-          const fallbackProjects = savedProjects ? JSON.parse(savedProjects) : [];
-          const fallbackTasks = savedTasks ? JSON.parse(savedTasks) : [];
-          const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
-          if (Array.isArray(fallbackProjects) && fallbackProjects.length > 0) {
-            setProjects(fallbackProjects);
-            setAllTasks(applyRollupsToTasks(Array.isArray(fallbackTasks) ? fallbackTasks : []));
-            setWbsSettings(parsedSettings);
-            const validId = fallbackProjects.find((p: Project) => p.id === sessionStorage.getItem('wbs-current-project'))?.id ?? fallbackProjects[0]?.id ?? '';
-            setCurrentProjectId(validId);
-          } else {
-            // 프로젝트가 0개인 상태(전체 삭제 등): 자동 생성하지 않고 빈 상태 유지
-            setProjects([]);
-            setAllTasks([]);
-            setWbsSettings(parsedSettings);
-            setCurrentProjectId('');
-            try {
-              sessionStorage.removeItem('wbs-current-project');
-            } catch (_) {}
-          }
-          setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings?.maxLevel ?? 3) + 1)));
-          setIsLoading(false);
-          return;
+        // 모든 사용자: 로컬(IndexedDB/localStorage)에 저장된 데이터를 기본으로 로드
+        const [fallbackProjects, fallbackTasks, rawSettings, fallbackDeleted] = await Promise.all([
+          loadJsonWithIdbFallback<Project[]>('wbs-projects'),
+          loadJsonWithIdbFallback<Task[]>('wbs-tasks'),
+          loadJsonWithIdbFallback<any>('wbs-settings'),
+          loadJsonWithIdbFallback<Record<string, string[]>>('wbs-deleted-task-ids'),
+        ]);
+        const parsedSettings = parseSettings(rawSettings);
+        setDeletedTaskIdsByProject(fallbackDeleted && typeof fallbackDeleted === 'object' ? fallbackDeleted : {});
+        const projectsToUse = Array.isArray(fallbackProjects) ? fallbackProjects : [];
+        const tasksToUse = Array.isArray(fallbackTasks) ? fallbackTasks : [];
+
+        if (projectsToUse.length > 0) {
+          setProjects(projectsToUse);
+          setAllTasks(applyRollupsToTasks(tasksToUse));
+          setWbsSettings(parsedSettings);
+          const savedCurrent = sessionStorage.getItem('wbs-current-project');
+          const validId = projectsToUse.find(p => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
+          setCurrentProjectId(validId);
+        } else {
+          // 첫 실행 등: 로컬에 프로젝트가 없으면 목업(초기 프로젝트) 사용
+          setProjects(MOCK_PROJECTS);
+          setAllTasks(applyRollupsToTasks(tasksToUse.length > 0 ? tasksToUse : MOCK_TASKS));
+          setWbsSettings(parsedSettings);
+          setCurrentProjectId(MOCK_PROJECTS[0]?.id ?? '');
         }
 
-        let [remoteProjects, remoteTasks, remoteSettings] = await Promise.all([
-          fetchProjects(),
-          fetchTasks(),
-          fetchSettings(),
-        ]);
+        setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings?.maxLevel ?? DEFAULT_SETTINGS.maxLevel) + 1)));
 
-        // Supabase 빈 경우 localStorage 마이그레이션 시도
-        if (remoteProjects.length === 0) {
-          const migrated = await migrateFromLocalStorage(ownerId);
-          if (migrated) {
-            [remoteProjects, remoteTasks, remoteSettings] = await Promise.all([
+        // DB 동기화 모드: 로컬 로드 후 DB로부터 최신 데이터로 덮어쓰기(가능한 경우)
+        if (!useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
+          try {
+            const [dbProjects, dbTasks, dbSettings] = await Promise.all([
               fetchProjects(),
               fetchTasks(),
               fetchSettings(),
             ]);
+            if (Array.isArray(dbProjects) && dbProjects.length > 0) {
+              setProjects(dbProjects);
+              setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));
+              if (dbSettings) {
+                setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+              }
+              const savedCurrent = sessionStorage.getItem('wbs-current-project');
+              const validId = dbProjects.find(p => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
+              setCurrentProjectId(validId);
+            }
+          } catch (e) {
+            handleDbError(e, 'DB에서 프로젝트를 불러오지 못했습니다. 로컬 데이터를 표시합니다.');
           }
         }
-
-        // 프로젝트가 0개인 상태(전체 삭제 등): 자동 생성하지 않고 빈 상태 유지
-        if (remoteProjects.length === 0) {
-          const parsedSettings = parseSettings(remoteSettings);
-          setProjects([]);
-          setAllTasks([]);
-          setWbsSettings(parsedSettings);
-          setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings.maxLevel ?? 3) + 1)));
-          setCurrentProjectId('');
-          try {
-            sessionStorage.removeItem('wbs-current-project');
-          } catch (_) {}
-        } else {
-          const parsedSettings = parseSettings(remoteSettings);
-          setProjects(remoteProjects);
-          setAllTasks(applyRollupsToTasks(remoteTasks));
-          setWbsSettings(parsedSettings);
-          setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings.maxLevel ?? 3) + 1)));
-
-          const savedCurrent = sessionStorage.getItem('wbs-current-project');
-          const validId = remoteProjects.find(p => p.id === savedCurrent)?.id ?? remoteProjects[0]?.id ?? '';
-          setCurrentProjectId(validId);
-        }
       } catch (err) {
-        if (import.meta.env.DEV) console.warn('[DB] 데이터 로딩 실패:', err);
-        handleDbError(err, 'DB 연결 실패. 로컬 데이터를 사용합니다. 저장이 되지 않을 수 있습니다.');
         // 폴백: localStorage → 목업 데이터 (파싱 실패 시 목업만 사용)
         try {
-          const savedProjects = localStorage.getItem('wbs-projects');
-          const savedTasks = localStorage.getItem('wbs-tasks');
-          const savedSettings = localStorage.getItem('wbs-settings');
+          const savedProjects = safeLocalGet('wbs-projects');
+          const savedTasks = safeLocalGet('wbs-tasks');
+          const savedSettings = safeLocalGet('wbs-settings');
           const fallbackProjects = savedProjects ? JSON.parse(savedProjects) : MOCK_PROJECTS;
           const fallbackTasks = savedTasks ? JSON.parse(savedTasks) : MOCK_TASKS;
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
@@ -407,65 +383,87 @@ export function WBSProvider({
       }
     };
     loadData();
-  }, [isSupabaseConfigured, user?.id, useLocalOnly]);
+  }, [useLocalOnly, user?.id, handleDbError]);
 
-  // 미승인 회원(로컬 전용): 상태 변경 시 localStorage에 저장
+  // 모든 사용자: 상태 변경 시 로컬(IndexedDB/localStorage)에 저장
   useEffect(() => {
-    if (!useLocalOnly || isLoading) return;
-    try {
-      localStorage.setItem('wbs-projects', JSON.stringify(projects));
-      localStorage.setItem('wbs-tasks', JSON.stringify(allTasks));
-      localStorage.setItem('wbs-settings', JSON.stringify(wbsSettings));
-    } catch (_) {}
-  }, [useLocalOnly, isLoading, projects, allTasks, wbsSettings]);
+    if (isLoading) return;
+    void (async () => {
+      await Promise.all([
+        saveJsonWithIdbFallback('wbs-projects', projects),
+        saveJsonWithIdbFallback('wbs-tasks', allTasks),
+        saveJsonWithIdbFallback('wbs-settings', wbsSettings),
+        saveJsonWithIdbFallback('wbs-deleted-task-ids', deletedTaskIdsByProject),
+      ]);
+    })();
+  }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject]);
+
+  const recordDeletedTaskIds = (projectId: string, ids: string[]) => {
+    const pid = String(projectId ?? '');
+    const unique = Array.from(new Set(ids.filter(Boolean)));
+    if (!pid || unique.length === 0) return;
+    setDeletedTaskIdsByProject(prev => {
+      const existing = prev[pid] ?? [];
+      const merged = Array.from(new Set([...existing, ...unique]));
+      if (merged.length === existing.length) return prev;
+      return { ...prev, [pid]: merged };
+    });
+  };
+
+  const syncToDb = async (scope: 'current' | 'all'): Promise<void> => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error('Supabase 설정이 필요합니다. (DB 반영 불가)');
+    }
+    const effectiveScope = scope === 'all' ? 'all' : 'current';
+    const projectIds =
+      effectiveScope === 'all'
+        ? projects.map(p => p.id).filter(Boolean)
+        : (currentProjectId && currentProjectId !== 'all' ? [currentProjectId] : []);
+
+    const projectIdSet = new Set(projectIds);
+    const targetProjects = projects.filter(p => projectIdSet.has(p.id));
+    const targetTasks = allTasks.filter(t => t.projectId && projectIdSet.has(t.projectId));
+
+    // 1) Projects upsert (including new projects)
+    for (const p of targetProjects) {
+      await upsertProject(p);
+    }
+
+    // 2) Settings upsert (single row)
+    await upsertSettings(wbsSettings);
+
+    // 3) Tasks upsert (ID 기준 병합)
+    await upsertTasks(targetTasks);
+
+    // 4) Deletions (tombstones) apply
+    const deletions: string[] = [];
+    for (const pid of projectIds) {
+      const ids = deletedTaskIdsByProject[pid] ?? [];
+      deletions.push(...ids);
+    }
+    const uniqueDeletionIds = Array.from(new Set(deletions.filter(Boolean)));
+    if (uniqueDeletionIds.length > 0) {
+      const BATCH = 200;
+      for (let i = 0; i < uniqueDeletionIds.length; i += BATCH) {
+        await deleteTasksFromDB(uniqueDeletionIds.slice(i, i + BATCH));
+      }
+    }
+
+    // 5) Clear applied tombstones for target projects
+    setDeletedTaskIdsByProject(prev => {
+      const next = { ...prev };
+      for (const pid of projectIds) delete next[pid];
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (currentProjectId) sessionStorage.setItem('wbs-current-project', currentProjectId);
   }, [currentProjectId]);
 
-  // ─── Supabase Realtime: 다른 사용자 변경 시 작업 목록 자동 갱신 ─────────────
-  // VITE_REALTIME_ENABLED=false 시 비활성화 (WebSocket 400 오류 등 연결 실패 시 사용)
-
-  const realtimeRefetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const realtimeEnabled = import.meta.env.VITE_REALTIME_ENABLED !== 'false';
   /** 동시 수정 충돌 시 토스트/refetch 중복 방지 (2초 내 재호출 스킵) */
   const lastConflictRef = useRef<number>(0);
   const CONFLICT_DEBOUNCE_MS = 2000;
-
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase || isLoading || !realtimeEnabled || useLocalOnly) return;
-
-    const refetchTasks = () => {
-      fetchTasks()
-        .then(fresh => setAllTasks(applyRollupsToTasks(fresh)))
-        .catch(err => { if (import.meta.env.DEV) console.warn('[Realtime] 작업 목록 갱신 실패:', err); });
-    };
-
-    const debouncedRefetch = () => {
-      if (realtimeRefetchTimeoutRef.current) clearTimeout(realtimeRefetchTimeoutRef.current);
-      realtimeRefetchTimeoutRef.current = setTimeout(() => {
-        realtimeRefetchTimeoutRef.current = null;
-        refetchTasks();
-      }, 400);
-    };
-
-    const channel = supabase
-      .channel('wbs-tasks-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        () => debouncedRefetch()
-      )
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-      if (realtimeRefetchTimeoutRef.current) {
-        clearTimeout(realtimeRefetchTimeoutRef.current);
-        realtimeRefetchTimeoutRef.current = null;
-      }
-    };
-  }, [isLoading, realtimeEnabled, useLocalOnly]);
 
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
@@ -651,10 +649,12 @@ export function WBSProvider({
 
   const deleteProject = (id: string) => {
     if (projects.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
+    const idsToDelete = allTasks.filter(t => t.projectId === id).map(t => t.id);
+    if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);
     setProjects(prev => prev.filter(p => p.id !== id));
     setAllTasks(prev => prev.filter(t => t.projectId !== id));
     if (currentProjectId === id) setCurrentProjectId(projects.find(p => p.id !== id)?.id || '');
-    if (!useLocalOnly) deleteProjectFromDB(id).catch(err => handleDbError(err, '프로젝트 삭제에 실패했습니다.'));
+    // DB 반영은 수동 버튼에서 처리
   };
 
   const copyProject = (sourceProjectId: string) => {
@@ -695,10 +695,6 @@ export function WBSProvider({
     setAllTasks(prev => {
       const combined = [...prev, ...newTasks];
       const rolled = recomputeProjectRollups(combined, newProjectId);
-      if (!useLocalOnly) {
-        upsertProject(newProject).catch(err => handleDbError(err, '복사된 프로젝트 저장에 실패했습니다.'));
-        upsertTasks(rolled.filter(t => t.projectId === newProjectId)).catch(err => handleDbError(err, '복사된 작업 저장에 실패했습니다.'));
-      }
       return rolled;
     });
   };
@@ -733,7 +729,6 @@ export function WBSProvider({
       } else nextTasks = [...prev, task];
       const result = syncParentRollups(nextTasks, task.parentId);
       const sortOrder = result.indexOf(task);
-      if (!useLocalOnly) upsertTask(task, sortOrder >= 0 ? sortOrder : result.length - 1).catch(err => handleDbError(err, '작업 저장에 실패했습니다.'));
       return result;
     });
     return task.id;
@@ -748,7 +743,6 @@ export function WBSProvider({
     );
     setAllTasks(prev => {
       const result = recomputeProjectRollups([...prev, ...tasksWithProject], effectiveProjectId);
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '작업 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -936,21 +930,7 @@ export function WBSProvider({
       const taskInResult = result.find(t => t.id === id);
       const sortOrder = taskInResult != null ? result.indexOf(taskInResult) : 0;
       if (!useLocalOnly) {
-        if (hasScheduleChange) {
-          upsertTasks(result).catch(err => handleDbError(err, '일정 연쇄 저장에 실패했습니다.'));
-        } else {
-          upsertTask(updatedTask, sortOrder >= 0 ? sortOrder : 0)
-            .then(r => {
-              if (r?.conflict) {
-                const now = Date.now();
-                if (now - lastConflictRef.current < CONFLICT_DEBOUNCE_MS) return;
-                lastConflictRef.current = now;
-                fetchTasks().then(fresh => setAllTasks(applyRollupsToTasks(fresh)));
-                onConcurrentConflict?.();
-              }
-            })
-            .catch(err => handleDbError(err, '작업 수정 저장에 실패했습니다.'));
-        }
+        // DB 반영은 수동 버튼에서 처리
       }
       return result;
     });
@@ -969,7 +949,6 @@ export function WBSProvider({
       const next = prev.map(t =>
         idSet.has(t.id) ? { ...t, ...updates } : t
       );
-      if (!useLocalOnly) upsertTasks(next).catch(err => handleDbError(err, '일괄 수정 저장에 실패했습니다.'));
       return next;
     });
   };
@@ -988,7 +967,6 @@ export function WBSProvider({
           baselineWorkEffort: t.workEffort,
         };
       });
-      if (!useLocalOnly) upsertTasks(next).catch(err => handleDbError(err, '베이스라인 저장에 실패했습니다.'));
       return next;
     });
   };
@@ -1016,7 +994,6 @@ export function WBSProvider({
           ...p,
           assignments: assignments.map(a => ((a.assignee ?? '').trim() === from ? { ...a, assignee: to } : a)),
         };
-        if (!useLocalOnly) upsertProject(updated).catch(err => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
         return updated;
       });
       return next;
@@ -1057,7 +1034,6 @@ export function WBSProvider({
         result = result.map(t => t.projectId === effectiveProjectId ? (adjustedById.get(t.id) ?? t) : t);
         result = recomputeProjectRollups(result, effectiveProjectId);
       }
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '일정 갱신 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1085,7 +1061,6 @@ export function WBSProvider({
       for (const pid of projectIds) {
         result = recomputeProjectRollups(result, pid);
       }
-      if (!useLocalOnly) upsertTasks(result).catch((err) => handleDbError(err, '과부하 수정 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1100,7 +1075,7 @@ export function WBSProvider({
         return [...children.map(c => c.id), ...children.flatMap(c => getAllDescendantIds(c.id, list))];
       };
       const idsToDelete = [id, ...getAllDescendantIds(id, prev)];
-      if (!useLocalOnly) deleteTasksFromDB(idsToDelete).catch(err => handleDbError(err, '작업 삭제에 실패했습니다.'));
+      if (taskToDelete.projectId) recordDeletedTaskIds(taskToDelete.projectId, idsToDelete);
       return syncParentRollups(prev.filter(t => !new Set(idsToDelete).has(t.id)), taskToDelete.parentId);
     });
   };
@@ -1127,7 +1102,6 @@ export function WBSProvider({
         [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB], newProjectTasks[iA]];
       } else return prev;
       const result = [...otherTasks, ...newProjectTasks];
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '작업 이동 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1144,7 +1118,6 @@ export function WBSProvider({
       const [moved] = arr.splice(oldIndex, 1);
       arr.splice(newIndex, 0, moved);
       const result = [...otherTasks, ...arr];
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '작업 순서 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1168,7 +1141,6 @@ export function WBSProvider({
         return t;
       });
       const result = recomputeProjectRollups([...otherTasks, ...updated], currentProjectId);
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '들여쓰기 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1184,7 +1156,6 @@ export function WBSProvider({
       if (!parent) return prev;
       const updated = projectTasks.map(t => t.id === id ? { ...t, parentId: parent.parentId } : t);
       const result = recomputeProjectRollups([...otherTasks, ...updated], currentProjectId);
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '내어쓰기 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1210,7 +1181,6 @@ export function WBSProvider({
         }
       }
       const result = recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '다중 들여쓰기 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1229,7 +1199,6 @@ export function WBSProvider({
         projectTasks = projectTasks.map(t => t.id === id ? { ...t, parentId: parent.parentId } : t);
       }
       const result = recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '다중 내어쓰기 저장에 실패했습니다.'));
       return result;
     });
   };
@@ -1238,7 +1207,6 @@ export function WBSProvider({
     setAllTasks(prev => {
       const updated = prev.map(t => t.id === id ? { ...t, expanded: !t.expanded } : t);
       const target = updated.find(t => t.id === id);
-      if (target && !useLocalOnly) upsertTask(target, updated.indexOf(target)).catch(err => handleDbError(err, '펼치기 저장에 실패했습니다.'));
       return updated;
     });
   };
@@ -1269,28 +1237,48 @@ export function WBSProvider({
         if (!!t.expanded === shouldExpand) return t;
         return { ...t, expanded: shouldExpand };
       });
-      if (!useLocalOnly) upsertTasks(result).catch(err => handleDbError(err, '펼치기 저장에 실패했습니다.'));
       return result;
     });
   };
 
   // ─── 가져오기 / 삭제 ──────────────────────────────────────────────────────
 
-  const importTasks = (newTasks: Task[], targetProjectId?: string, newProjectName?: string) => {
+  const importTasks = async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
     saveHistory();
-    let effectiveProjectId = targetProjectId ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
-    if (effectiveProjectId === '__new__' && newProjectName) {
-      const newProject: Project = { id: uuidv4(), name: newProjectName.trim() || '가져온 프로젝트', ownerId: ownerId ?? undefined };
-      setProjects(prev => [...prev, newProject]);
-      setCurrentProjectId(newProject.id);
+    let effectiveProjectId =
+      targetProjectId ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
+
+    const createNewProject =
+      effectiveProjectId === '__new__' && typeof newProjectName === 'string' && newProjectName.trim().length > 0;
+
+    const newProject: Project | null = createNewProject
+      ? {
+          id: uuidv4(),
+          name: newProjectName!.trim() || '가져온 프로젝트',
+          ownerId: ownerId ?? undefined,
+        }
+      : null;
+
+    if (newProject) {
       effectiveProjectId = newProject.id;
-      if (!useLocalOnly) upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 생성에 실패했습니다.'));
     }
-    const tasksWithProject = newTasks.map(t => ({ ...t, projectId: effectiveProjectId }));
-    setAllTasks(prev => {
-      const result = recomputeProjectRollups([...prev.filter(t => t.projectId !== effectiveProjectId), ...tasksWithProject], effectiveProjectId);
-      if (!useLocalOnly) deleteAllTasksFromDB(effectiveProjectId).then(() => upsertTasks(tasksWithProject)).catch(err => handleDbError(err, '가져오기에 실패했습니다.'));
-      return result;
+
+    const tasksWithProject = newTasks.map((t) => ({ ...t, projectId: effectiveProjectId }));
+
+    // 로컬이 SSOT: UI 상태를 즉시 반영 (DB 반영은 수동 버튼에서)
+    if (newProject) {
+      setProjects((prev) => [...prev, newProject]);
+      setCurrentProjectId(newProject.id);
+    }
+    setAllTasks((prev) => {
+      const prevProjectTaskIds = prev.filter(t => t.projectId === effectiveProjectId).map(t => t.id);
+      const nextProjectTaskIds = tasksWithProject.map(t => t.id);
+      const removed = prevProjectTaskIds.filter(id => !new Set(nextProjectTaskIds).has(id));
+      if (removed.length > 0) recordDeletedTaskIds(effectiveProjectId, removed);
+      return recomputeProjectRollups(
+        [...prev.filter((t) => t.projectId !== effectiveProjectId), ...tasksWithProject],
+        effectiveProjectId
+      );
     });
   };
 
@@ -1298,16 +1286,33 @@ export function WBSProvider({
     saveHistory();
     const effectiveProjectId = currentProjectId === 'all' ? '' : currentProjectId;
     setAllTasks(prev => {
+      if (effectiveProjectId) {
+        const ids = prev.filter(t => t.projectId === effectiveProjectId).map(t => t.id);
+        if (ids.length > 0) recordDeletedTaskIds(effectiveProjectId, ids);
+      } else {
+        const idsByProject = new Map<string, string[]>();
+        prev.forEach(t => {
+          if (!t.projectId) return;
+          idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
+        });
+        idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
+      }
       const result = effectiveProjectId ? prev.filter(t => t.projectId !== effectiveProjectId) : [];
-      if (!useLocalOnly) deleteAllTasksFromDB(effectiveProjectId).catch(err => handleDbError(err, '전체 삭제에 실패했습니다.'));
       return result;
     });
   };
 
   const deleteAllTasksInAllProjects = () => {
     saveHistory();
-    setAllTasks([]);
-    if (!useLocalOnly) deleteAllTasksFromDB('').catch(err => handleDbError(err, '전체 삭제에 실패했습니다.'));
+    setAllTasks(prev => {
+      const idsByProject = new Map<string, string[]>();
+      prev.forEach(t => {
+        if (!t.projectId) return;
+        idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
+      });
+      idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
+      return [];
+    });
   };
 
   const resetAllProjectsToNew = async (): Promise<void> => {
@@ -1316,28 +1321,21 @@ export function WBSProvider({
     saveHistory();
     setSelectedTaskIds([]);
     setProjects([newProject]);
-    setAllTasks([]);
+    setAllTasks(prev => {
+      const idsByProject = new Map<string, string[]>();
+      prev.forEach(t => {
+        if (!t.projectId) return;
+        idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
+      });
+      idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
+      return [];
+    });
     setCurrentProjectId(newProject.id);
     try {
       sessionStorage.setItem('wbs-current-project', newProject.id);
     } catch (_) {}
 
-    if (useLocalOnly) {
-      try {
-        localStorage.setItem('wbs-projects', JSON.stringify([newProject]));
-        localStorage.setItem('wbs-tasks', JSON.stringify([]));
-      } catch (_) {}
-      return;
-    }
-
-    try {
-      // 작업 → 프로젝트 순으로 삭제
-      await deleteAllTasksFromDB('');
-      await deleteAllProjectsFromDB();
-      await upsertProject(newProject);
-    } catch (err) {
-      handleDbError(err, '전체 초기화에 실패했습니다.');
-    }
+    // DB 반영은 수동 버튼에서 처리
   };
 
   // ─── 백업 ─────────────────────────────────────────────────────────────────
@@ -1352,7 +1350,7 @@ export function WBSProvider({
     if (data.projects.length > 0) {
       if (!data.projects.find(p => p.id === currentProjectId)) setCurrentProjectId(data.projects[0].id);
     } else setCurrentProjectId('');
-    if (!useLocalOnly) restoreBackupToDB(data, ownerId).catch(err => handleDbError(err, '백업 복원에 실패했습니다.'));
+    // DB 반영은 수동 버튼에서 처리
   };
 
   const exportFullBackup = (): BackupData => ({
@@ -1378,7 +1376,6 @@ export function WBSProvider({
     setProjects(prev => [...prev, ...newProjects]);
     setAllTasks(prev => {
       const rolled = applyRollupsToTasks([...prev, ...newTasks]);
-      if (!useLocalOnly) Promise.all([...newProjects.map(p => upsertProject(p)), upsertTasks(rolled)]).catch(err => handleDbError(err, '병합에 실패했습니다.'));
       return rolled;
     });
     if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
@@ -1416,6 +1413,8 @@ export function WBSProvider({
       toggleExpand,
       expandToLevel,
       importTasks,
+      deletedTaskIdsByProject,
+      syncToDb,
       deleteAllTasks,
       deleteAllTasksInAllProjects,
       resetAllProjectsToNew,

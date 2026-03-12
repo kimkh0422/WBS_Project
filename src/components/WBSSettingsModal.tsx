@@ -182,7 +182,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                         type="text"
                                         value={appTitle}
                                         onChange={(e) => setAppTitle(e.target.value)}
-                                        placeholder="지엠티 WBS 매니저"
+                                        placeholder="지엠티 프로젝트 매니저"
                                         className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                                     />
                                 </div>
@@ -263,7 +263,7 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                                         className="input-field bg-stone-50"
                                     >
                                         <option value={2}>2 레벨까지만 표시</option>
-                                        <option value={3}>3 레벨까지만 표시 (기본값)</option>
+                                        <option value={3}>3 레벨까지만 표시</option>
                                         <option value={4}>4 레벨까지만 표시</option>
                                         <option value={5}>5 레벨 표기 허용</option>
                                     </select>

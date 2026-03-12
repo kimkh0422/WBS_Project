@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Task, TaskStatus, TaskAssignment } from '../types';
-import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Target } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Target, Bug } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
@@ -34,6 +34,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     checklist: [],
     deliverables: '',
     isMilestone: false,
+    isIssue: false,
     baselineStartDate: undefined,
     baselineEndDate: undefined,
     baselineWorkEffort: undefined,
@@ -64,6 +65,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         checklist: [],
         deliverables: '',
         isMilestone: false,
+        isIssue: false,
         baselineStartDate: undefined,
         baselineEndDate: undefined,
         baselineWorkEffort: undefined,
@@ -72,9 +74,9 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   }, [initialData, isOpen, taskProject?.startDate]);
 
   const depOptions = parentOptions.filter(t => t.id !== initialData?.id);
-  const idToNum = new Map(depOptions.map((t, i) => [t.id, i + 1]));
-  const numToId = new Map(depOptions.map((t, i) => [i + 1, t.id]));
-  const maxDepNum = depOptions.length;
+  const idToNum = new Map<string, number>(depOptions.map((t, i) => [t.id, i + 1] as const));
+  const numToId = new Map<number, string>(depOptions.map((t, i) => [i + 1, t.id] as const));
+  const maxDepNum: number = depOptions.length;
 
   useEffect(() => {
     const nums = (formData.dependencies || []).map(id => idToNum.get(id)).filter((n): n is number => n != null).sort((a, b) => a - b);
@@ -107,12 +109,12 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const effortHelpText = '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다. 기간 자동: 시작일+공수→종료일. 공수 역산: 시작~종료일→공수.';
 
   const parseDepsInput = (): string[] => {
-    const nums = depsInput
+    const nums: number[] = depsInput
       .split(/[\s,]+/)
       .map(s => parseInt(s.trim(), 10))
       .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
-    const unique = [...new Set(nums)];
-    return unique.map(n => numToId.get(n)).filter((id): id is string => id != null);
+    const unique: number[] = Array.from(new Set<number>(nums));
+    return unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -370,7 +372,19 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">시작일</label>
-              <input required type="date" value={formData.startDate?.split('T')[0]} onChange={(e) => setFormData({ ...formData, startDate: e.target.value })} className="input-field py-1.5 text-sm" />
+              <input
+                required
+                type="date"
+                value={formData.startDate?.split('T')[0]}
+                onChange={(e) => {
+                  const newStart = e.target.value;
+                  const effort = typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : (formData.workEffort ?? 1);
+                  let newEnd = computeEndDateFromEffort(newStart, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+                  if (taskProject?.endDate && newEnd > taskProject.endDate) newEnd = taskProject.endDate;
+                  setFormData(prev => ({ ...prev, startDate: newStart, endDate: newEnd }));
+                }}
+                className="input-field py-1.5 text-sm"
+              />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">종료일</label>
@@ -404,6 +418,17 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
                 <span>마일스톤</span>
                 <span className="text-[10px] text-[var(--color-ink-muted)]">(이정표)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-ink)]">
+                <input
+                  type="checkbox"
+                  checked={!!formData.isIssue}
+                  onChange={(e) => setFormData(prev => ({ ...prev, isIssue: e.target.checked }))}
+                  className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30"
+                />
+                <Bug size={12} className="text-rose-600 shrink-0" aria-hidden />
+                <span>이슈</span>
+                <span className="text-[10px] text-[var(--color-ink-muted)]">(강조 표시)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-ink)]">
                 <input
@@ -444,12 +469,12 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 value={depsInput}
                 onChange={(e) => setDepsInput(e.target.value)}
                 onBlur={() => {
-                  const nums = depsInput
+                  const nums: number[] = depsInput
                     .split(/[\s,]+/)
                     .map(s => parseInt(s.trim(), 10))
                     .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
-                  const unique = [...new Set(nums)];
-                  const ids = unique.map(n => numToId.get(n)).filter((id): id is string => id != null);
+                  const unique: number[] = Array.from(new Set<number>(nums));
+                  const ids = unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
                   setFormData(prev => ({ ...prev, dependencies: ids }));
                   setDepsInput(unique.sort((a, b) => a - b).join(', '));
                 }}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate } from '../lib/utils';
-import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
@@ -99,6 +99,7 @@ function getTaskDetailTooltip(
       : (task.assignee || '—');
   lines.push(`작업명: ${task.name ?? ''}`);
   if (task.isMilestone) lines.push('유형: 마일스톤');
+  if (task.isIssue) lines.push('이슈: 예');
   if (isCritical) lines.push('크리티컬 패스: 예');
   lines.push(`기간: ${formatDate(task.startDate)} ~ ${formatDate(task.endDate)}`);
   lines.push(`공수: ${task.workEffort != null ? `${task.workEffort}일` : '—'}`);
@@ -457,7 +458,14 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   );
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
-  const isTreeView = !(filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly);
+  const isTreeView = !(
+    filters.status !== 'all' ||
+    filters.assignee ||
+    filters.startDate ||
+    filters.endDate ||
+    !!filters.milestoneOnly ||
+    !!filters.issueOnly
+  );
 
   // Selection Logic
   const setSelection = (next: Set<string>) => {
@@ -631,8 +639,39 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         return;
       }
 
+      // Select all (works even when no row is selected yet)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        handleSelectAll();
+        return;
+      }
+
       const effectiveSelectedIds =
         selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : (sharedSelectedTaskIds || []);
+
+      // Copy (works as long as there's a selection)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        // Copy selected tasks preserving hierarchy
+        e.preventDefault();
+        if (selectedTaskIds.size > 0) {
+          // Gather selected tasks in their visual order
+          const selected = visibleTasks
+            .filter(t => selectedTaskIds.has(t.id))
+            .map((t) => {
+              // Strip computed fields like depth
+              const { depth: _depth, ...rest } = t as any;
+              return rest as Task;
+            });
+          setCopiedTasks(selected);
+          try {
+            const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
+            localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
+          } catch {
+            // ignore storage errors (private mode, quota, etc.)
+          }
+        }
+        return;
+      }
 
       if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
         e.preventDefault();
@@ -642,11 +681,24 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         return;
       }
 
-      if (!lastSelectedId) return;
+      // If nothing is selected yet, allow arrow keys to start selection
+      if (!lastSelectedId) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const first = visibleTasks[0];
+          const last = visibleTasks[visibleTasks.length - 1];
+          const next = e.key === 'ArrowDown' ? first : last;
+          if (next) {
+            handleSelect(next.id, false, false);
+            document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
+          }
+        }
+        return;
+      }
 
       // Check if sorted or filtered - disable structural changes if so
       const isSortedOrFiltered = sortConfig !== null ||
-        filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly;
+        filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly || !!filters.issueOnly;
 
       const currentIndex = visibleTasks.findIndex(t => t.id === lastSelectedId);
       if (currentIndex === -1) return;
@@ -736,29 +788,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             : (sharedSelectedTaskIds?.length === 1 ? sharedSelectedTaskIds[0] : null);
         if (taskIdToEdit) {
           setInlineEditingNameId(taskIdToEdit);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault();
-        handleSelectAll();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        // Copy selected tasks preserving hierarchy
-        e.preventDefault();
-        if (selectedTaskIds.size > 0) {
-          // Gather selected tasks in their visual order
-          const selected = visibleTasks
-            .filter(t => selectedTaskIds.has(t.id))
-            .map((t) => {
-              // Strip computed fields like depth
-              const { depth: _depth, ...rest } = t as any;
-              return rest as Task;
-            });
-          setCopiedTasks(selected);
-          try {
-            const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
-            localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
-          } catch {
-            // ignore storage errors (private mode, quota, etc.)
-          }
         }
       }
     };
@@ -1906,6 +1935,7 @@ function SortableTaskRowInner({
                   title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
+                  {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
                   {criticalPathSet?.has(task.id) && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0" title="크리티컬 패스">크리티컬</span>
                   )}

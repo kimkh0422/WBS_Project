@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, Loader2, Trash2, Pencil, Check, UserCheck } from 'lucide-react';
-import { fetchProfiles, getProfileStatus, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole, updateMemberApproved } from '../lib/db';
+import { fetchProfiles, getProfileStatus, getMemberVisitStats, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole, updateMemberApproved } from '../lib/db';
 import { ProfileRow } from '../lib/supabase';
 import { format } from 'date-fns';
 
@@ -31,7 +31,19 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted, onAppr
       // 현재 사용자 프로필이 없으면 생성(ensure_profile). 없으면 RLS로 인해 0명만 보임.
       await getProfileStatus();
       const list = await fetchProfiles();
-      setMembers(list);
+      let stats: Record<string, { login_count: number; last_visited_at: string | null }> = {};
+      try {
+        stats = await getMemberVisitStats();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '접속 통계를 불러오지 못했습니다.');
+      }
+      setMembers(
+        list.map(p => ({
+          ...p,
+          login_count: stats[p.id]?.login_count ?? 0,
+          last_visited_at: stats[p.id]?.last_visited_at ?? null,
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : '회원 목록을 불러오지 못했습니다.');
       setMembers([]);
@@ -143,6 +155,8 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted, onAppr
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">회원명</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">이메일</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">가입일</th>
+                  <th className="text-left py-3 px-2 font-semibold text-stone-600">접속횟수</th>
+                  <th className="text-left py-3 px-2 font-semibold text-stone-600">마지막 접속시각</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">승인</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">역할</th>
                   <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
@@ -192,6 +206,12 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted, onAppr
                     <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
                     <td className="py-3 px-2 text-stone-500">
                       {m.created_at ? format(new Date(m.created_at), 'yyyy-MM-dd HH:mm') : '-'}
+                    </td>
+                    <td className="py-3 px-2 text-stone-600 tabular-nums">
+                      {m.login_count != null ? m.login_count : '-'}
+                    </td>
+                    <td className="py-3 px-2 text-stone-500">
+                      {m.last_visited_at ? format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm') : '-'}
                     </td>
                     <td className="py-3 px-2">
                       {m.approved ? (

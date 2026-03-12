@@ -57,6 +57,8 @@ interface KanbanCardProps {
   key?: React.Key;
   task: Task;
   wbsId?: string;
+  /** 상위 WBS 표시명 (예: "T2.4 시뮬레이터 데") */
+  parentWbsLabel?: string;
   isOverlay?: boolean;
   onClick?: (task: Task) => void;
   onDelete?: (taskId: string) => void;
@@ -73,7 +75,7 @@ function getLevelStyle(level: number) {
   }
 }
 
-function KanbanCard({ task, wbsId, isOverlay, onClick, onDelete, onUpdate, level = 1 }: KanbanCardProps) {
+function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, onClick, onDelete, onUpdate, level = 1 }: KanbanCardProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const lvStyle = getLevelStyle(level);
   const [newName, setNewName] = useState(task.name);
@@ -160,9 +162,16 @@ function KanbanCard({ task, wbsId, isOverlay, onClick, onDelete, onUpdate, level
               className="w-full text-sm font-bold bg-white text-blue-600 outline-none ring-1 ring-blue-500 rounded px-1"
             />
           ) : (
-            <h3 className="font-medium text-sm text-stone-800 line-clamp-2 leading-tight">
-              {wbsId ? `${wbsId} ` : ''}{task.name}
-            </h3>
+            <>
+              <h3 className="font-medium text-sm text-stone-800 line-clamp-2 leading-tight">
+                {wbsId ? `${wbsId} ` : ''}{task.name}
+              </h3>
+              {parentWbsLabel && (
+                <p className="text-[10px] text-stone-500 mt-0.5 truncate" title={parentWbsLabel}>
+                  상위: {parentWbsLabel}
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -199,6 +208,14 @@ function KanbanCard({ task, wbsId, isOverlay, onClick, onDelete, onUpdate, level
             <span className={cn("text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider", lvStyle.bg, lvStyle.text)}>
               {lvStyle.badge}
             </span>
+            {task.isIssue && (
+              <span
+                className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200"
+                title="이슈"
+              >
+                ISSUE
+              </span>
+            )}
             {wbsId && (
               <span className="text-[9px] font-mono text-stone-400">{wbsId}</span>
             )}
@@ -236,6 +253,7 @@ interface KanbanColumnProps {
   column: { id: string; name: string; icon: React.ReactNode; color: string; progress: number };
   tasks: Task[];
   displayWbsMap: Map<string, string>;
+  parentWbsLabelMap: Map<string, string>;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: TaskStatus, name: string) => void;
   onDeleteTask: (taskId: string) => void;
@@ -243,7 +261,7 @@ interface KanbanColumnProps {
   taskLevels: Map<string, number>;
 }
 
-function KanbanColumn({ column, tasks, displayWbsMap, onTaskClick, onAddTask, onDeleteTask, onUpdateTask, taskLevels }: KanbanColumnProps) {
+function KanbanColumn({ column, tasks, displayWbsMap, parentWbsLabelMap, onTaskClick, onAddTask, onDeleteTask, onUpdateTask, taskLevels }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({
     id: column.id,
     data: {
@@ -305,6 +323,7 @@ function KanbanColumn({ column, tasks, displayWbsMap, onTaskClick, onAddTask, on
               key={task.id}
               task={task}
               wbsId={displayWbsMap.get(task.id)}
+              parentWbsLabel={parentWbsLabelMap.get(task.id)}
               onClick={onTaskClick}
               onDelete={onDeleteTask}
               onUpdate={onUpdateTask}
@@ -399,6 +418,20 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     })
   );
 
+  // 상위 작업 표시명 (WBS 번호 + 이름) — 카드에서 한눈에 보기 위함
+  const parentWbsLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const taskById = new Map(tasks.map(t => [t.id, t]));
+    tasks.forEach(task => {
+      if (!task.parentId) return;
+      const parent = taskById.get(task.parentId);
+      if (!parent) return;
+      const wbs = displayWbsMap.get(parent.id);
+      map.set(task.id, wbs ? `${wbs} ${parent.name}` : parent.name);
+    });
+    return map;
+  }, [tasks, displayWbsMap]);
+
   // Compute level (depth) for each task from parentId chain
   const taskLevels = useMemo(() => {
     const levels = new Map<string, number>();
@@ -420,12 +453,19 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     return levels;
   }, [tasks]);
 
-  // Filter tasks and apply filters (show all tasks, all levels)
+  // Task IDs that have at least one child (parent tasks)
+  const parentTaskIds = useMemo(() => {
+    return new Set(tasks.filter(t => t.parentId).map(t => t.parentId) as string[]);
+  }, [tasks]);
+
+  // Filter tasks: only leaf tasks (no children), then apply filters
   const filteredTasks = useMemo(() => {
     let result = tasks;
     if (filters.projectId !== 'all') {
       result = result.filter(t => t.projectId === filters.projectId);
     }
+    // Kanban: show only leaf tasks (lowest-level, no children)
+    result = result.filter(task => !parentTaskIds.has(task.id));
     return result.filter(task => {
       if (filters.status !== 'all' && task.status !== filters.status) return false;
       if (filters.assignee && !task.assignee.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
@@ -437,10 +477,21 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         if (filters.startDate && taskEnd < filters.startDate) return false;
         if (filters.endDate && taskStart > filters.endDate) return false;
       }
-      if (filters.milestoneOnly && !task.isMilestone) return false;
+      // 마일스톤/이슈 동시 선택 시: (마일스톤 OR 이슈)만 표시
+      if (filters.milestoneOnly && filters.issueOnly) {
+        if (!task.isMilestone && !task.isIssue) return false;
+      } else {
+        if (filters.milestoneOnly && !task.isMilestone) return false;
+        if (filters.issueOnly && !task.isIssue) return false;
+      }
+      if (typeof filters.level === 'number' && (taskLevels.get(task.id) ?? 1) !== filters.level) return false;
+      if (filters.pastDueOnly) {
+        const today = new Date().toISOString().slice(0, 10);
+        if (!taskEnd || taskEnd >= today || (task.progress ?? 0) >= 100) return false;
+      }
       return true;
     });
-  }, [tasks, filters]);
+  }, [tasks, filters, taskLevels, parentTaskIds]);
 
   const tasksByStatus = useMemo(() => {
     const grouped: Record<string, Task[]> = {};
@@ -566,6 +617,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
               column={column}
               tasks={tasksByStatus[column.id] ?? []}
               displayWbsMap={displayWbsMap}
+              parentWbsLabelMap={parentWbsLabelMap}
               onTaskClick={handleTaskClick}
               onAddTask={handleAddTask}
               onDeleteTask={handleDeleteClick}
@@ -577,7 +629,12 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
 
         <DragOverlay dropAnimation={dropAnimation}>
           {activeTask ? (
-            <KanbanCard task={activeTask} wbsId={displayWbsMap.get(activeTask.id)} isOverlay />
+            <KanbanCard
+              task={activeTask}
+              wbsId={displayWbsMap.get(activeTask.id)}
+              parentWbsLabel={parentWbsLabelMap.get(activeTask.id)}
+              isOverlay
+            />
           ) : null}
         </DragOverlay>
       </DndContext>

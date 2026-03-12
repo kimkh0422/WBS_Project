@@ -19,6 +19,8 @@ export const supabase = isSupabaseConfigured
 export interface ProjectAssignmentRow {
   assignee: string;
   allocation_percent: number;
+  /** 기간별 월별 투입비율. 키: "YYYY-MM", 값: 해당 월 비율 */
+  monthly_allocations?: Record<string, number> | null;
 }
 
 export interface ProjectRow {
@@ -70,6 +72,7 @@ export interface TaskRow {
   deliverables: string | null;
   sort_order: number;
   is_milestone?: boolean;
+  is_issue?: boolean;
   baseline_start_date?: string | null;
   baseline_end_date?: string | null;
   baseline_work_effort?: number | null;
@@ -95,4 +98,8 @@ export interface ProfileRow {
   approved?: boolean;
   /** 사용자 맞춤 레벨별 색상 [{r,g,b}, ...]. null이면 기본값 사용 */
   level_colors?: Array<{ r: number; g: number; b: number }> | null;
+  /** 접속 횟수 (visits 집계, 관리자 회원 목록에서만) */
+  login_count?: number;
+  /** 마지막 접속 시각 (ISO 문자열, 관리자 회원 목록에서만) */
+  last_visited_at?: string | null;
 }

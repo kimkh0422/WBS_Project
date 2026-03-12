@@ -8,7 +8,10 @@ export type SortConfig = {
 /** 프로젝트별 투입인원·투입비율. 작업의 기간/공수 계산에 사용 */
 export interface ProjectAssignment {
   assignee: string;
+  /** 기본 투입비율(%). 월별 미설정 시 전체 기간에 적용 */
   allocationPercent: number;
+  /** 기간별 월별 투입비율. 키: "YYYY-MM", 값: 해당 월 투입비율(%). 있으면 해당 월에는 이 값 사용 */
+  monthlyAllocations?: Record<string, number>;
 }
 
 export interface Project {
@@ -53,6 +56,8 @@ export interface Task {
   updatedAt?: string;
   /** 마일스톤 여부. true면 일정 상 하나의 시점(이정표)으로 표시 */
   isMilestone?: boolean;
+  /** 이슈 여부. true면 이슈 작업으로 강조 표시 */
+  isIssue?: boolean;
   /** 베이스라인 시작일. 설정 시 해당 작업의 기준 일정으로 사용 */
   baselineStartDate?: string;
   /** 베이스라인 종료일 */
@@ -71,6 +76,12 @@ export interface FilterState {
   endDate: string;
   /** true면 마일스톤 작업만 표시 */
   milestoneOnly?: boolean;
+  /** true면 이슈 작업만 표시 */
+  issueOnly?: boolean;
+  /** 레벨 필터: 숫자면 해당 WBS 레벨만 표시, 'all'이면 전체 */
+  level?: number | 'all';
+  /** true면 완료 기한이 지났는데 아직 미완료인 작업만 표시 */
+  pastDueOnly?: boolean;
 }
 
 export const MOCK_PROJECTS: Project[] = [

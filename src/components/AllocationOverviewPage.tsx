@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Project } from '../types';
+import { Project, ProjectAssignment } from '../types';
 
 interface AllocationOverviewPageProps {
   onEditProject?: (project: Project) => void;
@@ -12,17 +12,22 @@ interface AllocationOverviewPageProps {
 type ViewMode = 'by-project' | 'by-person';
 
 function normalizeProjectAssignments(
-  assignments: Array<{ assignee: string; allocationPercent: number }>
-): Array<{ assignee: string; allocationPercent: number }> {
-  const map = new Map<string, number>();
+  assignments: ProjectAssignment[]
+): Array<{ assignee: string; allocationPercent: number; monthlyAllocations?: Record<string, number> }> {
+  const map = new Map<string, { allocationPercent: number; monthlyAllocations?: Record<string, number> }>();
   for (const a of assignments) {
     const name = (a.assignee || '').trim() || '(미지정)';
     const pct = Number(a.allocationPercent || 0);
     if (!Number.isFinite(pct) || pct <= 0) continue;
-    map.set(name, (map.get(name) ?? 0) + pct);
+    if (!map.has(name)) map.set(name, { allocationPercent: 0, monthlyAllocations: undefined });
+    const cur = map.get(name)!;
+    cur.allocationPercent += pct;
+    if (a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && !cur.monthlyAllocations) {
+      cur.monthlyAllocations = a.monthlyAllocations;
+    }
   }
   return Array.from(map.entries())
-    .map(([assignee, allocationPercent]) => ({ assignee, allocationPercent }))
+    .map(([assignee, v]) => ({ assignee, allocationPercent: v.allocationPercent, monthlyAllocations: v.monthlyAllocations }))
     .sort((a, b) => b.allocationPercent - a.allocationPercent);
 }
 
@@ -179,10 +184,21 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
                     {assignments.map((a) => (
                       <div
                         key={`${project.id}:${a.assignee}`}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
+                        className="inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
                       >
-                        <span className="font-medium text-[var(--color-ink)]">{a.assignee || '(미지정)'}</span>
-                        <span className="text-teal-600 font-bold">{a.allocationPercent}%</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-[var(--color-ink)]">{a.assignee || '(미지정)'}</span>
+                          <span className="text-teal-600 font-bold">{a.allocationPercent}%</span>
+                        </div>
+                        {a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && (
+                          <div className="text-[10px] text-stone-500 flex flex-wrap gap-x-2 gap-y-0">
+                            {Object.entries(a.monthlyAllocations)
+                              .sort(([k1], [k2]) => k1.localeCompare(k2))
+                              .map(([ym, pct]) => (
+                                <span key={ym}>{ym} {pct}%</span>
+                              ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

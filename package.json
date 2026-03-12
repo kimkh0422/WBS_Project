@@ -6,11 +6,18 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "version:patch": "node scripts/update-release.mjs patch",
+    "version:minor": "node scripts/update-release.mjs minor",
+    "version:major": "node scripts/update-release.mjs major",
+    "release": "node scripts/update-release.mjs patch",
     "db:migrate-profiles": "node scripts/run-profiles-migration.mjs",
     "db:open-migration": "node scripts/open-migration-in-browser.mjs",
     "db:fix-profiles-rls": "node scripts/open-fix-migration.mjs",
     "db:fix-rls": "node scripts/run-rls-fix.mjs",
     "db:fix-rls-open": "node scripts/open-rls-fix.mjs",
+    "db:grant-visits": "node scripts/run-visit-grants.mjs",
+    "db:grant-visits-open": "node scripts/open-visit-grants-in-browser.mjs",
+    "db:visits-setup-open": "node scripts/open-visits-setup-in-browser.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

@@ -1,4 +1,4 @@
-import { supabase, ProjectRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProfileRow, isSupabaseConfigured } from './supabase';
+import { supabase, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProfileRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
@@ -32,6 +32,7 @@ function toTaskRow(task: Task, sortOrder: number): TaskRow {
     deliverables: task.deliverables ?? null,
     sort_order: sortOrder,
     is_milestone: task.isMilestone ?? false,
+    is_issue: task.isIssue ?? false,
     baseline_start_date: task.baselineStartDate ?? null,
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
@@ -57,6 +58,7 @@ function fromTaskRow(row: TaskRow): Task {
     deliverables: row.deliverables ?? undefined,
     updatedAt: row.updated_at ?? undefined,
     isMilestone: row.is_milestone ?? false,
+    isIssue: row.is_issue ?? false,
     baselineStartDate: row.baseline_start_date ?? undefined,
     baselineEndDate: row.baseline_end_date ?? undefined,
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
@@ -70,7 +72,11 @@ function toProjectRow(project: Project): ProjectRow {
     description: project.description ?? null,
     start_date: project.startDate ?? null,
     end_date: project.endDate ?? null,
-    assignments: (project.assignments ?? []).map(a => ({ assignee: a.assignee, allocation_percent: a.allocationPercent })),
+    assignments: (project.assignments ?? []).map(a => ({
+      assignee: a.assignee,
+      allocation_percent: a.allocationPercent,
+      ...(a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 ? { monthly_allocations: a.monthlyAllocations } : {}),
+    })),
     owner_id: project.ownerId ?? null,
     min_work_effort_days: project.minWorkEffortDays ?? null,
   };
@@ -84,7 +90,11 @@ function toProjectRowMinimal(project: Project): Omit<ProjectRow, 'assignments'> 
 
 function fromProjectRow(row: ProjectRow): Project {
   const assignments: ProjectAssignment[] = Array.isArray(row.assignments)
-    ? row.assignments.map((a: { assignee: string; allocation_percent: number }) => ({ assignee: a.assignee, allocationPercent: a.allocation_percent }))
+    ? row.assignments.map((a: ProjectAssignmentRow) => ({
+        assignee: a.assignee,
+        allocationPercent: a.allocation_percent,
+        ...(a.monthly_allocations && Object.keys(a.monthly_allocations).length > 0 ? { monthlyAllocations: a.monthly_allocations } : {}),
+      }))
     : [];
   const minDays = row.min_work_effort_days != null ? Number(row.min_work_effort_days) : undefined;
   return {
@@ -280,7 +290,7 @@ function diffTaskFields(
 ): Array<{ field: string; old_value: unknown; new_value: unknown }> | undefined {
   if (!oldRow) return undefined;
   const changes: Array<{ field: string; old_value: unknown; new_value: unknown }> = [];
-  const fields: (keyof TaskRow)[] = ['name', 'start_date', 'end_date', 'progress', 'assignee', 'status', 'work_effort', 'description', 'is_milestone'];
+  const fields: (keyof TaskRow)[] = ['name', 'start_date', 'end_date', 'progress', 'assignee', 'status', 'work_effort', 'description', 'is_milestone', 'is_issue'];
   for (const key of fields) {
     const o = oldRow[key];
     const n = newRow[key];
@@ -313,6 +323,46 @@ function diffProjectFields(
 function isAssignmentsSchemaError(err: { code?: string; message?: string }): boolean {
   const msg = (err.message ?? '').toLowerCase();
   return err.code === 'PGRST204' || msg.includes("'assignments'") || msg.includes('assignments');
+}
+
+function isTaskOptionalColumnSchemaError(
+  err: { code?: string; message?: string },
+  columnName: string
+): boolean {
+  const msg = (err.message ?? '').toLowerCase();
+  const col = String(columnName ?? '').toLowerCase();
+  return err.code === 'PGRST204' && (msg.includes(`'${col}'`) || msg.includes(col));
+}
+
+function getMissingColumnNameFromPgrst204(err: { code?: string; message?: string }): string | null {
+  if (err.code !== 'PGRST204') return null;
+  const msg = err.message ?? '';
+  // Example: "Could not find the 'is_issue' column of 'tasks' in the schema cache"
+  const m = msg.match(/could not find the '([^']+)' column/i);
+  return m?.[1] ? String(m[1]) : null;
+}
+
+function stripTaskOptionalColumns(row: TaskRow, columns: string[]): TaskRow {
+  const out = { ...(row as any) } as any;
+  for (const c of columns) delete out[c];
+  return out as TaskRow;
+}
+
+const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
+  // Feature flags
+  'is_issue',
+  'is_milestone',
+  // Baseline fields (older schemas may not have these)
+  'baseline_start_date',
+  'baseline_end_date',
+  'baseline_work_effort',
+]);
+
+function stripIfKnownOptionalTaskColumn(row: TaskRow, columnName: string | null): TaskRow | null {
+  if (!columnName) return null;
+  const col = columnName.toLowerCase();
+  if (!TASK_OPTIONAL_DB_COLUMNS.has(col)) return null;
+  return stripTaskOptionalColumns(row, [col]);
 }
 
 export async function upsertProject(project: Project): Promise<void> {
@@ -357,13 +407,28 @@ export async function upsertTask(
   const existingRow = (existing.data ?? null) as TaskRow | null;
   const row = toTaskRow(task, sortOrder);
   if (task.updatedAt != null && task.updatedAt !== '') {
-    const { data, error } = await supabase!
+    let { data, error } = await supabase!
       .from('tasks')
       .update(row)
       .eq('id', task.id)
       .eq('updated_at', task.updatedAt)
       .select('id')
       .maybeSingle();
+    if (error) {
+      const missing = getMissingColumnNameFromPgrst204(error);
+      const minimal = stripIfKnownOptionalTaskColumn(row, missing);
+      if (minimal) {
+        const retry = await supabase!
+          .from('tasks')
+          .update(minimal)
+          .eq('id', task.id)
+          .eq('updated_at', task.updatedAt)
+          .select('id')
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
+    }
     if (error) throw error;
     if (data == null) return { conflict: true };
     const changes = diffTaskFields(existingRow, task, row);
@@ -377,7 +442,15 @@ export async function upsertTask(
     });
     return {};
   }
-  const { error } = await supabase!.from('tasks').upsert(row);
+  let { error } = await supabase!.from('tasks').upsert(row);
+  if (error) {
+    const missing = getMissingColumnNameFromPgrst204(error);
+    const minimal = stripIfKnownOptionalTaskColumn(row, missing);
+    if (minimal) {
+      const retry = await supabase!.from('tasks').upsert(minimal);
+      error = retry.error;
+    }
+  }
   if (error) throw error;
   const action: AuditAction = existingRow ? 'update' : 'create';
   const changes = existingRow ? diffTaskFields(existingRow, task, row) : undefined;
@@ -400,7 +473,15 @@ export async function upsertTasks(tasks: Task[]): Promise<void> {
   for (let i = 0; i < tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
     const chunk = tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
     const rows = chunk.map((t, j) => toTaskRow(t, i + j));
-    const { error } = await supabase!.from('tasks').upsert(rows);
+    let { error } = await supabase!.from('tasks').upsert(rows);
+    if (error) {
+      const missing = getMissingColumnNameFromPgrst204(error);
+      if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
+        const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
+        const retry = await supabase!.from('tasks').upsert(minimalRows);
+        error = retry.error;
+      }
+    }
     if (error) throw error;
   }
   const projectId = tasks[0]?.projectId ?? null;
@@ -636,6 +717,36 @@ export async function fetchProfiles(): Promise<ProfileRow[]> {
   }
 }
 
+/** 회원별 접속 횟수·마지막 접속 시각 (관리자 전용 RPC). 실패 시 빈 객체. */
+export async function getMemberVisitStats(): Promise<Record<string, { login_count: number; last_visited_at: string | null }>> {
+  if (!isSupabaseConfigured || !supabase) return {};
+  try {
+    const { data, error } = await supabase.rpc('get_member_visit_stats');
+    if (error) {
+      const msg = error.message ?? '';
+      // 마이그레이션 미적용/권한 문제는 UI에서 안내할 수 있도록 예외로 올림
+      if (
+        msg.toLowerCase().includes('does not exist') ||
+        msg.toLowerCase().includes('permission denied') ||
+        msg.toLowerCase().includes('not found')
+      ) {
+        throw new Error(
+          '접속 통계를 불러올 수 없습니다. Supabase DB에 방문 통계 마이그레이션( visits, record_visit, get_member_visit_stats )을 적용하고, 함수 실행 권한(GRANT)을 확인하세요.'
+        );
+      }
+      return {};
+    }
+    const rows = (data ?? []) as { user_id: string; login_count: number; last_visited_at: string | null }[];
+    const out: Record<string, { login_count: number; last_visited_at: string | null }> = {};
+    rows.forEach(r => {
+      out[r.user_id] = { login_count: Number(r.login_count) || 0, last_visited_at: r.last_visited_at ?? null };
+    });
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /** 접근 가능한 프로젝트 소유자 표시명 조회 (RPC). profileMap 보강용. */
 export async function getProjectOwnerDisplayNames(ownerIds: string[]): Promise<Record<string, string>> {
   if (!isSupabaseConfigured || !supabase || ownerIds.length === 0) return {};
@@ -782,7 +893,15 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
     for (let i = 0; i < data.tasks.length; i += TASKS_UPSERT_BATCH_SIZE) {
       const chunk = data.tasks.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
       const rows = chunk.map((t, j) => toTaskRow(t, i + j));
-      const { error } = await supabase!.from('tasks').insert(rows);
+      let { error } = await supabase!.from('tasks').insert(rows);
+      if (error) {
+        const missing = getMissingColumnNameFromPgrst204(error);
+        if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
+          const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
+          const retry = await supabase!.from('tasks').insert(minimalRows);
+          error = retry.error;
+        }
+      }
       if (error) throw error;
     }
   }
@@ -856,7 +975,15 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
       for (let i = 0; i < tasksWithUuid.length; i += TASKS_UPSERT_BATCH_SIZE) {
         const chunk = tasksWithUuid.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
         const rows = chunk.map((t, j) => toTaskRow(t, i + j));
-        const { error } = await supabase!.from('tasks').upsert(rows);
+        let { error } = await supabase!.from('tasks').upsert(rows);
+        if (error) {
+          const missing = getMissingColumnNameFromPgrst204(error);
+          if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
+            const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
+            const retry = await supabase!.from('tasks').upsert(minimalRows);
+            error = retry.error;
+          }
+        }
         if (error) throw error;
       }
     }

@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { X, Plus, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Plus, UserPlus, Calendar } from 'lucide-react';
 import { Project, ProjectAssignment } from '../types';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
+import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
+import { cn } from '../lib/utils';
 
 interface ProjectModalProps {
   isOpen: boolean;
@@ -17,6 +19,24 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
   const [endDate, setEndDate] = useState('');
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
   const [minWorkEffortDays, setMinWorkEffortDays] = useState<string>('');
+
+  /** 월별 설정 펼친 인원 인덱스 (한 번에 하나만) */
+  const [monthlyExpandedIndex, setMonthlyExpandedIndex] = useState<number | null>(null);
+
+  /** 프로젝트 기간 기준 월 목록 (YYYY-MM). 기간 없으면 현재월 포함 12개월 */
+  const projectMonths = useMemo(() => {
+    const start = startDate ? parseISO(startDate) : new Date();
+    const end = endDate ? parseISO(endDate) : addMonths(start, 11);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      const now = new Date();
+      return Array.from({ length: 12 }, (_, i) => format(addMonths(startOfMonth(now), i), 'yyyy-MM'));
+    }
+    const startMonth = startOfMonth(start);
+    const endMonth = startOfMonth(end);
+    if (endMonth < startMonth) return [format(startMonth, 'yyyy-MM')];
+    const months = eachMonthOfInterval({ start: startMonth, end: endMonth });
+    return months.map(m => format(m, 'yyyy-MM'));
+  }, [startDate, endDate]);
 
   useEffect(() => {
     if (isOpen) {
@@ -35,6 +55,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
         setAssignments([]);
         setMinWorkEffortDays('');
       }
+      setMonthlyExpandedIndex(null);
     }
   }, [isOpen, project]);
 
@@ -81,6 +102,21 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
       const next = [...prev];
       if (!next[index]) return prev;
       next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+  const updateMonthlyAllocation = (index: number, yearMonth: string, percent: number) => {
+    setAssignments(prev => {
+      const next = [...prev];
+      if (!next[index]) return prev;
+      const base = next[index].allocationPercent;
+      const nextMonthly = { ...(next[index].monthlyAllocations || {}), [yearMonth]: percent };
+      if (percent === base) {
+        delete nextMonthly[yearMonth];
+        next[index] = { ...next[index], monthlyAllocations: Object.keys(nextMonthly).length ? nextMonthly : undefined };
+      } else {
+        next[index] = { ...next[index], monthlyAllocations: nextMonthly };
+      }
       return next;
     });
   };
@@ -175,24 +211,60 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
             <p className="text-[10px] text-stone-400 mb-2">이 프로젝트에 투입되는 인원과 비율을 설정합니다. 작업별 기간·공수 계산에 적용됩니다. 담당자 이름은 프로젝트 내에서만 사용되며 필요 시 수정할 수 있습니다.</p>
             <div className="space-y-2">
               {assignments.map((a, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={a.assignee}
-                    onChange={(e) => updateAssignment(i, 'assignee', e.target.value)}
-                    className="input-field flex-1 py-2 text-sm"
-                    placeholder="담당자 이름"
-                  />
-                  <select
-                    value={a.allocationPercent}
-                    onChange={(e) => updateAssignment(i, 'allocationPercent', Number(e.target.value))}
-                    className="input-field w-24 py-2 text-sm"
-                  >
-                    {ALLOCATION_OPTIONS.map(pct => <option key={pct} value={pct}>{pct}%</option>)}
-                  </select>
-                  <button type="button" onClick={() => removeAssignment(i)} className="p-2 text-stone-400 hover:text-red-500 rounded">
-                    <X size={14} />
-                  </button>
+                <div key={i} className="border border-stone-100 rounded-lg p-2.5 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={a.assignee}
+                      onChange={(e) => updateAssignment(i, 'assignee', e.target.value)}
+                      className="input-field flex-1 py-2 text-sm"
+                      placeholder="담당자 이름"
+                    />
+                    <select
+                      value={a.allocationPercent}
+                      onChange={(e) => updateAssignment(i, 'allocationPercent', Number(e.target.value))}
+                      className="input-field w-24 py-2 text-sm"
+                      title="기본 투입비율 (월별 미설정 시 적용)"
+                    >
+                      {ALLOCATION_OPTIONS.map(pct => <option key={pct} value={pct}>{pct}%</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
+                      className={cn(
+                        "p-2 rounded text-stone-500 hover:bg-stone-100 transition-colors",
+                        monthlyExpandedIndex === i && "bg-teal-50 text-teal-600"
+                      )}
+                      title="기간별 월별 투입비율 설정"
+                    >
+                      <Calendar size={14} />
+                    </button>
+                    <button type="button" onClick={() => removeAssignment(i)} className="p-2 text-stone-400 hover:text-red-500 rounded">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {monthlyExpandedIndex === i && (
+                    <div className="pt-2 border-t border-stone-100">
+                      <p className="text-[10px] font-medium text-stone-500 mb-2">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
+                      <div className="flex flex-wrap gap-2">
+                        {projectMonths.map(ym => {
+                          const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
+                          return (
+                            <div key={ym} className="flex items-center gap-1">
+                              <span className="text-[10px] text-stone-500 w-12">{ym}</span>
+                              <select
+                                value={displayVal}
+                                onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
+                                className="input-field py-1.5 text-xs w-16"
+                              >
+                                {ALLOCATION_OPTIONS.map(pct => <option key={pct} value={pct}>{pct}%</option>)}
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

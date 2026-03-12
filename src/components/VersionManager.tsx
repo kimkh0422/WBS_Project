@@ -7,35 +7,39 @@ interface VersionHistory {
     changes: string[];
 }
 
-const HISTORY_DATA: VersionHistory[] = [
-    {
-        version: '0.2.0',
-        date: '2026-03-10',
-        changes: [
-            'Supabase 인증 및 프로젝트 공유 (멤버·초대 링크)',
-            '프로필 관리 및 관리자 기능 (전체 프로젝트 조회)',
-            'RLS 무한 재귀 수정 (SECURITY DEFINER 함수 적용)',
-            '관리자 프로젝트 생성 권한 추가',
-            'work_effort 소수 지원 (0.5일, 1.5일 등)',
-            '프로필 full_name, level_colors (레벨별 색상 맞춤)',
-            'DB 기반 방문 통계 (record_visit, get_visitor_stats)'
-        ]
-    },
-    {
-        version: '0.1.0',
-        date: '2026-03-06',
-        changes: [
-            'UI 한글화 (메뉴, 툴팁, 모달 등)',
-            '프로젝트 선택 UI 개선 (가독성 강화)',
-            '로고 디자인 조정 및 새로고침 기능 추가',
-            '단축키 사이드바 표시/숨김 옵션 추가',
-            '하단 푸터 구성 및 라이선스 정보 추가',
-            '상태 명칭 커스텀 및 상태별 자동 진척도 연동',
-            '칸반 보드 카드 편집(이름 수정/삭제) 및 전체 프로젝트 보기',
-            'AI 작업 분석/자동 생성, Excel/JSON 가져오기·내보내기'
-        ]
+function getHistoryData(): VersionHistory[] {
+    try {
+        const parsed = JSON.parse(__APP_CHANGELOG_JSON__) as VersionHistory[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {
+        /* fallback */
     }
-];
+    return [
+        {
+            version: '0.2.0',
+            date: '2026-03-10',
+            changes: [
+                'Supabase 인증 및 프로젝트 공유 (멤버·초대 링크)',
+                '프로필 관리 및 관리자 기능 (전체 프로젝트 조회)',
+                'RLS 무한 재귀 수정 (SECURITY DEFINER 함수 적용)',
+                'work_effort 소수 지원 (0.5일, 1.5일 등)',
+                'DB 기반 방문 통계 (record_visit, get_visitor_stats)'
+            ]
+        },
+        {
+            version: '0.1.0',
+            date: '2026-03-06',
+            changes: [
+                'UI 한글화 (메뉴, 툴팁, 모달 등)',
+                '프로젝트 선택 UI 개선 (가독성 강화)',
+                '로고 디자인 조정 및 새로고침 기능 추가',
+                'AI 작업 분석/자동 생성, Excel/JSON 가져오기·내보내기'
+            ]
+        }
+    ];
+}
+
+const HISTORY_DATA = getHistoryData();
 
 interface VersionManagerProps {
     isOpen: boolean;

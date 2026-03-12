@@ -87,6 +87,18 @@ function matchesFilters(task: Task, filters: FilterState) {
   const taskEnd = toDateStr(task.endDate);
   const hasTaskStart = !!taskStart;
   const hasTaskEnd = !!taskEnd;
+  // 마일스톤/이슈 동시 선택 시: (마일스톤 OR 이슈)만 표시
+  if (filters.milestoneOnly && filters.issueOnly) {
+    if (!task.isMilestone && !task.isIssue) return false;
+  } else {
+    if (filters.milestoneOnly && !task.isMilestone) return false;
+    if (filters.issueOnly && !task.isIssue) return false;
+  }
+  // 완료 기한 지난 항목: 종료일이 오늘 이전이고 진행률 100% 미만
+  if (filters.pastDueOnly) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (!taskEnd || taskEnd >= today || (task.progress ?? 0) >= 100) return false;
+  }
   if (filters.startDate && filters.endDate) {
     // 기간 겹침: task가 [startDate, endDate]와 하루라도 겹치면 표시
     if (hasTaskStart && hasTaskEnd) {
@@ -103,7 +115,6 @@ function matchesFilters(task: Task, filters: FilterState) {
     if (filters.startDate && hasTaskEnd && taskEnd < filters.startDate) return false;
     if (filters.endDate && hasTaskStart && taskStart > filters.endDate) return false;
   }
-  if (filters.milestoneOnly && !task.isMilestone) return false;
   return true;
 }
 
@@ -138,23 +149,32 @@ export function buildVisibleTasks(
   const baseTasks = filters.projectId === 'all'
     ? tasks
     : tasks.filter(task => task.projectId === filters.projectId);
-  const hasFilters = filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly;
+  const hasFilters =
+    filters.status !== 'all' ||
+    filters.assignee ||
+    filters.startDate ||
+    filters.endDate ||
+    !!filters.milestoneOnly ||
+    !!filters.issueOnly ||
+    !!filters.pastDueOnly;
+  const levelFilter = typeof filters.level === 'number';
+  const targetLevel = levelFilter ? filters.level! : 0;
   const compare = createTaskComparator(sortConfig);
 
   if (hasFilters) {
     const filteredTasks = baseTasks.filter(task => matchesFilters(task, filters));
 
-    if (!preserveDepthOnFiltered) {
-      return [...filteredTasks].sort(compare).map(task => ({ ...task, depth: 0 }));
-    }
-
     const taskMap = buildTaskIndex(baseTasks);
     const getDepth = createDepthGetter(taskMap);
 
-    return [...filteredTasks].sort(compare).map(task => ({
-      ...task,
-      depth: getDepth(task.id),
-    }));
+    let withDepth = preserveDepthOnFiltered
+      ? [...filteredTasks].sort(compare).map(task => ({ ...task, depth: getDepth(task.id) }))
+      : [...filteredTasks].sort(compare).map(task => ({ ...task, depth: 0 }));
+
+    if (levelFilter) {
+      withDepth = withDepth.filter(t => t.depth + 1 === targetLevel);
+    }
+    return withDepth;
   }
 
   const childrenByParent = buildChildrenByParent(baseTasks);
@@ -185,7 +205,10 @@ export function buildVisibleTasks(
     const current = stack.pop();
     if (!current) continue;
 
-    visibleTasks.push({ ...current.task, depth: current.depth });
+    const level = current.depth + 1;
+    if (!levelFilter || level === targetLevel) {
+      visibleTasks.push({ ...current.task, depth: current.depth });
+    }
 
     if (!current.task.expanded) continue;
 

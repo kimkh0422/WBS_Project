@@ -20,10 +20,18 @@ const HEADER_MAP: Record<string, string> = {
   deliverables: '산출물',
 };
 
-const REVERSE_HEADER_MAP: Record<string, keyof Task> = Object.entries(HEADER_MAP).reduce(
-  (acc, [key, value]) => ({ ...acc, [value]: key as keyof Task }),
-  {}
+type HeaderToKey = keyof Task | 'wbsId' | 'level';
+const REVERSE_HEADER_MAP: Record<string, HeaderToKey> = Object.entries(HEADER_MAP).reduce(
+  (acc, [key, value]) => ({ ...acc, [value]: key as HeaderToKey }),
+  {} as Record<string, HeaderToKey>
 );
+// WBS/레벨 컬럼의 다른 표기 인식 (정규 포맷에서 미매칭 방지)
+const WBS_HEADER_ALIASES = ['WBS번호', 'WBS', 'WBS코드', 'WBS ID', 'WBS code', 'WBS Code'];
+const LEVEL_HEADER_ALIASES = ['레벨', 'Level', 'Lvl', '단계', 'LV'];
+[['WBS', 'wbsId'], ['WBS코드', 'wbsId'], ['WBS ID', 'wbsId'], ['WBS code', 'wbsId'], ['WBS Code', 'wbsId'],
+ ['Level', 'level'], ['Lvl', 'level'], ['단계', 'level'], ['LV', 'level']].forEach(([h, k]) => {
+  if (!REVERSE_HEADER_MAP[h as string]) REVERSE_HEADER_MAP[h as string] = k as HeaderToKey;
+});
 
 const normalizeHeader = (s: unknown) =>
   String(s ?? '')
@@ -302,6 +310,41 @@ export type ExcelImportParseResult = {
   meta: ExcelImportMeta;
 };
 
+type LevelValue = number | undefined;
+
+const clampLevel = (n: unknown): LevelValue => {
+  const v = toNumber(n);
+  if (v === undefined) return undefined;
+  const lv = Math.floor(v);
+  if (!Number.isFinite(lv) || lv < 1) return undefined;
+  return lv;
+};
+
+const applyLevelHierarchyInOrder = (tasksInOrder: Task[], levelsByTaskId: Map<string, LevelValue>) => {
+  // 레벨 기반 계층: 엑셀 행 순서대로 "가장 최근의 상위 레벨"을 parent로 연결
+  const lastIdAtLevel = new Map<number, string>();
+  for (const t of tasksInOrder) {
+    const level = levelsByTaskId.get(t.id);
+    if (!level) continue;
+
+    // Find nearest existing parent level (level-1 down to 1)
+    let parentId: string | null = null;
+    for (let p = level - 1; p >= 1; p--) {
+      const pid = lastIdAtLevel.get(p);
+      if (pid) { parentId = pid; break; }
+    }
+    t.parentId = parentId;
+
+    // Update stack and clear deeper levels
+    lastIdAtLevel.set(level, t.id);
+    const toDelete: number[] = [];
+    for (const k of lastIdAtLevel.keys()) {
+      if (k > level) toDelete.push(k);
+    }
+    for (const k of toDelete) lastIdAtLevel.delete(k);
+  }
+};
+
 const FIELD_LABELS: Record<ExcelImportFieldId, string> = {
   wbsKey: 'WBS',
   level: '레벨',
@@ -394,6 +437,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const hasKnownHeader = hasCoreKnownHeaders || knownHeaderHits >= 4;
   if (hasKnownHeader) {
     const tasks: Task[] = [];
+    const levelsByTaskId = new Map<string, LevelValue>();
     const today = new Date().toISOString().split('T')[0];
     for (const row of rawRows.slice(headerRowIndex + 1)) {
       const cells = Array.isArray(row) ? row : [];
@@ -405,9 +449,11 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       }
 
       const task: any = {};
+      let parsedLevel: LevelValue = undefined;
       Object.keys(rowObj).forEach((header) => {
         const key = REVERSE_HEADER_MAP[header];
         if (!key) return;
+        if (key === 'level') { parsedLevel = clampLevel(rowObj[header]); return; }
         const v = rowObj[header];
         if (key === 'dependencies') {
           task[key] = v ? String(v).split(',').map((s: string) => s.trim()) : [];
@@ -444,44 +490,82 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       if (task.parentId === undefined) task.parentId = null;
       if (!task.dependencies) task.dependencies = [];
       tasks.push(task as Task);
+      if (parsedLevel) levelsByTaskId.set(task.id, parsedLevel);
     }
 
-    // WBS 기반 상위작업 해석 (엑셀 내보내기 포맷 재임포트 시 계층 복원)
+    // 1) WBS번호 기반 계층 복원 (가능하면 우선)
     const wbsToTaskId = new Map<string, string>();
     const pendingParentByWbs = new Map<string, string>();
     for (const t of tasks) {
       const wbsKey = normalizeWbsKey((t as any).wbsId);
-      if (wbsKey) {
-        wbsToTaskId.set(wbsKey, t.id);
-        const parts = wbsKey.split('.').filter(Boolean);
-        if (parts.length > 1) {
-          const parentWbs = parts.slice(0, -1).join('.');
-          pendingParentByWbs.set(t.id, parentWbs);
-        }
+      if (!wbsKey) continue;
+      wbsToTaskId.set(wbsKey, t.id);
+      const parts = wbsKey.split('.').filter(Boolean);
+      if (parts.length > 1) {
+        const parentWbs = parts.slice(0, -1).join('.');
+        pendingParentByWbs.set(t.id, parentWbs);
       }
     }
-    for (const t of tasks) {
-      if (t.parentId != null) continue;
-      const parentWbs = pendingParentByWbs.get(t.id);
-      if (!parentWbs) continue;
-      const pid = wbsToTaskId.get(parentWbs);
-      if (pid) t.parentId = pid;
+    const hasAnyWbs = wbsToTaskId.size > 0;
+    // 임포트 시 "레벨" 컬럼이 있다면 그것을 최우선으로 계층 복원
+    // (WBS 접두어 규칙/사용자 수정 등으로 WBS만으로는 부모를 못 찾는 케이스가 있음)
+    if (levelsByTaskId.size > 0) {
+      applyLevelHierarchyInOrder(tasks, levelsByTaskId);
+    } else if (hasAnyWbs) {
+      // 레벨이 없을 때만 WBS 기반 계층 복원
+      for (const t of tasks) {
+        if (t.parentId != null) continue;
+        const parentWbs = pendingParentByWbs.get(t.id);
+        if (!parentWbs) continue;
+        const pid = wbsToTaskId.get(parentWbs);
+        if (pid) t.parentId = pid;
+      }
     }
     for (const t of tasks) delete (t as any).wbsId;
 
+    const findColumnByAliases = (aliases: string[]): { index: number; header: string } => {
+      for (const a of aliases) {
+        const idx = headerRow.indexOf(a);
+        if (idx >= 0) return { index: idx, header: a };
+      }
+      return { index: -1, header: '' };
+    };
     const mapped: ExcelImportMappingItem[] = [];
-    const add = (fieldId: ExcelImportFieldId, headerName: string, note?: string) => {
-      const col = headerRow.indexOf(headerName);
+    const add = (fieldId: ExcelImportFieldId, headerName: string, note?: string, override?: { index: number; header: string }) => {
+      const col = override ? override.index : headerRow.indexOf(headerName);
+      const header = override ? override.header : (col >= 0 ? headerRow[col] : '') || headerName;
       mapped.push({
         fieldId,
         fieldLabel: FIELD_LABELS[fieldId],
-        header: headerName,
+        header: col >= 0 ? header : '',
         columnIndex: col,
         note,
       });
     };
-    add('wbsKey', HEADER_MAP.wbsId);
-    add('level', HEADER_MAP.level);
+    const wbsFallback = findColumnByAliases(WBS_HEADER_ALIASES);
+    const levelFallback = findColumnByAliases(LEVEL_HEADER_ALIASES);
+    const wbsOverride =
+      headerRow.indexOf(HEADER_MAP.wbsId) >= 0
+        ? undefined
+        : (wbsFallback.index >= 0 ? wbsFallback : undefined);
+    add('wbsKey', HEADER_MAP.wbsId, undefined, wbsOverride);
+
+    // 레벨 컬럼이 없더라도 WBS(예: 1.2.3.4)로 레벨/계층을 복원할 수 있음.
+    // 미리보기에서 '레벨 미매칭'으로 보이는 혼란을 줄이기 위해, WBS 컬럼을 레벨(추정)로 표시한다.
+    const explicitLevelOverride =
+      headerRow.indexOf(HEADER_MAP.level) >= 0
+        ? undefined
+        : (levelFallback.index >= 0 ? levelFallback : undefined);
+    const effectiveWbsIndex = (wbsOverride?.index ?? headerRow.indexOf(HEADER_MAP.wbsId));
+    const canInferLevelFromWbs = !explicitLevelOverride && effectiveWbsIndex >= 0;
+    add(
+      'level',
+      HEADER_MAP.level,
+      canInferLevelFromWbs ? 'WBS로 추정' : undefined,
+      canInferLevelFromWbs
+        ? { index: effectiveWbsIndex, header: headerRow[effectiveWbsIndex] ?? HEADER_MAP.wbsId }
+        : explicitLevelOverride
+    );
     add('name', HEADER_MAP.name);
     add('startDate', HEADER_MAP.startDate);
     add('endDate', HEADER_MAP.endDate);
@@ -513,6 +597,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
   const nameIdx = guessColumnIndex(headers, ['작업명', '작업*', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
   const wbsIdx = guessColumnIndex(headers, ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS']);
+  const levelIdx = guessColumnIndex(headers, ['레벨', 'level', 'lvl', '단계', 'lv']);
   const startIdx = guessColumnIndex(headers, ['시작일', '시작일*', '시작', 'start', 'startdate', 'from']);
   const endIdx = guessColumnIndex(headers, ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate']);
   const assigneeIdx = guessColumnIndex(headers, ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서']);
@@ -552,6 +637,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
   const nameCol = adjustIndexForMergedHeader(body, headers, nameIdx);
   const wbsCol = adjustIndexForMergedHeader(body, headers, wbsIdx);
+  const levelCol = adjustIndexForMergedHeader(body, headers, levelIdx);
   const startCol = adjustIndexForMergedHeader(body, headers, startIdx);
   const endCol = adjustIndexForMergedHeader(body, headers, endIdx);
   const assigneeCol = adjustIndexForMergedHeader(body, headers, assigneeIdx);
@@ -563,6 +649,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 
   const mapped: ExcelImportMappingItem[] = [
     { fieldId: 'wbsKey', fieldLabel: FIELD_LABELS.wbsKey, header: headers[wbsCol] ?? '', columnIndex: wbsCol, note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined },
+    { fieldId: 'level', fieldLabel: FIELD_LABELS.level, header: headers[levelCol] ?? '', columnIndex: levelCol, note: levelCol !== levelIdx && levelIdx >= 0 ? '병합헤더 보정' : undefined },
     {
       fieldId: 'name',
       fieldLabel: FIELD_LABELS.name,
@@ -593,14 +680,29 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   // Reuse existing smart parsing to build tasks (kept identical to parseExcel() behavior)
   const wbsToTaskId = new Map<string, string>();
   const pendingParentByWbs = new Map<string, string>(); // childId -> parentWbsKey
+  const levelsByTaskId = new Map<string, LevelValue>();
   const tasks: Task[] = [];
   const today = new Date().toISOString().split('T')[0];
 
   for (const row of body) {
     const cells = Array.isArray(row) ? row : [];
-    const name = (nameColsByHeader.length > 1 ? firstNonEmptyInColumns(cells, nameColsByHeader) : '') ||
-      (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '');
+    const nameFromLevelColumns = nameColsByHeader.length > 1 ? firstNonEmptyInColumns(cells, nameColsByHeader) : '';
+    const name = nameFromLevelColumns || (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '');
     const wbsKey = wbsCol >= 0 ? normalizeWbsKey(cells[wbsCol]) : '';
+    const explicitLevel = levelCol >= 0 ? clampLevel(cells[levelCol]) : undefined;
+    const inferredLevelFromNameCols = (() => {
+      if (nameColsByHeader.length <= 1) return undefined;
+      const cols = [...nameColsByHeader].filter(n => n >= 0).sort((a, b) => a - b);
+      for (let i = 0; i < cols.length; i++) {
+        const s = String(cells?.[cols[i]] ?? '').trim();
+        if (s) return i + 1;
+      }
+      return undefined;
+    })();
+    const effectiveLevel: LevelValue =
+      explicitLevel ??
+      inferredLevelFromNameCols ??
+      (wbsKey ? wbsKey.split('.').filter(Boolean).length : undefined);
 
     const hasAny = (name || wbsKey || String(cells.join('')).trim());
     if (!hasAny) continue;
@@ -651,11 +753,15 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
         pendingParentByWbs.set(id, parentWbs);
       }
     }
+    if (effectiveLevel) levelsByTaskId.set(id, effectiveLevel);
 
     tasks.push(task);
   }
 
-  if (pendingParentByWbs.size > 0) {
+  const useLevelHierarchy = (levelCol >= 0) || (nameColsByHeader.length > 1);
+  if (useLevelHierarchy && levelsByTaskId.size > 0) {
+    applyLevelHierarchyInOrder(tasks, levelsByTaskId);
+  } else if (pendingParentByWbs.size > 0) {
     for (const t of tasks) {
       const parentWbs = pendingParentByWbs.get(t.id);
       if (!parentWbs) continue;
@@ -764,6 +870,10 @@ export const exportToExcel = (
       return {
         [HEADER_MAP.wbsId]: wbsCode,
         [HEADER_MAP.level]: level,
+        // 계층 복원 정확도를 위해 내부 ID/parentId도 함께 내보냄
+        // (WBS 접두어 규칙이 레벨별로 달라 WBS만으로는 부모를 100% 찾을 수 없음)
+        [HEADER_MAP.id]: task.id,
+        [HEADER_MAP.parentId]: task.parentId ?? '',
         [HEADER_MAP.name]: task.name,
         [HEADER_MAP.startDate]: task.startDate,
         [HEADER_MAP.endDate]: task.endDate,
@@ -782,6 +892,8 @@ export const exportToExcel = (
     const firstKeys = data.length > 0 ? Object.keys(data[0]) : [];
     const wbsColIndex = firstKeys.indexOf(HEADER_MAP.wbsId);
     const levelColIndex = firstKeys.indexOf(HEADER_MAP.level);
+    const idColIndex = firstKeys.indexOf(HEADER_MAP.id);
+    const parentIdColIndex = firstKeys.indexOf(HEADER_MAP.parentId);
     for (let r = 0; r < data.length; r++) {
       const rowIndex = r + 1; // row 0 = 헤더
       if (wbsColIndex >= 0) {
@@ -798,6 +910,22 @@ export const exportToExcel = (
         if (cell) {
           cell.t = 's';
           cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.level] ?? '');
+        }
+      }
+      if (idColIndex >= 0) {
+        const ref = XLSX.utils.encode_cell({ c: idColIndex, r: rowIndex });
+        const cell = worksheet[ref];
+        if (cell) {
+          cell.t = 's';
+          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.id] ?? '');
+        }
+      }
+      if (parentIdColIndex >= 0) {
+        const ref = XLSX.utils.encode_cell({ c: parentIdColIndex, r: rowIndex });
+        const cell = worksheet[ref];
+        if (cell) {
+          cell.t = 's';
+          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.parentId] ?? '');
         }
       }
     }

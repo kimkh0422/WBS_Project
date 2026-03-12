@@ -86,10 +86,11 @@ export function ExcelImportPreviewModal({
     });
   }, [isOpen, files]);
 
+  // 모달이 열릴 때 덮어쓸 프로젝트를 현재 보고 있는 프로젝트로 디폴트 설정
   useEffect(() => {
     if (!isOpen) return;
-    const next = effectiveCurrent || IMPORT_TARGET_NEW;
-    setTargetProjectId(prev => (projects.some(p => p.id === prev) ? prev : next));
+    const defaultProjectId = effectiveCurrent || IMPORT_TARGET_NEW;
+    setTargetProjectId(defaultProjectId);
     setNewProjectName(prev => prev || `가져온 프로젝트 (${new Date().toLocaleDateString('ko-KR')})`);
   }, [isOpen, effectiveCurrent, projects]);
 
