@@ -6,13 +6,13 @@ import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, Copy } from 'lucide-react';
+import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, Copy, History } from 'lucide-react';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
 import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
-import { acceptInvite, checkIsAdmin, fetchProfiles } from './lib/db';
+import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames } from './lib/db';
 import { isSupabaseConfigured } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { ProjectsPage } from './components/ProjectsPage';
@@ -29,6 +29,7 @@ import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
+import { AuditLogModal } from './components/AuditLogModal';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
 import { ExportModal } from './components/ExportModal';
 import { v4 as uuidv4 } from 'uuid';
@@ -76,7 +77,13 @@ function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
   );
 }
 
-function WBSApp() {
+interface WBSAppProps {
+  isAdmin: boolean;
+  userApproved: boolean;
+  onMembersUpdated?: () => void;
+}
+
+function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
   const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard' | 'projects' | 'allocation'>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,11 +102,13 @@ function WBSApp() {
   const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<any>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [auditLogProjectId, setAuditLogProjectId] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
-  const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
+  const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
+  const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => sessionStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
@@ -118,6 +127,7 @@ function WBSApp() {
     copyProject,
     deleteAllTasks,
     deleteAllTasksInAllProjects,
+    resetAllProjectsToNew,
     wbsMap,
     restoreBackup,
     mergeBackups,
@@ -136,13 +146,17 @@ function WBSApp() {
   const { push: pushToast, tipOnce } = useToast();
   const prevAIBusyRef = useRef(false);
 
-  // 관리자 여부 확인 (DB 또는 Shift+F12 비밀번호 오버라이드)
-  useEffect(() => {
-    if (!user?.id || isLoading) return;
-    checkIsAdmin().then(setIsAdmin).catch(() => setIsAdmin(false));
-  }, [user?.id, isLoading]);
-
   const effectiveIsAdmin = isAdmin || adminOverride;
+
+  // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동
+  useEffect(() => {
+    if (isLoading) return;
+    if (projects.length === 0) {
+      setView('projects');
+      setIsProjectDropdownOpen(false);
+      setFilters(prev => ({ ...prev, projectId: 'all' }));
+    }
+  }, [isLoading, projects.length]);
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -150,14 +164,30 @@ function WBSApp() {
     fetchProfiles().then(setProfiles).catch(() => setProfiles([]));
   }, [user?.id]);
 
+  // 접근 가능한 프로젝트 소유자 표시명 보강 (RLS로 프로필 미조회 시에도 이름 표시)
+  useEffect(() => {
+    if (!user?.id || !projects.length) {
+      setOwnerDisplayNames({});
+      return;
+    }
+    const knownIds = new Set(profiles.map(p => p.id));
+    const missingOwnerIds = [...new Set(projects.map(p => p.ownerId).filter((id): id is string => !!id))].filter(id => !knownIds.has(id));
+    if (missingOwnerIds.length === 0) {
+      setOwnerDisplayNames({});
+      return;
+    }
+    getProjectOwnerDisplayNames(missingOwnerIds).then(setOwnerDisplayNames);
+  }, [user?.id, projects, profiles]);
+
   const profileMap = React.useMemo(() => {
     const m: Record<string, string> = {};
     profiles.forEach(p => {
       const name = p.full_name && String(p.full_name).trim();
       m[p.id] = name || p.email || '(이메일 없음)';
     });
+    Object.assign(m, ownerDisplayNames);
     return m;
-  }, [profiles]);
+  }, [profiles, ownerDisplayNames]);
 
   const currentUserDisplay = React.useMemo(() => {
     if (!user) return '';
@@ -175,18 +205,42 @@ function WBSApp() {
     return m;
   }, [projects, allTasks]);
 
-  // 프로젝트 목록 중복 제거: 동일 (이름, 소유자) 조합은 작업 수가 많은 것 하나만 표시
-  const uniqueProjects = React.useMemo(() => {
-    const byKey = new Map<string, Project>();
-    for (const p of projects) {
-      const key = `${p.name}::${p.ownerId ?? ''}`;
-      const existing = byKey.get(key);
-      const count = taskCountByProject[p.id] ?? 0;
-      const existingCount = existing ? (taskCountByProject[existing.id] ?? 0) : 0;
-      if (!existing || count > existingCount) byKey.set(key, p);
-    }
-    return Array.from(byKey.values());
+  const deletableProjects = React.useMemo(() => {
+    // "프로젝트 선택해서 삭제"는 실제로 '프로젝트+소속 작업 삭제'이므로,
+    // 작업이 있는 프로젝트만 표시 (작업이 0개면 삭제할 게 없음)
+    return projects.filter(p => (taskCountByProject[p.id] ?? 0) > 0);
   }, [projects, taskCountByProject]);
+
+  // 프로젝트 목록: id 기준으로만 표시 (이름+소유자로 묶지 않음 → 사용자별 복사본이 원본과 합쳐지지 않음)
+  const uniqueProjects = React.useMemo(() => {
+    const seen = new Set<string>();
+    return projects.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [projects]);
+
+  // 0개인 프로젝트는 제외(단, 현재 선택 중인 프로젝트는 유지), 인원(소유자)별 그룹
+  const projectsGroupedByOwner = React.useMemo(() => {
+    const filtered = uniqueProjects.filter(
+      p => (taskCountByProject[p.id] ?? 0) > 0 || p.id === currentProjectId
+    );
+    const groupMap = new Map<string, { label: string; ownerId: string | null; projects: Project[] }>();
+    for (const p of filtered) {
+      const ownerId = p.ownerId ?? null;
+      const key = ownerId ?? 'null';
+      const label = ownerId === user?.id ? '내 프로젝트' : (ownerId ? (profileMap[ownerId] ?? '다른 사용자') : '소유자 없음');
+      if (!groupMap.has(key)) groupMap.set(key, { label, ownerId, projects: [] });
+      groupMap.get(key)!.projects.push(p);
+    }
+    const myId = user?.id;
+    return Array.from(groupMap.values()).sort((a, b) => {
+      if (a.ownerId === myId) return -1;
+      if (b.ownerId === myId) return 1;
+      return a.label.localeCompare(b.label, 'ko');
+    });
+  }, [uniqueProjects, taskCountByProject, currentProjectId, user?.id, profileMap]);
 
   // Shift+F12: 관리자 모드 전환
   useEffect(() => {
@@ -445,7 +499,8 @@ function WBSApp() {
   };
 
   const handleDeleteAllProjects = () => {
-    deleteAllTasksInAllProjects();
+    // 요청사항: 전체 삭제 시 프로젝트도 전부 제거하고 새 프로젝트로 리셋
+    resetAllProjectsToNew();
     setIsDeleteAllProjectsConfirmOpen(false);
     setIsDeleteChoiceOpen(false);
     setIsProjectDropdownOpen(false);
@@ -716,8 +771,8 @@ function WBSApp() {
                     <ChevronDown size={14} className="text-stone-400" />
                   </div>
                   {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
-                    <span className="text-[9px] text-stone-400 truncate max-w-[200px] mt-0.5" title={profileMap[currentProject.ownerId] ?? currentProject.ownerId}>
-                      {currentProject.ownerId === user?.id ? '내 프로젝트' : (profileMap[currentProject.ownerId] ?? '(알 수 없음)')}
+                    <span className="text-[9px] text-stone-400 truncate max-w-[200px] mt-0.5" title={currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? currentProject.ownerId) : undefined}>
+                      {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
                     </span>
                   )}
                 </div>
@@ -744,48 +799,59 @@ function WBSApp() {
                         <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
                       </div>
                       <div className="h-px bg-stone-100 my-1 mx-2" />
-                      {uniqueProjects.map(project => (
-                        <div
-                          key={project.id}
-                          className={cn(
-                            "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
-                            currentProjectId === project.id ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
-                          )}
-                          onClick={() => {
-                            setCurrentProjectId(project.id);
-                            setIsProjectDropdownOpen(false);
-                          }}
-                        >
-                          <div className="truncate flex-1 min-w-0 flex flex-col">
-                            <span className="truncate flex items-center gap-1.5">
-                              {project.name}
-                              <span className="text-[10px] text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개)</span>
-                            </span>
-                            {effectiveIsAdmin && project.ownerId && (
-                              <span className="text-[10px] text-stone-400 truncate mt-0.5" title={profileMap[project.ownerId] ?? project.ownerId}>
-                                {project.ownerId === user?.id ? '내 프로젝트' : (profileMap[project.ownerId] ?? '(알 수 없음)')}
-                              </span>
+                      {projectsGroupedByOwner.map(group => (
+                        <div key={group.ownerId ?? 'null'} className="mb-2">
+                          <div
+                            className={cn(
+                              "px-3 py-2 mt-1 first:mt-0 rounded-md border-l-2 text-xs font-bold tracking-wide",
+                              group.ownerId === user?.id
+                                ? "bg-teal-50/80 border-teal-400 text-teal-800"
+                                : "bg-stone-100 border-stone-300 text-stone-600"
                             )}
+                            title={group.ownerId === user?.id ? "내가 만든 프로젝트" : "다른 사용자의 프로젝트"}
+                          >
+                            {group.label}
                           </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유: 팀원을 초대하고 멤버를 관리합니다."><Share2 size={12} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사: 이 프로젝트와 작업을 복사해 내 프로젝트로 새로 만듭니다."><Copy size={12} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집: 이름·설명·시작일·투입인원을 수정합니다."><Edit size={12} /></button>
-                            {uniqueProjects.length > 1 && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setProjectToDelete(project);
-                                  setIsProjectDropdownOpen(false);
-                                  setIsDeleteProjectConfirmOpen(true);
-                                }}
-                                className="text-stone-400 hover:text-red-500 p-1 rounded"
-                                title="프로젝트 삭제: 이 프로젝트와 소속된 모든 작업을 삭제합니다."
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            )}
-                          </div>
+                          {group.projects.map(project => (
+                            <div
+                              key={project.id}
+                              className={cn(
+                                "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
+                                currentProjectId === project.id ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
+                              )}
+                              onClick={() => {
+                                setCurrentProjectId(project.id);
+                                setIsProjectDropdownOpen(false);
+                              }}
+                            >
+                              <div className="truncate flex-1 min-w-0 flex flex-col">
+                                <span className="truncate flex items-center gap-1.5">
+                                  {project.name}
+                                  <span className="text-[10px] text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개)</span>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유"><Share2 size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setAuditLogProjectId(project.id); setIsAuditLogOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-amber-600 p-1 rounded" title="변경 이력"><History size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사"><Copy size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집"><Edit size={12} /></button>
+                                {projectsGroupedByOwner.flatMap(g => g.projects).length > 1 && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setProjectToDelete(project);
+                                      setIsProjectDropdownOpen(false);
+                                      setIsDeleteProjectConfirmOpen(true);
+                                    }}
+                                    className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                    title="프로젝트 삭제"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       ))}
                       <div className="border-t border-[var(--color-line)] my-1"></div>
@@ -795,6 +861,16 @@ function WBSApp() {
                       <button onClick={() => { setIsProjectDropdownOpen(false); setView('projects'); }} className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors" title="프로젝트 관리 페이지로 이동합니다.">
                         <Briefcase size={14} /> 프로젝트 관리
                       </button>
+                      {effectiveIsAdmin && !userApproved && !isAdmin && (
+                        <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="미승인 상태에서는 로컬에 저장된 프로젝트만 표시됩니다.">
+                          로컬 전용: DB의 전체 프로젝트를 보려면 관리자 승인 후 다시 로그인하세요.
+                        </p>
+                      )}
+                      {effectiveIsAdmin && userApproved && !isAdmin && (
+                        <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="비밀번호 관리자 모드는 DB 권한에 반영되지 않습니다.">
+                          비밀번호 관리자 모드는 메뉴/승인에만 적용됩니다. 전체 프로젝트를 보려면 회원 관리에서 본인을 &apos;관리자&apos;로 지정하세요.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </>
@@ -954,10 +1030,10 @@ function WBSApp() {
             <button
               onClick={() => {
                 setIsDeleteChoiceOpen(true);
-                tipOnce('menu.deleteAll', '전체 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택할 수 있습니다.');
+                tipOnce('menu.deleteAll', '전체 삭제, 현재 보고 있는 프로젝트 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택할 수 있습니다.');
               }}
               className="p-2 hover:bg-red-50 rounded-lg text-red-300 hover:text-red-500 transition-colors"
-              title="삭제: 전체 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택합니다."
+              title="삭제: 전체 삭제, 현재 보고 있는 프로젝트 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택합니다."
             >
               <Trash2 size={15} />
             </button>
@@ -994,6 +1070,12 @@ function WBSApp() {
       </header>
       )}
 
+      {/* 미승인 회원(비관리자): 로컬 전용 안내 — 관리자는 승인 없이 DB 동기화 */}
+      {!isFullscreen && !userApproved && !isAdmin && (
+        <div className="bg-sky-50/90 border-b border-sky-200/80 px-4 py-3 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-sm">
+          <span>현재 <strong>로컬 전용</strong>으로 사용 중입니다. 관리자 승인 후 DB와 동기화할 수 있으며, 그때까지 데이터는 이 기기에만 저장됩니다.</span>
+        </div>
+      )}
       {/* 백업 안내 배너: 안정화 전 정기 내보내기 권장 */}
       {!isFullscreen && !isBackupBannerDismissed && (
         <div className="bg-amber-50/90 border-b border-amber-200/80 px-4 py-3 flex flex-wrap items-center justify-center gap-2 text-amber-800 text-sm sm:text-sm">
@@ -1203,7 +1285,7 @@ function WBSApp() {
         currentVersion={__APP_VERSION__}
       />
 
-      {/* 삭제 유형 선택: 전체 삭제 / 프로젝트 선택 삭제 / 현재 프로젝트 작업 삭제 */}
+      {/* 삭제 유형 선택: 전체 삭제 / 현재 보고 있는 프로젝트 삭제 / 프로젝트 선택 삭제 / 현재 프로젝트 작업만 삭제 */}
       {isDeleteChoiceOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
@@ -1230,12 +1312,33 @@ function WBSApp() {
                   className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
                 >
                   <span className="block font-semibold">전체 삭제</span>
-                  <span className="block text-xs text-red-600 mt-0.5">모든 프로젝트의 작업을 전체 삭제합니다. 프로젝트는 유지됩니다.</span>
+                  <span className="block text-xs text-red-600 mt-0.5">모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화합니다.</span>
                 </button>
-                {projects.length > 1 && (
+                {currentProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDeleteChoiceOpen(false);
+                      setProjectToDelete(currentProject);
+                      setIsDeleteProjectConfirmOpen(true);
+                    }}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors mt-3"
+                  >
+                    <span className="block font-semibold">현재 보고 있는 프로젝트 삭제</span>
+                    <span className="block text-xs text-red-600 mt-0.5">
+                      '{currentProject.name}' 프로젝트와 소속된 모든 작업을 삭제합니다.
+                      {effectiveIsAdmin && currentProject.ownerId && (
+                        <span className="block text-red-500/80 mt-0.5">
+                          소유: {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                )}
+                {deletableProjects.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-slate-500 mt-3">프로젝트 선택해서 삭제</p>
-                    {projects.map((project) => (
+                    {deletableProjects.map((project) => (
                       <button
                         key={project.id}
                         type="button"
@@ -1251,7 +1354,7 @@ function WBSApp() {
                           프로젝트와 소속된 모든 작업을 삭제합니다.
                           {effectiveIsAdmin && project.ownerId && (
                             <span className="block text-red-500/80 mt-0.5">
-                              소유: {project.ownerId === user?.id ? '내 프로젝트' : (profileMap[project.ownerId] ?? '(알 수 없음)')}
+                              소유: {project.ownerId === user?.id ? '내 프로젝트' : (project.ownerId ? (profileMap[project.ownerId] ?? '다른 사용자') : '소유자 없음')}
                             </span>
                           )}
                         </span>
@@ -1283,7 +1386,7 @@ function WBSApp() {
         </div>
       )}
       <ConfirmDialog isOpen={isDeleteAllConfirmOpen} onClose={() => setIsDeleteAllConfirmOpen(false)} onConfirm={handleDeleteAll} title="모든 작업 삭제" message={currentProjectId === 'all' ? '모든 프로젝트의 작업을 전체 삭제하시겠습니까?' : `'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`} confirmLabel="삭제" isDanger={true} />
-      <ConfirmDialog isOpen={isDeleteAllProjectsConfirmOpen} onClose={() => setIsDeleteAllProjectsConfirmOpen(false)} onConfirm={handleDeleteAllProjects} title="전체 삭제" message="모든 프로젝트의 작업을 전체 삭제하시겠습니까? 프로젝트는 유지됩니다." confirmLabel="전체 삭제" isDanger={true} />
+      <ConfirmDialog isOpen={isDeleteAllProjectsConfirmOpen} onClose={() => setIsDeleteAllProjectsConfirmOpen(false)} onConfirm={handleDeleteAllProjects} title="전체 삭제" message="모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다." confirmLabel="전체 삭제" isDanger={true} />
       <ConfirmDialog
         isOpen={isDeleteProjectConfirmOpen}
         onClose={() => { setIsDeleteProjectConfirmOpen(false); setProjectToDelete(null); }}
@@ -1313,12 +1416,35 @@ function WBSApp() {
       />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
-      <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} projectId={currentProject?.id} projectName={currentProject?.name} isOwner={currentProject?.ownerId === user?.id} />
+      <ShareModal
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        projectId={currentProject?.id}
+        projectName={currentProject?.name}
+        isOwner={currentProject?.ownerId === user?.id}
+        isAdmin={effectiveIsAdmin}
+        profileMap={profileMap}
+        profiles={profiles.map(p => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
+        ownerId={currentProject?.ownerId}
+      />
+      {isAuditLogOpen && (() => {
+        const pid = auditLogProjectId ?? (currentProjectId !== 'all' ? currentProjectId : null);
+        const proj = pid ? projects.find(p => p.id === pid) : null;
+        return pid ? (
+          <AuditLogModal
+            isOpen={true}
+            onClose={() => { setIsAuditLogOpen(false); setAuditLogProjectId(null); }}
+            projectId={pid}
+            projectName={proj?.name}
+          />
+        ) : null;
+      })()}
       <MembersModal
         isOpen={isMembersModalOpen}
         onClose={() => setIsMembersModalOpen(false)}
         currentUserId={user?.id}
-        onDeleted={() => pushToast('회원이 삭제되었습니다.', { variant: 'success' })}
+        onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
+        onApproved={() => { pushToast('회원을 승인했습니다. 해당 회원은 다음 로그인부터 DB와 동기화됩니다.', { variant: 'success' }); onMembersUpdated?.(); }}
       />
       <AdminPasswordModal
         isOpen={isAdminPasswordModalOpen}
@@ -1363,6 +1489,18 @@ function WBSApp() {
 function AppWithProviders() {
   const { user, loading } = useAuth();
   const { push: pushToast } = useToast();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [userApproved, setUserApproved] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    getProfileStatus().then(status => {
+      if (status) {
+        setIsAdmin(status.isAdmin);
+        setUserApproved(status.approved);
+      }
+    }).catch(() => { setUserApproved(false); });
+  }, [user?.id]);
 
   if (!isSupabaseConfigured) {
     return <SupabaseSetupScreen />;
@@ -1378,12 +1516,20 @@ function AppWithProviders() {
   if (!user) {
     return <LoginScreen />;
   }
+  // 관리자는 승인 없이 DB 동기화 사용
+  const useLocalOnly = !userApproved && !isAdmin;
+
   return (
     <WBSProvider
+      useLocalOnly={useLocalOnly}
       onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 새로고침됩니다.', { variant: 'warning' })}
       onDbError={(msg) => pushToast(msg, { variant: 'error' })}
     >
-      <WBSApp />
+      <WBSApp
+        isAdmin={isAdmin}
+        userApproved={userApproved}
+        onMembersUpdated={() => getProfileStatus().then(s => s && setUserApproved(s.approved))}
+      />
     </WBSProvider>
   );
 }

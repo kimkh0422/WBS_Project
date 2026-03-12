@@ -32,7 +32,7 @@ export function LoginScreen() {
       if (result?.error) {
         setError(result.error);
       } else if (isSignUp) {
-        setSuccess('가입 완료! 이메일 확인 링크를 확인해 주세요. (스팸함도 확인)');
+        setSuccess('가입이 완료되었습니다. 로컬에서 바로 사용할 수 있으며, 관리자 승인 후 DB와 동기화할 수 있습니다.');
       }
     } finally {
       setLoading(false);

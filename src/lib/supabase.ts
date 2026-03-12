@@ -91,6 +91,8 @@ export interface ProfileRow {
   full_name: string | null;
   created_at?: string;
   is_admin: boolean;
+  /** 관리자 승인 여부. false면 로컬 전용, true면 DB 동기화 사용 가능 */
+  approved?: boolean;
   /** 사용자 맞춤 레벨별 색상 [{r,g,b}, ...]. null이면 기본값 사용 */
   level_colors?: Array<{ r: number; g: number; b: number }> | null;
 }

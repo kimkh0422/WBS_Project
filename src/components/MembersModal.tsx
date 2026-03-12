@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, Loader2, Trash2, Pencil, Check } from 'lucide-react';
-import { fetchProfiles, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole } from '../lib/db';
+import { X, Users, Loader2, Trash2, Pencil, Check, UserCheck } from 'lucide-react';
+import { fetchProfiles, getProfileStatus, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole, updateMemberApproved } from '../lib/db';
 import { ProfileRow } from '../lib/supabase';
 import { format } from 'date-fns';
 
@@ -9,9 +9,10 @@ interface MembersModalProps {
   onClose: () => void;
   currentUserId?: string;
   onDeleted?: () => void;
+  onApproved?: () => void;
 }
 
-export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: MembersModalProps) {
+export function MembersModal({ isOpen, onClose, currentUserId, onDeleted, onApproved }: MembersModalProps) {
   const [members, setMembers] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,17 +22,22 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  const loadMembers = () => {
+  const loadMembers = async () => {
     setLoading(true);
     setError(null);
-    fetchProfiles()
-      .then(setMembers)
-      .catch(err => {
-        setError(err.message);
-        setMembers([]);
-      })
-      .finally(() => setLoading(false));
+    try {
+      // 현재 사용자 프로필이 없으면 생성(ensure_profile). 없으면 RLS로 인해 0명만 보임.
+      await getProfileStatus();
+      const list = await fetchProfiles();
+      setMembers(list);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '회원 목록을 불러오지 못했습니다.');
+      setMembers([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -76,6 +82,19 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
     }
   };
 
+  const approveMember = async (member: ProfileRow) => {
+    if (member.approved) return;
+    setApprovingId(member.id);
+    const result = await updateMemberApproved(member.id, true);
+    setApprovingId(null);
+    if (result.success) {
+      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, approved: true } : m));
+      onApproved?.();
+    } else {
+      setError(result.error ?? '승인에 실패했습니다.');
+    }
+  };
+
   const handleDelete = async () => {
     if (!memberToDelete) return;
     setDeleting(true);
@@ -95,7 +114,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-50 animate-in fade-in duration-150" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg bg-white rounded-2xl shadow-xl border border-[var(--color-line)] overflow-hidden animate-in zoom-in-95 fade-in duration-200 max-h-[85vh] flex flex-col">
+      <div className="fixed inset-4 z-50 bg-white rounded-2xl shadow-xl border border-[var(--color-line)] overflow-hidden animate-in zoom-in-95 fade-in duration-200 flex flex-col md:inset-8">
         <div className="flex items-center justify-between p-5 border-b border-[var(--color-line)]">
           <h2 className="text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
             <Users size={20} />
@@ -124,6 +143,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">회원명</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">이메일</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">가입일</th>
+                  <th className="text-left py-3 px-2 font-semibold text-stone-600">승인</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">역할</th>
                   <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
                 </tr>
@@ -172,6 +192,26 @@ export function MembersModal({ isOpen, onClose, currentUserId, onDeleted }: Memb
                     <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
                     <td className="py-3 px-2 text-stone-500">
                       {m.created_at ? format(new Date(m.created_at), 'yyyy-MM-dd HH:mm') : '-'}
+                    </td>
+                    <td className="py-3 px-2">
+                      {m.approved ? (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">승인됨</span>
+                      ) : m.id === currentUserId ? (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">대기</span>
+                      ) : approvingId === m.id ? (
+                        <span className="text-stone-400 text-xs flex items-center gap-1">
+                          <Loader2 size={12} className="animate-spin" /> 처리 중
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => approveMember(m)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors"
+                          title="승인 시 해당 회원은 DB와 동기화할 수 있습니다."
+                        >
+                          <UserCheck size={12} /> 승인
+                        </button>
+                      )}
                     </td>
                     <td className="py-3 px-2">
                       {m.id === currentUserId ? (

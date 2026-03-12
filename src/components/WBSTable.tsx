@@ -427,6 +427,30 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     return m;
   }, [visibleTasks]);
 
+  /** 담당자별로 투입율을 한 번만 표기: 행 순서대로 이미 표시한 담당자 집합을 유지하고, 해당 행에 표시할 텍스트만 반환 */
+  const allocationDisplayByTaskId = useMemo(() => {
+    const map = new Map<string, string>();
+    const shown = new Set<string>();
+    for (const task of visibleTasks) {
+      const assignments = task.assignments?.length
+        ? task.assignments
+        : (task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : []);
+      const currentAssignee = (task.assignee || '').trim();
+      const relevant = currentAssignee
+        ? assignments.filter(a => (a.assignee || '').trim() === currentAssignee)
+        : assignments;
+      const toShow = relevant.filter(a => {
+        const key = (a.assignee || '').trim() || '(미지정)';
+        if (shown.has(key)) return false;
+        shown.add(key);
+        return true;
+      });
+      const text = toShow.length ? toShow.map(a => `${a.allocationPercent}%`).join(', ') : '—';
+      map.set(task.id, text);
+    }
+    return map;
+  }, [visibleTasks, projectAssignmentsByProjectId]);
+
   const baseTasks = useMemo(
     () => (filters.projectId === 'all' ? tasks : tasks.filter(task => task.projectId === filters.projectId)),
     [tasks, filters.projectId]
@@ -506,15 +530,16 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!hotkeysEnabled) return;
-      // Ignore if editing a task (modal open) or typing in an input
+      // Ignore if editing a task (modal open), a cell, or typing in an input
       const target = e.target as HTMLElement;
-      if (editingTask || deleteConfirm.isOpen || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (editingTask || deleteConfirm.isOpen || editingCell || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
       }
       if (target.tagName === 'INPUT') {
         const type = (target as HTMLInputElement).type;
         if (type !== 'checkbox' && type !== 'radio') return;
       }
+      if (target.tagName === 'SELECT') return;
 
       // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통)
       if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
@@ -740,7 +765,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight]);
+  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight]);
 
   const handleQuickAddCancel = () => {
     setInlineAddingTaskId(null);
@@ -1300,6 +1325,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                       statusConfigs={wbsSettings?.statusConfigs ?? []}
                       projectAssignmentsByProjectId={projectAssignmentsByProjectId}
                       criticalPathSet={effectiveCriticalPathSet}
+                      allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
                     />
                     {inlineAddingTaskId === task.id && (
                       <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -1722,6 +1748,8 @@ interface SortableTaskRowProps {
   /** projectId → assignments (for showing allocation when task has no assignments) */
   projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>;
   criticalPathSet?: Set<string>;
+  /** 담당자별로 한 번만 표기한 투입율 텍스트 (행 순서 기준) */
+  allocationDisplayText?: string;
 }
 
 function SortableTaskRowInner({
@@ -1751,7 +1779,8 @@ function SortableTaskRowInner({
   updateTask,
   statusConfigs,
   projectAssignmentsByProjectId,
-  criticalPathSet
+  criticalPathSet,
+  allocationDisplayText
 }: SortableTaskRowProps) {
   const {
     attributes,
@@ -2100,21 +2129,11 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'allocation') {
-          const assignments = task.assignments?.length
-            ? task.assignments
-            : (task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : []);
-          // 담당자와 일치하는 투입만 표시하고, 퍼센트만 표기 (담당자 컬럼이 별도로 있음)
-          const currentAssignee = (task.assignee || '').trim();
-          const relevant = currentAssignee
-            ? assignments.filter(a => (a.assignee || '').trim() === currentAssignee)
-            : assignments;
-          const hasRelevant = relevant.length > 0;
-          const allocationText = hasRelevant
-            ? relevant.map(a => `${a.allocationPercent}%`).join(', ')
-            : '—';
+          // 담당자별로 한 번만 표기한 값 (상위에서 행 순서 기준으로 계산해 전달)
+          const text = allocationDisplayText ?? '—';
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 font-mono" title={hasRelevant ? allocationText : undefined}>
-              {allocationText}
+            <div key={colId} className="data-cell text-xs text-stone-600 font-mono" title={text !== '—' ? text : undefined}>
+              {text}
             </div>
           );
         }
@@ -2278,6 +2297,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.statusConfigs === next.statusConfigs &&
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&
+    prev.allocationDisplayText === next.allocationDisplayText &&
     prev.task.id === next.task.id &&
     prev.task.parentId === next.task.parentId &&
     prev.task.name === next.task.name &&

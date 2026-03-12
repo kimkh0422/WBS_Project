@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project } from '../types';
-import { fetchProfiles, checkIsAdmin } from '../lib/db';
+import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
 
 interface ProjectsPageProps {
   onNavigateToWork?: (projectId?: string) => void;
@@ -28,6 +28,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { push: pushToast } = useToast();
 
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
+  const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -48,14 +49,29 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     fetchProfiles().then(setProfiles).catch(() => setProfiles([]));
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!user?.id || !projects.length) {
+      setOwnerDisplayNames({});
+      return;
+    }
+    const knownIds = new Set(profiles.map(p => p.id));
+    const missingOwnerIds = [...new Set(projects.map(p => p.ownerId).filter((id): id is string => !!id))].filter(id => !knownIds.has(id));
+    if (missingOwnerIds.length === 0) {
+      setOwnerDisplayNames({});
+      return;
+    }
+    getProjectOwnerDisplayNames(missingOwnerIds).then(setOwnerDisplayNames);
+  }, [user?.id, projects, profiles]);
+
   const profileMap = useMemo(() => {
     const m: Record<string, string> = {};
     profiles.forEach(p => {
       const name = p.full_name && String(p.full_name).trim();
       m[p.id] = name || p.email || '(이메일 없음)';
     });
+    Object.assign(m, ownerDisplayNames);
     return m;
-  }, [profiles]);
+  }, [profiles, ownerDisplayNames]);
 
   const effectiveIsAdmin = isAdmin;
 
@@ -68,17 +84,15 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return m;
   }, [projects, allTasks]);
 
+  // id 기준으로만 표시 (사용자별 복사본이 원본과 합쳐지지 않음)
   const uniqueProjects = useMemo(() => {
-    const byKey = new Map<string, Project>();
-    for (const p of projects) {
-      const key = `${p.name}::${p.ownerId ?? ''}`;
-      const existing = byKey.get(key);
-      const count = taskCountByProject[p.id] ?? 0;
-      const existingCount = existing ? (taskCountByProject[existing.id] ?? 0) : 0;
-      if (!existing || count > existingCount) byKey.set(key, p);
-    }
-    return Array.from(byKey.values());
-  }, [projects, taskCountByProject]);
+    const seen = new Set<string>();
+    return projects.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [projects]);
 
   const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
     if (editingProject) {
@@ -211,7 +225,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     </div>
                     {effectiveIsAdmin && project.ownerId && (
                       <span className="text-xs text-stone-400 truncate block mt-0.5" title={profileMap[project.ownerId] ?? project.ownerId}>
-                        {project.ownerId === user?.id ? '내 프로젝트' : (profileMap[project.ownerId] ?? '(알 수 없음)')}
+                        {project.ownerId === user?.id ? '내 프로젝트' : (project.ownerId ? (profileMap[project.ownerId] ?? '다른 사용자') : '소유자 없음')}
                       </span>
                     )}
                   </div>
@@ -281,6 +295,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         projectId={shareProjectId ?? undefined}
         projectName={shareProjectName ?? undefined}
         isOwner={projects.find(p => p.id === shareProjectId)?.ownerId === user?.id}
+        isAdmin={effectiveIsAdmin}
+        profileMap={profileMap}
+        profiles={profiles.map(p => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
+        ownerId={projects.find(p => p.id === shareProjectId)?.ownerId}
       />
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}

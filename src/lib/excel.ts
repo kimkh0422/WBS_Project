@@ -119,7 +119,9 @@ const inferStatusFromProgress = (p: number): TaskStatus => {
 };
 
 const normalizeWbsKey = (val: unknown): string => {
-  const raw = String(val ?? '').trim();
+  if (val === null || val === undefined) return '';
+  // 숫자로 읽힌 경우(예: 1.21) 복원 불가하므로 문자열로만 처리. 점(.) 보존
+  const raw = String(val).trim();
   if (!raw) return '';
   // keep dots for hierarchy, remove spaces
   const s = raw.replace(/\s+/g, '');
@@ -413,6 +415,9 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
           task[key] = v ? String(v) : null;
         } else if (key === 'id') {
           task[key] = String(v);
+        } else if (key === 'wbsId') {
+          // 엑셀에서 숫자로 읽히지 않도록 항상 문자열로 저장·복원
+          task[key] = v != null ? String(v).trim() : '';
         } else if (key === 'progress') {
           task[key] = toNumber(v) ?? 0;
         } else if (key === 'workEffort') {
@@ -773,6 +778,29 @@ export const exportToExcel = (
     });
 
     const worksheet = XLSX.utils.json_to_sheet(data);
+    // WBS번호·레벨 열을 텍스트로 고정해 엑셀에서 숫자로 변환되지 않도록 함 (1.2.1 → 1.21 방지)
+    const firstKeys = data.length > 0 ? Object.keys(data[0]) : [];
+    const wbsColIndex = firstKeys.indexOf(HEADER_MAP.wbsId);
+    const levelColIndex = firstKeys.indexOf(HEADER_MAP.level);
+    for (let r = 0; r < data.length; r++) {
+      const rowIndex = r + 1; // row 0 = 헤더
+      if (wbsColIndex >= 0) {
+        const ref = XLSX.utils.encode_cell({ c: wbsColIndex, r: rowIndex });
+        const cell = worksheet[ref];
+        if (cell) {
+          cell.t = 's';
+          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.wbsId] ?? '');
+        }
+      }
+      if (levelColIndex >= 0) {
+        const ref = XLSX.utils.encode_cell({ c: levelColIndex, r: rowIndex });
+        const cell = worksheet[ref];
+        if (cell) {
+          cell.t = 's';
+          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.level] ?? '');
+        }
+      }
+    }
     const sheetName = toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames);
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   }

@@ -120,7 +120,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!hotkeysEnabled) return;
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.tagName === 'SELECT' || el?.isContentEditable) return;
       const currentRowHeight = propRowHeight ?? 20;
       // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통)
       if (onRowHeightChange && (e.ctrlKey || e.metaKey)) {
@@ -135,11 +136,15 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           return;
         }
       }
-      // Zoom: + / - (수정키 없음)
-      if (e.key === '+' || e.key === '=') {
-        setZoomIndex(prev => prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1));
-      } else if (e.key === '-' || e.key === '_') {
-        setZoomIndex(prev => prev === -1 ? 0 : Math.max(0, prev - 1));
+      // Zoom: + / - (수정키 없을 때만; Ctrl+/-는 줄높이용)
+      if (!(e.ctrlKey || e.metaKey)) {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          setZoomIndex(prev => prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1));
+        } else if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          setZoomIndex(prev => prev === -1 ? 0 : Math.max(0, prev - 1));
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);

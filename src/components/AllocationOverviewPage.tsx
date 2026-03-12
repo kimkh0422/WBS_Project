@@ -11,37 +11,67 @@ interface AllocationOverviewPageProps {
 
 type ViewMode = 'by-project' | 'by-person';
 
+function normalizeProjectAssignments(
+  assignments: Array<{ assignee: string; allocationPercent: number }>
+): Array<{ assignee: string; allocationPercent: number }> {
+  const map = new Map<string, number>();
+  for (const a of assignments) {
+    const name = (a.assignee || '').trim() || '(미지정)';
+    const pct = Number(a.allocationPercent || 0);
+    if (!Number.isFinite(pct) || pct <= 0) continue;
+    map.set(name, (map.get(name) ?? 0) + pct);
+  }
+  return Array.from(map.entries())
+    .map(([assignee, allocationPercent]) => ({ assignee, allocationPercent }))
+    .sort((a, b) => b.allocationPercent - a.allocationPercent);
+}
+
 export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
-  const { projects } = useWBS();
+  const { projects, renameAssignee } = useWBS();
   const [viewMode, setViewMode] = useState<ViewMode>('by-project');
+  const [editingPerson, setEditingPerson] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string>('');
 
   // 프로젝트별 투입 현황 (assignments가 있는 프로젝트만, 또는 전체)
   const projectAllocations = useMemo(() => {
     return projects
       .filter(p => p.assignments && p.assignments.length > 0)
-      .map(p => ({
-        project: p,
-        assignments: p.assignments!,
-        totalPercent: p.assignments!.reduce((s, a) => s + (a.allocationPercent || 0), 0),
-      }));
+      .map(p => {
+        const assignments = normalizeProjectAssignments(p.assignments!);
+        return {
+          project: p,
+          assignments,
+          totalPercent: assignments.reduce((s, a) => s + (a.allocationPercent || 0), 0),
+        };
+      });
   }, [projects]);
 
   // 인원별 투입 현황: 담당자 → [{ project, allocationPercent }]
   const personAllocations = useMemo(() => {
-    const map = new Map<string, { project: Project; allocationPercent: number }[]>();
+    const personToProjectPct = new Map<string, Map<string, { project: Project; allocationPercent: number }>>();
+
     projectAllocations.forEach(({ project, assignments }) => {
       assignments.forEach(a => {
-        const name = (a.assignee || '').trim() || '(미지정)';
-        if (!map.has(name)) map.set(name, []);
-        map.get(name)!.push({ project, allocationPercent: a.allocationPercent || 0 });
+        const person = (a.assignee || '').trim() || '(미지정)';
+        const pct = Number(a.allocationPercent || 0);
+        if (!Number.isFinite(pct) || pct <= 0) return;
+
+        if (!personToProjectPct.has(person)) personToProjectPct.set(person, new Map());
+        const projMap = personToProjectPct.get(person)!;
+        const existing = projMap.get(project.id);
+        projMap.set(project.id, {
+          project,
+          allocationPercent: (existing?.allocationPercent ?? 0) + pct,
+        });
       });
     });
-    return Array.from(map.entries())
-      .map(([person, items]) => ({
-        person,
-        items: items.sort((a, b) => b.allocationPercent - a.allocationPercent),
-        totalPercent: items.reduce((s, i) => s + i.allocationPercent, 0),
-      }))
+
+    return Array.from(personToProjectPct.entries())
+      .map(([person, projMap]) => {
+        const items = Array.from(projMap.values()).sort((a, b) => b.allocationPercent - a.allocationPercent);
+        const totalPercent = items.reduce((s, i) => s + i.allocationPercent, 0);
+        return { person, items, totalPercent };
+      })
       .sort((a, b) => b.totalPercent - a.totalPercent);
   }, [projectAllocations]);
 
@@ -146,9 +176,9 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
                 </div>
                 <div className="px-4 pb-4 pt-0">
                   <div className="flex flex-wrap gap-2">
-                    {assignments.map((a, i) => (
+                    {assignments.map((a) => (
                       <div
-                        key={i}
+                        key={`${project.id}:${a.assignee}`}
                         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
                       >
                         <span className="font-medium text-[var(--color-ink)]">{a.assignee || '(미지정)'}</span>
@@ -196,7 +226,55 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
                     {person.substring(0, 1)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[var(--color-ink)]">{person}</div>
+                    {editingPerson === person ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          className="w-full sm:w-64 px-3 py-1.5 text-sm rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-teal-200"
+                          placeholder="투입 인원 이름"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const next = (editingName || '').trim();
+                              if (next && next !== person) renameAssignee(person, next);
+                              setEditingPerson(null);
+                              setEditingName('');
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                          >
+                            저장
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingPerson(null);
+                              setEditingName('');
+                            }}
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-stone-600 border border-stone-200 hover:bg-stone-50 transition-colors"
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="font-semibold text-[var(--color-ink)]">{person}</div>
+                        {person !== '(미지정)' && (
+                          <button
+                            onClick={() => {
+                              setEditingPerson(person);
+                              setEditingName(person);
+                            }}
+                            className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                            title="이름 변경"
+                          >
+                            <Edit size={14} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="text-xs text-stone-500">
                       {items.length}개 프로젝트 · 총 {totalPercent}% 투입
                     </div>
@@ -204,9 +282,9 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
                 </div>
                 <div className="px-4 pb-4 pt-0">
                   <div className="flex flex-wrap gap-2">
-                    {items.map(({ project, allocationPercent }, i) => (
+                    {items.map(({ project, allocationPercent }) => (
                       <button
-                        key={i}
+                        key={`${person}:${project.id}`}
                         onClick={() => onNavigateToWork?.(project.id)}
                         className={cn(
                           "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors",
