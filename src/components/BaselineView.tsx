@@ -11,6 +11,7 @@ const emptyFilters: FilterState = {
   projectId: 'all',
   status: 'all',
   assignee: '',
+  assigneeUnassignedOnly: false,
   startDate: '',
   endDate: '',
 };

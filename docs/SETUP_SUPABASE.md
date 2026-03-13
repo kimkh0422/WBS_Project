@@ -83,3 +83,24 @@ npm run dev
 | `Unsupported provider` | Auth Providers에서 Email 또는 사용할 OAuth 활성화 |
 | 프로젝트 PAUSED | Supabase 대시보드에서 프로젝트 복원 |
 | RLS 오류 | `FULL_SETUP_NEW_PROJECT.sql` 전체를 다시 실행 |
+| **회원 삭제 시 "Edge Function 요청에 실패했습니다"** | 아래 **Edge Function 점검 (1)(2)(3)** 참고. |
+| **프로젝트 수정 저장 시 `Could not find the 'report_agency' column` (PGRST204)** | 주간보고용 컬럼 마이그레이션 미적용. 터미널에서 `npm run db:report-fields-open` 실행 후 열린 SQL 에디터에서 붙여넣기 → Run. |
+
+### Edge Function 점검 (1)(2)(3)
+
+회원 삭제 시 "Edge Function 요청에 실패했습니다"가 나오면 다음을 순서대로 확인하세요.
+
+1. **`admin-delete-user` 함수가 배포되어 있는지**
+   - **원격 Supabase** 사용 시: 터미널에서 `supabase login` → `supabase link`(프로젝트 선택) 후  
+     `supabase functions deploy admin-delete-user` 또는 `npm run supabase:deploy-functions` 실행.
+   - 배포 여부 확인: `supabase functions list`로 목록에 `admin-delete-user`가 있는지 확인.
+
+2. **로컬 Supabase 사용 시: Functions가 실행 중인지**
+   - `.env`의 `VITE_SUPABASE_URL`이 `http://127.0.0.1:54321`이면 로컬 프로젝트입니다.
+   - 터미널에서 **별도 창**으로 `supabase functions serve`를 실행해 두어야 합니다.  
+     (로컬 DB를 쓰는 경우 `supabase start` 후 `supabase functions serve` 실행.)
+
+3. **네트워크/CORS 차단이 없는지**
+   - 브라우저 개발자 도구(F12) → **Network** 탭에서 `admin-delete-user` 요청이 실패하는지 확인.
+   - 실패 시: **Console**에 CORS 오류가 있는지, 방화벽/회사 네트워크에서 `*.supabase.co` 차단 여부를 확인.
+   - Edge Function 코드에는 이미 CORS 헤더(`Access-Control-Allow-Origin: *`)가 포함되어 있습니다.

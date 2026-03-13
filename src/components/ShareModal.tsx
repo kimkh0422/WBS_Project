@@ -200,6 +200,9 @@ export function ShareModal({
         {projectName && (
           <p className="text-sm text-stone-500 mb-3">프로젝트: {projectName}</p>
         )}
+        <p className="text-xs text-stone-500 mb-3">
+          프로젝트를 만든 사람(소유자)이 멤버를 초대하고 권한을 줄 수 있습니다. <strong>보기</strong>: 담당자별 필터로 조회만 가능. <strong>편집</strong>: 작업·일정 수정 가능.
+        </p>
 
         {error && (
           <p className="text-sm text-red-500 mb-3">{error}</p>
@@ -360,9 +363,9 @@ export function ShareModal({
                   value={addRole}
                   onChange={(e) => setAddRole(e.target.value as 'editor' | 'viewer')}
                   className="px-3 py-2 text-sm border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
-                  title="선택 사용자에게 부여할 권한"
+                  title="선택 사용자에게 부여할 권한: 보기=담당자별 보기만, 편집=수정 가능"
                 >
-                  <option value="viewer">보기</option>
+                  <option value="viewer">보기 (담당자별 보기)</option>
                   <option value="editor">편집</option>
                 </select>
                 <button

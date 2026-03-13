@@ -112,12 +112,45 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return copy;
   }, [uniqueProjects, projectSort, taskCountByProject]);
 
-  const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
+  const handleSaveProject = (
+    name: string,
+    description: string,
+    startDate?: string,
+    endDate?: string,
+    assignments?: Project['assignments'],
+    minWorkEffortDays?: number,
+    reportCategory?: string,
+    reportAgency?: string,
+    reportBudgetThisYear?: string,
+    reportTotalPeriod?: string,
+    reportNameShort?: string,
+    reportNameFull?: string,
+  ) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description, startDate, endDate, assignments, minWorkEffortDays });
+      updateProject(editingProject.id, {
+        name,
+        description,
+        startDate,
+        endDate,
+        assignments,
+        minWorkEffortDays,
+        reportCategory,
+        reportAgency,
+        reportBudgetThisYear,
+        reportTotalPeriod,
+        reportNameShort,
+        reportNameFull,
+      });
       setEditingProject(null);
     } else {
-      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays);
+      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        reportCategory,
+        reportAgency,
+        reportBudgetThisYear,
+        reportTotalPeriod,
+        reportNameShort,
+        reportNameFull,
+      });
     }
     setIsProjectModalOpen(false);
   };
@@ -256,8 +289,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 key={project.id}
                 className={cn(
                   "bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all",
-                  "hover:shadow-md hover:border-stone-300"
+                  "hover:shadow-md hover:border-stone-300 cursor-pointer"
                 )}
+                onDoubleClick={() => { setEditingProject(project); setIsProjectModalOpen(true); }}
+                title="더블클릭: 편집"
               >
                 <div className="flex items-center gap-4 p-4">
                   {uniqueProjects.length > 1 && (
@@ -340,6 +375,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }}
         onSave={handleSaveProject}
         project={editingProject}
+        allProjects={projects}
       />
       <ShareModal
         isOpen={!!shareProjectId}

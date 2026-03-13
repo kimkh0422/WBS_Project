@@ -49,6 +49,8 @@ export interface WBSSettings {
   showCriticalPath?: boolean;
   /** 셀 텍스트 줄바꿈 여부. true면 줄바꿈 허용·행 높이 자동 확장 */
   wrapTextInCells?: boolean;
+  /** 표 컬럼 너비(px). 사용자가 조절한 값 저장 */
+  columnWidths?: Record<string, number>;
 }
 
 interface WBSContextType {
@@ -61,9 +63,11 @@ interface WBSContextType {
   setSelectedTaskIds: (ids: string[]) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
+  /** 상태 명칭·진척도 설정을 기준으로 작업 진척도를 일괄 동기화 */
+  syncProgressFromStatusConfigs: (scope: 'current' | 'all') => void;
   treeExpandLevel: number;
   setTreeExpandLevel: (level: number) => void;
-  addProject: (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => void;
+  addProject: (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
@@ -623,10 +627,44 @@ export function WBSProvider({
     if (!useLocalOnly) upsertSettings(newSettings).catch(err => handleDbError(err, '설정 저장에 실패했습니다.'));
   };
 
+  const syncProgressFromStatusConfigs = (scope: 'current' | 'all') => {
+    const configs = wbsSettings.statusConfigs ?? [];
+    if (!configs || configs.length === 0) return;
+    const configMap = new Map(configs.map(c => [c.id, c] as const));
+    setAllTasks(prev => {
+      const targetProjectIds =
+        scope === 'all'
+          ? Array.from(new Set(prev.map(t => t.projectId))).filter(Boolean) as string[]
+          : (currentProjectId && currentProjectId !== 'all' ? [currentProjectId] : []);
+      if (targetProjectIds.length === 0) return prev;
+      const targetSet = new Set(targetProjectIds);
+      let changed = false;
+      const next = prev.map(t => {
+        if (!targetSet.has(t.projectId)) return t;
+        const config = configMap.get(t.status);
+        if (!config || config.progress === undefined || config.progress === t.progress) return t;
+        changed = true;
+        return { ...t, progress: config.progress };
+      });
+      if (!changed) return prev;
+      return next;
+    });
+  };
+
   // ─── 프로젝트 CRUD ────────────────────────────────────────────────────────
 
-  const addProject = (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
-    const newProject: Project = { id: uuidv4(), name, description, startDate, endDate, assignments, minWorkEffortDays, ownerId: ownerId };
+  const addProject = (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => {
+    const newProject: Project = {
+      id: uuidv4(),
+      name,
+      description,
+      startDate,
+      endDate,
+      assignments,
+      minWorkEffortDays,
+      ownerId: ownerId,
+      ...reportExtras,
+    };
     setProjects(prev => [...prev, newProject]);
     setCurrentProjectId(newProject.id);
     if (!useLocalOnly) upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
@@ -998,10 +1036,18 @@ export function WBSProvider({
       }
 
       const affectsRollup = ['startDate', 'endDate', 'workEffort', 'dependencies'].some(k => Object.prototype.hasOwnProperty.call(updates, k));
-      const result = !affectsRollup ? nextTasks
-        : prev.some(t => t.parentId === id && t.projectId === task.projectId)
-          ? syncParentRollups(nextTasks, id)
-          : syncParentRollups(nextTasks, task.parentId);
+      const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
+      let result = nextTasks;
+      if (affectsRollup) {
+        result = prev.some(t => t.parentId === id && t.projectId === task.projectId)
+          ? syncParentRollups(result, id)
+          : syncParentRollups(result, task.parentId);
+      }
+      // 부모 변경 시 기존 부모·신규 부모 모두 롤업 재계산
+      if (parentIdChanged) {
+        if (task.parentId) result = syncParentRollups(result, task.parentId);
+        if (updates.parentId) result = syncParentRollups(result, updates.parentId);
+      }
 
       const taskInResult = result.find(t => t.id === id);
       const sortOrder = taskInResult != null ? result.indexOf(taskInResult) : 0;
@@ -1469,6 +1515,7 @@ export function WBSProvider({
       setSelectedTaskIds,
       wbsSettings,
       updateWbsSettings,
+      syncProgressFromStatusConfigs,
       treeExpandLevel,
       setTreeExpandLevel,
       addProject,

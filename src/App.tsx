@@ -6,14 +6,14 @@ import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, Copy, History, Clock, Eye, Bug } from 'lucide-react';
+import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
 import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
-import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames } from './lib/db';
+import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { ProjectsPage } from './components/ProjectsPage';
@@ -30,11 +30,14 @@ import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
+import { ProjectAccessRequestBanner } from './components/ProjectAccessRequestBanner';
 import { AuditLogModal } from './components/AuditLogModal';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
 import { ExportModal } from './components/ExportModal';
+import type { ExportScope, ExportFormat } from './components/ExportModal';
+import { WeeklyReportModal } from './components/WeeklyReportModal';
 import { v4 as uuidv4 } from 'uuid';
-import { format, startOfWeek, endOfWeek } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
 
 function formatCommitDate(value: string) {
@@ -111,7 +114,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
-  const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
@@ -125,15 +127,42 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
+  const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(() => sessionStorage.getItem('wbs-local-save-banner-dismissed') === '1');
   const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => sessionStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-  // 메뉴(탭) 숨김: 기본으로 2개(대시보드/투입현황) 숨김.
-  // 필요 시 Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정해 덮어쓸 수 있음.
+  const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
+  const [lastExportPrefs, setLastExportPrefs] = useState<{
+    scope: ExportScope;
+    format: ExportFormat;
+    projectIds: string[];
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem('wbs.lastExportPrefs');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { scope?: string; format?: string; projectIds?: unknown };
+      if (
+        (parsed.scope === 'all' || parsed.scope === 'selected') &&
+        (parsed.format === 'excel' || parsed.format === 'json' || parsed.format === 'markdown') &&
+        Array.isArray(parsed.projectIds)
+      ) {
+        return {
+          scope: parsed.scope,
+          format: parsed.format,
+          projectIds: parsed.projectIds.filter(id => typeof id === 'string') as string[],
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+  // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
   const hiddenViews = React.useMemo(() => {
     const raw = (import.meta as any)?.env?.VITE_HIDDEN_VIEWS as string | undefined;
-    const value = typeof raw === 'string' && raw.trim().length > 0 ? raw : 'dashboard,allocation';
+    const value = typeof raw === 'string' ? raw.trim() : '';
     return new Set(
       value
         .split(',')
@@ -232,6 +261,15 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     }
     getProjectOwnerDisplayNames(missingOwnerIds).then(setOwnerDisplayNames);
   }, [user?.id, projects, profiles]);
+
+  // 승인 사용자: 내가 멤버인 프로젝트 ID (권한 요청 배너 표시 여부 판단용)
+  useEffect(() => {
+    if (!user?.id || !userApproved) {
+      setMyMemberProjectIds([]);
+      return;
+    }
+    getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => setMyMemberProjectIds([]));
+  }, [user?.id, userApproved]);
 
   const profileMap = React.useMemo(() => {
     const m: Record<string, string> = {};
@@ -426,7 +464,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
     if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
     if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
-    if (nextView === 'list') tipOnce('nav.all', '전체: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
+    if (nextView === 'list') tipOnce('nav.all', '표+간트: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
     if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
     if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
     if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
@@ -508,6 +546,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     issueOnly: false,
     level: 'all',
     pastDueOnly: false,
+    completedThisWeekOnly: false,
   });
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
@@ -552,12 +591,45 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
   const handleSaveTask = (taskData: any) => addTask(taskData);
 
-  const handleSaveProject = (name: string, description: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number) => {
+  const handleSaveProject = (
+    name: string,
+    description: string,
+    startDate?: string,
+    endDate?: string,
+    assignments?: Project['assignments'],
+    minWorkEffortDays?: number,
+    reportCategory?: string,
+    reportAgency?: string,
+    reportBudgetThisYear?: string,
+    reportTotalPeriod?: string,
+    reportNameShort?: string,
+    reportNameFull?: string,
+  ) => {
     if (editingProject) {
-      updateProject(editingProject.id, { name, description, startDate, endDate, assignments, minWorkEffortDays });
+      updateProject(editingProject.id, {
+        name,
+        description,
+        startDate,
+        endDate,
+        assignments,
+        minWorkEffortDays,
+        reportCategory,
+        reportAgency,
+        reportBudgetThisYear,
+        reportTotalPeriod,
+        reportNameShort,
+        reportNameFull,
+      });
       setEditingProject(null);
     } else {
-      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays);
+      addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        reportCategory,
+        reportAgency,
+        reportBudgetThisYear,
+        reportTotalPeriod,
+        reportNameShort,
+        reportNameFull,
+      });
     }
     setIsProjectModalOpen(false);
   };
@@ -584,51 +656,85 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     setIsDeleteProjectConfirmOpen(false);
   };
 
-  const handleExportFromModal = (params: { scope: 'all' | 'selected'; format: 'excel' | 'json' | 'markdown'; projectIds: string[] }) => {
-    const { format, projectIds } = params;
+  const handleExportFromModal = (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => {
+    const { formats, projectIds, scope } = params;
     const now = new Date();
     const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
     const filteredProjects = projects.filter(p => projectIds.includes(p.id));
     const filteredTasks = allTasks.filter(t => t.projectId && projectIds.includes(t.projectId));
 
-    if (format === 'excel') {
-      const fileName = filteredProjects.length === 1
-        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
-        : `wbs_export_${timestamp}.xlsx`;
-      exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects);
-    } else if (format === 'markdown') {
-      const fileName = filteredProjects.length === 1
-        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
-        : `wbs_export_${timestamp}.md`;
-      exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects);
-    } else {
-      const fullBackup = exportFullBackup();
-      const partialBackup: BackupData = {
-        ...fullBackup,
-        projects: filteredProjects,
-        tasks: filteredTasks,
-      };
-      const fileName = filteredProjects.length === 1
-        ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
-        : `wbs_backup_${timestamp}.json`;
-      exportBackupToJson(partialBackup, fileName);
-    }
+    const doExport = (format: ExportFormat) => {
+      if (format === 'excel') {
+        const fileName = filteredProjects.length === 1
+          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
+          : `wbs_export_${timestamp}.xlsx`;
+        exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects);
+      } else if (format === 'markdown') {
+        const fileName = filteredProjects.length === 1
+          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
+          : `wbs_export_${timestamp}.md`;
+        exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects);
+      } else {
+        const fullBackup = exportFullBackup();
+        const partialBackup: BackupData = {
+          ...fullBackup,
+          projects: filteredProjects,
+          tasks: filteredTasks,
+        };
+        const fileName = filteredProjects.length === 1
+          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
+          : `wbs_backup_${timestamp}.json`;
+        exportBackupToJson(partialBackup, fileName);
+      }
+    };
+
+    formats.forEach(doExport);
+
     pushToast('내보내기가 완료되었습니다.');
+    // 마지막 내보내기 설정 저장 (빠른 내보내기용) - 첫 번째 형식을 기준으로 저장
+    const primaryFormat = formats[0] ?? 'excel';
+    const prefs = { scope, format: primaryFormat as ExportFormat, projectIds };
+    setLastExportPrefs(prefs);
+    try {
+      window.localStorage.setItem('wbs.lastExportPrefs', JSON.stringify(prefs));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleQuickExport = () => {
+    if (!lastExportPrefs) {
+      // 이전 설정이 없으면 일반 내보내기 모달을 열어서 한 번 세팅하게 함
+      setIsExportModalOpen(true);
+      return;
+    }
+    const availableProjectIds = projects.map(p => p.id);
+    const projectIds =
+      lastExportPrefs.scope === 'all'
+        ? availableProjectIds
+        : lastExportPrefs.projectIds.filter(id => availableProjectIds.includes(id));
+    if (projectIds.length === 0) {
+      // 더 이상 존재하지 않는 프로젝트만 포함된 경우 → 모달로 유도
+      setIsExportModalOpen(true);
+      return;
+    }
+    handleExportFromModal({
+      scope: lastExportPrefs.scope,
+      formats: [lastExportPrefs.format],
+      projectIds,
+    });
   };
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
-    setIsImportMenuOpen(false);
   };
 
   const handleImportBackupClick = () => {
     backupInputRef.current?.click();
-    setIsImportMenuOpen(false);
   };
 
   const handleMergeImportClick = () => {
     mergeInputRef.current?.click();
-    setIsImportMenuOpen(false);
   };
 
   const executeDbSync = async (scope: 'current' | 'all') => {
@@ -666,40 +772,69 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     return () => window.removeEventListener('keydown', handleSaveHotkey);
   }, [currentProjectId, isDbSyncing, executeDbSync]);
 
+  const importFromExcelFiles = async (files: File[]) => {
+    const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
+      const idMap = new Map<string, string>();
+      tasksInFile.forEach(t => idMap.set(t.id, uuidv4()));
+      return tasksInFile.map(t => ({
+        ...t,
+        id: idMap.get(t.id)!,
+        parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
+        dependencies: (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!),
+        expanded: true,
+      }));
+    };
+
+    const parsed = await Promise.all(files.map(f => parseExcelWithMeta(f as any)));
+
+    const perFileTasks = parsed.map(p => p.tasks);
+    const importedTasks = files.length > 1
+      ? perFileTasks.flatMap(remapIdsWithinFile)
+      : perFileTasks.flat();
+
+    setImportPreview({
+      isOpen: true,
+      tasks: importedTasks,
+      files: parsed.map((p, idx) => ({
+        fileName: files[idx]?.name || `file-${idx + 1}`,
+        taskCount: p.tasks.length,
+        meta: p.meta,
+      })),
+    });
+  };
+
+  const importFromBackupJsonFiles = async (files: File[]) => {
+    if (files.length === 1) {
+      const parsedData = await parseBackupJson(files[0] as File);
+      setBackupConfirm({ isOpen: true, data: parsedData });
+    } else {
+      const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
+      setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
+
+    const firstExt = files[0].name.split('.').pop()?.toLowerCase() ?? '';
+
     try {
-      const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
-        const idMap = new Map<string, string>();
-        tasksInFile.forEach(t => idMap.set(t.id, uuidv4()));
-        return tasksInFile.map(t => ({
-          ...t,
-          id: idMap.get(t.id)!,
-          parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
-          dependencies: (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!),
-          expanded: true,
-        }));
-      };
-
-      const parsed = await Promise.all(files.map(f => parseExcelWithMeta(f as any)));
-
-      const perFileTasks = parsed.map(p => p.tasks);
-      const importedTasks = files.length > 1
-        ? perFileTasks.flatMap(remapIdsWithinFile)
-        : perFileTasks.flat();
-
-      setImportPreview({
-        isOpen: true,
-        tasks: importedTasks,
-        files: parsed.map((p, idx) => ({
-          fileName: files[idx]?.name || `file-${idx + 1}`,
-          taskCount: p.tasks.length,
-          meta: p.meta,
-        })),
-      });
-    } catch (error) {
-      setErrorAlert({ isOpen: true, message: '파일을 읽는 중 오류가 발생했습니다.' });
+      if (firstExt === 'xlsx' || firstExt === 'xls' || firstExt === 'xlsm') {
+        await importFromExcelFiles(files as File[]);
+      } else if (firstExt === 'json') {
+        await importFromBackupJsonFiles(files as File[]);
+      } else if (firstExt === 'md') {
+        setErrorAlert({
+          isOpen: true,
+          message: 'Markdown(.md) 파일 가져오기는 아직 지원되지 않습니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택해주세요.',
+        });
+      } else {
+        setErrorAlert({
+          isOpen: true,
+          message: '지원하지 않는 파일 형식입니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일만 선택할 수 있습니다.',
+        });
+      }
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -709,13 +844,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
     try {
-      if (files.length === 1) {
-        const parsedData = await parseBackupJson(files[0] as File);
-        setBackupConfirm({ isOpen: true, data: parsedData });
-      } else {
-        const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
-        setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
-      }
+      await importFromBackupJsonFiles(files as File[]);
     } catch (error: any) {
       setErrorAlert({ isOpen: true, message: error.message || '백업 파일을 읽는 중 오류 발생' });
     } finally {
@@ -823,12 +952,13 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     !!filters.milestoneOnly ||
     !!filters.issueOnly ||
     (typeof filters.level === 'number') ||
-    !!filters.pastDueOnly
+    !!filters.pastDueOnly ||
+    !!filters.completedThisWeekOnly
   );
   const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
   const effectiveFilters: FilterState = filterOn
     ? filters
-    : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false };
+    : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false, completedThisWeekOnly: false };
 
   const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
 
@@ -1078,13 +1208,10 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
             {!hiddenViews.has('dashboard') && (
               <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
             )}
-            {!hiddenViews.has('projects') && (
-              <NavButton active={view === 'projects'} onClick={() => navigateWithTip('projects')} icon={<Briefcase size={14} />} label="프로젝트" title="프로젝트 관리: 생성·편집·공유·일괄 삭제를 할 수 있습니다." />
-            )}
             {!hiddenViews.has('allocation') && (
               <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
             )}
-            <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="전체" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
+            <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
             <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
             <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
             <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." />
@@ -1099,7 +1226,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                 tipOnce('menu.ai', 'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에는 창을 닫아도 백그라운드에서 계속 진행돼요.');
               }}
               className={cn("icon-btn transition-colors", isAIBusy ? "text-purple-600 bg-purple-50" : "text-purple-500 hover:text-purple-600 hover:bg-purple-50")}
-              title={isAIBusy ? "AI 분석 중..." : "AI 프로젝트 분석"}
+              title={isAIBusy ? "AI 분석 중..." : "AI로 WBS 만들기"}
             >
               {isAIBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             </button>
@@ -1173,30 +1300,13 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           </button>
 
           <div className="flex gap-1.5">
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setIsImportMenuOpen(!isImportMenuOpen);
-                  tipOnce('menu.import', '가져오기: Excel/JSON 데이터를 불러와 작업을 추가하거나 복원할 수 있어요.');
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
-                title="가져오기"
-              >
-                <Upload size={13} /> <span>가져오기</span> <ChevronDown size={11} className={cn("opacity-50 transition-transform", isImportMenuOpen && "rotate-180")} />
-              </button>
-              {isImportMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsImportMenuOpen(false)}></div>
-                  <div className="absolute top-full right-0 mt-1.5 w-60 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu" style={{ boxShadow: 'var(--shadow-lg)' }}>
-                    <div className="p-1">
-                      <button onClick={handleImportClick} className="w-full text-left px-3 py-2.5 text-xs text-slate-700 hover:bg-slate-50 rounded-lg transition-colors font-medium">Excel 가져오기 (.xlsx)</button>
-                      <button onClick={handleMergeImportClick} className="w-full text-left px-3 py-2.5 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors font-medium">프로젝트 추가 (JSON)</button>
-                      <button onClick={handleImportBackupClick} className="w-full text-left px-3 py-2.5 text-xs text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors font-medium">전체 백업 복원 (JSON)</button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              onClick={handleImportClick}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
+              title="가져오기"
+            >
+              <Upload size={13} /> <span>가져오기</span>
+            </button>
 
             <button
               onClick={() => {
@@ -1226,6 +1336,17 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
               title="내보내기"
             >
               <Download size={13} /> <span>내보내기</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsWeeklyReportOpen(true);
+                tipOnce('menu.weeklyReport', '현재 작업을 기준으로 금주한일·차주계획·이슈를 자동으로 정리합니다.');
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
+              title="주간보고 자동 생성"
+            >
+              <History size={13} /> <span>주간보고</span>
             </button>
 
             <button
@@ -1307,9 +1428,16 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
       {/* Filter bar: 모바일에서 헤더 접힌 상태면 숨김 */}
       {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && (
-        <div className={cn("bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap md:flex-nowrap items-center gap-2 overflow-x-auto shrink-0 z-40", isHeaderCollapsed && "hidden md:flex")} style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mr-1 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">프로젝트</span>
-          <div className="shrink-0">
+        <div
+          className={cn(
+            "bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40",
+            isHeaderCollapsed && "hidden md:flex"
+          )}
+          style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
+        >
+          {/* 프로젝트 */}
+          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">프로젝트</span>
             <select
               value={filters.projectId}
               onChange={(e) => {
@@ -1332,39 +1460,93 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
               ))}
             </select>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mr-1 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
-          <div className="flex items-center gap-1.5 shrink-0">
+
+          {/* 상태 */}
+          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-50/60 border border-indigo-100">
+            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
+            <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
             {wbsSettings.statusConfigs.map(config => (
               <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
             ))}
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">담당자</span>
-          <div className="flex items-center gap-1.5 shrink-0">
+
+          {/* 담당자 */}
+          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-emerald-50/70 border border-emerald-100">
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">담당자</span>
+            <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("filter-chip", !filters.assignee ? "filter-chip-active" : "filter-chip-inactive")} title="모든 담당자의 작업 표시">전체</button>
+            {user?.id && profileMap[user.id] && (
+              <button onClick={() => { setFilterOn(true); setFilters(f => ({ ...f, assignee: profileMap[user.id] })); }} className={cn("filter-chip flex items-center gap-1", filters.assignee === profileMap[user.id] ? "filter-chip-active" : "filter-chip-inactive")} title="내가 담당자인 작업만 표시"><User size={10} className="opacity-80" /> 내 업무만</button>
+            )}
             {allAssignees.map(a => (
               <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("filter-chip", filters.assignee === a ? "filter-chip-active" : "filter-chip-inactive")} title={`${a} 담당 작업만 표시`}>{a}</button>
             ))}
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="마일스톤(이정표) 작업만 보기">마일스톤</span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setFilters(f => ({ ...f, milestoneOnly: false }))} className={cn("filter-chip flex items-center gap-1", !filters.milestoneOnly ? "filter-chip-active" : "filter-chip-inactive")} title="모든 작업 표시">전체</button>
-            <button onClick={() => setFilters(f => ({ ...f, milestoneOnly: true }))} className={cn("filter-chip flex items-center gap-1", filters.milestoneOnly ? "filter-chip-active" : "filter-chip-inactive")} title="마일스톤으로 지정된 이정표 작업만 표시"><Flag size={12} className="opacity-80" /> 마일스톤만</button>
+
+          {/* 마일스톤/이슈 (전체·마일스톤만·이슈만 3가지) */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
+            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider" title="마일스톤/이슈 기준으로 작업을 필터링합니다.">
+              마일스톤
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    milestoneOnly: false,
+                    issueOnly: false,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  !filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="마일스톤/이슈 구분 없이 모든 작업 표시"
+              >
+                전체
+              </button>
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    milestoneOnly: true,
+                    issueOnly: false,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="마일스톤으로 지정된 이정표 작업만 표시"
+              >
+                <Flag size={12} className="opacity-80" /> 마일스톤만
+              </button>
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    milestoneOnly: false,
+                    issueOnly: true,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  !filters.milestoneOnly && filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="이슈로 지정된 작업만 표시"
+              >
+                <Bug size={12} className="opacity-80" /> 이슈만
+              </button>
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="이슈로 지정된 작업만 보기">이슈</span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setFilters(f => ({ ...f, issueOnly: false }))} className={cn("filter-chip flex items-center gap-1", !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive")} title="모든 작업 표시">전체</button>
-            <button onClick={() => setFilters(f => ({ ...f, issueOnly: true }))} className={cn("filter-chip flex items-center gap-1", filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive")} title="이슈로 지정된 작업만 표시"><Bug size={12} className="opacity-80" /> 이슈만</button>
-          </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="WBS 레벨별로 작업만 표시">레벨</span>
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-            <button onClick={() => setFilters(f => ({ ...f, level: 'all' }))} className={cn("filter-chip", (filters.level === 'all' || filters.level === undefined) ? "filter-chip-active" : "filter-chip-inactive")} title="모든 레벨 표시">전체</button>
-            {[1, 2, 3, 4, 5].map(lv => (
-              <button key={lv} onClick={() => setFilters(f => ({ ...f, level: lv }))} className={cn("filter-chip", filters.level === lv ? "filter-chip-active" : "filter-chip-inactive")} title={`${lv}레벨 작업만 표시`}>{lv}레벨</button>
-            ))}
-          </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">기간</span>
-          <div className="flex items-center gap-1.5 shrink-0">
+
+          {/* 기간 */}
+          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-violet-50 border border-violet-100">
+            <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">기간</span>
+            <div className="flex flex-wrap items-center gap-1.5">
             <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("filter-chip", !filters.startDate && !filters.endDate ? "filter-chip-active" : "filter-chip-inactive")} title="기간 제한 없이 모든 작업 표시">전체</button>
             <button
               onClick={() => {
@@ -1388,11 +1570,89 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
             >
               금주
             </button>
+            <button
+              onClick={() => {
+                const now = new Date();
+                const nextWeekBase = addDays(now, 7);
+                const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                setFilters(f => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
+              }}
+              className={cn(
+                "filter-chip",
+                (() => {
+                  if (!filters.startDate || !filters.endDate) return "filter-chip-inactive";
+                  const now = new Date();
+                  const nextWeekBase = addDays(now, 7);
+                  const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                  const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                  const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
+                  const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
+                  return startMatch && endMatch ? "filter-chip-active" : "filter-chip-inactive";
+                })()
+              )}
+              title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
+            >
+              차주
+            </button>
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 shrink-0 mx-2 uppercase tracking-wider" title="완료 기한이 지났지만 아직 미완료인 작업만 보기">기한 지남</span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setFilters(f => ({ ...f, pastDueOnly: false }))} className={cn("filter-chip flex items-center gap-1", !filters.pastDueOnly ? "filter-chip-active" : "filter-chip-inactive")} title="모든 작업 표시">전체</button>
-            <button onClick={() => setFilters(f => ({ ...f, pastDueOnly: true }))} className={cn("filter-chip flex items-center gap-1", filters.pastDueOnly ? "filter-chip-active" : "filter-chip-inactive")} title="기한이 지난 미완료 작업만 표시"><Clock size={12} className="opacity-80" /> 기한 지난 항목</button>
+
+          {/* 금주 완료/기한 지남 (전체·금주 완료·기한 초과 3가지) */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100">
+            <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider" title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다.">
+              기한/완료
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    pastDueOnly: false,
+                    completedThisWeekOnly: false,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  !filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="기한/완료 조건 없이 모든 작업 표시"
+              >
+                전체
+              </button>
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    completedThisWeekOnly: true,
+                    pastDueOnly: false,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  filters.completedThisWeekOnly && !filters.pastDueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="이번 주(월~일)에 완료된 항목만 표시 (상태: 완료, 종료일: 이번 주)"
+              >
+                금주 완료 항목
+              </button>
+              <button
+                onClick={() =>
+                  setFilters(f => ({
+                    ...f,
+                    pastDueOnly: true,
+                    completedThisWeekOnly: false,
+                  }))
+                }
+                className={cn(
+                  "filter-chip flex items-center gap-1",
+                  filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+                )}
+                title="기한이 지난 미완료 작업만 표시"
+              >
+                <Clock size={12} className="opacity-80" /> 기한 지난 항목
+              </button>
+            </div>
           </div>
           {hasActiveFilters && (
             <button
@@ -1409,6 +1669,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                   issueOnly: false,
                   level: 'all',
                   pastDueOnly: false,
+                  completedThisWeekOnly: false,
                 }));
               }}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50/80 hover:bg-red-100 transition-all shrink-0 ml-auto active:scale-95"
@@ -1433,7 +1694,20 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       )}
       <main className={cn("flex-1 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
-          {view === 'list' ? (
+          {userApproved &&
+          !effectiveIsAdmin &&
+          currentProjectId &&
+          currentProjectId !== 'all' &&
+          currentProject &&
+          currentProject.ownerId !== user?.id &&
+          !myMemberProjectIds.includes(currentProjectId) &&
+          (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban') ? (
+            <ProjectAccessRequestBanner
+              projectId={currentProjectId}
+              projectName={currentProject.name}
+              onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => {})}
+            />
+          ) : view === 'list' ? (
             <div ref={containerRef} className={cn("relative flex h-full w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
               <div className="flex-shrink-0 overflow-hidden h-full flex flex-col list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
                 <WBSTable
@@ -1502,8 +1776,8 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
       </main>
 
-      <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} />
-      <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} />
+      <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
+      <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
       <WBSSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} />
       <AIAnalysisModal
         isOpen={isAIModalOpen}
@@ -1730,6 +2004,8 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         isOpen={isMembersModalOpen}
         onClose={() => setIsMembersModalOpen(false)}
         currentUserId={user?.id}
+        projects={uniqueProjects.map(p => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
+        profileMap={profileMap}
         onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
         onApproved={() => { pushToast('회원을 승인했습니다. 해당 회원은 다음 로그인부터 DB와 동기화됩니다.', { variant: 'success' }); onMembersUpdated?.(); }}
       />
@@ -1756,7 +2032,23 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         onExport={handleExportFromModal}
       />
 
-      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .xlsm" multiple className="hidden" />
+      <WeeklyReportModal
+        isOpen={isWeeklyReportOpen}
+        onClose={() => setIsWeeklyReportOpen(false)}
+        tasks={allTasks}
+        projects={projects}
+        currentProjectId={currentProjectId}
+        currentUserDisplay={currentUserDisplay}
+      />
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".xlsx,.xls,.xlsm,.json,.md"
+        multiple
+        className="hidden"
+      />
       <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" multiple className="hidden" />
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
 
@@ -1836,6 +2128,7 @@ function AppWithProviders() {
 
   return (
     <WBSProvider
+      useLocalOnly={!userApproved}
       onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 화면이 자동으로 최신 데이터로 갱신됩니다.', { variant: 'warning', durationMs: 6000 })}
       onDbError={(msg) => pushToast(msg, { variant: 'error' })}
     >

@@ -26,6 +26,18 @@ export interface Project {
   ownerId?: string;
   /** 작업 최소 공수 기준(일). 0.5, 1, 3 등. WBS 작업 세부 분류에 사용 */
   minWorkEffortDays?: number;
+  /** 주간보고용 분류(예: 국책, 매출 등) */
+  reportCategory?: string;
+  /** 주간보고용 주관기관(예: KRISO, LS전선 등) */
+  reportAgency?: string;
+  /** 주간보고용 금년도 정부출연금 또는 예산 정보 */
+  reportBudgetThisYear?: string;
+  /** 주간보고용 전체 기간 표시(예: '26년 9월', '23.04 ~ 26.12') */
+  reportTotalPeriod?: string;
+  /** 주간보고용 과제명 약어(예: AI스마트팩토리 연구) */
+  reportNameShort?: string;
+  /** 주간보고용 전체과제명(예: 고하중 장조장 해저 케이블 생산을 위한 디지털 트윈 AI 팩토리 기술 개발) */
+  reportNameFull?: string;
 }
 
 /** 투입인원 1명: 담당자 + 투입비율(0~100%) */
@@ -72,6 +84,8 @@ export interface FilterState {
   projectId: string; // 'all' or specific project id
   status: TaskStatus | 'all';
   assignee: string;
+  /** true면 담당자 미배정 작업만 표시 */
+  assigneeUnassignedOnly?: boolean;
   startDate: string;
   endDate: string;
   /** true면 마일스톤 작업만 표시 */
@@ -82,6 +96,8 @@ export interface FilterState {
   level?: number | 'all';
   /** true면 완료 기한이 지났는데 아직 미완료인 작업만 표시 */
   pastDueOnly?: boolean;
+  /** true면 이번 주에 완료(상태 'done' + 종료일이 이번 주)된 작업만 표시 */
+  completedThisWeekOnly?: boolean;
 }
 
 export const MOCK_PROJECTS: Project[] = [

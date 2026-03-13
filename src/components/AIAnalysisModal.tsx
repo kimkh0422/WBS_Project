@@ -657,7 +657,7 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
               {step === 'settings' ? 'API 설정'
                 : step === 'preview' && analysisMode === 'dependency' ? '선행관계 분석 결과'
                   : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과'
-                    : 'AI 프로젝트 분석'}
+                    : 'AI로 WBS 만들기'}
             </h2>
           </div>
           <div className="flex items-center gap-1">
@@ -720,10 +720,10 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
             <div className="space-y-4">
               <p className="text-sm text-stone-600">
                 프로젝트 요구사항, 회의록 또는 대략적인 계획을 아래에 붙여넣으세요.
-                AI가 분석하여 단계별로 그룹화된 체계적인 WBS를 생성합니다.
+                AI가 내용을 읽고 단계별 WBS를 만들어 줍니다.
                 {existingTasks.length > 0 && (
                   <span className="block mt-1.5 text-purple-600 font-medium">
-                    기존 작업이 있습니다. 입력 없이 버튼을 누르면 기존 WBS를 PMO 기준으로 업데이트합니다.
+                    기존 작업이 있습니다. 내용 없이 버튼을 누르면 기존 WBS만 깔끔하게 정리합니다.
                   </span>
                 )}
               </p>
@@ -875,7 +875,7 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
                   >
                     <span className="text-sm font-bold text-stone-700 flex items-center gap-2">
                       {showPromptEditor ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                      WBS 자동교정 프롬프트 편집
+                      WBS 자동 교정 설정
                     </span>
                     <span className="text-xs text-stone-500">현재 작업 재분석 시 사용</span>
                   </button>
@@ -1048,7 +1048,7 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
               <button
                 onClick={() => handleAnalyze(false)}
                 disabled={isLoading}
-                title={!canProceed ? '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.' : !apiKey ? 'API 키를 먼저 설정해 주세요.' : hasAnyInput ? '새 WBS 생성' : '기존 작업을 PMO 기준으로 업데이트'}
+                title={!canProceed ? '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.' : !apiKey ? 'API 키를 먼저 설정해 주세요.' : hasAnyInput ? '새 WBS 만들기' : '기존 WBS를 정리합니다'}
                 className="btn-primary bg-purple-600 hover:bg-purple-700 border-transparent flex items-center gap-2"
               >
                 {isLoading && !isReanalyzing ? (
@@ -1059,7 +1059,7 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
                 ) : (
                   <>
                     <Sparkles size={16} />
-                    {hasAnyInput ? 'WBS 생성' : '기존 작업 업데이트'}
+                    {hasAnyInput ? 'WBS 만들기' : '기존 WBS 정리'}
                   </>
                 )}
               </button>

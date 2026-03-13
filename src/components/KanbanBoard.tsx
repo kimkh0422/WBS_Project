@@ -259,9 +259,21 @@ interface KanbanColumnProps {
   onDeleteTask: (taskId: string) => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
   taskLevels: Map<string, number>;
+  onRenameColumn: (columnId: string, newName: string) => void;
 }
 
-function KanbanColumn({ column, tasks, displayWbsMap, parentWbsLabelMap, onTaskClick, onAddTask, onDeleteTask, onUpdateTask, taskLevels }: KanbanColumnProps) {
+function KanbanColumn({
+  column,
+  tasks,
+  displayWbsMap,
+  parentWbsLabelMap,
+  onTaskClick,
+  onAddTask,
+  onDeleteTask,
+  onUpdateTask,
+  taskLevels,
+  onRenameColumn,
+}: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({
     id: column.id,
     data: {
@@ -273,12 +285,47 @@ function KanbanColumn({ column, tasks, displayWbsMap, parentWbsLabelMap, onTaskC
   const [isAdding, setIsAdding] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [columnName, setColumnName] = useState(column.name);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setColumnName(column.name);
+  }, [column.name]);
 
   useEffect(() => {
     if (isAdding && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isAdding]);
+
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [isRenaming]);
+
+  const handleRenameSubmit = () => {
+    const trimmed = columnName.trim();
+    if (trimmed && trimmed !== column.name) {
+      onRenameColumn(column.id, trimmed);
+    } else {
+      setColumnName(column.name);
+    }
+    setIsRenaming(false);
+  };
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleRenameSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setColumnName(column.name);
+      setIsRenaming(false);
+    }
+  };
 
   const handleSubmit = () => {
     if (newCardTitle.trim()) {
@@ -303,7 +350,24 @@ function KanbanColumn({ column, tasks, displayWbsMap, parentWbsLabelMap, onTaskC
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2">
           {column.icon}
-          <span className="font-bold text-stone-700">{column.name}</span>
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              value={columnName}
+              onChange={(e) => setColumnName(e.target.value)}
+              onBlur={handleRenameSubmit}
+              onKeyDown={handleRenameKeyDown}
+              className="text-sm font-bold text-stone-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none shadow-sm"
+            />
+          ) : (
+            <span
+              className="font-bold text-stone-700 cursor-text"
+              title="더블 클릭하여 그룹명 수정"
+              onDoubleClick={() => setIsRenaming(true)}
+            >
+              {column.name}
+            </span>
+          )}
           <span className="bg-white/50 px-2 py-0.5 rounded-full text-[10px] font-bold text-stone-500 border border-black/5">
             {tasks.length}
           </span>
@@ -379,7 +443,46 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ filters }: KanbanBoardProps) {
-  const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings } = useWBS();
+  const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings, currentProjectId, updateWbsSettings } = useWBS();
+
+  const getKanbanStorageKey = (projectId: string | 'all') =>
+    `wbs-kanban-order-v1-${projectId || 'all'}`;
+
+  const loadKanbanOrder = (projectId: string | 'all'): Record<string, string[]> => {
+    try {
+      const raw = localStorage.getItem(getKanbanStorageKey(projectId));
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const result: Record<string, string[]> = {};
+      Object.entries(parsed).forEach(([status, ids]) => {
+        if (Array.isArray(ids)) {
+          result[status] = ids.filter(id => typeof id === 'string') as string[];
+        }
+      });
+      return result;
+    } catch {
+      return {};
+    }
+  };
+
+  const saveKanbanOrder = (projectId: string | 'all', order: Record<string, string[]>) => {
+    try {
+      localStorage.setItem(getKanbanStorageKey(projectId), JSON.stringify(order));
+    } catch {
+      // ignore quota / private mode errors
+    }
+  };
+
+  const effectiveProjectId = filters.projectId === 'all' ? (currentProjectId || 'all') : filters.projectId;
+
+  const [kanbanOrder, setKanbanOrder] = useState<Record<string, string[]>>(() =>
+    loadKanbanOrder(effectiveProjectId || 'all')
+  );
+
+  useEffect(() => {
+    setKanbanOrder(loadKanbanOrder(effectiveProjectId || 'all'));
+  }, [effectiveProjectId]);
 
   const columns = useMemo(() => {
     return wbsSettings.statusConfigs.map(config => {
@@ -468,7 +571,12 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     result = result.filter(task => !parentTaskIds.has(task.id));
     return result.filter(task => {
       if (filters.status !== 'all' && task.status !== filters.status) return false;
-      if (filters.assignee && !task.assignee.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
+      const assigneeName = (task.assignee || '').toLowerCase();
+      if (filters.assigneeUnassignedOnly) {
+        if (assigneeName.trim().length > 0) return false;
+      } else if (filters.assignee && !assigneeName.includes(filters.assignee.toLowerCase())) {
+        return false;
+      }
       const taskStart = (task.startDate || '').slice(0, 10);
       const taskEnd = (task.endDate || '').slice(0, 10);
       if (filters.startDate && filters.endDate) {
@@ -493,6 +601,13 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     });
   }, [tasks, filters, taskLevels, parentTaskIds]);
 
+  const handleRenameColumn = (columnId: string, newName: string) => {
+    const nextConfigs = wbsSettings.statusConfigs.map(config =>
+      config.id === columnId ? { ...config, name: newName } : config
+    );
+    updateWbsSettings({ statusConfigs: nextConfigs });
+  };
+
   const tasksByStatus = useMemo(() => {
     const grouped: Record<string, Task[]> = {};
     wbsSettings.statusConfigs.forEach(config => {
@@ -508,12 +623,23 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         }
       }
     });
-    // Sort each group by level, then by name
-    Object.values(grouped).forEach(arr =>
-      arr.sort((a, b) => (taskLevels.get(a.id) ?? 1) - (taskLevels.get(b.id) ?? 1))
-    );
+    // Sort each group by persisted kanban order (상하 드래그 순서) 먼저,
+    // 없으면 레벨(계층 깊이) 기준으로 정렬
+    Object.entries(grouped).forEach(([statusId, arr]) => {
+      const order = kanbanOrder[statusId] ?? [];
+      arr.sort((a, b) => {
+        const ia = order.indexOf(a.id);
+        const ib = order.indexOf(b.id);
+        if (ia !== -1 || ib !== -1) {
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        }
+        return (taskLevels.get(a.id) ?? 1) - (taskLevels.get(b.id) ?? 1);
+      });
+    });
     return grouped;
-  }, [filteredTasks, wbsSettings.statusConfigs, taskLevels]);
+  }, [filteredTasks, wbsSettings.statusConfigs, taskLevels, kanbanOrder]);
 
   const onDragStart = (event: DragStartEvent) => {
     if (event.active.data.current?.type === 'Task') {
@@ -533,21 +659,85 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     if (!task) return;
 
     let newStatus: TaskStatus | undefined;
+    let overTask: Task | undefined;
 
     if (wbsSettings.statusConfigs.some(c => c.id === overId)) {
       newStatus = overId as TaskStatus;
     } else {
-      const overTask = tasks.find(t => t.id === overId);
+      overTask = tasks.find(t => t.id === overId);
       if (overTask) {
         newStatus = overTask.status;
       }
     }
 
-    if (newStatus && newStatus !== task.status) {
-      const destinationStatus = newStatus;
-      const statusConfig = wbsSettings.statusConfigs.find(c => c.id === destinationStatus);
-      const progress = statusConfig ? statusConfig.progress : undefined;
+    if (!newStatus) return;
 
+    const sourceStatus = task.status;
+    const destinationStatus = newStatus;
+
+    // 현재 상태 컬럼에서의 카드 순서 배열을 가져오고, 누락된 카드가 있으면 채워 넣음
+    const getStatusOrder = (statusId: string): string[] => {
+      const existing = (kanbanOrder[statusId] ?? []).filter(id =>
+        filteredTasks.some(t => t.id === id && t.status === statusId)
+      );
+      const missing = (tasksByStatus[statusId] ?? [])
+        .map(t => t.id)
+        .filter(id => !existing.includes(id));
+      return [...existing, ...missing];
+    };
+
+    // 같은 컬럼 내 상하 드래그: 순서만 변경, WBS 번호나 상태는 그대로
+    if (destinationStatus === sourceStatus) {
+      const currentOrder = getStatusOrder(sourceStatus);
+      const activeIndex = currentOrder.indexOf(activeId);
+      if (activeIndex === -1) return;
+
+      let overIndex = currentOrder.length - 1;
+      if (overTask && overTask.id !== activeId) {
+        const idx = currentOrder.indexOf(overTask.id);
+        if (idx !== -1) overIndex = idx;
+      }
+
+      if (activeIndex === overIndex) return;
+
+      const nextOrder = [...currentOrder];
+      nextOrder.splice(activeIndex, 1);
+      nextOrder.splice(overIndex, 0, activeId);
+
+      const updatedOrder = { ...kanbanOrder, [sourceStatus]: nextOrder };
+      setKanbanOrder(updatedOrder);
+      saveKanbanOrder(effectiveProjectId || 'all', updatedOrder);
+      return;
+    }
+
+    // 컬럼 간 이동: 상태 변경 + Kanban 정렬 순서 갱신 (WBS 번호는 context에서 별도로 유지됨)
+    const sourceOrder = getStatusOrder(sourceStatus);
+    const destOrder = getStatusOrder(destinationStatus);
+
+    const filteredSourceOrder = sourceOrder.filter(id => id !== activeId);
+
+    let insertIndex = destOrder.length;
+    if (overTask && overTask.status === destinationStatus) {
+      const idx = destOrder.indexOf(overTask.id);
+      if (idx !== -1) insertIndex = idx;
+    }
+
+    const nextDestOrder = [...destOrder];
+    nextDestOrder.splice(insertIndex, 0, activeId);
+
+    const updatedOrder: Record<string, string[]> = {
+      ...kanbanOrder,
+      [sourceStatus]: filteredSourceOrder,
+      [destinationStatus]: nextDestOrder,
+    };
+
+    setKanbanOrder(updatedOrder);
+    saveKanbanOrder(effectiveProjectId || 'all', updatedOrder);
+
+    const statusConfig = wbsSettings.statusConfigs.find(c => c.id === destinationStatus);
+    const progress = statusConfig ? statusConfig.progress : undefined;
+
+    if (destinationStatus !== task.status || progress !== undefined) {
       updateTask(activeId, {
         status: destinationStatus,
         ...(progress !== undefined ? { progress } : {})
@@ -561,14 +751,15 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   };
 
   const handleAddTask = (status: TaskStatus, name: string) => {
+    const today = new Date().toISOString().split('T')[0];
     addTask({
       name,
       status,
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0],
+      startDate: filters.startDate || today,
+      endDate: filters.endDate || today,
       progress: 0,
       workEffort: 0.5,
-      assignee: '',
+      assignee: filters.assignee || '',
       parentId: null,
     });
   };
@@ -623,6 +814,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
               onDeleteTask={handleDeleteClick}
               onUpdateTask={updateTask}
               taskLevels={taskLevels}
+              onRenameColumn={handleRenameColumn}
             />
           ))}
         </div>
@@ -649,6 +841,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         onDelete={() => editingTask && handleDeleteClick(editingTask.id)}
         initialData={editingTask || undefined}
         parentOptions={tasks}
+        onOpenTask={(task) => setEditingTask(task)}
       />
 
       <ConfirmDialog

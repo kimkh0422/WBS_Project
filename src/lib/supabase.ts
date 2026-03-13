@@ -33,6 +33,12 @@ export interface ProjectRow {
   owner_id?: string | null;
   min_work_effort_days?: number | null;
   created_at?: string;
+  report_category?: string | null;
+  report_agency?: string | null;
+  report_budget_this_year?: string | null;
+  report_total_period?: string | null;
+  report_name_short?: string | null;
+  report_name_full?: string | null;
 }
 
 export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';
@@ -52,6 +58,18 @@ export interface ProjectInviteRow {
   role: 'editor' | 'viewer';
   expires_at: string;
   created_at?: string;
+}
+
+/** 프로젝트 권한 요청 (승인 사용자가 보기/편집 권한 요청) */
+export interface ProjectAccessRequestRow {
+  id: string;
+  project_id: string;
+  user_id: string;
+  requested_role: 'viewer' | 'editor';
+  status: 'pending' | 'approved' | 'rejected';
+  created_at?: string;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
 }
 
 export interface TaskRow {

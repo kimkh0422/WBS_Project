@@ -1,4 +1,5 @@
 import { FilterState, SortConfig, Task } from '../types';
+import { startOfWeek, endOfWeek } from 'date-fns';
 import { getTopologicalOrder } from './schedule';
 
 export type TaskWithDepth = Task & { depth: number };
@@ -82,7 +83,12 @@ function toDateStr(s: string): string {
 
 function matchesFilters(task: Task, filters: FilterState) {
   if (filters.status !== 'all' && task.status !== filters.status) return false;
-  if (filters.assignee && !task.assignee.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
+  const assigneeName = (task.assignee || '').toLowerCase();
+  if (filters.assigneeUnassignedOnly) {
+    if (assigneeName.trim().length > 0) return false;
+  } else if (filters.assignee && !assigneeName.includes(filters.assignee.toLowerCase())) {
+    return false;
+  }
   const taskStart = toDateStr(task.startDate);
   const taskEnd = toDateStr(task.endDate);
   const hasTaskStart = !!taskStart;
@@ -98,6 +104,17 @@ function matchesFilters(task: Task, filters: FilterState) {
   if (filters.pastDueOnly) {
     const today = new Date().toISOString().slice(0, 10);
     if (!taskEnd || taskEnd >= today || (task.progress ?? 0) >= 100) return false;
+  }
+  // 이번 주에 완료된 항목만 보기: 상태 done + 종료일이 이번 주(월~일) 안에 포함
+  if (filters.completedThisWeekOnly) {
+    if (task.status !== 'done') return false;
+    if (!taskEnd) return false;
+    const today = new Date();
+    const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+    const endDateObj = new Date(taskEnd);
+    if (Number.isNaN(endDateObj.getTime())) return false;
+    if (endDateObj < weekStart || endDateObj > weekEnd) return false;
   }
   if (filters.startDate && filters.endDate) {
     // 기간 겹침: task가 [startDate, endDate]와 하루라도 겹치면 표시
@@ -152,11 +169,13 @@ export function buildVisibleTasks(
   const hasFilters =
     filters.status !== 'all' ||
     filters.assignee ||
+    filters.assigneeUnassignedOnly ||
     filters.startDate ||
     filters.endDate ||
     !!filters.milestoneOnly ||
     !!filters.issueOnly ||
-    !!filters.pastDueOnly;
+    !!filters.pastDueOnly ||
+    !!filters.completedThisWeekOnly;
   const levelFilter = typeof filters.level === 'number';
   const targetLevel = levelFilter ? filters.level! : 0;
   const compare = createTaskComparator(sortConfig);

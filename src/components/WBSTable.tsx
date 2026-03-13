@@ -14,6 +14,8 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragOverEvent,
+  DragCancelEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -113,7 +115,6 @@ function getTaskDetailTooltip(
     const depLabels = deps.map((id) => displayWbsMap.get(id) ? `#${displayWbsMap.get(id)}` : id);
     lines.push(`선행작업: ${depLabels.join(', ')}`);
   }
-  lines.push('', '더블 클릭 또는 F2로 이름 수정');
   return lines.join('\n');
 }
 
@@ -135,7 +136,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     outdentTask,
     indentTasks,
     outdentTasks,
-    reorderTask,
     wbsSettings,
     updateWbsSettings,
     wbsMap,
@@ -246,48 +246,56 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     actions: 70
   };
   const [columnWidths, setColumnWidths] = useState({ ...DEFAULT_COLUMN_WIDTHS });
+  const columnWidthsRef = useRef(columnWidths);
+  const hasRestoredColumnWidths = useRef(false);
+  useEffect(() => {
+    columnWidthsRef.current = columnWidths;
+  }, [columnWidths]);
+  useEffect(() => {
+    const saved = wbsSettings?.columnWidths;
+    if (hasRestoredColumnWidths.current || !saved || Object.keys(saved).length === 0) return;
+    setColumnWidths(prev => ({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
+    hasRestoredColumnWidths.current = true;
+  }, [wbsSettings]);
 
   const [resizingCol, setResizingCol] = useState<keyof typeof columnWidths | null>(null);
-  const [startX, setStartX] = useState(0);
-  const [startWidth, setStartWidth] = useState(0);
+  const resizeStartRef = useRef<{ col: keyof typeof columnWidths; startX: number; startWidth: number } | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent, col: keyof typeof columnWidths) => {
+    e.preventDefault();
     e.stopPropagation();
+    resizeStartRef.current = { col, startX: e.clientX, startWidth: columnWidths[col] };
     setResizingCol(col);
-    setStartX(e.clientX);
-    setStartWidth(columnWidths[col]);
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
   };
 
   useEffect(() => {
+    if (!resizingCol) return;
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (!resizingCol) return;
-      const diff = e.clientX - startX;
-      setColumnWidths(prev => ({
-        ...prev,
-        [resizingCol]: Math.max(30, startWidth + diff) // Min width 30px
-      }));
+      const start = resizeStartRef.current;
+      if (!start) return;
+      const diff = e.clientX - start.startX;
+      const newWidth = Math.max(30, start.startWidth + diff);
+      setColumnWidths(prev => ({ ...prev, [start.col]: newWidth }));
     };
 
     const handleMouseUp = () => {
-      if (resizingCol) {
-        setResizingCol(null);
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-      }
+      resizeStartRef.current = null;
+      setResizingCol(null);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      updateWbsSettings({ columnWidths: columnWidthsRef.current });
     };
 
-    if (resizingCol) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizingCol, startX, startWidth]);
+  }, [resizingCol, updateWbsSettings]);
 
   const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
     const cols = (wbsSettings as any)?.tableColumns;
@@ -526,12 +534,90 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     })
   );
 
+  type DropPosition = 'before' | 'inside' | 'after';
+  const [dropTarget, setDropTarget] = useState<{ overId: string; position: DropPosition } | null>(null);
+
+  /**
+   * 드롭 위치 결정 규칙
+   * - 행 상단 1/3: 위(before)
+   * - 행 중간 1/3: 하위(inside)
+   * - 행 하단 1/3: 아래(after)
+   */
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      setDropTarget(null);
+      return;
+    }
+
+    const overId = over.id as string;
+    const activeRect = active.rect.current.translated ?? active.rect.current.initial;
+    const overRect = over.rect;
+
+    if (!activeRect || !overRect) {
+      setDropTarget({ overId, position: 'inside' });
+      return;
+    }
+
+    const draggedCenterY = activeRect.top + activeRect.height / 2;
+    const rel = (draggedCenterY - overRect.top) / Math.max(1, overRect.height);
+    const position: DropPosition = rel < 0.33 ? 'before' : rel > 0.66 ? 'after' : 'inside';
+
+    setDropTarget(prev => (prev?.overId === overId && prev.position === position ? prev : { overId, position }));
+  };
+
+  const handleDragCancel = (_event: DragCancelEvent) => {
+    setDropTarget(null);
+  };
+
+  /** 드래그한 작업을 놓은 위치에 따라 상하 이동 또는 하위(자식) 이동 */
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      reorderTask(active.id as string, over.id as string);
+    if (!over || active.id === over.id) {
+      setDropTarget(null);
+      return;
     }
+
+    const draggedId = active.id as string;
+    const overId = over.id as string;
+
+    const draggedTask = tasks.find(t => t.id === draggedId);
+    const overTask = tasks.find(t => t.id === overId);
+    if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) {
+      setDropTarget(null);
+      return;
+    }
+
+    // 순환 방지: over가 드래그한 작업의 자손이면 무시 (어떤 드롭 포지션이든 안전하게 차단)
+    const descendantIds = new Set<string>();
+    const collectDescendants = (parentId: string) => {
+      for (const t of tasks) {
+        if (t.parentId === parentId) {
+          descendantIds.add(t.id);
+          collectDescendants(t.id);
+        }
+      }
+    };
+    collectDescendants(draggedId);
+    if (descendantIds.has(overId)) {
+      setDropTarget(null);
+      return;
+    }
+
+    const position: DropPosition = dropTarget?.overId === overId ? dropTarget.position : 'inside';
+
+    if (position === 'inside') {
+      updateTask(draggedId, { parentId: overId });
+      if (!overTask.expanded) updateTask(overId, { expanded: true });
+      setDropTarget(null);
+      return;
+    }
+
+    // before/after: overTask와 같은 부모 레벨(형제)로 이동 + 표시 순서도 같이 이동
+    const targetParentId = overTask.parentId ?? null;
+    updateTask(draggedId, { parentId: targetParentId });
+    reorderTask(draggedId, overId);
+    setDropTarget(null);
   };
 
   // Keyboard Shortcuts
@@ -708,6 +794,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         if (e.altKey) {
           if (!isSortedOrFiltered && selectedTaskIds.size === 1) {
             moveTask(lastSelectedId, 'up');
+            requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
         } else {
           const prevTask = visibleTasks[currentIndex - 1];
@@ -721,6 +808,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         if (e.altKey) {
           if (!isSortedOrFiltered && selectedTaskIds.size === 1) {
             moveTask(lastSelectedId, 'down');
+            requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
         } else {
           const nextTask = visibleTasks[currentIndex + 1];
@@ -760,11 +848,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
             const newId = addTask({
               name: '새 하위 작업',
-              startDate: defaultDate,
-              endDate: defaultDate,
+              startDate: filters.startDate || defaultDate,
+              endDate: filters.endDate || defaultDate,
               progress: 0,
               workEffort: 0.5,
-              assignee: '',
+              assignee: filters.assignee || '',
               status: 'todo',
               parentId: task.id
             }, task.id);
@@ -810,11 +898,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     const newId = addTask({
       name: quickAddName.trim(),
       parentId,
-      startDate: defaultDate,
-      endDate: defaultDate,
+      startDate: filters.startDate || defaultDate,
+      endDate: filters.endDate || defaultDate,
       progress: 0,
       workEffort: 0.5,
-      assignee: '',
+      assignee: filters.assignee || '',
       status: 'todo'
     }, insertTargetId || undefined);
 
@@ -831,8 +919,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     if (editingTask) {
       if (editingTask.id === '') {
         // Creating a new subtask
+        const proj = projects.find(p => p.id === (editingTask!.projectId || currentProjectId));
+        const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
         addTask({
           parentId: editingTask.parentId, // Default to initial parent
+          assignee: filters.assignee || '',
+          startDate: filters.startDate || defaultDate,
+          endDate: filters.endDate || defaultDate,
           ...updates, // Override with form data if present
         }, insertTargetId || undefined);
         setInsertTargetId(null);
@@ -852,11 +945,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
     addTask({
       name: quickAddName,
-      startDate: defaultDate,
-      endDate: defaultDate,
+      startDate: filters.startDate || defaultDate,
+      endDate: filters.endDate || defaultDate,
       progress: 0,
       workEffort: 0.5,
-      assignee: '',
+      assignee: filters.assignee || '',
       status: 'todo',
       parentId: null,
     });
@@ -1058,7 +1151,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const renderHeaderCell = (id: TableColumnId) => {
     const commonResize = (
       <div
-        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10"
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0"
         onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, id as any); }}
       />
     );
@@ -1245,7 +1338,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         {isSplitView && (
           <div className="data-header flex-shrink-0 border-b border-slate-200 bg-slate-50/80" style={headerStyle}>
             <div className="col-header justify-center relative" title="드래그" onContextMenu={(e) => handleHeaderContextMenu(e)}>
-              <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
             </div>
             <div className="col-header justify-center relative" title="전체 선택" onContextMenu={(e) => handleHeaderContextMenu(e)}>
               <input
@@ -1254,20 +1347,20 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                 checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                 onChange={handleSelectAll}
               />
-              <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
             </div>
             <div className="col-header justify-center relative" title="순번" onContextMenu={(e) => handleHeaderContextMenu(e)}>
               #
-              <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
             </div>
             <div className="col-header justify-center relative" title="펼침" onContextMenu={(e) => handleHeaderContextMenu(e)}>
               <span className="text-stone-300">▾</span>
-              <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
             </div>
             {visibleColumnIds.map(renderHeaderCell)}
             <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등)" onContextMenu={(e) => handleHeaderContextMenu(e)}>
               관리
-              <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
+              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
             </div>
           </div>
         )}
@@ -1284,7 +1377,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             {!isSplitView && (
               <div className="data-header" style={gridStyle}>
                 <div className="col-header justify-center relative" title="드래그" onContextMenu={(e) => handleHeaderContextMenu(e)}>
-                  <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
+                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
                 </div>
                 <div className="col-header justify-center relative" title="전체 선택" onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   <input
@@ -1293,20 +1386,20 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                     checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                     onChange={handleSelectAll}
                   />
-                  <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
+                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
                 </div>
                 <div className="col-header justify-center relative" title="순번" onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   #
-                  <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
+                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
                 </div>
                 <div className="col-header justify-center relative" title="펼침" onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   <span className="text-stone-300">▾</span>
-                  <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
+                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
                 </div>
                 {visibleColumnIds.map(renderHeaderCell)}
                 <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등)" onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   관리
-                  <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--color-accent)]/50 z-10" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
+                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
                 </div>
               </div>
             )}
@@ -1315,7 +1408,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
+              onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
             >
               <SortableContext
                 items={visibleTasks.filter(Boolean).map(t => t.id)}
@@ -1326,6 +1421,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                     <SortableTaskRow
                       rowIndex={rowIndex}
                       task={task}
+                      dropIndicator={dropTarget?.overId === task.id ? dropTarget.position : null}
                       wbsId={wbsMap.get(task.id)}
                       displayWbsId={displayWbsMap.get(task.id)}
                       displayWbsMap={displayWbsMap}
@@ -1452,7 +1548,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       </div>
 
       {/* Row Height Slider */}
-      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
+      <div className="fixed top-24 right-6 z-40 flex items-center gap-2 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
         <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
         <input
           type="range"
@@ -1590,6 +1686,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         onSave={handleSave}
         initialData={editingTask || undefined}
         parentOptions={tasks}
+        onOpenTask={(task) => setEditingTask(task)}
       />
 
       {contextMenu && (
@@ -1632,7 +1729,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                       onClick: () => {
                         const defaultW = (DEFAULT_COLUMN_WIDTHS as any)[colId];
                         if (defaultW != null) {
-                          setColumnWidths(prev => ({ ...prev, [colId]: defaultW }));
+                          const next = { ...columnWidths, [colId]: defaultW };
+                          setColumnWidths(next);
+                          updateWbsSettings({ columnWidths: next });
                         }
                       },
                     });
@@ -1702,6 +1801,26 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                     }
                   }
                 },
+                ...(contextMenu.taskId && !(sortConfig !== null || filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly || !!filters.issueOnly)
+                  ? [
+                    {
+                      label: '위로 이동 (Alt+↑)',
+                      icon: <ArrowUp size={14} />,
+                      onClick: () => {
+                        moveTask(contextMenu.taskId!, 'up');
+                        setContextMenu(null);
+                      },
+                    },
+                    {
+                      label: '아래로 이동 (Alt+↓)',
+                      icon: <ArrowDown size={14} />,
+                      onClick: () => {
+                        moveTask(contextMenu.taskId!, 'down');
+                        setContextMenu(null);
+                      },
+                    },
+                  ]
+                  : []),
                 {
                   label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
                   icon: <Trash2 size={14} />,
@@ -1747,6 +1866,7 @@ interface SortableTaskRowProps {
   key?: string | number;
   rowIndex: number;
   task: Task & { depth?: number };
+  dropIndicator?: 'before' | 'inside' | 'after' | null;
   wbsId?: string;
   displayWbsId?: string;
   displayWbsMap: Map<string, string>;
@@ -1781,6 +1901,7 @@ interface SortableTaskRowProps {
 function SortableTaskRowInner({
   rowIndex,
   task,
+  dropIndicator,
   wbsId,
   displayWbsId,
   displayWbsMap,
@@ -1854,7 +1975,7 @@ function SortableTaskRowInner({
       style={style}
       id={`task-row-${task.id}`}
       className={cn(
-        "data-row group cursor-pointer outline-none transition-colors",
+        "data-row group cursor-pointer outline-none transition-colors relative",
         isSelected ? "bg-blue-50 font-medium text-blue-900" : "hover:brightness-[0.98]"
       )}
       onClick={(e) => onSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
@@ -1862,6 +1983,15 @@ function SortableTaskRowInner({
       onDoubleClick={() => onEdit(task)}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
+      {dropIndicator === 'before' && (
+        <div className="absolute left-0 right-0 top-0 h-0.5 bg-indigo-500 pointer-events-none" />
+      )}
+      {dropIndicator === 'after' && (
+        <div className="absolute left-0 right-0 bottom-0 h-0.5 bg-indigo-500 pointer-events-none" />
+      )}
+      {dropIndicator === 'inside' && (
+        <div className="absolute inset-0 ring-2 ring-indigo-400/60 bg-indigo-50/40 pointer-events-none" />
+      )}
       <div
         className="data-cell justify-center cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500"
         {...attributes}
@@ -1970,13 +2100,19 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                <button
+                  type="button"
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'startDate' }); }}
-                  title="더블클릭하여 수정"
+                  onFocus={(e) => {
+                    // Tab으로 진입 시 자동 편집 모드
+                    e.stopPropagation();
+                    setEditingCell({ taskId: task.id, columnId: 'startDate' });
+                  }}
+                  title={task.startDate ? formatDate(task.startDate) : '더블클릭 또는 탭으로 포커스 후 수정'}
                 >
                   {formatDate(task.startDate)}
-                </span>
+                </button>
               )}
             </div>
           );
@@ -2006,13 +2142,19 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                <button
+                  type="button"
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'endDate' }); }}
-                  title="더블클릭하여 수정"
+                  onFocus={(e) => {
+                    // Tab으로 진입 시 자동 편집 모드
+                    e.stopPropagation();
+                    setEditingCell({ taskId: task.id, columnId: 'endDate' });
+                  }}
+                  title={task.endDate ? formatDate(task.endDate) : '더블클릭 또는 탭으로 포커스 후 수정'}
                 >
                   {formatDate(task.endDate)}
-                </span>
+                </button>
               )}
             </div>
           );
@@ -2044,13 +2186,19 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1"
+                <button
+                  type="button"
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'workEffort' }); }}
-                  title="더블클릭하여 수정"
+                  onFocus={(e) => {
+                    // Tab으로 진입 시 자동 편집 모드
+                    e.stopPropagation();
+                    setEditingCell({ taskId: task.id, columnId: 'workEffort' });
+                  }}
+                  title={task.workEffort != null ? `${task.workEffort}일` : '더블클릭 또는 탭으로 포커스 후 수정'}
                 >
                   {task.workEffort != null ? task.workEffort.toFixed(1) : '-'}
-                </span>
+                </button>
               )}
             </div>
           );
@@ -2091,12 +2239,18 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 inline-block"
+                <button
+                  type="button"
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 inline-block w-full text-left"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'progress' }); }}
+                  onFocus={(e) => {
+                    // Tab으로 진입 시 자동 편집 모드
+                    e.stopPropagation();
+                    setEditingCell({ taskId: task.id, columnId: 'progress' });
+                  }}
                 >
                   {typeof task.progress === 'number' ? `${task.progress}%` : '-'}
-                </span>
+                </button>
               )}
             </div>
           );
@@ -2219,13 +2373,19 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 block truncate"
+                <button
+                  type="button"
+                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 block truncate w-full text-left"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'deliverables' }); }}
-                  title={(task.deliverables || '') ? `${task.deliverables}\n더블클릭하여 수정` : '더블클릭하여 수정'}
+                  onFocus={(e) => {
+                    // Tab으로 진입 시 자동 편집 모드
+                    e.stopPropagation();
+                    setEditingCell({ taskId: task.id, columnId: 'deliverables' });
+                  }}
+                  title={(task.deliverables || '').trim() || '더블클릭 또는 탭으로 포커스 후 수정'}
                 >
                   {task.deliverables || '-'}
-                </span>
+                </button>
               )}
             </div>
           );

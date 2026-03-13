@@ -1,4 +1,4 @@
-import { supabase, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProfileRow, isSupabaseConfigured } from './supabase';
+import { supabase, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProjectAccessRequestRow, ProfileRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
@@ -114,6 +114,12 @@ function toProjectRow(project: Project): ProjectRow {
     })),
     owner_id: project.ownerId ?? null,
     min_work_effort_days: project.minWorkEffortDays ?? null,
+    report_category: project.reportCategory ?? null,
+    report_agency: project.reportAgency ?? null,
+    report_budget_this_year: project.reportBudgetThisYear ?? null,
+    report_total_period: project.reportTotalPeriod ?? null,
+    report_name_short: project.reportNameShort ?? null,
+    report_name_full: project.reportNameFull ?? null,
   };
 }
 
@@ -141,6 +147,12 @@ function fromProjectRow(row: ProjectRow): Project {
     assignments: assignments.length > 0 ? assignments : undefined,
     ownerId: row.owner_id ?? undefined,
     minWorkEffortDays: minDays != null && Number.isFinite(minDays) ? minDays : undefined,
+    reportCategory: row.report_category ?? undefined,
+    reportAgency: row.report_agency ?? undefined,
+    reportBudgetThisYear: row.report_budget_this_year ?? undefined,
+    reportTotalPeriod: row.report_total_period ?? undefined,
+    reportNameShort: row.report_name_short ?? undefined,
+    reportNameFull: row.report_name_full ?? undefined,
   };
 }
 
@@ -758,6 +770,19 @@ export async function fetchProjectMembers(projectId: string): Promise<ProjectMem
   return (data ?? []) as ProjectMemberRow[];
 }
 
+/** 특정 사용자(userId)가 멤버로 속한 프로젝트 목록 (project_members). 관리자용 권한 관리 UI에서 사용. */
+export async function fetchProjectMembershipsByUser(userId: string): Promise<ProjectMemberRow[]> {
+  requireSupabase();
+  const uid = String(userId ?? '').trim();
+  if (!uid) return [];
+  const { data, error } = await supabase!
+    .from('project_members')
+    .select('*')
+    .eq('user_id', uid);
+  if (error) throw error;
+  return (data ?? []) as ProjectMemberRow[];
+}
+
 export async function createProjectInvite(projectId: string, role: 'editor' | 'viewer' = 'editor'): Promise<{ token: string; url: string } | null> {
   requireSupabase();
   const { data, error } = await supabase!
@@ -832,6 +857,147 @@ export async function setProjectMemberRole(
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : '역할 변경에 실패했습니다.' };
   }
+}
+
+// ─── 프로젝트 권한 요청 (승인 사용자 → 보기/편집 권한 요청, 관리자·소유자 승인) ─────
+
+/** 프로젝트에 대한 보기/편집 권한 요청 생성. 승인된 사용자만 가능. */
+export async function createProjectAccessRequest(
+  projectId: string,
+  requestedRole: 'viewer' | 'editor'
+): Promise<{ success: boolean; error?: string; requestId?: string }> {
+  requireSupabase();
+  try {
+    const { data: { user } } = await supabase!.auth.getUser();
+    if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
+    const { data, error } = await supabase!
+      .from('project_access_requests')
+      .insert({
+        project_id: projectId,
+        user_id: user.id,
+        requested_role: requestedRole,
+        status: 'pending',
+      })
+      .select('id')
+      .single();
+    if (error) {
+      if (error.code === '23505') return { success: false, error: '이미 해당 프로젝트에 권한을 요청했습니다.' };
+      return { success: false, error: error.message };
+    }
+    return { success: true, requestId: (data as { id: string })?.id };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '권한 요청에 실패했습니다.' };
+  }
+}
+
+/** 거절된 요청을 다시 pending으로 재요청. */
+export async function rerequestProjectAccess(requestId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { error } = await supabase!
+      .from('project_access_requests')
+      .update({ status: 'pending', reviewed_at: null, reviewed_by: null })
+      .eq('id', requestId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '재요청에 실패했습니다.' };
+  }
+}
+
+/** 내 권한 요청 목록 (본인 요청만 RLS로 조회 가능). */
+export async function listMyProjectAccessRequests(): Promise<ProjectAccessRequestRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_access_requests')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProjectAccessRequestRow[];
+}
+
+/** 관리자·프로젝트 소유자: pending 권한 요청 목록 (승인/거절 처리용). */
+export async function listPendingProjectAccessRequests(): Promise<ProjectAccessRequestRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_access_requests')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ProjectAccessRequestRow[];
+}
+
+/** 권한 요청 승인: project_members에 추가 후 요청 상태를 approved로 변경. 관리자 또는 해당 프로젝트 소유자만. */
+export async function approveProjectAccessRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { data: row, error: fetchError } = await supabase!
+      .from('project_access_requests')
+      .select('project_id, user_id, requested_role')
+      .eq('id', requestId)
+      .eq('status', 'pending')
+      .single();
+    if (fetchError || !row) return { success: false, error: fetchError?.message ?? '요청을 찾을 수 없거나 이미 처리되었습니다.' };
+    const { data: { user } } = await supabase!.auth.getUser();
+    if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
+
+    const upsertResult = await upsertProjectMember(
+      (row as { project_id: string; user_id: string; requested_role: 'viewer' | 'editor' }).project_id,
+      (row as { user_id: string }).user_id,
+      (row as { requested_role: 'viewer' | 'editor' }).requested_role
+    );
+    if (!upsertResult.success) return { success: false, error: upsertResult.error };
+
+    const { error: updateError } = await supabase!
+      .from('project_access_requests')
+      .update({ status: 'approved', reviewed_at: new Date().toISOString(), reviewed_by: user.id })
+      .eq('id', requestId);
+    if (updateError) return { success: false, error: updateError.message };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '승인 처리에 실패했습니다.' };
+  }
+}
+
+/** 권한 요청 거절. 관리자 또는 해당 프로젝트 소유자만. */
+export async function rejectProjectAccessRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { data: { user } } = await supabase!.auth.getUser();
+    if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
+    const { error } = await supabase!
+      .from('project_access_requests')
+      .update({ status: 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: user.id })
+      .eq('id', requestId)
+      .eq('status', 'pending');
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '거절 처리에 실패했습니다.' };
+  }
+}
+
+/** 특정 프로젝트에 대한 내 권한 요청 1건 조회 (있으면 1건). */
+export async function getMyProjectAccessRequest(projectId: string): Promise<ProjectAccessRequestRow | null> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_access_requests')
+    .select('*')
+    .eq('project_id', projectId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as ProjectAccessRequestRow | null;
+}
+
+/** 내가 멤버(또는 소유자)인 프로젝트 ID 목록. 권한 요청 UI에서 "접근 권한 없음" 판단용. */
+export async function getMyProjectMemberProjectIds(): Promise<string[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('project_members')
+    .select('project_id');
+  if (error) return [];
+  return ((data ?? []) as { project_id: string }[]).map(r => r.project_id);
 }
 
 // ─── 회원 관리 (관리자) ────────────────────────────────────────────────────────
@@ -1053,7 +1219,21 @@ export async function deleteMemberAsAdmin(userId: string): Promise<{ success: bo
             'Edge Function 요청에 실패했습니다. (1) `admin-delete-user` 함수가 배포되어 있는지, (2) 로컬이면 Supabase functions가 실행 중인지, (3) 네트워크/CORS 차단이 없는지 확인하세요.',
         };
       }
-      return { success: false, error: msg || '회원 삭제에 실패했습니다.' };
+      // Edge Function이 4xx/5xx를 반환하면 클라이언트는 "Edge Function returned a non-2xx status code"만 받음.
+      // 응답 본문의 { error: "..." } 메시지를 읽어 사용자에게 표시.
+      let userMessage = msg;
+      if (msg.includes('non-2xx')) {
+        try {
+          const ctx = (error as { context?: Response }).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const body = (await ctx.json()) as { error?: string };
+            if (body?.error && typeof body.error === 'string') userMessage = body.error;
+          }
+        } catch {
+          // JSON 파싱 실패 시 기존 msg 유지
+        }
+      }
+      return { success: false, error: userMessage || '회원 삭제에 실패했습니다.' };
     }
     const result = data as { success?: boolean; error?: string } | null;
     if (result?.error) return { success: false, error: result.error };

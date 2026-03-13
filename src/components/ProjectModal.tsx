@@ -5,20 +5,68 @@ import { ALLOCATION_OPTIONS } from '../lib/schedule';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
 import { cn } from '../lib/utils';
 
+/** "YYYY-MM-DD ~ YYYY-MM-DD" 또는 "YY.MM ~ YY.MM" 형식 파싱 → [start, end] (YYYY-MM-DD) */
+function parseReportTotalPeriod(value: string): [string, string] {
+  const trimmed = value.trim();
+  if (!trimmed) return ['', ''];
+  const parts = trimmed.split(/\s*~\s*/).map(p => p.trim());
+  if (parts.length !== 2) return ['', ''];
+  const toDate = (p: string): string => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return p;
+    const mm = p.match(/^(\d{2})\.(\d{2})$/);
+    if (mm) {
+      const y = 2000 + parseInt(mm[1], 10);
+      const m = mm[2];
+      return `${y}-${m}-01`;
+    }
+    return '';
+  };
+  return [toDate(parts[0]), toDate(parts[1])];
+}
+
+/** 시작일/종료일을 reportTotalPeriod 문자열로 포맷 */
+function formatReportTotalPeriod(start: string, end: string): string {
+  if (!start || !end) return '';
+  return `${start} ~ ${end}`;
+}
+
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (name: string, description: string, startDate?: string, endDate?: string, assignments?: ProjectAssignment[], minWorkEffortDays?: number) => void;
+  onSave: (
+    name: string,
+    description: string,
+    startDate?: string,
+    endDate?: string,
+    assignments?: ProjectAssignment[],
+    minWorkEffortDays?: number,
+    reportCategory?: string,
+    reportAgency?: string,
+    reportBudgetThisYear?: string,
+    reportTotalPeriod?: string,
+    reportNameShort?: string,
+    reportNameFull?: string,
+  ) => void;
   project?: Project | null;
+  /** 기존 프로젝트 목록(주간보고용 약어/전체과제명 선택 목록) */
+  allProjects?: Project[];
 }
 
-export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalProps) {
+export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [] }: ProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
   const [minWorkEffortDays, setMinWorkEffortDays] = useState<string>('');
+  const [reportCategory, setReportCategory] = useState('');
+  const [reportAgency, setReportAgency] = useState('');
+  const [reportBudgetThisYear, setReportBudgetThisYear] = useState('');
+  /** 전체기간: 달력 선택용 시작일/종료일 (YYYY-MM-DD). reportTotalPeriod와 동기화 */
+  const [reportPeriodStart, setReportPeriodStart] = useState('');
+  const [reportPeriodEnd, setReportPeriodEnd] = useState('');
+  const [reportNameShort, setReportNameShort] = useState('');
+  const [reportNameFull, setReportNameFull] = useState('');
 
   /** 월별 설정 펼친 인원 인덱스 (한 번에 하나만) */
   const [monthlyExpandedIndex, setMonthlyExpandedIndex] = useState<number | null>(null);
@@ -47,6 +95,16 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
         setEndDate(project.endDate || '');
         setAssignments(project.assignments?.length ? [...project.assignments] : []);
         setMinWorkEffortDays(project.minWorkEffortDays != null ? String(project.minWorkEffortDays) : '');
+        setReportCategory(project.reportCategory || '');
+        setReportAgency(project.reportAgency || '');
+        setReportBudgetThisYear(project.reportBudgetThisYear || '');
+        (() => {
+          const [s, e] = parseReportTotalPeriod(project.reportTotalPeriod || '');
+          setReportPeriodStart(s);
+          setReportPeriodEnd(e);
+        })();
+        setReportNameShort(project.reportNameShort || '');
+        setReportNameFull(project.reportNameFull || '');
       } else {
         setName('');
         setDescription('');
@@ -54,6 +112,13 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
         setEndDate('');
         setAssignments([]);
         setMinWorkEffortDays('');
+        setReportCategory('');
+        setReportAgency('');
+        setReportBudgetThisYear('');
+        setReportPeriodStart('');
+        setReportPeriodEnd('');
+        setReportNameShort('');
+        setReportNameFull('');
       }
       setMonthlyExpandedIndex(null);
     }
@@ -91,7 +156,21 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
       alert('최소 공수 기준은 0 이상의 숫자를 입력해 주세요.');
       return;
     }
-    onSave(name, description, startDate || undefined, endDate || undefined, assignments.length > 0 ? assignments : undefined, parsedMin);
+    const totalPeriodStr = formatReportTotalPeriod(reportPeriodStart, reportPeriodEnd);
+    onSave(
+      name,
+      description,
+      startDate || undefined,
+      endDate || undefined,
+      assignments.length > 0 ? assignments : undefined,
+      parsedMin,
+      reportCategory || undefined,
+      reportAgency || undefined,
+      reportBudgetThisYear || undefined,
+      totalPeriodStr || undefined,
+      reportNameShort || undefined,
+      reportNameFull || undefined,
+    );
     onClose();
   };
 
@@ -123,7 +202,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60 max-h-[calc(100vh-2rem)] flex flex-col">
+      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60 max-h-[calc(100vh-2rem)] flex flex-col">
         <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-white/40">
           <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-ink)]">
             {project ? '프로젝트 수정' : '새 프로젝트'}
@@ -133,81 +212,215 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
-          <div>
-            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-              프로젝트 이름 <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="input-field"
-              placeholder="프로젝트 이름을 입력하세요..."
-              autoFocus
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-              설명
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="input-field min-h-[80px]"
-              placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
+          {/* 필수 */}
+          <section className="border border-amber-200/80 rounded-xl p-4 bg-amber-50/50 space-y-4">
+            <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-500 text-white text-[10px]">필수</span>
+              필수 입력
+            </h3>
             <div>
-              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-                프로젝트 시작일
+              <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                프로젝트 이름 <span className="text-red-500">*</span>
               </label>
               <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="input-field"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="input-field w-full max-w-xl"
+                placeholder="프로젝트 이름을 입력하세요..."
+                autoFocus
               />
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-                프로젝트 종료일
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="input-field"
-              />
+          </section>
+
+          {/* 선택: 기본 정보 */}
+          <section className="border border-stone-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
+            <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
+              기본 정보 (선택)
+            </h3>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">설명</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="input-field min-h-[80px] w-full"
+                  placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">프로젝트 시작일</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="input-field w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">프로젝트 종료일</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="input-field w-full"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-stone-400 -mt-2">WBS 작업은 이 기간 범위를 벗어날 수 없습니다. (선택 사항)</p>
+              <div className="max-w-xs">
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">작업 최소 공수 기준 (일)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={minWorkEffortDays}
+                  onChange={(e) => setMinWorkEffortDays(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="예: 0.5, 1, 3 (선택 사항)"
+                />
+                <p className="text-[10px] text-stone-400 mt-1">WBS 작업 세부 분류에 사용됩니다. 0.5d, 1d, 3d 등 숫자로 입력.</p>
+              </div>
             </div>
-          </div>
-          <p className="text-[10px] text-stone-400 -mt-2">WBS 작업은 이 기간 범위를 벗어날 수 없습니다. (선택 사항)</p>
+          </section>
 
-          <div>
-            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">
-              작업 최소 공수 기준 (일)
-            </label>
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={minWorkEffortDays}
-              onChange={(e) => setMinWorkEffortDays(e.target.value)}
-              className="input-field"
-              placeholder="예: 0.5, 1, 3 (선택 사항)"
-            />
-            <p className="text-[10px] text-stone-400 mt-1">WBS 작업 세부 분류에 사용됩니다. 0.5d, 1d, 3d 등 숫자로 입력.</p>
-          </div>
+          {/* 선택: 주간보고용 */}
+          <section className="border border-stone-200 rounded-xl p-4 bg-white/60 space-y-3">
+            <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
+              주간보고용 프로젝트 정보
+            </h3>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                  과제명 (약어)
+                </label>
+                <input
+                  type="text"
+                  list="project-report-name-short-list"
+                  value={reportNameShort}
+                  onChange={(e) => setReportNameShort(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="예: AI스마트팩토리 연구 (입력 또는 아래 목록에서 선택)"
+                />
+                <datalist id="project-report-name-short-list">
+                  {Array.from(new Set(allProjects.map(p => p.reportNameShort).filter(Boolean))).map(v => (
+                    <option key={v} value={v!} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                  전체과제명
+                </label>
+                <input
+                  type="text"
+                  list="project-report-name-full-list"
+                  value={reportNameFull}
+                  onChange={(e) => setReportNameFull(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="예: 고하중 장조장 해저 케이블 생산을 위한 디지털 트윈 AI 팩토리 기술 개발 (입력 또는 선택)"
+                />
+                <datalist id="project-report-name-full-list">
+                  {Array.from(new Set(allProjects.map(p => p.reportNameFull).filter(Boolean))).map(v => (
+                    <option key={v} value={v!} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                  구분
+                </label>
+                <input
+                  type="text"
+                  list="project-report-category-list"
+                  value={reportCategory}
+                  onChange={(e) => setReportCategory(e.target.value)}
+                  className="input-field"
+                  placeholder="예: 국책, 매출, 내부개발 등"
+                />
+                <datalist id="project-report-category-list">
+                  {Array.from(new Set(allProjects.map(p => p.reportCategory).filter(Boolean))).map(v => (
+                    <option key={v} value={v!} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                  주관기관
+                </label>
+                <input
+                  type="text"
+                  list="project-report-agency-list"
+                  value={reportAgency}
+                  onChange={(e) => setReportAgency(e.target.value)}
+                  className="input-field"
+                  placeholder="예: KRISO, LS전선"
+                />
+                <datalist id="project-report-agency-list">
+                  {Array.from(new Set(allProjects.map(p => p.reportAgency).filter(Boolean))).map(v => (
+                    <option key={v} value={v!} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                  금년도 정부출연금 / 예산
+                </label>
+                <input
+                  type="text"
+                  list="project-report-budget-list"
+                  value={reportBudgetThisYear}
+                  onChange={(e) => setReportBudgetThisYear(e.target.value)}
+                  className="input-field"
+                  placeholder="예: 6.0억, 2.7억(14.3억)"
+                />
+                <datalist id="project-report-budget-list">
+                  {Array.from(new Set(allProjects.map(p => p.reportBudgetThisYear).filter(Boolean))).map(v => (
+                    <option key={v} value={v!} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                    전체기간 시작일
+                  </label>
+                  <input
+                    type="date"
+                    value={reportPeriodStart}
+                    onChange={(e) => setReportPeriodStart(e.target.value)}
+                    className="input-field w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">
+                    전체기간 종료일
+                  </label>
+                  <input
+                    type="date"
+                    value={reportPeriodEnd}
+                    onChange={(e) => setReportPeriodEnd(e.target.value)}
+                    className="input-field w-full"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
 
-          <div>
-            <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <UserPlus size={12} />
+          {/* 선택: 투입인원 */}
+          <section className="border border-stone-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
+            <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
               프로젝트 투입인원 (투입비율)
-            </label>
+            </h3>
+            <div>
             <p className="text-[10px] text-stone-400 mb-2">이 프로젝트에 투입되는 인원과 비율을 설정합니다. 작업별 기간·공수 계산에 적용됩니다. 담당자 이름은 프로젝트 내에서만 사용되며 필요 시 수정할 수 있습니다.</p>
             <div className="space-y-2">
               {assignments.map((a, i) => (
@@ -272,6 +485,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project }: ProjectModalP
               <Plus size={12} /> 인원 추가
             </button>
           </div>
+          </section>
 
         </form>
 

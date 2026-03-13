@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -19,6 +19,8 @@
     "db:grant-visits": "node scripts/run-visit-grants.mjs",
     "db:grant-visits-open": "node scripts/open-visit-grants-in-browser.mjs",
     "db:visits-setup-open": "node scripts/open-visits-setup-in-browser.mjs",
+    "db:report-fields-open": "node scripts/open-report-fields-migration.mjs",
+    "supabase:deploy-functions": "supabase functions deploy admin-delete-user",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
