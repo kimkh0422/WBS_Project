@@ -645,7 +645,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 step={1}
                 value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
                 onChange={(e) => setZoomIndex(Number(e.target.value))}
-                className="w-24 h-1.5 accent-indigo-500 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
+                className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
                 title="간트 확대/축소"
               />
               <button
@@ -681,7 +681,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                     step={2}
                     value={propRowHeight ?? 34}
                     onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                    className="w-24 h-1.5 accent-indigo-500 cursor-pointer flex-1 min-w-0 max-w-[96px]"
+                    className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
                     title={`줄간격: ${propRowHeight ?? 34}px`}
                   />
                   <span className="text-[10px] font-bold text-slate-600 w-7 text-right shrink-0">
@@ -836,8 +836,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
             {/* Timeline Header */}
             <div className="relative" style={{ width: Math.max(totalWidth, containerWidth - effectiveSidebarWidth), height: 60 }}>
-              {/* Zoom Controls */}
-              <div className="absolute right-2 top-2 z-50 flex gap-1 bg-white/95 backdrop-blur shadow-sm border border-stone-200 rounded-lg p-1">
+              {/* Zoom / Row height controls (상단 고정) */}
+              <div className="absolute right-2 top-2 z-50 flex items-center gap-1 bg-white/95 backdrop-blur shadow-sm border border-stone-200 rounded-lg px-2 py-1">
+                {/* Zoom Controls */}
                 <button
                   onClick={() => setZoomIndex(prev => prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1))}
                   className="p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800 rounded transition-colors"
@@ -845,7 +846,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 >
                   <ZoomOut size={14} />
                 </button>
-                <div className="px-2 text-[10px] font-mono text-stone-500 flex items-center justify-center min-w-[3rem]">
+                <div className="px-1 text-[10px] font-mono text-stone-500 flex items-center justify-center min-w-[3rem]">
                   {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
                 </div>
                 <button
@@ -857,11 +858,34 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 </button>
                 <button
                   onClick={() => setZoomIndex(-1)}
-                  className={cn("p-1 rounded transition-colors", zoomIndex === -1 ? 'text-blue-500 bg-blue-50' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-800')}
+                  className={cn("ml-1 p-1 rounded transition-colors", zoomIndex === -1 ? 'text-blue-500 bg-blue-50' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-800')}
                   title="전체 맞춤"
                 >
                   <Maximize2 size={14} />
                 </button>
+
+                {/* Row height (줄간격) - 너비 조절 컨트롤과 동일하게 상단 고정 */}
+                {onRowHeightChange && (
+                  <>
+                    <div className="mx-1 w-px h-5 bg-stone-200" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
+                      <input
+                        type="range"
+                        min={15}
+                        max={64}
+                        step={2}
+                        value={propRowHeight ?? 34}
+                        onChange={(e) => onRowHeightChange(Number(e.target.value))}
+                        className="w-20 h-1.5 accent-stone-800 cursor-pointer"
+                        title={`줄간격: ${propRowHeight ?? 34}px`}
+                      />
+                      <span className="text-[10px] font-bold text-slate-600 w-7 text-right">
+                        {propRowHeight ?? 34}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Top header (months or years) */}
@@ -1073,14 +1097,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         />
       )}
 
-      {/* 상단 줌/줄간격 - 간트 단독 뷰 (하단은 잘려서 안 보일 수 있음) */}
-      <div className="fixed top-24 right-6 z-40 flex items-center gap-4 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
+      {/* 상단 플로팅 컨트롤 (간트 단독 뷰) - 다크 톤/음영 적용 */}
+      <div className="fixed top-24 right-6 z-40 flex items-center gap-4 bg-stone-900/90 text-stone-100 shadow-2xl rounded-full px-4 py-2 select-none opacity-70 hover:opacity-100 transition-opacity duration-300 backdrop-blur-sm border border-stone-800">
         {/* 줌 슬라이더 - 항상 표시 */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">축소</span>
+          <span className="text-[11px] font-bold text-stone-200 whitespace-nowrap">축소</span>
           <button
             onClick={() => setZoomIndex(prev => prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1))}
-            className="p-0.5 rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors"
+            className="p-0.5 rounded text-stone-200 hover:bg-stone-700/80 hover:text-white transition-colors"
             title="축소"
           >
             <ZoomOut size={12} />
@@ -1092,7 +1116,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             step={1}
             value={zoomIndex === -1 ? Math.max(0, ZOOM_LEVELS.findIndex(z => z.dayWidth === autoZoomLevel.dayWidth)) : zoomIndex}
             onChange={(e) => setZoomIndex(Number(e.target.value))}
-            className="w-24 h-1.5 accent-indigo-500 cursor-pointer"
+            className="w-24 h-1.5 accent-stone-100 cursor-pointer"
             title="간트 확대/축소"
           />
           <button
@@ -1102,34 +1126,15 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           >
             <ZoomIn size={12} />
           </button>
-          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">확대</span>
+          <span className="text-[11px] font-bold text-stone-200 whitespace-nowrap">확대</span>
           <button
             onClick={() => setZoomIndex(-1)}
-            className={cn("text-[11px] px-2 py-0.5 rounded transition-colors", zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
+            className={cn("text-[11px] px-2 py-0.5 rounded transition-colors", zoomIndex === -1 ? 'text-amber-300 bg-amber-600/40 font-medium' : 'text-stone-300 hover:bg-stone-700/80 hover:text-white')}
             title="전체 맞춤"
           >
             맞춤
           </button>
         </div>
-        {onRowHeightChange != null && (
-          <>
-            <div className="w-px h-5 bg-stone-200" />
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
-              <input
-                type="range"
-                min={15}
-                max={64}
-                step={2}
-                value={propRowHeight ?? 34}
-                onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                className="w-24 h-1.5 accent-indigo-500 cursor-pointer"
-                title={`줄간격: ${propRowHeight ?? 34}px`}
-              />
-              <span className="text-[11px] font-bold text-slate-600 w-7 text-right">{propRowHeight ?? 34}</span>
-            </div>
-          </>
-        )}
       </div>
     </>
   );

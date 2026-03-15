@@ -74,7 +74,8 @@ function toTaskRow(task: Task, sortOrder: number): TaskRow {
   };
 }
 
-function fromTaskRow(row: TaskRow): Task {
+/** TaskRow → Task (동기화 시 DB 전체 내려받기·로컬 저장용) */
+export function fromTaskRow(row: TaskRow): Task {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -196,13 +197,18 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 export async function fetchTasks(): Promise<Task[]> {
+  const rows = await fetchTaskRows();
+  return rows.map(fromTaskRow);
+}
+
+export async function fetchTaskRows(): Promise<TaskRow[]> {
   requireSupabase();
   const { data, error } = await supabase!
     .from('tasks')
     .select('*')
     .order('sort_order', { ascending: true });
   if (error) throw error;
-  return (data as TaskRow[]).map(fromTaskRow);
+  return (data ?? []) as TaskRow[];
 }
 
 export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
@@ -214,6 +220,212 @@ export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {
     .maybeSingle();
   if (error) throw error;
   return data ? fromSettingsRow(data as SettingsRow) : null;
+}
+
+export async function fetchSettingsRow(): Promise<SettingsRow | null> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('wbs_settings')
+    .select('*')
+    .eq('id', 'default')
+    .maybeSingle();
+  if (error) throw error;
+  return (data as SettingsRow) ?? null;
+}
+
+// ─── 동기화: 로컬↔DB 차이만 업/다운로드용 비교 ─────────────────────────────
+
+function normAssignmentsForSync(a: ProjectAssignmentRow[] | null | undefined): unknown {
+  return [...(a ?? [])]
+    .map(x => ({
+      assignee: x.assignee,
+      allocation_percent: x.allocation_percent,
+      monthly_allocations: x.monthly_allocations && Object.keys(x.monthly_allocations).length ? x.monthly_allocations : {},
+    }))
+    .sort((x, y) => x.assignee.localeCompare(y.assignee));
+}
+
+/** DB 행 기준 프로젝트 본문 지문 (동일이면 업로드 생략) */
+export function fingerprintProjectRowForSync(row: ProjectRow): string {
+  return JSON.stringify({
+    name: row.name,
+    description: row.description ?? null,
+    start_date: row.start_date ?? null,
+    end_date: row.end_date ?? null,
+    assignments: normAssignmentsForSync(row.assignments),
+    min_work_effort_days: row.min_work_effort_days ?? null,
+    report_category: row.report_category ?? null,
+    report_agency: row.report_agency ?? null,
+    report_budget_this_year: row.report_budget_this_year ?? null,
+    report_total_period: row.report_total_period ?? null,
+    report_name_short: row.report_name_short ?? null,
+    report_name_full: row.report_name_full ?? null,
+  });
+}
+
+export function projectNeedsDbUpload(project: Project, serverById: Map<string, Project>): boolean {
+  const sp = serverById.get(project.id);
+  if (!sp) return true;
+  return projectFingerprintFromProject(project) !== projectFingerprintFromProject(sp);
+}
+
+function taskContentFingerprint(row: TaskRow): string {
+  const deps = [...(row.dependencies ?? [])].sort();
+  const checklist = [...(row.checklist ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify({
+    project_id: row.project_id,
+    parent_id: row.parent_id,
+    name: row.name,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    progress: row.progress,
+    assignee: row.assignee,
+    status: row.status,
+    expanded: row.expanded,
+    dependencies: deps,
+    work_effort: row.work_effort,
+    description: row.description,
+    checklist,
+    deliverables: row.deliverables,
+    is_milestone: row.is_milestone ?? false,
+    is_issue: row.is_issue ?? false,
+    baseline_start_date: row.baseline_start_date ?? null,
+    baseline_end_date: row.baseline_end_date ?? null,
+    baseline_work_effort: row.baseline_work_effort ?? null,
+  });
+}
+
+/** 프로젝트 내 작업 id 나열이 서버와 다르면 순서·트리 반영을 위해 해당 프로젝트 작업 전부 업로드 */
+export function projectIdsWithTaskOrderDrift(
+  localTasks: Task[],
+  serverRows: TaskRow[],
+  projectIds: Set<string>
+): Set<string> {
+  const drift = new Set<string>();
+  const byPid = (pid: string) => localTasks.filter(t => t.projectId === pid).map(t => t.id);
+  const serverByPid = (pid: string) =>
+    serverRows
+      .filter(r => r.project_id === pid)
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(r => r.id);
+  for (const pid of projectIds) {
+    if (JSON.stringify(byPid(pid)) !== JSON.stringify(serverByPid(pid))) drift.add(pid);
+  }
+  return drift;
+}
+
+export function collectTasksNeedingUpload(
+  localTasks: Task[],
+  serverById: Map<string, TaskRow>,
+  projectIdSet: Set<string>
+): Task[] {
+  const serverRows = [...serverById.values()];
+  const driftPids = projectIdsWithTaskOrderDrift(localTasks, serverRows, projectIdSet);
+  const out: Task[] = [];
+  const seen = new Set<string>();
+  for (const t of localTasks) {
+    if (!t.projectId || !projectIdSet.has(t.projectId)) continue;
+    const sr = serverById.get(t.id);
+    if (!sr) {
+      if (!seen.has(t.id)) {
+        out.push(t);
+        seen.add(t.id);
+      }
+      continue;
+    }
+    if (driftPids.has(t.projectId)) {
+      if (!seen.has(t.id)) {
+        out.push(t);
+        seen.add(t.id);
+      }
+      continue;
+    }
+    const localRow = toTaskRow(t, sr.sort_order);
+    if (taskContentFingerprint(localRow) !== taskContentFingerprint(sr)) {
+      if (!seen.has(t.id)) {
+        out.push(t);
+        seen.add(t.id);
+      }
+    }
+  }
+  return out;
+}
+
+export function settingsNeedDbUpload(settings: WBSSettings, serverRow: SettingsRow | null): boolean {
+  if (!serverRow) return true;
+  const local = toSettingsRow(settings);
+  return (
+    local.level1_prefix !== serverRow.level1_prefix ||
+    local.level2_prefix !== serverRow.level2_prefix ||
+    local.level3_prefix !== serverRow.level3_prefix ||
+    local.max_level !== serverRow.max_level
+  );
+}
+
+export function projectFingerprintFromProject(p: Project): string {
+  return fingerprintProjectRowForSync(toProjectRow(p) as ProjectRow);
+}
+
+/** 서버와 내용이 다른 프로젝트만 로컬 객체 교체 (같으면 참조 유지) */
+export function mergeProjectsDelta(local: Project[], serverProjects: Project[]): {
+  merged: Project[];
+  replacedFromServer: number;
+  /** 서버에서 반영된(로컬과 달라 교체된) 프로젝트 id 목록 */
+  replacedProjectIds: string[];
+} {
+  const sm = new Map(serverProjects.map(p => [p.id, p]));
+  const replacedIds: string[] = [];
+  const out: Project[] = [];
+  for (const sp of serverProjects) {
+    const lp = local.find(p => p.id === sp.id);
+    if (lp && projectFingerprintFromProject(lp) === projectFingerprintFromProject(sp)) out.push(lp);
+    else {
+      out.push(sp);
+      replacedIds.push(sp.id);
+    }
+  }
+  for (const lp of local) {
+    if (!sm.has(lp.id)) out.push(lp);
+  }
+  return { merged: out, replacedFromServer: replacedIds.length, replacedProjectIds: replacedIds };
+}
+
+/**
+ * 서버와 내용이 다른 작업만 서버 행으로 교체.
+ * authoritativeProjectIds: 이번 동기에서 업로드 범위에 들어간 프로젝트 — 서버에 없는 작업 id는 삭제된 것으로 보고 제거.
+ * 범위 밖 프로젝트는 로컬 전용 작업을 유지(현재 프로젝트만 동기 시 다른 프로젝트 손실 방지).
+ */
+export function mergeTasksDelta(
+  local: Task[],
+  serverRows: TaskRow[],
+  authoritativeProjectIds: Set<string>
+): { merged: Task[]; replacedFromServer: number; replacedByProject: Record<string, number> } {
+  const serverIds = new Set(serverRows.map(r => r.id));
+  const lm = new Map(local.map(t => [t.id, t]));
+  const replacedByProject: Record<string, number> = {};
+  const out: Task[] = [];
+  for (const row of serverRows) {
+    const st = fromTaskRow(row);
+    const lt = lm.get(st.id);
+    const contentMatch =
+      lt &&
+      taskContentFingerprint(toTaskRow(lt, row.sort_order)) === taskContentFingerprint(row);
+    if (contentMatch) {
+      out.push(
+        lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined }
+      );
+    } else {
+      out.push(st);
+      const pid = row.project_id ?? '';
+      replacedByProject[pid] = (replacedByProject[pid] ?? 0) + 1;
+    }
+  }
+  for (const lt of local) {
+    if (serverIds.has(lt.id)) continue;
+    if (authoritativeProjectIds.has(lt.projectId)) continue;
+    out.push(lt);
+  }
+  return { merged: out, replacedFromServer: Object.values(replacedByProject).reduce((a, b) => a + b, 0), replacedByProject };
 }
 
 /** 프로젝트별 변경 이력 조회 (최신순). 테이블 없으면 빈 배열 반환. */
@@ -621,7 +833,10 @@ export async function upsertTask(
 
 const TASKS_UPSERT_BATCH_SIZE = 50;
 
-export async function upsertTasks(tasks: Task[]): Promise<void> {
+export async function upsertTasks(
+  tasks: Task[],
+  onBatchProgress?: (uploadedCount: number, totalRows: number) => void
+): Promise<void> {
   if (tasks.length === 0) return;
   requireSupabase();
   // PostgREST upsert can fail with 409 if the same conflict target (e.g. id) appears multiple times in one payload.
@@ -646,6 +861,7 @@ export async function upsertTasks(tasks: Task[]): Promise<void> {
   const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
   const orderedRows = orderTaskRowsParentsFirst(desiredRows);
 
+  const totalRows = orderedRows.length;
   for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
     const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
     const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
@@ -653,6 +869,7 @@ export async function upsertTasks(tasks: Task[]): Promise<void> {
       return { error: res.error };
     });
     if (error) throw error;
+    onBatchProgress?.(Math.min(i + rows.length, totalRows), totalRows);
   }
   const projectId = tasks[0]?.projectId ?? null;
   if (projectId && tasks.length > 0) {
@@ -1000,6 +1217,14 @@ export async function getMyProjectMemberProjectIds(): Promise<string[]> {
   return ((data ?? []) as { project_id: string }[]).map(r => r.project_id);
 }
 
+/** 편집 가능한 프로젝트 ID 목록 (소유자 또는 editor 권한이 부여된 프로젝트). 승인 사용자는 모든 프로젝트를 보지만 편집은 이 목록만. */
+export async function getMyEditableProjectIds(): Promise<string[]> {
+  requireSupabase();
+  const { data, error } = await supabase!.rpc('get_user_editable_project_ids');
+  if (error) return [];
+  return Array.isArray(data) ? (data as string[]) : [];
+}
+
 // ─── 회원 관리 (관리자) ────────────────────────────────────────────────────────
 
 function isApprovedColumnError(err: { message?: string }): boolean {
@@ -1193,8 +1418,11 @@ export async function updateMemberApproved(userId: string, approved: boolean): P
   }
 }
 
-/** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제) */
-export async function deleteMemberAsAdmin(userId: string): Promise<{ success: boolean; error?: string }> {
+/** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제). 비밀번호 관리자 모드일 때 wbsAdminPassword 전달. */
+export async function deleteMemberAsAdmin(
+  userId: string,
+  options?: { wbsAdminPassword?: string }
+): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
     const { data: sessionData } = await supabase!.auth.getSession();
@@ -1203,8 +1431,11 @@ export async function deleteMemberAsAdmin(userId: string): Promise<{ success: bo
       return { success: false, error: '로그인이 필요합니다. 다시 로그인 후 시도하세요.' };
     }
 
+    const body: { userId: string; wbsAdminPassword?: string } = { userId };
+    if (options?.wbsAdminPassword) body.wbsAdminPassword = options.wbsAdminPassword;
+
     const { data, error } = await supabase!.functions.invoke('admin-delete-user', {
-      body: { userId },
+      body,
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },

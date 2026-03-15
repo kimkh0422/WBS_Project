@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Task, TaskStatus, TaskAssignment } from '../types';
 import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
-import { randomUUID } from '../lib/utils';
+import { randomUUID, cn } from '../lib/utils';
 import { useToast } from './Toast';
 import { GoogleGenAI } from '@google/genai';
 
@@ -15,6 +15,8 @@ interface TaskModalProps {
   onDelete?: () => void;
   initialData?: Task;
   parentOptions: Task[];
+  /** 보기 전용(편집 불가). 보기 권한만 있을 때 true */
+  readOnly?: boolean;
   /** 하위 작업 클릭 시 해당 작업을 모달에서 열 때 호출 (없으면 하위 작업 목록만 표시) */
   onOpenTask?: (task: Task) => void;
   /** 담당자 필터(예: 내 업무만)가 켜져 있을 때 새 작업의 기본 담당자 */
@@ -26,17 +28,48 @@ interface TaskModalProps {
 }
 
 const GEMINI_API_KEY_STORAGE = 'gemini-api-key';
-const DESCRIPTION_CORRECTION_PROMPT = `다음 작업 설명 텍스트를 교정해 주세요.
-규칙:
-- 내용의 의미는 바꾸지 말고, 맞춤법·띄어쓰기·문장 부호·문단/줄바꿈만 정리하세요.
-- 불릿·번호 목록 형식이 있으면 통일하세요.
-- 마크다운(이미지 ![...](...), 링크 등)은 그대로 유지하세요.
-- 교정된 텍스트만 출력하고, 설명이나 부가 문구는 붙이지 마세요.`;
+const DESCRIPTION_CORRECTION_PROMPT = `다음 작업 설명을 (1) 교정하고 (2) 설명 내용을 바탕으로 실행 가능한 체크리스트 항목을 도출하세요.
 
-export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions, onOpenTask, defaultAssignee, defaultStartDate, defaultEndDate }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId } = useWBS();
-  const { push: pushToast } = useToast();
+규칙:
+- description: 의미는 유지하고 맞춤법·띄어쓰기·문장 부호·문단만 정리. 마크다운은 유지.
+- checklist: 3~12개, 짧은 한 줄 항목(동사형 또는 명사구), 중복·너무 세분화된 항목은 제외.
+
+반드시 아래 형식의 JSON만 출력하세요. 앞뒤 설명·코드펜스(\`\`\`) 금지.
+{"description":"교정된 설명 전체","checklist":["항목1","항목2",...]}`;
+
+function parseDescriptionCorrectionJson(raw: string): { description: string; checklist: string[] } | null {
+  const trimmed = raw.trim();
+  const block = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = (block?.[1] ?? trimmed).trim();
+  const brace = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (brace < 0 || end <= brace) return null;
+  try {
+    const obj = JSON.parse(candidate.slice(brace, end + 1)) as unknown;
+    if (!obj || typeof obj !== 'object') return null;
+    const o = obj as Record<string, unknown>;
+    if (typeof o.description !== 'string') return null;
+    const list = Array.isArray(o.checklist)
+      ? o.checklist.filter((x): x is string => typeof x === 'string').map(s => s.trim()).filter(Boolean)
+      : [];
+    const seen = new Set<string>();
+    const deduped = list.filter(t => {
+      const k = t.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return { description: o.description.trim(), checklist: deduped };
+  } catch {
+    return null;
+  }
+}
+
+export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions, readOnly: readOnlyProp, onOpenTask, defaultAssignee, defaultStartDate, defaultEndDate }: TaskModalProps) {
+  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, editableProjectIds } = useWBS();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
+  const readOnly = readOnlyProp ?? (editableProjectIds != null && editableProjectIds.length > 0 && !editableProjectIds.includes(taskProjectId ?? ''));
+  const { push: pushToast } = useToast();
   const taskProject = projects.find(p => p.id === taskProjectId);
   const projectAssignments: TaskAssignment[] = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
   const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
@@ -65,11 +98,41 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isCorrectingDescription, setIsCorrectingDescription] = useState(false);
+  const parentOptionsRef = useRef(parentOptions);
+  const displayWbsMapRef = useRef(displayWbsMap);
+  parentOptionsRef.current = parentOptions;
+  displayWbsMapRef.current = displayWbsMap;
+
+  /** 하위 작업과 동일한 체크리스트 항목 제외(하위 작업 영역과 중복 표시 방지) */
+  const filterChecklistAgainstChildren = (
+    checklist: { id: string; text: string; completed: boolean }[] | undefined,
+    parentTaskId: string,
+    options: Task[],
+    wbsMap: Map<string, string>,
+  ) => {
+    const direct = options.filter((t) => t.parentId === parentTaskId);
+    const childIds = new Set(direct.map((t) => t.id));
+    const childTitles = new Set(
+      direct.map((c) => {
+        const wbs = wbsMap.get(c.id);
+        return (wbs ? `${wbs} ${c.name}` : c.name).trim();
+      }),
+    );
+    return (checklist || []).filter(
+      (item) => !childIds.has(item.id) && !childTitles.has(item.text.trim()),
+    );
+  };
 
   useEffect(() => {
     if (initialData) {
       const { assignments: _a, ...rest } = initialData as any;
-      setFormData(rest);
+      const checklist = filterChecklistAgainstChildren(
+        rest.checklist,
+        initialData.id,
+        parentOptionsRef.current,
+        displayWbsMapRef.current,
+      );
+      setFormData({ ...rest, checklist });
     } else {
       const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
       setFormData({
@@ -108,6 +171,46 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
           return wbsA.localeCompare(wbsB, undefined, { numeric: true });
         })
     : []) as Task[];
+
+  /** 저장·편집용: 하위 작업과 겹치지 않는 체크리스트만 (하위는 화면에서 자동 표시) */
+  const manualChecklist = useMemo(() => {
+    if (!initialData?.id) return formData.checklist || [];
+    return filterChecklistAgainstChildren(
+      formData.checklist,
+      initialData.id,
+      parentOptions,
+      displayWbsMap,
+    );
+  }, [formData.checklist, initialData?.id, parentOptions, displayWbsMap]);
+
+  const childChecklistCompleted = useMemo(
+    () =>
+      childTasks.filter((c) => c.status === 'done' || (c.progress ?? 0) >= 100).length,
+    [childTasks],
+  );
+  const checklistDoneCount = childChecklistCompleted + manualChecklist.filter((i) => i.completed).length;
+  const checklistTotalCount = childTasks.length + manualChecklist.length;
+
+  const handleToggleChildInChecklist = (childId: string) => {
+    const child = parentOptions.find((t) => t.id === childId);
+    if (!child) return;
+    const completed = child.status === 'done' || (child.progress ?? 0) >= 100;
+    const doneCfg =
+      wbsSettings.statusConfigs.find((c) => (c.progress ?? 0) >= 100) ??
+      wbsSettings.statusConfigs.find((c) => c.id === 'done');
+    const todoCfg = wbsSettings.statusConfigs.find((c) => c.id === 'todo');
+    if (completed) {
+      updateTask(childId, {
+        status: todoCfg?.id ?? 'todo',
+        progress: todoCfg?.progress ?? 0,
+      });
+    } else {
+      updateTask(childId, {
+        status: doneCfg?.id ?? 'done',
+        progress: doneCfg?.progress ?? 100,
+      });
+    }
+  };
 
   useEffect(() => {
     const nums = (formData.dependencies || []).map(id => idToNum.get(id)).filter((n): n is number => n != null).sort((a, b) => a - b);
@@ -150,8 +253,18 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (readOnly) return;
     const parsedDeps = parseDepsInput();
-    const toMerge = { ...formData, dependencies: parsedDeps };
+    let checklist = formData.checklist;
+    if (initialData?.id) {
+      checklist = filterChecklistAgainstChildren(
+        formData.checklist,
+        initialData.id,
+        parentOptions,
+        displayWbsMap,
+      );
+    }
+    const toMerge = { ...formData, dependencies: parsedDeps, checklist };
     const start = toMerge.startDate || '';
     const end = toMerge.endDate || start;
     if (taskProject?.startDate && start < taskProject.startDate) {
@@ -232,11 +345,48 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         contents: [{ role: 'user', parts: [{ text: `${DESCRIPTION_CORRECTION_PROMPT}\n\n---\n\n${desc}` }] }],
       });
       const text = result.text?.trim();
-      if (text) {
-        setFormData(prev => ({ ...prev, description: text }));
-        pushToast('설명을 교정했습니다.');
-      } else {
+      if (!text) {
         pushToast('AI 응답이 비어 있습니다.', { variant: 'warning' });
+        return;
+      }
+      const parsed = parseDescriptionCorrectionJson(text);
+      if (parsed) {
+        let addedCount = 0;
+        setFormData(prev => {
+          const childTitleKeys = new Set<string>();
+          if (initialData?.id) {
+            parentOptions
+              .filter((t) => t.parentId === initialData.id)
+              .forEach((c) => {
+                const wbs = displayWbsMap.get(c.id);
+                childTitleKeys.add((wbs ? `${wbs} ${c.name}` : c.name).trim().toLowerCase());
+                childTitleKeys.add(c.name.trim().toLowerCase());
+              });
+          }
+          const existingTexts = new Set(
+            (prev.checklist ?? []).map((i) => i.text.trim().toLowerCase()),
+          );
+          const newItems = parsed.checklist
+            .filter(
+              (t) =>
+                !existingTexts.has(t.toLowerCase()) && !childTitleKeys.has(t.trim().toLowerCase()),
+            )
+            .map((t) => ({ id: randomUUID(), text: t, completed: false }));
+          addedCount = newItems.length;
+          return {
+            ...prev,
+            description: parsed.description,
+            checklist: [...(prev.checklist || []), ...newItems],
+          };
+        });
+        pushToast(
+          addedCount > 0
+            ? `설명을 교정했고 체크리스트 ${addedCount}개를 추가했습니다.`
+            : '설명을 교정했습니다. (추가할 새 체크리스트 항목 없음)',
+        );
+      } else {
+        setFormData(prev => ({ ...prev, description: text }));
+        pushToast('설명만 반영했습니다. (JSON 형식이 아니어 체크리스트는 건너뜀)', { variant: 'warning' });
       }
     } catch (e) {
       pushToast(e instanceof Error ? e.message : '교정 중 오류가 발생했습니다.', { variant: 'error' });
@@ -275,44 +425,64 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     if (!initialData || !initialData.id) return; // Must have an existing task to add a subtask to
 
     const today = new Date().toISOString().split('T')[0];
+    const trimmedName = item.text.trim();
 
-    // Add the new subtask
-    addTask({
-      name: item.text,
-      startDate: formData.startDate || today,
-      endDate: formData.endDate || today,
-      progress: 0,
-      assignee: formData.assignee || '',
-      status: 'todo',
-      parentId: initialData.id
-    });
+    // 이미 같은 이름의 직속 하위 작업이 있으면 새로 만들지 않음
+    const exists = childTasks.some(
+      (t) => t.parentId === initialData.id && t.name.trim() === trimmedName,
+    );
 
-    // Remove from the checklist form state
-    handleDeleteChecklist(item.id);
-  };
-
-  const handleConvertAllToSubtasks = () => {
-    if (!initialData || !initialData.id) return;
-    if (!formData.checklist || formData.checklist.length === 0) return;
-
-    const today = new Date().toISOString().split('T')[0];
-
-    formData.checklist.forEach(item => {
+    if (!exists) {
       addTask({
-        name: item.text,
+        name: trimmedName,
         startDate: formData.startDate || today,
         endDate: formData.endDate || today,
         progress: 0,
         assignee: formData.assignee || '',
         status: 'todo',
-        parentId: initialData.id
+        parentId: initialData.id,
       });
+    }
+
+    // 체크리스트에서는 제거
+    handleDeleteChecklist(item.id);
+  };
+
+  const handleConvertAllToSubtasks = () => {
+    if (!initialData || !initialData.id) return;
+    if (!manualChecklist.length) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // 이미 존재하는 하위 작업 이름 집합 (트림 기준)
+    const existingNames = new Set(
+      childTasks
+        .filter((t) => t.parentId === initialData.id)
+        .map((t) => t.name.trim()),
+    );
+
+    manualChecklist.forEach((item) => {
+      const trimmedName = item.text.trim();
+      if (!trimmedName) return;
+
+      if (!existingNames.has(trimmedName)) {
+        addTask({
+          name: trimmedName,
+          startDate: formData.startDate || today,
+          endDate: formData.endDate || today,
+          progress: 0,
+          assignee: formData.assignee || '',
+          status: 'todo',
+          parentId: initialData.id,
+        });
+        existingNames.add(trimmedName);
+      }
     });
 
-    // Clear the checklist
-    setFormData(prev => ({
+    // 체크리스트는 비움
+    setFormData((prev) => ({
       ...prev,
-      checklist: []
+      checklist: [],
     }));
   };
 
@@ -347,7 +517,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-3 sm:p-4">
       <div className="bg-[var(--color-surface)] w-full max-w-7xl rounded-2xl shadow-2xl overflow-hidden border border-[var(--color-line)] max-h-[calc(100vh-2rem)] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <div className="flex justify-between items-center px-4 py-2.5 border-b border-[var(--color-line)] bg-slate-50/80 flex-shrink-0">
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--color-ink)]">{initialData ? '작업 수정' : '새 작업'}</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--color-ink)]">{initialData ? (readOnly ? '작업 보기' : '작업 수정') : '새 작업'}</h2>
           <button type="button" onClick={onClose} className="p-1.5 -mr-1.5 rounded-lg text-slate-500 hover:bg-slate-200/80 hover:text-slate-800 transition-colors" aria-label="닫기">
             <X size={18} strokeWidth={2} />
           </button>
@@ -371,6 +541,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 className="input-field py-1.5 text-sm"
                 placeholder="작업 이름..."
                 autoFocus
+                readOnly={readOnly}
+                disabled={readOnly}
               />
               <datalist id="task-name-suggestions">
                 <option value="기획" /><option value="디자인" /><option value="프론트엔드 개발" /><option value="백엔드 개발" /><option value="테스트" /><option value="배포" /><option value="문서화" /><option value="미팅" />
@@ -378,16 +550,32 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">상위 작업</label>
-              <select
-                value={formData.parentId || ''}
-                onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
-                className="input-field py-1.5 text-sm"
-              >
-                <option value="">없음</option>
-                {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
-                  <option key={task.id} value={task.id}>{displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={formData.parentId || ''}
+                  onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
+                  className="input-field py-1.5 text-sm flex-1"
+                  disabled={readOnly}
+                >
+                  <option value="">없음</option>
+                  {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
+                    <option key={task.id} value={task.id}>{displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}</option>
+                  ))}
+                </select>
+                {initialData?.parentId && onOpenTask && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const parentTask = parentOptions.find(t => t.id === initialData.parentId);
+                      if (parentTask) onOpenTask(parentTask);
+                    }}
+                    className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors whitespace-nowrap"
+                    title="상위 작업 열기"
+                  >
+                    상위 열기
+                  </button>
+                )}
+              </div>
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">상태</label>
@@ -399,6 +587,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                   setFormData(prev => ({ ...prev, status: newStatus, progress: config?.progress ?? prev.progress }));
                 }}
                 className="input-field py-1.5 text-sm"
+                disabled={readOnly}
               >
                 {wbsSettings.statusConfigs.map(config => <option key={config.id} value={config.id}>{config.name}</option>)}
               </select>
@@ -418,6 +607,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 placeholder="선택 또는 입력"
                 className="input-field py-1.5 text-sm"
                 title={assigneeTitle}
+                readOnly={readOnly}
+                disabled={readOnly}
               />
               <datalist id="task-modal-assignees">
                 <option value="">선택 안 함</option>
@@ -470,22 +661,28 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                   setFormData(prev => ({ ...prev, startDate: newStart, endDate: newEnd }));
                 }}
                 className="input-field py-1.5 text-sm"
+                readOnly={readOnly}
+                disabled={readOnly}
               />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">종료일</label>
-              <input required type="date" value={formData.endDate?.split('T')[0]} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} className="input-field py-1.5 text-sm" />
+              <input required type="date" value={formData.endDate?.split('T')[0]} onChange={(e) => setFormData({ ...formData, endDate: e.target.value })} className="input-field py-1.5 text-sm" readOnly={readOnly} disabled={readOnly} />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">진행률 %</label>
-              <input type="number" min="0" max="100" value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) || 0 })} className="input-field py-1.5 text-sm w-full" />
+              <input type="number" min="0" max="100" value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) || 0 })} className="input-field py-1.5 text-sm w-full" readOnly={readOnly} disabled={readOnly} />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>
               <div className="flex gap-1.5 items-center">
-                <input type="number" min="0" step="0.5" value={formData.workEffort ?? ''} onChange={(e) => setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-1.5 text-sm w-14 flex-shrink-0" placeholder="0.5" aria-label="작업 공수" />
-                <button type="button" onClick={handleApplyEndDateFromEffort} className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors shrink-0" title="시작일·공수·투입비율 → 종료일"><Calculator size={12} /> 기간자동</button>
-                <button type="button" onClick={handleApplyWorkEffortFromDates} className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-ink)] hover:bg-slate-100 rounded-lg border border-[var(--color-line)] transition-colors shrink-0" title="시작일·종료일 → 공수">공수역산</button>
+                <input type="number" min="0" step="0.5" value={formData.workEffort ?? ''} onChange={(e) => setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-1.5 text-sm w-14 flex-shrink-0" placeholder="0.5" aria-label="작업 공수" readOnly={readOnly} disabled={readOnly} />
+                {!readOnly && (
+                  <>
+                    <button type="button" onClick={handleApplyEndDateFromEffort} className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors shrink-0" title="시작일·공수·투입비율 → 종료일"><Calculator size={12} /> 기간자동</button>
+                    <button type="button" onClick={handleApplyWorkEffortFromDates} className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-ink)] hover:bg-slate-100 rounded-lg border border-[var(--color-line)] transition-colors shrink-0" title="시작일·종료일 → 공수">공수역산</button>
+                  </>
+                )}
                 <span className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)] p-0.5 shrink-0" title={effortHelpText} aria-label="공수 도움말"><Info size={12} /></span>
               </div>
             </div>
@@ -499,18 +696,19 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
               <span className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">작업 옵션</span>
             </div>
             <div className="col-span-full flex items-center gap-4 flex-wrap rounded-lg bg-slate-50/80 border border-[var(--color-line-soft)] px-3 py-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-ink)]">
-                <input type="checkbox" checked={!!formData.isMilestone} onChange={(e) => { const checked = e.target.checked; setFormData(prev => ({ ...prev, isMilestone: checked, ...(checked && prev.startDate ? { endDate: prev.startDate, workEffort: 0 } : {}) })); }} className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30" />
+              <label className={cn("flex items-center gap-2 select-none text-xs text-[var(--color-ink)]", !readOnly && "cursor-pointer")}>
+                <input type="checkbox" checked={!!formData.isMilestone} onChange={(e) => { const checked = e.target.checked; setFormData(prev => ({ ...prev, isMilestone: checked, ...(checked && prev.startDate ? { endDate: prev.startDate, workEffort: 0 } : {}) })); }} className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30" disabled={readOnly} />
                 <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
                 <span>마일스톤</span>
                 <span className="text-[10px] text-[var(--color-ink-muted)]">(이정표)</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-[var(--color-ink)]">
+              <label className={cn("flex items-center gap-2 select-none text-xs text-[var(--color-ink)]", !readOnly && "cursor-pointer")}>
                 <input
                   type="checkbox"
                   checked={!!formData.isIssue}
                   onChange={(e) => setFormData(prev => ({ ...prev, isIssue: e.target.checked }))}
                   className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30"
+                  disabled={readOnly}
                 />
                 <Bug size={12} className="text-rose-600 shrink-0" aria-hidden />
                 <span>이슈</span>
@@ -532,6 +730,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 value={depsInput}
                 onChange={(e) => setDepsInput(e.target.value)}
                 onBlur={() => {
+                  if (readOnly) return;
                   const nums: number[] = depsInput
                     .split(/[\s,]+/)
                     .map(s => parseInt(s.trim(), 10))
@@ -544,6 +743,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 placeholder="선행 작업 번호 (쉼표/공백 구분, 예: 1, 3, 4)"
                 className="input-field py-1.5 text-sm w-full"
                 title="쉼표 또는 공백으로 구분하여 선행 작업 번호 입력"
+                readOnly={readOnly}
+                disabled={readOnly}
               />
             </div>
 
@@ -557,50 +758,110 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
               <div className="min-w-0 flex flex-col min-h-0">
                 <div className="flex items-center justify-between gap-2 mb-0.5">
                   <label className="text-[11px] font-medium text-[var(--color-ink)]">설명</label>
-                  <button
-                    type="button"
-                    onClick={handleCorrectDescriptionWithAI}
-                    disabled={isCorrectingDescription || !(formData.description ?? '').trim()}
-                    className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="설명란 내용을 맞춤법·형식 위주로 교정 (내용 변경 최소화)"
-                  >
-                    {isCorrectingDescription ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                    AI로 교정
-                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={handleCorrectDescriptionWithAI}
+                      disabled={isCorrectingDescription || !(formData.description ?? '').trim()}
+                      className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="설명 교정 + 설명 기반 체크리스트 항목을 우측 목록에 추가"
+                    >
+                      {isCorrectingDescription ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      AI로 교정
+                    </button>
+                  )}
                 </div>
-                <textarea value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} onPaste={handlePaste} className="input-field py-1.5 px-2 text-sm min-h-[7rem] max-h-48 resize-y rounded-lg w-full" placeholder="상세 설명 (이미지 Ctrl+V)" rows={5} />
+                <textarea value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} onPaste={readOnly ? undefined : handlePaste} readOnly={readOnly} disabled={readOnly} className="input-field py-1.5 px-2 text-sm min-h-[7rem] max-h-48 resize-y rounded-lg w-full" placeholder="상세 설명 (이미지 Ctrl+V)" rows={5} />
               </div>
               {/* 우: 체크리스트 + 산출물 - 모달 우측 절반 넓게 사용 */}
               <div className="min-w-0 flex flex-col gap-3">
                 <div className="min-w-0 flex flex-col">
                   <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5 flex items-center justify-between">
                     <span>체크리스트</span>
-                    <span className="text-[10px] text-[var(--color-ink-muted)] tabular-nums bg-slate-100 px-1.5 py-0.5 rounded">{formData.checklist?.filter(i => i.completed).length || 0}/{formData.checklist?.length || 0}</span>
+                    <span className="text-[10px] text-[var(--color-ink-muted)] tabular-nums bg-slate-100 px-1.5 py-0.5 rounded">
+                      {checklistDoneCount}/{checklistTotalCount}
+                    </span>
                   </label>
-                  {initialData?.id && formData.checklist && formData.checklist.length > 0 && (
+                  {!readOnly && initialData?.id && manualChecklist.length > 0 && (
                     <button type="button" onClick={handleConvertAllToSubtasks} className="text-[10px] text-blue-600 hover:underline mb-0.5">전체→하위작업</button>
                   )}
                   <div className="space-y-0.5 max-h-32 overflow-y-auto pr-0.5">
-                    {formData.checklist?.map((item, index) => (
-                      <div key={item.id} className="flex items-center gap-1 group">
-                        <input type="checkbox" checked={item.completed} onChange={() => handleToggleChecklist(item.id)} className="rounded border-stone-300 text-blue-600 cursor-pointer shrink-0" />
-                        <input type="text" value={item.text} onChange={(e) => { const c = [...(formData.checklist || [])]; c[index].text = e.target.value; setFormData({ ...formData, checklist: c }); }} className={`flex-1 min-w-0 py-0.5 text-xs border-0 bg-transparent focus:ring-0 ${item.completed ? 'line-through text-stone-400' : ''}`} />
-                        {initialData?.id && <button type="button" onClick={() => handleConvertToSubtask(item)} className="p-0.5 text-stone-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 shrink-0" title="하위 작업으로 변환"><CornerDownRight size={11} /></button>}
-                        <button type="button" onClick={() => handleDeleteChecklist(item.id)} className="p-0.5 text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0" title="삭제"><X size={11} /></button>
+                    {childTasks.map((child) => {
+                      const wbs = displayWbsMap.get(child.id);
+                      const title = wbs ? `${wbs} ${child.name}` : child.name;
+                      const completed = child.status === 'done' || (child.progress ?? 0) >= 100;
+                      return (
+                        <div key={child.id} className="flex items-center gap-1 group">
+                          <input
+                            type="checkbox"
+                            checked={completed}
+                            onChange={() => handleToggleChildInChecklist(child.id)}
+                            className="rounded border-stone-300 text-blue-600 shrink-0"
+                            title="하위 작업 완료 여부"
+                            disabled={readOnly}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => onOpenTask?.(child)}
+                            className={`flex-1 min-w-0 text-left py-0.5 text-xs border-0 bg-transparent focus:ring-0 hover:text-[var(--color-accent)] ${completed ? 'line-through text-stone-400' : ''}`}
+                            title={onOpenTask ? '작업 열기' : undefined}
+                          >
+                            {title}
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {childTasks.length > 0 && manualChecklist.length > 0 && (
+                      <div className="text-[9px] text-[var(--color-ink-muted)] uppercase tracking-wide pt-1 border-t border-[var(--color-line-soft)] mt-0.5">
+                        추가 항목
                       </div>
-                    ))}
+                    )}
+                    {manualChecklist.map((item) => {
+                      return (
+                        <div key={item.id} className="flex items-center gap-1 group">
+                          <input type="checkbox" checked={item.completed} onChange={() => handleToggleChecklist(item.id)} className="rounded border-stone-300 text-blue-600 shrink-0" disabled={readOnly} />
+                          <input
+                            type="text"
+                            value={item.text}
+                            onChange={(e) => {
+                              const c = [...(formData.checklist || [])];
+                              const i = c.findIndex((x) => x.id === item.id);
+                              if (i >= 0) {
+                                c[i] = { ...c[i], text: e.target.value };
+                                setFormData({ ...formData, checklist: c });
+                              }
+                            }}
+                            readOnly={readOnly}
+                            disabled={readOnly}
+                            className={`flex-1 min-w-0 py-0.5 text-xs border-0 bg-transparent focus:ring-0 ${item.completed ? 'line-through text-stone-400' : ''}`}
+                          />
+                          {!readOnly && initialData?.id && (
+                            <button type="button" onClick={() => handleConvertToSubtask(item)} className="p-0.5 text-stone-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 shrink-0" title="하위 작업으로 변환">
+                              <CornerDownRight size={11} />
+                            </button>
+                          )}
+                          {!readOnly && (
+                            <button type="button" onClick={() => handleDeleteChecklist(item.id)} className="p-0.5 text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0" title="삭제">
+                              <X size={11} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
+                  {!readOnly && (
                   <div className="flex gap-1.5 mt-1">
                     <input type="text" value={newChecklistItem} onChange={(e) => setNewChecklistItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddChecklist())} placeholder="항목 추가" className="input-field py-1.5 text-xs flex-1 rounded-lg min-w-0" />
                     <button type="button" onClick={handleAddChecklist} disabled={!newChecklistItem.trim()} className="btn-secondary py-1.5 px-2 text-[11px] rounded-lg disabled:opacity-50 shrink-0">추가</button>
                   </div>
+                  )}
                 </div>
                 <div className="min-w-0 flex flex-col">
                   <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5 flex items-center justify-between">
                     <span>산출물</span>
                     <span className="text-[10px] text-[var(--color-ink-muted)] tabular-nums bg-slate-100 px-1.5 py-0.5 rounded">{deliverablesCount > 0 ? `${deliverablesCount}개` : '-'}</span>
                   </label>
-                  <input type="text" value={formData.deliverables || ''} onChange={(e) => setFormData({ ...formData, deliverables: e.target.value })} placeholder="쉼표 구분" className="input-field py-1.5 text-sm rounded-lg w-full" />
+                  <input type="text" value={formData.deliverables || ''} onChange={(e) => setFormData({ ...formData, deliverables: e.target.value })} placeholder="쉼표 구분" className="input-field py-1.5 text-sm rounded-lg w-full" readOnly={readOnly} disabled={readOnly} />
                 </div>
               </div>
             </div>
@@ -608,7 +869,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         </form>
         <div className="px-4 py-2.5 flex justify-between items-center border-t border-[var(--color-line)] bg-slate-50/70 flex-shrink-0 gap-4">
           <div>
-            {onDelete && initialData && (
+            {!readOnly && onDelete && initialData && (
               <button
                 type="button"
                 onClick={handleDeleteClick}
@@ -619,12 +880,14 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
             )}
           </div>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="btn-ghost px-3 py-2 rounded-lg text-sm">
-              취소
+            <button type="button" onClick={onClose} className={readOnly ? "btn-primary px-4 py-2 rounded-lg text-sm" : "btn-ghost px-3 py-2 rounded-lg text-sm"}>
+              {readOnly ? '닫기' : '취소'}
             </button>
-            <button type="button" onClick={(e) => { e.preventDefault(); handleSubmit(e as React.FormEvent); }} className="btn-primary px-4 py-2 rounded-lg text-sm">
-              저장
-            </button>
+            {!readOnly && (
+              <button type="button" onClick={(e) => { e.preventDefault(); handleSubmit(e as React.FormEvent); }} className="btn-primary px-4 py-2 rounded-lg text-sm">
+                저장
+              </button>
+            )}
           </div>
         </div>
       </div>

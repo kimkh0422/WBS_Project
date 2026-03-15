@@ -81,7 +81,8 @@ export interface Task {
 }
 
 export interface FilterState {
-  projectId: string; // 'all' or specific project id
+  /** 'all' = 모든 프로젝트, 배열 = 선택한 프로젝트들의 작업만 표시 */
+  projectIds: 'all' | string[];
   status: TaskStatus | 'all';
   assignee: string;
   /** true면 담당자 미배정 작업만 표시 */

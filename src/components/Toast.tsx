@@ -2,12 +2,16 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import { X, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
 
-type ToastVariant = 'info' | 'success' | 'warning';
+type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
 export type ToastOptions = {
   variant?: ToastVariant;
   durationMs?: number;
   id?: string;
+  /** 0–100, 동기화 등 장시간 작업 시 진행 막대 */
+  progress?: number | null;
+  /** 세부 진행 단계 문구 (예: "AI에 요청 전송 중...") */
+  detail?: string | null;
 };
 
 type ToastItem = {
@@ -16,6 +20,8 @@ type ToastItem = {
   variant: ToastVariant;
   durationMs: number;
   createdAt: number;
+  progress: number | null;
+  detail: string | null;
 };
 
 type ToastApi = {
@@ -29,12 +35,14 @@ const ToastContext = createContext<ToastApi | null>(null);
 function iconFor(variant: ToastVariant) {
   if (variant === 'success') return <CheckCircle2 size={16} className="text-emerald-600" />;
   if (variant === 'warning') return <AlertTriangle size={16} className="text-amber-600" />;
+  if (variant === 'error') return <AlertTriangle size={16} className="text-red-600" />;
   return <Info size={16} className="text-blue-600" />;
 }
 
 function ringFor(variant: ToastVariant) {
   if (variant === 'success') return 'border-emerald-200 bg-emerald-50/60';
   if (variant === 'warning') return 'border-amber-200 bg-amber-50/60';
+  if (variant === 'error') return 'border-red-200 bg-red-50/60';
   return 'border-blue-200 bg-blue-50/60';
 }
 
@@ -56,10 +64,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const durationMs = options?.durationMs ?? 3500;
     const id = options?.id ?? randomUUID();
 
+    const progress = options?.progress != null && options.progress >= 0 ? Math.min(100, options.progress) : null;
+    const detail = options?.detail ?? null;
+
     setItems(prev => {
       // De-dupe by id
       const next = prev.filter(t => t.id !== id);
-      return [{ id, message, variant, durationMs, createdAt: Date.now() }, ...next].slice(0, 4);
+      return [{ id, message, variant, durationMs, createdAt: Date.now(), progress, detail }, ...next].slice(0, 4);
     });
 
     const existing = timeoutsRef.current.get(id);
@@ -102,6 +113,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 <div className="text-sm sm:text-[12px] font-semibold text-slate-800 leading-snug whitespace-pre-wrap break-keep">
                   {t.message}
                 </div>
+                {t.detail && (
+                  <div className="text-xs text-slate-500 mt-1 leading-snug">
+                    {t.detail}
+                  </div>
+                )}
+                {t.progress != null && (
+                  <div className="mt-2 h-1.5 rounded-full bg-slate-200/90 overflow-hidden" aria-hidden>
+                    <div
+                      className="h-full rounded-full bg-blue-500 transition-[width] duration-200 ease-out"
+                      style={{ width: `${t.progress}%` }}
+                    />
+                  </div>
+                )}
               </div>
               <button
                 type="button"

@@ -163,9 +163,10 @@ export function buildVisibleTasks(
   options?: { preserveDepthOnFiltered?: boolean }
 ): TaskWithDepth[] {
   const preserveDepthOnFiltered = options?.preserveDepthOnFiltered ?? false;
-  const baseTasks = filters.projectId === 'all'
-    ? tasks
-    : tasks.filter(task => task.projectId === filters.projectId);
+  const baseTasks =
+    filters.projectIds === 'all'
+      ? tasks
+      : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId));
   const hasFilters =
     filters.status !== 'all' ||
     filters.assignee ||

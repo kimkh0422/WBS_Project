@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Users, Loader2, Trash2, Pencil, Check, UserCheck, ArrowUpDown, ArrowUp, ArrowDown, FolderGit2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { fetchProfiles, getProfileStatus, getMemberVisitStats, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole, updateMemberApproved, listPendingProjectAccessRequests, approveProjectAccessRequest, rejectProjectAccessRequest } from '../lib/db';
+import { WBS_ADMIN_PASSWORD } from '../constants/adminBypass';
 import { ProfileRow } from '../lib/supabase';
 import type { ProjectAccessRequestRow } from '../lib/supabase';
 import { format } from 'date-fns';
@@ -11,6 +12,10 @@ interface MembersModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserId?: string;
+  /** DB profiles.is_admin (비밀번호 관리자 모드와 구분) */
+  dbIsAdmin?: boolean;
+  /** 비밀번호로 관리자 모드 전환 여부 — 삭제 시 Edge Function에 비밀번호 검증용 전달 */
+  adminOverride?: boolean;
   /** 프로젝트 권한 요청 목록에서 프로젝트명 표시용 */
   projects?: Array<Pick<Project, 'id' | 'name' | 'ownerId'>>;
   profileMap?: Record<string, string>;
@@ -18,7 +23,7 @@ interface MembersModalProps {
   onApproved?: () => void;
 }
 
-export function MembersModal({ isOpen, onClose, currentUserId, projects = [], profileMap = {}, onDeleted, onApproved }: MembersModalProps) {
+export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false, adminOverride = false, projects = [], profileMap = {}, onDeleted, onApproved }: MembersModalProps) {
   const [members, setMembers] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -211,7 +216,10 @@ export function MembersModal({ isOpen, onClose, currentUserId, projects = [], pr
   const handleDelete = async () => {
     if (!memberToDelete) return;
     setDeleting(true);
-    const result = await deleteMemberAsAdmin(memberToDelete.id);
+    const usePasswordBypass = adminOverride && !dbIsAdmin;
+    const result = await deleteMemberAsAdmin(memberToDelete.id, {
+      wbsAdminPassword: usePasswordBypass ? WBS_ADMIN_PASSWORD : undefined,
+    });
     setDeleting(false);
     setMemberToDelete(null);
     if (result.success) {

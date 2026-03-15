@@ -8,7 +8,7 @@ import { Target, Calendar } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const emptyFilters: FilterState = {
-  projectId: 'all',
+  projectIds: 'all',
   status: 'all',
   assignee: '',
   assigneeUnassignedOnly: false,
@@ -54,7 +54,10 @@ export function BaselineView() {
   const [baselineSelectedIds, setBaselineSelectedIds] = useState<Set<string>>(new Set());
 
   const filters: FilterState = useMemo(
-    () => ({ ...emptyFilters, projectId: currentProjectId }),
+    () => ({
+      ...emptyFilters,
+      projectIds: !currentProjectId || currentProjectId === 'all' ? 'all' : [currentProjectId],
+    }),
     [currentProjectId]
   );
 

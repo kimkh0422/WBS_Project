@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette } from 'lucide-react';
+import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette, AlertTriangle } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
@@ -8,6 +8,8 @@ import { TaskStatus } from '../types';
 interface WBSSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
+    /** 로컬 초기화 요청 시 호출. 호출 시 설정 모달을 닫고 상위에서 확인 다이얼로그를 띄우면 됨 */
+    onRequestReset?: () => void;
 }
 
 const DEFAULT_LEVEL_COLORS: RgbColor[] = [...LEVEL_COLORS];
@@ -22,7 +24,7 @@ function hexToRgb(hex: string): RgbColor | null {
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
 }
 
-export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
+export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSettingsModalProps) {
     const { wbsSettings, updateWbsSettings, projects, updateProject, syncProgressFromStatusConfigs } = useWBS();
     const { levelColors, setLevelColors } = useLevelColors();
 
@@ -628,20 +630,38 @@ export function WBSSettingsModal({ isOpen, onClose }: WBSSettingsModalProps) {
                         )}
                     </div>
 
-                    <div className="p-6 pt-4 flex justify-end gap-3 border-t border-[var(--color-line)] bg-white sticky bottom-0">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="btn-ghost"
-                        >
-                            취소
-                        </button>
-                        <button
-                            type="submit"
-                            className="btn-primary"
-                        >
-                            적용하기
-                        </button>
+                    <div className="p-6 pt-4 flex justify-between items-center gap-3 border-t border-[var(--color-line)] bg-white sticky bottom-0">
+                        <div className="flex items-center gap-2">
+                            {onRequestReset && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onClose();
+                                        onRequestReset();
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 rounded-lg border border-amber-200 transition-colors"
+                                    title="로컬에 저장된 모든 데이터·설정을 지우고 빈 상태로 되돌립니다."
+                                >
+                                    <AlertTriangle size={14} />
+                                    로컬 초기화
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="btn-ghost"
+                            >
+                                취소
+                            </button>
+                            <button
+                                type="submit"
+                                className="btn-primary"
+                            >
+                                적용하기
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

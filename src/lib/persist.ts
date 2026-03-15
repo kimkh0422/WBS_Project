@@ -2,7 +2,8 @@ type PersistKey =
   | 'wbs-projects'
   | 'wbs-tasks'
   | 'wbs-settings'
-  | 'wbs-deleted-task-ids';
+  | 'wbs-deleted-task-ids'
+  | 'wbs-deleted-project-ids';
 
 const DB_NAME = 'wbs_mg';
 const DB_VERSION = 1;
@@ -120,3 +121,100 @@ export async function removePersistedEverywhere(key: PersistKey): Promise<void> 
   }
 }
 
+const PERSIST_KEYS: PersistKey[] = [
+  'wbs-projects',
+  'wbs-tasks',
+  'wbs-settings',
+  'wbs-deleted-task-ids',
+  'wbs-deleted-project-ids',
+];
+
+/** 로컬 초기화 직후: DB 자동 로드를 건너뛰고 빈 상태 유지. DB 동기화 성공 시 제거됨. */
+export const WBS_INIT_BLANK_SESSION_KEY = 'wbs-init-blank-session';
+
+export function clearInitBlankSessionFlag(): void {
+  try {
+    localStorage.removeItem(WBS_INIT_BLANK_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** 로컬 데이터·설정 전체 초기화. localStorage, sessionStorage, IndexedDB의 WBS 관련 항목을 모두 제거. */
+export async function clearAllLocalData(): Promise<void> {
+  for (const key of PERSIST_KEYS) {
+    await removePersistedEverywhere(key);
+  }
+
+  const localKeys = [
+    'wbs.lastExportPrefs',
+    'wbs.split.wbsTableWidth',
+    'wbs:gantt:sidebarWidth',
+    'wbs-task-clipboard-v1',
+    'wbs-level-colors',
+    'gemini-api-key',
+    'wbs-correction-prompt',
+  ];
+  for (const key of localKeys) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('wbs.toast.tipSeen.') || k.startsWith('wbs-kanban-order-v1-'))) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+
+  const sessionKeys = [
+    'wbs-admin-override',
+    'wbs-local-save-banner-dismissed',
+    'wbs-backup-banner-dismissed',
+    'wbs-current-project',
+    'wbs-visit-session-id',
+  ];
+  for (const key of sessionKeys) {
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith('wbs.rpc.disabled.')) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (typeof indexedDB !== 'undefined') {
+      indexedDB.deleteDatabase(DB_NAME);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    localStorage.setItem(WBS_INIT_BLANK_SESSION_KEY, '1');
+  } catch {
+    // ignore
+  }
+}

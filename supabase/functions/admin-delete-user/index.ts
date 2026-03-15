@@ -35,7 +35,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { userId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const userId = body?.userId;
+    const wbsAdminPassword = typeof body?.wbsAdminPassword === 'string' ? body.wbsAdminPassword : '';
     if (!userId || typeof userId !== 'string') {
       return new Response(
         JSON.stringify({ error: '삭제할 회원 ID가 필요합니다.' }),
@@ -56,9 +58,14 @@ Deno.serve(async (req) => {
       .eq('id', caller.id)
       .single();
 
-    if (!profile?.is_admin) {
+    const envBypass = Deno.env.get('WBS_ADMIN_PASSWORD') ?? '6501';
+    const passwordBypassOk = wbsAdminPassword.length > 0 && wbsAdminPassword === envBypass;
+    if (!profile?.is_admin && !passwordBypassOk) {
       return new Response(
-        JSON.stringify({ error: '관리자만 회원을 삭제할 수 있습니다.' }),
+        JSON.stringify({
+          error:
+            '관리자만 회원을 삭제할 수 있습니다. DB에 관리자로 등록되지 않았다면, 앱에서 관리자 모드(비밀번호)로 전환한 뒤 다시 시도하고 Edge Function을 최신으로 배포했는지 확인하세요.',
+        }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

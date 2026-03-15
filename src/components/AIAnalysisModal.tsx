@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react';
+import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { Task, TaskStatus, Project } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
@@ -9,10 +9,13 @@ import { applyDependencySchedule } from '../lib/schedule';
 import { buildTasksInTreeOrderWithWbs } from '../lib/taskView';
 import { randomUUID } from '../lib/utils';
 
-import { WBS_CORRECTION_PROMPT_KEY, DEFAULT_WBS_CORRECTION_PROMPT } from '../lib/wbsCorrectionPrompt';
+import { DEFAULT_WBS_CORRECTION_PROMPT } from '../lib/wbsCorrectionPrompt';
 
 const DEP_PROGRESS_TOAST_ID = 'wbs-dep-analysis-progress';
 const REANALYZE_PROGRESS_TOAST_ID = 'wbs-reanalyze-progress';
+const GENERATE_PROGRESS_TOAST_ID = 'wbs-generate-progress';
+
+const PROGRESS_TOAST_OPTS = { durationMs: 60 * 60 * 1000 } as const;
 
 type Attachment = {
   id: string;
@@ -63,10 +66,6 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
   const [tempApiKey, setTempApiKey] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
-  const [wbsCorrectionPrompt, setWbsCorrectionPrompt] = useState(() =>
-    localStorage.getItem(WBS_CORRECTION_PROMPT_KEY) || DEFAULT_WBS_CORRECTION_PROMPT
-  );
-  const [showPromptEditor, setShowPromptEditor] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
 
@@ -83,16 +82,6 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       onBusyChange?.(false);
     };
   }, [isLoading, onBusyChange]);
-
-  const handleWbsCorrectionPromptChange = (value: string) => {
-    setWbsCorrectionPrompt(value);
-    localStorage.setItem(WBS_CORRECTION_PROMPT_KEY, value);
-  };
-
-  const handleResetWbsCorrectionPrompt = () => {
-    setWbsCorrectionPrompt(DEFAULT_WBS_CORRECTION_PROMPT);
-    localStorage.setItem(WBS_CORRECTION_PROMPT_KEY, DEFAULT_WBS_CORRECTION_PROMPT);
-  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -287,9 +276,21 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       pushToast('WBS 재분석 중...', {
         variant: 'info',
         id: REANALYZE_PROGRESS_TOAST_ID,
-        durationMs: 60 * 60 * 1000,
+        ...PROGRESS_TOAST_OPTS,
+        detail: '프롬프트 구성 중...',
+        progress: 10,
+      });
+    } else {
+      pushToast('WBS 분석 중...', {
+        variant: 'info',
+        id: GENERATE_PROGRESS_TOAST_ID,
+        ...PROGRESS_TOAST_OPTS,
+        detail: '프롬프트 구성 중...',
+        progress: 10,
       });
     }
+
+    onClose(); // 분석 시작 시 창 자동 닫기, 백그라운드에서 진행
 
     try {
       if (!apiKey) {
@@ -315,12 +316,12 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
           deliverables: t.deliverables
         })), null, 2);
 
-        let promptBody = wbsCorrectionPrompt.includes('[프로젝트 제약조건]')
-          ? wbsCorrectionPrompt.replace('[프로젝트 제약조건]', projectConstraintsBlock)
-          : `[프로젝트 제약조건]\n${projectConstraintsBlock}\n\n` + wbsCorrectionPrompt;
+        let promptBody = DEFAULT_WBS_CORRECTION_PROMPT.includes('[프로젝트 제약조건]')
+          ? DEFAULT_WBS_CORRECTION_PROMPT.replace('[프로젝트 제약조건]', projectConstraintsBlock)
+          : `[프로젝트 제약조건]\n${projectConstraintsBlock}\n\n` + DEFAULT_WBS_CORRECTION_PROMPT;
         promptBody = promptBody.replace(
           '[여기에 기존 WBS 붙여넣기]',
-          `현재 날짜: ${new Date().toISOString().split('T')[0]}\n\n${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n\n` : ''}현재 작업 목록 (JSON):\n${tasksJson}`
+          `현재 날짜: ${new Date().toISOString().split('T')[0]}\n\n${userRequest ? `사용자 추가 요청 (선택적 반영):\n"${userRequest}"\n\n` : ''}현재 작업 목록 (JSON):\n${tasksJson}`
         );
 
         prompt = `${promptBody}
@@ -348,45 +349,29 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
         const minEffort = currentProject?.minWorkEffortDays ?? 0.5;
         const effortUnit = minEffort === 0.5 ? '0.5d 단위' : minEffort === 1 ? '1d 단위' : `${minEffort}d 단위`;
         prompt = `
-당신은 프로젝트 관리 전문가(PMO)입니다.
+당신은 프로젝트 관리 전문가입니다.
 
-다음 프로젝트 설명을 분석하여 PMO 표준에 따라 체계적인 WBS(Work Breakdown Structure)를 작성해 주세요.
+**원칙: 사용자가 입력한 내용을 최대한 그대로 반영하고, 최소한의 보정만 하여 WBS를 만듭니다.** 사용자 "추가 요청 사항"이 있으면 선택적으로만 반영하세요.
 
 현재 날짜: ${new Date().toISOString().split('T')[0]}
 
-[프로젝트 제약조건] (반드시 준수)
+[프로젝트 제약조건] (준수)
 ${projectConstraintsBlock}
 
-${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequest}"\n\n` : ''}
-입력 텍스트:
-"${combinedInput}"
+${userRequest ? `[사용자 추가 요청 - 선택적 반영]\n"${userRequest}"\n\n` : ''}
+[입력 내용] (이 내용을 최대한 반영할 것)
+${combinedInput}
 
-[WBS 생성 기준 - PMO 표준]
+[지침]
+- 입력에 나온 단계, 산출물, 일정, 담당자, 작업명 등을 그대로 살려서 WBS를 구성하세요. 입력에 없는 단계나 작업을 임의로 넣지 마세요.
+- 레벨은 입력 내용에 맞게 적절히만 분류: 마일스톤/단계 → 작업 그룹 → 실행 작업 수준으로 계층을 나누되, 과도한 분해나 통합은 하지 마세요.
+- 작업 공수는 ${effortUnit}, 일정은 제약조건(시작일·종료일·투입율)에 맞게 설정하세요. 프로젝트에 투입인원이 있으면 그 인원으로 담당을 배정하세요.
+- 각 작업에 description(작업설명), deliverables(산출물)를 넣어 주세요.
 
-1. 마일스톤 기준: 3~5개 주요 마일스톤을 Level 1로 구성 (요구사항 분석 → 시스템 설계 → 개발 및 구현 → 시험 및 검증 → 결과 정리 및 보고)
-
-2. WBS 레벨 구조:
-   - Level 1: 마일스톤/프로젝트 단계
-   - Level 2: 주요 작업 그룹, 대표 산출물
-   - Level 3: 산출물 생성 작업 단위, 구체적 산출물
-   - Level 4: 실제 실행 작업 (공수 0.5d~2d, 하나의 행동 중심)
-   - Level 5: 필요 시 체크리스트
-
-3. 작업 분해: Level 3 작업은 반드시 Level 4로 분해. 공수 2d 이상이면 Level 4/5로 분해. 작업 공수는 ${effortUnit}로 분해.
-
-4. 선행관계: 분석→설계, 설계→개발, 개발→시험 반드시 포함. 실제 작업 의존성만 선행작업으로 설정.
-
-5. 일정: 작업기간 = 작업공수 ÷ (투입율/100). 동일 담당자 작업 일정 겹치지 않음. 프로젝트 시작일~종료일 범위 내에서 생성.
-
-6. 담당자: 작업 성격에 맞는 담당자 지정. 프로젝트에 투입인원이 설정되어 있으면 그 인원들로 배정.
-
-7. 산출물: 각 작업에 description(작업설명), deliverables(산출물) 포함.
-
-[JSON 출력 요구사항]
-- 반드시 "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
-- 작업 이름(name)에 번호나 'WP', 'Task' 같은 접두사를 포함하지 마세요.
-- 모든 작업 이름과 설명은 한국어로 작성하세요.
-- 구조는 중첩: 작업은 "subtasks" 배열을 가질 수 있습니다.
+[JSON 출력]
+- "tasks" 키를 포함하는 유효한 JSON 객체만 반환하세요.
+- 작업 이름에 번호나 'WP', 'Task' 접두사 없이, 한국어로 작성하세요.
+- 작업은 "subtasks" 배열로 중첩할 수 있습니다.
 
 작업 스키마:
 {
@@ -404,6 +389,17 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
         `;
       }
 
+      pushToast(
+        effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...',
+        {
+          variant: 'info',
+          id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
+          ...PROGRESS_TOAST_OPTS,
+          detail: 'AI에 요청 전송 중...',
+          progress: 30,
+        }
+      );
+
       const result = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -414,6 +410,18 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
       if (!responseText) {
         throw new Error("AI로부터 응답이 없습니다. API 키와 네트워크 연결을 확인해 주세요.");
       }
+
+      pushToast(
+        effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...',
+        {
+          variant: 'info',
+          id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
+          ...PROGRESS_TOAST_OPTS,
+          detail: '응답 처리 및 일정 반영 중...',
+          progress: 85,
+        }
+      );
+
       let parsed: { tasks?: unknown[] };
       try {
         const jsonStr = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -464,6 +472,7 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
           dismissToast(REANALYZE_PROGRESS_TOAST_ID);
           pushToast('WBS 재분석 완료', { variant: 'success' });
         } else {
+          dismissToast(GENERATE_PROGRESS_TOAST_ID);
           pushToast(`WBS ${adjusted.length}개 작업 생성 완료`, { variant: 'success' });
         }
         handleResetAndClose();
@@ -476,6 +485,9 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
           setReanalyzeInBackground(false);
           dismissToast(REANALYZE_PROGRESS_TOAST_ID);
           pushToast('WBS 재분석에 실패했습니다.', { variant: 'warning' });
+        } else {
+          dismissToast(GENERATE_PROGRESS_TOAST_ID);
+          pushToast(err.message || '텍스트 분석에 실패했습니다. 다시 시도해 주세요.', { variant: 'warning' });
         }
         setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
       }
@@ -495,9 +507,12 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
     pushToast('선행관계 분석 중...', {
       variant: 'info',
       id: DEP_PROGRESS_TOAST_ID,
-      durationMs: 60 * 60 * 1000,
+      ...PROGRESS_TOAST_OPTS,
+      detail: '작업 목록 구성 중...',
+      progress: 15,
     });
     setDependencyAnalysisInBackground(true);
+    onClose(); // 분석 시작 시 창 자동 닫기, 백그라운드에서 진행
 
     try {
       const ai = new GoogleGenAI({ apiKey });
@@ -541,6 +556,14 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
         }
       `;
 
+      pushToast('선행관계 분석 중...', {
+        variant: 'info',
+        id: DEP_PROGRESS_TOAST_ID,
+        ...PROGRESS_TOAST_OPTS,
+        detail: 'AI에 요청 전송 중...',
+        progress: 35,
+      });
+
       const result = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -549,6 +572,14 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
 
       const responseText = result.text;
       if (!responseText) throw new Error("AI로부터 응답이 없습니다.");
+
+      pushToast('선행관계 분석 중...', {
+        variant: 'info',
+        id: DEP_PROGRESS_TOAST_ID,
+        ...PROGRESS_TOAST_OPTS,
+        detail: '선행관계 적용 및 일정 반영 중...',
+        progress: 85,
+      });
 
       const parsed = JSON.parse(responseText);
       if (!parsed.dependencies || !Array.isArray(parsed.dependencies)) {
@@ -865,46 +896,6 @@ ${userRequest ? `사용자 특별 요청 사항 (최우선 준수):\n"${userRequ
                   disabled={isLoading}
                 />
               </div>
-
-              {existingTasks.length > 0 && (
-                <div className="border border-stone-200 rounded-xl overflow-hidden bg-stone-50/80">
-                  <button
-                    type="button"
-                    onClick={() => setShowPromptEditor(!showPromptEditor)}
-                    className="w-full flex items-center justify-between p-3 text-left hover:bg-stone-100/80 transition-colors"
-                  >
-                    <span className="text-sm font-bold text-stone-700 flex items-center gap-2">
-                      {showPromptEditor ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                      WBS 자동 교정 설정
-                    </span>
-                    <span className="text-xs text-stone-500">현재 작업 재분석 시 사용</span>
-                  </button>
-                  {showPromptEditor && (
-                    <div className="p-3 pt-0 space-y-2 border-t border-stone-200">
-                      <p className="text-xs text-stone-500">
-                        <code className="bg-stone-200 px-1 rounded">[여기에 기존 WBS 붙여넣기]</code>는 실제 WBS 데이터로, <code className="bg-stone-200 px-1 rounded">[프로젝트 제약조건]</code>은 프로젝트 시작일·종료일·투입인원·최소 공수로 자동 치환됩니다.
-                      </p>
-                      <textarea
-                        className="w-full h-48 p-3 rounded-lg border border-stone-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none resize-y text-sm leading-relaxed font-mono"
-                        placeholder={DEFAULT_WBS_CORRECTION_PROMPT}
-                        value={wbsCorrectionPrompt}
-                        onChange={(e) => handleWbsCorrectionPromptChange(e.target.value)}
-                        disabled={isLoading}
-                      />
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={handleResetWbsCorrectionPrompt}
-                          className="btn-ghost text-stone-500 hover:text-stone-700 flex items-center gap-1.5 text-xs"
-                        >
-                          <RotateCcw size={14} />
-                          기본값 복원
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {error && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2">

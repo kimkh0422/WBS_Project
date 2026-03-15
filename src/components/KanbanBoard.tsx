@@ -474,7 +474,11 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     }
   };
 
-  const effectiveProjectId = filters.projectId === 'all' ? (currentProjectId || 'all') : filters.projectId;
+  const effectiveProjectId = useMemo(() => {
+    if (filters.projectIds === 'all') return currentProjectId || 'all';
+    if (filters.projectIds.length === 1) return filters.projectIds[0];
+    return `multi:${[...filters.projectIds].sort().join(',')}`;
+  }, [filters.projectIds, currentProjectId]);
 
   const [kanbanOrder, setKanbanOrder] = useState<Record<string, string[]>>(() =>
     loadKanbanOrder(effectiveProjectId || 'all')
@@ -564,8 +568,9 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   // Filter tasks: only leaf tasks (no children), then apply filters
   const filteredTasks = useMemo(() => {
     let result = tasks;
-    if (filters.projectId !== 'all') {
-      result = result.filter(t => t.projectId === filters.projectId);
+    if (filters.projectIds !== 'all') {
+      const set = new Set(filters.projectIds);
+      result = result.filter((t) => t.projectId && set.has(t.projectId));
     }
     // Kanban: show only leaf tasks (lowest-level, no children)
     result = result.filter(task => !parentTaskIds.has(task.id));

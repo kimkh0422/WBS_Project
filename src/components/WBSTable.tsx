@@ -4,6 +4,7 @@ import { cn, formatDate } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
+import { MdEditModal } from './MdEditModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
@@ -27,7 +28,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { v4 as uuidv4 } from 'uuid';
 import { buildParentSet, buildVisibleTasks } from '../lib/taskView';
+import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { levelRowBg } from '../lib/levelColors';
+import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 
 interface WBSTableProps {
@@ -145,6 +148,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     refreshProjectSchedule,
   } = useWBS();
 
+  const { push: pushToast } = useToast();
+
   const projectAssignmentsByProjectId = useMemo(
     () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
     [projects]
@@ -162,8 +167,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
 
   // visibleTasks must be defined early - used by many hooks below
+  // preserveDepthOnFiltered: 필터 후에도 레벨(depth)·색상 유지 (간트와 동기화)
   const visibleTasks = useMemo(
-    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: false }),
+    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: true }),
     [tasks, filters, sortConfig]
   );
 
@@ -204,6 +210,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
   /** 셀 단위 인라인 편집: { taskId, columnId } */
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+  /** 편집 버튼으로 켜는 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 (F2로 토글) */
+  const [tableEditMode, setTableEditMode] = useState(false);
+  /** 편집 버튼 클릭 시 열리는 표-as-MD 편집 모달 */
+  const [isMdEditModalOpen, setIsMdEditModalOpen] = useState(false);
+  const [mdEditInitialMarkdown, setMdEditInitialMarkdown] = useState('');
 
   // Global list of assignees for datalist autocomplete (bulk edit 등): 프로젝트 투입인원 + 작업 담당자
   const allAssignees = useMemo(() => {
@@ -329,7 +340,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     parts.push(`${columnWidths.seq}px`);
     parts.push(`${columnWidths.expand}px`);
     for (const id of visibleColumnIds) {
-      if (id === 'name') parts.push(`minmax(${columnWidths.name}px, 1fr)`);
+      if (id === 'name') parts.push(`${columnWidths.name}px`);
       else parts.push(`${(columnWidths as any)[id]}px`);
     }
     parts.push(`${columnWidths.actions}px`);
@@ -341,6 +352,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
   const [bulkProgress, setBulkProgress] = useState('');
+  const [bulkStartDate, setBulkStartDate] = useState('');
+  const [bulkEndDate, setBulkEndDate] = useState('');
 
   // Row height (density) state
   const [rowHeight, setRowHeight] = useState<number>(20);
@@ -460,9 +473,80 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     return map;
   }, [visibleTasks, projectAssignmentsByProjectId]);
 
+  /** 컬럼 헤더 더블클릭 시 텍스트에 맞춰 너비 자동 조정용 측정 요소 */
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const measureText = useCallback((text: string): number => {
+    const el = measureRef.current;
+    if (!el) return 60;
+    el.style.whiteSpace = 'nowrap';
+    el.textContent = text || '0';
+    return Math.ceil(el.getBoundingClientRect().width) + 1;
+  }, []);
+
+  /** 데이터 컬럼별 헤더 표시 텍스트 */
+  const COLUMN_HEADER_LABELS: Record<TableColumnId, string> = {
+    wbsId: 'WBS',
+    name: '작업명',
+    startDate: '시작일',
+    endDate: '종료일',
+    workEffort: '공수(d)',
+    assignee: '담당자',
+    allocation: '투입율',
+    status: '상태',
+    progress: '진척(%)',
+    deliverables: '산출물',
+    dependencies: '선행작업',
+  };
+
+  /** 컬럼 헤더 더블클릭: 해당 컬럼 너비를 텍스트에 맞게 자동 조정 (고정 컬럼은 기본값으로 복원) */
+  const handleColumnHeaderDoubleClick = useCallback((col: keyof typeof columnWidths) => {
+    const fixedCols: (keyof typeof columnWidths)[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
+    if (fixedCols.includes(col)) {
+      setColumnWidths(prev => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTHS[col] }));
+      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: DEFAULT_COLUMN_WIDTHS[col] } });
+      return;
+    }
+    const colId = col as TableColumnId;
+    let maxW = measureText(COLUMN_HEADER_LABELS[colId] ?? String(colId));
+    for (const task of visibleTasks) {
+      let cellText = '';
+      if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
+      else if (colId === 'name') cellText = (displayWbsMap?.get(task.id) ? `${displayWbsMap.get(task.id)} ` : '') + (task.name ?? '');
+      else if (colId === 'startDate') cellText = formatDate(task.startDate);
+      else if (colId === 'endDate') cellText = formatDate(task.endDate);
+      else if (colId === 'workEffort') cellText = task.workEffort != null ? task.workEffort.toFixed(1) : '-';
+      else if (colId === 'assignee') {
+        cellText = task.assignments?.length
+          ? task.assignments.map(a => `${a.assignee} (${a.allocationPercent}%)`).join(', ')
+          : (task.assignee || '—');
+      } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
+      else if (colId === 'status') {
+        const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
+        cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
+      } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${task.progress}%` : '—';
+      else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
+      else if (colId === 'dependencies') {
+        const nums = (task.dependencies ?? [])
+          .map(id => taskIdToSeqNum.get(id))
+          .filter((n): n is number => n != null)
+          .sort((a, b) => a - b);
+        cellText = nums.length > 0 ? nums.join(', ') : '';
+      }
+      const w = measureText(cellText);
+      if (w > maxW) maxW = w;
+    }
+    const padding = 24;
+    const newWidth = Math.max(30, Math.min(800, maxW + padding));
+    setColumnWidths(prev => ({ ...prev, [col]: newWidth }));
+    updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
+  }, [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, wbsSettings?.statusConfigs, measureText, updateWbsSettings]);
+
   const baseTasks = useMemo(
-    () => (filters.projectId === 'all' ? tasks : tasks.filter(task => task.projectId === filters.projectId)),
-    [tasks, filters.projectId]
+    () =>
+      filters.projectIds === 'all'
+        ? tasks
+        : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId)),
+    [tasks, filters.projectIds]
   );
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
@@ -624,6 +708,34 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!hotkeysEnabled) return;
+      // Esc: 편집 중지 (셀 편집 → 작업명 편집 → 테이블 편집 모드 순으로 해제)
+      if (e.key === 'Escape') {
+        if (editingCell) {
+          setEditingCell(null);
+          e.preventDefault();
+          return;
+        }
+        if (inlineEditingNameId) {
+          setInlineEditingNameId(null);
+          e.preventDefault();
+          return;
+        }
+        if (tableEditMode) {
+          setTableEditMode(false);
+          e.preventDefault();
+          return;
+        }
+        // Esc: 선택 모두 취소
+        if (selectedTaskIds.size > 0) {
+          setSelection(new Set());
+          setBulkStatus('');
+          setBulkAssignee('');
+          setBulkWorkEffort('');
+          setBulkProgress('');
+          e.preventDefault();
+          return;
+        }
+      }
       // Ignore if editing a task (modal open), a cell, or typing in an input
       const target = e.target as HTMLElement;
       if (editingTask || deleteConfirm.isOpen || editingCell || target.tagName === 'TEXTAREA' || target.isContentEditable) {
@@ -767,7 +879,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         return;
       }
 
-      // If nothing is selected yet, allow arrow keys to start selection
+      // If nothing is selected yet, allow arrow keys to move focus (체크는 변경하지 않음)
       if (!lastSelectedId) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
@@ -775,15 +887,25 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
           const last = visibleTasks[visibleTasks.length - 1];
           const next = e.key === 'ArrowDown' ? first : last;
           if (next) {
-            handleSelect(next.id, false, false);
+            setLastSelectedId(next.id);
             document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
         return;
       }
 
-      // Check if sorted or filtered - disable structural changes if so
-      const isSortedOrFiltered = sortConfig !== null ||
+      // Space: toggle selection (checkbox) of the focused row
+      if (e.key === ' ') {
+        e.preventDefault();
+        const next = new Set(selectedTaskIds);
+        if (next.has(lastSelectedId)) next.delete(lastSelectedId);
+        else next.add(lastSelectedId);
+        setSelection(next);
+        return;
+      }
+
+      // WBS 정렬일 때만 순서/레벨 변경 허용 (다른 정렬·필터 시 표시 순서와 트리 순서가 달라 혼동 방지)
+      const isSortedOrFiltered = (sortConfig !== null && sortConfig.key !== 'wbs') ||
         filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly || !!filters.issueOnly;
 
       const currentIndex = visibleTasks.findIndex(t => t.id === lastSelectedId);
@@ -799,7 +921,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         } else {
           const prevTask = visibleTasks[currentIndex - 1];
           if (prevTask) {
-            handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
+            if (e.ctrlKey || e.metaKey || e.shiftKey) {
+              handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
+            } else {
+              setLastSelectedId(prevTask.id);
+            }
             document.getElementById(`task-row-${prevTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
@@ -813,14 +939,18 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         } else {
           const nextTask = visibleTasks[currentIndex + 1];
           if (nextTask) {
-            handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
+            if (e.ctrlKey || e.metaKey || e.shiftKey) {
+              handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
+            } else {
+              setLastSelectedId(nextTask.id);
+            }
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
       } else if (e.key === 'Tab') {
         e.preventDefault();
         if (!isSortedOrFiltered && selectedTaskIds.size > 0) {
-          // Sort selected IDs by their actual visual order so indents process correctly top-to-bottom
+          // Tab: 레벨 한 단계 내리기(들여쓰기), Shift+Tab: 레벨 한 단계 올리기(내어쓰기)
           const orderedIds = visibleTasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.id);
           if (e.shiftKey) {
             outdentTasks(orderedIds);
@@ -869,20 +999,14 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         }
       } else if (e.key === 'F2') {
         e.preventDefault();
-        // 현재 선택된 행이 1개일 때 작업명 인라인 편집 (표 선택 후 F2로 수정)
-        const taskIdToEdit =
-          selectedTaskIds.size === 1
-            ? lastSelectedId
-            : (sharedSelectedTaskIds?.length === 1 ? sharedSelectedTaskIds[0] : null);
-        if (taskIdToEdit) {
-          setInlineEditingNameId(taskIdToEdit);
-        }
+        // F2: 기존 편집 모드(셀 클릭 즉석 편집) 토글
+        setTableEditMode((v) => !v);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight]);
+  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll]);
 
   const handleQuickAddCancel = () => {
     setInlineAddingTaskId(null);
@@ -1058,10 +1182,17 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       const val = parseInt(bulkProgress, 10);
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = val;
     }
+    if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
+    if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();
     if (Object.keys(updates).length === 0) return;
     const ids = Array.from(selectedTaskIds);
-    if (Object.prototype.hasOwnProperty.call(updates, 'workEffort')) {
-      Array.from(ids).forEach(id => updateTask(id, updates));
+    // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
+    const hasScheduleField = Object.prototype.hasOwnProperty.call(updates, 'workEffort') ||
+      Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
+      Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
+      Object.prototype.hasOwnProperty.call(updates, 'dependencies');
+    if (hasScheduleField) {
+      ids.forEach(id => updateTask(id, updates));
     } else {
       updateTasksBulk(ids, updates);
     }
@@ -1069,6 +1200,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
     setBulkAssignee('');
     setBulkWorkEffort('');
     setBulkProgress('');
+    setBulkStartDate('');
+    setBulkEndDate('');
   };
 
   const executeBulkWorkEffort = () => {
@@ -1148,15 +1281,23 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const isSplitView = !!syncScrollRef;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
 
+  /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그 */
+  const resizeGrip = (col: keyof typeof columnWidths) => (
+    <div
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-l-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
+      title="컬럼 너비 조절 (드래그)"
+      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, col); }}
+    />
+  );
+
   const renderHeaderCell = (id: TableColumnId) => {
-    const commonResize = (
-      <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0"
-        onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, id as any); }}
-      />
-    );
+    const commonResize = resizeGrip(id as keyof typeof columnWidths);
 
     const onColContextMenu = (ev: React.MouseEvent) => handleHeaderContextMenu(ev, id);
+    const onColDoubleClick = (ev: React.MouseEvent) => {
+      ev.stopPropagation();
+      handleColumnHeaderDoubleClick(id as keyof typeof columnWidths);
+    };
     switch (id) {
       case 'wbsId':
         return (
@@ -1164,8 +1305,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('wbs')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title="WBS 순서 (클릭하여 정렬)"
+            title="WBS 순서 (클릭하여 정렬) · 더블클릭: 너비 자동"
           >
             WBS <SortIcon column="wbsId" />
             {commonResize}
@@ -1177,8 +1319,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('name')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.name}
+            title={COLUMN_TOOLTIPS.name + ' · 더블클릭: 너비 자동'}
           >
             작업명 <SortIcon column="name" />
             {commonResize}
@@ -1190,8 +1333,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('startDate')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.startDate}
+            title={COLUMN_TOOLTIPS.startDate + ' · 더블클릭: 너비 자동'}
           >
             시작일 <SortIcon column="startDate" />
             {commonResize}
@@ -1203,8 +1347,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('endDate')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.endDate}
+            title={COLUMN_TOOLTIPS.endDate + ' · 더블클릭: 너비 자동'}
           >
             종료일 <SortIcon column="endDate" />
             {commonResize}
@@ -1216,8 +1361,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('workEffort')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.workEffort}
+            title={COLUMN_TOOLTIPS.workEffort + ' · 더블클릭: 너비 자동'}
           >
             공수(d) <SortIcon column="workEffort" />
             {commonResize}
@@ -1229,8 +1375,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('progress')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.progress}
+            title={COLUMN_TOOLTIPS.progress + ' · 더블클릭: 너비 자동'}
           >
             진척(%) <SortIcon column="progress" />
             {commonResize}
@@ -1242,8 +1389,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('assignee')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.assignee}
+            title={COLUMN_TOOLTIPS.assignee + ' · 더블클릭: 너비 자동'}
           >
             담당자 <SortIcon column="assignee" />
             {commonResize}
@@ -1251,7 +1399,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         );
       case 'allocation':
         return (
-          <div key={id} className="col-header relative" onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.allocation}>
+          <div key={id} className="col-header relative" onDoubleClick={onColDoubleClick} onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.allocation + ' · 더블클릭: 너비 자동'}>
             투입율
             {commonResize}
           </div>
@@ -1262,8 +1410,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             key={id}
             className="col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative"
             onClick={() => onSort('status')}
+            onDoubleClick={onColDoubleClick}
             onContextMenu={onColContextMenu}
-            title={COLUMN_TOOLTIPS.status}
+            title={COLUMN_TOOLTIPS.status + ' · 더블클릭: 너비 자동'}
           >
             상태 <SortIcon column="status" />
             {commonResize}
@@ -1271,14 +1420,14 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         );
       case 'deliverables':
         return (
-          <div key={id} className="col-header relative" onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.deliverables}>
+          <div key={id} className="col-header relative" onDoubleClick={onColDoubleClick} onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.deliverables + ' · 더블클릭: 너비 자동'}>
             산출물
             {commonResize}
           </div>
         );
       case 'dependencies':
         return (
-          <div key={id} className="col-header relative" onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.dependencies}>
+          <div key={id} className="col-header relative" onDoubleClick={onColDoubleClick} onContextMenu={onColContextMenu} title={COLUMN_TOOLTIPS.dependencies + ' · 더블클릭: 너비 자동'}>
             선행작업
             {commonResize}
           </div>
@@ -1290,15 +1439,20 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
 
   const content = (
     <>
-      {/* === Summary Bar === */}
-      {(isSplitView || summaryStats) && (
-        <div className={cn(
-          // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
-          isSplitView
-            ? "h-11 flex items-center gap-0 border-b px-4 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto whitespace-nowrap"
-            : "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
-          "border-[var(--color-line)]"
-        )}>
+      {/* 컬럼 너비 자동 조정용 측정 요소 (화면 밖, 테이블과 동일 폰트) */}
+      <div
+        ref={measureRef}
+        className="absolute left-[-9999px] top-0 text-xs font-sans whitespace-nowrap invisible pointer-events-none"
+        aria-hidden
+      />
+      {/* === Summary Bar (표 바로 위: 통계·레벨 펼치기·편집·줄간격) === */}
+      <div className={cn(
+        // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
+        isSplitView
+          ? "h-11 flex items-center gap-0 border-b px-4 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto whitespace-nowrap"
+          : "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
+        "border-[var(--color-line)]"
+      )}>
           {summaryStats ? (
             <>
               <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
@@ -1309,7 +1463,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               <Divider />
               <StatChip icon={<CalendarDays size={12} />} label="기간" value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`} />
 
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-3">
                 <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">레벨 펼치기</span>
                 <select
                   className="h-7 rounded-md border border-stone-200 bg-white px-2 text-xs text-stone-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -1325,42 +1479,103 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                     <option key={lv} value={lv}>{lv}레벨</option>
                   ))}
                 </select>
+                <Divider />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
+                    const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
+                    setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView));
+                    setIsMdEditModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  title="표 내용을 마크다운(.md)으로 열어 직접 수정"
+                >
+                  <Edit2 size={12} />
+                  편집
+                </button>
+                <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title="F2: 셀 즉석 편집 모드">{tableEditMode ? '편집 중 (F2)' : 'F2'}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
+                  <input
+                    type="range"
+                    min={15}
+                    max={64}
+                    step={2}
+                    value={rowHeight}
+                    onChange={(e) => handleSetRowHeight(Number(e.target.value))}
+                    className="w-20 h-1.5 accent-indigo-500 cursor-pointer"
+                    title={`줄간격: ${rowHeight}px`}
+                  />
+                  <span className="text-[11px] font-bold text-slate-600 w-8 text-right tabular-nums">{rowHeight}</span>
+                </div>
               </div>
             </>
           ) : (
-            // split view에서만 높이 유지를 위한 빈 내용
-            <div className="flex-1" />
+            // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
+            <>
+              <div className="flex-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
+                  const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
+                  setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView));
+                  setIsMdEditModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title="표 내용을 마크다운으로 편집"
+              >
+                <Edit2 size={12} />
+                편집
+              </button>
+              <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title="F2: 셀 즉석 편집 모드">{tableEditMode ? '편집 중 (F2)' : 'F2'}</span>
+              <div className="w-px h-5 bg-stone-200 shrink-0" />
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
+                <input
+                  type="range"
+                  min={15}
+                  max={64}
+                  step={2}
+                  value={rowHeight}
+                  onChange={(e) => handleSetRowHeight(Number(e.target.value))}
+                  className="w-20 h-1.5 accent-indigo-500 cursor-pointer"
+                  title={`줄간격: ${rowHeight}px`}
+                />
+                <span className="text-[11px] font-bold text-slate-600 w-8 text-right tabular-nums">{rowHeight}</span>
+              </div>
+            </>
           )}
         </div>
-      )}
       <div className={cn("w-full pb-20", isSplitView && "flex-1 min-h-0 flex flex-col")} style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}>
         {/* Split view: 헤더를 스크롤 밖에 두어 표·간트 행만 스크롤로 1:1 맞춤 */}
         {isSplitView && (
           <div className="data-header flex-shrink-0 border-b border-slate-200 bg-slate-50/80" style={headerStyle}>
-            <div className="col-header justify-center relative" title="드래그" onContextMenu={(e) => handleHeaderContextMenu(e)}>
-              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
+            <div className="col-header justify-center relative" title="드래그 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('grip'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
+              {resizeGrip('grip')}
             </div>
-            <div className="col-header justify-center relative" title="전체 선택" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+            <div className="col-header justify-center relative" title="전체 선택 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('checkbox'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
               <input
                 type="checkbox"
                 className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                 checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                 onChange={handleSelectAll}
               />
-              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
+              {resizeGrip('checkbox')}
             </div>
-            <div className="col-header justify-center relative" title="순번" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+            <div className="col-header justify-center relative" title="순번 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('seq'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
               #
-              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
+              {resizeGrip('seq')}
             </div>
-            <div className="col-header justify-center relative" title="펼침" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+            <div className="col-header justify-center relative" title="펼침 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('expand'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
               <span className="text-stone-300">▾</span>
-              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
+              {resizeGrip('expand')}
             </div>
             {visibleColumnIds.map(renderHeaderCell)}
-            <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등)" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+            <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('actions'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
               관리
-              <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
+              {resizeGrip('actions')}
             </div>
           </div>
         )}
@@ -1376,30 +1591,30 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             {/* Non-split: 헤더는 스크롤 안에 (기존 동작) */}
             {!isSplitView && (
               <div className="data-header" style={gridStyle}>
-                <div className="col-header justify-center relative" title="드래그" onContextMenu={(e) => handleHeaderContextMenu(e)}>
-                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'grip')} />
+                <div className="col-header justify-center relative" title="드래그 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('grip'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
+                  {resizeGrip('grip')}
                 </div>
-                <div className="col-header justify-center relative" title="전체 선택" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+                <div className="col-header justify-center relative" title="전체 선택 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('checkbox'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   <input
                     type="checkbox"
                     className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
                     checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                     onChange={handleSelectAll}
                   />
-                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'checkbox')} />
+                  {resizeGrip('checkbox')}
                 </div>
-                <div className="col-header justify-center relative" title="순번" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+                <div className="col-header justify-center relative" title="순번 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('seq'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   #
-                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'seq')} />
+                  {resizeGrip('seq')}
                 </div>
-                <div className="col-header justify-center relative" title="펼침" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+                <div className="col-header justify-center relative" title="펼침 · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('expand'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   <span className="text-stone-300">▾</span>
-                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'expand')} />
+                  {resizeGrip('expand')}
                 </div>
                 {visibleColumnIds.map(renderHeaderCell)}
-                <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등)" onContextMenu={(e) => handleHeaderContextMenu(e)}>
+                <div className="col-header justify-end relative" title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화" onDoubleClick={(e) => { e.stopPropagation(); handleColumnHeaderDoubleClick('actions'); }} onContextMenu={(e) => handleHeaderContextMenu(e)}>
                   관리
-                  <div className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-[var(--color-accent)]/30 border-l border-stone-200 hover:border-[var(--color-accent)] z-20 shrink-0" onMouseDown={(e) => handleMouseDown(e, 'actions')} />
+                  {resizeGrip('actions')}
                 </div>
               </div>
             )}
@@ -1428,9 +1643,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                       taskIdToSeqNum={taskIdToSeqNum}
                       seqNumToTaskId={seqNumToTaskId}
                       isSelected={selectedTaskIds.has(task.id)}
+                      isFocused={lastSelectedId === task.id}
                       hasChildren={hasChildrenSet.has(task.id)}
                       isTreeView={isTreeView}
                       onSelect={handleSelect}
+                      onFocusRow={setLastSelectedId}
                       onEdit={setEditingTask}
                       onDeleteClick={handleDeleteClick}
                       onContextMenu={handleContextMenu}
@@ -1441,6 +1658,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                       setInlineEditingNameId={setInlineEditingNameId}
                       editingCell={editingCell}
                       setEditingCell={setEditingCell}
+                      tableEditMode={tableEditMode}
                       allAssignees={allAssignees}
                       assigneeOptionsByProjectId={assigneeOptionsByProjectId}
                       updateTask={updateTask}
@@ -1547,22 +1765,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         </div>
       </div>
 
-      {/* Row Height Slider */}
-      <div className="fixed top-24 right-6 z-40 flex items-center gap-2 bg-glass-elevated shadow-lg rounded-full px-4 py-2 select-none opacity-50 hover:opacity-100 transition-opacity duration-300">
-        <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
-        <input
-          type="range"
-          min={15}
-          max={64}
-          step={2}
-          value={rowHeight}
-          onChange={(e) => handleSetRowHeight(Number(e.target.value))}
-          className="w-24 h-1.5 accent-indigo-500 cursor-pointer"
-          title={`줄간격: ${rowHeight}px`}
-        />
-        <span className="text-[11px] font-bold text-slate-600 w-7 text-right">{rowHeight}</span>
-      </div>
-
       {/* Bulk Action Bar - 다중선택(2개 이상)일 경우에만 표시 */}
       {selectedTaskIds.size > 1 && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-glass-elevated shadow-2xl rounded-2xl z-50 animate-in slide-in-from-bottom-4 fade-in duration-300 overflow-hidden min-w-max border border-white/40 border-t-white">
@@ -1574,7 +1776,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
                 {selectedTaskIds.size}개 선택됨
               </span>
               <button
-                onClick={() => { setSelection(new Set()); setBulkStatus(''); setBulkAssignee(''); setBulkWorkEffort(''); setBulkProgress(''); }}
+                onClick={() => { setSelection(new Set()); setBulkStatus(''); setBulkAssignee(''); setBulkWorkEffort(''); setBulkProgress(''); setBulkStartDate(''); setBulkEndDate(''); }}
                 className="text-white/60 hover:text-white transition-colors hover:rotate-90 duration-300"
                 title="선택 해제"
               >
@@ -1641,10 +1843,38 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               />
             </div>
 
-            {/* 적용 버튼 - 상태, 담당자, 공수 등 입력된 모든 항목 일괄 적용 */}
+            {/* 시작일 */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">시작일</label>
+              <input
+                type="date"
+                value={bulkStartDate}
+                onChange={(e) => setBulkStartDate(e.target.value)}
+                className={cn(
+                  "px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36",
+                  bulkStartDate ? "border-blue-400 text-blue-700 font-medium" : "border-stone-200 text-stone-500"
+                )}
+              />
+            </div>
+
+            {/* 완료일(종료일) */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">완료일</label>
+              <input
+                type="date"
+                value={bulkEndDate}
+                onChange={(e) => setBulkEndDate(e.target.value)}
+                className={cn(
+                  "px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36",
+                  bulkEndDate ? "border-blue-400 text-blue-700 font-medium" : "border-stone-200 text-stone-500"
+                )}
+              />
+            </div>
+
+            {/* 적용 버튼 - 상태, 담당자, 공수, 시작일, 완료일 등 입력된 모든 항목 일괄 적용 */}
             <button
               onClick={executeBulkEdit}
-              disabled={!bulkStatus && !bulkAssignee.trim() && (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort)))}
+              disabled={!bulkStatus && !bulkAssignee.trim() && (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) && !bulkStartDate.trim() && !bulkEndDate.trim()}
               className="self-end text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
               title="입력한 항목 모두 적용"
             >
@@ -1687,6 +1917,39 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
         initialData={editingTask || undefined}
         parentOptions={tasks}
         onOpenTask={(task) => setEditingTask(task)}
+      />
+
+      <MdEditModal
+        isOpen={isMdEditModalOpen}
+        onClose={() => { setIsMdEditModalOpen(false); setMdEditInitialMarkdown(''); }}
+        initialMarkdown={mdEditInitialMarkdown}
+        onSave={(editedMarkdown) => {
+          const rows = parseMarkdownTable(editedMarkdown);
+          const wbsCodeToTaskId = new Map([...wbsMap].map(([id, code]) => [code, id]));
+          let updated = 0;
+          for (const row of rows) {
+            const taskId = wbsCodeToTaskId.get(row.wbsCode);
+            if (!taskId) continue;
+            const updates: Partial<Task> = {
+              name: row.name,
+              progress: row.progress,
+              assignee: row.assignee,
+              status: row.status,
+            };
+            if (row.startDate) updates.startDate = row.startDate;
+            if (row.endDate) updates.endDate = row.endDate;
+            if (row.workEffort != null) updates.workEffort = row.workEffort;
+            updateTask(taskId, updates);
+            updated += 1;
+          }
+          if (updated > 0) {
+            pushToast(`표가 마크다운 내용으로 반영되었습니다. (${updated}개 작업)`, { variant: 'success' });
+          } else if (rows.length === 0) {
+            pushToast('테이블 형식의 행을 찾을 수 없습니다. WBS 코드(**1**, **1.1** 등)가 있는 행만 반영됩니다.', { variant: 'warning' });
+          } else {
+            pushToast('매칭되는 작업이 없어 반영되지 않았습니다. WBS 코드를 변경하지 마세요.', { variant: 'warning' });
+          }
+        }}
       />
 
       {contextMenu && (
@@ -1873,9 +2136,13 @@ interface SortableTaskRowProps {
   taskIdToSeqNum: TaskIdToSeqNum;
   seqNumToTaskId: SeqNumToTaskId;
   isSelected: boolean;
+  /** 키보드 포커스 행 (상하 이동 시 체크와 무관하게 표시) */
+  isFocused: boolean;
   hasChildren: boolean;
   isTreeView: boolean;
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
+  /** 행 클릭 시 포커스만 이동 (선택/체크는 체크박스 클릭으로만) */
+  onFocusRow?: (taskId: string) => void;
   onEdit: (task: Task) => void;
   onDeleteClick: (taskId: string) => void;
   onContextMenu: (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void;
@@ -1886,6 +2153,8 @@ interface SortableTaskRowProps {
   setInlineEditingNameId: (id: string | null) => void;
   editingCell: { taskId: string; columnId: TableColumnId } | null;
   setEditingCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
+  /** 편집 버튼으로 켠 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 */
+  tableEditMode: boolean;
   allAssignees: string[];
   /** projectId → 프로젝트 등록 인원 + 해당 프로젝트 작업 담당자 목록 */
   assigneeOptionsByProjectId: Map<string, string[]>;
@@ -1908,9 +2177,11 @@ function SortableTaskRowInner({
   taskIdToSeqNum,
   seqNumToTaskId,
   isSelected,
+  isFocused,
   hasChildren,
   isTreeView,
   onSelect,
+  onFocusRow,
   onEdit,
   onDeleteClick,
   onContextMenu,
@@ -1921,6 +2192,7 @@ function SortableTaskRowInner({
   setInlineEditingNameId,
   editingCell,
   setEditingCell,
+  tableEditMode,
   allAssignees,
   assigneeOptionsByProjectId,
   updateTask,
@@ -1958,12 +2230,14 @@ function SortableTaskRowInner({
 
   const zebraOverlay = rowIndex % 2 === 1 ? 'rgba(2, 6, 23, 0.03)' : 'transparent';
 
+  const isDone = task.status === 'done' || (typeof task.progress === 'number' && task.progress >= 100);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    backgroundColor: isSelected ? '#eff6ff' : levelRowBg(level),
-    backgroundImage: isSelected ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
+    backgroundColor: isDone ? '#e5e7eb' : (isSelected ? '#eff6ff' : levelRowBg(level)),
+    backgroundImage: isSelected || isDone ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     zIndex: isDragging ? 10 : 1,
     position: isDragging ? 'relative' : undefined,
     ...gridStyle,
@@ -1976,9 +2250,14 @@ function SortableTaskRowInner({
       id={`task-row-${task.id}`}
       className={cn(
         "data-row group cursor-pointer outline-none transition-colors relative",
-        isSelected ? "bg-blue-50 font-medium text-blue-900" : "hover:brightness-[0.98]"
+        isSelected && !isDone && "bg-blue-50 font-medium text-blue-900",
+        isFocused && !isDone && "ring-1 ring-inset ring-blue-400/60",
+        isDone && "text-stone-500"
       )}
-      onClick={(e) => onSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
+      onClick={(e) => {
+        onSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey);
+        if (onFocusRow) onFocusRow(task.id);
+      }}
       tabIndex={0}
       onDoubleClick={() => onEdit(task)}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
@@ -2034,7 +2313,7 @@ function SortableTaskRowInner({
         }
         if (colId === 'name') {
           return (
-            <div key={colId} className="data-cell" style={{ paddingLeft: `${depth * 20 + 12}px` }}>
+            <div key={colId} className={cn("data-cell", tableEditMode && !isInlineEditingName && "ring-1 ring-dashed ring-slate-300 rounded")} style={{ paddingLeft: `${depth * 20 + 12}px` }}>
               {isInlineEditingName ? (
                 <input
                   autoFocus
@@ -2057,9 +2336,10 @@ function SortableTaskRowInner({
                 />
               ) : (
                 <span
-                  className="font-medium text-[var(--color-ink)] cursor-text flex items-center gap-1.5"
+                  className={cn("font-medium text-[var(--color-ink)] flex items-center gap-1.5", tableEditMode ? "cursor-cell" : "cursor-text")}
+                  onClick={(e) => { if (tableEditMode) { e.stopPropagation(); setInlineEditingNameId(task.id); } }}
                   onDoubleClick={() => setInlineEditingNameId(task.id)}
-                  title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
+                  title={tableEditMode ? '클릭하여 작업명 수정' : getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
                   {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
@@ -2078,7 +2358,7 @@ function SortableTaskRowInner({
         if (colId === 'startDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")} onClick={(e) => e.stopPropagation()}>
               <LockBadge field="startDate" />
               {isEditing ? (
                 <input
@@ -2102,14 +2382,14 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
+                  className={cn("rounded px-1 -mx-1 w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'startDate' }); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'startDate' }); }}
                   onFocus={(e) => {
-                    // Tab으로 진입 시 자동 편집 모드
                     e.stopPropagation();
                     setEditingCell({ taskId: task.id, columnId: 'startDate' });
                   }}
-                  title={task.startDate ? formatDate(task.startDate) : '더블클릭 또는 탭으로 포커스 후 수정'}
+                  title={tableEditMode ? '클릭하여 시작일 수정' : (task.startDate ? formatDate(task.startDate) : '더블클릭 또는 탭으로 포커스 후 수정')}
                 >
                   {formatDate(task.startDate)}
                 </button>
@@ -2120,7 +2400,7 @@ function SortableTaskRowInner({
         if (colId === 'endDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")} onClick={(e) => e.stopPropagation()}>
               <LockBadge field="endDate" />
               {isEditing ? (
                 <input
@@ -2144,14 +2424,14 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
+                  className={cn("rounded px-1 -mx-1 w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'endDate' }); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'endDate' }); }}
                   onFocus={(e) => {
-                    // Tab으로 진입 시 자동 편집 모드
                     e.stopPropagation();
                     setEditingCell({ taskId: task.id, columnId: 'endDate' });
                   }}
-                  title={task.endDate ? formatDate(task.endDate) : '더블클릭 또는 탭으로 포커스 후 수정'}
+                  title={tableEditMode ? '클릭하여 종료일 수정' : (task.endDate ? formatDate(task.endDate) : '더블클릭 또는 탭으로 포커스 후 수정')}
                 >
                   {formatDate(task.endDate)}
                 </button>
@@ -2162,7 +2442,7 @@ function SortableTaskRowInner({
         if (colId === 'workEffort') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
           return (
-            <div key={colId} className="data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")} onClick={(e) => e.stopPropagation()}>
               <LockBadge field="workEffort" />
               {isEditing ? (
                 <input
@@ -2188,14 +2468,14 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 w-full text-left"
+                  className={cn("rounded px-1 -mx-1 w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'workEffort' }); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'workEffort' }); }}
                   onFocus={(e) => {
-                    // Tab으로 진입 시 자동 편집 모드
                     e.stopPropagation();
                     setEditingCell({ taskId: task.id, columnId: 'workEffort' });
                   }}
-                  title={task.workEffort != null ? `${task.workEffort}일` : '더블클릭 또는 탭으로 포커스 후 수정'}
+                  title={tableEditMode ? '클릭하여 공수 수정' : (task.workEffort != null ? `${task.workEffort}일` : '더블클릭 또는 탭으로 포커스 후 수정')}
                 >
                   {task.workEffort != null ? task.workEffort.toFixed(1) : '-'}
                 </button>
@@ -2208,14 +2488,14 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-xs text-stone-600 min-w-0"
+              className={cn("data-cell font-mono text-xs text-stone-600 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 onContextMenu(e, task.id, 'progress');
               }}
               onClick={(e) => e.stopPropagation()}
-              title="더블클릭하여 수정 · 마우스 우클릭: 갱신 메뉴"
+              title={tableEditMode ? '클릭하여 진척률 수정 · 우클릭: 갱신 메뉴' : '더블클릭하여 수정 · 마우스 우클릭: 갱신 메뉴'}
             >
               {isEditing ? (
                 <input
@@ -2241,10 +2521,10 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 inline-block w-full text-left"
+                  className={cn("rounded px-1 -mx-1 inline-block w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'progress' }); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'progress' }); }}
                   onFocus={(e) => {
-                    // Tab으로 진입 시 자동 편집 모드
                     e.stopPropagation();
                     setEditingCell({ taskId: task.id, columnId: 'progress' });
                   }}
@@ -2351,7 +2631,7 @@ function SortableTaskRowInner({
         if (colId === 'deliverables') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'deliverables';
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <div key={colId} className={cn("data-cell text-xs text-stone-600 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")} onClick={(e) => e.stopPropagation()}>
               {isEditing ? (
                 <input
                   type="text"
@@ -2375,14 +2655,14 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="cursor-text hover:bg-blue-50/80 rounded px-1 -mx-1 block truncate w-full text-left"
+                  className={cn("rounded px-1 -mx-1 block truncate w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'deliverables' }); }}
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'deliverables' }); }}
                   onFocus={(e) => {
-                    // Tab으로 진입 시 자동 편집 모드
                     e.stopPropagation();
                     setEditingCell({ taskId: task.id, columnId: 'deliverables' });
                   }}
-                  title={(task.deliverables || '').trim() || '더블클릭 또는 탭으로 포커스 후 수정'}
+                  title={tableEditMode ? '클릭하여 산출물 수정' : ((task.deliverables || '').trim() || '더블클릭 또는 탭으로 포커스 후 수정')}
                 >
                   {task.deliverables || '-'}
                 </button>
@@ -2470,10 +2750,12 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     (!!prev.editingCell && !!next.editingCell && prev.editingCell.taskId === next.editingCell.taskId && prev.editingCell.columnId === next.editingCell.columnId);
   return (
     editingCellSame &&
+    prev.tableEditMode === next.tableEditMode &&
     prev.rowIndex === next.rowIndex &&
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&
     prev.isSelected === next.isSelected &&
+    prev.isFocused === next.isFocused &&
     prev.hasChildren === next.hasChildren &&
     prev.isTreeView === next.isTreeView &&
     prev.isInlineEditingName === next.isInlineEditingName &&

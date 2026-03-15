@@ -58,7 +58,7 @@ CREATE POLICY "project_access_requests_select_admin_or_owner" ON project_access_
     project_id IN (SELECT id FROM projects WHERE owner_id = auth.uid())
   );
 
-DROP POLICY IF EXISTS "project_access_requests_update_admin_or_owner" ON project_access_requests FOR UPDATE;
+DROP POLICY IF EXISTS "project_access_requests_update_admin_or_owner" ON project_access_requests;
 CREATE POLICY "project_access_requests_update_admin_or_owner" ON project_access_requests FOR UPDATE
   USING (
     public.is_admin_user() OR

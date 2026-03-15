@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, Lock } from 'lucide-react';
-
-const ADMIN_PASSWORD = '6501';
+import { WBS_ADMIN_PASSWORD } from '../constants/adminBypass';
 
 interface AdminPasswordModalProps {
   isOpen: boolean;
@@ -15,7 +14,7 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
+    if (password === WBS_ADMIN_PASSWORD) {
       onSuccess();
       setPassword('');
       setError(false);

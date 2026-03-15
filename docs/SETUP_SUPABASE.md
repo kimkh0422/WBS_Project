@@ -58,12 +58,16 @@ VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 관리자가 회원을 삭제하려면 `admin-delete-user` Edge Function을 배포해야 합니다.
 
-1. [Supabase CLI](https://supabase.com/docs/guides/cli) 설치
-2. 프로젝트 루트에서 로그인: `supabase login`
-3. 프로젝트 연결: `supabase link`
-4. 함수 배포: `supabase functions deploy admin-delete-user`
+1. 프로젝트 루트에서 `npm install` (로컬에 Supabase CLI가 포함됩니다. 전역 `supabase` 설치는 필수 아님.)
+2. 로그인: `npx supabase login`
+3. 프로젝트 연결: `npx supabase link`
+4. 함수 배포: `npm run supabase:deploy-functions` (또는 `npx supabase functions deploy admin-delete-user`)
 
 배포 후 **Project Settings** → **API**에서 `SUPABASE_SERVICE_ROLE_KEY`가 Edge Function에 자동 주입됩니다.
+
+**비밀번호 관리자 모드**로 회원 관리에 들어간 경우( DB `is_admin` 없이 앱 비밀번호만 입력 ): 회원 삭제도 Edge Function이 허용해야 합니다. **반드시 최신 `admin-delete-user`를 다시 배포**하세요. (구버전 함수는 DB 관리자만 삭제 가능해 `403` / `non-2xx`가 납니다.)
+
+선택: 대시보드 **Edge Functions** → `admin-delete-user` → **Secrets**에 `WBS_ADMIN_PASSWORD`를 설정하면 앱의 관리자 비밀번호와 동일하게 맞출 수 있습니다. 미설정 시 기본값 `6501`과 비교합니다(프로덕션에서는 시크릿 설정 권장).
 
 ## 7. 앱 실행
 
@@ -84,6 +88,7 @@ npm run dev
 | 프로젝트 PAUSED | Supabase 대시보드에서 프로젝트 복원 |
 | RLS 오류 | `FULL_SETUP_NEW_PROJECT.sql` 전체를 다시 실행 |
 | **회원 삭제 시 "Edge Function 요청에 실패했습니다"** | 아래 **Edge Function 점검 (1)(2)(3)** 참고. |
+| **회원 삭제 시 `non-2xx` / 관리자만 삭제** | (1) DB `profiles.is_admin=true` 인지 확인하거나, (2) 앱에서 **관리자 모드(비밀번호)** 로 전환 후 삭제. (3) `supabase functions deploy admin-delete-user` 로 함수 최신화. |
 | **프로젝트 수정 저장 시 `Could not find the 'report_agency' column` (PGRST204)** | 주간보고용 컬럼 마이그레이션 미적용. 터미널에서 `npm run db:report-fields-open` 실행 후 열린 SQL 에디터에서 붙여넣기 → Run. |
 
 ### Edge Function 점검 (1)(2)(3)

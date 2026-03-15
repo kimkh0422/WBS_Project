@@ -2,18 +2,20 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { WBSTable } from './components/WBSTable';
 import { GanttChart } from './components/GanttChart';
 import { KanbanBoard } from './components/KanbanBoard';
+import { MindMapView } from './components/MindMapView';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
-import { useWBS, WBSProvider } from './context/WBSContext';
-import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, Check, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug } from 'lucide-react';
+import { useWBS, WBSProvider, type DbSyncSummaryByProject } from './context/WBSContext';
+import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, RefreshCw, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug, RotateCcw, Network, MoreHorizontal } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
 import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
-import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds } from './lib/db';
+import { clearAllLocalData } from './lib/persist';
+import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds, getMyEditableProjectIds } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { ProjectsPage } from './components/ProjectsPage';
@@ -98,12 +100,13 @@ function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
 interface WBSAppProps {
   isAdmin: boolean;
   userApproved: boolean;
+  myEditableProjectIds: string[];
   onMembersUpdated?: () => void;
 }
 
-function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
+function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
-  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'dashboard' | 'projects' | 'allocation'>('list');
+  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
@@ -113,8 +116,10 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
+  const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
   const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
@@ -124,6 +129,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   const [auditLogProjectId, setAuditLogProjectId] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
@@ -177,7 +183,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     tasks,
     allTasks,
     importTasks,
-    syncToDb,
+    syncWithDb,
     projects,
     currentProjectId,
     setCurrentProjectId,
@@ -201,21 +207,9 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     expandToLevel,
     setTreeExpandLevel,
     isLoading,
+    canEditCurrentProject,
+    hasLocalChangesSinceSync,
   } = useWBS();
-
-  const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
-  const initialSnapshotRef = useRef<{ projects: Project[]; allTasks: Task[] } | null>(null);
-
-  useEffect(() => {
-    if (isLoading) return;
-    if (!initialSnapshotRef.current) {
-      initialSnapshotRef.current = { projects, allTasks };
-      return;
-    }
-    if (initialSnapshotRef.current.projects !== projects || initialSnapshotRef.current.allTasks !== allTasks) {
-      setHasUnsyncedChanges(true);
-    }
-  }, [projects, allTasks, isLoading]);
 
   const { push: pushToast, tipOnce } = useToast();
   const prevAIBusyRef = useRef(false);
@@ -228,7 +222,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     if (projects.length === 0) {
       setView('projects');
       setIsProjectDropdownOpen(false);
-      setFilters(prev => ({ ...prev, projectId: 'all' }));
+      setFilters(prev => ({ ...prev, projectIds: 'all' }));
     }
   }, [isLoading, projects.length]);
 
@@ -236,6 +230,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   useEffect(() => {
     if (hiddenViews.has(view)) setView('list');
   }, [hiddenViews, view]);
+
+  // 마인드맵은 관리자 전용: 비관리자가 해당 화면이면 표로 이동
+  useEffect(() => {
+    if (view === 'mindmap' && !effectiveIsAdmin) setView('list');
+  }, [view, effectiveIsAdmin]);
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -304,12 +303,6 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     return m;
   }, [projects, allTasks]);
 
-  const deletableProjects = React.useMemo(() => {
-    // "프로젝트 선택해서 삭제"는 실제로 '프로젝트+소속 작업 삭제'이므로,
-    // 작업이 있는 프로젝트만 표시 (작업이 0개면 삭제할 게 없음)
-    return projects.filter(p => (taskCountByProject[p.id] ?? 0) > 0);
-  }, [projects, taskCountByProject]);
-
   // 프로젝트 목록: id 기준으로만 표시 (이름+소유자로 묶지 않음 → 사용자별 복사본이 원본과 합쳐지지 않음)
   const uniqueProjects = React.useMemo(() => {
     const seen = new Set<string>();
@@ -320,32 +313,25 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     });
   }, [projects]);
 
-  // 0개인 프로젝트는 제외(단, 현재 선택 중인 프로젝트는 유지), 인원(소유자)별 그룹
-  const projectsGroupedByOwner = React.useMemo(() => {
-    const filtered = uniqueProjects.filter(
-      p => (taskCountByProject[p.id] ?? 0) > 0 || p.id === currentProjectId
-    );
-    const groupMap = new Map<string, { label: string; ownerId: string | null; projects: Project[] }>();
-    for (const p of filtered) {
-      const ownerId = p.ownerId ?? null;
-      const key = ownerId ?? 'null';
-      const label = ownerId === user?.id ? '내 프로젝트' : (ownerId ? (profileMap[ownerId] ?? '다른 사용자') : '소유자 없음');
-      if (!groupMap.has(key)) groupMap.set(key, { label, ownerId, projects: [] });
-      groupMap.get(key)!.projects.push(p);
-    }
-    const myId = user?.id;
-    return Array.from(groupMap.values()).sort((a, b) => {
-      if (a.ownerId === myId) return -1;
-      if (b.ownerId === myId) return 1;
-      return a.label.localeCompare(b.label, 'ko');
+  // 권한 등급과 무관하게 동일한 목록: 소유자 그룹 없이 이름순 단일 목록 (이름 같으면 id로 2차 정렬해 순서 고정)
+  const projectsSortedByName = React.useMemo(() => {
+    return [...uniqueProjects].sort((a, b) => {
+      const byName = (a.name ?? '').localeCompare(b.name ?? '', 'ko');
+      return byName !== 0 ? byName : (a.id ?? '').localeCompare(b.id ?? '', 'ko');
     });
-  }, [uniqueProjects, taskCountByProject, currentProjectId, user?.id, profileMap]);
+  }, [uniqueProjects]);
+
+  const deletableProjects = React.useMemo(() => {
+    // "프로젝트 선택해서 삭제"는 실제로 '프로젝트+소속 작업 삭제'이므로,
+    // 작업이 있는 프로젝트만 표시. 목록 순서 통일을 위해 projectsSortedByName 기준으로 필터
+    return projectsSortedByName.filter(p => (taskCountByProject[p.id] ?? 0) > 0);
+  }, [projectsSortedByName, taskCountByProject]);
 
   // Shift+F12: 관리자 모드 전환
   useEffect(() => {
     const handleAdminHotkey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.shiftKey && e.key === 'F12') {
         e.preventDefault();
         setIsAdminPasswordModalOpen(true);
@@ -451,9 +437,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
   useEffect(() => {
     const prev = prevAIBusyRef.current;
-    if (!prev && isAIBusy) {
-      pushToast('AI 분석 중입니다. 창을 닫아도 백그라운드에서 계속 진행됩니다.', { variant: 'info', id: 'ai-busy' });
-    } else if (prev && !isAIBusy) {
+    if (prev && !isAIBusy) {
       pushToast('AI 분석이 완료되었습니다. AI 버튼을 눌러 결과를 확인하세요.', { variant: 'success', id: 'ai-done' });
     }
     prevAIBusyRef.current = isAIBusy;
@@ -468,6 +452,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
     if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
     if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
+    if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
   }, [tipOnce, setView, view]);
 
   const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
@@ -505,7 +490,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   useEffect(() => {
     const handleUndoRedo = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -522,7 +507,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       if (!(e.altKey && (e.ctrlKey || e.metaKey))) return;
 
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
 
       if (!/^[1-9]$/.test(e.key)) return;
       const level = parseInt(e.key, 10);
@@ -537,7 +522,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
-    projectId: 'all',
+    projectIds: 'all',
     status: 'all',
     assignee: '',
     startDate: '',
@@ -560,6 +545,18 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
   // Filter on/off (when on, filter bar and filters apply)
   const [filterOn, setFilterOn] = useState(false);
+  const [isProjectFilterDropdownOpen, setIsProjectFilterDropdownOpen] = useState(false);
+  const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isProjectFilterDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      if (projectFilterDropdownRef.current && !projectFilterDropdownRef.current.contains(e.target as Node)) {
+        setIsProjectFilterDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [isProjectFilterDropdownOpen]);
 
   const [importPreview, setImportPreview] = useState<{
     isOpen: boolean;
@@ -739,21 +736,51 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
   const executeDbSync = async (scope: 'current' | 'all') => {
     setIsDbSyncing(true);
-    pushToast('DB에 반영 중입니다...', { variant: 'info', id: 'db-sync', durationMs: 8000 });
+    setDbSyncStep({ pct: 0, msg: '시작…' });
+    pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
     try {
-      await syncToDb(scope);
-      pushToast('DB에 반영되었습니다.', { variant: 'success', id: 'db-sync', durationMs: 4000 });
-      setHasUnsyncedChanges(false);
-      initialSnapshotRef.current = { projects, allTasks };
+      const snap = await syncWithDb(scope, (pct, message) => {
+        setDbSyncStep({ pct, msg: message });
+        pushToast(`DB 동기화\n${message}`, { variant: 'info', id: 'db-sync', durationMs: 300000, progress: pct });
+      });
+      const s = snap.summary;
+      const lines: string[] = [
+        '동기화 완료',
+        `↑ 업로드: 프로젝트 ${s.uploadedProjects} · 작업 ${s.uploadedTasks} · 표·상태 설정 1건 · DB 작업 삭제 ${s.uploadedTaskDeletions}건 · DB 프로젝트 삭제 ${s.uploadedProjectDeletions}건`,
+        `↓ 내려받기: 프로젝트 ${s.downloadedProjects} · 작업 ${s.downloadedTasks} · 설정 ${s.downloadedSettings ? '반영' : '없음'}`,
+      ];
+      const byProjectEntries = Object.entries(s.byProject ?? {}) as [string, DbSyncSummaryByProject][];
+      if (byProjectEntries.length > 0) {
+        lines.push(''); // 빈 줄 후 프로젝트별 요약
+        for (const [, info] of byProjectEntries) {
+          const upParts = [
+            info.uploadedProjects > 0 && '프로젝트 정보 1건',
+            info.uploadedTasks > 0 && `작업 ${info.uploadedTasks}건`,
+          ].filter(Boolean) as string[];
+          const downParts = [
+            info.appliedProjects > 0 && '프로젝트 정보 1건',
+            info.appliedTasks > 0 && `작업 ${info.appliedTasks}건`,
+          ].filter(Boolean) as string[];
+          const upStr = upParts.length ? `↑ ${upParts.join(', ')}` : '';
+          const downStr = downParts.length ? `↓ ${downParts.join(', ')}` : '';
+          const part = [upStr, downStr].filter(Boolean).join(' · ') || '변경 없음';
+          lines.push(`${info.projectName}: ${part}`);
+        }
+      }
+      pushToast(
+        lines.join('\n'),
+        { variant: 'success', id: 'db-sync', durationMs: 8000, progress: 100 }
+      );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'DB 반영에 실패했습니다.';
+      const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
       pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
     } finally {
       setIsDbSyncing(false);
+      setDbSyncStep(null);
     }
   };
 
-  // Ctrl+S: DB 반영 (로컬 저장은 자동, 단축키는 공유/반영용)
+  // Ctrl+S: DB 동기화 (로컬 저장은 자동, 단축키는 동기화용)
   useEffect(() => {
     const handleSaveHotkey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -761,12 +788,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       if (e.key.toLowerCase() !== 's') return;
 
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement | null)?.isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
       if (isDbSyncing) return;
 
       e.preventDefault();
-      const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
-      void executeDbSync(scope);
+      void executeDbSync('all');
     };
     window.addEventListener('keydown', handleSaveHotkey);
     return () => window.removeEventListener('keydown', handleSaveHotkey);
@@ -874,7 +900,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     try {
       await importTasks(importPreview.tasks, targetProjectId, newProjectName);
       if (targetProjectId !== '__new__') setCurrentProjectId(targetProjectId);
-      setFilters(prev => ({ ...prev, projectId: 'all' }));
+      setFilters(prev => ({ ...prev, projectIds: 'all' }));
       setImportPreview({ isOpen: false, tasks: [], files: [] });
       pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
     } catch {
@@ -911,40 +937,53 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     }
   };
 
-  const handleDashboardNavigate = (newView: any, newFilters: Partial<FilterState>) => {
+  const handleDashboardNavigate = (newView: any, newFilters: Partial<FilterState> & { projectId?: string }) => {
     // 대시보드 카드 클릭 시, 해당 조건으로 필터된 내역을 바로 보여주기 위한 내비게이션
     setView(newView);
 
+    const dashPid = newFilters.projectId;
+    const projectIds =
+      dashPid && dashPid !== 'all' ? ([dashPid] as string[]) : ('all' as const);
+    const { projectId: _omit, ...rest } = newFilters;
+
     // 기존 필터를 초기 상태로 리셋한 뒤 대시보드에서 전달된 필터만 적용
     setFilters(() => ({
-      projectId: 'all',
       status: 'all',
       assignee: '',
       startDate: '',
       endDate: '',
-      ...newFilters,
+      milestoneOnly: false,
+      issueOnly: false,
+      level: 'all',
+      pastDueOnly: false,
+      completedThisWeekOnly: false,
+      ...rest,
+      projectIds,
     }));
 
     // 특정 프로젝트 카드일 경우, 현재 프로젝트도 함께 전환
-    if (newFilters.projectId && newFilters.projectId !== 'all') {
-      setCurrentProjectId(newFilters.projectId);
+    if (dashPid && dashPid !== 'all') {
+      setCurrentProjectId(dashPid);
     }
 
     // 대시보드에서 들어온 경우에는 필터를 항상 켜서 바로 반영
     setFilterOn(true);
   };
 
-  // keep filters.projectId aligned with currentProjectId (project selection is global)
+  /** 헤더 프로젝트가 바뀔 때만 필터 동기화 (필터에서 다중 선택한 뒤 헤더는 그대로일 때는 유지) */
+  const headerProjectFilterSyncKey = useRef<string | null>(null);
   useEffect(() => {
-    setFilters(prev => {
-      const nextProjectId = currentProjectId || 'all';
-      if (prev.projectId === nextProjectId) return prev;
-      return { ...prev, projectId: nextProjectId };
-    });
+    const key = !currentProjectId || currentProjectId === 'all' ? '__all__' : currentProjectId;
+    if (headerProjectFilterSyncKey.current === key) return;
+    headerProjectFilterSyncKey.current = key;
+    setFilters((prev) => ({
+      ...prev,
+      projectIds: key === '__all__' ? 'all' : [currentProjectId],
+    }));
   }, [currentProjectId]);
 
   const hasActiveFilters = filterOn && (
-    filters.projectId !== 'all' ||
+    filters.projectIds !== 'all' ||
     filters.status !== 'all' ||
     filters.assignee ||
     filters.startDate ||
@@ -960,29 +999,21 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
     ? filters
     : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false, completedThisWeekOnly: false };
 
-  const [isRefreshConfirmOpen, setIsRefreshConfirmOpen] = useState(false);
-
-  const requestRefresh = useCallback(() => {
-    if (hasUnsyncedChanges) {
-      setIsRefreshConfirmOpen(true);
+  const requestRefresh = useCallback(async () => {
+    if (hasLocalChangesSinceSync) {
+      try {
+        await executeDbSync('all');
+      } finally {
+        window.location.reload();
+      }
     } else {
       window.location.reload();
     }
-  }, [hasUnsyncedChanges]);
-
-  useEffect(() => {
-    if (!hasUnsyncedChanges) return;
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsyncedChanges]);
+  }, [hasLocalChangesSinceSync, executeDbSync]);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--color-bg)] font-sans text-[var(--color-ink)] gap-5">
+      <div className="h-full flex flex-col items-center justify-center bg-[var(--color-bg)] font-sans text-[var(--color-ink)] gap-5">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center">
             <Loader2 size={24} className="animate-spin text-[var(--color-accent)]" />
@@ -997,125 +1028,112 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
   }
 
   return (
-    <div className={cn("min-h-screen flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900", isFullscreen && "overflow-hidden")}>
+    <div className={cn("h-full min-h-0 flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden", isFullscreen && "fixed inset-0 z-50")}>
       {!isFullscreen && (
-      <header className={cn("bg-white/90 backdrop-blur-xl border-b border-slate-200/60 z-50 safe-top transition-all duration-200", isHeaderCollapsed ? "py-2 px-3 md:py-3 md:px-6" : "px-4 md:px-6 py-3")} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}>
-        {/* 모바일 접힌 상태: 최소 바 */}
-        <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
-          <div className="flex items-center gap-2 min-w-0">
-            <button type="button" onClick={requestRefresh} className="shrink-0">
-              <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain" />
-            </button>
-            <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
-          </div>
-          <button
-            onClick={() => setIsHeaderCollapsed(false)}
-            className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
-            title="메뉴 펼치기"
-          >
-            <ChevronDown size={20} />
-          </button>
-        </div>
-        {/* 전체 헤더: 모바일에서 접혀 있으면 숨김 */}
-        <div className={cn("flex flex-col md:flex-row justify-between items-start md:items-center gap-4", isHeaderCollapsed && "hidden md:flex")}>
-        <div className="flex items-center gap-4">
-          <div
-            className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={requestRefresh}
-            title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
-          >
-            <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain" />
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <h1 className="text-xl font-bold tracking-tight leading-none">{wbsSettings.appTitle}</h1>
-              <button
-                onClick={() => {
-                  setIsVersionHistoryOpen(true);
-                  tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
-                }}
-                className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
-                title={`버전 정보 (수정일: ${formatCommitDate(__APP_COMMIT_DATE__)})`}
-              >
-                <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
-                <span>v{__APP_VERSION__}</span>
-                <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
-                  · 수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}
-                </span>
+        <header className={cn("bg-white/90 backdrop-blur-xl border-b border-slate-200/60 z-50 safe-top transition-all duration-200", isHeaderCollapsed ? "py-2 px-3 md:py-3 md:px-6" : "px-4 md:px-6 py-3")} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}>
+          {/* 모바일 접힌 상태: 최소 바 */}
+          <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
+            <div className="flex items-center gap-2 min-w-0">
+              <button type="button" onClick={requestRefresh} className="shrink-0">
+                <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain" />
               </button>
+              <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
             </div>
-
-            <div className="relative mt-1 group">
-              <button
-                onClick={() => {
-                  setIsProjectDropdownOpen(!isProjectDropdownOpen);
-                  tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
-                }}
-                className="flex items-center gap-2 px-2.5 py-2 hover:bg-slate-50 rounded-xl transition-all border border-transparent hover:border-slate-200/80"
-                title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
+            <button
+              onClick={() => setIsHeaderCollapsed(false)}
+              className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
+              title="메뉴 펼치기"
+            >
+              <ChevronDown size={20} />
+            </button>
+          </div>
+          {/* 전체 헤더: 모바일에서 접혀 있으면 숨김 */}
+          <div className={cn("flex flex-col md:flex-row justify-between items-start md:items-center gap-4", isHeaderCollapsed && "hidden md:flex")}>
+            <div className="flex items-center gap-4">
+              <div
+                className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={requestRefresh}
+                title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
               >
-                <div className="flex flex-col items-start">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">프로젝트</span>
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
-                    <span className="max-w-[140px] sm:max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
-                    <ChevronDown size={14} className={cn("text-slate-400 transition-transform duration-200", isProjectDropdownOpen && "rotate-180")} />
-                  </div>
-                  {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
-                    <span className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5" title={currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? currentProject.ownerId) : undefined}>
-                      {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
+                <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain" />
+              </div>
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <h1 className="text-xl font-bold tracking-tight leading-none">{wbsSettings.appTitle}</h1>
+                  <button
+                    onClick={() => {
+                      setIsVersionHistoryOpen(true);
+                      tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
+                    }}
+                    className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
+                    title={`버전 정보 (수정일: ${formatCommitDate(__APP_COMMIT_DATE__)})`}
+                  >
+                    <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
+                    <span>v{__APP_VERSION__}</span>
+                    <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
+                      · 수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}
                     </span>
-                  )}
+                  </button>
                 </div>
-              </button>
-              {presenceOthers.length > 0 && currentProjectId !== 'all' && (
-                <div
-                  className="absolute left-0 top-full mt-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200/80 text-amber-800 text-xs"
-                  title="다른 사용자가 이 프로젝트를 보고 있습니다. 동시에 수정하면 충돌할 수 있어 저장 후 새로고침됩니다."
-                >
-                  <Eye size={12} className="shrink-0 text-amber-600" />
-                  <span className="font-medium">
-                    {presenceOthers.length}명이 보고 있음:
-                  </span>
-                  <span className="truncate max-w-[180px]" title={presenceOthers.map(o => o.displayName).join(', ')}>
-                    {presenceOthers.map(o => o.displayName).join(', ')}
-                  </span>
-                </div>
-              )}
-              {isProjectDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
-                  <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu" style={{ boxShadow: 'var(--shadow-xl)' }}>
-                    <div className="p-1">
-                      <div className="px-3 py-2 text-[10px] font-bold uppercase text-stone-400 tracking-wider" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">프로젝트 목록</div>
-                      <div
-                        className={cn(
-                          "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
-                          currentProjectId === 'all' ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
-                        )}
-                        onClick={() => {
-                          selectProject('all');
-                          setIsProjectDropdownOpen(false);
-                        }}
-                        title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
-                      >
-                        <span className="truncate flex-1">전체</span>
-                        <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
+
+                <div className="relative mt-1 group">
+                  <button
+                    onClick={() => {
+                      setIsProjectDropdownOpen(!isProjectDropdownOpen);
+                      tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-2 hover:bg-slate-50 rounded-xl transition-all border border-transparent hover:border-slate-200/80"
+                    title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
+                  >
+                    <div className="flex flex-col items-start">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">프로젝트</span>
+                      <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
+                        <span className="max-w-[140px] sm:max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
+                        <ChevronDown size={14} className={cn("text-slate-400 transition-transform duration-200", isProjectDropdownOpen && "rotate-180")} />
                       </div>
-                      <div className="h-px bg-stone-100 my-1 mx-2" />
-                      {projectsGroupedByOwner.map(group => (
-                        <div key={group.ownerId ?? 'null'} className="mb-2">
+                      {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
+                        <span className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5" title={currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? currentProject.ownerId) : undefined}>
+                          {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                  {presenceOthers.length > 0 && currentProjectId !== 'all' && (
+                    <div
+                      className="absolute left-0 top-full mt-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200/80 text-amber-800 text-xs"
+                      title="다른 사용자가 이 프로젝트를 보고 있습니다. 동시에 수정하면 충돌할 수 있어 저장 후 새로고침됩니다."
+                    >
+                      <Eye size={12} className="shrink-0 text-amber-600" />
+                      <span className="font-medium">
+                        {presenceOthers.length}명이 보고 있음:
+                      </span>
+                      <span className="truncate max-w-[180px]" title={presenceOthers.map(o => o.displayName).join(', ')}>
+                        {presenceOthers.map(o => o.displayName).join(', ')}
+                      </span>
+                    </div>
+                  )}
+                  {isProjectDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
+                      <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu" style={{ boxShadow: 'var(--shadow-xl)' }}>
+                        <div className="p-1">
+                          <div className="px-3 py-2 text-[10px] font-bold uppercase text-stone-400 tracking-wider" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">프로젝트 목록</div>
                           <div
                             className={cn(
-                              "px-3 py-2 mt-1 first:mt-0 rounded-md border-l-2 text-xs font-bold tracking-wide",
-                              group.ownerId === user?.id
-                                ? "bg-teal-50/80 border-teal-400 text-teal-800"
-                                : "bg-stone-100 border-stone-300 text-stone-600"
+                              "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
+                              currentProjectId === 'all' ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
                             )}
-                            title={group.ownerId === user?.id ? "내가 만든 프로젝트" : "다른 사용자의 프로젝트"}
+                            onClick={() => {
+                              selectProject('all');
+                              setIsProjectDropdownOpen(false);
+                            }}
+                            title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
                           >
-                            {group.label}
+                            <span className="truncate flex-1">전체</span>
+                            <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
                           </div>
-                          {group.projects.map(project => (
+                          <div className="h-px bg-stone-100 my-1 mx-2" />
+                          {projectsSortedByName.map(project => (
                             <div
                               key={project.id}
                               className={cn(
@@ -1134,261 +1152,263 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유"><Share2 size={12} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); setAuditLogProjectId(project.id); setIsAuditLogOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-amber-600 p-1 rounded" title="변경 이력"><History size={12} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사"><Copy size={12} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집"><Edit size={12} /></button>
-                                {projectsGroupedByOwner.flatMap(g => g.projects).length > 1 && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setProjectToDelete(project);
-                                      setIsProjectDropdownOpen(false);
-                                      setIsDeleteProjectConfirmOpen(true);
-                                    }}
-                                    className="text-stone-400 hover:text-red-500 p-1 rounded"
-                                    title="프로젝트 삭제"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
+                                {myEditableProjectIds.includes(project.id) && (
+                                  <>
+                                    <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유"><Share2 size={12} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사"><Copy size={12} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집"><Edit size={12} /></button>
+                                    {projectsSortedByName.length > 1 && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setProjectToDelete(project);
+                                          setIsProjectDropdownOpen(false);
+                                          setIsDeleteProjectConfirmOpen(true);
+                                        }}
+                                        className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                        title="프로젝트 삭제"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    )}
+                                  </>
                                 )}
+                                <button onClick={(e) => { e.stopPropagation(); setAuditLogProjectId(project.id); setIsAuditLogOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-amber-600 p-1 rounded" title="변경 이력"><History size={12} /></button>
                               </div>
                             </div>
                           ))}
+                          <div className="border-t border-[var(--color-line)] my-1"></div>
+                          <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성합니다.">
+                            <FolderPlus size={14} /> 새 프로젝트
+                          </button>
+                          <button onClick={() => { setIsProjectDropdownOpen(false); setView('projects'); }} className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors" title="프로젝트 관리 페이지로 이동합니다.">
+                            <Briefcase size={14} /> 프로젝트 관리
+                          </button>
+                          {effectiveIsAdmin && !userApproved && !isAdmin && (
+                            <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="미승인 상태에서는 로컬에 저장된 프로젝트만 표시됩니다.">
+                              로컬 전용: DB의 전체 프로젝트를 보려면 관리자 승인 후 다시 로그인하세요.
+                            </p>
+                          )}
+                          {effectiveIsAdmin && userApproved && !isAdmin && (
+                            <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="비밀번호 관리자 모드는 DB 권한에 반영되지 않습니다.">
+                              비밀번호 관리자 모드는 메뉴/승인에만 적용됩니다. 전체 프로젝트를 보려면 회원 관리에서 본인을 &apos;관리자&apos;로 지정하세요.
+                            </p>
+                          )}
                         </div>
-                      ))}
-                      <div className="border-t border-[var(--color-line)] my-1"></div>
-                      <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성합니다.">
-                        <FolderPlus size={14} /> 새 프로젝트
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
+              {/* 툴바: 되돌리기 / 다시실행 */}
+              <div className="flex items-center gap-0.5 mr-1">
+                <button
+                  onClick={undo}
+                  disabled={!canUndo}
+                  className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  title="실행 취소 (Ctrl+Z)"
+                >
+                  <Undo2 size={16} />
+                </button>
+                <button
+                  onClick={redo}
+                  disabled={!canRedo}
+                  className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  title="다시 실행 (Ctrl+Shift+Z)"
+                >
+                  <Redo2 size={16} />
+                </button>
+              </div>
+              <div className="toolbar-divider hidden md:block" />
+              {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
+              <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
+                {!hiddenViews.has('dashboard') && (
+                  <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
+                )}
+                {!hiddenViews.has('allocation') && (
+                  <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
+                )}
+                <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
+                <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
+                <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
+                <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." />
+              </div>
+
+              <div className="toolbar-divider" />
+
+              {/* Filter On/Off Toggle */}
+              <button
+                onClick={() => {
+                  setFilterOn(v => !v);
+                  tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all shrink-0",
+                  filterOn
+                    ? "bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25"
+                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"
+                )}
+                title={filterOn ? "필터 끄기" : "필터 켜기"}
+              >
+                <Filter size={14} />
+                <span className="hidden sm:inline">필터</span>
+                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", filterOn ? "bg-white/20" : "bg-slate-100 text-slate-400")}>{filterOn ? "On" : "Off"}</span>
+              </button>
+
+              {/* DB Sync */}
+              <button
+                onClick={() => {
+                  if (isDbSyncing) return;
+                  void executeDbSync('all');
+                }}
+                disabled={isDbSyncing}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-all relative",
+                  isDbSyncing
+                    ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
+                    : hasLocalChangesSinceSync
+                      ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 hover:border-amber-400"
+                      : "bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700"
+                )}
+                title={
+                  isDbSyncing && dbSyncStep
+                    ? `${dbSyncStep.msg} (${dbSyncStep.pct}%)`
+                    : hasLocalChangesSinceSync
+                      ? '로컬에 저장되지 않은 변경이 있습니다. 클릭하면 DB와 동기화합니다.'
+                      : '로컬 변경 없음. 클릭하면 서버 최신과 비교해 맞춥니다.'
+                }
+                aria-busy={isDbSyncing}
+              >
+                {hasLocalChangesSinceSync && !isDbSyncing && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" aria-label="미동기 변경 있음" />
+                )}
+                {isDbSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                <span className="hidden sm:inline max-w-[7rem] sm:max-w-none truncate">{isDbSyncing && dbSyncStep ? dbSyncStep.msg : 'DB 동기화'}</span>
+                {isDbSyncing && dbSyncStep ? (
+                  <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">{dbSyncStep.pct}%</span>
+                ) : hasLocalChangesSinceSync && !isDbSyncing ? (
+                  <span className="text-[10px] font-medium text-amber-600 shrink-0" title="로컬 변경 있음">미저장</span>
+                ) : null}
+              </button>
+
+              {/* User Profile */}
+              <span
+                className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200/60 ml-1"
+                title={`로그인: ${currentUserDisplay}${user?.email && currentUserDisplay !== user.email ? ` (${user.email})` : ''}`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" aria-hidden />
+                {currentUserDisplay}
+              </span>
+              <button
+                onClick={() => signOut()}
+                className="icon-btn text-slate-400 hover:text-red-500 hover:bg-red-50"
+                title={`로그아웃 (${user?.email ?? '사용자'})`}
+              >
+                <LogOut size={15} />
+              </button>
+
+              {/* More Options Menu */}
+              <div className="relative ml-0.5">
+                <button
+                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+                  className={cn("icon-btn transition-colors relative", isMoreMenuOpen ? "text-[var(--color-ink)] bg-slate-100" : "text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50")}
+                  title="추가 옵션"
+                >
+                  <MoreHorizontal size={18} />
+                  {isAIBusy && <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse"></span>}
+                </button>
+                {isMoreMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsMoreMenuOpen(false)}></div>
+                    <div className="absolute top-full right-0 mt-2 w-44 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 shadow-xl dropdown-menu flex flex-col py-1">
+
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">기능</div>
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsAIModalOpen(true); tipOnce('menu.ai', 'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에는 창을 닫아도 백그라운드에서 계속 진행돼요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <Sparkles size={14} className={isAIBusy ? "text-purple-500 animate-pulse" : ""} /> AI 분석 {isAIBusy && <span className="text-[10px] text-purple-500">(진행중)</span>}
                       </button>
-                      <button onClick={() => { setIsProjectDropdownOpen(false); setView('projects'); }} className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors" title="프로젝트 관리 페이지로 이동합니다.">
-                        <Briefcase size={14} /> 프로젝트 관리
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsWeeklyReportOpen(true); tipOnce('menu.weeklyReport', '현재 작업을 기준으로 금주한일·차주계획·이슈를 자동으로 정리합니다.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <History size={14} /> 주간보고
                       </button>
-                      {effectiveIsAdmin && !userApproved && !isAdmin && (
-                        <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="미승인 상태에서는 로컬에 저장된 프로젝트만 표시됩니다.">
-                          로컬 전용: DB의 전체 프로젝트를 보려면 관리자 승인 후 다시 로그인하세요.
-                        </p>
+
+                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
+
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
+                      <button onClick={() => { setIsMoreMenuOpen(false); handleImportClick(); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <Upload size={14} /> 가져오기
+                      </button>
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsExportModalOpen(true); tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택할 수 있어요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <Download size={14} /> 내보내기
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
+
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">설정</div>
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsSettingsModalOpen(true); tipOnce('menu.settings', '설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 변경할 수 있어요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <Settings2 size={14} /> 환경설정
+                      </button>
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsShortcutsVisible(!isShortcutsVisible); tipOnce('menu.shortcuts', '단축키 패널을 켜/끄는 버튼입니다. (표: Ctrl+A → Del로 일괄 삭제)'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
+                        <Keyboard size={14} /> 단축키
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
+
+                      {effectiveIsAdmin && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">관리자 기능</div>
+                          <button onClick={() => { setIsMoreMenuOpen(false); setView('mindmap'); tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.'); }} className={cn("w-full text-left px-3 py-2 text-sm flex items-center gap-2", view === 'mindmap' ? "text-indigo-600 bg-indigo-50" : "text-slate-600 hover:bg-slate-50")}>
+                            <Network size={14} /> 마인드맵
+                          </button>
+                          <button onClick={() => { setIsMoreMenuOpen(false); setIsMembersModalOpen(true); }} className="w-full text-left px-3 py-2 text-sm text-teal-600 hover:bg-teal-50 flex items-center gap-2">
+                            <Users size={14} /> 회원 관리
+                          </button>
+                          <button onClick={() => { setIsMoreMenuOpen(false); setIsResetConfirmOpen(true); tipOnce('menu.reset', '로컬 데이터를 모두 초기화합니다.'); }} className="w-full text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 flex items-center gap-2">
+                            <RotateCcw size={14} /> 로컬 초기화
+                          </button>
+                        </>
                       )}
-                      {effectiveIsAdmin && userApproved && !isAdmin && (
-                        <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="비밀번호 관리자 모드는 DB 권한에 반영되지 않습니다.">
-                          비밀번호 관리자 모드는 메뉴/승인에만 적용됩니다. 전체 프로젝트를 보려면 회원 관리에서 본인을 &apos;관리자&apos;로 지정하세요.
-                        </p>
-                      )}
+
+                      <button onClick={() => { setIsMoreMenuOpen(false); setIsDeleteChoiceOpen(true); tipOnce('menu.deleteAll', '삭제 및 초기화 메뉴입니다.'); }} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1">
+                        <Trash2 size={14} /> 부분 / 전체 삭제
+                      </button>
+
                     </div>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
+              </div>
+
+              <div className="toolbar-divider" />
+
+              <button
+                onClick={() => {
+                  if (!canEditCurrentProject) return;
+                  setIsModalOpen(true);
+                  tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
+                }}
+                disabled={!canEditCurrentProject}
+                className="btn-primary flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={canEditCurrentProject ? '새 작업 추가' : '보기 권한만 있어 편집할 수 없습니다'}
+              >
+                <Plus size={15} /> <span>새 작업</span>
+              </button>
+              <button
+                onClick={() => setIsHeaderCollapsed(true)}
+                className="md:hidden p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
+                title="메뉴 접어서 표 넓게 보기"
+              >
+                <ChevronUp size={18} />
+              </button>
             </div>
           </div>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
-          {/* 툴바: 되돌리기 / 다시실행 */}
-          <div className="flex items-center gap-0.5 mr-1">
-            <button
-              onClick={undo}
-              disabled={!canUndo}
-              className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              title="실행 취소 (Ctrl+Z)"
-            >
-              <Undo2 size={16} />
-            </button>
-            <button
-              onClick={redo}
-              disabled={!canRedo}
-              className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              title="다시 실행 (Ctrl+Shift+Z)"
-            >
-              <Redo2 size={16} />
-            </button>
-          </div>
-          <div className="toolbar-divider hidden md:block" />
-          {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
-          <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
-            {!hiddenViews.has('dashboard') && (
-              <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
-            )}
-            {!hiddenViews.has('allocation') && (
-              <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
-            )}
-            <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
-            <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
-            <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
-            <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." />
-          </div>
-
-          <div className="toolbar-divider" />
-
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => {
-                setIsAIModalOpen(true);
-                tipOnce('menu.ai', 'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에는 창을 닫아도 백그라운드에서 계속 진행돼요.');
-              }}
-              className={cn("icon-btn transition-colors", isAIBusy ? "text-purple-600 bg-purple-50" : "text-purple-500 hover:text-purple-600 hover:bg-purple-50")}
-              title={isAIBusy ? "AI 분석 중..." : "AI로 WBS 만들기"}
-            >
-              {isAIBusy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            </button>
-            {effectiveIsAdmin && (
-              <button
-                onClick={() => setIsMembersModalOpen(true)}
-                className="icon-btn text-slate-400 hover:text-teal-600 hover:bg-teal-50"
-                title="회원 관리"
-              >
-                <Users size={15} />
-              </button>
-            )}
-            <span
-              className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200/60 ml-1"
-              title={`로그인: ${currentUserDisplay}${user?.email && currentUserDisplay !== user.email ? ` (${user.email})` : ''}`}
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" aria-hidden />
-              {currentUserDisplay}
-            </span>
-            <button
-              onClick={() => signOut()}
-              className="icon-btn text-slate-400 hover:text-red-500 hover:bg-red-50"
-              title={`로그아웃 (${user?.email ?? '사용자'})`}
-            >
-              <LogOut size={15} />
-            </button>
-            <button
-              onClick={() => {
-                setIsSettingsModalOpen(true);
-                tipOnce('menu.settings', '설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 변경할 수 있어요.');
-              }}
-              className="icon-btn text-slate-400 hover:text-[var(--color-ink)]"
-              title="설정"
-            >
-              <Settings2 size={15} />
-            </button>
-            <button
-              onClick={() => {
-                setIsShortcutsVisible(!isShortcutsVisible);
-                tipOnce('menu.shortcuts', '단축키 패널을 켜/끄는 버튼입니다. (표: Ctrl+A → Del로 일괄 삭제)');
-              }}
-              className={cn(
-                "icon-btn",
-                isShortcutsVisible ? "text-[var(--color-accent)] bg-indigo-50" : "text-slate-400 hover:text-[var(--color-ink)]"
-              )}
-              title="단축키"
-            >
-              <Keyboard size={15} />
-            </button>
-          </div>
-
-          <div className="toolbar-divider" />
-
-          {/* Filter On/Off Toggle */}
-          <button
-            onClick={() => {
-              setFilterOn(v => !v);
-              tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
-            }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all shrink-0",
-              filterOn
-                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25"
-                : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"
-            )}
-            title={filterOn ? "필터 끄기" : "필터 켜기"}
-          >
-            <Filter size={14} />
-            <span>필터</span>
-            <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", filterOn ? "bg-white/20" : "bg-slate-100 text-slate-400")}>{filterOn ? "On" : "Off"}</span>
-          </button>
-
-          <div className="flex gap-1.5">
-            <button
-              onClick={handleImportClick}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
-              title="가져오기"
-            >
-              <Upload size={13} /> <span>가져오기</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (isDbSyncing) return;
-                const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
-                void executeDbSync(scope);
-              }}
-              disabled={isDbSyncing}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-all",
-                isDbSyncing
-                  ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
-                  : "bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300"
-              )}
-              title="로컬 데이터를 DB(Supabase)에 반영합니다."
-            >
-              {isDbSyncing ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-              <span>DB 반영</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsExportModalOpen(true);
-                tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택할 수 있어요.');
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
-              title="내보내기"
-            >
-              <Download size={13} /> <span>내보내기</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsWeeklyReportOpen(true);
-                tipOnce('menu.weeklyReport', '현재 작업을 기준으로 금주한일·차주계획·이슈를 자동으로 정리합니다.');
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all"
-              title="주간보고 자동 생성"
-            >
-              <History size={13} /> <span>주간보고</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsDeleteChoiceOpen(true);
-                tipOnce('menu.deleteAll', '전체 삭제, 현재 보고 있는 프로젝트 삭제, 프로젝트 선택 삭제, 현재 프로젝트 작업만 삭제 중 선택할 수 있습니다.');
-              }}
-              className="icon-btn text-slate-300 hover:text-red-500 hover:bg-red-50"
-              title="삭제"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-
-          <div className="toolbar-divider" />
-
-          <button
-            onClick={() => {
-              setIsModalOpen(true);
-              tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
-            }}
-            className="btn-primary flex items-center gap-1.5"
-            title="새 작업 추가"
-          >
-            <Plus size={15} /> <span>새 작업</span>
-          </button>
-          <button
-            onClick={() => setIsHeaderCollapsed(true)}
-            className="md:hidden p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
-            title="메뉴 접어서 표 넓게 보기"
-          >
-            <ChevronUp size={18} />
-          </button>
-        </div>
-        </div>
-      </header>
+        </header>
       )}
 
       {!isFullscreen && !isLocalSaveBannerDismissed && (
         <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
           <span>
-            기본 저장은 <strong>로컬</strong>입니다. 변경사항을 서버에 공유하려면 <strong>DB 반영</strong> 버튼을 눌러주세요.
+            기본 저장은 <strong>로컬</strong>입니다. 서버와 맞추려면 <strong>DB 동기화</strong>를 눌러 로컬↔DB를 맞춥니다.
           </span>
           <button
             onClick={() => {
@@ -1435,40 +1455,106 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           )}
           style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
         >
-          {/* 프로젝트 */}
-          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200">
+          {/* 프로젝트 (다중 선택) */}
+          <div
+            ref={projectFilterDropdownRef}
+            className="relative inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200"
+          >
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">프로젝트</span>
-            <select
-              value={filters.projectId}
-              onChange={(e) => {
-                const pid = e.target.value;
-                selectProject(pid);
-                setFilters(f => ({ ...f, projectId: pid }));
-              }}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all max-w-[220px]"
-              title="프로젝트 선택: 선택한 프로젝트의 작업만 표시합니다."
+            <button
+              type="button"
+              onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] max-w-[260px] text-left"
+              title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
             >
-              <option value="all">전체</option>
-              {projectsGroupedByOwner.map(group => (
-                <optgroup key={group.ownerId ?? 'null'} label={group.label}>
-                  {group.projects.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              <span className="truncate flex-1">
+                {filters.projectIds === 'all'
+                  ? '전체'
+                  : filters.projectIds.length === 1
+                    ? uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개'
+                    : `${filters.projectIds.length}개 프로젝트`}
+              </span>
+              <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
+            </button>
+            {isProjectFilterDropdownOpen && (
+              <div
+                className="absolute left-0 top-full mt-1 z-50 min-w-[280px] max-w-[320px] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg py-2"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
+                  <input
+                    type="checkbox"
+                    checked={filters.projectIds === 'all'}
+                    onChange={() => {
+                      selectProject('all');
+                      setFilters((f) => ({ ...f, projectIds: 'all' }));
+                      headerProjectFilterSyncKey.current = '__all__';
+                    }}
+                    className="rounded border-slate-300 text-indigo-600"
+                  />
+                  전체 (모든 프로젝트)
+                </label>
+                {projectsSortedByName.map((p) => {
+                  const checked =
+                    Array.isArray(filters.projectIds) && filters.projectIds.includes(p.id);
+                  const allIds = projectsSortedByName.map((x) => x.id);
+                  return (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-stone-700 hover:bg-slate-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          if (filters.projectIds === 'all') {
+                            selectProject(p.id);
+                            setFilters((f) => ({ ...f, projectIds: [p.id] }));
+                            headerProjectFilterSyncKey.current = p.id;
+                            return;
+                          }
+                          const set = new Set(filters.projectIds);
+                          if (set.has(p.id)) {
+                            set.delete(p.id);
+                            if (set.size === 0) {
+                              selectProject('all');
+                              setFilters((f) => ({ ...f, projectIds: 'all' }));
+                              headerProjectFilterSyncKey.current = '__all__';
+                            } else {
+                              const arr = Array.from(set);
+                              if (arr.length === 1) selectProject(arr[0]);
+                              setFilters((f) => ({ ...f, projectIds: arr }));
+                            }
+                          } else {
+                            set.add(p.id);
+                            const arr = Array.from(set);
+                            if (arr.length === allIds.length) {
+                              selectProject('all');
+                              setFilters((f) => ({ ...f, projectIds: 'all' }));
+                              headerProjectFilterSyncKey.current = '__all__';
+                            } else {
+                              setFilters((f) => ({ ...f, projectIds: arr }));
+                            }
+                          }
+                        }}
+                        className="rounded border-slate-300 text-indigo-600"
+                      />
+                      <span className="truncate">{p.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* 상태 */}
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-50/60 border border-indigo-100">
             <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
             <div className="flex flex-wrap items-center gap-1.5">
-            <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
-            {wbsSettings.statusConfigs.map(config => (
-              <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
-            ))}
+              <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
+              {wbsSettings.statusConfigs.map(config => (
+                <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
+              ))}
             </div>
           </div>
 
@@ -1476,13 +1562,13 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-emerald-50/70 border border-emerald-100">
             <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">담당자</span>
             <div className="flex flex-wrap items-center gap-1.5">
-            <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("filter-chip", !filters.assignee ? "filter-chip-active" : "filter-chip-inactive")} title="모든 담당자의 작업 표시">전체</button>
-            {user?.id && profileMap[user.id] && (
-              <button onClick={() => { setFilterOn(true); setFilters(f => ({ ...f, assignee: profileMap[user.id] })); }} className={cn("filter-chip flex items-center gap-1", filters.assignee === profileMap[user.id] ? "filter-chip-active" : "filter-chip-inactive")} title="내가 담당자인 작업만 표시"><User size={10} className="opacity-80" /> 내 업무만</button>
-            )}
-            {allAssignees.map(a => (
-              <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("filter-chip", filters.assignee === a ? "filter-chip-active" : "filter-chip-inactive")} title={`${a} 담당 작업만 표시`}>{a}</button>
-            ))}
+              <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("filter-chip", !filters.assignee ? "filter-chip-active" : "filter-chip-inactive")} title="모든 담당자의 작업 표시">전체</button>
+              {user?.id && profileMap[user.id] && (
+                <button onClick={() => { setFilterOn(true); setFilters(f => ({ ...f, assignee: profileMap[user.id] })); }} className={cn("filter-chip flex items-center gap-1", filters.assignee === profileMap[user.id] ? "filter-chip-active" : "filter-chip-inactive")} title="내가 담당자인 작업만 표시"><User size={10} className="opacity-80" /> 내 업무만</button>
+              )}
+              {allAssignees.map(a => (
+                <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("filter-chip", filters.assignee === a ? "filter-chip-active" : "filter-chip-inactive")} title={`${a} 담당 작업만 표시`}>{a}</button>
+              ))}
             </div>
           </div>
 
@@ -1547,54 +1633,54 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-violet-50 border border-violet-100">
             <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">기간</span>
             <div className="flex flex-wrap items-center gap-1.5">
-            <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("filter-chip", !filters.startDate && !filters.endDate ? "filter-chip-active" : "filter-chip-inactive")} title="기간 제한 없이 모든 작업 표시">전체</button>
-            <button
-              onClick={() => {
-                const today = format(new Date(), 'yyyy-MM-dd');
-                setFilters(f => ({ ...f, startDate: today, endDate: today }));
-              }}
-              className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === filters.endDate && filters.startDate === format(new Date(), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
-              title="오늘과 기간이 겹치는 작업만 표시"
-            >
-              금일
-            </button>
-            <button
-              onClick={() => {
-                const now = new Date();
-                const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-                const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-                setFilters(f => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
-              }}
-              className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
-              title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
-            >
-              금주
-            </button>
-            <button
-              onClick={() => {
-                const now = new Date();
-                const nextWeekBase = addDays(now, 7);
-                const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                setFilters(f => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
-              }}
-              className={cn(
-                "filter-chip",
-                (() => {
-                  if (!filters.startDate || !filters.endDate) return "filter-chip-inactive";
+              <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("filter-chip", !filters.startDate && !filters.endDate ? "filter-chip-active" : "filter-chip-inactive")} title="기간 제한 없이 모든 작업 표시">전체</button>
+              <button
+                onClick={() => {
+                  const today = format(new Date(), 'yyyy-MM-dd');
+                  setFilters(f => ({ ...f, startDate: today, endDate: today }));
+                }}
+                className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === filters.endDate && filters.startDate === format(new Date(), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+                title="오늘과 기간이 겹치는 작업만 표시"
+              >
+                금일
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+                  const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+                  setFilters(f => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
+                }}
+                className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+                title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
+              >
+                금주
+              </button>
+              <button
+                onClick={() => {
                   const now = new Date();
                   const nextWeekBase = addDays(now, 7);
                   const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
                   const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                  const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
-                  const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
-                  return startMatch && endMatch ? "filter-chip-active" : "filter-chip-inactive";
-                })()
-              )}
-              title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
-            >
-              차주
-            </button>
+                  setFilters(f => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
+                }}
+                className={cn(
+                  "filter-chip",
+                  (() => {
+                    if (!filters.startDate || !filters.endDate) return "filter-chip-inactive";
+                    const now = new Date();
+                    const nextWeekBase = addDays(now, 7);
+                    const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                    const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
+                    const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
+                    const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
+                    return startMatch && endMatch ? "filter-chip-active" : "filter-chip-inactive";
+                  })()
+                )}
+                title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
+              >
+                차주
+              </button>
             </div>
           </div>
 
@@ -1660,7 +1746,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
                 setCurrentProjectId('all');
                 setFilters(f => ({
                   ...f,
-                  projectId: 'all',
+                  projectIds: 'all',
                   status: 'all',
                   assignee: '',
                   startDate: '',
@@ -1692,20 +1778,20 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
           </button>
         </div>
       )}
-      <main className={cn("flex-1 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
+      <main className={cn("flex-1 min-h-0 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
           {userApproved &&
-          !effectiveIsAdmin &&
-          currentProjectId &&
-          currentProjectId !== 'all' &&
-          currentProject &&
-          currentProject.ownerId !== user?.id &&
-          !myMemberProjectIds.includes(currentProjectId) &&
-          (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban') ? (
+            !effectiveIsAdmin &&
+            currentProjectId &&
+            currentProjectId !== 'all' &&
+            currentProject &&
+            currentProject.ownerId !== user?.id &&
+            !myMemberProjectIds.includes(currentProjectId) &&
+            (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
             <ProjectAccessRequestBanner
               projectId={currentProjectId}
               projectName={currentProject.name}
-              onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => {})}
+              onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => { })}
             />
           ) : view === 'list' ? (
             <div ref={containerRef} className={cn("relative flex h-full w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
@@ -1769,6 +1855,8 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
               onEditProject={(p) => { setEditingProject(p); setIsProjectModalOpen(true); }}
               onNavigateToWork={(projectId) => { setCurrentProjectId(projectId); setView('list'); }}
             />
+          ) : view === 'mindmap' ? (
+            <MindMapView filters={effectiveFilters} />
           ) : (
             <KanbanBoard filters={effectiveFilters} />
           )}
@@ -1778,7 +1866,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
 
       <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
       <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
-      <WBSSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} />
+      <WBSSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        onRequestReset={() => { setIsSettingsModalOpen(false); setIsResetConfirmOpen(true); }}
+      />
       <AIAnalysisModal
         isOpen={isAIModalOpen}
         onClose={() => setIsAIModalOpen(false)}
@@ -1819,7 +1911,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         }}
         currentProjectId={currentProjectId}
         existingTasks={tasks}
-        projects={projects}
+        projects={projectsSortedByName}
       />
       <VersionManager
         isOpen={isVersionHistoryOpen}
@@ -1940,13 +2032,27 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         confirmLabel="프로젝트 삭제"
         isDanger={true}
       />
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirm={async () => {
+          await clearAllLocalData();
+          setIsResetConfirmOpen(false);
+          pushToast('로컬 데이터·설정이 초기화되었습니다. 페이지를 새로고침합니다.', { variant: 'success' });
+          window.location.reload();
+        }}
+        title="로컬 초기화"
+        message="로컬에 저장된 모든 데이터·설정을 지우고, 작업 없는 빈 '새 프로젝트'만 표시합니다. (알파 등 데모/서버 프로젝트는 이때 보이지 않습니다.) 이후 'DB 동기화'를 누르면 서버 데이터가 다시 내려옵니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
+        confirmLabel="초기화"
+        isDanger={true}
+      />
       <ExcelImportPreviewModal
         isOpen={importPreview.isOpen}
         onClose={() => setImportPreview(prev => ({ ...prev, isOpen: false }))}
         onConfirm={executeImport}
         totalTaskCount={importPreview.tasks.length}
         files={importPreview.files}
-        projects={projects}
+        projects={projectsSortedByName}
         currentProjectId={currentProjectId}
       />
       <BackupRestoreModal
@@ -1955,28 +2061,11 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         onConfirmFull={executeRestoreBackup}
         onConfirmIntoProject={executeRestoreBackupIntoProject}
         data={backupConfirm.data}
-        projects={projects}
+        projects={projectsSortedByName}
         currentProjectId={currentProjectId}
       />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
-      <ConfirmDialog
-        isOpen={isRefreshConfirmOpen}
-        onClose={() => setIsRefreshConfirmOpen(false)}
-        onConfirm={async () => {
-          const scope: 'current' | 'all' = currentProjectId === 'all' || !currentProjectId ? 'all' : 'current';
-          try {
-            await executeDbSync(scope);
-          } finally {
-            setIsRefreshConfirmOpen(false);
-            window.location.reload();
-          }
-        }}
-        title="새로고침 전 DB 저장"
-        message="DB(서버)에 반영되지 않은 변경사항이 있을 수 있습니다. DB에 저장한 뒤 새로고침하시겠습니까? (취소를 누르면 현재 화면에 머무릅니다.)"
-        confirmLabel="DB 저장 후 새로고침"
-        isDanger={false}
-      />
       <ShareModal
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
@@ -2004,7 +2093,9 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         isOpen={isMembersModalOpen}
         onClose={() => setIsMembersModalOpen(false)}
         currentUserId={user?.id}
-        projects={uniqueProjects.map(p => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
+        dbIsAdmin={isAdmin}
+        adminOverride={adminOverride}
+        projects={projectsSortedByName.map(p => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
         profileMap={profileMap}
         onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
         onApproved={() => { pushToast('회원을 승인했습니다. 해당 회원은 다음 로그인부터 DB와 동기화됩니다.', { variant: 'success' }); onMembersUpdated?.(); }}
@@ -2022,7 +2113,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        projects={projects}
+        projects={projectsSortedByName}
         allTasks={allTasks}
         selectedProjectIds={exportSelectedProjectIds}
         onSelectedProjectIdsChange={setExportSelectedProjectIds}
@@ -2036,7 +2127,7 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
         isOpen={isWeeklyReportOpen}
         onClose={() => setIsWeeklyReportOpen(false)}
         tasks={allTasks}
-        projects={projects}
+        projects={projectsSortedByName}
         currentProjectId={currentProjectId}
         currentUserDisplay={currentUserDisplay}
       />
@@ -2053,23 +2144,23 @@ function WBSApp({ isAdmin, userApproved, onMembersUpdated }: WBSAppProps) {
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
 
       {!isFullscreen && (
-      <footer className="bg-slate-50/50 border-t border-slate-200/50 px-4 py-3 text-center mt-auto safe-bottom">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
-          <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
-          <div className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => setIsVersionHistoryOpen(true)}
-              className="hover:text-indigo-600 hover:underline transition-colors"
-              title="버전 히스토리 열기"
-            >
-              v{__APP_VERSION__} · 변경이력
-            </button>
-            <span className="text-slate-300" aria-hidden>·</span>
-            <span>© 2026 GMT Corporation. All rights reserved.</span>
+        <footer className="bg-slate-50/50 border-t border-slate-200/50 px-4 py-3 text-center mt-auto safe-bottom">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
+            <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
+            <div className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap">
+              <button
+                type="button"
+                onClick={() => setIsVersionHistoryOpen(true)}
+                className="hover:text-indigo-600 hover:underline transition-colors"
+                title="버전 히스토리 열기"
+              >
+                v{__APP_VERSION__} · 변경이력
+              </button>
+              <span className="text-slate-300" aria-hidden>·</span>
+              <span>© 2026 GMT Corporation. All rights reserved.</span>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
       )}
     </div>
   );
@@ -2080,6 +2171,7 @@ function AppWithProviders() {
   const { push: pushToast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userApproved, setUserApproved] = useState(false);
+  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2089,6 +2181,14 @@ function AppWithProviders() {
         setUserApproved(status.approved);
       }
     }).catch(() => { setUserApproved(false); });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setMyEditableProjectIds([]);
+      return;
+    }
+    getMyEditableProjectIds().then(setMyEditableProjectIds).catch(() => setMyEditableProjectIds([]));
   }, [user?.id]);
 
   // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 (대시보드 여부와 무관)
@@ -2114,7 +2214,7 @@ function AppWithProviders() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}>
+      <div className="h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}>
         <div className="flex flex-col items-center gap-3">
           <Loader2 size={24} className="animate-spin text-indigo-400" />
           <span className="text-white/60 text-sm font-medium">로딩 중...</span>
@@ -2131,10 +2231,12 @@ function AppWithProviders() {
       useLocalOnly={!userApproved}
       onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 화면이 자동으로 최신 데이터로 갱신됩니다.', { variant: 'warning', durationMs: 6000 })}
       onDbError={(msg) => pushToast(msg, { variant: 'error' })}
+      editableProjectIds={myEditableProjectIds}
     >
       <WBSApp
         isAdmin={isAdmin}
         userApproved={userApproved}
+        myEditableProjectIds={myEditableProjectIds}
         onMembersUpdated={() => getProfileStatus().then(s => s && setUserApproved(s.approved))}
       />
     </WBSProvider>

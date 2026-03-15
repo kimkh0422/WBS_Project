@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Task, Project, TaskAssignment, MOCK_TASKS, MOCK_PROJECTS } from '../types';
+import { Task, Project, TaskAssignment } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
@@ -20,15 +20,73 @@ import {
   fetchProjects,
   fetchTasks,
   fetchSettings,
+  fetchSettingsRow,
+  fetchTaskRows,
+  fromTaskRow,
+  projectNeedsDbUpload,
+  collectTasksNeedingUpload,
+  settingsNeedDbUpload,
+  mergeProjectsDelta,
+  mergeTasksDelta,
   deleteProjectFromDB,
   deleteTasksFromDB,
   deleteAllTasksFromDB,
   deleteAllProjectsFromDB,
   restoreBackupToDB,
 } from '../lib/db';
-import { loadJsonWithIdbFallback, saveJsonWithIdbFallback, safeLocalGet } from '../lib/persist';
+import {
+  loadJsonWithIdbFallback,
+  saveJsonWithIdbFallback,
+  safeLocalGet,
+  WBS_INIT_BLANK_SESSION_KEY,
+  clearInitBlankSessionFlag,
+} from '../lib/persist';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+
+/** 프로젝트별 동기화 건수 (토스트·상세 표시용) */
+export type DbSyncSummaryByProject = {
+  projectName: string;
+  /** 올린 작업 수 */
+  uploadedTasks: number;
+  /** 올린 프로젝트 메타 (1: 반영, 0: 생략) */
+  uploadedProjects: number;
+  /** 서버에서 내려받아 반영한 작업 수 */
+  appliedTasks: number;
+  /** 서버에서 내려받아 반영한 프로젝트 메타 (1: 반영, 0: 생략) */
+  appliedProjects: number;
+};
+
+/** DB 동기화 1회 요약 (토스트·로그용) */
+export type DbSyncSummary = {
+  /** 업로드(upsert)한 프로젝트 수 */
+  uploadedProjects: number;
+  /** 서버와 같아 업로드 생략한 프로젝트 수 */
+  skippedUploadProjects: number;
+  /** 업로드한 작업 수 */
+  uploadedTasks: number;
+  /** 서버와 같아 업로드 생략한 작업 수 */
+  skippedUploadTasks: number;
+  /** 표·상태 설정 upsert 여부 */
+  uploadedSettings: boolean;
+  skippedUploadSettings: boolean;
+  /** DB에서 삭제 반영한 작업 id 수 */
+  uploadedTaskDeletions: number;
+  /** DB에서 삭제한 프로젝트 수 */
+  uploadedProjectDeletions: number;
+  /** fetch로 받은 프로젝트 수 */
+  downloadedProjects: number;
+  /** fetch로 받은 작업 수 */
+  downloadedTasks: number;
+  /** 서버에 설정 행 존재 여부 */
+  downloadedSettings: boolean;
+  /** 서버와 달라 로컬에 반영한 프로젝트 수 */
+  appliedProjectsFromServer: number;
+  /** 서버와 달라 로컬에 반영한 작업 수 */
+  appliedTasksFromServer: number;
+  /** 프로젝트별 올림/내려받기 건수 (동기화 범위에 해당하는 프로젝트만) */
+  byProject: Record<string, DbSyncSummaryByProject>;
+};
 
 export interface StatusConfig {
   id: string;
@@ -57,6 +115,10 @@ interface WBSContextType {
   allTasks: Task[];
   tasks: Task[];
   projects: Project[];
+  /** 편집 가능한 프로젝트 ID 목록. 없으면 모두 편집 가능(기존 동작). 보기 전용일 때 이 목록에 없음 */
+  editableProjectIds?: string[];
+  /** 현재 선택된 프로젝트에 편집 권한이 있는지. 보기 전용 프로젝트면 false */
+  canEditCurrentProject: boolean;
   currentProjectId: string;
   setCurrentProjectId: (id: string) => void;
   selectedTaskIds: string[];
@@ -72,7 +134,7 @@ interface WBSContextType {
   deleteProject: (id: string) => void;
   /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
   copyProject: (sourceProjectId: string) => void;
-  addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string) => string;
+  addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string) => string;
   addTasks: (tasks: Task[]) => void;
   updateTask: (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => void;
   /** 여러 작업에 동일한 수정 일괄 적용 (일정 변경 없을 때만 사용, 충돌 방지) */
@@ -89,8 +151,13 @@ interface WBSContextType {
   importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => Promise<void>;
   /** 로컬에서 삭제된 작업 id 로그(삭제 반영용). */
   deletedTaskIdsByProject: Record<string, string[]>;
-  /** 로컬 데이터를 DB(Supabase)에 수동 반영. */
-  syncToDb: (scope: 'current' | 'all') => Promise<void>;
+  /** 사용자가 WBS(프로젝트/작업)를 수정한 뒤 아직 동기화하지 않은 상태. 동기화 성공 시 false로 초기화. */
+  hasLocalChangesSinceSync: boolean;
+  /** 로컬 ↔ DB(Supabase) 동기화: 업로드 후 서버 최신을 다시 불러와 로컬과 맞춤. onProgress로 0–99% 진행 알림. */
+  syncWithDb: (
+    scope: 'current' | 'all',
+    onProgress?: (percent: number, message: string) => void
+  ) => Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }>;
   deleteAllTasks: () => void;
   /** 모든 프로젝트의 작업을 전체 삭제 (현재 프로젝트 무관) */
   deleteAllTasksInAllProjects: () => void;
@@ -264,6 +331,7 @@ export function WBSProvider({
   useLocalOnly = false,
   onConcurrentConflict,
   onDbError,
+  editableProjectIds,
 }: {
   children: React.ReactNode;
   /** true면 로컬(IndexedDB/localStorage)만 사용하고 DB는 읽지/쓰지 않음 */
@@ -272,12 +340,22 @@ export function WBSProvider({
   onConcurrentConflict?: () => void;
   /** DB 저장 실패 시 호출(토스트 등 알림용). */
   onDbError?: (message: string) => void;
+  /** 편집 가능한 프로젝트 ID 목록. 보기 권한만 있는 프로젝트는 제외. 없으면 모두 편집 가능으로 간주 */
+  editableProjectIds?: string[];
 }) {
   const { user } = useAuth();
   const handleDbError = React.useCallback(
     (err: unknown, fallback: string) => {
       if (import.meta.env.DEV) console.warn(fallback, err);
-      const msg = err instanceof Error ? err.message : fallback;
+      let msg = err instanceof Error ? err.message : fallback;
+      if (err && typeof err === 'object') {
+        const anyE = err as { code?: string; message?: string };
+        const code = String(anyE.code ?? '').trim();
+        const rawMsg = String(anyE.message ?? '').trim();
+        if (code === '42501' || /row-level security|row level security/i.test(rawMsg)) {
+          msg = '이 프로젝트에 대한 편집 권한이 없습니다. 보기 권한만 있거나 멤버가 아닌 프로젝트에는 작업을 추가·수정할 수 없습니다.';
+        }
+      }
       onDbError?.(msg);
     },
     [onDbError]
@@ -296,6 +374,8 @@ export function WBSProvider({
   const redoRef = useRef<Task[][]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  /** 사용자가 프로젝트/작업을 수정했을 때만 true. 동기화 성공 시 false. */
+  const [hasLocalChangesSinceSync, setHasLocalChangesSinceSync] = useState(false);
   const allTasksRef = useRef<Task[]>([]);
   /** 신규 프로젝트 생성 중복 방지 (React StrictMode 등으로 loadData가 여러 번 실행될 때) */
   const initNewProjectPromiseRef = useRef<Promise<Project | null> | null>(null);
@@ -311,6 +391,18 @@ export function WBSProvider({
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
+      const skipDbUntilSync = (() => {
+        try {
+          return localStorage.getItem(WBS_INIT_BLANK_SESSION_KEY) === '1';
+        } catch {
+          return false;
+        }
+      })();
+      const emptyStarterProject = (): Project => ({
+        id: uuidv4(),
+        name: '새 프로젝트',
+        ownerId,
+      });
       try {
         // 모든 사용자: 로컬(IndexedDB/localStorage)에 저장된 데이터를 기본으로 로드
         const [fallbackProjects, fallbackTasks, rawSettings, fallbackDeleted, fallbackDeletedProjects] = await Promise.all([
@@ -334,56 +426,112 @@ export function WBSProvider({
           const validId = projectsToUse.find(p => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
           setCurrentProjectId(validId);
         } else {
-          // 첫 실행 등: 로컬에 프로젝트가 없으면 목업(초기 프로젝트) 사용
-          setProjects(MOCK_PROJECTS);
-          setAllTasks(applyRollupsToTasks(tasksToUse.length > 0 ? tasksToUse : MOCK_TASKS));
-          setWbsSettings(parsedSettings);
-          setCurrentProjectId(MOCK_PROJECTS[0]?.id ?? '');
+          // 로컬에 프로젝트 없음: 빈 시작(작업 0개·이름은 새 프로젝트만). 목업(알파 등) 사용 안 함.
+          const p = emptyStarterProject();
+          setProjects([p]);
+          setAllTasks(applyRollupsToTasks(tasksToUse));
+          setWbsSettings(DEFAULT_SETTINGS);
+          setCurrentProjectId(p.id);
+          try {
+            sessionStorage.setItem('wbs-current-project', p.id);
+          } catch {
+            /* ignore */
+          }
         }
 
         setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings?.maxLevel ?? DEFAULT_SETTINGS.maxLevel) + 1)));
 
-        // DB 동기화 모드: 로컬 로드 후 DB로부터 최신 데이터로 덮어쓰기(가능한 경우)
-        if (!useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
+        // DB 동기화 모드: 로컬 초기화 직후(skipDbUntilSync)에는 DB로 덮어쓰지 않음 → 빈 페이지 유지
+        // 승인 사용자: fetch 성공 시 항상 서버 목록으로 덮어써서 모든 승인 회원이 동일한 프로젝트 목록을 보도록 함
+        if (!skipDbUntilSync && !useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
           try {
             const [dbProjects, dbTasks, dbSettings] = await Promise.all([
               fetchProjects(),
               fetchTasks(),
               fetchSettings(),
             ]);
-            if (Array.isArray(dbProjects) && dbProjects.length > 0) {
+            if (Array.isArray(dbProjects)) {
               setProjects(dbProjects);
               setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));
               if (dbSettings) {
                 setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
               }
               const savedCurrent = sessionStorage.getItem('wbs-current-project');
-              const validId = dbProjects.find(p => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
-              setCurrentProjectId(validId);
+              const validId = dbProjects.length > 0
+                ? (dbProjects.find(p => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '')
+                : '';
+              if (validId) setCurrentProjectId(validId);
             }
           } catch (e) {
             handleDbError(e, 'DB에서 프로젝트를 불러오지 못했습니다. 로컬 데이터를 표시합니다.');
           }
         }
       } catch (err) {
-        // 폴백: localStorage → 목업 데이터 (파싱 실패 시 목업만 사용)
         try {
           const savedProjects = safeLocalGet('wbs-projects');
           const savedTasks = safeLocalGet('wbs-tasks');
           const savedSettings = safeLocalGet('wbs-settings');
-          const fallbackProjects = savedProjects ? JSON.parse(savedProjects) : MOCK_PROJECTS;
-          const fallbackTasks = savedTasks ? JSON.parse(savedTasks) : MOCK_TASKS;
+          const p = emptyStarterProject();
+          let fallbackProjects: Project[] = [];
+          let fallbackTasks: Task[] = [];
+          if (savedProjects) {
+            try {
+              const parsed = JSON.parse(savedProjects) as Project[];
+              if (Array.isArray(parsed) && parsed.length > 0) fallbackProjects = parsed;
+            } catch {
+              /* ignore */
+            }
+          }
+          if (savedTasks) {
+            try {
+              const parsed = JSON.parse(savedTasks) as Task[];
+              if (Array.isArray(parsed)) fallbackTasks = parsed;
+            } catch {
+              /* ignore */
+            }
+          }
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
-          setProjects(Array.isArray(fallbackProjects) && fallbackProjects.length > 0 ? fallbackProjects : MOCK_PROJECTS);
-          setAllTasks(applyRollupsToTasks(Array.isArray(fallbackTasks) ? fallbackTasks : MOCK_TASKS));
-          setWbsSettings(parsedSettings);
-          setCurrentProjectId((Array.isArray(fallbackProjects) && fallbackProjects[0]?.id) ? fallbackProjects[0].id : (MOCK_PROJECTS[0]?.id ?? ''));
+          if (fallbackProjects.length > 0) {
+            setProjects(fallbackProjects);
+            setAllTasks(applyRollupsToTasks(fallbackTasks));
+            setWbsSettings(parsedSettings);
+            setCurrentProjectId(fallbackProjects[0]!.id);
+          } else {
+            setProjects([p]);
+            setAllTasks(applyRollupsToTasks(fallbackTasks));
+            setWbsSettings(DEFAULT_SETTINGS);
+            setCurrentProjectId(p.id);
+          }
         } catch (fallbackErr) {
-          if (import.meta.env.DEV) console.warn('[DB] 폴백 데이터 로딩 실패, 목업 사용:', fallbackErr);
-          setProjects(MOCK_PROJECTS);
-          setAllTasks(applyRollupsToTasks(MOCK_TASKS));
+          if (import.meta.env.DEV) console.warn('[DB] 폴백 데이터 로딩 실패:', fallbackErr);
+          const p = emptyStarterProject();
+          setProjects([p]);
+          setAllTasks([]);
           setWbsSettings(DEFAULT_SETTINGS);
-          setCurrentProjectId(MOCK_PROJECTS[0]?.id ?? '');
+          setCurrentProjectId(p.id);
+        }
+        if (!skipDbUntilSync && !useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
+          try {
+            const [dbProjects, dbTasks, dbSettings] = await Promise.all([
+              fetchProjects(),
+              fetchTasks(),
+              fetchSettings(),
+            ]);
+            if (Array.isArray(dbProjects)) {
+              setProjects(dbProjects);
+              setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));
+              if (dbSettings) {
+                setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+              }
+              if (dbProjects.length > 0) {
+                const savedCurrent = sessionStorage.getItem('wbs-current-project');
+                const validId = dbProjects.find(pr => pr.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
+                setCurrentProjectId(validId);
+              }
+            }
+          } catch {
+            /* keep empty starter */
+          }
         }
       } finally {
         setIsLoading(false);
@@ -418,11 +566,30 @@ export function WBSProvider({
     });
   };
 
-  const syncToDb = async (scope: 'current' | 'all'): Promise<void> => {
+  const syncWithDb = async (
+    scope: 'current' | 'all',
+    onProgress?: (percent: number, message: string) => void
+  ): Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }> => {
+    const report = (pct: number, message: string) => {
+      try {
+        onProgress?.(Math.min(99, Math.max(0, Math.round(pct))), message);
+      } catch {
+        /* ignore */
+      }
+    };
     if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Supabase 설정이 필요합니다. (DB 반영 불가)');
+      throw new Error('Supabase 설정이 필요합니다. (DB 동기화 불가)');
     }
     const toUserFacingDbError = (e: unknown): Error => {
+      if (e && typeof e === 'object') {
+        const anyE = e as { code?: string; message?: string };
+        const code = String(anyE.code ?? '').trim();
+        const msg = String(anyE.message ?? '').trim();
+        // RLS 정책 위반: 편집 권한 없는 프로젝트에 작업 추가/수정 시도
+        if (code === '42501' || /row-level security|row level security/i.test(msg)) {
+          return new Error('이 프로젝트에 대한 편집 권한이 없습니다. 보기 권한만 있거나 멤버가 아닌 프로젝트에는 작업을 추가·수정할 수 없습니다.');
+        }
+      }
       if (e instanceof Error) return e;
       if (e && typeof e === 'object') {
         const anyE = e as any;
@@ -431,7 +598,7 @@ export function WBSProvider({
         const composed = [code ? `[${code}]` : '', msg].filter(Boolean).join(' ');
         if (composed) return new Error(composed);
       }
-      return new Error('DB 반영에 실패했습니다.');
+      return new Error('DB 동기화에 실패했습니다.');
     };
     const effectiveScope = scope === 'all' ? 'all' : 'current';
     const projectIds =
@@ -474,60 +641,251 @@ export function WBSProvider({
     const targetProjectsAfterAutoDelete = targetProjects.filter(p => targetProjectIdSetAfterAutoDelete.has(p.id));
     const targetTasksAfterAutoDelete = targetTasks.filter(t => t.projectId && targetProjectIdSetAfterAutoDelete.has(t.projectId));
 
+    let workingProjects = projects;
+    let workingTasks = allTasks;
     try {
+      report(1, '동기화 준비 중…');
       // Apply auto-prune locally (scope=all only)
       if (effectiveScope === 'all' && autoDeletedProjectIds.length > 0) {
         setDeletedProjectIds(prev => Array.from(new Set([...prev, ...autoDeletedProjectIds])));
-        setProjects(prev => prev.filter(p => !autoDeletedProjectIds.includes(p.id)));
-        setAllTasks(prev => prev.filter(t => !t.projectId || !autoDeletedProjectIds.includes(t.projectId)));
+        workingProjects = projects.filter(p => !autoDeletedProjectIds.includes(p.id));
+        workingTasks = allTasks.filter(t => !t.projectId || !autoDeletedProjectIds.includes(t.projectId));
+        setProjects(workingProjects);
+        setAllTasks(workingTasks);
         if (autoDeletedProjectIds.includes(currentProjectId)) {
           const nextId = projects.find(p => !autoDeletedProjectIds.includes(p.id))?.id ?? '';
           setCurrentProjectId(nextId);
         }
       }
 
-      // 1) Projects upsert (including new projects)
-      for (const p of targetProjectsAfterAutoDelete) {
-        await upsertProject(p);
-      }
+      report(3, '서버와 비교하는 중…');
+      const [preProjects, preTaskRows, preSettingsRow] = await Promise.all([
+        fetchProjects(),
+        fetchTaskRows(),
+        fetchSettingsRow(),
+      ]);
+      const serverProjectById = new Map(preProjects.map(p => [p.id, p]));
 
-      // 2) Settings upsert (single row)
-      await upsertSettings(wbsSettings);
-
-      // 3) Tasks upsert (ID 기준 병합)
-      await upsertTasks(targetTasksAfterAutoDelete);
-
-      // 4) Deletions (tombstones) apply
-      const deletions: string[] = [];
-      // 삭제된 프로젝트의 작업 tombstone도 함께 반영해야 함 (프로젝트 목록에서 빠져있기 때문)
+      let uploadError: unknown = null;
+      const taskProjectIdSet = new Set(targetProjectsAfterAutoDelete.map(p => p.id));
       const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
-      for (const pid of deletionPids) {
-        const ids = deletedTaskIdsByProject[pid] ?? [];
-        deletions.push(...ids);
-      }
-      const uniqueDeletionIds = Array.from(new Set(deletions.filter(Boolean)));
-      if (uniqueDeletionIds.length > 0) {
-        const BATCH = 200;
-        for (let i = 0; i < uniqueDeletionIds.length; i += BATCH) {
-          await deleteTasksFromDB(uniqueDeletionIds.slice(i, i + BATCH));
+      let nProj = targetProjectsAfterAutoDelete.length;
+      let nProjUp = 0;
+      let needSettingsUpload = false;
+      let nTaskUp = 0;
+      let taskRows = targetTasksAfterAutoDelete.length;
+      let uniqueDeletionIds: string[] = [];
+      let nDelProj = targetDeletedProjectIds.length;
+      /** 프로젝트별 업로드한 작업 수 (동기화 요약 byProject용) */
+      const uploadedTasksByProject: Record<string, number> = {};
+      /** 업로드한 프로젝트 id 목록 (동기화 요약 byProject용) */
+      let uploadedProjectIds: string[] = [];
+      let replacedProjectIds: string[] = [];
+      let replacedByProject: Record<string, number> = {};
+
+      try {
+        // 1) 프로젝트: 서버와 다른 것만 업로드
+        const projectsToUpload = targetProjectsAfterAutoDelete.filter(p =>
+          projectNeedsDbUpload(p, serverProjectById)
+        );
+        nProj = targetProjectsAfterAutoDelete.length;
+        nProjUp = projectsToUpload.length;
+        uploadedProjectIds = projectsToUpload.map(p => p.id);
+        if (nProj === 0) {
+          report(18, '업로드할 프로젝트 없음');
+        } else if (nProjUp === 0) {
+          report(18, `프로젝트 ${nProj}개 서버와 동일 — 업로드 생략`);
+        } else {
+          for (let i = 0; i < nProjUp; i++) {
+            await upsertProject(projectsToUpload[i]!);
+            report(5 + ((i + 1) / Math.max(nProjUp, 1)) * 14, `프로젝트 업로드 ${i + 1}/${nProjUp} (변경분)`);
+          }
         }
+
+        // 2) 설정: 다를 때만 업로드
+        needSettingsUpload = settingsNeedDbUpload(wbsSettings, preSettingsRow);
+        if (needSettingsUpload) {
+          report(20, '표·상태 설정 업로드 중…');
+          await upsertSettings(wbsSettings);
+        } else {
+          report(20, '표·상태 설정 서버와 동일 — 업로드 생략');
+        }
+
+        // 3) 작업: 순서·내용이 서버와 다른 것만 업로드
+        const serverTaskById = new Map(preTaskRows.map(r => [r.id, r]));
+        const tasksToUpload = collectTasksNeedingUpload(
+          targetTasksAfterAutoDelete,
+          serverTaskById,
+          taskProjectIdSet
+        );
+        taskRows = targetTasksAfterAutoDelete.length;
+        nTaskUp = tasksToUpload.length;
+        for (const t of tasksToUpload) {
+          const pid = t.projectId ?? '';
+          uploadedTasksByProject[pid] = (uploadedTasksByProject[pid] ?? 0) + 1;
+        }
+        if (taskRows === 0) {
+          report(62, '업로드할 작업 없음');
+        } else if (nTaskUp === 0) {
+          report(62, `작업 ${taskRows}건 서버와 동일 — 업로드 생략`);
+        } else {
+          report(22, `작업 변경분 업로드… (${nTaskUp}/${taskRows}건)`);
+          await upsertTasks(tasksToUpload, (done, total) => {
+            report(22 + (done / Math.max(total, 1)) * 42, `작업 업로드 ${done}/${total}건`);
+          });
+        }
+
+        // 4) Deletions (tombstones) apply
+        const deletions: string[] = [];
+        for (const pid of deletionPids) {
+          const ids = deletedTaskIdsByProject[pid] ?? [];
+          deletions.push(...ids);
+        }
+        uniqueDeletionIds = Array.from(new Set(deletions.filter(Boolean)));
+        if (uniqueDeletionIds.length > 0) {
+          const BATCH = 200;
+          const nDel = uniqueDeletionIds.length;
+          for (let i = 0; i < uniqueDeletionIds.length; i += BATCH) {
+            await deleteTasksFromDB(uniqueDeletionIds.slice(i, i + BATCH));
+            const done = Math.min(i + BATCH, nDel);
+            report(64 + (done / nDel) * 8, `DB에서 삭제된 작업 반영 ${done}/${nDel}건`);
+          }
+        } else {
+          report(72, '삭제할 작업 없음');
+        }
+
+        // 5) Delete projects removed locally (scope=all only)
+        nDelProj = targetDeletedProjectIds.length;
+        if (nDelProj === 0) {
+          report(80, '삭제할 프로젝트 없음');
+        } else {
+          let j = 0;
+          for (const pid of targetDeletedProjectIds) {
+            await deleteProjectFromDB(pid);
+            j += 1;
+            report(72 + (j / nDelProj) * 10, `프로젝트 삭제 반영 ${j}/${nDelProj}`);
+          }
+        }
+
+        // 6) Clear applied tombstones for target projects (and deleted projects in scope)
+        setDeletedTaskIdsByProject(prev => {
+          const next = { ...prev };
+          for (const pid of deletionPids) delete next[pid];
+          return next;
+        });
+        if (targetDeletedProjectIds.length > 0) {
+          setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+        }
+      } catch (e) {
+        uploadError = e;
+        report(72, '업로드 중 권한 또는 오류 — 서버 데이터만 로컬에 반영합니다.');
       }
 
-      // 5) Delete projects removed locally (scope=all only)
-      for (const pid of targetDeletedProjectIds) {
-        // 작업은 위에서 tombstone으로 먼저 삭제 시도 → FK 제약 회피
-        await deleteProjectFromDB(pid);
+      // 7) DB 전체 조회 후 로컬에 반영 — 동기화 시 모든 DB 데이터를 내려받아 로컬에 저장 (DB = 단일 소스)
+      report(84, '서버에서 최신 데이터 받는 중…');
+      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([
+        fetchProjects(),
+        fetchTaskRows(),
+        fetchSettings(),
+      ]);
+      let appliedP = 0;
+      let appliedT = 0;
+      report(93, 'DB 데이터 로컬에 반영 중…');
+      let snapshotProjects: Project[];
+      let snapshotTasks: Task[];
+      const finalDeletedTasks: Record<string, string[]> = effectiveScope === 'all' ? {} : (() => {
+        const serverPidSet = new Set((dbProjects ?? []).map(p => p.id));
+        const n = { ...deletedTaskIdsByProject };
+        for (const pid of serverPidSet) delete n[String(pid)];
+        return n;
+      })();
+      const finalDeletedProjects: string[] = effectiveScope === 'all' ? [] : deletedProjectIds;
+
+      if (Array.isArray(dbProjects) && dbProjects.length > 0) {
+        // DB 전체를 내려받아 로컬 스냅샷으로 사용 (merge 없이 덮어쓰기)
+        snapshotProjects = dbProjects;
+        snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow));
+        appliedP = snapshotProjects.length;
+        appliedT = snapshotTasks.length;
+        replacedProjectIds = snapshotProjects.map(p => p.id);
+        replacedByProject = snapshotTasks.reduce<Record<string, number>>((acc, t) => {
+          const pid = t.projectId ?? '';
+          acc[pid] = (acc[pid] ?? 0) + 1;
+          return acc;
+        }, {});
+
+        setProjects(snapshotProjects);
+        setAllTasks(snapshotTasks);
+        if (dbSettings) setWbsSettings(prev => ({ ...prev, ...dbSettings }));
+        setDeletedTaskIdsByProject(finalDeletedTasks);
+        setDeletedProjectIds(finalDeletedProjects);
+
+        const savedCurrent = sessionStorage.getItem('wbs-current-project');
+        const validId =
+          snapshotProjects.find(p => p.id === savedCurrent)?.id ?? snapshotProjects[0]?.id ?? '';
+        if (validId) setCurrentProjectId(validId);
+      } else {
+        snapshotProjects = workingProjects;
+        snapshotTasks = workingTasks;
       }
 
-      // 6) Clear applied tombstones for target projects (and deleted projects in scope)
-      setDeletedTaskIdsByProject(prev => {
-        const next = { ...prev };
-        for (const pid of deletionPids) delete next[pid];
-        return next;
-      });
-      if (targetDeletedProjectIds.length > 0) {
-        setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+      // 동기화 시 내려받은 DB 데이터를 로컬에 즉시 저장 (IndexedDB/localStorage)
+      const finalSettings =
+        Array.isArray(dbProjects) && dbProjects.length > 0 && dbSettings
+          ? { ...wbsSettings, ...dbSettings }
+          : wbsSettings;
+      const finalDeletedTasksForPersist =
+        Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedTasks : deletedTaskIdsByProject;
+      const finalDeletedProjectsForPersist =
+        Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedProjects : deletedProjectIds;
+      await Promise.all([
+        saveJsonWithIdbFallback('wbs-projects', snapshotProjects),
+        saveJsonWithIdbFallback('wbs-tasks', snapshotTasks),
+        saveJsonWithIdbFallback('wbs-settings', finalSettings),
+        saveJsonWithIdbFallback('wbs-deleted-task-ids', finalDeletedTasksForPersist),
+        saveJsonWithIdbFallback('wbs-deleted-project-ids', finalDeletedProjectsForPersist),
+      ]);
+
+      const projectIdsForSummary = new Set<string>([
+        ...taskProjectIdSet,
+        ...replacedProjectIds,
+        ...Object.keys(replacedByProject),
+      ]);
+      const byProject: Record<string, DbSyncSummaryByProject> = {};
+      for (const pid of projectIdsForSummary) {
+        const projectName = snapshotProjects?.find(p => p.id === pid)?.name ?? pid;
+        const uploadedTasks = uploadedTasksByProject[pid] ?? 0;
+        const uploadedProjects = uploadedProjectIds.includes(pid) ? 1 : 0;
+        const appliedTasks = replacedByProject[pid] ?? 0;
+        const appliedProjects = replacedProjectIds.includes(pid) ? 1 : 0;
+        byProject[pid] = { projectName, uploadedTasks, uploadedProjects, appliedTasks, appliedProjects };
       }
+      const summary: DbSyncSummary = {
+        uploadedProjects: nProjUp,
+        skippedUploadProjects: Math.max(0, nProj - nProjUp),
+        uploadedTasks: nTaskUp,
+        skippedUploadTasks: Math.max(0, taskRows - nTaskUp),
+        uploadedSettings: needSettingsUpload,
+        skippedUploadSettings: !needSettingsUpload,
+        uploadedTaskDeletions: uniqueDeletionIds.length,
+        uploadedProjectDeletions: nDelProj,
+        downloadedProjects: dbProjects?.length ?? 0,
+        downloadedTasks: dbTaskRows.length,
+        downloadedSettings: dbSettings != null,
+        appliedProjectsFromServer: appliedP,
+        appliedTasksFromServer: appliedT,
+        byProject,
+      };
+      report(
+        99,
+        `완료 ↑올림 프로젝트 ${summary.uploadedProjects}(생략 ${summary.skippedUploadProjects})·작업 ${summary.uploadedTasks}(생략 ${summary.skippedUploadTasks})·설정${summary.uploadedSettings ? ' 반영' : ' 생략'} · ↓내려받아 반영 프로젝트 ${summary.appliedProjectsFromServer}·작업 ${summary.appliedTasksFromServer}건`
+      );
+      if (uploadError) {
+        handleDbError(uploadError, '동기화 중 오류가 났습니다. 서버 데이터는 로컬에 반영했습니다.');
+      }
+      clearInitBlankSessionFlag();
+      setHasLocalChangesSinceSync(false);
+      return { projects: snapshotProjects!, allTasks: snapshotTasks!, summary };
     } catch (e) {
       throw toUserFacingDbError(e);
     }
@@ -546,6 +904,7 @@ export function WBSProvider({
   allTasksRef.current = allTasks;
 
   const saveHistory = () => {
+    setHasLocalChangesSinceSync(true);
     historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
     redoRef.current = [];
     setCanUndo(true);
@@ -654,6 +1013,7 @@ export function WBSProvider({
   // ─── 프로젝트 CRUD ────────────────────────────────────────────────────────
 
   const addProject = (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => {
+    setHasLocalChangesSinceSync(true);
     const newProject: Project = {
       id: uuidv4(),
       name,
@@ -671,6 +1031,7 @@ export function WBSProvider({
   };
 
   const updateProject = (id: string, updates: Partial<Project>) => {
+    setHasLocalChangesSinceSync(true);
     setProjects(prev => {
       const project = prev.find(p => p.id === id);
       const newStart = updates.startDate ?? project?.startDate;
@@ -759,6 +1120,7 @@ export function WBSProvider({
 
   const deleteProject = (id: string) => {
     if (projects.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
+    setHasLocalChangesSinceSync(true);
     const idsToDelete = allTasks.filter(t => t.projectId === id).map(t => t.id);
     if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);
     setDeletedProjectIds(prev => {
@@ -768,7 +1130,7 @@ export function WBSProvider({
     setProjects(prev => prev.filter(p => p.id !== id));
     setAllTasks(prev => prev.filter(t => t.projectId !== id));
     if (currentProjectId === id) setCurrentProjectId(projects.find(p => p.id !== id)?.id || '');
-    // DB 반영은 수동 버튼에서 처리
+    // DB 동기화는 수동 버튼에서 처리
   };
 
   const copyProject = (sourceProjectId: string) => {
@@ -826,9 +1188,9 @@ export function WBSProvider({
     return t;
   };
 
-  const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string): string => {
+  const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string): string => {
     saveHistory();
-    const projectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
+    const projectId = projectIdOverride ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
     const project = projects.find(p => p.id === projectId);
     const task: Task = clampTaskToProjectRange(
       { ...newTask, id: uuidv4(), projectId } as Task,
@@ -1052,7 +1414,7 @@ export function WBSProvider({
       const taskInResult = result.find(t => t.id === id);
       const sortOrder = taskInResult != null ? result.indexOf(taskInResult) : 0;
       if (!useLocalOnly) {
-        // DB 반영은 수동 버튼에서 처리
+        // DB 동기화는 수동 버튼에서 처리
       }
       return result;
     });
@@ -1387,7 +1749,7 @@ export function WBSProvider({
 
     const tasksWithProject = newTasks.map((t) => ({ ...t, projectId: effectiveProjectId }));
 
-    // 로컬이 SSOT: UI 상태를 즉시 반영 (DB 반영은 수동 버튼에서)
+    // 로컬이 SSOT: UI 상태를 즉시 반영 (DB 동기화는 수동 버튼에서)
     if (newProject) {
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
@@ -1457,12 +1819,13 @@ export function WBSProvider({
       sessionStorage.setItem('wbs-current-project', newProject.id);
     } catch (_) {}
 
-    // DB 반영은 수동 버튼에서 처리
+    // DB 동기화는 수동 버튼에서 처리
   };
 
   // ─── 백업 ─────────────────────────────────────────────────────────────────
 
   const restoreBackup = (data: BackupData) => {
+    setHasLocalChangesSinceSync(true);
     const projectIds = Array.from(new Set(data.tasks.map(t => t.projectId))).filter(Boolean) as string[];
     let rolled = data.tasks;
     for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid);
@@ -1472,7 +1835,7 @@ export function WBSProvider({
     if (data.projects.length > 0) {
       if (!data.projects.find(p => p.id === currentProjectId)) setCurrentProjectId(data.projects[0].id);
     } else setCurrentProjectId('');
-    // DB 반영은 수동 버튼에서 처리
+    // DB 동기화는 수동 버튼에서 처리
   };
 
   const exportFullBackup = (): BackupData => ({
@@ -1480,6 +1843,7 @@ export function WBSProvider({
   });
 
   const mergeBackups = (backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
+    setHasLocalChangesSinceSync(true);
     const newProjects: Project[] = [];
     const newTasks: Task[] = [];
     for (const backup of backups) {
@@ -1509,6 +1873,13 @@ export function WBSProvider({
       allTasks,
       tasks,
       projects,
+      editableProjectIds,
+      canEditCurrentProject:
+        editableProjectIds == null ||
+        editableProjectIds.length === 0 ||
+        !currentProjectId ||
+        currentProjectId === 'all' ||
+        editableProjectIds.includes(currentProjectId),
       currentProjectId,
       setCurrentProjectId,
       selectedTaskIds,
@@ -1537,7 +1908,8 @@ export function WBSProvider({
       expandToLevel,
       importTasks,
       deletedTaskIdsByProject,
-      syncToDb,
+      hasLocalChangesSinceSync,
+      syncWithDb,
       deleteAllTasks,
       deleteAllTasksInAllProjects,
       resetAllProjectsToNew,

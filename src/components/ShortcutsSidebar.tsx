@@ -14,6 +14,7 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
                 { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
                 { label: '줄높이 높이기', keys: ['Ctrl', '+'] },
                 { label: '줄높이 낮추기', keys: ['Ctrl', '-'] },
+                { label: 'DB 동기화', keys: ['Ctrl', 'S'], hint: '로컬↔서버 맞춤' },
             ],
         },
         {
@@ -21,14 +22,15 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
             items: [
                 { label: '선택 이동', keys: [<ArrowUp size={14} key="up" />, <ArrowDown size={14} key="down" />] },
                 { label: '작업 순서 변경', keys: ['Alt', <ArrowUp size={14} key="alt-up" />, '/', <ArrowDown size={14} key="alt-down" />] },
-                { label: '들여쓰기', keys: ['Tab'] },
-                { label: '내어쓰기', keys: ['Shift', 'Tab'] },
+                { label: '레벨 한 단계 내리기', keys: ['Tab'] },
+                { label: '레벨 한 단계 올리기', keys: ['Shift', 'Tab'] },
                 { label: '동일 레벨 아래 추가', keys: ['Enter'] },
                 { label: '작업 수정', keys: ['F2'] },
                 { label: '작업 삭제', keys: ['Delete'] },
                 { label: '복사', keys: ['Ctrl', 'C'] },
                 { label: '붙여넣기', keys: ['Ctrl', 'V'] },
                 { label: '전체 선택', keys: ['Ctrl', 'A'] },
+                { label: '선택 해제', keys: ['Esc'] },
             ],
         },
         {
@@ -36,6 +38,13 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
             items: [
                 { label: '확대', keys: ['+ / ='] },
                 { label: '축소', keys: ['- / _'] },
+            ],
+        },
+        {
+            title: '마인드맵',
+            items: [
+                { label: '캔버스 이동', keys: ['드래그'] },
+                { label: '확대·축소', keys: ['Ctrl', '휠'] },
             ],
         },
     ];

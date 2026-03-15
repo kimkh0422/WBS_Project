@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -20,6 +20,7 @@
     "db:grant-visits-open": "node scripts/open-visit-grants-in-browser.mjs",
     "db:visits-setup-open": "node scripts/open-visits-setup-in-browser.mjs",
     "db:report-fields-open": "node scripts/open-report-fields-migration.mjs",
+    "db:share-profiles-open": "node scripts/open-share-profiles-migration.mjs",
     "supabase:deploy-functions": "supabase functions deploy admin-delete-user",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -57,7 +58,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
-    "simple-git-hooks": "^2.11.1"
+    "simple-git-hooks": "^2.11.1",
+    "supabase": "^2.78.1"
   },
   "simple-git-hooks": {
     "commit-msg": "node scripts/bump-version-from-commit-msg.mjs"
