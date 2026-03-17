@@ -443,11 +443,16 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     }));
   };
 
-  const handleConvertToSubtask = (item: { id: string; text: string }) => {
+  const handleConvertToSubtask = (item: { id: string; text: string; completed?: boolean }) => {
     if (!initialData || !initialData.id) return; // Must have an existing task to add a subtask to
 
     const today = new Date().toISOString().split('T')[0];
     const trimmedName = item.text.trim();
+    const isDone = !!item.completed;
+    const doneCfg =
+      wbsSettings.statusConfigs.find((c) => (c.progress ?? 0) >= 100) ??
+      wbsSettings.statusConfigs.find((c) => c.id === 'done');
+    const todoCfg = wbsSettings.statusConfigs.find((c) => c.id === 'todo');
 
     // 이미 같은 이름의 직속 하위 작업이 있으면 새로 만들지 않음
     const exists = childTasks.some(
@@ -459,9 +464,9 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         name: trimmedName,
         startDate: formData.startDate || today,
         endDate: formData.endDate || today,
-        progress: 0,
+        progress: isDone ? (doneCfg?.progress ?? 100) : (todoCfg?.progress ?? 0),
         assignee: formData.assignee || '',
-        status: 'todo',
+        status: isDone ? (doneCfg?.id ?? 'done') : (todoCfg?.id ?? 'todo'),
         parentId: initialData.id,
       });
     }
@@ -475,6 +480,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     if (!manualChecklist.length) return;
 
     const today = new Date().toISOString().split('T')[0];
+    const doneCfg =
+      wbsSettings.statusConfigs.find((c) => (c.progress ?? 0) >= 100) ??
+      wbsSettings.statusConfigs.find((c) => c.id === 'done');
+    const todoCfg = wbsSettings.statusConfigs.find((c) => c.id === 'todo');
 
     // 이미 존재하는 하위 작업 이름 집합 (트림 기준)
     const existingNames = new Set(
@@ -488,13 +497,14 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
       if (!trimmedName) return;
 
       if (!existingNames.has(trimmedName)) {
+        const isDone = !!item.completed;
         addTask({
           name: trimmedName,
           startDate: formData.startDate || today,
           endDate: formData.endDate || today,
-          progress: 0,
+          progress: isDone ? (doneCfg?.progress ?? 100) : (todoCfg?.progress ?? 0),
           assignee: formData.assignee || '',
-          status: 'todo',
+          status: isDone ? (doneCfg?.id ?? 'done') : (todoCfg?.id ?? 'todo'),
           parentId: initialData.id,
         });
         existingNames.add(trimmedName);
