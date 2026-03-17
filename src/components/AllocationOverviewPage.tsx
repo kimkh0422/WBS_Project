@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
-import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
+import { Briefcase, Users, Edit, ChevronRight, UserCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project, ProjectAssignment } from '../types';
 
 interface AllocationOverviewPageProps {
+  /** 등록 회원 표시명 집합. 있으면 "회원만 표시" 토글이 노출되고, 켜면 이 집합에 있는 담당자만 표시 */
+  registeredMemberDisplayNames?: Set<string>;
   onEditProject?: (project: Project) => void;
   onNavigateToWork?: (projectId: string) => void;
 }
@@ -31,9 +33,10 @@ function normalizeProjectAssignments(
     .sort((a, b) => b.allocationPercent - a.allocationPercent);
 }
 
-export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
-  const { projects, renameAssignee } = useWBS();
+export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
+  const { projects, allTasks, renameAssignee } = useWBS();
   const [viewMode, setViewMode] = useState<ViewMode>('by-project');
+  const [membersOnly, setMembersOnly] = useState(false);
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
 
@@ -50,6 +53,20 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
         };
       });
   }, [projects]);
+
+  // 인원별·프로젝트별 실제 투입 공수(M/D): 작업 공수 합계
+  const personProjectWorkEffort = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    allTasks.forEach(task => {
+      const person = (task.assignee || '').trim() || '(미지정)';
+      const effort = Number(task.workEffort) || 0;
+      if (effort <= 0) return;
+      if (!map.has(person)) map.set(person, new Map());
+      const projMap = map.get(person)!;
+      projMap.set(task.projectId, (projMap.get(task.projectId) ?? 0) + effort);
+    });
+    return map;
+  }, [allTasks]);
 
   // 인원별 투입 현황: 담당자 → [{ project, allocationPercent }]
   const personAllocations = useMemo(() => {
@@ -80,12 +97,31 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
       .sort((a, b) => b.totalPercent - a.totalPercent);
   }, [projectAllocations]);
 
+  // 회원만 표시 시: 등록 회원(profiles)에 있는 담당자만 필터
+  const memberSet = registeredMemberDisplayNames;
+  const displayProjectAllocations = useMemo(() => {
+    if (!membersOnly || !memberSet?.size) return projectAllocations;
+    return projectAllocations
+      .map(({ project, assignments, totalPercent }) => {
+        const filtered = assignments.filter(a => memberSet.has(a.assignee));
+        const total = filtered.reduce((s, a) => s + (a.allocationPercent || 0), 0);
+        return { project, assignments: filtered, totalPercent: total };
+      })
+      .filter(({ assignments }) => assignments.length > 0);
+  }, [projectAllocations, membersOnly, memberSet]);
+
+  const displayPersonAllocations = useMemo(() => {
+    if (!membersOnly || !memberSet?.size) return personAllocations;
+    return personAllocations.filter(p => memberSet.has(p.person));
+  }, [personAllocations, membersOnly, memberSet]);
+
   // 투입 정보가 없는 프로젝트
   const projectsWithoutAllocation = useMemo(() => {
     return projects.filter(p => !p.assignments || p.assignments.length === 0);
   }, [projects]);
 
   const hasAnyAllocation = projectAllocations.length > 0;
+  const showMembersOnlyToggle = Boolean(registeredMemberDisplayNames?.size);
 
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
@@ -100,29 +136,43 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
               프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => setViewMode('by-project')}
-              className={cn(
-                "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
-                viewMode === 'by-project'
-                  ? "bg-teal-600 text-white border-teal-600"
-                  : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
-              )}
-            >
-              <Briefcase size={14} /> 프로젝트별
-            </button>
-            <button
-              onClick={() => setViewMode('by-person')}
-              className={cn(
-                "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
-                viewMode === 'by-person'
-                  ? "bg-teal-600 text-white border-teal-600"
-                  : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
-              )}
-            >
-              <Users size={14} /> 인원별
-            </button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setViewMode('by-project')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
+                  viewMode === 'by-project'
+                    ? "bg-teal-600 text-white border-teal-600"
+                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                )}
+              >
+                <Briefcase size={14} /> 프로젝트별
+              </button>
+              <button
+                onClick={() => setViewMode('by-person')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
+                  viewMode === 'by-person'
+                    ? "bg-teal-600 text-white border-teal-600"
+                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                )}
+              >
+                <Users size={14} /> 인원별
+              </button>
+            </div>
+            {showMembersOnlyToggle && (
+              <label className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-stone-600 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={membersOnly}
+                  onChange={(e) => setMembersOnly(e.target.checked)}
+                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                />
+                <UserCheck size={14} className="text-teal-600 shrink-0" />
+                <span>회원만 표시</span>
+              </label>
+            )}
           </div>
         </div>
 
@@ -144,7 +194,10 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
           </div>
         ) : viewMode === 'by-project' ? (
           <div className="space-y-4">
-            {projectAllocations.map(({ project, assignments, totalPercent }) => (
+            {membersOnly && displayProjectAllocations.length === 0 && projectAllocations.length > 0 && (
+              <p className="text-sm text-stone-500 text-center py-4">등록 회원에 해당하는 투입이 없습니다.</p>
+            )}
+            {displayProjectAllocations.map(({ project, assignments, totalPercent }) => (
               <div
                 key={project.id}
                 className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
@@ -232,7 +285,10 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
           </div>
         ) : (
           <div className="space-y-4">
-            {personAllocations.map(({ person, items, totalPercent }) => (
+            {membersOnly && displayPersonAllocations.length === 0 && personAllocations.length > 0 && (
+              <p className="text-sm text-stone-500 text-center py-4">등록 회원에 해당하는 투입이 없습니다.</p>
+            )}
+            {displayPersonAllocations.map(({ person, items, totalPercent }) => (
               <div
                 key={person}
                 className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
@@ -293,26 +349,37 @@ export function AllocationOverviewPage({ onEditProject, onNavigateToWork }: Allo
                     )}
                     <div className="text-xs text-stone-500">
                       {items.length}개 프로젝트 · 총 {totalPercent}% 투입
+                      {(() => {
+                        const totalMd = Array.from(personProjectWorkEffort.get(person)?.values() ?? []).reduce((s, v) => s + v, 0);
+                        return totalMd > 0 ? ` · 총 ${totalMd} M/D` : null;
+                      })()}
                     </div>
                   </div>
                 </div>
                 <div className="px-4 pb-4 pt-0">
                   <div className="flex flex-wrap gap-2">
-                    {items.map(({ project, allocationPercent }) => (
-                      <button
-                        key={`${person}:${project.id}`}
-                        onClick={() => onNavigateToWork?.(project.id)}
-                        className={cn(
-                          "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors",
-                          onNavigateToWork
-                            ? "bg-stone-50 border-stone-100 hover:bg-teal-50 hover:border-teal-100 cursor-pointer"
-                            : "bg-stone-50 border-stone-100"
-                        )}
-                      >
-                        <span className="text-stone-700">{project.name}</span>
-                        <span className="text-teal-600 font-bold">{allocationPercent}%</span>
-                      </button>
-                    ))}
+                    {items.map(({ project, allocationPercent }) => {
+                      const workEffortMd = personProjectWorkEffort.get(person)?.get(project.id) ?? 0;
+                      return (
+                        <button
+                          key={`${person}:${project.id}`}
+                          onClick={() => onNavigateToWork?.(project.id)}
+                          className={cn(
+                            "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors",
+                            onNavigateToWork
+                              ? "bg-stone-50 border-stone-100 hover:bg-teal-50 hover:border-teal-100 cursor-pointer"
+                              : "bg-stone-50 border-stone-100"
+                          )}
+                          title={`${project.name}: 투입 ${allocationPercent}%, 공수 ${workEffortMd} M/D`}
+                        >
+                          <span className="text-stone-700">{project.name}</span>
+                          <span className="text-teal-600 font-bold">{allocationPercent}%</span>
+                          {workEffortMd > 0 && (
+                            <span className="text-stone-500 text-xs font-medium">{workEffortMd} M/D</span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

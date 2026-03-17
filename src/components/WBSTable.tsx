@@ -38,6 +38,8 @@ interface WBSTableProps {
   sortConfig: SortConfig;
   onSort: (key: keyof Task | 'wbs') => void;
   syncScrollRef?: React.RefObject<HTMLDivElement>;
+  /** 표·간트 공통 줄간격(px). 전달 시 부모와 동기화(양쪽 슬라이더 모두 적용) */
+  rowHeight?: number;
   onRowHeightChange?: (h: number) => void;
   /** 줄바꿈 켜짐 시 측정된 행 높이 배열을 전달 (표·간트 동기화용) */
   onRowHeightsChange?: (heights: number[]) => void;
@@ -121,7 +123,7 @@ function getTaskDetailTooltip(
   return lines.join('\n');
 }
 
-export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings }: WBSTableProps) {
+export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight: propRowHeight, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings }: WBSTableProps) {
   const {
     tasks,
     projects,
@@ -355,8 +357,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
 
-  // Row height (density) state
-  const [rowHeight, setRowHeight] = useState<number>(20);
+  // Row height (density): 부모에서 rowHeight 전달 시 동기화, 없으면 자체 state
+  const [rowHeightState, setRowHeightState] = useState<number>(20);
+  const rowHeight = propRowHeight ?? rowHeightState;
 
   const maxTreeLevel = useMemo(() => {
     if (tasks.length === 0) return 1;
@@ -423,9 +426,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
   }, [wrapTextInCells, syncScrollRef, visibleTaskIdsKey, onRowHeightsChange, rowHeight]);
 
   const handleSetRowHeight = useCallback((h: number) => {
-    setRowHeight(h);
+    if (propRowHeight == null) setRowHeightState(h);
     onRowHeightChange?.(h);
-  }, [onRowHeightChange]);
+  }, [onRowHeightChange, propRowHeight]);
 
   // Delete Confirmation State
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
@@ -1449,7 +1452,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
       <div className={cn(
         // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
         isSplitView
-          ? "h-11 flex items-center gap-0 border-b px-4 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto whitespace-nowrap"
+          ? "min-h-12 flex items-center gap-0 border-b px-4 py-1.5 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto overflow-y-visible whitespace-nowrap"
           : "flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0",
         "border-[var(--color-line)]"
       )}>
@@ -1722,7 +1725,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               </SortableContext>
             </DndContext>
 
-            {/* Quick Add Row */}
+            {/* Quick Add Row: split view에서는 스크롤 밖에 두어 표·간트 행 높이 일치(첫/끝 행 정렬) */}
+            {!isSplitView && (
             <div className="data-row bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
               <div className="data-cell"></div>
               <div className="data-cell"></div>
@@ -1755,6 +1759,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
               })}
               <div className="data-cell"></div>
             </div>
+            )}
 
             {visibleTasks.length === 0 && tasks.length === 0 && (
               <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
@@ -1763,6 +1768,41 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, onRowHeig
             )}
           </div>
         </div>
+        {/* Split view: 새 작업 추가 행을 스크롤 밖 하단에 두어 표·간트 행 수를 동일하게 유지 */}
+        {isSplitView && (
+          <div className="data-row flex-shrink-0 bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
+            <div className="data-cell"></div>
+            <div className="data-cell"></div>
+            <div className="data-cell"></div>
+            <div className="data-cell justify-center text-stone-400">
+              <Plus size={14} />
+            </div>
+            {visibleColumnIds.map((colId) => {
+              if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+              return (
+                <div key={colId} className="data-cell p-0">
+                  <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                    <input
+                      type="text"
+                      value={quickAddName}
+                      onChange={(e) => setQuickAddName(e.target.value)}
+                      placeholder="새 작업 추가 (Enter 키 입력)..."
+                      className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!quickAddName.trim()}
+                      className="text-[10px] font-bold text-indigo-600 disabled:opacity-50 uppercase px-4 hover:bg-indigo-50 transition-colors"
+                    >
+                      추가
+                    </button>
+                  </form>
+                </div>
+              );
+            })}
+            <div className="data-cell"></div>
+          </div>
+        )}
       </div>
 
       {/* Bulk Action Bar - 다중선택(2개 이상)일 경우에만 표시 */}

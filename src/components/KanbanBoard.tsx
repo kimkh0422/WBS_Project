@@ -25,6 +25,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useWBS } from '../context/WBSContext';
 import { Task, TaskStatus, FilterState } from '../types';
 import { cn } from '../lib/utils';
+import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -345,6 +346,8 @@ function KanbanColumn({
     }
   };
 
+  const colorProps = getStatusColorProps(column.color);
+
   return (
     <div className="flex flex-col h-full min-w-[280px] w-[280px] flex-shrink-0">
       <div className="flex items-center justify-between mb-3 px-1">
@@ -377,9 +380,11 @@ function KanbanColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "flex-1 rounded-xl p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent border border-transparent transition-colors",
-          column.color
+          "flex-1 rounded-xl p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent transition-colors",
+          !colorProps.style && "border border-transparent",
+          colorProps.className
         )}
+        style={colorProps.style}
       >
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (

@@ -3,6 +3,8 @@ import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeO
 import { useWBS } from '../context/WBSContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
+import { cn } from '../lib/utils';
+import { ColorPicker } from './ColorPicker';
 import { TaskStatus } from '../types';
 
 interface WBSSettingsModalProps {
@@ -13,6 +15,50 @@ interface WBSSettingsModalProps {
 }
 
 const DEFAULT_LEVEL_COLORS: RgbColor[] = [...LEVEL_COLORS];
+
+/** 상태(할 일/진행 중/완료 등)별 색상 프리셋 - Tailwind 클래스 */
+const STATUS_COLOR_PRESETS: { value: string; label: string }[] = [
+    { value: 'bg-stone-100 border-stone-200', label: '회색' },
+    { value: 'bg-zinc-100 border-zinc-200', label: '징크' },
+    { value: 'bg-neutral-100 border-neutral-200', label: '뉴트럴' },
+    { value: 'bg-slate-100 border-slate-200', label: '슬레이트' },
+    { value: 'bg-sky-50 border-sky-100', label: '스카이' },
+    { value: 'bg-blue-50 border-blue-100', label: '파랑' },
+    { value: 'bg-indigo-50 border-indigo-100', label: '남색' },
+    { value: 'bg-violet-50 border-violet-100', label: '바이올렛' },
+    { value: 'bg-purple-50 border-purple-100', label: '퍼플' },
+    { value: 'bg-fuchsia-50 border-fuchsia-100', label: '푸시아' },
+    { value: 'bg-pink-50 border-pink-100', label: '핑크' },
+    { value: 'bg-rose-50 border-rose-100', label: '로즈' },
+    { value: 'bg-red-50 border-red-100', label: '빨강' },
+    { value: 'bg-orange-50 border-orange-100', label: '오렌지' },
+    { value: 'bg-amber-50 border-amber-100', label: '앰버' },
+    { value: 'bg-yellow-50 border-yellow-100', label: '옐로우' },
+    { value: 'bg-lime-50 border-lime-100', label: '라임' },
+    { value: 'bg-green-50 border-green-100', label: '초록' },
+    { value: 'bg-emerald-50 border-emerald-100', label: '에메랄드' },
+    { value: 'bg-teal-50 border-teal-100', label: '청록' },
+    { value: 'bg-cyan-50 border-cyan-100', label: '시안' },
+];
+
+/** 커스텀 색상 저장 형식: bg-[#hex] border-[#hex] */
+function isCustomStatusColor(value: string): boolean {
+    return /^bg-\[#[a-fA-F0-9]{6}\] border-\[#[a-fA-F0-9]{6}\]$/.test(value);
+}
+function parseCustomStatusColor(value: string): string | null {
+    const m = value.match(/border-\[(#[a-fA-F0-9]{6})\]/);
+    return m ? m[1] : null;
+}
+function hexToCustomStatusColor(hex: string): string {
+    const rgb = hexToRgb(hex.startsWith('#') ? hex : `#${hex}`);
+    if (!rgb) return 'bg-stone-50 border-stone-100';
+    const r = Math.min(255, Math.round(rgb.r * 0.2 + 248));
+    const g = Math.min(255, Math.round(rgb.g * 0.2 + 248));
+    const b = Math.min(255, Math.round(rgb.b * 0.2 + 248));
+    const bgHex = rgbToHex(r, g, b);
+    const borderHex = hex.startsWith('#') ? hex : `#${hex}`;
+    return `bg-[${bgHex}] border-[${borderHex}]`;
+}
 
 function rgbToHex(r: number, g: number, b: number): string {
     return '#' + [r, g, b].map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
@@ -137,8 +183,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
     if (!isOpen) return null;
 
+    const statusProgressInvalid = statusConfigs.some(c => c.progress > 100 || c.progress < 0);
+
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
+        if (statusProgressInvalid) return;
         updateWbsSettings({
             appTitle: appTitle.trim(),
             showCriticalPath,
@@ -381,7 +430,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                                                 setLevelColorsState(next);
                                                             }
                                                         }}
-                                                        className="w-full h-9 rounded-lg border border-stone-200 cursor-pointer"
+                                                        className="w-full min-h-[44px] h-12 rounded-lg border-2 border-stone-200 cursor-pointer hover:border-stone-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                                                        title="클릭하여 색상 선택"
                                                     />
                                                 </div>
                                             );
@@ -524,7 +574,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                             type="button"
                                             onClick={() => {
                                                 const newId = `status-${Date.now()}`;
-                                                setStatusConfigs([...statusConfigs, { id: newId, name: '새 상태', progress: 0 }]);
+                                                setStatusConfigs([...statusConfigs, { id: newId, name: '새 상태', progress: 0, color: 'bg-stone-50 border-stone-100' }]);
                                             }}
                                             className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
                                         >
@@ -532,51 +582,128 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                             상태 추가
                                         </button>
                                     </div>
-                                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {statusConfigs.map((config, index) => (
-                                            <div key={config.id} className="flex gap-2 items-center group">
-                                                <div className="flex-1">
-                                                    <input
-                                                        type="text"
-                                                        value={config.name}
-                                                        onChange={(e) => {
-                                                            const newConfigs = [...statusConfigs];
-                                                            newConfigs[index] = { ...config, name: e.target.value };
-                                                            setStatusConfigs(newConfigs);
-                                                        }}
-                                                        className="input-field py-1.5 text-xs"
-                                                        placeholder="명칭"
-                                                    />
-                                                </div>
-                                                <div className="w-16 relative">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        max="100"
-                                                        value={config.progress}
-                                                        onChange={(e) => {
-                                                            const newConfigs = [...statusConfigs];
-                                                            newConfigs[index] = { ...config, progress: Number(e.target.value) };
-                                                            setStatusConfigs(newConfigs);
-                                                        }}
-                                                        className="input-field py-1.5 text-xs pr-5"
-                                                    />
-                                                    <span className="absolute right-1.5 top-1.5 text-[9px] text-stone-400 font-bold">%</span>
-                                                </div>
-                                                {statusConfigs.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setStatusConfigs(statusConfigs.filter((_, i) => i !== index));
-                                                        }}
-                                                        className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                                                        title="삭제"
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
+                                    <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {(() => {
+                                            const progressError = statusConfigs.some(c => c.progress > 100 || c.progress < 0);
+                                            const progressErrorNum = statusConfigs.find(c => c.progress > 100 || c.progress < 0)?.progress;
+                                            return (
+                                                <>
+                                                    {progressError && (
+                                                        <div id="status-progress-error" className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-100 border-2 border-amber-400 text-amber-900 shadow-sm" role="alert">
+                                                            <AlertTriangle size={22} className="shrink-0 text-amber-600" aria-hidden />
+                                                            <p className="text-sm font-bold">
+                                                                값은 0 이상 100 이하여야 합니다.
+                                                                {progressErrorNum != null && (
+                                                                    <span className="ml-1 font-normal text-amber-800">(입력된 값: {progressErrorNum}%)</span>
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    {statusConfigs.map((config, index) => {
+                                            const colorValue = config.color || STATUS_COLOR_PRESETS.find((p) => p.value.includes('green'))?.value || 'bg-green-50 border-green-100';
+                                            const hasProgressError = config.progress > 100 || config.progress < 0;
+                                            const isCustom = isCustomStatusColor(colorValue);
+                                            const customHex = parseCustomStatusColor(colorValue) || '#0ea5e9';
+                                            return (
+                                                <React.Fragment key={config.id}>
+                                                    <div className="flex gap-2 items-center group flex-wrap">
+                                                        <div className="flex-1 min-w-[100px]">
+                                                            <input
+                                                                type="text"
+                                                                value={config.name}
+                                                                onChange={(e) => {
+                                                                    const newConfigs = [...statusConfigs];
+                                                                    newConfigs[index] = { ...config, name: e.target.value };
+                                                                    setStatusConfigs(newConfigs);
+                                                                }}
+                                                                className="input-field py-1.5 text-xs"
+                                                                placeholder="명칭"
+                                                            />
+                                                        </div>
+                                                        <div className="w-36 min-w-[8rem] relative">
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                max={100}
+                                                                value={config.progress}
+                                                                onChange={(e) => {
+                                                                    const newConfigs = [...statusConfigs];
+                                                                    newConfigs[index] = { ...config, progress: Number(e.target.value) };
+                                                                    setStatusConfigs(newConfigs);
+                                                                }}
+                                                                className={cn(
+                                                                    'input-field py-1.5 text-xs pr-8',
+                                                                    hasProgressError && 'border-2 border-amber-500 bg-amber-50 ring-2 ring-amber-200'
+                                                                )}
+                                                                aria-invalid={hasProgressError}
+                                                                aria-describedby={hasProgressError ? 'status-progress-error' : undefined}
+                                                            />
+                                                            <span className="absolute right-1.5 top-1.5 text-[9px] text-stone-400 font-bold">%</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5" title="상태 색상">
+                                                            <span className="text-[10px] font-bold text-stone-500 shrink-0">색상</span>
+                                                            <select
+                                                                value={isCustom ? '__custom__' : colorValue}
+                                                                onChange={(e) => {
+                                                                    const v = e.target.value;
+                                                                    const newConfigs = [...statusConfigs];
+                                                                    if (v === '__custom__') {
+                                                                        const prevHex = parseCustomStatusColor(colorValue);
+                                                                        newConfigs[index] = { ...config, color: prevHex ? colorValue : hexToCustomStatusColor('#0ea5e9') };
+                                                                    } else {
+                                                                        newConfigs[index] = { ...config, color: v };
+                                                                    }
+                                                                    setStatusConfigs(newConfigs);
+                                                                }}
+                                                                className="input-field py-1.5 text-xs pr-6 pl-7 w-28"
+                                                            >
+                                                                {!isCustom && !STATUS_COLOR_PRESETS.some((p) => p.value === colorValue) && (
+                                                                    <option value={colorValue}>현재</option>
+                                                                )}
+                                                                {STATUS_COLOR_PRESETS.map((p) => (
+                                                                    <option key={p.value} value={p.value}>{p.label}</option>
+                                                                ))}
+                                                                <option value="__custom__">직접 선택…</option>
+                                                            </select>
+                                                            {isCustom ? (
+                                                                <span className="w-8 h-8 rounded-lg border-2 border-stone-200 shrink-0" style={{ backgroundColor: customHex }} aria-hidden />
+                                                            ) : (
+                                                                <span className={cn('w-5 h-5 rounded border shrink-0', colorValue)} aria-hidden />
+                                                            )}
+                                                        </div>
+                                                        {statusConfigs.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setStatusConfigs(statusConfigs.filter((_, i) => i !== index));
+                                                                }}
+                                                                className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                                                                title="삭제"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {isCustom && (
+                                                        <div className="mt-2 mb-4 pl-2 border-l-2 border-stone-200">
+                                                            <p className="text-[10px] font-bold text-stone-500 mb-1.5">채도·밝기·색조·RGB로 선택</p>
+                                                            <ColorPicker
+                                                                value={customHex}
+                                                                onChange={(hex) => {
+                                                                    const newConfigs = [...statusConfigs];
+                                                                    newConfigs[index] = { ...config, color: hexToCustomStatusColor(hex) };
+                                                                    setStatusConfigs(newConfigs);
+                                                                }}
+                                                                size={220}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                     <p className="text-[10px] text-stone-400 mt-1 italic">
                                         작업 상태 변경 시 설정된 진척도가 자동으로 반영됩니다. 위의 옵션을 사용하면 현재 저장 시점의 상태 설정을
@@ -657,7 +784,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             </button>
                             <button
                                 type="submit"
-                                className="btn-primary"
+                                className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                                disabled={activeTab === 'status' && statusProgressInvalid}
+                                title={activeTab === 'status' && statusProgressInvalid ? '진척도는 0~100 범위로 입력해 주세요.' : undefined}
                             >
                                 적용하기
                             </button>

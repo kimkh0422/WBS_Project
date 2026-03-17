@@ -1,4 +1,4 @@
-import { supabase, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProjectAccessRequestRow, ProfileRow, isSupabaseConfigured } from './supabase';
+import { supabase, supabaseUrl, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProjectAccessRequestRow, ProfileRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
@@ -1424,6 +1424,9 @@ export async function deleteMemberAsAdmin(
   options?: { wbsAdminPassword?: string }
 ): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
+  if (!supabaseUrl?.trim()) {
+    return { success: false, error: 'Supabase URL이 설정되지 않았습니다.' };
+  }
   try {
     const { data: sessionData } = await supabase!.auth.getSession();
     const accessToken = sessionData.session?.access_token;
@@ -1434,44 +1437,54 @@ export async function deleteMemberAsAdmin(
     const body: { userId: string; wbsAdminPassword?: string } = { userId };
     if (options?.wbsAdminPassword) body.wbsAdminPassword = options.wbsAdminPassword;
 
-    const { data, error } = await supabase!.functions.invoke('admin-delete-user', {
-      body,
+    const url = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/admin-delete-user`;
+    const res = await fetch(url, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
+      body: JSON.stringify(body),
     });
 
-    if (error) {
-      const msg = (error.message || '').toString();
-      if (msg.includes('Failed to send a request to the Edge Function')) {
-        return {
-          success: false,
-          error:
-            'Edge Function 요청에 실패했습니다. (1) `admin-delete-user` 함수가 배포되어 있는지, (2) 로컬이면 Supabase functions가 실행 중인지, (3) 네트워크/CORS 차단이 없는지 확인하세요.',
-        };
+    const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+    if (!res.ok) {
+      const serverMessage = typeof json?.error === 'string' ? json.error : null;
+      if (res.status === 403 && serverMessage) {
+        return { success: false, error: serverMessage };
       }
-      // Edge Function이 4xx/5xx를 반환하면 클라이언트는 "Edge Function returned a non-2xx status code"만 받음.
-      // 응답 본문의 { error: "..." } 메시지를 읽어 사용자에게 표시.
-      let userMessage = msg;
-      if (msg.includes('non-2xx')) {
-        try {
-          const ctx = (error as { context?: Response }).context;
-          if (ctx && typeof ctx.json === 'function') {
-            const body = (await ctx.json()) as { error?: string };
-            if (body?.error && typeof body.error === 'string') userMessage = body.error;
-          }
-        } catch {
-          // JSON 파싱 실패 시 기존 msg 유지
-        }
+      if (res.status === 400 && serverMessage) {
+        return { success: false, error: serverMessage };
       }
-      return { success: false, error: userMessage || '회원 삭제에 실패했습니다.' };
+      if (res.status === 401 && serverMessage) {
+        return { success: false, error: serverMessage };
+      }
+      if (res.status >= 500 && serverMessage) {
+        return { success: false, error: serverMessage };
+      }
+      if (serverMessage) return { success: false, error: serverMessage };
+      return {
+        success: false,
+        error:
+          res.status === 404 || res.status === 0
+            ? 'Edge Function 요청에 실패했습니다. `admin-delete-user` 함수가 배포되어 있는지, 로컬이면 Supabase functions가 실행 중인지 확인하세요.'
+            : `회원 삭제에 실패했습니다. (${res.status})`,
+      };
     }
-    const result = data as { success?: boolean; error?: string } | null;
-    if (result?.error) return { success: false, error: result.error };
+    if (json?.error) return { success: false, error: json.error };
     return { success: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { success: false, error: msg || '회원 삭제에 실패했습니다.' };
+    const isNetwork =
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Load failed');
+    return {
+      success: false,
+      error: isNetwork
+        ? 'Edge Function 요청에 실패했습니다. 네트워크 및 `admin-delete-user` 배포 여부를 확인하세요.'
+        : msg || '회원 삭제에 실패했습니다.',
+    };
   }
 }
 

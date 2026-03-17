@@ -280,6 +280,16 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     return m;
   }, [profiles, ownerDisplayNames]);
 
+  /** 대시보드 인원별 투입 현황에 표시할 등록 회원 표시명 집합 (profiles 기준) */
+  const registeredMemberDisplayNames = React.useMemo(() => {
+    const names = new Set<string>();
+    profiles.forEach(p => {
+      const name = (p.full_name && String(p.full_name).trim()) || p.email || '(이메일 없음)';
+      names.add(name);
+    });
+    return names;
+  }, [profiles]);
+
   const currentUserDisplay = React.useMemo(() => {
     if (!user) return '';
     const profile = profiles.find(p => p.id === user.id) as { full_name?: string | null } | undefined;
@@ -376,37 +386,53 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
   const [rowHeights, setRowHeights] = useState<number[]>([]);
   const isSyncingScroll = useRef(false);
 
-  // Sync vertical scroll between WBSTable and GanttChart (행만 스크롤되므로 scrollTop 1:1 동기화)
+  // 표·간트 스크롤 동기화: ref가 준비될 때까지 재시도 (간트가 빈 상태에서 작업 목록이 뜨면 ref가 나중에 붙음)
+  const [scrollSyncRetry, setScrollSyncRetry] = useState(0);
+  const scrollSyncRetryCountRef = useRef(0);
+
   useEffect(() => {
-    if (view !== 'list') return;
+    if (view !== 'list') {
+      scrollSyncRetryCountRef.current = 0;
+      return;
+    }
     const wbs = wbsScrollRef.current;
     const gantt = ganttScrollRef.current;
-    if (!wbs || !gantt) return;
+    if (!wbs || !gantt) {
+      if (scrollSyncRetryCountRef.current < 30) {
+        scrollSyncRetryCountRef.current += 1;
+        const t = setTimeout(() => setScrollSyncRetry((r) => r + 1), 80);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
+    scrollSyncRetryCountRef.current = 0;
 
     const syncFromWbs = (e: Event) => {
       if (isSyncingScroll.current) return;
       isSyncingScroll.current = true;
-      gantt.scrollTop = (e.target as HTMLDivElement).scrollTop;
-      isSyncingScroll.current = false;
+      const top = (e.target as HTMLDivElement).scrollTop;
+      gantt.scrollTop = top;
+      // 플래그를 한 프레임 뒤에 해제해, gantt.scrollTop 설정으로 인한 scroll 이벤트가 역동기화하지 않도록 함
+      requestAnimationFrame(() => { isSyncingScroll.current = false; });
     };
     const syncFromGantt = (e: Event) => {
       if (isSyncingScroll.current) return;
       isSyncingScroll.current = true;
-      wbs.scrollTop = (e.target as HTMLDivElement).scrollTop;
-      isSyncingScroll.current = false;
+      const top = (e.target as HTMLDivElement).scrollTop;
+      wbs.scrollTop = top;
+      requestAnimationFrame(() => { isSyncingScroll.current = false; });
     };
 
-    wbs.addEventListener('scroll', syncFromWbs);
-    gantt.addEventListener('scroll', syncFromGantt);
-    // 초기 위치 맞춤
-    const top = wbs.scrollTop;
-    gantt.scrollTop = top;
+    wbs.addEventListener('scroll', syncFromWbs, { passive: true });
+    gantt.addEventListener('scroll', syncFromGantt, { passive: true });
+    // 표 스크롤 위치에 맞춰 간트도 동일 위치로 초기 맞춤
+    gantt.scrollTop = wbs.scrollTop;
 
     return () => {
       wbs.removeEventListener('scroll', syncFromWbs);
       gantt.removeEventListener('scroll', syncFromGantt);
     };
-  }, [view]);
+  }, [view, scrollSyncRetry]);
 
   // Resizable Panes State
   const WBS_TABLE_WIDTH_STORAGE_KEY = 'wbs.split.wbsTableWidth';
@@ -972,6 +998,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
 
   /** 헤더 프로젝트가 바뀔 때만 필터 동기화 (필터에서 다중 선택한 뒤 헤더는 그대로일 때는 유지) */
   const headerProjectFilterSyncKey = useRef<string | null>(null);
+  const projectFilterAllCheckboxRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const key = !currentProjectId || currentProjectId === 'all' ? '__all__' : currentProjectId;
     if (headerProjectFilterSyncKey.current === key) return;
@@ -1152,7 +1179,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
-                                {myEditableProjectIds.includes(project.id) && (
+                                {(isAdmin || myEditableProjectIds.includes(project.id)) && (
                                   <>
                                     <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유"><Share2 size={12} /></button>
                                     <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사"><Copy size={12} /></button>
@@ -1481,68 +1508,79 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                 className="absolute left-0 top-full mt-1 z-50 min-w-[280px] max-w-[320px] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg py-2"
                 onMouseDown={(e) => e.preventDefault()}
               >
-                <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
-                  <input
-                    type="checkbox"
-                    checked={filters.projectIds === 'all'}
-                    onChange={() => {
-                      selectProject('all');
-                      setFilters((f) => ({ ...f, projectIds: 'all' }));
-                      headerProjectFilterSyncKey.current = '__all__';
-                    }}
-                    className="rounded border-slate-300 text-indigo-600"
-                  />
-                  전체 (모든 프로젝트)
-                </label>
-                {projectsSortedByName.map((p) => {
-                  const checked =
-                    Array.isArray(filters.projectIds) && filters.projectIds.includes(p.id);
+                {(() => {
                   const allIds = projectsSortedByName.map((x) => x.id);
+                  const isAll = filters.projectIds === 'all';
+                  const isPartial = Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
                   return (
-                    <label
-                      key={p.id}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-stone-700 hover:bg-slate-50 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          if (filters.projectIds === 'all') {
-                            selectProject(p.id);
-                            setFilters((f) => ({ ...f, projectIds: [p.id] }));
-                            headerProjectFilterSyncKey.current = p.id;
-                            return;
-                          }
-                          const set = new Set(filters.projectIds);
-                          if (set.has(p.id)) {
-                            set.delete(p.id);
-                            if (set.size === 0) {
-                              selectProject('all');
-                              setFilters((f) => ({ ...f, projectIds: 'all' }));
-                              headerProjectFilterSyncKey.current = '__all__';
-                            } else {
-                              const arr = Array.from(set);
-                              if (arr.length === 1) selectProject(arr[0]);
-                              setFilters((f) => ({ ...f, projectIds: arr }));
-                            }
-                          } else {
-                            set.add(p.id);
-                            const arr = Array.from(set);
-                            if (arr.length === allIds.length) {
-                              selectProject('all');
-                              setFilters((f) => ({ ...f, projectIds: 'all' }));
-                              headerProjectFilterSyncKey.current = '__all__';
-                            } else {
-                              setFilters((f) => ({ ...f, projectIds: arr }));
-                            }
-                          }
-                        }}
-                        className="rounded border-slate-300 text-indigo-600"
-                      />
-                      <span className="truncate">{p.name}</span>
-                    </label>
+                    <>
+                      <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
+                        <input
+                          ref={(el) => {
+                            (projectFilterAllCheckboxRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+                            if (el) el.indeterminate = isPartial;
+                          }}
+                          type="checkbox"
+                          checked={isAll}
+                          onChange={() => {
+                            selectProject('all');
+                            setFilters((f) => ({ ...f, projectIds: 'all' }));
+                            headerProjectFilterSyncKey.current = '__all__';
+                          }}
+                          className="rounded border-slate-300 text-indigo-600"
+                        />
+                        전체 (모든 프로젝트)
+                      </label>
+                      {projectsSortedByName.map((p) => {
+                        const checked = isAll || (Array.isArray(filters.projectIds) && filters.projectIds.includes(p.id));
+                        return (
+                          <label
+                            key={p.id}
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-stone-700 hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                if (filters.projectIds === 'all') {
+                                  const excluded = allIds.filter((id) => id !== p.id);
+                                  setFilters((f) => ({ ...f, projectIds: excluded }));
+                                  headerProjectFilterSyncKey.current = '__partial__';
+                                } else {
+                                  const set = new Set(filters.projectIds);
+                                  if (set.has(p.id)) {
+                                    set.delete(p.id);
+                                    if (set.size === 0) {
+                                      selectProject('all');
+                                      setFilters((f) => ({ ...f, projectIds: 'all' }));
+                                      headerProjectFilterSyncKey.current = '__all__';
+                                    } else {
+                                      const arr = Array.from(set);
+                                      if (arr.length === 1) selectProject(arr[0]);
+                                      setFilters((f) => ({ ...f, projectIds: arr }));
+                                    }
+                                  } else {
+                                    set.add(p.id);
+                                    const arr = Array.from(set);
+                                    if (arr.length === allIds.length) {
+                                      selectProject('all');
+                                      setFilters((f) => ({ ...f, projectIds: 'all' }));
+                                      headerProjectFilterSyncKey.current = '__all__';
+                                    } else {
+                                      setFilters((f) => ({ ...f, projectIds: arr }));
+                                    }
+                                  }
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600"
+                            />
+                            <span className="truncate">{p.name}</span>
+                          </label>
+                        );
+                      })}
+                    </>
                   );
-                })}
+                })()}
               </div>
             )}
           </div>
@@ -1800,6 +1838,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                   filters={effectiveFilters}
                   sortConfig={sortConfig}
                   syncScrollRef={wbsScrollRef}
+                  rowHeight={sharedRowHeight}
                   onRowHeightChange={setSharedRowHeight}
                   onRowHeightsChange={setRowHeights}
                   onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
@@ -1823,7 +1862,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                 <span className="w-1 h-16 rounded-full bg-slate-200 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-all duration-150 pointer-events-none group-hover:w-1.5 group-hover:shadow-sm" />
               </div>
               <div className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block" style={{ width: `${100 - wbsTableWidth}%` }}>
-                <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} syncScrollRef={ganttScrollRef} />
+                <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} onRowHeightChange={setSharedRowHeight} syncScrollRef={ganttScrollRef} />
               </div>
             </div>
           ) : view === 'table' ? (
@@ -1847,11 +1886,12 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           ) : view === 'gantt' ? (
             <GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} />
           ) : view === 'dashboard' ? (
-            <Dashboard onNavigate={handleDashboardNavigate} />
+            <Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} />
           ) : view === 'projects' ? (
             <ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} />
           ) : view === 'allocation' ? (
             <AllocationOverviewPage
+              registeredMemberDisplayNames={registeredMemberDisplayNames}
               onEditProject={(p) => { setEditingProject(p); setIsProjectModalOpen(true); }}
               onNavigateToWork={(projectId) => { setCurrentProjectId(projectId); setView('list'); }}
             />

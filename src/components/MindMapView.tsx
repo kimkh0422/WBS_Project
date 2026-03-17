@@ -7,18 +7,17 @@ import { ZoomIn, ZoomOut, Maximize2, Hand, Plus, ArrowUpToLine, ArrowDownToLine,
 import { cn } from '../lib/utils';
 
 const NODE_W = 200;
-const NODE_H = 34;
+const NODE_H = 38;
 const GAP_X = 44;
-const GAP_Y = 10;
+const GAP_Y = 14;
 const TOGGLE_W = 20;
+/** 노드 세로 간격 확대로 가독성 향상 */
+const MIN_NODE_GAP_Y = 18;
 
-/** 알마인드 스타일: 중심→좌우 브랜치, 곡선 연결선 */
-const ALMIND_CENTER_X = 420;
-const ALMIND_CENTER_Y = 320;
-const ALMIND_BRANCH_DX = 260;
-const ALMIND_BRANCH_DY = 38;
-/** 노드 겹침 방지: 부모-자식·형제 간 최소 세로 간격 */
-const MIN_NODE_GAP_Y = 12;
+/** 트리형 레이아웃: 중심(상단) → 주요 토픽(가로 한 줄) → 하위 토픽(세로 열) */
+const TREE_START_Y = 40;
+const TREE_CENTER_X = 480;
+const TREE_GAP_X = 24;
 
 interface TreeNode {
   task: Task;
@@ -41,6 +40,10 @@ interface Edge {
   x2: number;
   y2: number;
   curved: boolean;
+  /** 중심→1단계 가지 등 주요 연결선 스타일용 */
+  isMainBranch?: boolean;
+  /** 트리형 연결선: 부모 하단 → 세로 → 가로 → 세로 → 자식 상단 (SVG path d) */
+  treePath?: string;
 }
 
 /** 배열 순서를 형제 순서로 사용 (드래그로 위치 이동 반영) */
@@ -198,6 +201,105 @@ function layoutAlmindForest(
   return { roots, width: w, height: Math.max(h, maxBottom) };
 }
 
+/** depth 2 이상: 부모 아래 세로 열로 배치 (같은 x) */
+function layoutVerticalColumn(
+  node: TreeNode,
+  depth: number,
+  parentX: number,
+  startY: number,
+  collapsedIds: Set<string>
+): { root: PosNode; maxY: number } {
+  const isCollapsed = collapsedIds.has(node.task.id);
+  const effectiveChildren = isCollapsed ? [] : node.children;
+  const root: PosNode = { task: node.task, x: parentX, y: startY, depth, side: 0, kids: [] };
+
+  if (effectiveChildren.length === 0) {
+    return { root, maxY: startY + NODE_H };
+  }
+
+  let curY = startY + NODE_H + MIN_NODE_GAP_Y;
+  let maxY = startY + NODE_H;
+  for (const c of node.children) {
+    const sub = layoutVerticalColumn(c, depth + 1, parentX, curY, collapsedIds);
+    root.kids.push(sub.root);
+    curY = sub.maxY + MIN_NODE_GAP_Y;
+    maxY = Math.max(maxY, sub.maxY);
+  }
+  return { root, maxY };
+}
+
+/** 이미지 스타일: 중심(상단) → 주요 토픽(가로 한 줄) → 하위 토픽(세로 열) */
+function layoutTreeForest(
+  forest: TreeNode[],
+  collapsedIds: Set<string>
+): { roots: PosNode[]; width: number; height: number } {
+  if (forest.length === 0) return { roots: [], width: 400, height: 200 };
+
+  const rootNode = forest[0];
+  const rootY = TREE_START_Y;
+  const rootX = TREE_CENTER_X - NODE_W / 2;
+  const root: PosNode = { task: rootNode.task, x: rootX, y: rootY, depth: 0, side: 0, kids: [] };
+
+  const rootCollapsed = collapsedIds.has(rootNode.task.id);
+  const depth1Children = rootCollapsed ? [] : rootNode.children;
+  const n1 = depth1Children.length;
+
+  if (n1 === 0) {
+    const allNodes = flattenPos(root);
+    let w = 0, h = 0;
+    for (const n of allNodes) {
+      w = Math.max(w, n.x + NODE_W + 80);
+      h = Math.max(h, n.y + NODE_H + 60);
+    }
+    return { roots: [root], width: w, height: h };
+  }
+
+  const rowWidth = n1 * NODE_W + (n1 - 1) * TREE_GAP_X;
+  const startX = TREE_CENTER_X - rowWidth / 2;
+  const rowY = rootY + NODE_H + MIN_NODE_GAP_Y;
+  let maxHeight = rowY + NODE_H;
+
+  for (let i = 0; i < n1; i++) {
+    const child = depth1Children[i];
+    const cx = startX + i * (NODE_W + TREE_GAP_X);
+    const posChild = layoutVerticalColumn(child, 1, cx, rowY, collapsedIds);
+    root.kids.push(posChild.root);
+    maxHeight = Math.max(maxHeight, posChild.maxY);
+  }
+
+  const allNodes = flattenPos(root);
+  let w = 0, h = 0;
+  for (const n of allNodes) {
+    w = Math.max(w, n.x + NODE_W + 80);
+    h = Math.max(h, n.y + NODE_H + 60);
+  }
+  return { roots: [root], width: w, height: Math.max(h, maxHeight) + 40 };
+}
+
+/** 트리형 연결선: 부모 하단 중앙 → 세로 → 가로 → 세로 → 자식 상단 중앙 */
+function collectEdgesTree(root: PosNode): Edge[] {
+  const edges: Edge[] = [];
+  const parentCx = root.x + NODE_W / 2;
+  const parentBottom = root.y + NODE_H;
+  for (const k of root.kids) {
+    const childCx = k.x + NODE_W / 2;
+    const childTop = k.y;
+    const midY = (parentBottom + childTop) / 2;
+    const treePath = `M ${parentCx} ${parentBottom} L ${parentCx} ${midY} L ${childCx} ${midY} L ${childCx} ${childTop}`;
+    edges.push({
+      x1: parentCx,
+      y1: parentBottom,
+      x2: childCx,
+      y2: childTop,
+      curved: false,
+      isMainBranch: root.depth === 0,
+      treePath,
+    });
+    edges.push(...collectEdgesTree(k));
+  }
+  return edges;
+}
+
 function getChildrenInForest(forest: TreeNode[], taskId: string): TreeNode[] | null {
   for (const n of forest) {
     if (n.task.id === taskId) return n.children;
@@ -263,7 +365,7 @@ function collectEdges(root: PosNode): Edge[] {
       const x1 = k.side < 0 ? root.x : root.x + NODE_W;
       const x2 = k.side < 0 ? k.x + NODE_W : k.x;
       const y2 = k.y + NODE_H / 2;
-      edges.push({ x1, y1: cy, x2, y2, curved: false });
+      edges.push({ x1, y1: cy, x2, y2, curved: false, isMainBranch: true });
       edges.push(...collectEdges(k));
     }
   } else {
@@ -271,7 +373,7 @@ function collectEdges(root: PosNode): Edge[] {
       const x2 = k.side < 0 ? k.x + NODE_W : k.x;
       const y2 = k.y + NODE_H / 2;
       const curved = root.depth === 1 && k.depth === 2;
-      edges.push({ x1: fromX, y1: cy, x2, y2, curved });
+      edges.push({ x1: fromX, y1: cy, x2, y2, curved, isMainBranch: root.depth === 1 && k.depth === 2 });
       edges.push(...collectEdges(k));
     }
   }
@@ -344,9 +446,9 @@ export function MindMapView({ filters }: MindMapViewProps) {
     if (forest.length === 0) {
       return { nodes: [] as PosNode[], edges: [] as Edge[], width: 400, height: 200 };
     }
-    const { roots, width: w, height: h } = layoutAlmindForest(forest, collapsedIds);
+    const { roots, width: w, height: h } = layoutTreeForest(forest, collapsedIds);
     const allNodes = roots.flatMap(flattenPos);
-    const allEdges = roots.flatMap(collectEdges);
+    const allEdges = roots.flatMap(collectEdgesTree);
     return { nodes: allNodes, edges: allEdges, width: w, height: h };
   }, [forest, collapsedIds]);
 
@@ -645,8 +747,8 @@ export function MindMapView({ filters }: MindMapViewProps) {
     <div className="flex flex-col h-full min-h-0 bg-gradient-to-br from-slate-50 via-white to-violet-50/40">
       <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm">
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-slate-800 truncate">마인드맵 — {projectLabel}</h2>
-          <p className="text-[11px] text-slate-500">← 부모 → 자식/형제 ↑↓ 형제 · Tab 자식 Shift+Tab 부모 · Space 접기/펼치기 · Enter 편집 · Del 삭제 · Ctrl+Enter 하위 추가 · Esc 선택 해제</p>
+          <h2 className="text-sm font-bold text-slate-800 truncate">트리 — {projectLabel}</h2>
+          <p className="text-[11px] text-slate-500">위→아래 계층 · ← 부모 → 자식/형제 ↑↓ 형제 · Tab 자식 Shift+Tab 부모 · Space 접기/펼치기 · Enter 편집 · Del 삭제 · Esc 선택 해제</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
@@ -681,7 +783,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
           ref={containerRef}
           tabIndex={0}
           role="application"
-          aria-label="마인드맵 캔버스. 키보드로 노드 이동·편집 가능"
+          aria-label="WBS 트리 캔버스. 키보드로 노드 이동·편집 가능"
           className={cn(
             'flex-1 min-h-0 overflow-hidden outline-none',
             draggingNodeId ? 'cursor-grabbing' : dragging ? 'cursor-grabbing' : 'cursor-grab'
@@ -697,7 +799,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2 p-8">
               <Hand size={32} className="opacity-40" />
               <p className="text-sm font-medium">표시할 작업이 없습니다.</p>
-              <p className="text-xs text-center max-w-sm">프로젝트를 선택하거나 작업을 추가하면 WBS가 마인드맵으로 표시됩니다.</p>
+              <p className="text-xs text-center max-w-sm">프로젝트를 선택하거나 작업을 추가하면 WBS가 트리로 표시됩니다.</p>
             </div>
           ) : (
             <svg width="100%" height="100%" className="touch-none select-none">
@@ -705,14 +807,11 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 {edges.map((e, i) => (
                   <path
                     key={i}
-                    d={
-                      e.curved
-                        ? `M ${e.x1} ${e.y1} C ${e.x1 + (e.x2 - e.x1) * 0.5} ${e.y1}, ${e.x2 - (e.x2 - e.x1) * 0.5} ${e.y2}, ${e.x2} ${e.y2}`
-                        : `M ${e.x1} ${e.y1} L ${e.x2} ${e.y2}`
-                    }
+                    d={e.treePath ?? (e.curved ? `M ${e.x1} ${e.y1} C ${e.x1 + (e.x2 - e.x1) * 0.5} ${e.y1}, ${e.x2 - (e.x2 - e.x1) * 0.5} ${e.y2}, ${e.x2} ${e.y2}` : `M ${e.x1} ${e.y1} L ${e.x2} ${e.y2}`)}
                     fill="none"
-                    stroke="#94a3b8"
-                    strokeWidth={1.25 / scale}
+                    stroke={e.isMainBranch ? '#64748b' : '#94a3b8'}
+                    strokeWidth={(e.isMainBranch ? 2 : 1.25) / scale}
+                    strokeOpacity={e.isMainBranch ? 0.9 : 0.75}
                     className="pointer-events-none"
                   />
                 ))}
@@ -784,24 +883,30 @@ export function MindMapView({ filters }: MindMapViewProps) {
                               ? 'rgb(240 253 244)'
                               : (ALMIND_LEVEL_FILL[n.depth] ?? ALMIND_LEVEL_FILL[3] ?? 'white')
                           }
-                          filter={isDragging ? undefined : `url(#mmShadow-${filterId})`}
+                          filter={isDragging ? undefined : n.depth === 0 ? `url(#mmShadowStrong-${filterId})` : `url(#mmShadow-${filterId})`}
                           opacity={isDragging ? 0.85 : 1}
                         />
                         {wbsId && (
                           <text
                             x={8}
                             y={NODE_H / 2 + 4}
-                            className="pointer-events-none font-mono"
-                            style={{ fontSize: 10, fill: 'rgb(100 116 139)' }}
+                            className="pointer-events-none font-mono font-medium"
+                            style={{
+                              fontSize: n.depth <= 1 ? 11 : 10,
+                              fill: n.depth === 0 ? 'rgb(30 41 59)' : 'rgb(100 116 139)',
+                            }}
                           >
                             {wbsId}
                           </text>
                         )}
                         <text
-                          x={wbsId ? 36 : 10}
+                          x={wbsId ? 40 : 10}
                           y={NODE_H / 2 + 4}
-                          className="text-[12px] font-semibold fill-slate-800 pointer-events-none"
-                          style={{ fontSize: 12 }}
+                          className="pointer-events-none fill-slate-800"
+                          style={{
+                            fontSize: n.depth === 0 ? 14 : n.depth === 1 ? 13 : 12,
+                            fontWeight: n.depth === 0 ? 700 : n.depth === 1 ? 600 : 500,
+                          }}
                         >
                           {(n.task.name || '(이름 없음)').length > 22
                             ? `${(n.task.name || '').slice(0, 20)}…`
@@ -821,7 +926,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 })}
                 <defs>
                   <filter id={`mmShadow-${filterId}`} x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity="0.08" />
+                    <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity="0.1" floodColor="#64748b" />
+                  </filter>
+                  <filter id={`mmShadowStrong-${filterId}`} x="-30%" y="-30%" width="160%" height="160%">
+                    <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodOpacity="0.15" floodColor="#475569" />
                   </filter>
                 </defs>
               </g>

@@ -411,10 +411,12 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const ROW_HEIGHT = propRowHeight ?? 20;
   const VIEW_PADDING_TOP = 0;
 
+  // 표·간트 동기화: 표의 .data-row는 border-b로 1px가 더해져 실제 행 높이가 rowHeight+1. 간트도 동일하게 맞춰 마지막 행 정렬.
+  const rowHeightExtra = syncScrollRef ? 1 : 0;
   const effectiveRowHeights = useMemo(() => {
     if (propRowHeights && propRowHeights.length === visibleTasks.length) return propRowHeights;
-    return visibleTasks.map(() => ROW_HEIGHT);
-  }, [propRowHeights, visibleTasks.length, ROW_HEIGHT]);
+    return visibleTasks.map(() => ROW_HEIGHT + rowHeightExtra);
+  }, [propRowHeights, visibleTasks.length, ROW_HEIGHT, rowHeightExtra]);
 
   const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 
@@ -621,13 +623,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const isSplitView = !!syncScrollRef;
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
-  // 표의 Summary Bar(h-11)와 동일 높이로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
+  // 표의 Summary Bar와 동일 min-h로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
   if (isSplitView) {
     return (
       <>
         <div className="w-full h-full flex flex-col bg-white">
-          {/* 표의 Summary Bar(h-11)와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 */}
-          <div className="h-11 flex-shrink-0 flex items-center gap-3 px-4 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto whitespace-nowrap">
+          {/* 표의 Summary Bar와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 (min-h로 여유 두어 화면 잘림 방지) */}
+          <div className="min-h-12 flex-shrink-0 flex items-center gap-3 px-4 py-1.5 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto overflow-y-visible whitespace-nowrap">
             {/* 확대/축소 (너비 간격) */}
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
@@ -679,19 +681,19 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                     min={15}
                     max={64}
                     step={2}
-                    value={propRowHeight ?? 34}
+                    value={propRowHeight ?? 20}
                     onChange={(e) => onRowHeightChange(Number(e.target.value))}
                     className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
-                    title={`줄간격: ${propRowHeight ?? 34}px`}
+                    title={`줄간격: ${propRowHeight ?? 20}px`}
                   />
                   <span className="text-[10px] font-bold text-slate-600 w-7 text-right shrink-0">
-                    {propRowHeight ?? 34}
+                    {propRowHeight ?? 20}
                   </span>
                 </div>
               </>
             )}
           </div>
-          {/* 헤더 고정 (스크롤 밖) - 줌/맞춤은 상단 h-11 바에만 두어 우측 잘림 방지 */}
+          {/* 헤더 고정 (스크롤 밖) - 줌/맞춤은 상단 바에만 두어 잘림 방지 */}
           <div className="flex flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">
             <div className="relative" style={{ width: Math.max(totalWidth, containerWidth), height: 60 }}>
               <div className="flex h-7 border-b border-stone-200" style={{ width: totalWidth }}>
@@ -875,13 +877,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         min={15}
                         max={64}
                         step={2}
-                        value={propRowHeight ?? 34}
+                        value={propRowHeight ?? 20}
                         onChange={(e) => onRowHeightChange(Number(e.target.value))}
                         className="w-20 h-1.5 accent-stone-800 cursor-pointer"
-                        title={`줄간격: ${propRowHeight ?? 34}px`}
+                        title={`줄간격: ${propRowHeight ?? 20}px`}
                       />
                       <span className="text-[10px] font-bold text-slate-600 w-7 text-right">
-                        {propRowHeight ?? 34}
+                        {propRowHeight ?? 20}
                       </span>
                     </div>
                   </>

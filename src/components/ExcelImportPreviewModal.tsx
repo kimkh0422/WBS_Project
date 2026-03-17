@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } fr
 import { cn } from '../lib/utils';
 import { ExcelImportMeta } from '../lib/excel';
 import type { Project } from '../types';
+import { ConfirmDialog } from './ConfirmDialog';
 
 type ImportFilePreview = {
   fileName: string;
@@ -57,6 +58,11 @@ export function ExcelImportPreviewModal({
   const effectiveCurrent = currentProjectId === 'all' ? (projects[0]?.id ?? '') : currentProjectId;
   const [targetProjectId, setTargetProjectId] = useState<string>(effectiveCurrent || IMPORT_TARGET_NEW);
   const [newProjectName, setNewProjectName] = useState('');
+  const [overwriteConfirm, setOverwriteConfirm] = useState<{
+    isOpen: boolean;
+    targetProjectId: string;
+    newProjectName?: string;
+  }>({ isOpen: false, targetProjectId: '' });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -258,7 +264,15 @@ export function ExcelImportPreviewModal({
           className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30"
           onSubmit={(e) => {
             e.preventDefault();
-            onConfirm(targetProjectId, targetProjectId === IMPORT_TARGET_NEW ? newProjectName : undefined);
+            if (targetProjectId !== IMPORT_TARGET_NEW) {
+              setOverwriteConfirm({
+                isOpen: true,
+                targetProjectId,
+                newProjectName: undefined,
+              });
+              return;
+            }
+            onConfirm(targetProjectId, newProjectName);
             onClose();
           }}
         >
@@ -268,6 +282,26 @@ export function ExcelImportPreviewModal({
           </button>
         </form>
       </div>
+
+      <ConfirmDialog
+        isOpen={overwriteConfirm.isOpen}
+        onClose={() => setOverwriteConfirm((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={() => {
+          if (overwriteConfirm.targetProjectId) {
+            onConfirm(overwriteConfirm.targetProjectId, overwriteConfirm.newProjectName);
+            onClose();
+          }
+          setOverwriteConfirm({ isOpen: false, targetProjectId: '' });
+        }}
+        title="기존 프로젝트 덮어쓰기"
+        message={
+          overwriteConfirm.targetProjectId
+            ? `기존 프로젝트 "${projects.find((p) => p.id === overwriteConfirm.targetProjectId)?.name ?? '선택한 프로젝트'}"을(를) 덮어쓸까요?\n기존 작업 데이터가 가져온 데이터로 대체됩니다.`
+            : ''
+        }
+        confirmLabel="가져오기"
+        isDanger={true}
+      />
     </div>
   );
 }

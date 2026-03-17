@@ -5,9 +5,10 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getVisitorStats } from '../lib/db';
 import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
+import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: any) => void }) {
+export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavigate?: (view: any, filters: any) => void; registeredMemberDisplayNames?: Set<string> }) {
     const { projects, allTasks, wbsSettings } = useWBS();
 
     // Calculate stats for each project
@@ -97,7 +98,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
             .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
     }, [allTasks, projects]);
 
-    // 금주 일정: 이번 주(월~일)와 기간이 겹치는 작업
+    // 금주 일정: 이번 주(월~일)와 기간이 겹치는 작업 (최하위 WBS만 표시)
     const { weekStartStr, weekEndStr, weekLabel, thisWeekTasks } = useMemo(() => {
         const now = new Date();
         const weekStart = startOfWeek(now, { weekStartsOn: 1 });
@@ -105,23 +106,31 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
         const weekStartStr = format(weekStart, 'yyyy-MM-dd');
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
         const weekLabel = `${format(weekStart, 'M/d', { locale: ko })} ~ ${format(weekEnd, 'M/d', { locale: ko })}`;
-        const tasks = allTasks.filter(t => {
-            const start = t.startDate || '';
-            const end = t.endDate || '';
-            return start <= weekEndStr && end >= weekStartStr;
-        }).map(t => ({
-            ...t,
-            projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
-        })).sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+        const leafTaskIds = new Set(
+            allTasks.filter(t => !allTasks.some(other => other.parentId === t.id)).map(t => t.id)
+        );
+        const tasks = allTasks
+            .filter(t => leafTaskIds.has(t.id))
+            .filter(t => {
+                const start = t.startDate || '';
+                const end = t.endDate || '';
+                return start <= weekEndStr && end >= weekStartStr;
+            })
+            .map(t => ({
+                ...t,
+                projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
+            }))
+            .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
         return { weekStartStr, weekEndStr, weekLabel, thisWeekTasks: tasks };
     }, [allTasks, projects]);
 
-    // Calculate stats by assignee
+    // Calculate stats by assignee (with project breakdown for M/D)
     const assigneeStats = useMemo(() => {
         const statsMap: Record<string, {
             total: number,
             statusCounts: Record<string, number>,
-            workEffort: number
+            workEffort: number,
+            projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number }>
         }> = {};
 
         allTasks.forEach(task => {
@@ -132,7 +141,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                 statsMap[assignee] = {
                     total: 0,
                     statusCounts: initialStatusCounts,
-                    workEffort: 0
+                    workEffort: 0,
+                    projectBreakdown: []
                 };
             }
             const s = statsMap[assignee];
@@ -140,14 +150,28 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
             if (s.statusCounts[task.status] !== undefined) {
                 s.statusCounts[task.status]++;
             }
-            s.workEffort += (task.workEffort || 0);
+            const effort = task.workEffort || 0;
+            s.workEffort += effort;
+            if (effort > 0 && task.projectId) {
+                const proj = projects.find(p => p.id === task.projectId);
+                const name = proj?.name ?? task.projectId;
+                const existing = s.projectBreakdown.find(b => b.projectId === task.projectId);
+                if (existing) existing.workEffort += effort;
+                else s.projectBreakdown.push({ projectId: task.projectId, projectName: name, workEffort: effort });
+            }
         });
 
-        return Object.entries(statsMap).map(([name, stats]) => ({
+        const entries = Object.entries(statsMap).map(([name, stats]) => ({
             name,
-            ...stats
-        })).sort((a, b) => b.total - a.total);
-    }, [allTasks, wbsSettings.statusConfigs]);
+            ...stats,
+            projectBreakdown: stats.projectBreakdown.sort((a, b) => b.workEffort - a.workEffort)
+        }));
+        // 등록된 회원만 표시: registeredMemberDisplayNames가 있으면 해당 집합에 있는 담당자만, 없으면 기존처럼 전체 표시
+        const filtered = registeredMemberDisplayNames && registeredMemberDisplayNames.size > 0
+            ? entries.filter(({ name }) => name !== '미지정' && registeredMemberDisplayNames.has(name))
+            : entries;
+        return filtered.sort((a, b) => b.total - a.total);
+    }, [allTasks, projects, wbsSettings.statusConfigs, registeredMemberDisplayNames]);
 
     // Visitor tracking: DB 기반 (Supabase)
     const { user } = useAuth();
@@ -265,14 +289,15 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                                             <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
                                             <div className="text-xs text-slate-500 mt-0.5">{task.projectName} · {task.startDate}</div>
                                         </div>
-                                        <span className={cn(
-                                            "text-xs font-medium px-2.5 py-1 rounded-full border",
-                                            task.status === 'done' ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                                            task.status === 'in-progress' ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
-                                            "bg-slate-50 text-slate-600 border-slate-100"
-                                        )}>
-                                            {wbsSettings.statusConfigs.find(c => c.id === task.status)?.name ?? task.status}
-                                        </span>
+                                        {(() => {
+                                                const sc = wbsSettings.statusConfigs.find(c => c.id === task.status);
+                                                const colorProps = getStatusColorProps(sc?.color || "bg-slate-50 border-slate-100");
+                                                return (
+                                                    <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full border", colorProps.className, "text-stone-700")} style={colorProps.style}>
+                                                        {sc?.name ?? task.status}
+                                                    </span>
+                                                );
+                                            })()}
                                     </li>
                                 ))}
                             </ul>
@@ -330,15 +355,21 @@ export function Dashboard({ onNavigate }: { onNavigate?: (view: any, filters: an
                                                 {task.projectName} · {task.startDate} ~ {task.endDate}
                                                 {task.isMilestone && <span className="ml-2 text-amber-600">마일스톤</span>}
                                             </div>
+                                            <div className="text-xs text-slate-500 mt-0.5">
+                                                투입: {task.assignments?.length
+                                                    ? task.assignments.map(a => `${a.assignee} (${a.allocationPercent}%)`).join(', ')
+                                                    : (task.assignee || '미배정')}
+                                            </div>
                                         </div>
-                                        <span className={cn(
-                                            "text-xs font-medium px-2.5 py-1 rounded-full border shrink-0",
-                                            task.status === 'done' ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
-                                            task.status === 'in-progress' ? "bg-indigo-50 text-indigo-700 border-indigo-100" :
-                                            "bg-slate-50 text-slate-600 border-slate-100"
-                                        )}>
-                                            {wbsSettings.statusConfigs.find(c => c.id === task.status)?.name ?? task.status}
-                                        </span>
+                                        {(() => {
+                                                const sc = wbsSettings.statusConfigs.find(c => c.id === task.status);
+                                                const colorProps = getStatusColorProps(sc?.color || "bg-slate-50 border-slate-100");
+                                                return (
+                                                    <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full border shrink-0", colorProps.className, "text-stone-700")} style={colorProps.style}>
+                                                        {sc?.name ?? task.status}
+                                                    </span>
+                                                );
+                                            })()}
                                     </li>
                                 ))}
                             </ul>
@@ -559,6 +590,20 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
                         );
                     })}
                 </div>
+
+                {stat.projectBreakdown && stat.projectBreakdown.length > 0 && (
+                    <div className="pt-3 border-t border-slate-100">
+                        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">프로젝트별 투입 공수</div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                            {stat.projectBreakdown.map(b => (
+                                <span key={b.projectId} className="truncate max-w-[140px]" title={`${b.projectName}: ${b.workEffort} M/D`}>
+                                    <span className="font-medium text-[var(--color-ink)]">{b.projectName}</span>
+                                    <span className="text-[var(--color-accent)] font-bold ml-1">{b.workEffort} M/D</span>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
