@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getVisitorStats } from '../lib/db';
 import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
-import { cn, randomUUID } from '../lib/utils';
+import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -26,8 +26,11 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
 
             const assignees = Array.from(new Set(pTasks.map(t => t.assignee).filter(Boolean)));
 
-            const progress = total > 0
-                ? Math.round(pTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / total)
+            // 평균 진척률: 리프(단말) 작업만 기준으로 단순 평균
+            const leafTasks = pTasks.filter(t => !pTasks.some(other => other.parentId === t.id));
+            const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
+            const progress = forAggregate.length > 0
+                ? Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)
                 : 0;
 
             return {
@@ -42,15 +45,24 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
         });
     }, [projects, allTasks, wbsSettings.statusConfigs]);
 
-    // Total summary
+    // 작업(WBS) 0개인 프로젝트는 대시보드에서 숨김
+    const visibleProjectStats = useMemo(
+        () => projectStats.filter(p => (p?.stats?.total ?? 0) > 0),
+        [projectStats]
+    );
+
+    // Total summary (평균 진척은 단말 작업만으로 계산하여 상·하위 이중 집계 방지)
     const summary = useMemo(() => {
         const doneStatus = wbsSettings.statusConfigs.find(c => c.progress === 100)?.id || 'done';
         const inProgressStatus = wbsSettings.statusConfigs.find(c => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
 
-        const totalTasks = allTasks.length;
-        const avgProgress = totalTasks > 0
-            ? Math.round(allTasks.reduce((sum, t) => sum + (t.progress || 0), 0) / totalTasks)
-            : 0;
+      const totalTasks = allTasks.length;
+      const leafTasks = allTasks.filter(t => !allTasks.some(other => other.parentId === t.id));
+      const forAggregate = leafTasks.length > 0 ? leafTasks : allTasks;
+      const avgProgress =
+          forAggregate.length > 0
+              ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
+              : 0;
 
         // Global status counts across all projects
         const statusCounts: Record<string, number> = {};
@@ -250,9 +262,9 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                             }}
                         />
                         <SummaryCard
-                            title="평균 진척률"
-                            value={summary.avgProgress}
-                            subtitle="% 기준 전체 실적"
+                            title="평균 진척율"
+                            value={`${summary.avgProgress}%`}
+                            subtitle=""
                             highlight="text-emerald-600"
                         />
                         <SummaryCard
@@ -404,7 +416,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                             />
                         )}
 
-                        {projectStats.map(project => (
+                        {visibleProjectStats.map(project => (
                             <ProjectCard
                                 key={project.id}
                                 project={project}
@@ -436,7 +448,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
     );
 }
 
-function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: string; value: number; subtitle: string; highlight?: string; onClick?: () => void }) {
+function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: string; value: number | React.ReactNode; subtitle: string; highlight?: string; onClick?: () => void }) {
     return (
         <div
             onClick={onClick}
@@ -474,14 +486,14 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
                 </p>
 
                 <div className="flex items-center gap-2 mb-2">
-                    <div className="text-[11px] font-bold text-slate-500 w-12 tracking-wide">진행률</div>
+                    <div className="text-[11px] font-bold text-slate-500 w-12 tracking-wide">진척율</div>
                     <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
                         <div
                             className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
                             style={{ width: `${s.progress}%` }}
                         />
                     </div>
-                    <div className="text-xs font-bold text-[var(--color-ink)] w-8 text-right">{s.progress}%</div>
+                    <div className="text-xs font-bold text-[var(--color-ink)] w-8 text-right">{formatNum2(s.progress)}%</div>
                 </div>
             </div>
 

@@ -108,7 +108,7 @@ interface WBSAppProps {
 
 function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
-  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('list');
+  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('table');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
@@ -215,6 +215,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
 
   const { push: pushToast, tipOnce } = useToast();
   const prevAIBusyRef = useRef(false);
+  const initialDbSyncDoneRef = useRef(false);
 
   const effectiveIsAdmin = isAdmin || adminOverride;
 
@@ -228,14 +229,14 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     }
   }, [isLoading, projects.length]);
 
-  // 숨겨진 메뉴(view)로 진입한 경우 안전하게 기본 화면으로 이동
+  // 숨겨진 메뉴(view)로 진입한 경우 안전하게 기본 화면(표만)으로 이동
   useEffect(() => {
-    if (hiddenViews.has(view)) setView('list');
+    if (hiddenViews.has(view)) setView('table');
   }, [hiddenViews, view]);
 
-  // 마인드맵은 관리자 전용: 비관리자가 해당 화면이면 표로 이동
+  // 마인드맵은 관리자 전용: 비관리자가 해당 화면이면 표만으로 이동
   useEffect(() => {
-    if (view === 'mindmap' && !effectiveIsAdmin) setView('list');
+    if (view === 'mindmap' && !effectiveIsAdmin) setView('table');
   }, [view, effectiveIsAdmin]);
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
@@ -762,7 +763,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     mergeInputRef.current?.click();
   };
 
-  const executeDbSync = async (scope: 'current' | 'all') => {
+  const executeDbSync = useCallback(async (scope: 'current' | 'all') => {
     setIsDbSyncing(true);
     setDbSyncStep({ pct: 0, msg: '시작…' });
     pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
@@ -806,7 +807,17 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
       setIsDbSyncing(false);
       setDbSyncStep(null);
     }
-  };
+  }, [syncWithDb, pushToast]);
+
+  // 최초 페이지 접속 시 DB 자동 동기화 (승인 사용자 + Supabase 설정 완료인 경우)
+  useEffect(() => {
+    if (initialDbSyncDoneRef.current) return;
+    if (!userApproved) return;
+    if (!isSupabaseConfigured) return;
+    if (isLoading) return;
+    initialDbSyncDoneRef.current = true;
+    void executeDbSync('all');
+  }, [userApproved, isLoading, executeDbSync]);
 
   // Ctrl+S: DB 동기화 (로컬 저장은 자동, 단축키는 동기화용)
   useEffect(() => {
@@ -1057,7 +1068,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
   }
 
   return (
-    <div className={cn("h-full min-h-0 flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden", isFullscreen && "fixed inset-0 z-50")}>
+    <div className={cn("flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden", view === 'list' ? "min-h-screen" : "h-screen", isFullscreen && "fixed inset-0 z-50")}>
       {!isFullscreen && (
         <header className={cn("bg-white/90 backdrop-blur-xl border-b border-slate-200/60 z-50 safe-top transition-all duration-200", isHeaderCollapsed ? "py-2 px-3 md:py-3 md:px-6" : "px-4 md:px-6 py-3")} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}>
           {/* 모바일 접힌 상태: 최소 바 */}
@@ -1530,9 +1541,16 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                           type="checkbox"
                           checked={isAll}
                           onChange={() => {
-                            selectProject('all');
-                            setFilters((f) => ({ ...f, projectIds: 'all' }));
-                            headerProjectFilterSyncKey.current = '__all__';
+                            if (isAll) {
+                              // 전체가 이미 선택된 상태에서 클릭 → 모두 해제
+                              setFilters((f) => ({ ...f, projectIds: [] }));
+                              headerProjectFilterSyncKey.current = '__none__';
+                            } else {
+                              // 일부 혹은 없음 상태에서 클릭 → 전체 선택
+                              selectProject('all');
+                              setFilters((f) => ({ ...f, projectIds: 'all' }));
+                              headerProjectFilterSyncKey.current = '__all__';
+                            }
                           }}
                           className="rounded border-slate-300 text-indigo-600"
                         />
@@ -1823,7 +1841,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           </button>
         </div>
       )}
-      <main className={cn("flex-1 min-h-0 overflow-hidden flex flex-row relative", isFullscreen && "fixed inset-0 z-50 bg-white")}>
+      <main className={cn("min-h-0 overflow-hidden flex flex-row relative", view === 'list' ? "flex-shrink-0" : "flex-1", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
           {userApproved &&
             !effectiveIsAdmin &&
@@ -1839,8 +1857,8 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
               onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => { })}
             />
           ) : view === 'list' ? (
-            <div ref={containerRef} className={cn("relative flex h-full w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
-              <div className="flex-shrink-0 overflow-hidden h-full flex flex-col list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
+            <div ref={containerRef} className={cn("relative flex w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
+              <div className="flex-shrink-0 overflow-hidden flex flex-col min-h-0 list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
                 <WBSTable
                   filters={effectiveFilters}
                   sortConfig={sortConfig}
@@ -1875,6 +1893,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           ) : view === 'table' ? (
             <div className="h-full overflow-hidden">
               <WBSTable
+                fillHeight
                 filters={effectiveFilters}
                 sortConfig={sortConfig}
                 onOpenColumnSettings={() => setIsSettingsModalOpen(true)}

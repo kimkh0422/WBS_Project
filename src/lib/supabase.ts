@@ -94,6 +94,8 @@ export interface TaskRow {
   baseline_start_date?: string | null;
   baseline_end_date?: string | null;
   baseline_work_effort?: number | null;
+  /** 진척 가중치 (상위 입력 시 하위 비율 재분배, DB 반영용) */
+  weight?: number | null;
   created_at?: string;
   updated_at?: string;
 }

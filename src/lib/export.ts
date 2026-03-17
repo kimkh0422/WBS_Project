@@ -1,6 +1,7 @@
 import { Project, Task } from '../types';
 import { WBSSettings } from '../context/WBSContext';
 import { buildTasksInTreeOrderWithWbs } from './taskView';
+import { formatNum2, round2 } from './utils';
 
 export interface BackupData {
     version: string;
@@ -65,7 +66,7 @@ export function buildMarkdownFromTasks(
             const name = (task.name || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
             const start = (task.startDate || '').slice(0, 10);
             const end = (task.endDate || '').slice(0, 10);
-            const progress = `${task.progress ?? 0}%`;
+            const progress = `${formatNum2(task.progress ?? 0)}%`;
             const assignee = (task.assignee || '').replace(/\|/g, '\\|');
             const status = (task.status || '').replace(/\|/g, '\\|');
             const effort = task.workEffort != null ? `${task.workEffort}일` : '-';
@@ -104,7 +105,7 @@ export function parseMarkdownTable(md: string): ParsedMarkdownRow[] {
         const startDate = (cells[2] || '').trim().slice(0, 10);
         const endDate = (cells[3] || '').trim().slice(0, 10);
         const progressStr = (cells[4] || '0').replace(/%/g, '');
-        const progress = Math.min(100, Math.max(0, parseInt(progressStr, 10) || 0));
+        const progress = Math.min(100, Math.max(0, round2(parseFloat(progressStr) || 0)));
         const assignee = (cells[5] || '').replace(/\\\|/g, '|').trim();
         const status = (cells[6] || '').replace(/\\\|/g, '|').trim();
         const effortStr = (cells[7] || '').trim();

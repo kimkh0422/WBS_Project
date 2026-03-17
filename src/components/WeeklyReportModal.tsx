@@ -14,7 +14,7 @@ import {
 import { Task, Project } from '../types';
 import { TaskModal } from './TaskModal';
 import { useWBS } from '../context/WBSContext';
-import { cn } from '../lib/utils';
+import { cn, formatNum2 } from '../lib/utils';
 
 interface WeeklyReportModalProps {
   isOpen: boolean;
@@ -212,7 +212,10 @@ export function WeeklyReportModal({
       let acc = 0;
       for (const t of items) {
         const p = typeof t.progress === 'number' ? t.progress : 0;
-        const w = typeof t.workEffort === 'number' && t.workEffort > 0 ? t.workEffort : 0;
+        const w =
+          typeof t.weight === 'number' && Number.isFinite(t.weight)
+            ? t.weight
+            : (typeof t.workEffort === 'number' && t.workEffort > 0 ? t.workEffort : 0);
         totalWeight += w;
         acc += p * w;
       }
@@ -761,7 +764,7 @@ export function WeeklyReportModal({
                                 contentEditable
                                 suppressContentEditableWarning
                               >
-                                {row.progress}
+                                {typeof row.progress === 'number' ? formatNum2(row.progress) : row.progress}
                               </div>
                             </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-700 whitespace-nowrap">

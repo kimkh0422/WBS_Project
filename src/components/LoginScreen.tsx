@@ -120,6 +120,9 @@ export function LoginScreen() {
               {isSignUp ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입'}
             </button>
 
+            <p className="text-[11px] text-slate-500/80 pt-2" title="앱 버전">
+              v{__APP_VERSION__}
+            </p>
           </div>
         </div>
       </div>

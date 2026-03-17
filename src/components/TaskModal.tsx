@@ -4,7 +4,7 @@ import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Bug, Sparkles, Load
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
-import { randomUUID, cn } from '../lib/utils';
+import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
 import { GoogleGenAI } from '@google/genai';
 
@@ -290,6 +290,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
       : (initialData?.assignments ?? []);
     const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
     const toSave = { ...toMergeRest, assignments } as Partial<Task>;
+    if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
+    if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round2(toSave.weight);
     if (initialData?.id) {
       type LockedField = NonNullable<Task['userLockedFields']>[number];
       const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
@@ -703,7 +705,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">진행률 %</label>
-              <input type="number" min="0" max="100" value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) || 0 })} className="input-field py-1.5 text-sm w-full" readOnly={readOnly} disabled={readOnly} />
+              <input type="number" min={0} max={100} step={0.01} value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: round2(parseFloat(e.target.value) || 0) })} className="input-field py-1.5 text-sm w-full" readOnly={readOnly} disabled={readOnly} />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>

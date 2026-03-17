@@ -59,6 +59,8 @@ export interface Task {
   expanded?: boolean; // UI state for tree view
   dependencies?: string[]; // Array of predecessor task IDs
   workEffort?: number; // Man-days (작업 공수)
+  /** 진척 가중치. 지정 시 상위 작업·요약 진척률에 이 값을 우선 사용 (없으면 공수 기준) */
+  weight?: number;
   /** 투입인원별 담당자·투입비율. 있으면 이 값으로 투입공수·기간 계산에 사용 */
   assignments?: TaskAssignment[];
   description?: string;
@@ -76,8 +78,8 @@ export interface Task {
   baselineEndDate?: string;
   /** 베이스라인 공수(일) */
   baselineWorkEffort?: number;
-  /** 사용자가 수동 수정한 항목. AI 업데이트 시 이 필드들은 덮어쓰지 않음 */
-  userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort')[];
+  /** 사용자가 수동 수정한 항목. AI 업데이트 시 이 필드들은 덮어쓰지 않음. progress 잠금 시 상위 작업 진척률은 하위 롤업으로 덮어쓰지 않음 */
+  userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort' | 'progress')[];
 }
 
 export interface FilterState {

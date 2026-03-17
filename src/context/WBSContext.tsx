@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { buildChildrenByParent } from '../lib/taskView';
+import { round2 } from '../lib/utils';
 import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../lib/schedule';
 import { getHolidaysForTaskDates, differenceInBusinessDaysEx, addBusinessDaysEx } from '../lib/calendar';
 import {
@@ -109,6 +110,8 @@ export interface WBSSettings {
   wrapTextInCells?: boolean;
   /** 표 컬럼 너비(px). 사용자가 조절한 값 저장 */
   columnWidths?: Record<string, number>;
+  /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  allocationHiddenMigrated?: boolean;
 }
 
 interface WBSContextType {
@@ -210,8 +213,10 @@ const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
     { id: 'workEffort', visible: true },
+    // 가중치는 기본적으로도 표시
+    { id: 'weight', visible: true } as any,
     { id: 'assignee', visible: true },
-    { id: 'allocation', visible: true },
+    { id: 'allocation', visible: false },
     { id: 'status', visible: true },
     { id: 'progress', visible: true },
     { id: 'deliverables', visible: true },
@@ -231,25 +236,106 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
   let minStart = children[0].startDate;
   let maxEnd = children[0].endDate;
   let totalEffort = 0;
+  let totalWeight = 0;
+  let weightedProgressSum = 0;
+  let simpleProgressSum = 0;
 
   for (const child of children) {
     if (child.startDate && child.startDate < minStart) minStart = child.startDate;
     if (child.endDate && child.endDate > maxEnd) maxEnd = child.endDate;
     const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
     totalEffort += effort;
+    const weight =
+      typeof child.weight === 'number' && Number.isFinite(child.weight)
+        ? child.weight
+        : effort;
+    totalWeight += weight;
+    const progress = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
+    weightedProgressSum += progress * weight;
+    simpleProgressSum += progress;
   }
 
   const parent = allTasks.find(t => t.id === parentId);
   if (!parent) return allTasks;
 
+  let parentProgress: number | undefined;
+  if (totalWeight > 0) {
+    parentProgress = Math.round(weightedProgressSum / totalWeight);
+  } else if (children.length > 0) {
+    parentProgress = Math.round(simpleProgressSum / children.length);
+  }
+
   const parentEffort = typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : undefined;
-  const shouldUpdate = parent.startDate !== minStart || parent.endDate !== maxEnd || parentEffort !== totalEffort;
+  const parentWeight = typeof parent.weight === 'number' && Number.isFinite(parent.weight) ? parent.weight : undefined;
+  const progressLocked = (parent.userLockedFields ?? []).includes('progress');
+  const shouldUpdate =
+    parent.startDate !== minStart ||
+    parent.endDate !== maxEnd ||
+    parentEffort !== totalEffort ||
+    parentWeight !== totalWeight ||
+    (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
-    ? allTasks.map(t => t.id === parentId ? { ...t, startDate: minStart, endDate: maxEnd, workEffort: totalEffort } : t)
+    ? allTasks.map(t =>
+      t.id === parentId
+        ? {
+          ...t,
+          startDate: minStart,
+          endDate: maxEnd,
+          workEffort: totalEffort,
+          weight: totalWeight,
+          ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
+        }
+        : t
+    )
     : allTasks;
 
   return syncParentRollups(updatedTasks, parent.parentId);
+}
+
+/**
+ * 상위 작업 가중치 변경 시, 해당 노드의 모든 하위 레벨을 비율 유지하여 재귀적으로 재분배.
+ * - 직계 자식: (기존 가중치 또는 공수 비율) × 상위 가중치. 합 = 상위 가중치.
+ * - 자식이 자신의 자식을 가지면, 그 자식에게 부여된 새 가중치로 다시 재분배.
+ */
+function redistributeWeightsDown(tasks: Task[], parentId: string, parentWeight: number): Task[] {
+  const children = tasks.filter(t => t.parentId === parentId);
+  if (children.length === 0) return tasks;
+
+  const raw = (c: Task) =>
+    typeof c.weight === 'number' && Number.isFinite(c.weight) ? c.weight : (typeof c.workEffort === 'number' && Number.isFinite(c.workEffort) ? c.workEffort : 0);
+  const rawSum = children.reduce((s, c) => s + raw(c), 0);
+
+  const orderIdx = new Map(children.map((c, i) => [c.id, i]));
+  const sortedChildren = [...children].sort((a, b) => (orderIdx.get(a.id) ?? 0) - (orderIdx.get(b.id) ?? 0));
+  let assigned = 0;
+  const newWeights: Record<string, number> = {};
+
+  for (let i = 0; i < sortedChildren.length; i++) {
+    const c = sortedChildren[i]!;
+    const r = raw(c);
+    let w: number;
+    if (rawSum > 0) {
+      w = i < sortedChildren.length - 1 ? round2((r / rawSum) * parentWeight) : round2(parentWeight - assigned);
+      assigned += i < sortedChildren.length - 1 ? w : 0;
+    } else {
+      w = i < sortedChildren.length - 1 ? round2(parentWeight / children.length) : round2(parentWeight - assigned);
+      assigned += i < sortedChildren.length - 1 ? w : 0;
+    }
+    newWeights[c.id] = w;
+  }
+
+  let nextTasks = tasks.map(t => {
+    const nw = newWeights[t.id];
+    return nw !== undefined ? { ...t, weight: nw } : t;
+  });
+
+  for (const c of sortedChildren) {
+    const hasGrandchildren = nextTasks.some(t => t.parentId === c.id);
+    if (hasGrandchildren) nextTasks = redistributeWeightsDown(nextTasks, c.id, newWeights[c.id] ?? 0);
+  }
+
+  return nextTasks;
 }
 
 function recomputeProjectRollups(allTasks: Task[], projectId: string): Task[] {
@@ -308,17 +394,30 @@ function parseSettings(raw: any): WBSSettings {
         color: id === 'todo' ? 'bg-stone-100 border-stone-200' : id === 'in-progress' ? 'bg-blue-50 border-blue-100' : id === 'blocked' ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100',
       }));
     }
-    return {
+    const base: WBSSettings = {
       ...DEFAULT_SETTINGS,
       ...parsed,
       appTitle: parsed.appTitle || DEFAULT_SETTINGS.appTitle,
       statusConfigs: statusConfigs || DEFAULT_STATUS_CONFIGS,
       tableColumns: Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
-        ? parsed.tableColumns.filter((c: any) => c && typeof c.id === 'string').map((c: any) => ({ id: String(c.id), visible: c.visible !== false }))
+        ? parsed.tableColumns
+            .filter((c: any) => c && typeof c.id === 'string')
+            .map((c: any) => ({ id: String(c.id), visible: c.visible !== false }))
         : DEFAULT_SETTINGS.tableColumns,
       showCriticalPath: parsed.showCriticalPath === true,
       wrapTextInCells: parsed.wrapTextInCells === true,
     };
+
+    // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)
+    if (!parsed.allocationHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map(c =>
+        c && c.id === 'allocation' ? { ...c, visible: false } : c
+      );
+      base.allocationHiddenMigrated = true;
+    }
+
+    return base;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -1237,6 +1336,12 @@ export function WBSProvider({
       const taskLockedFields = new Set(task.userLockedFields ?? []);
       const endDateLocked = taskLockedFields.has('endDate');
       let resolvedUpdates = { ...updates };
+      if (typeof resolvedUpdates.weight === 'number' && Number.isFinite(resolvedUpdates.weight)) {
+        resolvedUpdates = { ...resolvedUpdates, weight: round2(resolvedUpdates.weight) };
+      }
+      if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
+        resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };
+      }
       const projectAssignmentsMap = new Map<string, TaskAssignment[]>(projects.map(p => [p.id, p.assignments ?? []]));
       const assignments = (task.assignments && task.assignments.length > 0)
         ? task.assignments
@@ -1296,11 +1401,20 @@ export function WBSProvider({
           lockFields.add('endDate');
         }
       }
+      if (Object.prototype.hasOwnProperty.call(updates, 'progress') && typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
+        lockFields.add('progress');
+      }
 
       let updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
       const project = projects.find(p => p.id === task.projectId);
       updatedTask = clampTaskToProjectRange(updatedTask, project);
       let nextTasks = prev.map(t => t.id === id ? updatedTask : t);
+
+      // 상위 작업 가중치를 수동 입력한 경우: 모든 하위 레벨을 비율 유지하여 재귀 재분배 (각 레벨 합 = 해당 상위 가중치)
+      if (Object.prototype.hasOwnProperty.call(updates, 'weight') && typeof updates.weight === 'number' && Number.isFinite(updates.weight)) {
+        const parentWeight = updatedTask.weight ?? 0;
+        nextTasks = redistributeWeightsDown(nextTasks, id, parentWeight);
+      }
 
       // 시작일/종료일/공수 변경 시: 연관된 업무(후행/하위)만 일정 재계산 (간트 드래그 시 skipCascade로 연쇄 반영 생략)
       if (hasScheduleChange && task.projectId && !skipCascade) {
@@ -1397,7 +1511,9 @@ export function WBSProvider({
         });
       }
 
-      const affectsRollup = ['startDate', 'endDate', 'workEffort', 'dependencies'].some(k => Object.prototype.hasOwnProperty.call(updates, k));
+      const affectsRollup = ['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress'].some(k =>
+        Object.prototype.hasOwnProperty.call(updates, k)
+      );
       const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
       let result = nextTasks;
       if (affectsRollup) {

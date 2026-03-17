@@ -13,8 +13,8 @@ export const LEVEL_COLORS = [
 /** 6레벨 이상용 회색 */
 export const LEVEL_DEFAULT = { r: 87, g: 83, b: 78 };
 
-/** 표 행 배경용 동일 농도(알파) */
-export const ROW_BG_ALPHA = 0.22;
+/** 표 행 배경용 동일 농도(알파) - 레벨 구분이 잘 보이도록 충분히 진하게 */
+export const ROW_BG_ALPHA = 0.42;
 
 export function getLevelRgb(level: number): { r: number; g: number; b: number } {
   const i = level - 1;

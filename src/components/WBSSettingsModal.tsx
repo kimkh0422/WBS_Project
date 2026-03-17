@@ -3,7 +3,7 @@ import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeO
 import { useWBS } from '../context/WBSContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
-import { cn } from '../lib/utils';
+import { cn, round2, formatNum2 } from '../lib/utils';
 import { ColorPicker } from './ColorPicker';
 import { TaskStatus } from '../types';
 
@@ -97,6 +97,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         workEffort: '공수(d)',
         assignee: '담당자',
         allocation: '투입율',
+        weight: '가중치',
         status: '상태',
         deliverables: '산출물',
         dependencies: '선행작업',
@@ -110,6 +111,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         { id: 'workEffort', visible: true },
         { id: 'assignee', visible: true },
         { id: 'allocation', visible: true },
+        // 투입율 바로 다음에 가중치
+        { id: 'weight', visible: true },
         { id: 'status', visible: true },
         { id: 'progress', visible: true },
         { id: 'deliverables', visible: true },
@@ -131,7 +134,18 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         // Ensure required columns exist (especially name)
         const ensureIds = DEFAULT_TABLE_COLUMNS.map(c => c.id);
         for (const id of ensureIds) {
-            if (!seen.has(id)) cleaned.push({ id, visible: true });
+            if (seen.has(id)) continue;
+            // 가중치는 투입율(allocation) 바로 뒤에 삽입
+            if (id === 'weight') {
+                const allocIdx = cleaned.findIndex(c => c.id === 'allocation');
+                if (allocIdx >= 0) {
+                    cleaned.splice(allocIdx + 1, 0, { id, visible: true });
+                } else {
+                    cleaned.push({ id, visible: true });
+                }
+            } else {
+                cleaned.push({ id, visible: true });
+            }
         }
 
         // Keep name always visible
@@ -594,7 +608,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                                             <p className="text-sm font-bold">
                                                                 값은 0 이상 100 이하여야 합니다.
                                                                 {progressErrorNum != null && (
-                                                                    <span className="ml-1 font-normal text-amber-800">(입력된 값: {progressErrorNum}%)</span>
+                                                                    <span className="ml-1 font-normal text-amber-800">(입력된 값: {formatNum2(progressErrorNum)}%)</span>
                                                                 )}
                                                             </p>
                                                         </div>
@@ -628,7 +642,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                                                 value={config.progress}
                                                                 onChange={(e) => {
                                                                     const newConfigs = [...statusConfigs];
-                                                                    newConfigs[index] = { ...config, progress: Number(e.target.value) };
+                                                                    newConfigs[index] = { ...config, progress: round2(Number(e.target.value)) };
                                                                     setStatusConfigs(newConfigs);
                                                                 }}
                                                                 className={cn(

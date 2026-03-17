@@ -35,19 +35,17 @@
 }
 
 @layer base {
-  /* 앱이 뷰포트에 꽉 차고, 헤더/메인만 보이도록 전체 페이지 스크롤 방지. overflow는 app-wrapper에만 적용해 body에 포털된 툴바(편집/줄간격)가 잘리지 않도록 함 */
+  /* 앱 최소 높이 뷰포트, 콘텐츠에 따라 늘어나서 하단 불필요한 공백 방지. overflow는 app-wrapper에만 적용해 body에 포털된 툴바(편집/줄간격)가 잘리지 않도록 함 */
   html, body {
-    height: 100%;
+    min-height: 100%;
     overflow: visible;
   }
   #app-wrapper {
-    height: 100%;
-    min-height: 0;
+    min-height: 100%;
     overflow: hidden;
   }
   #root {
-    height: 100%;
-    min-height: 0;
+    min-height: 100%;
   }
   body {
     @apply bg-[var(--color-bg)] text-[var(--color-ink)] font-sans antialiased selection:bg-indigo-200 selection:text-indigo-900;
@@ -293,6 +291,11 @@
   padding-top: calc(var(--cell-padding, 4px));
   padding-bottom: calc(var(--cell-padding, 4px));
   letter-spacing: -0.01em;
+}
+
+/* 보기 모드: 텍스트 위 I-빔(커서) 표시 방지 */
+.wbs-view-mode .data-cell {
+  cursor: default;
 }
 
 /* 줄바꿈 켜짐: 말줄임 대신 줄바꿈 */

@@ -57,7 +57,10 @@ echo.
 
 
 echo [3/3] Vercel 배포...
+set "CI_OLD=%CI%"
+set CI=1
 call npx vercel --prod
+if defined CI_OLD (set "CI=%CI_OLD%") else (set "CI=")
 if errorlevel 1 (
   echo 오류: Vercel 배포 실패
   pause

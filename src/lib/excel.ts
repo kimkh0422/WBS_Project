@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus, Project } from '../types';
-import { randomUUID } from './utils';
+import { randomUUID, round2 } from './utils';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -728,7 +728,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       name,
       startDate: startDate || today,
       endDate: endDate || (startDate || today),
-      progress: Math.max(0, Math.min(100, Math.round(progress))),
+      progress: Math.max(0, Math.min(100, round2(progress))),
       assignee,
       status,
       expanded: true,
@@ -737,8 +737,9 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
         const baseStart = startDate || today;
         const baseEnd = endDate || (startDate || today);
         const est = estimateWorkEffortFromDates(baseStart, baseEnd);
-        if (workEffort !== undefined) return { workEffort };
-        if (est !== undefined) return { workEffort: est };
+        const roundEffort = (n: number) => Math.round(n * 10) / 10;
+        if (workEffort !== undefined) return { workEffort: roundEffort(workEffort) };
+        if (est !== undefined) return { workEffort: roundEffort(est) };
         return {};
       })(),
       ...(deliverables ? { deliverables } : {}),

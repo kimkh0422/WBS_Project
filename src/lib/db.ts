@@ -71,6 +71,7 @@ function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_start_date: task.baselineStartDate ?? null,
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
+    weight: task.weight ?? null,
   };
 }
 
@@ -98,6 +99,7 @@ export function fromTaskRow(row: TaskRow): Task {
     baselineStartDate: row.baseline_start_date ?? undefined,
     baselineEndDate: row.baseline_end_date ?? undefined,
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
+    weight: row.weight ?? undefined,
   };
 }
 
@@ -304,6 +306,7 @@ function taskContentFingerprint(row: TaskRow): string {
     baseline_start_date: row.baseline_start_date ?? null,
     baseline_end_date: row.baseline_end_date ?? null,
     baseline_work_effort: row.baseline_work_effort ?? null,
+    weight: row.weight ?? null,
   });
 }
 
@@ -627,6 +630,8 @@ const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'baseline_start_date',
   'baseline_end_date',
   'baseline_work_effort',
+  // 진척 가중치 (마이그레이션 20260317120000)
+  'weight',
 ]);
 
 function stripIfKnownOptionalTaskColumn(row: TaskRow, columnName: string | null): TaskRow | null {
