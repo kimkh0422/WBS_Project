@@ -36,10 +36,18 @@ export function buildTasksInTreeOrderWithWbs(tasks: Task[]): TaskWithWbs[] {
 export function buildChildrenByParent(tasks: Task[]): Map<string | null, Task[]> {
   const childrenByParent = new Map<string | null, Task[]>();
 
+  const normalizeParentId = (parentId: Task['parentId']): string | null => {
+    if (parentId == null) return null;
+    const v = String(parentId).trim();
+    if (!v || v === 'null' || v === 'undefined') return null;
+    return v;
+  };
+
   for (const task of tasks) {
-    const siblings = childrenByParent.get(task.parentId) ?? [];
+    const pid = normalizeParentId(task.parentId);
+    const siblings = childrenByParent.get(pid) ?? [];
     siblings.push(task);
-    childrenByParent.set(task.parentId, siblings);
+    childrenByParent.set(pid, siblings);
   }
 
   return childrenByParent;
@@ -53,8 +61,10 @@ export function buildParentSet(tasks: Task[]): Set<string> {
   const parentIds = new Set<string>();
 
   for (const task of tasks) {
-    if (task.parentId) {
-      parentIds.add(task.parentId);
+    if (task.parentId != null) {
+      const v = String(task.parentId).trim();
+      if (!v || v === 'null' || v === 'undefined') continue;
+      parentIds.add(v);
     }
   }
 
