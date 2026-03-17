@@ -308,7 +308,11 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
-                      <span className="text-xs text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개 작업)</span>
+                      {(taskCountByProject[project.id] ?? 0) > 0 && (
+                        <span className="text-xs text-stone-400 shrink-0">
+                          ({taskCountByProject[project.id] ?? 0}개 작업)
+                        </span>
+                      )}
                     </div>
                     {effectiveIsAdmin && project.ownerId && (
                       <span className="text-xs text-stone-400 truncate block mt-0.5" title={profileMap[project.ownerId] ?? project.ownerId}>

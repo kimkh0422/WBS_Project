@@ -136,14 +136,31 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
         return { weekStartStr, weekEndStr, weekLabel, thisWeekTasks: tasks };
     }, [allTasks, projects]);
 
-    // Calculate stats by assignee (with project breakdown for M/D)
+    // Calculate stats by assignee (with project breakdown for M/D + allocation %)
     const assigneeStats = useMemo(() => {
         const statsMap: Record<string, {
             total: number,
             statusCounts: Record<string, number>,
             workEffort: number,
-            projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number }>
+            projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number; allocationPercent?: number }>
         }> = {};
+
+        // Project assignments(투입 %) by assignee → projectId → percent
+        const allocationPctByAssignee = (() => {
+            const m = new Map<string, Map<string, number>>();
+            for (const p of projects) {
+                const assigns = p.assignments ?? [];
+                for (const a of assigns) {
+                    const name = (a.assignee || '').trim() || '미지정';
+                    const pct = Number(a.allocationPercent ?? 0);
+                    if (!Number.isFinite(pct) || pct <= 0) continue;
+                    if (!m.has(name)) m.set(name, new Map());
+                    const pm = m.get(name)!;
+                    pm.set(p.id, (pm.get(p.id) ?? 0) + pct);
+                }
+            }
+            return m;
+        })();
 
         allTasks.forEach(task => {
             const assignee = task.assignee || '미지정';
@@ -173,11 +190,16 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
             }
         });
 
-        const entries = Object.entries(statsMap).map(([name, stats]) => ({
-            name,
-            ...stats,
-            projectBreakdown: stats.projectBreakdown.sort((a, b) => b.workEffort - a.workEffort)
-        }));
+        const entries = Object.entries(statsMap).map(([name, stats]) => {
+            const pctMap = allocationPctByAssignee.get(name);
+            const projectBreakdown = stats.projectBreakdown
+                .map(b => ({
+                    ...b,
+                    allocationPercent: pctMap?.get(b.projectId),
+                }))
+                .sort((a, b) => b.workEffort - a.workEffort);
+            return { name, ...stats, projectBreakdown };
+        });
         // 등록된 회원만 표시: registeredMemberDisplayNames가 있으면 해당 집합에 있는 담당자만, 없으면 기존처럼 전체 표시
         const filtered = registeredMemberDisplayNames && registeredMemberDisplayNames.size > 0
             ? entries.filter(({ name }) => name !== '미지정' && registeredMemberDisplayNames.has(name))
@@ -608,9 +630,16 @@ function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?
                         <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">프로젝트별 투입 공수</div>
                         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
                             {stat.projectBreakdown.map(b => (
-                                <span key={b.projectId} className="truncate max-w-[140px]" title={`${b.projectName}: ${b.workEffort} M/D`}>
+                                <span
+                                    key={b.projectId}
+                                    className="truncate max-w-[160px]"
+                                    title={`${b.projectName}: ${b.workEffort} M/D${typeof b.allocationPercent === 'number' ? ` · 투입 ${b.allocationPercent}%` : ''}`}
+                                >
                                     <span className="font-medium text-[var(--color-ink)]">{b.projectName}</span>
                                     <span className="text-[var(--color-accent)] font-bold ml-1">{b.workEffort} M/D</span>
+                                    {typeof b.allocationPercent === 'number' && (
+                                        <span className="text-emerald-600 font-bold ml-1">{b.allocationPercent}%</span>
+                                    )}
                                 </span>
                             ))}
                         </div>

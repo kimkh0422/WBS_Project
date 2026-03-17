@@ -1171,7 +1171,9 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                             title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
                           >
                             <span className="truncate flex-1">전체</span>
-                            <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
+                            {allTasks.length > 0 && (
+                              <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
+                            )}
                           </div>
                           <div className="h-px bg-stone-100 my-1 mx-2" />
                           {projectsSortedByName.map(project => (
@@ -1189,7 +1191,11 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
                               <div className="truncate flex-1 min-w-0 flex flex-col">
                                 <span className="truncate flex items-center gap-1.5">
                                   {project.name}
-                                  <span className="text-[10px] text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개)</span>
+                                  {(taskCountByProject[project.id] ?? 0) > 0 && (
+                                    <span className="text-[10px] text-stone-400 shrink-0">
+                                      ({taskCountByProject[project.id] ?? 0}개)
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
