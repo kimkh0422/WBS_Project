@@ -201,14 +201,26 @@ export async function fetchTasks(): Promise<Task[]> {
   return rows.map(fromTaskRow);
 }
 
+/** Supabase/PostgREST 기본 행 제한(1000). 이 이상은 페이지네이션으로 가져옴. */
+const TASKS_PAGE_SIZE = 1000;
+
 export async function fetchTaskRows(): Promise<TaskRow[]> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('tasks')
-    .select('*')
-    .order('sort_order', { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as TaskRow[];
+  const all: TaskRow[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase!
+      .from('tasks')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .range(offset, offset + TASKS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as TaskRow[];
+    all.push(...page);
+    if (page.length < TASKS_PAGE_SIZE) break;
+    offset += TASKS_PAGE_SIZE;
+  }
+  return all;
 }
 
 export async function fetchSettings(): Promise<Partial<WBSSettings> | null> {

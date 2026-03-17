@@ -870,10 +870,6 @@ export const exportToExcel = (
       return {
         [HEADER_MAP.wbsId]: wbsCode,
         [HEADER_MAP.level]: level,
-        // 계층 복원 정확도를 위해 내부 ID/parentId도 함께 내보냄
-        // (WBS 접두어 규칙이 레벨별로 달라 WBS만으로는 부모를 100% 찾을 수 없음)
-        [HEADER_MAP.id]: task.id,
-        [HEADER_MAP.parentId]: task.parentId ?? '',
         [HEADER_MAP.name]: task.name,
         [HEADER_MAP.startDate]: task.startDate,
         [HEADER_MAP.endDate]: task.endDate,
@@ -892,8 +888,6 @@ export const exportToExcel = (
     const firstKeys = data.length > 0 ? Object.keys(data[0]) : [];
     const wbsColIndex = firstKeys.indexOf(HEADER_MAP.wbsId);
     const levelColIndex = firstKeys.indexOf(HEADER_MAP.level);
-    const idColIndex = firstKeys.indexOf(HEADER_MAP.id);
-    const parentIdColIndex = firstKeys.indexOf(HEADER_MAP.parentId);
     for (let r = 0; r < data.length; r++) {
       const rowIndex = r + 1; // row 0 = 헤더
       if (wbsColIndex >= 0) {
@@ -910,22 +904,6 @@ export const exportToExcel = (
         if (cell) {
           cell.t = 's';
           cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.level] ?? '');
-        }
-      }
-      if (idColIndex >= 0) {
-        const ref = XLSX.utils.encode_cell({ c: idColIndex, r: rowIndex });
-        const cell = worksheet[ref];
-        if (cell) {
-          cell.t = 's';
-          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.id] ?? '');
-        }
-      }
-      if (parentIdColIndex >= 0) {
-        const ref = XLSX.utils.encode_cell({ c: parentIdColIndex, r: rowIndex });
-        const cell = worksheet[ref];
-        if (cell) {
-          cell.t = 's';
-          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.parentId] ?? '');
         }
       }
     }

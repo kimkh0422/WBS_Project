@@ -750,11 +750,10 @@ ${combinedInput}
           ) : step === 'input' ? (
             <div className="space-y-4">
               <p className="text-sm text-stone-600">
-                프로젝트 요구사항, 회의록 또는 대략적인 계획을 아래에 붙여넣으세요.
-                AI가 내용을 읽고 단계별 WBS를 만들어 줍니다.
+                요구사항·계획을 붙여넣으면 AI가 WBS를 만들어 줍니다.
                 {existingTasks.length > 0 && (
                   <span className="block mt-1.5 text-purple-600 font-medium">
-                    기존 작업이 있습니다. 내용 없이 버튼을 누르면 기존 WBS만 깔끔하게 정리합니다.
+                    기존 작업 있음. 내용 없이 누르면 기존 WBS만 정리됩니다.
                   </span>
                 )}
               </p>
@@ -797,9 +796,9 @@ ${combinedInput}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-stone-700 truncate">파일을 드래그해서 추가 (선택)</p>
+                        <p className="text-sm font-bold text-stone-700 truncate">파일 추가 (선택)</p>
                         <p className="text-xs text-stone-500 mt-0.5">
-                          지원: <span className="font-mono">.xlsx .xls .md .txt .csv</span> (내용은 브라우저에서만 읽어 AI 입력에 포함됩니다)
+                          <span className="font-mono">.xlsx .xls .md .txt .csv</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -880,17 +879,17 @@ ${combinedInput}
 
               <textarea
                 className="w-full h-48 p-4 rounded-xl border border-stone-200 focus:border-[var(--color-accent)] focus:ring-2 focus:ring-blue-100 outline-none resize-none text-sm leading-relaxed"
-                placeholder="예시: 새로운 전자상거래 웹사이트를 구축해야 합니다. 기획, 디자인, 개발(프론트엔드/백엔드), 테스트 단계로 진행될 예정입니다. 주요 기능으로는 회원가입, 상품 목록, 장바구니, 결제 시스템이 필요하며, 전체 일정은 약 3개월입니다..."
+                placeholder="프로젝트 요구사항 또는 계획을 입력하세요."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isLoading}
               />
 
               <div>
-                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">AI 추가 요청 사항 (선택)</label>
+                <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">추가 지시 (선택)</label>
                 <textarea
                   className="w-full h-16 p-3 rounded-lg border border-stone-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none resize-none text-sm leading-relaxed"
-                  placeholder="예: 설계는 반드시 개발 이전에 완료되어야 함. 특정 담당자에게 작업이 집중되지 않도록 배분할 것."
+                  placeholder="예: 설계 완료 후 개발, 작업 균등 배분"
                   value={userRequest}
                   onChange={(e) => setUserRequest(e.target.value)}
                   disabled={isLoading}

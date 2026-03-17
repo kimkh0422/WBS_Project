@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
-import { Task, TaskStatus, FilterState, SortConfig } from '../types';
+import { Task, TaskStatus, TaskAssignment, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
@@ -950,6 +950,25 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // 트리 뷰에서만: ← 접기, → 펼치기 (자식이 있는 행에서만 동작)
+        const isTreeView = !(
+          filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate ||
+          !!filters.milestoneOnly || !!filters.issueOnly
+        );
+        if (isTreeView && selectedTaskIds.size > 0) {
+          const task = tasks.find(t => t.id === lastSelectedId);
+          const hasChildren = task ? tasks.some(t => t.parentId === task.id) : false;
+          if (hasChildren) {
+            if (e.key === 'ArrowLeft' && task?.expanded) {
+              e.preventDefault();
+              toggleExpand(lastSelectedId);
+            } else if (e.key === 'ArrowRight' && !task?.expanded) {
+              e.preventDefault();
+              toggleExpand(lastSelectedId);
+            }
+          }
+        }
       } else if (e.key === 'Tab') {
         e.preventDefault();
         if (!isSortedOrFiltered && selectedTaskIds.size > 0) {
@@ -1009,7 +1028,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll]);
+  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand]);
 
   const handleQuickAddCancel = () => {
     setInlineAddingTaskId(null);
@@ -2054,11 +2073,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                   headerActions.push({ divider: true });
                 }
                 headerActions.push({
-                  label: '선행관계에 맞게 일정 정렬',
-                  icon: <RefreshCw size={14} />,
-                  onClick: refreshProjectSchedule,
-                });
-                headerActions.push({
                   label: '컬럼 설정...',
                   icon: <Settings2 size={14} />,
                   onClick: () => onOpenColumnSettings?.(),
@@ -2630,11 +2644,66 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'allocation') {
-          // 담당자별로 한 번만 표기한 값 (상위에서 행 순서 기준으로 계산해 전달)
-          const text = allocationDisplayText ?? '—';
+          const assignee = (task.assignee || '').trim() || task.assignments?.[0]?.assignee?.trim() || '';
+          const projectList = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
+          const fromTask = task.assignments?.find(a => (a.assignee || '').trim() === assignee);
+          const fromProject = projectList.find(a => (a.assignee || '').trim() === assignee);
+          const primaryPercent = fromTask?.allocationPercent ?? fromProject?.allocationPercent ?? 100;
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
           return (
-            <div key={colId} className="data-cell text-xs text-stone-600 font-mono" title={text !== '—' ? text : undefined}>
-              {text}
+            <div
+              key={colId}
+              className={cn("data-cell font-mono text-xs text-stone-600 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded")}
+              onClick={(e) => e.stopPropagation()}
+              title={tableEditMode ? '클릭하여 투입율 수정' : '더블클릭하여 투입율 수정'}
+            >
+              {isEditing ? (
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={10}
+                  autoFocus
+                  defaultValue={primaryPercent}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 0 && v <= 100 && assignee) {
+                      const newPercent = Math.round(v);
+                      let nextAssignments: TaskAssignment[];
+                      if (task.assignments?.length) {
+                        const matchIdx = task.assignments.findIndex(a => (a.assignee || '').trim() === assignee);
+                        if (matchIdx >= 0) {
+                          nextAssignments = task.assignments.map((a, i) =>
+                            i === matchIdx ? { ...a, allocationPercent: newPercent } : a
+                          );
+                        } else {
+                          nextAssignments = [...task.assignments, { assignee, allocationPercent: newPercent }];
+                        }
+                      } else {
+                        nextAssignments = [{ assignee, allocationPercent: newPercent }];
+                      }
+                      updateTask(task.id, { assignments: nextAssignments, assignee });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                    e.stopPropagation();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className={cn("rounded px-1 -mx-1 inline-block w-full text-left", tableEditMode ? "cursor-cell hover:bg-blue-50/80" : "cursor-text hover:bg-blue-50/80")}
+                  onClick={(e) => { e.stopPropagation(); if (tableEditMode) setEditingCell({ taskId: task.id, columnId: 'allocation' }); }}
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'allocation' }); }}
+                  onFocus={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'allocation' }); }}
+                >
+                  {allocationDisplayText ?? '—'}
+                </button>
+              )}
             </div>
           );
         }

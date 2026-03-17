@@ -5,17 +5,17 @@ import { defineConfig, loadEnv } from 'vite';
 import fs from 'fs';
 import { execSync } from 'child_process';
 
-/** CHANGELOG.md 파싱: "## v0.1.0 (2026-03-06)" + "- 항목" 목록 → { version, date, changes }[] */
+/** CHANGELOG 파싱: "## v0.1.0 (YYYY-MM-DD)" + "- 항목" 목록 → { version, date, changes }[] (섹션 사이 빈 줄·\r\n 허용) */
 function parseChangelog(changelogPath: string): { version: string; date: string; changes: string[] }[] {
   if (!fs.existsSync(changelogPath)) return [];
-  const raw = fs.readFileSync(changelogPath, 'utf-8');
+  const raw = fs.readFileSync(changelogPath, 'utf-8').replace(/\r\n/g, '\n');
   const sections: { version: string; date: string; changes: string[] }[] = [];
-  const re = /##\s+v?([\d.]+)\s*\((\d{4}-\d{2}-\d{2})\)\s*\n((?:(?:-\s*.+)\n?)+)/g;
+  const re = /(?:^|\n)\s*##\s+v?([\d.]+)\s*\((\d{4}-\d{2}-\d{2})\)\s*\n((?:(?:-\s*.+)(?:\r?\n)?)+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw)) !== null) {
     const changes = m[3]
       .trim()
-      .split('\n')
+      .split(/\r?\n/)
       .map((line) => line.replace(/^-\s*/, '').trim())
       .filter(Boolean);
     sections.push({ version: m[1], date: m[2], changes });
@@ -34,8 +34,11 @@ export default defineConfig(({ mode }) => {
   })();
   const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
   const appVersion = (pkg && typeof pkg.version === 'string') ? pkg.version : '0.0.0';
-  const changelogPath = path.resolve(__dirname, 'CHANGELOG.md');
-  const changelogSections = parseChangelog(changelogPath);
+  // 앱 '변경이력' 메뉴 표시용: docs/변경이력_주요기능.md 우선, 없거나 비면 CHANGELOG.md 사용
+  const changelogPath = path.resolve(__dirname, 'docs/변경이력_주요기능.md');
+  const fallbackChangelogPath = path.resolve(__dirname, 'CHANGELOG.md');
+  let changelogSections = parseChangelog(changelogPath);
+  if (changelogSections.length === 0) changelogSections = parseChangelog(fallbackChangelogPath);
 
   return {
     plugins: [

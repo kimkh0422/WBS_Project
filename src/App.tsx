@@ -79,9 +79,10 @@ interface NavButtonProps {
   icon: React.ReactNode;
   label: string;
   title?: string;
+  tourId?: string;
 }
 
-function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
+function NavButton({ active, onClick, icon, label, title, tourId }: NavButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -90,6 +91,7 @@ function NavButton({ active, onClick, icon, label, title }: NavButtonProps) {
         active ? "nav-pill-active" : "nav-pill-inactive"
       )}
       title={title}
+      data-tourid={tourId}
     >
       <span className="shrink-0">{icon}</span>
       <span className="inline whitespace-nowrap">{label}</span>
@@ -1105,6 +1107,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
 
                 <div className="relative mt-1 group">
                   <button
+                    data-tourid="tour-project"
                     onClick={() => {
                       setIsProjectDropdownOpen(!isProjectDropdownOpen);
                       tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
@@ -1253,21 +1256,22 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
               {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
               <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
                 {!hiddenViews.has('dashboard') && (
-                  <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." />
+                  <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." tourId="tour-nav-dashboard" />
                 )}
                 {!hiddenViews.has('allocation') && (
-                  <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." />
+                  <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." tourId="tour-nav-allocation" />
                 )}
-                <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." />
-                <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." />
-                <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." />
-                <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." />
+                <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." tourId="tour-nav-list" />
+                <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." tourId="tour-nav-table" />
+                <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." tourId="tour-nav-gantt" />
+                <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." tourId="tour-nav-kanban" />
               </div>
 
               <div className="toolbar-divider" />
 
               {/* Filter On/Off Toggle */}
               <button
+                data-tourid="tour-filter"
                 onClick={() => {
                   setFilterOn(v => !v);
                   tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
@@ -1287,6 +1291,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
 
               {/* DB Sync */}
               <button
+                data-tourid="tour-db-sync"
                 onClick={() => {
                   if (isDbSyncing) return;
                   void executeDbSync('all');
@@ -1340,6 +1345,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
               {/* More Options Menu */}
               <div className="relative ml-0.5">
                 <button
+                  data-tourid="tour-more"
                   onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
                   className={cn("icon-btn transition-colors relative", isMoreMenuOpen ? "text-[var(--color-ink)] bg-slate-100" : "text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50")}
                   title="추가 옵션"
@@ -1409,6 +1415,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
               <div className="toolbar-divider" />
 
               <button
+                data-tourid="tour-new-task"
                 onClick={() => {
                   if (!canEditCurrentProject) return;
                   setIsModalOpen(true);

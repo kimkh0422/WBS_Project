@@ -1,5 +1,5 @@
 import React from 'react';
-import { Keyboard, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { Keyboard, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X } from 'lucide-react';
 
 export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
     type KeyToken = string | React.ReactNode;
@@ -21,6 +21,8 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
             title: '표 (WBS)',
             items: [
                 { label: '선택 이동', keys: [<ArrowUp size={14} key="up" />, <ArrowDown size={14} key="down" />] },
+                { label: '하위 접기', keys: [<ArrowLeft size={14} key="left" />], hint: '포커스 행의 자식 접기' },
+                { label: '하위 펼치기', keys: [<ArrowRight size={14} key="right" />], hint: '포커스 행의 자식 펼치기' },
                 { label: '작업 순서 변경', keys: ['Alt', <ArrowUp size={14} key="alt-up" />, '/', <ArrowDown size={14} key="alt-down" />] },
                 { label: '레벨 한 단계 내리기', keys: ['Tab'] },
                 { label: '레벨 한 단계 올리기', keys: ['Shift', 'Tab'] },

@@ -73,13 +73,15 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const taskProject = projects.find(p => p.id === taskProjectId);
   const projectAssignments: TaskAssignment[] = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
   const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
-  const [formData, setFormData] = useState<Partial<Task>>({
+  type TaskFormState = Partial<Task> & { allocationPercent?: number };
+  const [formData, setFormData] = useState<TaskFormState>({
     name: '',
     startDate: defaultDate,
     endDate: defaultDate,
     progress: 0,
     workEffort: 0.5,
     assignee: '',
+    allocationPercent: 100,
     status: 'todo',
     parentId: null,
     description: '',
@@ -125,16 +127,21 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   useEffect(() => {
     if (initialData) {
-      const { assignments: _a, ...rest } = initialData as any;
+      const { assignments: initialAssignments, ...rest } = initialData as Task & { assignments?: TaskAssignment[] };
+      const assignee = (rest.assignee || '').trim();
+      const match = initialAssignments?.find(a => (a.assignee || '').trim() === assignee);
+      const projectMatch = projectAssignments.find(a => (a.assignee || '').trim() === assignee);
+      const allocationPercent = match?.allocationPercent ?? projectMatch?.allocationPercent ?? 100;
       const checklist = filterChecklistAgainstChildren(
         rest.checklist,
         initialData.id,
         parentOptionsRef.current,
         displayWbsMapRef.current,
       );
-      setFormData({ ...rest, checklist });
+      setFormData({ ...rest, checklist, allocationPercent });
     } else {
       const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
+      const projectMatch = defaultAssignee ? projectAssignments.find(a => (a.assignee || '').trim() === (defaultAssignee || '').trim()) : undefined;
       setFormData({
         name: '',
         startDate: defaultStartDate || defaultDate,
@@ -142,6 +149,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         progress: 0,
         workEffort: 0.5,
         assignee: defaultAssignee || '',
+        allocationPercent: projectMatch?.allocationPercent ?? 100,
         status: 'todo',
         parentId: null,
         description: '',
@@ -275,7 +283,13 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
       alert(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
       return;
     }
-    const toSave = { ...toMerge, assignments: toMerge.assignments ?? initialData?.assignments ?? [] } as Partial<Task>;
+    const assignee = (toMerge.assignee || '').trim();
+    const allocationPct = Math.min(100, Math.max(0, (toMerge as TaskFormState).allocationPercent ?? 100));
+    const assignments: TaskAssignment[] = assignee
+      ? [{ assignee, allocationPercent: allocationPct }]
+      : (initialData?.assignments ?? []);
+    const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
+    const toSave = { ...toMergeRest, assignments } as Partial<Task>;
     if (initialData?.id) {
       type LockedField = NonNullable<Task['userLockedFields']>[number];
       const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
@@ -302,7 +316,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const handleApplyEndDateFromEffort = () => {
     const start = formData.startDate || new Date().toISOString().split('T')[0];
     const effort = typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : 1;
-    let end = computeEndDateFromEffort(start, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+    const assignee = (formData.assignee || '').trim();
+    const pct = Math.min(100, Math.max(0, formData.allocationPercent ?? 100));
+    const assignmentsForEffort = assignee ? [{ assignee, allocationPercent: pct }] : projectAssignments.length > 0 ? projectAssignments : undefined;
+    let end = computeEndDateFromEffort(start, effort, assignmentsForEffort);
     if (taskProject?.endDate && end > taskProject.endDate) end = taskProject.endDate;
     setFormData(prev => ({ ...prev, startDate: start, endDate: end }));
   };
@@ -310,7 +327,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const handleApplyWorkEffortFromDates = () => {
     const start = formData.startDate || new Date().toISOString().split('T')[0];
     const end = formData.endDate || start;
-    const effort = computeWorkEffortFromDates(start, end, projectAssignments.length > 0 ? projectAssignments : undefined);
+    const assignee = (formData.assignee || '').trim();
+    const pct = Math.min(100, Math.max(0, formData.allocationPercent ?? 100));
+    const assignmentsForEffort = assignee ? [{ assignee, allocationPercent: pct }] : projectAssignments.length > 0 ? projectAssignments : undefined;
+    const effort = computeWorkEffortFromDates(start, end, assignmentsForEffort);
     setFormData(prev => ({ ...prev, workEffort: effort }));
   };
 
@@ -614,9 +634,21 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 <option value="">선택 안 함</option>
                 {assigneeOptions.map(a => <option key={a} value={a} />)}
               </datalist>
-              {initialData?.assignments && initialData.assignments.length > 0 && (
-                <p className="text-[10px] text-[var(--color-ink-muted)] mt-0.5" role="note">투입율: {initialData.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}</p>
-              )}
+              <div className="mt-0.5 flex items-center gap-2">
+                <label className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율 %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={10}
+                  value={formData.allocationPercent ?? 100}
+                  onChange={(e) => setFormData({ ...formData, allocationPercent: parseInt(e.target.value, 10) || 0 })}
+                  className="input-field py-1 text-[11px] w-14"
+                  readOnly={readOnly}
+                  disabled={readOnly}
+                  title="담당자 1명 기준 투입 비율 (0~100%)"
+                />
+              </div>
             </div>
             {initialData?.id ? (
               <div className="min-w-0 col-span-full">

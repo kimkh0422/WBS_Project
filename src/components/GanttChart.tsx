@@ -411,12 +411,11 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const ROW_HEIGHT = propRowHeight ?? 20;
   const VIEW_PADDING_TOP = 0;
 
-  // 표·간트 동기화: 표의 .data-row는 border-b로 1px가 더해져 실제 행 높이가 rowHeight+1. 간트도 동일하게 맞춰 마지막 행 정렬.
-  const rowHeightExtra = syncScrollRef ? 1 : 0;
+  // 표·간트 동기화: 표의 .data-row는 border-box이므로 height가 테두리 포함 총 높이. 간트도 동일한 줄간격으로 일직선 정렬.
   const effectiveRowHeights = useMemo(() => {
     if (propRowHeights && propRowHeights.length === visibleTasks.length) return propRowHeights;
-    return visibleTasks.map(() => ROW_HEIGHT + rowHeightExtra);
-  }, [propRowHeights, visibleTasks.length, ROW_HEIGHT, rowHeightExtra]);
+    return visibleTasks.map(() => ROW_HEIGHT);
+  }, [propRowHeights, visibleTasks.length, ROW_HEIGHT]);
 
   const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 

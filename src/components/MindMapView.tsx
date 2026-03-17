@@ -850,7 +850,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           )}
                         </g>
                       )}
-                      {/* 노드 박스 + WBS + 텍스트 (드래그로 이동, 클릭 시 선택) */}
+                      {/* 노드 박스 + WBS + 텍스트 (드래그로 이동, 클릭 시 선택). clipPath로 텍스트가 노드 밖으로 겹치지 않도록 함 */}
                       <g
                         transform={hasKids ? `translate(${TOGGLE_W},0)` : ''}
                         onMouseDown={(e) => {
@@ -865,6 +865,11 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           setSelectedTaskId(n.task.id);
                         }}
                       >
+                        <defs>
+                          <clipPath id={`clip-node-${n.task.id}`}>
+                            <rect x={0} y={0} width={nodeContentW} height={NODE_H} rx={8} />
+                          </clipPath>
+                        </defs>
                         <rect
                           width={nodeContentW}
                           height={NODE_H}
@@ -886,32 +891,36 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           filter={isDragging ? undefined : n.depth === 0 ? `url(#mmShadowStrong-${filterId})` : `url(#mmShadow-${filterId})`}
                           opacity={isDragging ? 0.85 : 1}
                         />
-                        {wbsId && (
+                        <g clipPath={`url(#clip-node-${n.task.id})`}>
+                          {wbsId && (
+                            <text
+                              x={8}
+                              y={NODE_H / 2 + 4}
+                              className="pointer-events-none font-mono font-medium"
+                              style={{
+                                fontSize: n.depth <= 1 ? 11 : 10,
+                                fill: n.depth === 0 ? 'rgb(30 41 59)' : 'rgb(100 116 139)',
+                              }}
+                            >
+                              {wbsId}
+                            </text>
+                          )}
                           <text
-                            x={8}
+                            x={wbsId ? 40 : 10}
                             y={NODE_H / 2 + 4}
-                            className="pointer-events-none font-mono font-medium"
+                            className="pointer-events-none fill-slate-800"
                             style={{
-                              fontSize: n.depth <= 1 ? 11 : 10,
-                              fill: n.depth === 0 ? 'rgb(30 41 59)' : 'rgb(100 116 139)',
+                              fontSize: n.depth === 0 ? 14 : n.depth === 1 ? 13 : 12,
+                              fontWeight: n.depth === 0 ? 700 : n.depth === 1 ? 600 : 500,
                             }}
                           >
-                            {wbsId}
+                            {(() => {
+                              const raw = n.task.name || '(이름 없음)';
+                              const maxLen = wbsId ? 16 : 20;
+                              return raw.length > maxLen ? `${raw.slice(0, maxLen - 1)}…` : raw;
+                            })()}
                           </text>
-                        )}
-                        <text
-                          x={wbsId ? 40 : 10}
-                          y={NODE_H / 2 + 4}
-                          className="pointer-events-none fill-slate-800"
-                          style={{
-                            fontSize: n.depth === 0 ? 14 : n.depth === 1 ? 13 : 12,
-                            fontWeight: n.depth === 0 ? 700 : n.depth === 1 ? 600 : 500,
-                          }}
-                        >
-                          {(n.task.name || '(이름 없음)').length > 22
-                            ? `${(n.task.name || '').slice(0, 20)}…`
-                            : n.task.name || '(이름 없음)'}
-                        </text>
+                        </g>
                         {n.task.isMilestone && (
                           <circle
                             cx={nodeContentW - 12}
