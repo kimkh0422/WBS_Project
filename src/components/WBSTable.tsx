@@ -1863,20 +1863,17 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
             >
-              {/*
-                WBS가 없는 항목(표시용 WBS ID가 비어 있는 행)은 테이블에서 숨긴다.
-                displayWbsMap.get(task.id)가 빈 문자열인 경우 렌더링하지 않음.
-              */}
               {(() => {
-                const tasksWithDisplayWbs = visibleTasks.filter(
-                  (t) => t && (displayWbsMap.get(t.id) ?? '') !== ''
-                );
+                // `displayWbsMap`은 `wbsSettings.maxLevel`보다 깊은 레벨에서 WBS 표기를 숨기기 위해 빈 문자열('')을 줄 수 있다.
+                // 하지만 하위 WBS 자체를 테이블에서 숨기면 "특정 레벨 이상 펼쳐지지 않는" 현상처럼 보일 수 있으므로,
+                // 렌더링은 유지하고 표기만 비운다.
+                const tasksForRender = visibleTasks;
                 return (
               <SortableContext
-                items={tasksWithDisplayWbs.map(t => t.id)}
+                items={tasksForRender.map(t => t.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {tasksWithDisplayWbs.map((task, rowIndex) => (
+                {tasksForRender.map((task, rowIndex) => (
                   <React.Fragment key={task.id}>
                     <SortableTaskRow
                       rowIndex={rowIndex}

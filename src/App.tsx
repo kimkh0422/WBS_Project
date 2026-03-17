@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { WBSTable } from './components/WBSTable';
 import { GanttChart } from './components/GanttChart';
+import { NavButton } from './components/NavButton';
+import { AppHeader } from './components/AppHeader';
 import { KanbanBoard } from './components/KanbanBoard';
 import { MindMapView } from './components/MindMapView';
 import { TaskModal } from './components/TaskModal';
@@ -73,31 +75,6 @@ function formatCommitDateDateOnly(value: string) {
   }
 }
 
-interface NavButtonProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  title?: string;
-  tourId?: string;
-}
-
-function NavButton({ active, onClick, icon, label, title, tourId }: NavButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "nav-pill",
-        active ? "nav-pill-active" : "nav-pill-inactive"
-      )}
-      title={title}
-      data-tourid={tourId}
-    >
-      <span className="shrink-0">{icon}</span>
-      <span className="inline whitespace-nowrap">{label}</span>
-    </button>
-  );
-}
 
 interface WBSAppProps {
   isAdmin: boolean;
@@ -1070,390 +1047,72 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
   return (
     <div className={cn("flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden", view === 'list' ? "min-h-screen" : "h-screen", isFullscreen && "fixed inset-0 z-50")}>
       {!isFullscreen && (
-        <header className={cn("bg-white/90 backdrop-blur-xl border-b border-slate-200/60 z-50 safe-top transition-all duration-200", isHeaderCollapsed ? "py-2 px-3 md:py-3 md:px-6" : "px-4 md:px-6 py-3")} style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}>
-          {/* 모바일 접힌 상태: 최소 바 */}
-          <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
-            <div className="flex items-center gap-2 min-w-0">
-              <button type="button" onClick={requestRefresh} className="shrink-0">
-                <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain" />
-              </button>
-              <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
-            </div>
-            <button
-              onClick={() => setIsHeaderCollapsed(false)}
-              className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
-              title="메뉴 펼치기"
-            >
-              <ChevronDown size={20} />
-            </button>
-          </div>
-          {/* 전체 헤더: 모바일에서 접혀 있으면 숨김 */}
-          <div className={cn("flex flex-col md:flex-row justify-between items-start md:items-center gap-4", isHeaderCollapsed && "hidden md:flex")}>
-            <div className="flex items-center gap-4">
-              <div
-                className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={requestRefresh}
-                title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
-              >
-                <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain" />
-              </div>
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-xl font-bold tracking-tight leading-none">{wbsSettings.appTitle}</h1>
-                  <button
-                    onClick={() => {
-                      setIsVersionHistoryOpen(true);
-                      tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
-                    }}
-                    className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
-                    title={`버전 정보 (수정일: ${formatCommitDate(__APP_COMMIT_DATE__)})`}
-                  >
-                    <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
-                    <span>v{__APP_VERSION__}</span>
-                    <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
-                      · 수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="relative mt-1 group">
-                  <button
-                    data-tourid="tour-project"
-                    onClick={() => {
-                      setIsProjectDropdownOpen(!isProjectDropdownOpen);
-                      tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
-                    }}
-                    className="flex items-center gap-2 px-2.5 py-2 hover:bg-slate-50 rounded-xl transition-all border border-transparent hover:border-slate-200/80"
-                    title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
-                  >
-                    <div className="flex flex-col items-start">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">프로젝트</span>
-                      <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
-                        <span className="max-w-[140px] sm:max-w-[200px] truncate">{currentProjectId === 'all' ? '전체 프로젝트' : (currentProject?.name || '프로젝트 선택')}</span>
-                        <ChevronDown size={14} className={cn("text-slate-400 transition-transform duration-200", isProjectDropdownOpen && "rotate-180")} />
-                      </div>
-                      {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
-                        <span className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5" title={currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? currentProject.ownerId) : undefined}>
-                          {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                  {presenceOthers.length > 0 && currentProjectId !== 'all' && (
-                    <div
-                      className="absolute left-0 top-full mt-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200/80 text-amber-800 text-xs"
-                      title="다른 사용자가 이 프로젝트를 보고 있습니다. 동시에 수정하면 충돌할 수 있어 저장 후 새로고침됩니다."
-                    >
-                      <Eye size={12} className="shrink-0 text-amber-600" />
-                      <span className="font-medium">
-                        {presenceOthers.length}명이 보고 있음:
-                      </span>
-                      <span className="truncate max-w-[180px]" title={presenceOthers.map(o => o.displayName).join(', ')}>
-                        {presenceOthers.map(o => o.displayName).join(', ')}
-                      </span>
-                    </div>
-                  )}
-                  {isProjectDropdownOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
-                      <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu" style={{ boxShadow: 'var(--shadow-xl)' }}>
-                        <div className="p-1">
-                          <div className="px-3 py-2 text-[10px] font-bold uppercase text-stone-400 tracking-wider" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">프로젝트 목록</div>
-                          <div
-                            className={cn(
-                              "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
-                              currentProjectId === 'all' ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
-                            )}
-                            onClick={() => {
-                              selectProject('all');
-                              setIsProjectDropdownOpen(false);
-                            }}
-                            title="모든 프로젝트의 작업을 한 화면에서 확인합니다."
-                          >
-                            <span className="truncate flex-1">전체</span>
-                            {allTasks.length > 0 && (
-                              <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>
-                            )}
-                          </div>
-                          <div className="h-px bg-stone-100 my-1 mx-2" />
-                          {projectsSortedByName.map(project => (
-                            <div
-                              key={project.id}
-                              className={cn(
-                                "px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors",
-                                currentProjectId === project.id ? "bg-stone-100 font-medium" : "text-stone-600 hover:bg-stone-50"
-                              )}
-                              onClick={() => {
-                                selectProject(project.id);
-                                setIsProjectDropdownOpen(false);
-                              }}
-                            >
-                              <div className="truncate flex-1 min-w-0 flex flex-col">
-                                <span className="truncate flex items-center gap-1.5">
-                                  {project.name}
-                                  {(taskCountByProject[project.id] ?? 0) > 0 && (
-                                    <span className="text-[10px] text-stone-400 shrink-0">
-                                      ({taskCountByProject[project.id] ?? 0}개)
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {(isAdmin || myEditableProjectIds.includes(project.id)) && (
-                                  <>
-                                    <button onClick={(e) => { e.stopPropagation(); setCurrentProjectId(project.id); setIsShareOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-teal-600 p-1 rounded" title="프로젝트 공유"><Share2 size={12} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); copyProject(project.id); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-blue-600 p-1 rounded" title="프로젝트 복사"><Copy size={12} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setEditingProject(project); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded" title="프로젝트 편집"><Edit size={12} /></button>
-                                    {projectsSortedByName.length > 1 && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setProjectToDelete(project);
-                                          setIsProjectDropdownOpen(false);
-                                          setIsDeleteProjectConfirmOpen(true);
-                                        }}
-                                        className="text-stone-400 hover:text-red-500 p-1 rounded"
-                                        title="프로젝트 삭제"
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                                <button onClick={(e) => { e.stopPropagation(); setAuditLogProjectId(project.id); setIsAuditLogOpen(true); setIsProjectDropdownOpen(false); }} className="text-stone-400 hover:text-amber-600 p-1 rounded" title="변경 이력"><History size={12} /></button>
-                              </div>
-                            </div>
-                          ))}
-                          <div className="border-t border-[var(--color-line)] my-1"></div>
-                          <button onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors" title="새 프로젝트를 생성합니다.">
-                            <FolderPlus size={14} /> 새 프로젝트
-                          </button>
-                          <button onClick={() => { setIsProjectDropdownOpen(false); setView('projects'); }} className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors" title="프로젝트 관리 페이지로 이동합니다.">
-                            <Briefcase size={14} /> 프로젝트 관리
-                          </button>
-                          {effectiveIsAdmin && !userApproved && !isAdmin && (
-                            <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="미승인 상태에서는 로컬에 저장된 프로젝트만 표시됩니다.">
-                              로컬 전용: DB의 전체 프로젝트를 보려면 관리자 승인 후 다시 로그인하세요.
-                            </p>
-                          )}
-                          {effectiveIsAdmin && userApproved && !isAdmin && (
-                            <p className="px-3 py-2 text-[10px] text-amber-600 bg-amber-50 border-t border-amber-100 mt-1" title="비밀번호 관리자 모드는 DB 권한에 반영되지 않습니다.">
-                              비밀번호 관리자 모드는 메뉴/승인에만 적용됩니다. 전체 프로젝트를 보려면 회원 관리에서 본인을 &apos;관리자&apos;로 지정하세요.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
-              {/* 툴바: 되돌리기 / 다시실행 */}
-              <div className="flex items-center gap-0.5 mr-1">
-                <button
-                  onClick={undo}
-                  disabled={!canUndo}
-                  className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                  title="실행 취소 (Ctrl+Z)"
-                >
-                  <Undo2 size={16} />
-                </button>
-                <button
-                  onClick={redo}
-                  disabled={!canRedo}
-                  className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                  title="다시 실행 (Ctrl+Shift+Z)"
-                >
-                  <Redo2 size={16} />
-                </button>
-              </div>
-              <div className="toolbar-divider hidden md:block" />
-              {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
-              <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
-                {!hiddenViews.has('dashboard') && (
-                  <NavButton active={view === 'dashboard'} onClick={() => navigateWithTip('dashboard')} icon={<PieChart size={14} />} label="대시보드" title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다." tourId="tour-nav-dashboard" />
-                )}
-                {!hiddenViews.has('allocation') && (
-                  <NavButton active={view === 'allocation'} onClick={() => navigateWithTip('allocation')} icon={<Users size={14} />} label="투입현황" title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다." tourId="tour-nav-allocation" />
-                )}
-                <NavButton active={view === 'list'} onClick={() => navigateWithTip('list')} icon={<List size={14} />} label="표+간트" title="표와 간트를 나란히 보며 작업을 편집하고 일정을 확인합니다. 가운데 바를 드래그해 폭을 조절할 수 있어요." tourId="tour-nav-list" />
-                <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<Table size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." tourId="tour-nav-table" />
-                <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<BarChart3 size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." tourId="tour-nav-gantt" />
-                <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<Columns size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." tourId="tour-nav-kanban" />
-              </div>
-
-              <div className="toolbar-divider" />
-
-              {/* Filter On/Off Toggle */}
-              <button
-                data-tourid="tour-filter"
-                onClick={() => {
-                  setFilterOn(v => !v);
-                  tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
-                }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all shrink-0",
-                  filterOn
-                    ? "bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25"
-                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700"
-                )}
-                title={filterOn ? "필터 끄기" : "필터 켜기"}
-              >
-                <Filter size={14} />
-                <span className="hidden sm:inline">필터</span>
-                <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md", filterOn ? "bg-white/20" : "bg-slate-100 text-slate-400")}>{filterOn ? "On" : "Off"}</span>
-              </button>
-
-              {/* DB Sync */}
-              <button
-                data-tourid="tour-db-sync"
-                onClick={() => {
-                  if (isDbSyncing) return;
-                  void executeDbSync('all');
-                }}
-                disabled={isDbSyncing}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-xl border transition-all relative",
-                  isDbSyncing
-                    ? "bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed"
-                    : hasLocalChangesSinceSync
-                      ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 hover:border-amber-400"
-                      : "bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700"
-                )}
-                title={
-                  isDbSyncing && dbSyncStep
-                    ? `${dbSyncStep.msg} (${dbSyncStep.pct}%)`
-                    : hasLocalChangesSinceSync
-                      ? '로컬에 저장되지 않은 변경이 있습니다. 클릭하면 DB와 동기화합니다.'
-                      : '로컬 변경 없음. 클릭하면 서버 최신과 비교해 맞춥니다.'
-                }
-                aria-busy={isDbSyncing}
-              >
-                {hasLocalChangesSinceSync && !isDbSyncing && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" aria-label="미동기 변경 있음" />
-                )}
-                {isDbSyncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                <span className="hidden sm:inline max-w-[7rem] sm:max-w-none truncate">{isDbSyncing && dbSyncStep ? dbSyncStep.msg : 'DB 동기화'}</span>
-                {isDbSyncing && dbSyncStep ? (
-                  <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">{dbSyncStep.pct}%</span>
-                ) : hasLocalChangesSinceSync && !isDbSyncing ? (
-                  <span className="text-[10px] font-medium text-amber-600 shrink-0" title="로컬 변경 있음">미저장</span>
-                ) : null}
-              </button>
-
-              {/* User Profile */}
-              <span
-                className="hidden sm:inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200/60 ml-1"
-                title={`로그인: ${currentUserDisplay}${user?.email && currentUserDisplay !== user.email ? ` (${user.email})` : ''}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" aria-hidden />
-                {currentUserDisplay}
-              </span>
-              <button
-                onClick={() => signOut()}
-                className="icon-btn text-slate-400 hover:text-red-500 hover:bg-red-50"
-                title={`로그아웃 (${user?.email ?? '사용자'})`}
-              >
-                <LogOut size={15} />
-              </button>
-
-              {/* More Options Menu */}
-              <div className="relative ml-0.5">
-                <button
-                  data-tourid="tour-more"
-                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
-                  className={cn("icon-btn transition-colors relative", isMoreMenuOpen ? "text-[var(--color-ink)] bg-slate-100" : "text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50")}
-                  title="추가 옵션"
-                >
-                  <MoreHorizontal size={18} />
-                  {isAIBusy && <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse"></span>}
-                </button>
-                {isMoreMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsMoreMenuOpen(false)}></div>
-                    <div className="absolute top-full right-0 mt-2 w-44 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 shadow-xl dropdown-menu flex flex-col py-1">
-
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">기능</div>
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsAIModalOpen(true); tipOnce('menu.ai', 'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에는 창을 닫아도 백그라운드에서 계속 진행돼요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <Sparkles size={14} className={isAIBusy ? "text-purple-500 animate-pulse" : ""} /> AI 분석 {isAIBusy && <span className="text-[10px] text-purple-500">(진행중)</span>}
-                      </button>
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsWeeklyReportOpen(true); tipOnce('menu.weeklyReport', '현재 작업을 기준으로 금주한일·차주계획·이슈를 자동으로 정리합니다.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <History size={14} /> 주간보고
-                      </button>
-
-                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
-
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
-                      <button onClick={() => { setIsMoreMenuOpen(false); handleImportClick(); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <Upload size={14} /> 가져오기
-                      </button>
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsExportModalOpen(true); tipOnce('menu.export', '내보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택할 수 있어요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <Download size={14} /> 내보내기
-                      </button>
-
-                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
-
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">설정</div>
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsSettingsModalOpen(true); tipOnce('menu.settings', '설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 변경할 수 있어요.'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <Settings2 size={14} /> 환경설정
-                      </button>
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsShortcutsVisible(!isShortcutsVisible); tipOnce('menu.shortcuts', '단축키 패널을 켜/끄는 버튼입니다. (표: Ctrl+A → Del로 일괄 삭제)'); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-                        <Keyboard size={14} /> 단축키
-                      </button>
-
-                      <div className="h-px bg-slate-100 my-1 mx-2"></div>
-
-                      {effectiveIsAdmin && (
-                        <>
-                          <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">관리자 기능</div>
-                          <button onClick={() => { setIsMoreMenuOpen(false); setView('mindmap'); tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.'); }} className={cn("w-full text-left px-3 py-2 text-sm flex items-center gap-2", view === 'mindmap' ? "text-indigo-600 bg-indigo-50" : "text-slate-600 hover:bg-slate-50")}>
-                            <Network size={14} /> 마인드맵
-                          </button>
-                          <button onClick={() => { setIsMoreMenuOpen(false); setIsMembersModalOpen(true); }} className="w-full text-left px-3 py-2 text-sm text-teal-600 hover:bg-teal-50 flex items-center gap-2">
-                            <Users size={14} /> 회원 관리
-                          </button>
-                          <button onClick={() => { setIsMoreMenuOpen(false); setIsResetConfirmOpen(true); tipOnce('menu.reset', '로컬 데이터를 모두 초기화합니다.'); }} className="w-full text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 flex items-center gap-2">
-                            <RotateCcw size={14} /> 로컬 초기화
-                          </button>
-                        </>
-                      )}
-
-                      <button onClick={() => { setIsMoreMenuOpen(false); setIsDeleteChoiceOpen(true); tipOnce('menu.deleteAll', '삭제 및 초기화 메뉴입니다.'); }} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1">
-                        <Trash2 size={14} /> 부분 / 전체 삭제
-                      </button>
-
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="toolbar-divider" />
-
-              <button
-                data-tourid="tour-new-task"
-                onClick={() => {
-                  if (!canEditCurrentProject) return;
-                  setIsModalOpen(true);
-                  tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
-                }}
-                disabled={!canEditCurrentProject}
-                className="btn-primary flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={canEditCurrentProject ? '새 작업 추가' : '보기 권한만 있어 편집할 수 없습니다'}
-              >
-                <Plus size={15} /> <span>새 작업</span>
-              </button>
-              <button
-                onClick={() => setIsHeaderCollapsed(true)}
-                className="md:hidden p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
-                title="메뉴 접어서 표 넓게 보기"
-              >
-                <ChevronUp size={18} />
-              </button>
-            </div>
-          </div>
-        </header>
+        <AppHeader
+          wbsSettings={wbsSettings}
+          isHeaderCollapsed={isHeaderCollapsed}
+          setIsHeaderCollapsed={setIsHeaderCollapsed}
+          requestRefresh={requestRefresh}
+          logo={logo}
+          setIsVersionHistoryOpen={setIsVersionHistoryOpen}
+          appVersion={__APP_VERSION__}
+          formatCommitDate={formatCommitDate}
+          formatCommitDateDateOnly={formatCommitDateDateOnly}
+          appCommitDate={__APP_COMMIT_DATE__}
+          isProjectDropdownOpen={isProjectDropdownOpen}
+          setIsProjectDropdownOpen={setIsProjectDropdownOpen}
+          currentProjectId={currentProjectId}
+          currentProject={currentProject}
+          user={user}
+          effectiveIsAdmin={effectiveIsAdmin}
+          profileMap={profileMap}
+          presenceOthers={presenceOthers}
+          selectProject={selectProject}
+          allTasks={allTasks}
+          projectsSortedByName={projectsSortedByName}
+          taskCountByProject={taskCountByProject}
+          isAdmin={isAdmin}
+          myEditableProjectIds={myEditableProjectIds}
+          setIsShareOpen={setIsShareOpen}
+          copyProject={copyProject}
+          setEditingProject={setEditingProject}
+          setIsProjectModalOpen={setIsProjectModalOpen}
+          setProjectToDelete={setProjectToDelete}
+          setIsDeleteProjectConfirmOpen={setIsDeleteProjectConfirmOpen}
+          setAuditLogProjectId={setAuditLogProjectId}
+          setIsAuditLogOpen={setIsAuditLogOpen}
+          setView={setView}
+          undo={undo}
+          canUndo={canUndo}
+          redo={redo}
+          canRedo={canRedo}
+          hiddenViews={hiddenViews}
+          view={view}
+          navigateWithTip={navigateWithTip}
+          filterOn={filterOn}
+          setFilterOn={setFilterOn}
+          tipOnce={tipOnce}
+          isDbSyncing={isDbSyncing}
+          executeDbSync={executeDbSync}
+          hasLocalChangesSinceSync={hasLocalChangesSinceSync}
+          dbSyncStep={dbSyncStep}
+          currentUserDisplay={currentUserDisplay}
+          signOut={signOut}
+          isMoreMenuOpen={isMoreMenuOpen}
+          setIsMoreMenuOpen={setIsMoreMenuOpen}
+          isAIBusy={isAIBusy}
+          setIsAIModalOpen={setIsAIModalOpen}
+          setIsWeeklyReportOpen={setIsWeeklyReportOpen}
+          handleImportClick={handleImportClick}
+          setIsExportModalOpen={setIsExportModalOpen}
+          setIsSettingsModalOpen={setIsSettingsModalOpen}
+          isShortcutsVisible={isShortcutsVisible}
+          setIsShortcutsVisible={setIsShortcutsVisible}
+          setIsMembersModalOpen={setIsMembersModalOpen}
+          setIsResetConfirmOpen={setIsResetConfirmOpen}
+          setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
+          canEditCurrentProject={canEditCurrentProject}
+          setIsModalOpen={setIsModalOpen}
+        />
       )}
 
       {!isFullscreen && !isLocalSaveBannerDismissed && (
