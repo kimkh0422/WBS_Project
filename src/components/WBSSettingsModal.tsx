@@ -82,7 +82,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
     const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
     const [maxLevel, setMaxLevel] = useState(wbsSettings.maxLevel);
     const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
-    const [statusApplyMode, setStatusApplyMode] = useState<'none' | 'current' | 'all'>('none');
+    const [linkStatusAndProgress, setLinkStatusAndProgress] = useState(
+        wbsSettings.linkStatusAndProgress !== false
+    );
+    // 상태별 진척도(%)를 바꾼 뒤 "적용하기"를 누르면, 대부분은 기존 작업에도 바로 반영되길 기대한다.
+    // 기본값을 current로 두어 "현재 프로젝트"에 자동 반영되도록 한다. (원치 않으면 '변경하지 않음' 선택)
+    const [statusApplyMode, setStatusApplyMode] = useState<'none' | 'current' | 'all'>('current');
     const [projectDates, setProjectDates] = useState<Record<string, string>>({});
     const [projectEndDates, setProjectEndDates] = useState<Record<string, string>>({});
     const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
@@ -162,7 +167,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             setLevel3(wbsSettings.level3Prefix);
             setMaxLevel(wbsSettings.maxLevel);
             setStatusConfigs(wbsSettings.statusConfigs);
-            setStatusApplyMode('none');
+            setLinkStatusAndProgress(wbsSettings.linkStatusAndProgress !== false);
+            setStatusApplyMode('current');
             setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
             setLevelColorsState(levelColors && levelColors.length >= 5 ? [...levelColors] : [...DEFAULT_LEVEL_COLORS]);
 
@@ -211,6 +217,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             level3Prefix: level3.trim(),
             maxLevel: Number(maxLevel),
             statusConfigs: statusConfigs,
+            linkStatusAndProgress,
             tableColumns: normalizedTableColumns,
         });
 
@@ -553,35 +560,50 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                     <div className="flex justify-between items-center border-b border-stone-200 pb-2">
                                         <div className="flex flex-col gap-1">
                                             <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭 및 진척도</h3>
-                                            <div className="flex flex-wrap items-center gap-3 text-[11px] text-stone-600">
-                                                <span className="font-semibold text-stone-500">기존 작업 진척도 적용 범위</span>
-                                                <label className="inline-flex items-center gap-1 cursor-pointer">
+                                            <div className="flex flex-col gap-1.5 text-[11px] text-stone-600">
+                                                <label className="inline-flex items-center gap-2 cursor-pointer">
                                                     <input
-                                                        type="radio"
+                                                        type="checkbox"
                                                         className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
-                                                        checked={statusApplyMode === 'none'}
-                                                        onChange={() => setStatusApplyMode('none')}
+                                                        checked={linkStatusAndProgress}
+                                                        onChange={(e) => setLinkStatusAndProgress(e.target.checked)}
                                                     />
-                                                    <span>변경하지 않음</span>
+                                                    <span className="font-semibold text-stone-600">
+                                                        상태별 진척도 사용 (상태 변경 시 진척률 자동 설정)
+                                                    </span>
                                                 </label>
-                                                <label className="inline-flex items-center gap-1 cursor-pointer">
-                                                    <input
-                                                        type="radio"
-                                                        className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
-                                                        checked={statusApplyMode === 'current'}
-                                                        onChange={() => setStatusApplyMode('current')}
-                                                    />
-                                                    <span>현재 프로젝트만</span>
-                                                </label>
-                                                <label className="inline-flex items-center gap-1 cursor-pointer">
-                                                    <input
-                                                        type="radio"
-                                                        className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
-                                                        checked={statusApplyMode === 'all'}
-                                                        onChange={() => setStatusApplyMode('all')}
-                                                    />
-                                                    <span>전체 프로젝트</span>
-                                                </label>
+                                                {linkStatusAndProgress && (
+                                                    <div className="flex flex-wrap items-center gap-3">
+                                                        <span className="font-semibold text-stone-500">기존 작업 진척도 적용 범위</span>
+                                                        <label className="inline-flex items-center gap-1 cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
+                                                                checked={statusApplyMode === 'none'}
+                                                                onChange={() => setStatusApplyMode('none')}
+                                                            />
+                                                            <span>변경하지 않음</span>
+                                                        </label>
+                                                        <label className="inline-flex items-center gap-1 cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
+                                                                checked={statusApplyMode === 'current'}
+                                                                onChange={() => setStatusApplyMode('current')}
+                                                            />
+                                                            <span>현재 프로젝트만</span>
+                                                        </label>
+                                                        <label className="inline-flex items-center gap-1 cursor-pointer">
+                                                            <input
+                                                                type="radio"
+                                                                className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
+                                                                checked={statusApplyMode === 'all'}
+                                                                onChange={() => setStatusApplyMode('all')}
+                                                            />
+                                                            <span>전체 프로젝트</span>
+                                                        </label>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                         <button
@@ -720,8 +742,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                         })()}
                                     </div>
                                     <p className="text-[10px] text-stone-400 mt-1 italic">
-                                        작업 상태 변경 시 설정된 진척도가 자동으로 반영됩니다. 위의 옵션을 사용하면 현재 저장 시점의 상태 설정을
-                                        기준으로 기존 작업들의 진척도를 한 번에 맞출 수 있습니다.
+                                        {linkStatusAndProgress
+                                            ? '작업 상태 변경 시 설정된 진척도가 자동으로 반영됩니다. 위의 옵션을 사용하면 현재 저장 시점의 상태 설정을 기준으로 기존 작업들의 진척도를 한 번에 맞출 수 있습니다.'
+                                            : '상태는 표시만 사용하고, 진척률은 각 작업에서 입력한 값만을 기준으로 계산합니다.'}
                                     </p>
                                 </div>
                             </div>

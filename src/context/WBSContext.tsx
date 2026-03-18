@@ -31,6 +31,7 @@ import {
   settingsNeedDbUpload,
   mergeProjectsDelta,
   mergeTasksDelta,
+  serverTaskRowMatchesLocalTask,
   deleteProjectFromDB,
   deleteTasksFromDB,
   deleteAllTasksFromDB,
@@ -44,7 +45,7 @@ import {
   WBS_INIT_BLANK_SESSION_KEY,
   clearInitBlankSessionFlag,
 } from '../lib/persist';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, type TaskRow } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
 /** 프로젝트별 동기화 건수 (토스트·상세 표시용) */
@@ -105,6 +106,8 @@ export interface WBSSettings {
   level3Prefix: string;
   maxLevel: number;
   statusConfigs: StatusConfig[];
+  /** true: 상태별 진척도를 사용해 상태 ↔ 진척률을 연동. false: 상태는 표시만, 진척률은 수동 입력 기준 */
+  linkStatusAndProgress?: boolean;
   tableColumns?: { id: string; visible: boolean }[];
   /** 크리티컬 패스 표시 여부 (간트·표에서 강조) */
   showCriticalPath?: boolean;
@@ -214,6 +217,7 @@ const DEFAULT_SETTINGS: WBSSettings = {
   level3Prefix: 'T',
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
+  linkStatusAndProgress: true,
   tableColumns: [
     { id: 'wbsId', visible: true },
     { id: 'name', visible: true },
@@ -272,14 +276,14 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
     parentProgress = Math.round(simpleProgressSum / children.length);
   }
 
-  const parentEffort = typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : undefined;
-  const parentWeight = typeof parent.weight === 'number' && Number.isFinite(parent.weight) ? parent.weight : undefined;
+  const parentEffort = typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort)
+    ? parent.workEffort
+    : undefined;
   const progressLocked = (parent.userLockedFields ?? []).includes('progress');
   const shouldUpdate =
     parent.startDate !== minStart ||
     parent.endDate !== maxEnd ||
     parentEffort !== totalEffort ||
-    parentWeight !== totalWeight ||
     (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
@@ -290,7 +294,6 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
           startDate: minStart,
           endDate: maxEnd,
           workEffort: totalEffort,
-          weight: totalWeight,
           ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
         }
         : t
@@ -413,6 +416,8 @@ function parseSettings(raw: any): WBSSettings {
         : DEFAULT_SETTINGS.tableColumns,
       showCriticalPath: parsed.showCriticalPath === true,
       wrapTextInCells: parsed.wrapTextInCells === true,
+      linkStatusAndProgress:
+        parsed.linkStatusAndProgress === false ? false : true,
     };
 
     // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)
@@ -752,14 +757,29 @@ export function WBSProvider({
           const row = payload?.new;
           if (!row || !row.id) return;
           const serverTask = fromTaskRow(row as any);
-          // conflict check은 updater 밖에서 수행 (updater 안에서 토스트 호출 금지)
           const before = allTasksRef.current;
           const existingBefore = before.find(t => t.id === serverTask.id);
+          const rowTyped = row as TaskRow;
+          const contentMatches =
+            !!existingBefore && serverTaskRowMatchesLocalTask(existingBefore, rowTyped);
+
+          // 미저장 로컬 편집이 있는데 서버 스냅샷이 내용상 다르면 → 옛 DB 행으로 덮어써 레벨 등이 원복되는 것을 막음
+          if (
+            hasLocalChangesSinceSyncRef.current &&
+            existingBefore &&
+            !contentMatches
+          ) {
+            return;
+          }
+
+          // 실제로 원격(또는 다른 탭)에서 내용이 바뀐 경우에만 충돌 안내. 본인 저장 에코는 내용 동일이라 제외
           if (
             existingBefore &&
             existingBefore.updatedAt &&
             serverTask.updatedAt &&
-            existingBefore.updatedAt !== serverTask.updatedAt
+            existingBefore.updatedAt !== serverTask.updatedAt &&
+            !contentMatches &&
+            !hasLocalChangesSinceSyncRef.current
           ) {
             notifyConflictLater('task');
           }
@@ -1421,6 +1441,8 @@ export function WBSProvider({
   };
 
   const syncProgressFromStatusConfigs = (scope: 'current' | 'all') => {
+    // 상태-진척도 연동을 끈 경우에는 상태 기반 일괄 동기화를 수행하지 않는다.
+    if (wbsSettings.linkStatusAndProgress === false) return;
     const configs = wbsSettings.statusConfigs ?? [];
     if (!configs || configs.length === 0) return;
     const configMap = new Map(configs.map(c => [c.id, c] as const));
@@ -1432,7 +1454,7 @@ export function WBSProvider({
       if (targetProjectIds.length === 0) return prev;
       const targetSet = new Set(targetProjectIds);
       let changed = false;
-      const next = prev.map(t => {
+      let next = prev.map(t => {
         if (!targetSet.has(t.projectId)) return t;
         // 사용자가 진척률을 수동 입력(잠금)한 경우 상태 설정으로 덮어쓰지 않음
         if ((t.userLockedFields ?? []).includes('progress')) return t;
@@ -1442,6 +1464,18 @@ export function WBSProvider({
         return { ...t, progress: config.progress };
       });
       if (!changed) return prev;
+
+      // 상태 기반으로 하위(또는 개별) 작업 진척률을 바꾼 뒤에는
+      // 상위 작업의 진척·공수·기간을 다시 롤업해 부모 진척률도 함께 맞춰 준다.
+      // - scope='current': 현재 프로젝트만
+      // - scope='all': 모든 프로젝트
+      const projectIdsToRollup =
+        scope === 'all'
+          ? Array.from(new Set(next.map(t => t.projectId))).filter(Boolean) as string[]
+          : targetProjectIds;
+      for (const pid of projectIdsToRollup) {
+        next = recomputeProjectRollups(next, pid);
+      }
       return next;
     });
   };

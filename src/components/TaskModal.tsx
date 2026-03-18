@@ -778,8 +778,14 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 onChange={(e) => {
                   const newStatus = e.target.value;
                   const config = wbsSettings.statusConfigs.find(c => c.id === newStatus);
-                  // 사용자가 진행률을 직접 수정한 뒤에는 상태 변경이 진행률을 덮어쓰지 않도록 한다.
-                  if (!progressTouchedRef.current && typeof config?.progress === 'number' && Number.isFinite(config.progress)) {
+                  // 상태별 진척도 연동이 켜져 있고, 사용자가 아직 진행률을 직접 수정하지 않은 경우에만
+                  // 상태 변경 시 해당 상태의 기본 진척도로 자동 설정한다.
+                  if (
+                    wbsSettings.linkStatusAndProgress !== false &&
+                    !progressTouchedRef.current &&
+                    typeof config?.progress === 'number' &&
+                    Number.isFinite(config.progress)
+                  ) {
                     const p = Math.min(100, Math.max(0, round2(config.progress)));
                     setProgressInput(String(p));
                     setFormData(prev => ({ ...prev, status: newStatus, progress: p }));

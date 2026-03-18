@@ -314,6 +314,19 @@ function taskContentFingerprint(row: TaskRow): string {
   });
 }
 
+/**
+ * Realtime으로 받은 DB 행이 로컬 작업과 "내용상" 동일한지.
+ * updated_at·sort_order는 지문에 포함되지 않음 → 본인 저장 직후 에코에서 오탐 충돌 방지용.
+ */
+export function serverTaskRowMatchesLocalTask(localTask: Task, serverRow: TaskRow): boolean {
+  const so =
+    typeof serverRow.sort_order === 'number' && Number.isFinite(serverRow.sort_order)
+      ? serverRow.sort_order
+      : 0;
+  const lr = toTaskRow(localTask, so);
+  return taskContentFingerprint(lr) === taskContentFingerprint(serverRow);
+}
+
 /** 프로젝트 내 작업 id 나열이 서버와 다르면 순서·트리 반영을 위해 해당 프로젝트 작업 전부 업로드 */
 export function projectIdsWithTaskOrderDrift(
   localTasks: Task[],

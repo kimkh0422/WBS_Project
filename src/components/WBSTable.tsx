@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate, round2, formatNum2 } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
+import { ExcelGrid } from './ExcelGrid';
 import { Task, TaskStatus, TaskAssignment, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
@@ -190,6 +191,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
+  /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
+  const rangeAnchorRef = useRef<string | null>(null);
 
   // Context Menu State (header: columnId = data column; task: columnId = progress | status)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'task' | 'header'; taskId?: string; columnId?: TableColumnId | 'progress' | 'status' } | null>(null);
@@ -225,6 +228,18 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
   /** 편집 버튼으로 켜는 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 (F2로 토글) */
   const [tableEditMode, setTableEditMode] = useState(false);
+  /** 전체를 스프레드시트(AG Grid) 뷰로 보는 모드 */
+  const [excelView, setExcelView] = useState(false);
+
+  // 엑셀 시트(AG Grid) 뷰로 전환/종료할 때는 표 인라인 편집 모드도 함께 종료
+  useEffect(() => {
+    if (!excelView && tableEditMode) {
+      setTableEditMode(false);
+      setEditingCell(null);
+      setInlineEditingNameId(null);
+      setFocusedCell(null);
+    }
+  }, [excelView, tableEditMode]);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
   const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
   // ─── Realtime: 표 셀 포커스 공유(상대 커서 느낌) ────────────────────────────
@@ -709,32 +724,60 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   };
 
   const handleSelect = (taskId: string, multi: boolean, range: boolean) => {
-    const newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
+    let newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
 
-    if (range && anchorTaskId) {
-      const currentIndex = visibleTasks.findIndex(t => t.id === taskId);
-      const anchorIndex = visibleTasks.findIndex(t => t.id === anchorTaskId);
+    // 계층 구조: 상위 작업 선택 시 하위 작업 전체를 함께 선택/해제
+    const currentIndex = visibleTasks.findIndex((t) => t.id === taskId);
+    const currentTask = currentIndex !== -1 ? visibleTasks[currentIndex] : null;
+    const currentDepth = currentTask?.depth ?? 0;
 
-      if (currentIndex !== -1 && anchorIndex !== -1) {
-        const start = Math.min(currentIndex, anchorIndex);
-        const end = Math.max(currentIndex, anchorIndex);
-
-        for (let i = start; i <= end; i++) {
-          newSelected.add(visibleTasks[i].id);
-        }
-      } else {
-        newSelected.add(taskId);
+    const descendantIds: string[] = [];
+    if (currentTask) {
+      for (let i = currentIndex + 1; i < visibleTasks.length; i++) {
+        const t = visibleTasks[i];
+        const depth = t.depth ?? 0;
+        if (depth <= currentDepth) break;
+        descendantIds.push(t.id);
       }
-    } else {
-      if (multi) {
-        if (newSelected.has(taskId)) {
-          newSelected.delete(taskId);
+    }
+
+    if (range) {
+      const anchorId = rangeAnchorRef.current ?? anchorTaskId ?? lastSelectedId;
+      if (anchorId) {
+        const anchorIndex = visibleTasks.findIndex((t) => t.id === anchorId);
+
+        if (currentIndex !== -1 && anchorIndex !== -1) {
+          const start = Math.min(currentIndex, anchorIndex);
+          const end = Math.max(currentIndex, anchorIndex);
+
+          for (let i = start; i <= end; i++) {
+            newSelected.add(visibleTasks[i].id);
+          }
         } else {
           newSelected.add(taskId);
         }
       } else {
         newSelected.add(taskId);
       }
+    } else {
+      const wasSelected = selectedTaskIds.has(taskId);
+      const idsToToggle = [taskId, ...descendantIds];
+
+      if (multi) {
+        if (wasSelected) {
+          idsToToggle.forEach((id) => newSelected.delete(id));
+        } else {
+          idsToToggle.forEach((id) => newSelected.add(id));
+        }
+      } else {
+        const next = new Set<string>();
+        if (!wasSelected) {
+          idsToToggle.forEach((id) => next.add(id));
+        }
+        newSelected = next;
+      }
+
+      rangeAnchorRef.current = taskId;
       setAnchorTaskId(taskId);
     }
 
@@ -855,11 +898,26 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       if (editingTask || deleteConfirm.isOpen) return;
       if (target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-      // 셀/작업명 편집 중 Enter: 값 커밋(blur) 후 아래 행으로 계속 편집.
-      // - 마지막 행이면 같은 레벨(형제)로 새 작업을 추가하고 계속 편집.
+      // 엑셀 뷰(ag-grid)에서는 기본 키보드 동작(Tab/Enter/Insert 등)을 그대로 사용하도록
+      // 전역 단축키를 비활성화한다.
+      if (excelView) {
+        const inAgGrid = (target as HTMLElement).closest?.('.ag-root');
+        if (inAgGrid) return;
+      }
+
+      const inWbsTable = (target as HTMLElement).closest?.('[data-wbs-table]');
+      const inQuickAdd = (target as HTMLElement).closest?.('[data-quick-add]');
+
+      // 새 작업 입력칸(하단/인라인)에서는 Enter가 폼 submit 되도록 전역 단축키 미동작
+      if (inQuickAdd) return;
+      // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작
+      if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+
+      // 셀/작업명 편집 중 Enter: 값 커밋(blur) 후
+      // - 현재 행 바로 아래에 같은 레벨(형제) 새 작업을 추가하고 그 작업으로 계속 편집.
       // - (의존성 입력칸 등 자체 Enter 처리가 있는 input은 여기로 오기 전에 stopPropagation 되거나,
       //    아래의 target.closest 체크에서 제외되도록 설계되어 있음)
-      if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+      if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && inWbsTable) {
         e.preventDefault();
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
@@ -868,7 +926,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         // 1) 먼저 blur로 현재 입력을 커밋 (onBlur에서 updateTask 수행)
         (document.activeElement as HTMLElement | null)?.blur?.();
 
-        // 2) 다음 행으로 이동 또는 새 작업 생성
+        // 2) 새 작업으로 이동
         const moveToTaskId = (nextId: string) => {
           setLastSelectedId(nextId);
           setTableEditMode(true);
@@ -887,13 +945,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         };
 
         window.setTimeout(() => {
-          const nextTask = currentIndex >= 0 ? visibleTasks[currentIndex + 1] : undefined;
-          if (nextTask) {
-            moveToTaskId(nextTask.id);
-            return;
-          }
-
-          // 마지막 행: 아래에 새 작업(형제) 추가
+          // 현재 행 아래에 같은 레벨(형제) 새 작업 추가
           const base = tasks.find((t) => t.id === currentTaskId);
           const pid = base?.projectId || currentProjectId;
           const proj = projects.find((p) => p.id === pid);
@@ -1031,10 +1083,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         }
       }
 
-      // Ignore other keys when editing a cell or typing in an input
+      // Ignore other non-shortcut keys when editing a cell or typing in an input
       if (editingCell || inlineEditingNameId) return;
-      const inWbsTable = (target as HTMLElement).closest?.('[data-wbs-table]');
-      if (!inWbsTable) {
+      const inWbsTableFallback = (target as HTMLElement).closest?.('[data-wbs-table]');
+      if (!inWbsTableFallback) {
         // 표 밖의 일반 입력/셀렉트는 기본 동작 유지 (검색창 등)
         if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
       }
@@ -1328,85 +1380,118 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
           }
         }
       } else if (e.key === 'Enter') {
+        // Enter: 동일 레벨(형제) 작업을 현재 행 "아래"에 추가
         if (tableEditMode) return; // 편집 모드에서는 Enter는 셀 편집 시작으로만 사용
         e.preventDefault();
-        if (selectedTaskIds.size === 1) {
-          const task = tasks.find(t => t.id === lastSelectedId);
-          if (task) {
-            setInsertTargetId(task.id);
-            setInlineAddingTaskId(task.id);
-            setQuickAddName(''); // reset input
-          }
-        }
+
+        // 기본 기준 행: 선택된 행이 있으면 그 행, 없으면 마지막 표시 행
+        const baseTask =
+          (selectedTaskIds.size === 1 && lastSelectedId
+            ? tasks.find((t) => t.id === lastSelectedId)
+            : visibleTasks.length > 0
+            ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
+            : undefined) || null;
+
+        const proj = projects.find((p) => p.id === (baseTask?.projectId || currentProjectId));
+        const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+
+        const parentIdForNew =
+          baseTask?.parentId ??
+          null; // 기준 행이 없으면 루트 작업으로 추가
+
+        const insertAfterId = baseTask?.id;
+
+        const newId = addTask(
+          {
+            name: '새 작업',
+            startDate: filters.startDate || defaultDate,
+            endDate: filters.endDate || defaultDate,
+            progress: 0,
+            workEffort: 0.5,
+            assignee: filters.assignee || '',
+            status: 'todo',
+            parentId: parentIdForNew,
+          },
+          insertAfterId
+        );
+        setSelection(new Set([newId]));
+        setLastSelectedId(newId);
+        setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
         if (tableEditMode) return; // 편집 모드에서는 새 작업 추가 비활성화
         e.preventDefault();
-        if (selectedTaskIds.size === 1) {
-          const task = tasks.find(t => t.id === lastSelectedId);
-          if (task) {
-            const proj = projects.find(p => p.id === (task.projectId || currentProjectId));
-            const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
-            if (e.shiftKey) {
-              // Shift+Insert: 같은 레벨에서 현재 작업 "위에" 새 작업 추가
-              const currentIndex = visibleTasks.findIndex(t => t.id === task.id);
-              const previousSibling = currentIndex > 0 ? visibleTasks[currentIndex - 1] : undefined;
-              const insertAfterId = previousSibling?.id;
-              const newId = addTask(
-                {
-                  name: '새 작업',
-                  startDate: filters.startDate || defaultDate,
-                  endDate: filters.endDate || defaultDate,
-                  progress: 0,
-                  workEffort: 0.5,
-                  assignee: filters.assignee || '',
-                  status: 'todo',
-                  parentId: task.parentId ?? null,
-                },
-                insertAfterId
-              );
-              setSelection(new Set([newId]));
-              setLastSelectedId(newId);
-              setInlineEditingNameId(newId);
-            } else {
-              // Insert: 선택한 작업의 하위 작업 추가
-              const newId = addTask(
-                {
-                  name: '새 하위 작업',
-                  startDate: filters.startDate || defaultDate,
-                  endDate: filters.endDate || defaultDate,
-                  progress: 0,
-                  workEffort: 0.5,
-                  assignee: filters.assignee || '',
-                  status: 'todo',
-                  parentId: task.id,
-                },
-                task.id
-              );
+        // 기준 행: 선택 1개면 그 행, 없으면 마지막 표시 행
+        const baseTask =
+          (selectedTaskIds.size === 1 && lastSelectedId
+            ? tasks.find((t) => t.id === lastSelectedId)
+            : visibleTasks.length > 0
+            ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
+            : undefined) || null;
+        const proj = projects.find((p) => p.id === (baseTask?.projectId || currentProjectId));
+        const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
-              // Expand the parent so the new task is visible
-              if (!task.expanded) {
-                updateTask(task.id, { expanded: true });
-              }
+        if (e.shiftKey) {
+          // Shift+Insert: 같은 레벨에서 기준 행 "위에" 새 작업 추가
+          if (!baseTask) return;
+          const currentIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
+          const previousSibling = currentIndex > 0 ? visibleTasks[currentIndex - 1] : undefined;
+          const insertAfterId = previousSibling?.id;
+          const newId = addTask(
+            {
+              name: '새 작업',
+              startDate: filters.startDate || defaultDate,
+              endDate: filters.endDate || defaultDate,
+              progress: 0,
+              workEffort: 0.5,
+              assignee: filters.assignee || '',
+              status: 'todo',
+              parentId: baseTask.parentId ?? null,
+            },
+            insertAfterId
+          );
+          setSelection(new Set([newId]));
+          setLastSelectedId(newId);
+          setInlineEditingNameId(newId);
+        } else {
+          // Insert: 기준 행의 하위 작업 추가 (기준 행이 없으면 루트 하위로 추가)
+          const parentForChildId = baseTask?.id ?? null;
+          const newId = addTask(
+            {
+              name: baseTask ? '새 하위 작업' : '새 작업',
+              startDate: filters.startDate || defaultDate,
+              endDate: filters.endDate || defaultDate,
+              progress: 0,
+              workEffort: 0.5,
+              assignee: filters.assignee || '',
+              status: 'todo',
+              parentId: parentForChildId,
+            },
+            baseTask?.id
+          );
 
-              setSelection(new Set([newId]));
-              setLastSelectedId(newId);
-              setInlineEditingNameId(newId);
-            }
+          // Expand the parent so the new task is visible
+          if (baseTask && !baseTask.expanded) {
+            updateTask(baseTask.id, { expanded: true });
           }
+
+          setSelection(new Set([newId]));
+          setLastSelectedId(newId);
+          setInlineEditingNameId(newId);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, focusedCell, editableColumnIds, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand]);
+  }, [hotkeysEnabled, excelView, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, focusedCell, editableColumnIds, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지). 인라인 새 작업 추가 중이면 유지.
   useEffect(() => {
     if (tableEditMode || inlineAddingTaskId) return;
     const el = document.activeElement;
     if (!el || !tableScrollRef.current?.contains(el)) return;
+    if ((el as HTMLElement).closest?.('[data-quick-add]')) return;
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
       el.blur();
       tableScrollRef.current?.focus();
@@ -1563,10 +1648,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     if (nextSelectId) {
       setSelection(new Set([nextSelectId]));
       setLastSelectedId(nextSelectId);
+      rangeAnchorRef.current = nextSelectId;
       setAnchorTaskId(nextSelectId);
     } else {
       setSelection(new Set());
       setLastSelectedId(null);
+      rangeAnchorRef.current = null;
       setAnchorTaskId(null);
     }
   };
@@ -1627,8 +1714,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const executeBulkStatus = () => {
     if (!bulkStatus) return;
     const updates: Partial<Task> = { status: bulkStatus };
-    if ((wbsSettings as any)?.statusProgress?.[bulkStatus] !== undefined) {
-      updates.progress = (wbsSettings as any).statusProgress[bulkStatus];
+    // 상태-진척도 연동이 켜져 있을 때만 상태 기준으로 진척률을 자동 설정
+    if (wbsSettings.linkStatusAndProgress !== false) {
+      const cfg = (wbsSettings.statusConfigs ?? []).find(c => c.id === bulkStatus);
+      if (cfg && typeof cfg.progress === 'number' && Number.isFinite(cfg.progress)) {
+        updates.progress = cfg.progress;
+      }
     }
     updateTasksBulk(Array.from(selectedTaskIds), updates);
     setBulkStatus('');
@@ -1957,9 +2048,21 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                   title="표 내용을 마크다운(.md)으로 열어 직접 수정"
                 >
                   <Edit2 size={12} />
-                  편집
+                  MD편집
                 </button>
-                <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제) · F2로 셀 편집" : "F2: 선택 행 셀 바로 편집"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
+                <button
+                  type="button"
+                  onClick={() => setExcelView((v) => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0",
+                    excelView
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  )}
+                  title={excelView ? "엑셀 시트 보기 해제" : "엑셀 시트 형태로 보기 (셀 이동/편집은 엑셀처럼 동작)"}
+                >
+                  <span>엑셀편집</span>
+                </button>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
                   <input
@@ -1992,9 +2095,21 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                 title="표 내용을 마크다운으로 편집"
               >
                 <Edit2 size={12} />
-                편집
+                MD편집
               </button>
-              <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제) · F2로 셀 편집" : "F2: 선택 행 셀 바로 편집"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
+              <button
+                type="button"
+                onClick={() => setExcelView((v) => !v)}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0",
+                  excelView
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                )}
+                title={excelView ? "엑셀 시트 보기 해제" : "엑셀 시트 형태로 보기 (셀 이동/편집은 엑셀처럼 동작)"}
+              >
+                <span>엑셀편집</span>
+              </button>
               <div className="w-px h-5 bg-stone-200 shrink-0" />
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
@@ -2015,7 +2130,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         </div>
       <div className={cn("w-full pb-20 flex flex-col min-h-0", fillHeight && "flex-1")} style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}>
         {/* Split view: 헤더를 스크롤 밖에 두되, 가로 스크롤은 본문과 동기화 */}
-        {isSplitView && (
+        {!excelView && isSplitView && (
           <div
             ref={headerScrollRef}
             className="flex-shrink-0 border-b border-slate-200 bg-slate-50/80 overflow-x-auto overflow-y-hidden"
@@ -2058,6 +2173,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
           </div>
           </div>
         )}
+        {!excelView && (
         <div
           ref={(el) => {
             if (typeof syncScrollRef === 'function') syncScrollRef(el);
@@ -2149,6 +2265,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       isTreeView={isTreeView}
                       onSelect={handleSelect}
                       onFocusRow={setLastSelectedId}
+                      onSetRowAnchor={(id) => {
+                        rangeAnchorRef.current = id;
+                        setAnchorTaskId(id);
+                      }}
                       onEdit={setEditingTask}
                       onDeleteClick={handleDeleteClick}
                       onContextMenu={handleContextMenu}
@@ -2275,15 +2395,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                     <div key={colId} className="data-cell p-0">
                       <form onSubmit={handleQuickAdd} className="flex w-full h-full">
                         <input
+                          data-quick-add
                           type="text"
                           value={quickAddName}
                           onChange={(e) => setQuickAddName(e.target.value)}
-                          onFocus={() => {
-                            if (!tableEditMode) {
-                              (document.activeElement as HTMLElement)?.blur();
-                              tableScrollRef.current?.focus();
-                            }
-                          }}
                           placeholder="새 작업 추가 (Enter 키 입력)..."
                           className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
                         />
@@ -2309,6 +2424,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             )}
           </div>
         </div>
+        )}
+        {excelView && (
+          <div className="flex-1 min-h-[320px] border border-slate-200 rounded-xl overflow-hidden bg-white">
+            <ExcelGrid tasks={visibleTasks} displayWbsMap={displayWbsMap} onTaskChange={updateTask} />
+          </div>
+        )}
         {/* Split view: 새 작업 추가 행을 스크롤 밖 하단에 두어 표·간트 행 수를 동일하게 유지 */}
         {isSplitView && (
           <div className="data-row flex-shrink-0 bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
@@ -2324,15 +2445,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                 <div key={colId} className="data-cell p-0">
                   <form onSubmit={handleQuickAdd} className="flex w-full h-full">
                     <input
+                      data-quick-add
                       type="text"
                       value={quickAddName}
                       onChange={(e) => setQuickAddName(e.target.value)}
-                      onFocus={() => {
-                        if (!tableEditMode) {
-                          (document.activeElement as HTMLElement)?.blur();
-                          tableScrollRef.current?.focus();
-                        }
-                      }}
                       placeholder="새 작업 추가 (Enter 키 입력)..."
                       className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
                     />
@@ -2723,6 +2839,8 @@ interface SortableTaskRowProps {
   hasChildren: boolean;
   isTreeView: boolean;
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
+  /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Shift+행클릭 시 시작 행 */
+  onSetRowAnchor?: (taskId: string) => void;
   /** 행 클릭 시 포커스만 이동 (선택/체크는 체크박스 클릭으로만) */
   onFocusRow?: (taskId: string) => void;
   onEdit: (task: Task) => void;
@@ -2767,6 +2885,7 @@ function SortableTaskRowInner({
   hasChildren,
   isTreeView,
   onSelect,
+  onSetRowAnchor,
   onFocusRow,
   onEdit,
   onDeleteClick,
@@ -2878,8 +2997,19 @@ function SortableTaskRowInner({
         isFocused && !isSelected && isDone && "font-medium text-amber-800 ring-2 ring-inset ring-amber-500/60",
         isDone && !isSelected && !isFocused && "text-stone-500"
       )}
-      onClick={() => {
+      onClick={(e) => {
+        if (e.shiftKey) {
+          onSelect(task.id, false, true);
+          if (onFocusRow) onFocusRow(task.id);
+          return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+          onSelect(task.id, true, false);
+          if (onFocusRow) onFocusRow(task.id);
+          return;
+        }
         if (onFocusRow) onFocusRow(task.id);
+        onSetRowAnchor?.(task.id);
       }}
       tabIndex={0}
       onDoubleClick={() => onEdit(task)}
@@ -2906,7 +3036,19 @@ function SortableTaskRowInner({
           type="checkbox"
           className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
           checked={isSelected}
-          onChange={() => onSelect(task.id, true, false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.shiftKey) {
+              onSelect(task.id, false, true);
+            } else if (e.ctrlKey || e.metaKey) {
+              onSelect(task.id, true, false);
+            } else {
+              onSelect(task.id, true, false);
+            }
+          }}
+          onChange={() => {
+            // onClick에서 제어하므로 onChange는 비워 둔다.
+          }}
         />
       </div>
       <div className="data-cell justify-center font-mono text-[10px] text-stone-500 tabular-nums">
@@ -2950,17 +3092,15 @@ function SortableTaskRowInner({
               className={cn("data-cell relative", (tableEditMode && !isInlineEditingName && "ring-1 ring-dashed ring-slate-300 rounded"), isFocused && "ring-2 ring-blue-500 ring-inset")}
               style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
               onClick={(e) => {
-                // 편집 모드가 아닐 때: 셀 왼쪽 클릭 = 접기, 오른쪽 클릭 = 펼치기 (자식이 있는 행만)
-                if (tableEditMode || !isTreeView || !hasChildren) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mid = rect.left + rect.width / 2;
-                if (e.clientX < mid && task.expanded) {
-                  toggleExpand(task.id);
-                } else if (e.clientX >= mid && !task.expanded) {
-                  toggleExpand(task.id);
+                // 이름 셀 클릭 시에는 레벨 접기/펼치기를 트리거하지 않고, 행 포커스/선택만 유지
+                // (트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행)
+                if (tableEditMode) {
+                  e.stopPropagation();
+                  setFocusedCell({ taskId: task.id, columnId: 'name' });
+                  setInlineEditingNameId(task.id);
                 }
               }}
-              title={!tableEditMode && isTreeView && hasChildren ? (task.expanded ? '왼쪽 클릭: 접기 · 오른쪽 클릭: 유지' : '왼쪽 클릭: 유지 · 오른쪽 클릭: 펼치기') : undefined}
+              title={tableEditMode ? '클릭하여 작업명 수정' : getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
             >
               {isInlineEditingName ? (
                 <input
