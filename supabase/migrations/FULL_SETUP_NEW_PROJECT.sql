@@ -76,6 +76,16 @@ BEGIN
 EXCEPTION WHEN duplicate_object THEN
   NULL;
 END $$;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE projects;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE wbs_settings;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 3. 인증 및 공유 (owner_id, project_members, project_invites)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;

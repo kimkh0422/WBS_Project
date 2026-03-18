@@ -14,7 +14,7 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
                 { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
                 { label: '줄높이 높이기', keys: ['Ctrl', '+'] },
                 { label: '줄높이 낮추기', keys: ['Ctrl', '-'] },
-                { label: 'DB 동기화', keys: ['Ctrl', 'S'], hint: '로컬↔서버 맞춤' },
+                { label: '즉시 서버 반영', keys: ['Ctrl', 'S'], hint: '자동 저장 대기 없이 업로드' },
             ],
         },
         {

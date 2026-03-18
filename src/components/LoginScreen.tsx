@@ -33,7 +33,7 @@ export function LoginScreen() {
       if (result?.error) {
         setError(result.error);
       } else if (isSignUp) {
-        setSuccess('가입이 완료되었습니다. 로컬에서 바로 사용할 수 있으며, 관리자 승인 후 DB와 동기화할 수 있습니다.');
+        setSuccess('가입이 완료되었습니다. 로그인하면 서버(DB)와 자동으로 동기화됩니다.');
       }
     } finally {
       setLoading(false);

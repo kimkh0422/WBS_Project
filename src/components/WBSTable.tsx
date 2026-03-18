@@ -32,6 +32,8 @@ import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { levelRowBg } from '../lib/levelColors';
 import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 interface WBSTableProps {
   filters: FilterState;
@@ -156,6 +158,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   } = useWBS();
 
   const { push: pushToast } = useToast();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? '';
+  const currentUserDisplayName =
+    String((user as any)?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
 
   const projectAssignmentsByProjectId = useMemo(
     () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
@@ -221,6 +227,124 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const [tableEditMode, setTableEditMode] = useState(false);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
   const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+  // ─── Realtime: 표 셀 포커스 공유(상대 커서 느낌) ────────────────────────────
+  type OtherCellFocus = {
+    userId: string;
+    displayName: string;
+    color: string;
+    taskId: string;
+    columnId: TableColumnId;
+    ts: number;
+  };
+  const focusChannelRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null);
+  const [otherCellFocus, setOtherCellFocus] = useState<OtherCellFocus[]>([]);
+  const otherFocusByCellKey = useMemo(() => {
+    const m = new Map<string, OtherCellFocus[]>();
+    for (const f of otherCellFocus) {
+      const k = `${f.taskId}::${f.columnId}`;
+      const arr = m.get(k) ?? [];
+      arr.push(f);
+      m.set(k, arr);
+    }
+    return m;
+  }, [otherCellFocus]);
+
+  const colorForUser = useCallback((uid: string) => {
+    // deterministic palette
+    const palette = ['#2563eb', '#16a34a', '#f97316', '#db2777', '#7c3aed', '#0ea5e9', '#ca8a04', '#dc2626'];
+    let h = 0;
+    for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+    return palette[h % palette.length]!;
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (!currentProjectId || currentProjectId === 'all') return;
+    if (!currentUserId) return;
+
+    const channel = supabase.channel(`wbs-focus-${currentProjectId}`, {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+    focusChannelRef.current = channel;
+
+    const prune = (list: OtherCellFocus[]) => {
+      const now = Date.now();
+      return list.filter(x => now - x.ts < 15000); // 15s stale prune
+    };
+
+    channel.on('broadcast', { event: 'cell_focus' }, (payload: any) => {
+      const raw = payload?.payload ?? payload;
+      queueMicrotask(() => {
+        const p = raw;
+        const uid = String(p?.userId ?? '').trim();
+        if (!uid || uid === currentUserId) return;
+        const taskId = String(p?.taskId ?? '').trim();
+        const columnId = String(p?.columnId ?? '').trim() as TableColumnId;
+        if (!taskId || !columnId) return;
+        const displayName = String(p?.displayName ?? '').trim() || '(이름 없음)';
+        const color = String(p?.color ?? '').trim() || colorForUser(uid);
+        setOtherCellFocus(prev => {
+          const next = prune(prev);
+          const without = next.filter(x => x.userId !== uid);
+          return [...without, { userId: uid, displayName, color, taskId, columnId, ts: Date.now() }];
+        });
+      });
+    });
+
+    channel.on('broadcast', { event: 'cell_blur' }, (payload: any) => {
+      const raw = payload?.payload ?? payload;
+      queueMicrotask(() => {
+        const p = raw;
+        const uid = String(p?.userId ?? '').trim();
+        if (!uid || uid === currentUserId) return;
+        setOtherCellFocus(prev => prev.filter(x => x.userId !== uid));
+      });
+    });
+
+    channel.subscribe();
+
+    return () => {
+      try {
+        channel.unsubscribe();
+      } catch {
+        /* ignore */
+      }
+      focusChannelRef.current = null;
+      setOtherCellFocus([]);
+    };
+  }, [currentProjectId, currentUserId, colorForUser]);
+
+  // 내 포커스 전송 (focusedCell 우선, editingCell도 포함)
+  useEffect(() => {
+    const channel = focusChannelRef.current;
+    if (!channel) return;
+    if (!tableEditMode) return;
+    if (!currentUserId) return;
+    const cell = editingCell ?? focusedCell;
+    const send = (event: 'cell_focus' | 'cell_blur', payload: any) => {
+      try {
+        channel.send({ type: 'broadcast', event, payload });
+      } catch {
+        /* ignore */
+      }
+    };
+    if (!cell) {
+      send('cell_blur', { userId: currentUserId });
+      return;
+    }
+    const t = window.setTimeout(() => {
+      send('cell_focus', {
+        userId: currentUserId,
+        displayName: currentUserDisplayName,
+        color: colorForUser(currentUserId),
+        taskId: cell.taskId,
+        columnId: cell.columnId,
+      });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [tableEditMode, editingCell, focusedCell, currentUserId, currentUserDisplayName, colorForUser]);
   /** 편집 버튼 클릭 시 열리는 표-as-MD 편집 모달 */
   const [isMdEditModalOpen, setIsMdEditModalOpen] = useState(false);
   const [mdEditInitialMarkdown, setMdEditInitialMarkdown] = useState('');
@@ -731,31 +855,103 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       if (editingTask || deleteConfirm.isOpen) return;
       if (target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-      // 셀/작업명 편집 중 위·아래 화살표: 같은 컬럼의 이전·다음 행으로 이동 후 계속 편집
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+      // 셀/작업명 편집 중 Enter: 값 커밋(blur) 후 아래 행으로 계속 편집.
+      // - 마지막 행이면 같은 레벨(형제)로 새 작업을 추가하고 계속 편집.
+      // - (의존성 입력칸 등 자체 Enter 처리가 있는 input은 여기로 오기 전에 stopPropagation 되거나,
+      //    아래의 target.closest 체크에서 제외되도록 설계되어 있음)
+      if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+        e.preventDefault();
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
-        const nextIndex = e.key === 'ArrowDown' ? currentIndex + 1 : currentIndex - 1;
-        if (nextIndex >= 0 && nextIndex < visibleTasks.length) {
-          e.preventDefault();
-          (document.activeElement as HTMLElement)?.blur?.();
-          const nextTask = visibleTasks[nextIndex];
-          setTimeout(() => {
-            setLastSelectedId(nextTask.id);
-            setSelection(new Set([nextTask.id]));
-            if (columnId === 'name') {
-              setInlineEditingNameId(nextTask.id);
-              setEditingCell(null);
-            } else {
-              setEditingCell({ taskId: nextTask.id, columnId });
-              setInlineEditingNameId(null);
-            }
-            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-            requestAnimationFrame(() => {
-              document.getElementById(`wbs-edit-${nextTask.id}-${columnId}`)?.focus();
-            });
-          }, 0);
+
+        // 1) 먼저 blur로 현재 입력을 커밋 (onBlur에서 updateTask 수행)
+        (document.activeElement as HTMLElement | null)?.blur?.();
+
+        // 2) 다음 행으로 이동 또는 새 작업 생성
+        const moveToTaskId = (nextId: string) => {
+          setLastSelectedId(nextId);
+          setTableEditMode(true);
+          setFocusedCell({ taskId: nextId, columnId });
+          if (columnId === 'name') {
+            setInlineEditingNameId(nextId);
+            setEditingCell(null);
+          } else {
+            setEditingCell({ taskId: nextId, columnId });
+            setInlineEditingNameId(null);
+          }
+          document.getElementById(`task-row-${nextId}`)?.scrollIntoView({ block: 'nearest' });
+          requestAnimationFrame(() => {
+            document.getElementById(`wbs-edit-${nextId}-${columnId}`)?.focus();
+          });
+        };
+
+        window.setTimeout(() => {
+          const nextTask = currentIndex >= 0 ? visibleTasks[currentIndex + 1] : undefined;
+          if (nextTask) {
+            moveToTaskId(nextTask.id);
+            return;
+          }
+
+          // 마지막 행: 아래에 새 작업(형제) 추가
+          const base = tasks.find((t) => t.id === currentTaskId);
+          const pid = base?.projectId || currentProjectId;
+          const proj = projects.find((p) => p.id === pid);
+          const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+          const newId = addTask(
+            {
+              name: '새 작업',
+              startDate: filters.startDate || defaultDate,
+              endDate: filters.endDate || defaultDate,
+              progress: 0,
+              workEffort: 0.5,
+              assignee: filters.assignee || '',
+              status: 'todo',
+              parentId: base?.parentId ?? null,
+              expanded: true,
+            },
+            currentTaskId
+          );
+          setSelection(new Set([newId]));
+          moveToTaskId(newId);
+        }, 0);
+        return;
+      }
+
+      // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+        const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
+        const columnId: TableColumnId = editingCell?.columnId ?? 'name';
+        const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
+        const colIdx = editableColumnIds.indexOf(columnId);
+        if (currentIndex >= 0 && colIdx >= 0) {
+          let nextRowIdx = currentIndex;
+          let nextColIdx = colIdx;
+          if (e.key === 'ArrowDown') nextRowIdx = Math.min(visibleTasks.length - 1, currentIndex + 1);
+          else if (e.key === 'ArrowUp') nextRowIdx = Math.max(0, currentIndex - 1);
+          else if (e.key === 'ArrowLeft') nextColIdx = Math.max(0, colIdx - 1);
+          else if (e.key === 'ArrowRight') nextColIdx = Math.min(editableColumnIds.length - 1, colIdx + 1);
+
+          const nextTask = visibleTasks[nextRowIdx];
+          const nextCol = editableColumnIds[nextColIdx];
+          if (nextTask && nextCol) {
+            e.preventDefault();
+            (document.activeElement as HTMLElement)?.blur?.();
+            setTimeout(() => {
+              setLastSelectedId(nextTask.id);
+              if (nextCol === 'name') {
+                setInlineEditingNameId(nextTask.id);
+                setEditingCell(null);
+              } else {
+                setEditingCell({ taskId: nextTask.id, columnId: nextCol });
+                setInlineEditingNameId(null);
+              }
+              document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+              requestAnimationFrame(() => {
+                document.getElementById(`wbs-edit-${nextTask.id}-${nextCol}`)?.focus();
+              });
+            }, 0);
+          }
         }
         return;
       }
@@ -778,7 +974,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
               e.preventDefault();
               setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
               setLastSelectedId(nextTask.id);
-              setSelection(new Set([nextTask.id]));
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
             }
           }
@@ -987,6 +1182,41 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         return;
       }
 
+      // F2: 선택 셀(편집 모드 포커스) 또는 현재 행·작업명을 즉시 인라인 편집 (엑셀과 동일)
+      if (e.key === 'F2') {
+        e.preventDefault();
+        const taskId =
+          tableEditMode && focusedCell
+            ? focusedCell.taskId
+            : lastSelectedId || visibleTasks[0]?.id;
+        if (!taskId || editableColumnIds.length === 0) return;
+        const columnId =
+          tableEditMode &&
+          focusedCell &&
+          focusedCell.taskId === taskId &&
+          editableColumnIds.includes(focusedCell.columnId)
+            ? focusedCell.columnId
+            : editableColumnIds.includes('name')
+              ? 'name'
+              : editableColumnIds[0]!;
+        setTableEditMode(true);
+        setFocusedCell({ taskId, columnId });
+        setLastSelectedId(taskId);
+        // 체크박스 선택은 유지 (편집만으로 행이 자동 체크되지 않음)
+        if (columnId === 'name') {
+          setInlineEditingNameId(taskId);
+          setEditingCell(null);
+        } else {
+          setEditingCell({ taskId, columnId });
+          setInlineEditingNameId(null);
+        }
+        document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
+        requestAnimationFrame(() => {
+          document.getElementById(`wbs-edit-${taskId}-${columnId}`)?.focus();
+        });
+        return;
+      }
+
       // If nothing is selected yet, allow arrow keys to move focus (체크는 변경하지 않음)
       if (!lastSelectedId) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -1156,18 +1386,6 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
               setInlineEditingNameId(newId);
             }
           }
-        }
-      } else if (e.key === 'F2') {
-        e.preventDefault();
-        // F2: 편집 모드 켜기만 (끄기는 Esc로만)
-        if (!tableEditMode) {
-          setTableEditMode(true);
-          setTimeout(() => {
-            const firstId = lastSelectedId || visibleTasks[0]?.id;
-            const firstCol = editableColumnIds[0];
-            if (firstId && firstCol) setFocusedCell({ taskId: firstId, columnId: firstCol });
-            tableScrollRef.current?.focus();
-          }, 0);
         }
       }
     };
@@ -1438,7 +1656,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
-  // 평균 진척은 단말(리프) 작업만 기준으로 단순 평균하여 상·하위 이중 집계 방지
+  // 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균을 우선 사용. (weight 없으면 공수로 대체)
+  // 1레벨이 없으면 폴백으로 단말(리프) 단순 평균(상·하위 이중 집계 방지).
   const summaryStats = useMemo(() => {
     const source = baseTasks;
     if (source.length === 0) return null;
@@ -1447,10 +1666,39 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     const forAggregate = leafTasks.length > 0 ? leafTasks : source;
 
     const totalEffort = forAggregate.reduce((sum, t) => sum + (t.workEffort || 0), 0);
-    const avgProgress =
-      forAggregate.length > 0
+    const taskById = new Map(source.map(t => [t.id, t] as const));
+    const depthMemo = new Map<string, number>();
+    const getDepth = (id: string): number => {
+      const cached = depthMemo.get(id);
+      if (cached !== undefined) return cached;
+      const t = taskById.get(id);
+      if (!t || !t.parentId || !taskById.has(t.parentId)) { depthMemo.set(id, 0); return 0; }
+      const d = getDepth(t.parentId) + 1;
+      depthMemo.set(id, d);
+      return d;
+    };
+    const level1 = source.filter(t => getDepth(t.id) === 1);
+    const computeWeighted = (items: Task[]) => {
+      let totalWeight = 0;
+      let acc = 0;
+      for (const t of items) {
+        const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
+        const w =
+          typeof (t as any).weight === 'number' && Number.isFinite((t as any).weight)
+            ? (t as any).weight
+            : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
+        totalWeight += w;
+        acc += p * w;
+      }
+      if (totalWeight > 0) return Math.round(acc / totalWeight);
+      if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+      return 0;
+    };
+    const avgProgress = level1.length > 0
+      ? computeWeighted(level1)
+      : (forAggregate.length > 0
         ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
-        : 0;
+        : 0);
     const startDate = source.reduce((min, t) => t.startDate < min ? t.startDate : min, source[0].startDate);
     const endDate = source.reduce((max, t) => t.endDate > max ? t.endDate : max, source[0].endDate);
 
@@ -1472,6 +1720,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-l-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
       title="컬럼 너비 조절 (드래그)"
       onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, col); }}
+      onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+      onContextMenu={(e) => { e.stopPropagation(); }}
     />
   );
 
@@ -1656,9 +1907,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             <>
               <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
               <Divider />
-              <StatChip icon={<Clock size={12} />} label="총 공수" value={`${summaryStats.totalEffort.toLocaleString()}일`} />
+              <StatChip icon={<Clock size={12} />} label="총 공수" value={`${Number(summaryStats.totalEffort ?? 0).toLocaleString()}일`} />
               <Divider />
-              <StatChip icon={<TrendingUp size={12} />} label="평균 진척율" value={`${summaryStats.avgProgress}%`} />
+              <StatChip icon={<TrendingUp size={12} />} label="전체 진척율" value={`${summaryStats.avgProgress}%`} />
               <Divider />
               <StatChip icon={<CalendarDays size={12} />} label="기간" value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`} />
 
@@ -1700,7 +1951,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                   <Edit2 size={12} />
                   편집
                 </button>
-                <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제)" : "F2: 셀 즉석 편집 모드"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
+                <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제) · F2로 셀 편집" : "F2: 선택 행 셀 바로 편집"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
                   <input
@@ -1735,7 +1986,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                 <Edit2 size={12} />
                 편집
               </button>
-              <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제)" : "F2: 셀 즉석 편집 모드"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
+              <span className={cn("text-[10px] shrink-0", tableEditMode ? "font-bold text-indigo-600" : "text-stone-400")} title={tableEditMode ? "편집 모드 (Esc로 해제) · F2로 셀 편집" : "F2: 선택 행 셀 바로 편집"}>{tableEditMode ? '편집 중 (Esc 해제)' : 'F2'}</span>
               <div className="w-px h-5 bg-stone-200 shrink-0" />
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
@@ -1910,6 +2161,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       projectAssignmentsByProjectId={projectAssignmentsByProjectId}
                       criticalPathSet={effectiveCriticalPathSet}
                       allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
+                      otherFocusByCellKey={otherFocusByCellKey}
                     />
                     {inlineAddingTaskId === task.id && (
                       <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -2489,6 +2741,8 @@ interface SortableTaskRowProps {
   criticalPathSet?: Set<string>;
   /** 담당자별로 한 번만 표기한 투입율 텍스트 (행 순서 기준) */
   allocationDisplayText?: string;
+  /** taskId::columnId -> 다른 사용자의 포커스(셀 커서) 목록 */
+  otherFocusByCellKey: Map<string, Array<{ userId: string; displayName: string; color: string; taskId: string; columnId: TableColumnId; ts: number }>>;
 }
 
 function SortableTaskRowInner({
@@ -2525,7 +2779,8 @@ function SortableTaskRowInner({
   statusConfigs,
   projectAssignmentsByProjectId,
   criticalPathSet,
-  allocationDisplayText
+  allocationDisplayText,
+  otherFocusByCellKey
 }: SortableTaskRowProps) {
   const {
     attributes,
@@ -2668,6 +2923,10 @@ function SortableTaskRowInner({
         )}
       </div>
       {visibleColumnIds.map((colId) => {
+        const otherFocusKey = `${task.id}::${colId}`;
+        const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
+        const otherPrimary = othersHere[0];
+        const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
         if (colId === 'wbsId') {
           return (
             <div key={colId} className="data-cell font-mono text-[10px] text-stone-400">
@@ -2680,8 +2939,8 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn("data-cell", (tableEditMode && !isInlineEditingName && "ring-1 ring-dashed ring-slate-300 rounded"), isFocused && "ring-2 ring-blue-500 ring-inset")}
-              style={{ paddingLeft: `${depth * 20 + 12}px` }}
+              className={cn("data-cell relative", (tableEditMode && !isInlineEditingName && "ring-1 ring-dashed ring-slate-300 rounded"), isFocused && "ring-2 ring-blue-500 ring-inset")}
+              style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
               onClick={(e) => {
                 // 편집 모드가 아닐 때: 셀 왼쪽 클릭 = 접기, 오른쪽 클릭 = 펼치기 (자식이 있는 행만)
                 if (tableEditMode || !isTreeView || !hasChildren) return;
@@ -2713,7 +2972,6 @@ function SortableTaskRowInner({
                     } else if (e.key === 'Escape') {
                       setInlineEditingNameId(null);
                     }
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -2731,6 +2989,16 @@ function SortableTaskRowInner({
                   {displayWbsId ? `${displayWbsId} ` : ''}{task.name}
                 </span>
               )}
+              {otherPrimary && (
+                <div
+                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none"
+                  style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                  title={othersHere.map(o => o.displayName).join(', ')}
+                >
+                  {otherPrimary.displayName}
+                  {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
+                </div>
+              )}
             </div>
           );
         }
@@ -2741,7 +3009,12 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           const isFocused = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
           return (
-            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocused && "ring-2 ring-blue-500 ring-inset")} onClick={(e) => e.stopPropagation()}>
+            <div
+              key={colId}
+              className={cn("data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocused && "ring-2 ring-blue-500 ring-inset")}
+              style={otherRingStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
               <LockBadge field="startDate" />
               {isEditing ? (
                 <input
@@ -2760,7 +3033,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -2779,6 +3051,11 @@ function SortableTaskRowInner({
                   {formatDate(task.startDate)}
                 </button>
               )}
+              {otherPrimary && (
+                <div className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none" style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}>
+                  {otherPrimary.displayName}
+                </div>
+              )}
             </div>
           );
         }
@@ -2786,7 +3063,12 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
           const isFocusedEnd = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
           return (
-            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedEnd && "ring-2 ring-blue-500 ring-inset")} onClick={(e) => e.stopPropagation()}>
+            <div
+              key={colId}
+              className={cn("data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedEnd && "ring-2 ring-blue-500 ring-inset")}
+              style={otherRingStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
               <LockBadge field="endDate" />
               {isEditing ? (
                 <input
@@ -2805,7 +3087,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -2824,6 +3105,11 @@ function SortableTaskRowInner({
                   {formatDate(task.endDate)}
                 </button>
               )}
+              {otherPrimary && (
+                <div className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none" style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}>
+                  {otherPrimary.displayName}
+                </div>
+              )}
             </div>
           );
         }
@@ -2831,7 +3117,12 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
           const isFocusedWE = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
           return (
-            <div key={colId} className={cn("data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedWE && "ring-2 ring-blue-500 ring-inset")} onClick={(e) => e.stopPropagation()}>
+            <div
+              key={colId}
+              className={cn("data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedWE && "ring-2 ring-blue-500 ring-inset")}
+              style={otherRingStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
               <LockBadge field="workEffort" />
               {isEditing ? (
                 <input
@@ -2853,7 +3144,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -2871,6 +3161,11 @@ function SortableTaskRowInner({
                 >
                   {task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-'}
                 </button>
+              )}
+              {otherPrimary && (
+                <div className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none" style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}>
+                  {otherPrimary.displayName}
+                </div>
               )}
             </div>
           );
@@ -2908,7 +3203,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -2975,7 +3269,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
@@ -3107,7 +3400,6 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (

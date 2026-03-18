@@ -44,6 +44,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
 
+const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
+
 function formatCommitDate(value: string) {
   try {
     const d = new Date(value);
@@ -78,12 +80,14 @@ function formatCommitDateDateOnly(value: string) {
 
 interface WBSAppProps {
   isAdmin: boolean;
+  /** undefined: 편집 가능 목록 로딩 전(기존처럼 제한 없음). 배열: 해당 ID만 편집 가능 */
+  myEditableProjectIds: string[] | undefined;
+  /** 관리자 승인(approved) 회원은 멤버가 아니어도 프로젝트 내용 조회 가능 */
   userApproved: boolean;
-  myEditableProjectIds: string[];
   onMembersUpdated?: () => void;
 }
 
-function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated }: WBSAppProps) {
+function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
   const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('table');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -99,6 +103,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
   const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
+  const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<any>(null);
   const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
@@ -156,6 +161,8 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     );
   }, []);
 
+  const { push: pushToast, tipOnce } = useToast();
+
   const {
     addTask,
     addTasks,
@@ -188,9 +195,32 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     isLoading,
     canEditCurrentProject,
     hasLocalChangesSinceSync,
+    pushChangesToDb,
+    collabPushNonce,
   } = useWBS();
 
-  const { push: pushToast, tipOnce } = useToast();
+  const pushChangesToDbRef = useRef(pushChangesToDb);
+  pushChangesToDbRef.current = pushChangesToDb;
+
+  /** 로그인 사용자: 편집 후 자동으로 서버에 반영(Realtime로 다른 편집자에게 전달) */
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    if (!hasLocalChangesSinceSync) return;
+    const id = window.setTimeout(() => {
+      void (async () => {
+        setIsDbPushInProgress(true);
+        try {
+          await pushChangesToDbRef.current('all');
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
+          pushToast(msg, { variant: 'error', durationMs: 6000 });
+        } finally {
+          setIsDbPushInProgress(false);
+        }
+      })();
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
   const prevAIBusyRef = useRef(false);
   const initialDbSyncDoneRef = useRef(false);
 
@@ -241,14 +271,14 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     getProjectOwnerDisplayNames(missingOwnerIds).then(setOwnerDisplayNames);
   }, [user?.id, projects, profiles]);
 
-  // 승인 사용자: 내가 멤버인 프로젝트 ID (권한 요청 배너 표시 여부 판단용)
+  // 내가 멤버인 프로젝트 ID (권한 요청 배너 표시 여부 판단용)
   useEffect(() => {
-    if (!user?.id || !userApproved) {
+    if (!user?.id) {
       setMyMemberProjectIds([]);
       return;
     }
     getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => setMyMemberProjectIds([]));
-  }, [user?.id, userApproved]);
+  }, [user?.id]);
 
   const profileMap = React.useMemo(() => {
     const m: Record<string, string> = {};
@@ -291,6 +321,12 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
       if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
     });
     return m;
+  }, [projects, allTasks]);
+
+  /** 목록에 없는 projectId 또는 projectId 없음 (드롭다운 합계 ≠ 전체일 때 표시) */
+  const orphanAndUnassignedTaskCount = React.useMemo(() => {
+    const ids = new Set(projects.map((p) => p.id));
+    return allTasks.filter((t) => !t.projectId || !ids.has(t.projectId)).length;
   }, [projects, allTasks]);
 
   // 프로젝트 목록: id 기준으로만 표시 (이름+소유자로 묶지 않음 → 사용자별 복사본이 원본과 합쳐지지 않음)
@@ -740,7 +776,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     mergeInputRef.current?.click();
   };
 
-  const executeDbSync = useCallback(async (scope: 'current' | 'all') => {
+  const executeDbSync = useCallback(async (scope: 'current' | 'all'): Promise<boolean> => {
     setIsDbSyncing(true);
     setDbSyncStep({ pct: 0, msg: '시작…' });
     pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
@@ -777,42 +813,71 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
         lines.join('\n'),
         { variant: 'success', id: 'db-sync', durationMs: 8000, progress: 100 }
       );
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
       pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
+      return false;
     } finally {
       setIsDbSyncing(false);
       setDbSyncStep(null);
     }
   }, [syncWithDb, pushToast]);
 
-  // 최초 페이지 접속 시 DB 자동 동기화 (승인 사용자 + Supabase 설정 완료인 경우)
+  // 최초 페이지 접속 시 DB 자동 동기화 (로그인 + Supabase 설정 완료)
   useEffect(() => {
     if (initialDbSyncDoneRef.current) return;
-    if (!userApproved) return;
+    if (window.localStorage.getItem(WBS_INITIAL_DB_SYNC_ONCE_KEY) === '1') {
+      initialDbSyncDoneRef.current = true;
+      return;
+    }
     if (!isSupabaseConfigured) return;
     if (isLoading) return;
     initialDbSyncDoneRef.current = true;
-    void executeDbSync('all');
-  }, [userApproved, isLoading, executeDbSync]);
+    void (async () => {
+      const ok = await executeDbSync('all');
+      if (ok) window.localStorage.setItem(WBS_INITIAL_DB_SYNC_ONCE_KEY, '1');
+      else initialDbSyncDoneRef.current = false;
+    })();
+  }, [isLoading, executeDbSync, isSupabaseConfigured]);
 
-  // Ctrl+S: DB 동기화 (로컬 저장은 자동, 단축키는 동기화용)
+  // Ctrl+S: 즉시 서버 반영(자동 저장과 동일 경로, 토스트 없음)
+  // 캡처 단계: 표 셀 input이 keydown에서 stopPropagation 하므로 버블 리스너로는 도달하지 않음
   useEffect(() => {
     const handleSaveHotkey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.shiftKey || e.altKey) return;
       if (e.key.toLowerCase() !== 's') return;
-
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement | null)?.isContentEditable) return;
-      if (isDbSyncing) return;
+      if (!isSupabaseConfigured) return;
 
       e.preventDefault();
-      void executeDbSync('all');
+      e.stopPropagation();
+
+      const run = async () => {
+        const el = document.activeElement as HTMLElement | null;
+        const inTable =
+          el &&
+          /^INPUT|TEXTAREA|SELECT$/i.test(el.tagName) &&
+          el.closest?.('[data-wbs-table]');
+        if (inTable) {
+          el.blur();
+          await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        }
+        setIsDbPushInProgress(true);
+        try {
+          await pushChangesToDbRef.current('all');
+        } finally {
+          setIsDbPushInProgress(false);
+        }
+      };
+      void run().catch((err: unknown) => {
+        setIsDbPushInProgress(false);
+        pushToast(err instanceof Error ? err.message : '서버 반영 실패', { variant: 'error' });
+      });
     };
-    window.addEventListener('keydown', handleSaveHotkey);
-    return () => window.removeEventListener('keydown', handleSaveHotkey);
-  }, [currentProjectId, isDbSyncing, executeDbSync]);
+    window.addEventListener('keydown', handleSaveHotkey, true);
+    return () => window.removeEventListener('keydown', handleSaveHotkey, true);
+  }, [isSupabaseConfigured, pushToast]);
 
   const importFromExcelFiles = async (files: File[]) => {
     const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
@@ -1017,16 +1082,15 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
     : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false, completedThisWeekOnly: false };
 
   const requestRefresh = useCallback(async () => {
-    if (hasLocalChangesSinceSync) {
+    if (hasLocalChangesSinceSync && isSupabaseConfigured) {
       try {
-        await executeDbSync('all');
-      } finally {
-        window.location.reload();
+        await pushChangesToDbRef.current('all');
+      } catch {
+        /* reload anyway */
       }
-    } else {
-      window.location.reload();
     }
-  }, [hasLocalChangesSinceSync, executeDbSync]);
+    window.location.reload();
+  }, [hasLocalChangesSinceSync, isSupabaseConfigured]);
 
   if (isLoading) {
     return (
@@ -1037,7 +1101,11 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           </div>
           <div className="text-center">
             <p className="text-base font-semibold text-slate-700">데이터를 불러오는 중...</p>
-            <p className="text-xs text-slate-400 mt-1">잠시만 기다려주세요</p>
+            <p className="text-xs text-slate-400 mt-1">
+              {isSupabaseConfigured
+                ? '서버(DB)에서 프로젝트·작업을 불러오는 중입니다.'
+                : '잠시만 기다려주세요'}
+            </p>
           </div>
         </div>
       </div>
@@ -1070,6 +1138,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           allTasks={allTasks}
           projectsSortedByName={projectsSortedByName}
           taskCountByProject={taskCountByProject}
+          orphanAndUnassignedTaskCount={orphanAndUnassignedTaskCount}
           isAdmin={isAdmin}
           myEditableProjectIds={myEditableProjectIds}
           setIsShareOpen={setIsShareOpen}
@@ -1091,10 +1160,6 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           filterOn={filterOn}
           setFilterOn={setFilterOn}
           tipOnce={tipOnce}
-          isDbSyncing={isDbSyncing}
-          executeDbSync={executeDbSync}
-          hasLocalChangesSinceSync={hasLocalChangesSinceSync}
-          dbSyncStep={dbSyncStep}
           currentUserDisplay={currentUserDisplay}
           signOut={signOut}
           isMoreMenuOpen={isMoreMenuOpen}
@@ -1112,13 +1177,21 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
           canEditCurrentProject={canEditCurrentProject}
           setIsModalOpen={setIsModalOpen}
+          dbLinkState={{
+            linked: isSupabaseConfigured,
+            initialSync: isDbSyncing,
+            initialSyncPct: dbSyncStep?.pct,
+            pushing: isDbPushInProgress && !isDbSyncing,
+            pendingSave:
+              hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
+          }}
         />
       )}
 
       {!isFullscreen && !isLocalSaveBannerDismissed && (
         <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
           <span>
-            기본 저장은 <strong>로컬</strong>입니다. 서버와 맞추려면 <strong>DB 동기화</strong>를 눌러 로컬↔DB를 맞춥니다.
+            로그인 시 데이터는 <strong>서버(DB)</strong>를 기준으로 하며, 변경 후 잠시 뒤 <strong>자동 반영</strong>됩니다. 이 기기에도 백업으로 로컬에 저장됩니다. 같은 프로젝트를 연 사람은 실시간으로 갱신됩니다.
           </span>
           <button
             onClick={() => {
@@ -1508,13 +1581,13 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
       )}
       <main className={cn("min-h-0 overflow-hidden flex flex-row relative", view === 'list' ? "flex-shrink-0" : "flex-1", isFullscreen && "fixed inset-0 z-50 bg-white")}>
         <div className="flex-1 min-w-0 relative bg-white">
-          {userApproved &&
-            !effectiveIsAdmin &&
+          {!effectiveIsAdmin &&
             currentProjectId &&
             currentProjectId !== 'all' &&
             currentProject &&
             currentProject.ownerId !== user?.id &&
             !myMemberProjectIds.includes(currentProjectId) &&
+            !userApproved &&
             (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
             <ProjectAccessRequestBanner
               projectId={currentProjectId}
@@ -1773,7 +1846,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
           window.location.reload();
         }}
         title="로컬 초기화"
-        message="로컬에 저장된 모든 데이터·설정을 지우고, 작업 없는 빈 '새 프로젝트'만 표시합니다. (알파 등 데모/서버 프로젝트는 이때 보이지 않습니다.) 이후 'DB 동기화'를 누르면 서버 데이터가 다시 내려옵니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
+        message="로컬에 저장된 모든 데이터·설정을 지우고, 작업 없는 빈 '새 프로젝트'만 표시합니다. (알파 등 데모/서버 프로젝트는 이때 보이지 않습니다.) 이후 페이지를 새로고침하면 서버 데이터가 다시 내려옵니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
         confirmLabel="초기화"
         isDanger={true}
       />
@@ -1829,7 +1902,7 @@ function WBSApp({ isAdmin, userApproved, myEditableProjectIds, onMembersUpdated 
         projects={projectsSortedByName.map(p => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
         profileMap={profileMap}
         onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
-        onApproved={() => { pushToast('회원을 승인했습니다. 해당 회원은 다음 로그인부터 DB와 동기화됩니다.', { variant: 'success' }); onMembersUpdated?.(); }}
+        onApproved={() => { pushToast('회원을 승인했습니다. (전체 프로젝트 목록 조회 등 권한에 반영됩니다.)', { variant: 'success' }); onMembersUpdated?.(); }}
       />
       <AdminPasswordModal
         isOpen={isAdminPasswordModalOpen}
@@ -1902,24 +1975,31 @@ function AppWithProviders() {
   const { push: pushToast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userApproved, setUserApproved] = useState(false);
-  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[]>([]);
+  /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
+  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setIsAdmin(false);
+      setUserApproved(false);
+      return;
+    }
     getProfileStatus().then(status => {
       if (status) {
         setIsAdmin(status.isAdmin);
         setUserApproved(status.approved);
       }
-    }).catch(() => { setUserApproved(false); });
+    }).catch(() => {});
   }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) {
-      setMyEditableProjectIds([]);
+      setMyEditableProjectIds(undefined);
       return;
     }
-    getMyEditableProjectIds().then(setMyEditableProjectIds).catch(() => setMyEditableProjectIds([]));
+    getMyEditableProjectIds()
+      .then(setMyEditableProjectIds)
+      .catch(() => setMyEditableProjectIds(undefined));
   }, [user?.id]);
 
   // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 (대시보드 여부와 무관)
@@ -1959,16 +2039,22 @@ function AppWithProviders() {
 
   return (
     <WBSProvider
-      useLocalOnly={!userApproved}
+      useLocalOnly={false}
       onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 화면이 자동으로 최신 데이터로 갱신됩니다.', { variant: 'warning', durationMs: 6000 })}
-      onDbError={(msg) => pushToast(msg, { variant: 'error' })}
+      onDbError={(msg) =>
+        pushToast(msg, {
+          variant: 'error',
+          // React StrictMode(DEV)에서 effect가 2번 실행되거나, 동일한 DB 오류가 연속 발생할 때 토스트 중복을 방지
+          id: `db-error:${msg}`,
+        })
+      }
       editableProjectIds={myEditableProjectIds}
     >
       <WBSApp
         isAdmin={isAdmin}
-        userApproved={userApproved}
         myEditableProjectIds={myEditableProjectIds}
-        onMembersUpdated={() => getProfileStatus().then(s => s && setUserApproved(s.approved))}
+        userApproved={userApproved}
+        onMembersUpdated={() => {}}
       />
     </WBSProvider>
   );

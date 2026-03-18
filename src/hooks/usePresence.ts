@@ -24,6 +24,9 @@ export function usePresence(
 ): { others: PresenceUser[] } {
   const [others, setOthers] = useState<PresenceUser[]>([]);
   const channelRef = useRef<{ untrack: () => Promise<void>; unsubscribe: () => void } | null>(null);
+  const displayNameRef = useRef(currentUserDisplayName);
+  const presenceSubscribedRef = useRef(false);
+  displayNameRef.current = currentUserDisplayName;
 
   useEffect(() => {
     // Presence는 필수 기능이 아니므로, 연결 실패 시 콘솔이 도배되지 않도록 "자동 비활성화" 한다.
@@ -43,25 +46,29 @@ export function usePresence(
     });
 
     channelRef.current = channel;
+    presenceSubscribedRef.current = false;
 
     const updateOthers = () => {
-      const state = channel.presenceState();
-      const seen = new Set<string>();
-      const list: PresenceUser[] = [];
-      for (const key of Object.keys(state)) {
-        const presences = state[key] as Array<{ user_id?: string; display_name?: string }>;
-        for (const p of presences ?? []) {
-          const uid = p?.user_id ?? key;
-          if (uid === currentUserId) continue;
-          if (seen.has(uid)) continue;
-          seen.add(uid);
-          list.push({
-            userId: uid,
-            displayName: (p?.display_name && String(p.display_name).trim()) || '(이름 없음)',
-          });
+      queueMicrotask(() => {
+        const state = channel.presenceState();
+        const seen = new Set<string>();
+        const list: PresenceUser[] = [];
+        const selfId = currentUserId;
+        for (const key of Object.keys(state)) {
+          const presences = state[key] as Array<{ user_id?: string; display_name?: string }>;
+          for (const p of presences ?? []) {
+            const uid = p?.user_id ?? key;
+            if (uid === selfId) continue;
+            if (seen.has(uid)) continue;
+            seen.add(uid);
+            list.push({
+              userId: uid,
+              displayName: (p?.display_name && String(p.display_name).trim()) || '(이름 없음)',
+            });
+          }
         }
-      }
-      setOthers(list);
+        setOthers(list);
+      });
     };
 
     channel
@@ -70,9 +77,10 @@ export function usePresence(
       .on('presence', { event: 'leave' }, updateOthers)
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
+          presenceSubscribedRef.current = true;
           await channel.track({
             user_id: currentUserId ?? '',
-            display_name: currentUserDisplayName || '(이름 없음)',
+            display_name: displayNameRef.current || '(이름 없음)',
           });
           updateOthers();
           return;
@@ -80,6 +88,7 @@ export function usePresence(
         // 연결 실패/타임아웃/닫힘 상태에서는 채널을 제거해 재시도를 멈춘다.
         // (브라우저 콘솔에 WebSocket 에러가 반복적으로 찍히는 것을 방지)
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          presenceSubscribedRef.current = false;
           try {
             channel.unsubscribe();
           } catch {
@@ -91,11 +100,22 @@ export function usePresence(
       });
 
     return () => {
+      presenceSubscribedRef.current = false;
       channel.untrack().then(() => channel.unsubscribe());
       channelRef.current = null;
       setOthers([]);
     };
-  }, [projectId, currentUserId, currentUserDisplayName]);
+  }, [projectId, currentUserId]);
+
+  // 표시 이름만 바뀌면 채널 재구독 없이 presence 갱신
+  useEffect(() => {
+    if (!presenceEnabled || !presenceSubscribedRef.current || !channelRef.current || !currentUserId) return;
+    const ch = channelRef.current as { track: (payload: object) => Promise<void> };
+    void ch.track({
+      user_id: currentUserId,
+      display_name: currentUserDisplayName || '(이름 없음)',
+    });
+  }, [currentUserDisplayName, currentUserId]);
 
   return { others };
 }

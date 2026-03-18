@@ -380,7 +380,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                           type="button"
                           onClick={() => approveMember(m)}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors"
-                          title="승인 시 해당 회원은 DB와 동기화할 수 있습니다."
+                          title="승인 시 전체 프로젝트 목록 조회 등(승인 사용자 정책)이 적용됩니다."
                         >
                           <UserCheck size={12} /> 승인
                         </button>

@@ -26,12 +26,43 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
 
             const assignees = Array.from(new Set(pTasks.map(t => t.assignee).filter(Boolean)));
 
-            // 평균 진척률: 리프(단말) 작업만 기준으로 단순 평균
+            // 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균 우선. (weight 없으면 공수로 대체)
+            // 1레벨이 없으면 폴백으로 리프(단말) 단순 평균.
+            const taskById = new Map(pTasks.map(t => [t.id, t] as const));
+            const depthMemo = new Map<string, number>();
+            const getDepth = (id: string): number => {
+                const cached = depthMemo.get(id);
+                if (cached !== undefined) return cached;
+                const t = taskById.get(id);
+                if (!t || !t.parentId || !taskById.has(t.parentId)) { depthMemo.set(id, 0); return 0; }
+                const d = getDepth(t.parentId) + 1;
+                depthMemo.set(id, d);
+                return d;
+            };
+            const level1 = pTasks.filter(t => getDepth(t.id) === 1);
+            const computeWeighted = (items: any[]) => {
+                let totalWeight = 0;
+                let acc = 0;
+                for (const t of items) {
+                    const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
+                    const w =
+                        typeof t.weight === 'number' && Number.isFinite(t.weight)
+                            ? t.weight
+                            : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
+                    totalWeight += w;
+                    acc += p * w;
+                }
+                if (totalWeight > 0) return Math.round(acc / totalWeight);
+                if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+                return 0;
+            };
             const leafTasks = pTasks.filter(t => !pTasks.some(other => other.parentId === t.id));
             const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
-            const progress = forAggregate.length > 0
-                ? Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)
-                : 0;
+            const progress = level1.length > 0
+                ? computeWeighted(level1)
+                : (forAggregate.length > 0
+                    ? Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)
+                    : 0);
 
             return {
                 ...project,
@@ -51,18 +82,47 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
         [projectStats]
     );
 
-    // Total summary (평균 진척은 단말 작업만으로 계산하여 상·하위 이중 집계 방지)
+    // Total summary (전체 진척율: 1레벨 가중평균 우선, 폴백으로 리프 평균)
     const summary = useMemo(() => {
         const doneStatus = wbsSettings.statusConfigs.find(c => c.progress === 100)?.id || 'done';
         const inProgressStatus = wbsSettings.statusConfigs.find(c => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
 
       const totalTasks = allTasks.length;
+      const taskById = new Map(allTasks.map(t => [t.id, t] as const));
+      const depthMemo = new Map<string, number>();
+      const getDepth = (id: string): number => {
+        const cached = depthMemo.get(id);
+        if (cached !== undefined) return cached;
+        const t = taskById.get(id);
+        if (!t || !t.parentId || !taskById.has(t.parentId)) { depthMemo.set(id, 0); return 0; }
+        const d = getDepth(t.parentId) + 1;
+        depthMemo.set(id, d);
+        return d;
+      };
+      const level1 = allTasks.filter(t => getDepth(t.id) === 1);
+      const computeWeighted = (items: any[]) => {
+        let totalWeight = 0;
+        let acc = 0;
+        for (const t of items) {
+          const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
+          const w =
+            typeof t.weight === 'number' && Number.isFinite(t.weight)
+              ? t.weight
+              : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
+          totalWeight += w;
+          acc += p * w;
+        }
+        if (totalWeight > 0) return Math.round(acc / totalWeight);
+        if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+        return 0;
+      };
       const leafTasks = allTasks.filter(t => !allTasks.some(other => other.parentId === t.id));
       const forAggregate = leafTasks.length > 0 ? leafTasks : allTasks;
-      const avgProgress =
-          forAggregate.length > 0
-              ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
-              : 0;
+      const avgProgress = level1.length > 0
+        ? computeWeighted(level1)
+        : (forAggregate.length > 0
+          ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
+          : 0);
 
         // Global status counts across all projects
         const statusCounts: Record<string, number> = {};

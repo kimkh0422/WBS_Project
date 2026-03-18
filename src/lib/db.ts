@@ -132,7 +132,7 @@ function toProjectRowMinimal(project: Project): Omit<ProjectRow, 'assignments'> 
   return rest;
 }
 
-function fromProjectRow(row: ProjectRow): Project {
+export function fromProjectRow(row: ProjectRow): Project {
   const assignments: ProjectAssignment[] = Array.isArray(row.assignments)
     ? row.assignments.map((a: ProjectAssignmentRow) => ({
         assignee: a.assignee,
@@ -169,7 +169,7 @@ function toSettingsRow(settings: WBSSettings): SettingsRow {
   };
 }
 
-function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
+export function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
   return {
     level1Prefix: row.level1_prefix,
     level2Prefix: row.level2_prefix,
@@ -1399,14 +1399,57 @@ export async function getProfileStatus(): Promise<{ isAdmin: boolean; approved: 
   requireSupabase();
   try {
     const { data, error } = await supabase!.rpc('ensure_profile');
-    if (error) return null;
-    const result = data as { is_admin?: boolean; approved?: boolean };
-    return {
-      isAdmin: result?.is_admin === true,
-      approved: result?.approved === true,
-    };
+    if (!error) {
+      const result = data as { is_admin?: boolean; approved?: boolean };
+      return {
+        isAdmin: result?.is_admin === true,
+        // approved가 명시적으로 false가 아닌 한(= true/undefined) 승인으로 간주
+        approved: result?.approved !== false,
+      };
+    }
+    // Fallback: ensure_profile RPC 미적용/권한 문제 시 profiles 직접 조회
+    try {
+      const { data: authData } = await supabase!.auth.getUser();
+      const uid = authData?.user?.id;
+      if (!uid) return { isAdmin: false, approved: true };
+      const { data: row, error: selErr } = await supabase!
+        .from('profiles')
+        .select('is_admin, approved')
+        .eq('id', uid)
+        .maybeSingle();
+      if (selErr) {
+        // profiles 조회도 막히는 환경이면 UI에서만 막지 않게 기본값(approved=true) 사용
+        return { isAdmin: false, approved: true };
+      }
+      const r = (row ?? {}) as { is_admin?: boolean | null; approved?: boolean | null };
+      return {
+        isAdmin: r.is_admin === true,
+        // 기존 계정에서 approved가 null인 경우가 있어, false만 "미승인"으로 취급
+        approved: r.approved !== false,
+      };
+    } catch {
+      return { isAdmin: false, approved: true };
+    }
   } catch {
-    return null;
+    // RPC 호출 자체가 실패하는 경우도 동일 폴백
+    try {
+      const { data: authData } = await supabase!.auth.getUser();
+      const uid = authData?.user?.id;
+      if (!uid) return { isAdmin: false, approved: true };
+      const { data: row, error: selErr } = await supabase!
+        .from('profiles')
+        .select('is_admin, approved')
+        .eq('id', uid)
+        .maybeSingle();
+      if (selErr) return { isAdmin: false, approved: true };
+      const r = (row ?? {}) as { is_admin?: boolean | null; approved?: boolean | null };
+      return {
+        isAdmin: r.is_admin === true,
+        approved: r.approved !== false,
+      };
+    } catch {
+      return { isAdmin: false, approved: true };
+    }
   }
 }
 

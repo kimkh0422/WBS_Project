@@ -41,6 +41,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
+  const [groupByOwner, setGroupByOwner] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -111,6 +112,33 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     });
     return copy;
   }, [uniqueProjects, projectSort, taskCountByProject]);
+
+  const ownerLabel = (ownerId: string | undefined) => {
+    if (!ownerId) return '소유자 미지정';
+    if (ownerId === user?.id) return '내 프로젝트';
+    return profileMap[ownerId] ?? `사용자 (${ownerId.slice(0, 8)}…)`;
+  };
+
+  const projectsGroupedByOwner = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    for (const p of sortedProjects) {
+      const k = p.ownerId ?? '__none__';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    const entries = [...map.entries()] as [string, Project[]][];
+    entries.sort(([ka], [kb]) => {
+      if (user?.id && ka === user.id) return -1;
+      if (user?.id && kb === user.id) return 1;
+      if (ka === '__none__') return 1;
+      if (kb === '__none__') return -1;
+      return ownerLabel(ka === '__none__' ? undefined : ka).localeCompare(
+        ownerLabel(kb === '__none__' ? undefined : kb),
+        'ko'
+      );
+    });
+    return entries;
+  }, [sortedProjects, user?.id, profileMap]);
 
   const handleSaveProject = (
     name: string,
@@ -205,6 +233,109 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     onNavigateToWork?.(projectId);
   };
 
+  const renderProjectCard = (project: Project) => (
+    <div
+      key={project.id}
+      className={cn(
+        'bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all',
+        'hover:shadow-md hover:border-stone-300 cursor-pointer'
+      )}
+      onDoubleClick={() => {
+        setEditingProject(project);
+        setIsProjectModalOpen(true);
+      }}
+      title="더블클릭: 편집"
+    >
+      <div className="flex items-center gap-4 p-4">
+        {uniqueProjects.length > 1 && (
+          <input
+            type="checkbox"
+            checked={selectedProjectIds.has(project.id)}
+            onChange={() => {}}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleProjectSelection(project.id);
+            }}
+            className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] shrink-0 cursor-pointer"
+            title="다중 선택"
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
+            {(taskCountByProject[project.id] ?? 0) > 0 && (
+              <span className="text-xs text-stone-400 shrink-0">
+                ({taskCountByProject[project.id] ?? 0}개 작업)
+              </span>
+            )}
+          </div>
+          <span
+            className="text-xs text-stone-400 truncate block mt-0.5"
+            title={project.ownerId ? profileMap[project.ownerId] ?? project.ownerId : undefined}
+          >
+            소유(만든 사람): {ownerLabel(project.ownerId)}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => handleNavigateToWork(project.id)}
+            className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
+            title="작업 보기"
+          >
+            <List size={16} />
+          </button>
+          <button
+            onClick={() => handleOpenShare(project)}
+            className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+            title="공유"
+          >
+            <Share2 size={16} />
+          </button>
+          <button
+            onClick={() => {
+              copyProject(project.id);
+              onNavigateToWork?.();
+            }}
+            className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+            title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            onClick={() => {
+              setEditingProject(project);
+              setIsProjectModalOpen(true);
+            }}
+            className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+            title="편집"
+          >
+            <Edit size={16} />
+          </button>
+          {uniqueProjects.length > 1 && (
+            <button
+              onClick={() => {
+                setProjectToDelete(project);
+                setIsDeleteConfirmOpen(true);
+              }}
+              className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+              title="삭제"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      {onNavigateToWork && (
+        <button
+          onClick={() => handleNavigateToWork(project.id)}
+          className="w-full px-4 py-2 text-left text-xs font-medium text-stone-400 hover:bg-stone-50 hover:text-[var(--color-accent)] flex items-center gap-1 border-t border-stone-100"
+        >
+          작업 보기 <ChevronRight size={12} />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
       <div className="max-w-4xl mx-auto p-6">
@@ -221,6 +352,20 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <FolderPlus size={16} /> 새 프로젝트
           </button>
         </div>
+
+        {uniqueProjects.length > 0 && uniqueProjects.length < 2 && (
+          <div className="flex items-center gap-2 mb-4">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={groupByOwner}
+                onChange={(e) => setGroupByOwner(e.target.checked)}
+                className="rounded border-stone-300 text-[var(--color-accent)]"
+              />
+              소유자별 그룹으로 보기
+            </label>
+          </div>
+        )}
 
         {/* 툴바: 전체 선택 / 선택 삭제 */}
         {uniqueProjects.length > 1 && (
@@ -244,6 +389,16 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             >
               0개만 선택
             </button>
+            <div className="h-4 w-px bg-stone-200/80" />
+            <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={groupByOwner}
+                onChange={(e) => setGroupByOwner(e.target.checked)}
+                className="rounded border-stone-300 text-[var(--color-accent)]"
+              />
+              소유자별 그룹
+            </label>
             <div className="h-4 w-px bg-stone-200/80" />
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-stone-400">정렬</span>
@@ -283,93 +438,20 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 새 프로젝트 만들기
               </button>
             </div>
+          ) : groupByOwner ? (
+            <div className="space-y-8">
+              {projectsGroupedByOwner.map(([ownerKey, list]) => (
+                <section key={ownerKey}>
+                  <h2 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 px-1 flex flex-wrap items-center gap-2 border-b border-stone-200/80 pb-2">
+                    <span>{ownerLabel(ownerKey === '__none__' ? undefined : ownerKey)}</span>
+                    <span className="font-normal text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
+                  </h2>
+                  <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
+                </section>
+              ))}
+            </div>
           ) : (
-            sortedProjects.map(project => (
-              <div
-                key={project.id}
-                className={cn(
-                  "bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all",
-                  "hover:shadow-md hover:border-stone-300 cursor-pointer"
-                )}
-                onDoubleClick={() => { setEditingProject(project); setIsProjectModalOpen(true); }}
-                title="더블클릭: 편집"
-              >
-                <div className="flex items-center gap-4 p-4">
-                  {uniqueProjects.length > 1 && (
-                    <input
-                      type="checkbox"
-                      checked={selectedProjectIds.has(project.id)}
-                      onChange={() => {}}
-                      onClick={(e) => { e.stopPropagation(); toggleProjectSelection(project.id); }}
-                      className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] shrink-0 cursor-pointer"
-                      title="다중 선택"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
-                      {(taskCountByProject[project.id] ?? 0) > 0 && (
-                        <span className="text-xs text-stone-400 shrink-0">
-                          ({taskCountByProject[project.id] ?? 0}개 작업)
-                        </span>
-                      )}
-                    </div>
-                    {effectiveIsAdmin && project.ownerId && (
-                      <span className="text-xs text-stone-400 truncate block mt-0.5" title={profileMap[project.ownerId] ?? project.ownerId}>
-                        {project.ownerId === user?.id ? '내 프로젝트' : (project.ownerId ? (profileMap[project.ownerId] ?? '다른 사용자') : '소유자 없음')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => handleNavigateToWork(project.id)}
-                      className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
-                      title="작업 보기"
-                    >
-                      <List size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleOpenShare(project)}
-                      className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
-                      title="공유"
-                    >
-                      <Share2 size={16} />
-                    </button>
-                    <button
-                      onClick={() => { copyProject(project.id); onNavigateToWork?.(); }}
-                      className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                      title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
-                    >
-                      <Copy size={16} />
-                    </button>
-                    <button
-                      onClick={() => { setEditingProject(project); setIsProjectModalOpen(true); }}
-                      className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
-                      title="편집"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    {uniqueProjects.length > 1 && (
-                      <button
-                        onClick={() => { setProjectToDelete(project); setIsDeleteConfirmOpen(true); }}
-                        className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-                        title="삭제"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {onNavigateToWork && (
-                  <button
-                    onClick={() => handleNavigateToWork(project.id)}
-                    className="w-full px-4 py-2 text-left text-xs font-medium text-stone-400 hover:bg-stone-50 hover:text-[var(--color-accent)] flex items-center gap-1 border-t border-stone-100"
-                  >
-                    작업 보기 <ChevronRight size={12} />
-                  </button>
-                )}
-              </div>
-            ))
+            <div className="space-y-2">{sortedProjects.map((p) => renderProjectCard(p))}</div>
           )}
         </div>
       </div>

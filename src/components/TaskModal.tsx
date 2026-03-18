@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Task, TaskStatus, TaskAssignment } from '../types';
 import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -7,6 +7,14 @@ import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/sch
 import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
 import { GoogleGenAI } from '@google/genai';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import * as Y from 'yjs';
+import { EditorContent, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
+import { SupabaseYjsProvider } from '../lib/yjsSupabaseProvider';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -65,11 +73,100 @@ function parseDescriptionCorrectionJson(raw: string): { description: string; che
   }
 }
 
+function tiptapDocFromPlainText(text: string) {
+  const lines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
+  const content = lines.map((line, idx) => ({
+    type: 'paragraph',
+    content: line ? [{ type: 'text', text: line }] : [],
+    ...(idx < lines.length - 1 ? {} : {}),
+  }));
+  return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph', content: [] }] } as any;
+}
+
+function colorForUserId(uid: string) {
+  const palette = ['#2563eb', '#16a34a', '#f97316', '#db2777', '#7c3aed', '#0ea5e9', '#ca8a04', '#dc2626'];
+  let h = 0;
+  for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length]!;
+}
+
+/** Y.Doc 준비 후에만 마운트 — 부모에서 useEditor(null) 호출로 크래시 나지 않게 함 */
+function TaskDescriptionCollabEditor({
+  doc,
+  awareness,
+  readOnly,
+  initialPlainText,
+  onPlainTextChange,
+  userName,
+  userColor,
+  onPaste,
+}: {
+  doc: Y.Doc;
+  awareness: import('y-protocols/awareness').Awareness;
+  readOnly: boolean;
+  initialPlainText: string;
+  onPlainTextChange: (text: string) => void;
+  userName: string;
+  userColor: string;
+  onPaste?: (e: React.ClipboardEvent) => void;
+}) {
+  const seededRef = useRef(false);
+  const editor = useEditor({
+    immediatelyRender: true,
+    extensions: [
+      StarterKit.configure({ history: false }),
+      Collaboration.configure({ document: doc, field: 'description' }),
+      // TipTap CollaborationCursor는 provider.awareness 를 참조함 (Awareness 단독 전달 시 크래시)
+      CollaborationCursor.configure({
+        provider: { awareness } as any,
+        user: { name: userName, color: userColor },
+      }),
+    ],
+    content: tiptapDocFromPlainText(initialPlainText),
+    editable: !readOnly,
+    editorProps: {
+      attributes: {
+        class:
+          'input-field py-1.5 px-2 text-sm min-h-[7rem] max-h-48 resize-y rounded-lg w-full overflow-auto focus:outline-none',
+      },
+    },
+    onUpdate: ({ editor: ed }: { editor: { getText: (o: { blockSeparator: string }) => string } }) => {
+      const text = ed.getText({ blockSeparator: '\n' });
+      onPlainTextChange(text);
+    },
+  });
+
+  useEffect(() => {
+    if (!editor || seededRef.current) return;
+    const cur = editor.getText({ blockSeparator: '\n' });
+    const src = String(initialPlainText ?? '').trim();
+    if (!cur.trim() && src) {
+      editor.commands.setContent(tiptapDocFromPlainText(initialPlainText), false);
+    }
+    seededRef.current = true;
+  }, [editor, initialPlainText]);
+
+  useEffect(() => {
+    editor?.setEditable(!readOnly);
+  }, [editor, readOnly]);
+
+  if (!editor) return <div className="input-field min-h-[7rem] rounded-lg bg-stone-50 animate-pulse" aria-hidden />;
+  return (
+    <div onPaste={onPaste}>
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
 export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, parentOptions, readOnly: readOnlyProp, onOpenTask, defaultAssignee, defaultStartDate, defaultEndDate }: TaskModalProps) {
   const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, editableProjectIds } = useWBS();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
   const readOnly = readOnlyProp ?? (editableProjectIds != null && editableProjectIds.length > 0 && !editableProjectIds.includes(taskProjectId ?? ''));
   const { push: pushToast } = useToast();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? '';
+  const currentUserName = String((user as any)?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+  const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find(p => p.id === taskProjectId);
   const projectAssignments: TaskAssignment[] = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
   const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
@@ -94,12 +191,58 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     baselineWorkEffort: undefined,
   });
 
+  // 진행률 입력: type=number + 즉시 숫자변환은 일부 브라우저/IME에서 "80" 같은 입력이 막히는 케이스가 있어
+  // 입력 중에는 문자열로 유지하고(중간 상태 허용), blur/저장 시점에만 숫자 변환/검증한다.
+  const [progressInput, setProgressInput] = useState<string>('0');
+  const [progressTouched, setProgressTouched] = useState(false);
+  const progressTouchedRef = useRef(false);
+  const markProgressTouched = () => {
+    if (!progressTouchedRef.current) progressTouchedRef.current = true;
+    setProgressTouched(true);
+  };
+
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
   const [depsInput, setDepsInput] = useState('');
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isCorrectingDescription, setIsCorrectingDescription] = useState(false);
+
+  // ─── CRDT: Y.Doc 생성 후 자식에서만 useEditor 호출 (null 전달 크래시 방지) ─
+  const [descCollab, setDescCollab] = useState<{ doc: Y.Doc; provider: SupabaseYjsProvider } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setDescCollab(null);
+      return;
+    }
+    const pid = String(taskProjectId ?? '').trim();
+    const canCollab =
+      isSupabaseConfigured &&
+      !!supabase &&
+      !!initialData?.id &&
+      !!pid &&
+      !!currentUserId;
+    if (!canCollab) {
+      setDescCollab(null);
+      return;
+    }
+    const doc = new Y.Doc();
+    const provider = new SupabaseYjsProvider({
+      supabase: supabase!,
+      channelName: `wbs-desc-${pid}-${initialData!.id}`,
+      doc,
+      clientId: `${currentUserId}:${pid}:${initialData!.id}`,
+    });
+    provider.awareness.setLocalStateField('user', { name: currentUserName, color: currentUserColor });
+    provider.connect();
+    setDescCollab({ doc, provider });
+    return () => {
+      provider.destroy();
+      doc.destroy();
+    };
+  }, [isOpen, initialData?.id, taskProjectId, currentUserId, currentUserName, currentUserColor]);
+
   const parentOptionsRef = useRef(parentOptions);
   const displayWbsMapRef = useRef(displayWbsMap);
   parentOptionsRef.current = parentOptions;
@@ -139,6 +282,9 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         displayWbsMapRef.current,
       );
       setFormData({ ...rest, checklist, allocationPercent });
+      setProgressInput(typeof rest.progress === 'number' && Number.isFinite(rest.progress) ? String(rest.progress) : '');
+      progressTouchedRef.current = false;
+      setProgressTouched(false);
     } else {
       const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
       const projectMatch = defaultAssignee ? projectAssignments.find(a => (a.assignee || '').trim() === (defaultAssignee || '').trim()) : undefined;
@@ -161,8 +307,17 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         baselineEndDate: undefined,
         baselineWorkEffort: undefined,
       });
+      setProgressInput('0');
+      progressTouchedRef.current = false;
+      setProgressTouched(false);
     }
   }, [initialData, isOpen, taskProject?.startDate, defaultAssignee, defaultStartDate, defaultEndDate]);
+
+  useEffect(() => {
+    // 모달 열림/초기 데이터 변경 시 진행률 입력값 동기화
+    const v = initialData?.progress ?? formData.progress;
+    setProgressInput(typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+  }, [isOpen, initialData?.id]);
 
   const depOptions = parentOptions.filter(t => t.id !== initialData?.id);
   const idToNum = new Map<string, number>(depOptions.map((t, i) => [t.id, i + 1] as const));
@@ -262,6 +417,13 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (readOnly) return;
+    // 입력 중 문자열로 유지되는 진행률을 저장 직전에 확정
+    const parsedProgress = (() => {
+      const raw = progressInput.trim();
+      const parsed = raw === '' ? 0 : parseFloat(raw);
+      if (!Number.isFinite(parsed)) return 0;
+      return Math.min(100, Math.max(0, round2(parsed)));
+    })();
     const parsedDeps = parseDepsInput();
     let checklist = formData.checklist;
     if (initialData?.id) {
@@ -272,7 +434,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
         displayWbsMap,
       );
     }
-    const toMerge = { ...formData, dependencies: parsedDeps, checklist };
+    const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist };
     const start = toMerge.startDate || '';
     const end = toMerge.endDate || start;
     if (taskProject?.startDate && start < taskProject.startDate) {
@@ -616,7 +778,14 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 onChange={(e) => {
                   const newStatus = e.target.value;
                   const config = wbsSettings.statusConfigs.find(c => c.id === newStatus);
-                  setFormData(prev => ({ ...prev, status: newStatus, progress: config?.progress ?? prev.progress }));
+                  // 사용자가 진행률을 직접 수정한 뒤에는 상태 변경이 진행률을 덮어쓰지 않도록 한다.
+                  if (!progressTouchedRef.current && typeof config?.progress === 'number' && Number.isFinite(config.progress)) {
+                    const p = Math.min(100, Math.max(0, round2(config.progress)));
+                    setProgressInput(String(p));
+                    setFormData(prev => ({ ...prev, status: newStatus, progress: p }));
+                  } else {
+                    setFormData(prev => ({ ...prev, status: newStatus }));
+                  }
                 }}
                 className="input-field py-1.5 text-sm"
                 disabled={readOnly}
@@ -715,7 +884,30 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">진행률 %</label>
-              <input type="number" min={0} max={100} step={0.01} value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: round2(parseFloat(e.target.value) || 0) })} className="input-field py-1.5 text-sm w-full" readOnly={readOnly} disabled={readOnly} />
+              <input
+                type="text"
+                inputMode="decimal"
+                value={progressInput}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === '' || /^\d*([.]\d*)?$/.test(next)) {
+                    setProgressInput(next);
+                    if (!readOnly) markProgressTouched();
+                  }
+                }}
+                onBlur={() => {
+                  if (readOnly) return;
+                  const raw = progressInput.trim();
+                  const parsed = raw === '' ? 0 : parseFloat(raw);
+                  const safe = !Number.isFinite(parsed) ? 0 : Math.min(100, Math.max(0, round2(parsed)));
+                  setProgressInput(String(safe));
+                  setFormData(prev => ({ ...prev, progress: safe }));
+                }}
+                className="input-field py-1.5 text-sm w-full"
+                placeholder="0~100"
+                readOnly={readOnly}
+                disabled={readOnly}
+              />
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>
@@ -815,7 +1007,41 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                     </button>
                   )}
                 </div>
-                <textarea value={formData.description || ''} onChange={(e) => setFormData({ ...formData, description: e.target.value })} onPaste={readOnly ? undefined : handlePaste} readOnly={readOnly} disabled={readOnly} className="input-field py-1.5 px-2 text-sm min-h-[7rem] max-h-48 resize-y rounded-lg w-full" placeholder="상세 설명 (이미지 Ctrl+V)" rows={5} />
+                <div className="relative min-h-[7rem] max-h-48">
+                  {descCollab ? (
+                    <>
+                      <TaskDescriptionCollabEditor
+                        key={`${initialData?.id}-${taskProjectId}`}
+                        doc={descCollab.doc}
+                        awareness={descCollab.provider.awareness}
+                        readOnly={readOnly}
+                        initialPlainText={formData.description ?? ''}
+                        onPlainTextChange={(text) =>
+                          setFormData((prev) => (prev.description === text ? prev : { ...prev, description: text }))
+                        }
+                        userName={currentUserName}
+                        userColor={currentUserColor}
+                        onPaste={readOnly ? undefined : handlePaste}
+                      />
+                      {!readOnly && (
+                        <div className="mt-1 text-[10px] text-[var(--color-ink-muted)]">
+                          실시간 공동편집: 같은 작업의 설명을 여러 명이 동시에 수정할 수 있습니다.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <textarea
+                      value={formData.description || ''}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      onPaste={readOnly ? undefined : handlePaste}
+                      readOnly={readOnly}
+                      disabled={readOnly}
+                      className="input-field py-1.5 px-2 text-sm min-h-[7rem] max-h-48 resize-y rounded-lg w-full"
+                      placeholder="상세 설명 (이미지 Ctrl+V)"
+                      rows={5}
+                    />
+                  )}
+                </div>
               </div>
               {/* 우: 체크리스트 + 산출물 - 모달 우측 절반 넓게 사용 */}
               <div className="min-w-0 flex flex-col gap-3">

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -10,8 +10,37 @@ if (!isSupabaseConfigured) {
   );
 }
 
-export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+/**
+ * In-process auth lock (replaces Web Locks API). Avoids "orphaned lock" noise and
+ * occasional 5s waits when React Strict Mode mounts/unmounts quickly while
+ * getSession / Realtime compete for navigator.locks on the auth token.
+ * Cross-tab session coordination is reduced; same-tab behavior stays correct.
+ */
+function createInProcessAuthLock() {
+  let chain: Promise<unknown> = Promise.resolve();
+  return async (
+    _name: string,
+    _acquireTimeout: number,
+    fn: () => Promise<unknown>
+  ) => {
+    const run = chain.then(() => fn());
+    chain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+}
+
+export const supabase: SupabaseClient | null = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        // Typed via GoTrueClientOptions.lock (serializes auth in-tab; avoids Web Locks + Strict Mode noise)
+        lock: createInProcessAuthLock() as NonNullable<
+          NonNullable<Parameters<typeof createClient>[2]>['auth']
+        >['lock'],
+      },
+    })
   : null;
 
 // ─── DB Row 타입 (snake_case) ───────────────────────────────────────────────
