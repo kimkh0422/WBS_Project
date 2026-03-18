@@ -184,7 +184,7 @@ export class SupabaseYjsProvider {
     if (this.awarenessUpdateHandler) this.awareness.off('update', this.awarenessUpdateHandler);
     if (this.channel) {
       try {
-        this.channel.unsubscribe();
+        this.supabase.removeChannel(this.channel);
       } catch {
         /* ignore */
       }

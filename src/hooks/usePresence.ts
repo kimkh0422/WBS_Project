@@ -89,13 +89,18 @@ export function usePresence(
         // (브라우저 콘솔에 WebSocket 에러가 반복적으로 찍히는 것을 방지)
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           presenceSubscribedRef.current = false;
-          try {
-            channel.unsubscribe();
-          } catch {
-            // ignore
-          }
+          const ch = channelRef.current;
           channelRef.current = null;
           setOthers([]);
+          if (ch) {
+            setTimeout(() => {
+              try {
+                supabase?.removeChannel(ch as any);
+              } catch {
+                // ignore
+              }
+            }, 0);
+          }
         }
       });
 

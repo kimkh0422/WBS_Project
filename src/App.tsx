@@ -119,8 +119,12 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(() => sessionStorage.getItem('wbs-local-save-banner-dismissed') === '1');
-  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => sessionStorage.getItem('wbs-backup-banner-dismissed') === '1');
+  const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(
+    () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1'
+  );
+  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(
+    () => localStorage.getItem('wbs-backup-banner-dismissed') === '1'
+  );
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
   const [lastExportPrefs, setLastExportPrefs] = useState<{
@@ -213,7 +217,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           await pushChangesToDbRef.current('all');
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-          pushToast(msg, { variant: 'error', durationMs: 6000 });
+          // 보기 전용·비멤버 프로젝트: 자동 저장은 계속 시도되어도 같은 에러 토스트를 반복하지 않음
+          if (!/편집 권한이 없습니다/.test(msg)) {
+            pushToast(msg, { variant: 'error', durationMs: 6000, id: `db-push:${msg}` });
+          }
         } finally {
           setIsDbPushInProgress(false);
         }
@@ -1196,10 +1203,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           <button
             onClick={() => {
               setIsLocalSaveBannerDismissed(true);
-              sessionStorage.setItem('wbs-local-save-banner-dismissed', '1');
+              localStorage.setItem('wbs-local-save-banner-dismissed', '1');
             }}
             className="ml-1 p-1 rounded-md hover:bg-sky-200/50 text-sky-500 hover:text-sky-800 transition-colors"
-            title="닫기"
+            title="닫기 (이 기기에서 다시 표시 안 함)"
           >
             <X size={14} />
           </button>
@@ -1219,10 +1226,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           <button
             onClick={() => {
               setIsBackupBannerDismissed(true);
-              sessionStorage.setItem('wbs-backup-banner-dismissed', '1');
+              localStorage.setItem('wbs-backup-banner-dismissed', '1');
             }}
             className="ml-1 p-1 rounded-md hover:bg-amber-200/60 text-amber-500 hover:text-amber-800 transition-colors"
-            title="닫기"
+            title="닫기 (이 기기에서 다시 표시 안 함)"
           >
             <X size={14} />
           </button>

@@ -1182,7 +1182,7 @@ export function WBSProvider({
       }
 
       if (uploadError && !pullAfter) {
-        handleDbError(uploadError, '서버에 반영하지 못했습니다. 잠시 후 자동으로 다시 시도됩니다.');
+        // 토스트는 호출측(App: 자동 저장·Ctrl+S 등)에서 한 번만 표시 — handleDbError까지 호출하면 동일 메시지가 2번 뜸
         throw toUserFacingDbError(uploadError);
       }
 
