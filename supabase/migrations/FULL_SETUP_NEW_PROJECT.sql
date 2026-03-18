@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   description text,
   checklist jsonb DEFAULT '[]'::jsonb,
   deliverables text,
+  user_locked_fields text[] DEFAULT '{}'::text[],
   sort_order integer DEFAULT 0,
   created_at timestamptz DEFAULT now()
 );
@@ -55,6 +56,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_milestone boolean DEFAULT false;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS baseline_start_date date NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS baseline_end_date date NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS baseline_work_effort numeric(10,2) NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS user_locked_fields text[] DEFAULT '{}'::text[];
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

@@ -4,11 +4,15 @@ import { applyUpdate, encodeStateAsUpdate, encodeStateVector } from 'yjs';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 function uint8ToBase64(u8: Uint8Array): string {
-  // Avoid stack overflow for large updates by chunking
+  // Convert bytes → binary string without spreading large arrays (can overflow the stack).
+  // This is performance-friendly enough for our update sizes and avoids RangeError in some engines.
   let s = '';
-  const CHUNK = 0x8000;
+  const CHUNK = 0x2000;
   for (let i = 0; i < u8.length; i += CHUNK) {
-    s += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+    const sub = u8.subarray(i, i + CHUNK);
+    const parts: string[] = new Array(sub.length);
+    for (let j = 0; j < sub.length; j++) parts[j] = String.fromCharCode(sub[j]!);
+    s += parts.join('');
   }
   return btoa(s);
 }
@@ -36,6 +40,8 @@ export class SupabaseYjsProvider {
   private destroyed = false;
   private localUpdateHandler: ((update: Uint8Array, origin: any) => void) | null = null;
   private awarenessUpdateHandler: (({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: any) => void) | null = null;
+  private outbox: BroadcastPayload[] = [];
+  private flushScheduled = false;
 
   constructor(opts: {
     supabase: SupabaseClient;
@@ -78,7 +84,7 @@ export class SupabaseYjsProvider {
             to: payload.from,
             from: this.clientId,
           };
-          void this.send(reply);
+          this.enqueueSend(reply);
           return;
         }
         if (payload.t === 'sync_step2') {
@@ -101,14 +107,14 @@ export class SupabaseYjsProvider {
         // Sync handshake
         const sv = encodeStateVector(this.doc);
         const msg: BroadcastPayload = { t: 'sync_step1', sv: uint8ToBase64(sv), from: this.clientId };
-        void this.send(msg);
+        this.enqueueSend(msg);
       }
     });
 
     this.localUpdateHandler = (update: Uint8Array, origin: any) => {
       if (origin === this) return;
       const msg: BroadcastPayload = { t: 'update', u: uint8ToBase64(update), from: this.clientId };
-      void this.send(msg);
+      this.enqueueSend(msg);
     };
     this.doc.on('update', this.localUpdateHandler);
 
@@ -122,12 +128,37 @@ export class SupabaseYjsProvider {
       if (changed.length === 0) return;
       const u = encodeAwarenessUpdate(this.awareness, changed);
       const msg: BroadcastPayload = { t: 'awareness', u: uint8ToBase64(u), from: this.clientId };
-      void this.send(msg);
+      this.enqueueSend(msg);
     };
     this.awareness.on('update', this.awarenessUpdateHandler);
   }
 
-  private async send(payload: BroadcastPayload) {
+  private enqueueSend(payload: BroadcastPayload) {
+    if (this.destroyed) return;
+    this.outbox.push(payload);
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    // Use a macrotask boundary: avoids deep re-entrancy inside Realtime's internal trigger/send stack.
+    setTimeout(() => void this.flushOutbox(), 0);
+  }
+
+  private async flushOutbox() {
+    this.flushScheduled = false;
+    if (this.destroyed) return;
+    const channel = this.channel;
+    if (!channel) {
+      this.outbox.length = 0;
+      return;
+    }
+    // Drain current queue; anything enqueued during flush will be picked up in a later tick.
+    const batch = this.outbox.splice(0, this.outbox.length);
+    for (const payload of batch) {
+      await this.sendNow(payload);
+    }
+    if (this.outbox.length > 0) this.enqueueSend(this.outbox.shift()!);
+  }
+
+  private async sendNow(payload: BroadcastPayload) {
     if (this.destroyed) return;
     const channel = this.channel;
     if (!channel) return;
@@ -145,7 +176,7 @@ export class SupabaseYjsProvider {
     try {
       const states = Array.from(this.awareness.getStates().keys());
       const u = encodeAwarenessUpdate(this.awareness, states);
-      void this.send({ t: 'awareness', u: uint8ToBase64(u), from: this.clientId });
+      this.enqueueSend({ t: 'awareness', u: uint8ToBase64(u), from: this.clientId });
     } catch {
       /* ignore */
     }

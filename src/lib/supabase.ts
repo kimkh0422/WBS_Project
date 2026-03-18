@@ -117,6 +117,8 @@ export interface TaskRow {
   description: string | null;
   checklist: { id: string; text: string; completed: boolean }[];
   deliverables: string | null;
+  /** 사용자가 직접 편집해 롤업/자동계산에서 보호할 필드 목록 */
+  user_locked_fields?: Array<'dependencies' | 'startDate' | 'endDate' | 'workEffort' | 'progress'> | null;
   sort_order: number;
   is_milestone?: boolean;
   is_issue?: boolean;

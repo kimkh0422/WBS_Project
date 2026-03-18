@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   description text,
   checklist jsonb DEFAULT '[]'::jsonb,
   deliverables text,
+  user_locked_fields text[] DEFAULT '{}'::text[],
   sort_order integer DEFAULT 0,
   created_at timestamptz DEFAULT now()
 );

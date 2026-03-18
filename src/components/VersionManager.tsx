@@ -1,10 +1,38 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { X, History, Clock, CheckCircle2 } from 'lucide-react';
 
 interface VersionHistory {
     version: string;
     date: string;
     changes: string[];
+}
+
+function parseSemverLike(version: string): number[] {
+    // "0.3.13" -> [0,3,13] (missing parts => 0). Non-numeric => 0.
+    const parts = String(version)
+        .trim()
+        .replace(/^v/i, '')
+        .split('.')
+        .map((p) => {
+            const n = Number.parseInt(p, 10);
+            return Number.isFinite(n) ? n : 0;
+        });
+    while (parts.length < 3) parts.push(0);
+    return parts.slice(0, 3);
+}
+
+function compareSemverDesc(a: string, b: string): number {
+    const av = parseSemverLike(a);
+    const bv = parseSemverLike(b);
+    for (let i = 0; i < 3; i += 1) {
+        if (av[i] !== bv[i]) return bv[i] - av[i];
+    }
+    return 0;
+}
+
+function parseDateMaybe(value: string): number {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
 }
 
 function getHistoryData(): VersionHistory[] {
@@ -37,6 +65,14 @@ interface VersionManagerProps {
 export function VersionManager({ isOpen, onClose, currentVersion }: VersionManagerProps) {
     if (!isOpen) return null;
 
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [onClose]);
+
     const commitDateText = (() => {
         try {
             const d = new Date(__APP_COMMIT_DATE__);
@@ -68,9 +104,36 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
         }
     })();
 
+    const historySorted = useMemo(() => {
+        const data = [...HISTORY_DATA];
+        data.sort((a, b) => {
+            // Prefer version desc; if same, date desc; then stable by original text
+            const byVer = compareSemverDesc(a.version, b.version);
+            if (byVer !== 0) return byVer;
+            const byDate = parseDateMaybe(b.date) - parseDateMaybe(a.date);
+            if (byDate !== 0) return byDate;
+            return String(b.version).localeCompare(String(a.version), 'en');
+        });
+        return data;
+    }, []);
+
+    const currentVersionKey = String(currentVersion).trim().replace(/^v/i, '');
+
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]">
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+            role="dialog"
+            aria-modal="true"
+            aria-label="버전 히스토리"
+            onMouseDown={(e) => {
+                // backdrop click => close
+                if (e.target === e.currentTarget) onClose();
+            }}
+        >
+            <div
+                className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]"
+                onMouseDown={(e) => e.stopPropagation()}
+            >
                 <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
                     <div className="flex items-center gap-2">
                         <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
@@ -85,27 +148,46 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-stone-200 rounded-full text-stone-400 transition-colors"
+                        aria-label="닫기"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin">
-                    {HISTORY_DATA.map((item, index) => (
+                    {historySorted.map((item, index) => {
+                        const isCurrent = String(item.version).trim().replace(/^v/i, '') === currentVersionKey;
+                        return (
                         <div key={item.version} className="relative pl-8">
                             {/* Timeline Connector */}
-                            {index !== HISTORY_DATA.length - 1 && (
+                            {index !== historySorted.length - 1 && (
                                 <div className="absolute left-[11px] top-6 bottom-[-32px] w-[2px] bg-stone-100" />
                             )}
 
                             {/* Version Point */}
-                            <div className="absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-4 border-blue-500 z-10 box-border" />
+                            <div
+                                className={[
+                                    'absolute left-0 top-1 w-6 h-6 rounded-full bg-white border-4 z-10 box-border',
+                                    isCurrent ? 'border-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]' : 'border-blue-500',
+                                ].join(' ')}
+                                aria-hidden
+                            />
 
                             <div className="space-y-3">
                                 <div className="flex items-center gap-3">
-                                    <span className="text-sm font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                    <span
+                                        className={[
+                                            'text-sm font-black px-2 py-0.5 rounded border',
+                                            isCurrent ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-blue-600 bg-blue-50 border-blue-100',
+                                        ].join(' ')}
+                                    >
                                         v{item.version}
                                     </span>
+                                    {isCurrent && (
+                                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                            현재
+                                        </span>
+                                    )}
                                     <div className="flex items-center gap-1.5 text-stone-400">
                                         <Clock size={12} />
                                         <span className="text-xs font-medium">{item.date}</span>
@@ -122,7 +204,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
                                 </ul>
                             </div>
                         </div>
-                    ))}
+                    )})}
                 </div>
 
                 <div className="p-4 bg-stone-50 border-t border-stone-100 flex justify-end">

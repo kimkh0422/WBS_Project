@@ -1252,7 +1252,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (e.altKey) {
-          if (!isSortedOrFiltered && selectedTaskIds.size === 1) {
+          // Alt+↑: 한 칸 위로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
+          const canMove =
+            !isSortedOrFiltered &&
+            (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
+          if (canMove) {
             moveTask(lastSelectedId, 'up');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
@@ -1270,7 +1274,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         if (e.altKey) {
-          if (!isSortedOrFiltered && selectedTaskIds.size === 1) {
+          // Alt+↓: 한 칸 아래로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
+          const canMove =
+            !isSortedOrFiltered &&
+            (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
+          if (canMove) {
             moveTask(lastSelectedId, 'down');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }

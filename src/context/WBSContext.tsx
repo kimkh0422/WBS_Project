@@ -1434,6 +1434,8 @@ export function WBSProvider({
       let changed = false;
       const next = prev.map(t => {
         if (!targetSet.has(t.projectId)) return t;
+        // 사용자가 진척률을 수동 입력(잠금)한 경우 상태 설정으로 덮어쓰지 않음
+        if ((t.userLockedFields ?? []).includes('progress')) return t;
         const config = configMap.get(t.status);
         if (!config || config.progress === undefined || config.progress === t.progress) return t;
         changed = true;
@@ -1880,9 +1882,21 @@ export function WBSProvider({
     saveHistory();
     const idSet = new Set(taskIds);
     setAllTasks(prev => {
-      const next = prev.map(t =>
-        idSet.has(t.id) ? { ...t, ...updates } : t
-      );
+      const shouldLockProgress =
+        Object.prototype.hasOwnProperty.call(updates, 'progress') &&
+        typeof updates.progress === 'number' &&
+        Number.isFinite(updates.progress);
+      const next = prev.map(t => {
+        if (!idSet.has(t.id)) return t;
+        if (!shouldLockProgress) return { ...t, ...updates };
+        const lockFields = new Set(t.userLockedFields ?? []);
+        lockFields.add('progress');
+        return {
+          ...t,
+          ...updates,
+          userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined,
+        };
+      });
       return next;
     });
   };
