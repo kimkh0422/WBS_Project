@@ -161,6 +161,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   // Zoom level index, -1 means auto-fit
   const [zoomIndex, setZoomIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const anchorTaskIdRef = useRef<string | null>(null);
   const [dragPreview, setDragPreview] = useState<Map<string, { startDate: string; endDate: string }> | null>(null);
@@ -672,6 +674,37 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
   const isSplitView = !!syncScrollRef;
 
+  // Split view: 날짜 헤더 ↔ 본문 ↔ 하단 스크롤바 수평 동기화
+  useEffect(() => {
+    if (!isSplitView) return;
+    const mainEl = syncScrollRef?.current;
+    if (!mainEl) return;
+    let fromMain = false;
+    let fromBottom = false;
+    const onMainScroll = () => {
+      if (fromBottom) return;
+      fromMain = true;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
+      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = mainEl.scrollLeft;
+      fromMain = false;
+    };
+    mainEl.addEventListener('scroll', onMainScroll, { passive: true });
+    return () => mainEl.removeEventListener('scroll', onMainScroll);
+  }, [isSplitView, syncScrollRef]);
+
+  useEffect(() => {
+    if (!isSplitView) return;
+    const bottomEl = bottomScrollRef.current;
+    const mainEl = syncScrollRef?.current;
+    if (!bottomEl || !mainEl) return;
+    const onBottomScroll = () => {
+      mainEl.scrollLeft = bottomEl.scrollLeft;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = bottomEl.scrollLeft;
+    };
+    bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
+    return () => bottomEl.removeEventListener('scroll', onBottomScroll);
+  }, [isSplitView, syncScrollRef]);
+
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
   // 표의 Summary Bar와 동일 min-h로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
   if (isSplitView) {
@@ -743,9 +776,9 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               </>
             )}
           </div>
-          {/* 헤더 고정 (스크롤 밖) - 줌/맞춤은 상단 바에만 두어 잘림 방지 */}
-          <div className="flex flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">
-            <div className="relative" style={{ width: Math.max(totalWidth, containerWidth), height: 60 }}>
+          {/* 헤더 고정 (스크롤 밖) - 수평 스크롤은 본문과 동기화 */}
+          <div ref={headerScrollRef} className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-hidden">
+            <div className="relative flex-shrink-0" style={{ width: totalWidth, height: 60 }}>
               <div className="flex h-7 border-b border-stone-200" style={{ width: totalWidth }}>
                 {renderTopHeader()}
               </div>
@@ -754,8 +787,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               </div>
             </div>
           </div>
-          {/* 스크롤 영역 = 행만 (표와 동기화) */}
-          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white">
+          {/* 스크롤 영역 = 행만 (표와 동기화). 수평 스크롤바는 하단 별도 스크롤바로 대체 */}
+          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white gantt-body-no-hscroll" style={{ scrollbarWidth: 'none' }}>
             <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 {renderGridColumns()}
@@ -845,6 +878,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 );
               })}
             </div>
+          </div>
+          {/* 하단 수평 스크롤바 */}
+          <div
+            ref={bottomScrollRef}
+            className="flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-stone-200"
+            style={{ height: 12 }}
+          >
+            <div style={{ width: totalWidth, height: 1 }} />
           </div>
         </div>
 

@@ -72,6 +72,11 @@
     @apply bg-slate-400/80;
   }
 
+  /* 간트 split view: 본문 스크롤 영역 수평 스크롤바 숨김 (하단 별도 스크롤바 사용) */
+  .gantt-body-no-hscroll::-webkit-scrollbar:horizontal {
+    display: none;
+  }
+
   /* Focus-visible ring for keyboard navigation */
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-indigo-500/50;
