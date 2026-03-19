@@ -535,19 +535,22 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   // Render bottom header row (Days/Weeks/Months)
   const renderBottomHeader = () => {
     if (viewMode === 'day') {
-      return days.map((day) => (
-        <div
-          key={day.toISOString()}
-          className={cn(
-            "flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono",
-            ['토', '일'].includes(format(day, 'EEE', { locale: ko })) ? 'bg-stone-50 text-stone-400' : 'text-stone-600',
-            isSameDay(day, today) && 'bg-red-50 text-red-600 font-bold'
-          )}
-          style={{ width: dayWidth }}
-        >
-          {dayWidth >= 20 ? format(day, 'd', { locale: ko }) : dayWidth >= 10 ? (new Date(day).getDate() % 5 === 0 ? format(day, 'd', { locale: ko }) : '') : ''}
-        </div>
-      ));
+      return days.map((day) => {
+        const isToday = isSameDay(day, today);
+        return (
+          <div
+            key={day.toISOString()}
+            className={cn(
+              "flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono",
+              ['토', '일'].includes(format(day, 'EEE', { locale: ko })) ? 'bg-stone-50 text-stone-400' : 'text-stone-600',
+              isToday && 'bg-red-500 text-white font-bold'
+            )}
+            style={{ width: dayWidth }}
+          >
+            {dayWidth >= 20 ? format(day, 'd', { locale: ko }) : dayWidth >= 10 ? (new Date(day).getDate() % 5 === 0 ? format(day, 'd', { locale: ko }) : '') : ''}
+          </div>
+        );
+      });
     } else if (viewMode === 'week') {
       return weeks.map((week) => {
         const weekStart = max([week, minDate]);
@@ -558,7 +561,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         return (
           <div
             key={week.toISOString()}
-            className={cn("flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden", isCurrentWeek && 'bg-red-50 text-red-600 font-bold')}
+            className={cn("flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden", isCurrentWeek ? 'bg-red-500 text-white font-bold' : '')}
             style={{ width }}
           >
             {width >= 20 ? `${getWeek(week)}주` : ''}
@@ -576,7 +579,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         return (
           <div
             key={month.toISOString()}
-            className={cn("flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden", isCurrentMonth && 'bg-red-50 text-red-600 font-bold')}
+            className={cn("flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden", isCurrentMonth ? 'bg-red-500 text-white font-bold' : '')}
             style={{ width }}
           >
             {width >= 16 ? format(month, 'M월', { locale: ko }) : ''}
@@ -710,9 +713,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 {renderGridColumns()}
               </div>
               {todayIndex !== -1 && (
-                <div className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50" style={{ left: todayLeft }}>
-                  <div className="absolute -top-2 -translate-x-1/2 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm whitespace-nowrap z-20">오늘</div>
-                </div>
+                <div className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50" style={{ left: todayLeft }} />
               )}
               <svg className="absolute inset-0 z-0 pointer-events-none w-full h-full">
                 <defs>
@@ -954,11 +955,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
               {/* Today Line */}
               {todayIndex !== -1 && (
-                <div className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50" style={{ left: todayLeft }}>
-                  <div className="absolute -top-2 -translate-x-1/2 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold shadow-sm whitespace-nowrap z-20">
-                    오늘
-                  </div>
-                </div>
+                <div className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50" style={{ left: todayLeft }} />
               )}
 
               {/* Dependency Lines SVG Layer */}
