@@ -349,7 +349,8 @@ export function projectIdsWithTaskOrderDrift(
 export function collectTasksNeedingUpload(
   localTasks: Task[],
   serverById: Map<string, TaskRow>,
-  projectIdSet: Set<string>
+  projectIdSet: Set<string>,
+  sortOrders?: Map<string, number>
 ): Task[] {
   const serverRows = [...serverById.values()];
   const driftPids = projectIdsWithTaskOrderDrift(localTasks, serverRows, projectIdSet);
@@ -373,7 +374,11 @@ export function collectTasksNeedingUpload(
       continue;
     }
     const localRow = toTaskRow(t, sr.sort_order);
-    if (taskContentFingerprint(localRow) !== taskContentFingerprint(sr)) {
+    const contentChanged = taskContentFingerprint(localRow) !== taskContentFingerprint(sr);
+    // sort_order가 핑거프린트에 포함되지 않으므로 별도 비교: 로컬 순서와 서버 sort_order가 다르면 업로드
+    const localSortOrder = sortOrders?.get(t.id);
+    const sortOrderChanged = localSortOrder !== undefined && sr.sort_order !== localSortOrder;
+    if (contentChanged || sortOrderChanged) {
       if (!seen.has(t.id)) {
         out.push(t);
         seen.add(t.id);
@@ -869,7 +874,8 @@ const TASKS_UPSERT_BATCH_SIZE = 50;
 
 export async function upsertTasks(
   tasks: Task[],
-  onBatchProgress?: (uploadedCount: number, totalRows: number) => void
+  onBatchProgress?: (uploadedCount: number, totalRows: number) => void,
+  sortOrders?: Map<string, number>
 ): Promise<void> {
   if (tasks.length === 0) return;
   requireSupabase();
@@ -892,7 +898,8 @@ export async function upsertTasks(
   uniqueTasks.reverse();
 
   // Preserve caller's sort order, but insert/upsert with parents first to satisfy FK on parent_id.
-  const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
+  // sortOrders가 전달된 경우 전체 목록 기준 sort_order 사용 (부분 업로드 시 순서 뒤섞임 방지)
+  const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, sortOrders?.get(t.id) ?? idx));
   const orderedRows = orderTaskRowsParentsFirst(desiredRows);
 
   const totalRows = orderedRows.length;

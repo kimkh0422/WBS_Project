@@ -1113,10 +1113,14 @@ export function WBSProvider({
 
         // 3) 작업: 순서·내용이 서버와 다른 것만 업로드
         const serverTaskById = new Map(preTaskRows.map(r => [r.id, r]));
+        // 전체 작업 목록 기준 sort_order 계산 (부분 업로드 시 인덱스를 배치 내 순번이 아닌 전체 순번으로 유지)
+        const taskSortOrders = new Map<string, number>();
+        targetTasksAfterAutoDelete.forEach((t, idx) => { if (t.id) taskSortOrders.set(t.id, idx); });
         const tasksToUpload = collectTasksNeedingUpload(
           targetTasksAfterAutoDelete,
           serverTaskById,
-          taskProjectIdSet
+          taskProjectIdSet,
+          taskSortOrders
         );
         taskRows = targetTasksAfterAutoDelete.length;
         nTaskUp = tasksToUpload.length;
@@ -1132,7 +1136,7 @@ export function WBSProvider({
           report(22, `작업 변경분 업로드… (${nTaskUp}/${taskRows}건)`);
           await upsertTasks(tasksToUpload, (done, total) => {
             report(22 + (done / Math.max(total, 1)) * 42, `작업 업로드 ${done}/${total}건`);
-          });
+          }, taskSortOrders);
         }
 
         // 4) Deletions (tombstones) apply
@@ -1887,9 +1891,14 @@ export function WBSProvider({
       const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
       let result = nextTasks;
       if (affectsRollup) {
-        result = prev.some(t => t.parentId === id && t.projectId === task.projectId)
-          ? syncParentRollups(result, id)
-          : syncParentRollups(result, task.parentId);
+        const hasChildTasks = prev.some(t => t.parentId === id && t.projectId === task.projectId);
+        // 날짜를 명시적으로 변경한 경우(드래그 등): 자식이 있어도 task 자신을 롤업 기준으로 삼으면
+        // 자식들의 min/max로 덮어써지므로 부모부터 롤업 시작
+        if (hasChildTasks && !hasDateChange) {
+          result = syncParentRollups(result, id);
+        } else {
+          result = syncParentRollups(result, task.parentId);
+        }
       }
       // 부모 변경 시 기존 부모·신규 부모 모두 롤업 재계산
       if (parentIdChanged) {

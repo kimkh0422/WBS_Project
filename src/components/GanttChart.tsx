@@ -238,10 +238,26 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     e.preventDefault();
     e.stopPropagation();
     // 다중 선택된 작업 중 하나를 드래그하면 전체 선택 항목 이동
-    const idsToMove =
+    const baseIds =
       selectedSet.has(task.id) && selectedSet.size > 1
         ? Array.from(selectedSet).filter(id => visibleTaskById.has(id))
         : [task.id];
+    // 부모 작업 드래그 시 모든 자손도 함께 이동 (자손 포함 안 하면 DB 동기화 시 롤업으로 날짜 복원됨)
+    const expandWithDescendants = (rootIds: string[]): string[] => {
+      const result = new Set(rootIds);
+      const stack = [...rootIds];
+      while (stack.length > 0) {
+        const pid = stack.pop()!;
+        for (const t of tasks) {
+          if (t.parentId === pid && !result.has(t.id)) {
+            result.add(t.id);
+            stack.push(t.id);
+          }
+        }
+      }
+      return Array.from(result);
+    };
+    const idsToMove = expandWithDescendants(baseIds);
     const taskInfos: TaskDragInfo[] = idsToMove.map(id => {
       const t = visibleTaskById.get(id) ?? tasks.find(x => x.id === id);
       if (!t) return null;
@@ -271,6 +287,19 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, task: Task, type: 'resize-left' | 'resize-right') => {
     e.preventDefault();
     e.stopPropagation();
+    // 부모 리사이즈 시 자손도 함께 클램프하기 위해 자손 포함
+    const getDescendants = (parentId: string): Task[] => {
+      const result: Task[] = [];
+      const stack = [parentId];
+      while (stack.length > 0) {
+        const pid = stack.pop()!;
+        for (const t of tasks) {
+          if (t.parentId === pid) { result.push(t); stack.push(t.id); }
+        }
+      }
+      return result;
+    };
+    const descendants = getDescendants(task.id);
     dragStateRef.current = {
       taskId: task.id,
       type,
@@ -279,17 +308,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
       clickTaskId: task.id,
       ctrlKey: false,
       shiftKey: false,
-      tasks: [{
-        taskId: task.id,
-        originalStartDate: task.startDate,
-        originalEndDate: task.endDate,
-        previewStartDate: task.startDate,
-        previewEndDate: task.endDate,
-      }],
+      tasks: [
+        { taskId: task.id, originalStartDate: task.startDate, originalEndDate: task.endDate, previewStartDate: task.startDate, previewEndDate: task.endDate },
+        ...descendants.map(d => ({ taskId: d.id, originalStartDate: d.startDate, originalEndDate: d.endDate, previewStartDate: d.startDate, previewEndDate: d.endDate })),
+      ],
     };
     document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
-  }, []);
+  }, [tasks]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -309,32 +335,54 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
       const nextPreview = new Map<string, { startDate: string; endDate: string }>();
 
-      for (const t of drag.tasks) {
-        const origStart = parseISO(t.originalStartDate);
-        const origEnd = parseISO(t.originalEndDate);
-        let newStart = t.previewStartDate;
-        let newEnd = t.previewEndDate;
+      if (drag.type === 'move') {
+        for (const t of drag.tasks) {
+          const origStart = parseISO(t.originalStartDate);
+          const origEnd = parseISO(t.originalEndDate);
+          const newStart = format(addDays(origStart, deltaDays), 'yyyy-MM-dd');
+          const newEnd = format(addDays(origEnd, deltaDays), 'yyyy-MM-dd');
+          t.previewStartDate = newStart;
+          t.previewEndDate = newEnd;
+          nextPreview.set(t.taskId, { startDate: newStart, endDate: newEnd });
+        }
+      } else {
+        // resize-left / resize-right: 첫 번째 항목이 리사이즈 대상(부모), 나머지는 자손
+        const primary = drag.tasks[0];
+        if (primary) {
+          const origStart = parseISO(primary.originalStartDate);
+          const origEnd = parseISO(primary.originalEndDate);
+          let newStart = primary.originalStartDate;
+          let newEnd = primary.originalEndDate;
 
-        if (drag.type === 'move') {
-          newStart = format(addDays(origStart, deltaDays), 'yyyy-MM-dd');
-          newEnd = format(addDays(origEnd, deltaDays), 'yyyy-MM-dd');
-        } else if (drag.type === 'resize-left') {
-          const candidate = addDays(origStart, deltaDays);
-          if (candidate < origEnd) {
-            newStart = format(candidate, 'yyyy-MM-dd');
-            newEnd = t.originalEndDate;
+          if (drag.type === 'resize-left') {
+            const candidate = addDays(origStart, deltaDays);
+            if (candidate < origEnd) newStart = format(candidate, 'yyyy-MM-dd');
+          } else {
+            const candidate = addDays(origEnd, deltaDays);
+            if (candidate > origStart) newEnd = format(candidate, 'yyyy-MM-dd');
           }
-        } else if (drag.type === 'resize-right') {
-          const candidate = addDays(origEnd, deltaDays);
-          if (candidate > origStart) {
-            newStart = t.originalStartDate;
-            newEnd = format(candidate, 'yyyy-MM-dd');
+
+          primary.previewStartDate = newStart;
+          primary.previewEndDate = newEnd;
+          nextPreview.set(primary.taskId, { startDate: newStart, endDate: newEnd });
+
+          // 자손: 부모의 새 날짜 범위 밖으로 벗어난 부분만 클램프
+          for (let i = 1; i < drag.tasks.length; i++) {
+            const t = drag.tasks[i]!;
+            let dStart = t.originalStartDate;
+            let dEnd = t.originalEndDate;
+            if (drag.type === 'resize-right') {
+              if (dEnd > newEnd) dEnd = newEnd;
+              if (dStart > newEnd) dStart = newEnd;
+            } else {
+              if (dStart < newStart) dStart = newStart;
+              if (dEnd < newStart) dEnd = newStart;
+            }
+            t.previewStartDate = dStart;
+            t.previewEndDate = dEnd;
+            nextPreview.set(t.taskId, { startDate: dStart, endDate: dEnd });
           }
         }
-
-        t.previewStartDate = newStart;
-        t.previewEndDate = newEnd;
-        nextPreview.set(t.taskId, { startDate: newStart, endDate: newEnd });
       }
 
       setDragPreview(nextPreview);
