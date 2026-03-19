@@ -8,6 +8,18 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
 
     const sections: Section[] = [
         {
+            title: '뷰 전환',
+            items: [
+                { label: '대시보드', keys: ['Ctrl', 'Shift', '1'] },
+                { label: '투입현황', keys: ['Ctrl', 'Shift', '2'] },
+                { label: '표+간트', keys: ['Ctrl', 'Shift', '3'] },
+                { label: '표만', keys: ['Ctrl', 'Shift', '4'] },
+                { label: '간트만', keys: ['Ctrl', 'Shift', '5'] },
+                { label: '칸반', keys: ['Ctrl', 'Shift', '6'] },
+                { label: '마인드맵', keys: ['Ctrl', 'Shift', '7'], hint: '관리자 전용' },
+            ],
+        },
+        {
             title: '공통',
             items: [
                 { label: '되돌리기', keys: ['Ctrl', 'Z'] },

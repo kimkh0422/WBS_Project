@@ -848,6 +848,32 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     })();
   }, [isLoading, executeDbSync, isSupabaseConfigured]);
 
+  // Ctrl+Shift+1~7: 뷰 전환 단축키
+  useEffect(() => {
+    const VIEW_SHORTCUTS: Record<string, typeof view> = {
+      'Digit1': 'dashboard',
+      'Digit2': 'allocation',
+      'Digit3': 'list',
+      'Digit4': 'table',
+      'Digit5': 'gantt',
+      'Digit6': 'kanban',
+      'Digit7': 'mindmap',
+    };
+    const handleViewShortcut = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
+      const nextView = VIEW_SHORTCUTS[e.code];
+      if (!nextView) return;
+      if (nextView === 'mindmap' && !effectiveIsAdmin) return;
+      if (hiddenViews.has(nextView)) return;
+      e.preventDefault();
+      navigateWithTip(nextView);
+    };
+    window.addEventListener('keydown', handleViewShortcut);
+    return () => window.removeEventListener('keydown', handleViewShortcut);
+  }, [navigateWithTip, effectiveIsAdmin, hiddenViews]);
+
   // Ctrl+S: 즉시 서버 반영(자동 저장과 동일 경로, 토스트 없음)
   // 캡처 단계: 표 셀 input이 keydown에서 stopPropagation 하므로 버블 리스너로는 도달하지 않음
   useEffect(() => {
