@@ -1,4 +1,4 @@
-import { supabase, supabaseUrl, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProjectAccessRequestRow, ProfileRow, isSupabaseConfigured } from './supabase';
+import { supabase, supabaseUrl, supabaseAnonKey, ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow, ProjectMemberRow, ProjectInviteRow, ProjectAccessRequestRow, ProfileRow, isSupabaseConfigured } from './supabase';
 import type { Task, Project, ProjectAssignment } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 import type { BackupData } from './export';
@@ -1508,67 +1508,32 @@ export async function deleteMemberAsAdmin(
   options?: { wbsAdminPassword?: string }
 ): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
-  if (!supabaseUrl?.trim()) {
-    return { success: false, error: 'Supabase URL이 설정되지 않았습니다.' };
-  }
   try {
-    const { data: sessionData } = await supabase!.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) {
-      return { success: false, error: '로그인이 필요합니다. 다시 로그인 후 시도하세요.' };
-    }
-
     const body: { userId: string; wbsAdminPassword?: string } = { userId };
     if (options?.wbsAdminPassword) body.wbsAdminPassword = options.wbsAdminPassword;
 
-    const url = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/admin-delete-user`;
-    const res = await fetch(url, {
+    const { data: sessionData } = await supabase!.auth.getSession();
+    const authToken = sessionData.session?.access_token ?? supabaseAnonKey;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/admin-delete-user`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${authToken}`,
+        'apikey': supabaseAnonKey,
       },
       body: JSON.stringify(body),
     });
 
-    const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
-    if (!res.ok) {
-      const serverMessage = typeof json?.error === 'string' ? json.error : null;
-      if (res.status === 403 && serverMessage) {
-        return { success: false, error: serverMessage };
-      }
-      if (res.status === 400 && serverMessage) {
-        return { success: false, error: serverMessage };
-      }
-      if (res.status === 401 && serverMessage) {
-        return { success: false, error: serverMessage };
-      }
-      if (res.status >= 500 && serverMessage) {
-        return { success: false, error: serverMessage };
-      }
-      if (serverMessage) return { success: false, error: serverMessage };
-      return {
-        success: false,
-        error:
-          res.status === 404 || res.status === 0
-            ? 'Edge Function 요청에 실패했습니다. `admin-delete-user` 함수가 배포되어 있는지, 로컬이면 Supabase functions가 실행 중인지 확인하세요.'
-            : `회원 삭제에 실패했습니다. (${res.status})`,
-      };
+    const json = await response.json() as { success?: boolean; error?: string };
+    if (!response.ok) {
+      return { success: false, error: json?.error || `회원 삭제에 실패했습니다. (${response.status})` };
     }
     if (json?.error) return { success: false, error: json.error };
     return { success: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const isNetwork =
-      msg.includes('Failed to fetch') ||
-      msg.includes('NetworkError') ||
-      msg.includes('Load failed');
-    return {
-      success: false,
-      error: isNetwork
-        ? 'Edge Function 요청에 실패했습니다. 네트워크 및 `admin-delete-user` 배포 여부를 확인하세요.'
-        : msg || '회원 삭제에 실패했습니다.',
-    };
+    return { success: false, error: msg || '회원 삭제에 실패했습니다.' };
   }
 }
 
