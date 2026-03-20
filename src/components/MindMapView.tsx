@@ -17,8 +17,9 @@ const VIRTUAL_ROOT_ID = '__mindmap_project_root__';
 
 /** 트리형 레이아웃 상수 */
 const TREE_START_Y = 40;
-const TREE_CENTER_X = 480;
-const TREE_GAP_X = 24;
+const TREE_CENTER_X = 600;
+const TREE_H_GAP = 20;  // 형제 노드 간 수평 간격
+const TREE_V_GAP = 44;  // 부모-자식 간 수직 간격
 
 /** 알마인드 레이아웃 상수 */
 const ALMIND_CENTER_X = 600;
@@ -40,6 +41,8 @@ interface PosNode {
   depth: number;
   side: number;
   kids: PosNode[];
+  /** 실제 렌더 높이 (가상 루트는 PROJECT_ROOT_H, 나머지는 NODE_H) */
+  nodeH?: number;
 }
 
 interface Edge {
@@ -186,28 +189,54 @@ function layoutAlmindForest(
   return { roots, width: w, height: Math.max(h, maxBottom) };
 }
 
-// ─── 트리형 레이아웃 ─────────────────────────────────────────────────────────
+// ─── 트리형 레이아웃 (형제 수평 배치) ──────────────────────────────────────
 
-function layoutVerticalColumn(
+/**
+ * 서브트리의 총 가로 너비를 재귀적으로 계산한다.
+ * 자식이 없으면 NODE_W, 있으면 자식들의 너비 합 + 간격.
+ */
+function computeSubtreeWidth(node: TreeNode, collapsedIds: Set<string>): number {
+  const children = collapsedIds.has(node.task.id) ? [] : node.children;
+  if (children.length === 0) return NODE_W;
+  const total = children.reduce((s, c) => s + computeSubtreeWidth(c, collapsedIds), 0)
+    + (children.length - 1) * TREE_H_GAP;
+  return Math.max(NODE_W, total);
+}
+
+/**
+ * 노드를 centerX 중심으로 y에 배치하고, 자식들을 수평으로 나란히 배치한다.
+ * parentNodeH: 부모 노드의 실제 높이 (가상 루트는 PROJECT_ROOT_H)
+ */
+function layoutTreeNode(
   node: TreeNode,
   depth: number,
-  parentX: number,
-  startY: number,
-  collapsedIds: Set<string>
-): { root: PosNode; maxY: number } {
-  const isCollapsed = collapsedIds.has(node.task.id);
-  const effectiveChildren = isCollapsed ? [] : node.children;
-  const root: PosNode = { task: node.task, x: parentX, y: startY, depth, side: 0, kids: [] };
-  if (effectiveChildren.length === 0) return { root, maxY: startY + NODE_H };
-  let curY = startY + NODE_H + MIN_NODE_GAP_Y;
-  let maxY = startY + NODE_H;
-  for (const c of node.children) {
-    const sub = layoutVerticalColumn(c, depth + 1, parentX, curY, collapsedIds);
-    root.kids.push(sub.root);
-    curY = sub.maxY + MIN_NODE_GAP_Y;
-    maxY = Math.max(maxY, sub.maxY);
+  centerX: number,
+  y: number,
+  collapsedIds: Set<string>,
+  nodeH: number = NODE_H
+): PosNode {
+  const children = collapsedIds.has(node.task.id) ? [] : node.children;
+  const posNode: PosNode = {
+    task: node.task,
+    x: centerX - NODE_W / 2,
+    y,
+    depth,
+    side: 0,
+    kids: [],
+    nodeH,
+  };
+  if (children.length === 0) return posNode;
+
+  const childY = y + nodeH + TREE_V_GAP;
+  const childWidths = children.map((c) => computeSubtreeWidth(c, collapsedIds));
+  const totalW = childWidths.reduce((s, w) => s + w, 0) + (children.length - 1) * TREE_H_GAP;
+  let curX = centerX - totalW / 2;
+  for (let i = 0; i < children.length; i++) {
+    const childCx = curX + childWidths[i] / 2;
+    posNode.kids.push(layoutTreeNode(children[i], depth + 1, childCx, childY, collapsedIds));
+    curX += childWidths[i] + TREE_H_GAP;
   }
-  return { root, maxY };
+  return posNode;
 }
 
 function layoutTreeForest(
@@ -215,34 +244,16 @@ function layoutTreeForest(
   collapsedIds: Set<string>
 ): { roots: PosNode[]; width: number; height: number } {
   if (forest.length === 0) return { roots: [], width: 400, height: 200 };
+  // wrappedForest는 항상 루트 1개 (가상 프로젝트 루트)
   const rootNode = forest[0];
-  const rootY = TREE_START_Y;
-  const rootX = TREE_CENTER_X - NODE_W / 2;
-  const root: PosNode = { task: rootNode.task, x: rootX, y: rootY, depth: 0, side: 0, kids: [] };
-  const rootCollapsed = collapsedIds.has(rootNode.task.id);
-  const depth1Children = rootCollapsed ? [] : rootNode.children;
-  const n1 = depth1Children.length;
-  if (n1 === 0) {
-    const allNodes = flattenPos(root);
-    let w = 0, h = 0;
-    for (const n of allNodes) { w = Math.max(w, n.x + NODE_W + 80); h = Math.max(h, n.y + NODE_H + 60); }
-    return { roots: [root], width: w, height: h };
-  }
-  const rowWidth = n1 * NODE_W + (n1 - 1) * TREE_GAP_X;
-  const startX = TREE_CENTER_X - rowWidth / 2;
-  const rowY = rootY + NODE_H + MIN_NODE_GAP_Y;
-  let maxHeight = rowY + NODE_H;
-  for (let i = 0; i < n1; i++) {
-    const child = depth1Children[i];
-    const cx = startX + i * (NODE_W + TREE_GAP_X);
-    const posChild = layoutVerticalColumn(child, 1, cx, rowY, collapsedIds);
-    root.kids.push(posChild.root);
-    maxHeight = Math.max(maxHeight, posChild.maxY);
-  }
+  const root = layoutTreeNode(rootNode, 0, TREE_CENTER_X, TREE_START_Y, collapsedIds, PROJECT_ROOT_H);
   const allNodes = flattenPos(root);
   let w = 0, h = 0;
-  for (const n of allNodes) { w = Math.max(w, n.x + NODE_W + 80); h = Math.max(h, n.y + NODE_H + 60); }
-  return { roots: [root], width: w, height: Math.max(h, maxHeight) + 40 };
+  for (const n of allNodes) {
+    w = Math.max(w, n.x + NODE_W + 80);
+    h = Math.max(h, n.y + (n.nodeH ?? NODE_H) + 60);
+  }
+  return { roots: [root], width: w, height: h };
 }
 
 // ─── 엣지 수집 ───────────────────────────────────────────────────────────────
@@ -250,7 +261,7 @@ function layoutTreeForest(
 function collectEdgesTree(root: PosNode): Edge[] {
   const edges: Edge[] = [];
   const parentCx = root.x + NODE_W / 2;
-  const parentBottom = root.y + NODE_H;
+  const parentBottom = root.y + (root.nodeH ?? NODE_H);
   for (const k of root.kids) {
     const childCx = k.x + NODE_W / 2;
     const childTop = k.y;
@@ -334,10 +345,24 @@ function isDescendant(tasks: Task[], ancestorId: string, id: string): boolean {
 // ─── 색상 ────────────────────────────────────────────────────────────────────
 
 const DEPTH_FILL: Record<number, string> = {
-  0: '#22c55e', 1: '#3b82f6', 2: '#7dd3fc', 3: '#e5e7eb',
+  0: '#1e293b',   // 프로젝트 루트 (가상)
+  1: '#fee2e2',   // 빨 (red-100)
+  2: '#ffedd5',   // 주 (orange-100)
+  3: '#fef9c3',   // 노 (yellow-100)
+  4: '#d1fae5',   // 초 (emerald-100)
+  5: '#dbeafe',   // 파 (blue-100)
+  6: '#e0e7ff',   // 남 (indigo-100)
+  7: '#f3e8ff',   // 보 (violet-100)
 };
 const DEPTH_STROKE: Record<number, string> = {
-  0: '#16a34a', 1: '#2563eb', 2: '#0ea5e9', 3: '#9ca3af',
+  0: '#0f172a',
+  1: '#dc2626',   // red-600
+  2: '#ea580c',   // orange-600
+  3: '#ca8a04',   // yellow-600 (노랑 가시성 위해 약간 어둡게)
+  4: '#059669',   // emerald-600
+  5: '#2563eb',   // blue-600
+  6: '#4338ca',   // indigo-700
+  7: '#7c3aed',   // violet-600
 };
 const STATUS_FILL: Record<string, string> = {
   todo: '#f1f5f9',
@@ -411,8 +436,12 @@ export function MindMapView({ filters }: MindMapViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingNodeValue, setEditingNodeValue] = useState('');
+  const inlineInputRef = useRef<HTMLInputElement>(null);
   const transformRef = useRef({ pan: { x: 0, y: 0 }, scale: 1, nodes: [] as PosNode[] });
   const justDraggedRef = useRef(false);
+  const pendingPanIdRef = useRef<string | null>(null);
 
   const toggleCollapsed = useCallback((taskId: string) => {
     setCollapsedIds((prev) => {
@@ -445,6 +474,22 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
   transformRef.current = { pan, scale, nodes };
 
+  // 하위 작업 추가 후 새 노드로 자동 팬
+  useEffect(() => {
+    const pendingId = pendingPanIdRef.current;
+    if (!pendingId) return;
+    const node = nodes.find((n) => n.task.id === pendingId);
+    if (!node) return;
+    pendingPanIdRef.current = null;
+    const el = containerRef.current;
+    if (!el) return;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const nodeCx = node.x + NODE_W / 2;
+    const nodeCy = node.y + NODE_H / 2;
+    setPan({ x: cw / 2 - nodeCx * scale, y: ch / 2 - nodeCy * scale });
+  }, [nodes, scale]);
+
   // ─── 선택 노드 자동 팬 ─────────────────────────────────────────────────────
   const panToNode = useCallback((nodeId: string) => {
     const node = transformRef.current.nodes.find((n) => n.task.id === nodeId);
@@ -459,17 +504,57 @@ export function MindMapView({ filters }: MindMapViewProps) {
     setPan({ x: targetPanX, y: targetPanY });
   }, []);
 
+  // 인라인 편집 시작 시 input 포커스 + 전체 선택
+  useEffect(() => {
+    if (editingNodeId && inlineInputRef.current) {
+      inlineInputRef.current.focus();
+      inlineInputRef.current.select();
+    }
+  }, [editingNodeId]);
+
+  const startInlineEdit = useCallback((nodeId: string, currentName: string) => {
+    setEditingNodeId(nodeId);
+    setEditingNodeValue(currentName);
+  }, []);
+
+  const saveInlineEdit = useCallback(() => {
+    if (!editingNodeId) return;
+    const trimmed = editingNodeValue.trim();
+    if (trimmed) updateTask(editingNodeId, { name: trimmed });
+    setEditingNodeId(null);
+  }, [editingNodeId, editingNodeValue, updateTask]);
+
+  const cancelInlineEdit = useCallback(() => {
+    setEditingNodeId(null);
+  }, []);
+
   // ─── 줌·팬 ─────────────────────────────────────────────────────────────────
   const onWheel = useCallback((e: React.WheelEvent) => {
-    if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    setScale((s) => Math.min(2.5, Math.max(0.35, s + (e.deltaY > 0 ? -0.08 : 0.08))));
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+휠: 줌 (마우스 위치 기준)
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = e.deltaY > 0 ? -0.08 : 0.08;
+      setScale((s) => {
+        const next = Math.min(2.5, Math.max(0.35, s + factor));
+        const ratio = next / s;
+        setPan((p) => ({ x: mx - (mx - p.x) * ratio, y: my - (my - p.y) * ratio }));
+        return next;
+      });
+    } else {
+      // 일반 휠: 팬 (수직/수평 스크롤)
+      setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+    }
   }, []);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const prevent = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
+    const prevent = (e: WheelEvent) => e.preventDefault();
     el.addEventListener('wheel', prevent, { passive: false });
     return () => el.removeEventListener('wheel', prevent);
   }, []);
@@ -512,13 +597,15 @@ export function MindMapView({ filters }: MindMapViewProps) {
       }
       return null;
     };
+    let hasMoved = false;
     const onMove = (e: MouseEvent) => {
+      hasMoved = true;
       const pt = clientToSvg(e.clientX, e.clientY);
       if (!pt) return;
       setDropTargetId(getNodeAt(pt.sx, pt.sy)?.task.id ?? null);
     };
     const onUp = (e: MouseEvent) => {
-      justDraggedRef.current = true;
+      justDraggedRef.current = hasMoved;
       const pt = clientToSvg(e.clientX, e.clientY);
       if (pt) {
         const node = getNodeAt(pt.sx, pt.sy);
@@ -575,8 +662,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
     const proj = projects.find((p) => p.id === targetProjectId);
     const start = selectedTask.startDate || proj?.startDate || new Date().toISOString().slice(0, 10);
     const end = selectedTask.endDate || proj?.endDate || start;
-    addTask({ parentId: selectedTask.id, name: '새 하위 작업', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' }, undefined, targetProjectId);
+    const newId = addTask({ parentId: selectedTask.id, name: '새 하위 작업', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' }, undefined, targetProjectId);
     setCollapsedIds((prev) => { const next = new Set(prev); next.delete(selectedTask.id); return next; });
+    setSelectedTaskId(newId);
+    pendingPanIdRef.current = newId;
   }, [selectedTask, projects, addTask]);
 
   // 루트 작업 추가
@@ -608,9 +697,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
   // ─── 키보드 ────────────────────────────────────────────────────────────────
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (editingNodeId) return; // 인라인 편집 중 SVG 키보드 이벤트 무시
     if (nodes.length === 0) return;
     if (!selectedTaskId) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'Tab') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
         e.preventDefault();
         // 가상 루트(depth 0)는 건너뛰고 첫 번째 실제 작업 노드 선택
         const firstReal = nodes.find((n) => n.task.id !== VIRTUAL_ROOT_ID);
@@ -630,26 +720,48 @@ export function MindMapView({ filters }: MindMapViewProps) {
     };
 
     switch (e.key) {
-      case 'ArrowLeft':
+      case 'ArrowUp':
         e.preventDefault();
         selectAndPan(nav.parentId);
         return;
-      case 'ArrowRight':
-        e.preventDefault();
-        selectAndPan(nav.firstChildId ?? nav.nextSiblingId);
-        return;
-      case 'ArrowUp':
-        e.preventDefault();
-        selectAndPan(nav.prevSiblingId);
-        return;
       case 'ArrowDown':
         e.preventDefault();
-        selectAndPan(nav.nextSiblingId);
+        selectAndPan(nav.firstChildId);
         return;
+      case 'ArrowLeft': {
+        e.preventDefault();
+        if (nav.prevSiblingId) {
+          selectAndPan(nav.prevSiblingId);
+        } else {
+          // 형제 없으면 같은 depth의 이전 노드 (다른 서브트리 포함)
+          const cur = nodes.find((n) => n.task.id === selectedTaskId);
+          if (cur) {
+            const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
+            const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
+            if (idx > 0) selectAndPan(sameDepth[idx - 1].task.id);
+          }
+        }
+        return;
+      }
+      case 'ArrowRight': {
+        e.preventDefault();
+        if (nav.nextSiblingId) {
+          selectAndPan(nav.nextSiblingId);
+        } else {
+          // 형제 없으면 같은 depth의 다음 노드 (다른 서브트리 포함)
+          const cur = nodes.find((n) => n.task.id === selectedTaskId);
+          if (cur) {
+            const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
+            const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
+            if (idx < sameDepth.length - 1) selectAndPan(sameDepth[idx + 1].task.id);
+          }
+        }
+        return;
+      }
       case 'Tab':
         e.preventDefault();
         if (e.shiftKey) selectAndPan(nav.parentId);
-        else { if (nav.firstChildId) selectAndPan(nav.firstChildId); else addChildTask(); }
+        else addChildTask();
         return;
       case 'Home':
         e.preventDefault();
@@ -662,6 +774,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
       case ' ':
         e.preventDefault();
         if (hasChildrenInForest(wrappedForest, selectedTaskId)) toggleCollapsed(selectedTaskId);
+        return;
+      case 'F2':
+        e.preventDefault();
+        if (selectedTask) startInlineEdit(selectedTask.id, selectedTask.name || '');
         return;
       case 'Enter':
         e.preventDefault();
@@ -682,16 +798,16 @@ export function MindMapView({ filters }: MindMapViewProps) {
         if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); addChildTask(); }
         break;
     }
-  }, [nodes, scopedTasks, selectedTaskId, selectedTask, wrappedForest, toggleCollapsed, openDetailEdit, addChildTask, panToNode]);
+  }, [nodes, scopedTasks, selectedTaskId, selectedTask, wrappedForest, toggleCollapsed, openDetailEdit, addChildTask, panToNode, startInlineEdit, editingNodeId]);
 
   // ─── 노드 색상 헬퍼 ────────────────────────────────────────────────────────
   const getNodeFill = (n: PosNode) => {
     if (colorMode === 'status') return STATUS_FILL[n.task.status] ?? STATUS_FILL.todo;
-    return DEPTH_FILL[n.depth] ?? DEPTH_FILL[3];
+    return DEPTH_FILL[Math.min(n.depth, 7)] ?? DEPTH_FILL[7];
   };
   const getNodeStroke = (n: PosNode) => {
     if (colorMode === 'status') return STATUS_STROKE[n.task.status] ?? STATUS_STROKE.todo;
-    return DEPTH_STROKE[n.depth] ?? DEPTH_STROKE[3];
+    return DEPTH_STROKE[Math.min(n.depth, 7)] ?? DEPTH_STROKE[7];
   };
 
   // 담당자 이니셜 (최대 2글자)
@@ -712,7 +828,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
           <h2 className="text-sm font-bold text-slate-800 truncate">
             {layoutMode === 'tree' ? '트리' : '알마인드'} — {projectLabel}
           </h2>
-          <p className="text-[10px] text-slate-400">← 부모 → 자식 ↑↓ 형제 · Tab 자식 · Space 접기 · Enter 편집 · Del 삭제</p>
+          <p className="text-[10px] text-slate-400">↑ 부모 ↓ 자식 ←→ 형제 · Tab 자식 · Space 접기 · Enter 편집 · Del 삭제</p>
         </div>
         <div className="flex items-center gap-1 shrink-0 flex-wrap">
           {/* 레이아웃 전환 */}
@@ -861,10 +977,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
                   // 가상 루트: 고정 스타일
                   const fill = isVirtualRoot
-                    ? '#1e293b'
+                    ? 'white'
                     : isDropTarget ? 'rgb(240 253 244)' : getNodeFill(n);
                   const stroke = isVirtualRoot
-                    ? '#0f172a'
+                    ? '#1e293b'
                     : isDropTarget ? '#22c55e' : isSelected ? '#6366f1' : getNodeStroke(n);
 
                   const progress = isVirtualRoot ? 0 : (typeof n.task.progress === 'number' ? Math.min(100, Math.max(0, n.task.progress)) : 0);
@@ -897,9 +1013,15 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           setDraggingNodeId(n.task.id);
                         }}
                         onClick={() => {
-                          if (isVirtualRoot) return; // 가상 루트 선택 불가
+                          if (isVirtualRoot) return;
                           if (justDraggedRef.current) { justDraggedRef.current = false; return; }
                           setSelectedTaskId(n.task.id);
+                        }}
+                        onDoubleClick={(e) => {
+                          if (isVirtualRoot) return;
+                          e.stopPropagation();
+                          setSelectedTaskId(n.task.id);
+                          startInlineEdit(n.task.id, n.task.name || '');
                         }}
                       >
                         <defs>
@@ -914,7 +1036,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           height={nodeH}
                           rx={isVirtualRoot ? 12 : 8}
                           stroke={stroke}
-                          strokeWidth={isVirtualRoot ? 0 : isDropTarget ? 2.5 : isSelected ? 2.5 : 1.5}
+                          strokeWidth={isVirtualRoot ? 2 : isDropTarget ? 2.5 : isSelected ? 2.5 : 1.5}
                           strokeDasharray={isDropTarget ? '4 2' : undefined}
                           fill={fill}
                           filter={isDragging ? undefined : `url(#mmShadowStrong-${filterId})`}
@@ -957,25 +1079,32 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           )}
 
                           {/* 작업명 (가상 루트는 흰색 큰 텍스트) */}
-                          <text
-                            x={wbsId ? 40 : 12}
-                            y={TEXT_AREA_H / 2 + 5}
-                            className="pointer-events-none"
-                            style={{
-                              fontSize: isVirtualRoot ? 15 : n.depth === 1 ? 12 : 11,
-                              fontWeight: isVirtualRoot ? 700 : n.depth === 1 ? 600 : 500,
-                              fill: isVirtualRoot ? 'white' : '#1e293b',
-                            }}
-                          >
-                            {(() => {
-                              const raw = n.task.name || '(이름 없음)';
-                              const reserveRight = assigneeInitials ? 24 : 0;
-                              const availW = nodeContentW - (wbsId ? 40 : 12) - reserveRight - 8;
-                              const charsPerPx = isVirtualRoot ? 9 : 7;
-                              const maxLen = Math.max(4, Math.floor(availW / charsPerPx));
-                              return raw.length > maxLen ? `${raw.slice(0, maxLen - 1)}…` : raw;
-                            })()}
-                          </text>
+                          {(() => {
+                            // WBS ID 글자 수에 따라 작업명 시작 x를 동적 계산 (깊이 증가 시 겹침 방지)
+                            const wbsCharPx = n.depth <= 1 ? 6.5 : 6;
+                            const nameX = wbsId ? Math.max(40, Math.round(8 + wbsId.length * wbsCharPx + 4)) : 12;
+                            const raw = n.task.name || '(이름 없음)';
+                            const reserveRight = assigneeInitials ? 24 : 0;
+                            const availW = nodeContentW - nameX - reserveRight - 8;
+                            const charsPerPx = isVirtualRoot ? 9 : 7;
+                            const maxLen = Math.max(4, Math.floor(availW / charsPerPx));
+                            const label = raw.length > maxLen ? `${raw.slice(0, maxLen - 1)}…` : raw;
+                            return (
+                              <text
+                                x={isVirtualRoot ? nodeContentW / 2 : nameX}
+                                y={TEXT_AREA_H / 2 + 5}
+                                textAnchor={isVirtualRoot ? 'middle' : 'start'}
+                                className="pointer-events-none"
+                                style={{
+                                  fontSize: isVirtualRoot ? 15 : n.depth === 1 ? 12 : 11,
+                                  fontWeight: isVirtualRoot ? 700 : n.depth === 1 ? 600 : 500,
+                                  fill: '#1e293b',
+                                }}
+                              >
+                                {label}
+                              </text>
+                            );
+                          })()}
 
                           {/* 담당자 이니셜 배지 (가상 루트 제외) */}
                           {assigneeInitials && (
@@ -1004,6 +1133,36 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           >
                             {progress}%
                           </text>
+                        )}
+
+                        {/* 인라인 편집 오버레이 */}
+                        {editingNodeId === n.task.id && (
+                          <foreignObject x={0} y={0} width={nodeContentW} height={nodeH}>
+                            <input
+                              ref={inlineInputRef}
+                              value={editingNodeValue}
+                              onChange={(e) => setEditingNodeValue(e.target.value)}
+                              onBlur={saveInlineEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); saveInlineEdit(); }
+                                else if (e.key === 'Escape') { e.preventDefault(); cancelInlineEdit(); }
+                                e.stopPropagation();
+                              }}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                padding: '0 10px',
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: '#1e293b',
+                                background: 'white',
+                                border: 'none',
+                                outline: '2.5px solid #6366f1',
+                                borderRadius: 8,
+                                boxSizing: 'border-box',
+                              }}
+                            />
+                          </foreignObject>
                         )}
                       </g>
                     </g>

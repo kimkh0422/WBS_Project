@@ -16,7 +16,7 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
                 { label: '표만', keys: ['Ctrl', 'Shift', '4'] },
                 { label: '간트만', keys: ['Ctrl', 'Shift', '5'] },
                 { label: '칸반', keys: ['Ctrl', 'Shift', '6'] },
-                { label: '마인드맵', keys: ['Ctrl', 'Shift', '7'], hint: '관리자 전용' },
+                { label: '마인드맵', keys: ['Ctrl', 'Shift', '7'] },
             ],
         },
         {

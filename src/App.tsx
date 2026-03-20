@@ -248,10 +248,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     if (hiddenViews.has(view)) setView('table');
   }, [hiddenViews, view]);
 
-  // 마인드맵은 관리자 전용: 비관리자가 해당 화면이면 표만으로 이동
-  useEffect(() => {
-    if (view === 'mindmap' && !effectiveIsAdmin) setView('table');
-  }, [view, effectiveIsAdmin]);
+  // 마인드맵은 전체 공개 — 관리자 전용 제한 없음
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -865,7 +862,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       const nextView = VIEW_SHORTCUTS[e.code];
       if (!nextView) return;
-      if (nextView === 'mindmap' && !effectiveIsAdmin) return;
       if (hiddenViews.has(nextView)) return;
       e.preventDefault();
       navigateWithTip(nextView);

@@ -555,6 +555,7 @@ export function AppHeader({
             <NavButton active={view === 'table'} onClick={() => navigateWithTip('table')} icon={<CheckSquare size={14} />} label="표만" title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다." tourId="tour-nav-table" />
             <NavButton active={view === 'gantt'} onClick={() => navigateWithTip('gantt')} icon={<Target size={14} />} label="간트만" title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다." tourId="tour-nav-gantt" />
             <NavButton active={view === 'kanban'} onClick={() => navigateWithTip('kanban')} icon={<MapIcon size={14} />} label="칸반" title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다." tourId="tour-nav-kanban" />
+            <NavButton active={view === 'mindmap'} onClick={() => navigateWithTip('mindmap')} icon={<Network size={14} />} label="마인드맵" title="WBS 계층을 트리 형태로 보고, 노드를 눌러 작업을 편집할 수 있어요." tourId="tour-nav-mindmap" />
           </div>
 
           <div className="toolbar-divider" />
@@ -709,23 +710,6 @@ export function AppHeader({
                   {effectiveIsAdmin && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">관리자 기능</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMoreMenuOpen(false);
-                          setView('mindmap');
-                          tipOnce?.(
-                            'nav.mindmap',
-                            '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.'
-                          );
-                        }}
-                        className={cn(
-                          'w-full text-left px-3 py-2 text-sm flex items-center gap-2',
-                          view === 'mindmap' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-600 hover:bg-slate-50'
-                        )}
-                      >
-                        <Network size={14} /> 마인드맵
-                      </button>
                       <button
                         type="button"
                         onClick={() => {

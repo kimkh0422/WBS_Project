@@ -65,7 +65,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, rowHeights: propRowHeights, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
   const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings } = useWBS();
-  const { levelBarBg, levelBorderColor } = useLevelColors();
+  const { levelBarBg, levelBorderColor, levelRowBg } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
@@ -850,12 +850,12 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         isSelected && !isBeingDragged && !isCritical ? "ring-2 ring-blue-300/80" : "",
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
-                      style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }}
+                      style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelRowBg(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignments?.length ? ` · 투입: ${task.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}` : task.assignee ? ` · ${task.assignee}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white font-medium break-words pr-8 drop-shadow-md pointer-events-none line-clamp-2" style={{ width: 'calc(100% - 12px)' }}>
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-medium break-words pr-8 pointer-events-none line-clamp-2 text-slate-800" style={{ width: 'calc(100% - 12px)' }}>
                           {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                         </span>
                       )}
@@ -1116,7 +1116,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       style={
                         isMilestone
                           ? { left: left + (dayWidth / 2) - 8, top: rowH / 2 - 8, width: 16, height: 16 }
-                          : { left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelBarBg(level), borderColor: isCritical ? '#dc2626' : levelBorderColor(level) }
+                          : { left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelRowBg(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }
                       }
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}`}
                     >
@@ -1124,7 +1124,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         <>
                           <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                           {width >= 40 && (
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white font-medium truncate pr-8 drop-shadow-md pointer-events-none" style={{ width: 'calc(100% - 12px)' }}>
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-medium truncate pr-8 pointer-events-none text-slate-800" style={{ width: 'calc(100% - 12px)' }}>
                               {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}
                             </span>
                           )}
