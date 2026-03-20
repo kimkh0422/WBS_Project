@@ -909,17 +909,25 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 disabled={readOnly}
               />
             </div>
-            <div className="min-w-0">
-              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>
-              <div className="flex gap-1.5 items-center">
-                <input type="number" min="0" step="0.5" value={formData.workEffort ?? ''} onChange={(e) => setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-1.5 text-sm w-14 flex-shrink-0" placeholder="0.5" aria-label="작업 공수" readOnly={readOnly} disabled={readOnly} />
-                {!readOnly && (
-                  <>
-                    <button type="button" onClick={handleApplyEndDateFromEffort} className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors shrink-0" title="시작일·공수·투입비율 → 종료일"><Calculator size={12} /> 기간자동</button>
-                    <button type="button" onClick={handleApplyWorkEffortFromDates} className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-ink)] hover:bg-slate-100 rounded-lg border border-[var(--color-line)] transition-colors shrink-0" title="시작일·종료일 → 공수">공수역산</button>
-                  </>
-                )}
-                <span className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)] p-0.5 shrink-0" title={effortHelpText} aria-label="공수 도움말"><Info size={12} /></span>
+            <div className="col-span-full min-w-0">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 items-end">
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>
+                  <div className="flex gap-1.5 items-center">
+                    <input type="number" min="0" step="0.5" value={formData.workEffort ?? ''} onChange={(e) => setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-1.5 text-sm w-20 flex-shrink-0" placeholder="0.5" aria-label="작업 공수" readOnly={readOnly} disabled={readOnly} />
+                    {!readOnly && (
+                      <>
+                        <button type="button" onClick={handleApplyEndDateFromEffort} className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors shrink-0" title="시작일·공수·투입비율 → 종료일"><Calculator size={12} /> 기간자동</button>
+                        <button type="button" onClick={handleApplyWorkEffortFromDates} className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-ink)] hover:bg-slate-100 rounded-lg border border-[var(--color-line)] transition-colors shrink-0" title="시작일·종료일 → 공수">공수역산</button>
+                      </>
+                    )}
+                    <span className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)] p-0.5 shrink-0" title={effortHelpText} aria-label="공수 도움말"><Info size={12} /></span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">가중치</label>
+                  <input type="number" min="0" step="0.1" value={formData.weight ?? ''} onChange={(e) => setFormData({ ...formData, weight: e.target.value === '' ? undefined : parseFloat(e.target.value) })} className="input-field py-1.5 text-sm w-24" placeholder="—" aria-label="작업 가중치" readOnly={readOnly} disabled={readOnly} />
+                </div>
               </div>
             </div>
             {showHelp && (

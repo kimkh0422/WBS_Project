@@ -32,6 +32,21 @@ function createInProcessAuthLock() {
   };
 }
 
+/**
+ * 모든 REST 요청에 apikey 헤더를 보장하는 커스텀 fetch.
+ * 클라이언트가 apikey를 정상적으로 포함하지 못하는 엣지케이스(세션 갱신 타이밍,
+ * 브라우저 확장 등)를 방어적으로 처리한다.
+ */
+function makeApikeyGuardedFetch(anonKey: string) {
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('apikey')) {
+      headers.set('apikey', anonKey);
+    }
+    return fetch(input, { ...init, headers });
+  };
+}
+
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -39,6 +54,9 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         lock: createInProcessAuthLock() as NonNullable<
           NonNullable<Parameters<typeof createClient>[2]>['auth']
         >['lock'],
+      },
+      global: {
+        fetch: makeApikeyGuardedFetch(supabaseAnonKey),
       },
     })
   : null;

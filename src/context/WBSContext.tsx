@@ -246,7 +246,6 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
 
   let minStart = children[0].startDate;
   let maxEnd = children[0].endDate;
-  let totalEffort = 0;
   let totalWeight = 0;
   let weightedProgressSum = 0;
   let simpleProgressSum = 0;
@@ -254,8 +253,9 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
   for (const child of children) {
     if (child.startDate && child.startDate < minStart) minStart = child.startDate;
     if (child.endDate && child.endDate > maxEnd) maxEnd = child.endDate;
+    // 공수(workEffort)는 부모에서 사용자가 직접 입력한 값을 유지하므로 롤업하지 않는다.
+    // 대신 진행률 가중 평균 계산에 필요한 weight fallback으로만 effort를 사용한다.
     const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
-    totalEffort += effort;
     const weight =
       typeof child.weight === 'number' && Number.isFinite(child.weight)
         ? child.weight
@@ -276,14 +276,10 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
     parentProgress = Math.round(simpleProgressSum / children.length);
   }
 
-  const parentEffort = typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort)
-    ? parent.workEffort
-    : undefined;
   const progressLocked = (parent.userLockedFields ?? []).includes('progress');
   const shouldUpdate =
     parent.startDate !== minStart ||
     parent.endDate !== maxEnd ||
-    parentEffort !== totalEffort ||
     (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
@@ -293,7 +289,6 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
           ...t,
           startDate: minStart,
           endDate: maxEnd,
-          workEffort: totalEffort,
           ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
         }
         : t
@@ -876,6 +871,8 @@ export function WBSProvider({
         fetchTasks(),
         fetchSettings(),
       ]);
+      // fetch 완료 후 다시 확인: fetch 중 로컬 편집이 발생했으면 덮어쓰지 않는다
+      if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
       setProjects(dbProjects);
       setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));

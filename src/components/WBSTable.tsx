@@ -963,7 +963,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       }
 
       // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
+      // number 타입 input에서는 화살표 키를 값 증감에만 사용하고 셀 이동하지 않는다
+      // (빠르게 누를 경우 blur → row 포커스 → 행 더블클릭 오작동 방지)
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+        if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') return;
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
@@ -3262,6 +3265,7 @@ function SortableTaskRowInner({
               className={cn("data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedWE && "ring-2 ring-blue-500 ring-inset")}
               style={otherRingStyle}
               onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               <LockBadge field="workEffort" />
               {isEditing ? (
@@ -3322,6 +3326,7 @@ function SortableTaskRowInner({
                 isFocusedW && "ring-2 ring-blue-500 ring-inset"
               )}
               onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               {isEditing ? (
                 <input
