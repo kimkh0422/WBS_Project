@@ -3391,6 +3391,7 @@ function SortableTaskRowInner({
                 onContextMenu(e, task.id, 'progress');
               }}
               onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
               title={tableEditMode ? '클릭하여 진척률 수정 · 우클릭: 갱신 메뉴' : '더블클릭하여 수정 · 마우스 우클릭: 갱신 메뉴'}
             >
               {isEditing ? (
@@ -3399,7 +3400,7 @@ function SortableTaskRowInner({
                   type="number"
                   min={0}
                   max={100}
-                  step={0.01}
+                  step={5}
                   autoFocus
                   defaultValue={typeof task.progress === 'number' ? task.progress : ''}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"

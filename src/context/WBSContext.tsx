@@ -279,11 +279,11 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
   const lockedFields = new Set(parent.userLockedFields ?? []);
   const startDateLocked = lockedFields.has('startDate');
   const endDateLocked = lockedFields.has('endDate');
-  const progressLocked = lockedFields.has('progress');
+  // 자식이 있는 부모의 진척률은 항상 자식 가중평균으로 계산 (수동 편집 잠금 무시)
   const shouldUpdate =
     (!startDateLocked && parent.startDate !== minStart) ||
     (!endDateLocked && parent.endDate !== maxEnd) ||
-    (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
+    (parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
     ? allTasks.map(t =>
@@ -292,7 +292,7 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
           ...t,
           ...(!startDateLocked ? { startDate: minStart } : {}),
           ...(!endDateLocked ? { endDate: maxEnd } : {}),
-          ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
+          ...(parentProgress !== undefined ? { progress: parentProgress } : {}),
         }
         : t
     )
