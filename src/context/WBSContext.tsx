@@ -276,10 +276,13 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
     parentProgress = Math.round(simpleProgressSum / children.length);
   }
 
-  const progressLocked = (parent.userLockedFields ?? []).includes('progress');
+  const lockedFields = new Set(parent.userLockedFields ?? []);
+  const startDateLocked = lockedFields.has('startDate');
+  const endDateLocked = lockedFields.has('endDate');
+  const progressLocked = lockedFields.has('progress');
   const shouldUpdate =
-    parent.startDate !== minStart ||
-    parent.endDate !== maxEnd ||
+    (!startDateLocked && parent.startDate !== minStart) ||
+    (!endDateLocked && parent.endDate !== maxEnd) ||
     (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
@@ -287,8 +290,8 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
       t.id === parentId
         ? {
           ...t,
-          startDate: minStart,
-          endDate: maxEnd,
+          ...(!startDateLocked ? { startDate: minStart } : {}),
+          ...(!endDateLocked ? { endDate: maxEnd } : {}),
           ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
         }
         : t

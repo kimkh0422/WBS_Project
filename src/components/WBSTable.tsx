@@ -3437,48 +3437,54 @@ function SortableTaskRowInner({
         if (colId === 'assignee') {
           const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
           const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim()].filter(Boolean))).sort();
-          const isFocusedAssignee = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee';
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
+          const isFocusedAssignee = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
           return (
             <div
               key={colId}
-              className={cn("data-cell text-xs text-stone-600 relative overflow-visible group/assignee", isFocusedAssignee && "ring-2 ring-blue-500 ring-inset rounded")}
-              onClick={(e) => { e.stopPropagation(); if (tableEditMode) setFocusedCell({ taskId: task.id, columnId: 'assignee' }); }}
+              className={cn("data-cell text-xs text-stone-600 relative overflow-visible group/assignee", tableEditMode && !isEditing && "ring-1 ring-dashed ring-slate-300 rounded", isFocusedAssignee && "ring-2 ring-blue-500 ring-inset")}
+              onClick={(e) => { e.stopPropagation(); if (tableEditMode && !isEditing) { setFocusedCell({ taskId: task.id, columnId: 'assignee' }); setEditingCell({ taskId: task.id, columnId: 'assignee' }); } }}
+              onDoubleClick={(e) => { e.stopPropagation(); setEditingCell({ taskId: task.id, columnId: 'assignee' }); }}
             >
-              <input
-                id={`wbs-edit-${task.id}-assignee`}
-                type="text"
-                list={`assignee-datalist-${task.id}`}
-                value={task.assignee || ''}
-                onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v !== (task.assignee || '').trim()) {
-                    updateTask(task.id, { assignee: v });
-                  }
-                }}
-                readOnly={!tableEditMode}
-                tabIndex={tableEditMode ? 0 : -1}
-                onMouseDown={(e) => {
-                  if (!tableEditMode) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }
-                }}
-                placeholder="배정 ..."
-                className={cn(
-                  "w-full bg-transparent p-1 pr-6 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 transition-colors",
-                  !tableEditMode && "cursor-default"
-                )}
-              />
-              <datalist id={`assignee-datalist-${task.id}`}>
-                <option value="">배정 안됨</option>
-                {assigneeOptions.length > 0
-                  ? assigneeOptions.map(a => <option key={a} value={a} />)
-                  : allAssignees.map(a => <option key={a} value={a} />)}
-              </datalist>
-              <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
-                <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-              </div>
+              {isEditing ? (
+                <>
+                  <input
+                    id={`wbs-edit-${task.id}-assignee`}
+                    type="text"
+                    list={`assignee-datalist-${task.id}`}
+                    autoFocus
+                    defaultValue={task.assignee || ''}
+                    placeholder="배정 ..."
+                    className="w-full bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none pr-6"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (task.assignee || '').trim()) {
+                        updateTask(task.id, { assignee: v });
+                      }
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      if (e.key === 'Escape') { setEditingCell(null); e.preventDefault(); }
+                    }}
+                  />
+                  <datalist id={`assignee-datalist-${task.id}`}>
+                    <option value="">배정 안됨</option>
+                    {assigneeOptions.length > 0
+                      ? assigneeOptions.map(a => <option key={a} value={a} />)
+                      : allAssignees.map(a => <option key={a} value={a} />)}
+                  </datalist>
+                </>
+              ) : (
+                <>
+                  <div className={cn("w-full px-1 py-0.5 truncate", task.assignee ? "text-stone-600" : "text-stone-400")}>
+                    {task.assignee || '배정 ...'}
+                  </div>
+                  <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
+                    <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                  </div>
+                </>
+              )}
             </div>
           );
         }
