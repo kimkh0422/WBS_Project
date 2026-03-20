@@ -1735,10 +1735,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             newTasks.forEach((t) => {
               const a = (t.assignee || '').trim();
               if (a) assigneesFromTasks.add(a);
-              (t.assignments ?? []).forEach((a2) => {
-                const n = (a2.assignee || '').trim();
-                if (n) assigneesFromTasks.add(n);
-              });
             });
             const toAdd = [...assigneesFromTasks].filter((name) => !existingNames.has(name));
             if (toAdd.length > 0) {

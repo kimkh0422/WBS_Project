@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
-import { Task, TaskStatus, TaskAssignment } from '../types';
+import { Task, TaskStatus } from '../types';
 import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
@@ -168,7 +168,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const currentUserName = String((user as any)?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find(p => p.id === taskProjectId);
-  const projectAssignments: TaskAssignment[] = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
+  const projectAssignments = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
   const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
   type TaskFormState = Partial<Task> & { allocationPercent?: number };
   const [formData, setFormData] = useState<TaskFormState>({
@@ -270,11 +270,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   useEffect(() => {
     if (initialData) {
-      const { assignments: initialAssignments, ...rest } = initialData as Task & { assignments?: TaskAssignment[] };
+      const { ...rest } = initialData as Task;
       const assignee = (rest.assignee || '').trim();
-      const match = initialAssignments?.find(a => (a.assignee || '').trim() === assignee);
       const projectMatch = projectAssignments.find(a => (a.assignee || '').trim() === assignee);
-      const allocationPercent = match?.allocationPercent ?? projectMatch?.allocationPercent ?? 100;
+      const allocationPercent = projectMatch?.allocationPercent ?? 100;
       const checklist = filterChecklistAgainstChildren(
         rest.checklist,
         initialData.id,
@@ -445,13 +444,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
       alert(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
       return;
     }
-    const assignee = (toMerge.assignee || '').trim();
-    const allocationPct = Math.min(100, Math.max(0, (toMerge as TaskFormState).allocationPercent ?? 100));
-    const assignments: TaskAssignment[] = assignee
-      ? [{ assignee, allocationPercent: allocationPct }]
-      : (initialData?.assignments ?? []);
     const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
-    const toSave = { ...toMergeRest, assignments } as Partial<Task>;
+    const toSave = { ...toMergeRest } as Partial<Task>;
     if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
     if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round2(toSave.weight);
     if (initialData?.id) {

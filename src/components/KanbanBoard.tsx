@@ -224,8 +224,8 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, onClick, onDelete,
         )}
         <div className="flex items-center gap-2 text-xs text-stone-500">
           <User size={12} />
-          <span className="truncate max-w-[100px]" title={task.assignments?.length ? task.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ') : undefined}>
-            {task.assignments?.length ? task.assignments.map(a => `${a.assignee} (${a.allocationPercent}%)`).join(', ') : (task.assignee || '미배정')}
+          <span className="truncate max-w-[100px]">
+            {task.assignee || '미배정'}
           </span>
         </div>
 

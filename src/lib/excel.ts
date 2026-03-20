@@ -787,17 +787,15 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   };
 };
 
-/** 작업별 투입율만 반환 (예: "10%" 또는 "10%, 20%"). task 배정 없으면 프로젝트 설정값 사용 */
+/** 작업별 투입율만 반환 (예: "50%"). 프로젝트 설정값 사용 */
 function getAllocationRateString(
   task: Task,
   projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>
 ): string {
-  const assignments = task.assignments?.length
-    ? task.assignments
-    : (task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : []);
-  return assignments.length
-    ? assignments.map(a => `${a.allocationPercent}%`).join(', ')
-    : '';
+  const assignments = task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : [];
+  const current = (task.assignee || '').trim();
+  const match = current ? assignments.find(a => (a.assignee || '').trim() === current) : assignments[0];
+  return match ? `${match.allocationPercent}%` : '';
 }
 
 /** Excel 시트명: 31자 제한, \ / ? * [ ] : 문자 불가 */

@@ -22,9 +22,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
         _wbs: displayWbsMap.get(t.id) ?? '',
         // Excel 편집 모드에서 모든 컬럼 정보를 한눈에 보기 위해
         // 표 컬럼에 대응하는 표시용 텍스트를 함께 포함한다.
-        _allocationText: t.assignments?.length
-          ? t.assignments.map((a) => `${a.allocationPercent}%`).join(', ')
-          : '',
+        _allocationText: '',
         _dependenciesText: Array.isArray(t.dependencies) && t.dependencies.length > 0
           ? t.dependencies.join(', ')
           : '',

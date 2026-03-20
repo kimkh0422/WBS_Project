@@ -1,5 +1,6 @@
 import { parseISO, format, addDays, isValid } from 'date-fns';
-import type { Task, Project, TaskAssignment, ProjectAssignment } from '../types';
+import type { Task, Project, ProjectAssignment } from '../types';
+type TaskAssignment = ProjectAssignment;
 import {
   addBusinessDaysEx,
   differenceInBusinessDaysEx,
@@ -43,9 +44,6 @@ function getAssignmentsForTask(
   task: Task,
   projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>
 ): ProjectAssignment[] {
-  if (task.assignments && task.assignments.length > 0) {
-    return task.assignments.map((a) => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
-  }
   if (task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
     if (pa && pa.length > 0) return pa;
@@ -324,7 +322,6 @@ export function fixOverloadByIncreasingAllocation(
       ...a,
       allocationPercent: 100,
     }));
-    task.assignments = newAssignments;
 
     const effort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : 1;
     task.endDate = computeEndDateFromEffort(task.startDate, effort, newAssignments, holidays);

@@ -40,12 +40,6 @@ export interface Project {
   reportNameFull?: string;
 }
 
-/** 투입인원 1명: 담당자 + 투입비율(0~100%) */
-export interface TaskAssignment {
-  assignee: string;
-  allocationPercent: number; // 10, 20, 30, ... 100
-}
-
 export interface Task {
   id: string;
   projectId: string;
@@ -54,15 +48,13 @@ export interface Task {
   startDate: string; // ISO string
   endDate: string; // ISO string
   progress: number; // 0-100
-  assignee: string; // 단일 담당자(하위호환) 또는 대표 표시용
+  assignee: string;
   status: TaskStatus;
   expanded?: boolean; // UI state for tree view
   dependencies?: string[]; // Array of predecessor task IDs
   workEffort?: number; // Man-days (작업 공수)
   /** 진척 가중치. 지정 시 상위 작업·요약 진척률에 이 값을 우선 사용 (없으면 공수 기준) */
   weight?: number;
-  /** 투입인원별 담당자·투입비율. 있으면 이 값으로 투입공수·기간 계산에 사용 */
-  assignments?: TaskAssignment[];
   description?: string;
   checklist?: { id: string; text: string; completed: boolean }[];
   deliverables?: string;

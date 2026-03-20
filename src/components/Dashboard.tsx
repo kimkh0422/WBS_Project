@@ -450,9 +450,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                                 {task.isMilestone && <span className="ml-2 text-amber-600">마일스톤</span>}
                                             </div>
                                             <div className="text-xs text-slate-500 mt-0.5">
-                                                투입: {task.assignments?.length
-                                                    ? task.assignments.map(a => `${a.assignee} (${a.allocationPercent}%)`).join(', ')
-                                                    : (task.assignee || '미배정')}
+                                                담당: {task.assignee || '미배정'}
                                             </div>
                                         </div>
                                         {(() => {

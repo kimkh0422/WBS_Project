@@ -3,7 +3,7 @@ import { useWBS } from '../context/WBSContext';
 import { cn, formatDate, round2, formatNum2 } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
 import { ExcelGrid } from './ExcelGrid';
-import { Task, TaskStatus, TaskAssignment, FilterState, SortConfig } from '../types';
+import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
@@ -107,10 +107,7 @@ function getTaskDetailTooltip(
   if (!task) return '';
   const lines: string[] = [];
   const statusName = Array.isArray(statusConfigs) ? statusConfigs.find((c) => c.id === task.status)?.name ?? task.status : task.status;
-  const assigneeText =
-    task.assignments && task.assignments.length > 0
-      ? task.assignments.map((a) => `${a.assignee} (${a.allocationPercent}%)`).join(', ')
-      : (task.assignee || '—');
+  const assigneeText = task.assignee || '—';
   lines.push(`작업명: ${task.name ?? ''}`);
   if (task.isMilestone) lines.push('유형: 마일스톤');
   if (task.isIssue) lines.push('이슈: 예');
@@ -368,8 +365,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const allAssignees = useMemo(() => {
     const fromProjects = projects.flatMap(p => (p.assignments ?? []).map(a => a.assignee).filter(Boolean));
     const fromAssignee = tasks.map(t => t.assignee).filter(Boolean);
-    const fromAssignments = tasks.flatMap(t => (t.assignments || []).map(a => a.assignee).filter(Boolean));
-    return Array.from(new Set([...fromProjects, ...fromAssignee, ...fromAssignments])).sort();
+    return Array.from(new Set([...fromProjects, ...fromAssignee])).sort();
   }, [projects, tasks]);
 
   // 프로젝트별 담당자 옵션: 프로젝트 등록 인원 + 해당 프로젝트 작업에 이미 배정된 인원
@@ -379,7 +375,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       const fromProject = (p.assignments ?? []).map(a => a.assignee).filter(Boolean);
       const fromTasks = tasks
         .filter(t => t.projectId === p.id)
-        .flatMap(t => [t.assignee, ...(t.assignments || []).map(a => a.assignee)].filter(Boolean));
+        .map(t => t.assignee).filter(Boolean);
       map.set(p.id, Array.from(new Set([...fromProject, ...fromTasks])).sort());
     }
     return map;
@@ -610,9 +606,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     const map = new Map<string, string>();
     const shown = new Set<string>();
     for (const task of visibleTasks) {
-      const assignments = task.assignments?.length
-        ? task.assignments
-        : (task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : []);
+      const assignments = task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : [];
       const currentAssignee = (task.assignee || '').trim();
       const relevant = currentAssignee
         ? assignments.filter(a => (a.assignee || '').trim() === currentAssignee)
@@ -674,9 +668,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
       else if (colId === 'weight') cellText = task.weight != null ? formatNum2(task.weight) : '-';
       else if (colId === 'assignee') {
-        cellText = task.assignments?.length
-          ? task.assignments.map(a => `${a.assignee} (${a.allocationPercent}%)`).join(', ')
-          : (task.assignee || '—');
+        cellText = task.assignee || '—';
       } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
       else if (colId === 'status') {
         const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
@@ -3438,12 +3430,7 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'assignee') {
-          const hasAssignments = task.assignments && task.assignments.length > 0;
-          const assigneeLabel = hasAssignments
-            ? task.assignments!.map(a => `${a.assignee}(${a.allocationPercent}%)`).join(', ')
-            : (task.assignee || '');
           const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
-          // 프로젝트 투입인원 + 현재 담당자(목록에 없을 수 있음)를 자동완성 옵션으로 제공
           const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim()].filter(Boolean))).sort();
           const isFocusedAssignee = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee';
           return (
@@ -3451,60 +3438,50 @@ function SortableTaskRowInner({
               key={colId}
               className={cn("data-cell text-xs text-stone-600 relative overflow-visible group/assignee", isFocusedAssignee && "ring-2 ring-blue-500 ring-inset rounded")}
               onClick={(e) => { e.stopPropagation(); if (tableEditMode) setFocusedCell({ taskId: task.id, columnId: 'assignee' }); }}
-              title={hasAssignments ? assigneeLabel : undefined}
             >
-              {hasAssignments ? (
-                <span className="block">{assigneeLabel}</span>
-              ) : (
-                <>
-                  <input
-                    id={`wbs-edit-${task.id}-assignee`}
-                    type="text"
-                    list={`assignee-datalist-${task.id}`}
-                    value={task.assignee || ''}
-                    onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v !== (task.assignee || '').trim()) {
-                        updateTask(task.id, { assignee: v });
-                      }
-                    }}
-                    readOnly={!tableEditMode}
-                    tabIndex={tableEditMode ? 0 : -1}
-                    onMouseDown={(e) => {
-                      if (!tableEditMode) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
-                    placeholder="배정 ..."
-                    className={cn(
-                      "w-full bg-transparent p-1 pr-6 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 transition-colors",
-                      !tableEditMode && "cursor-default"
-                    )}
-                  />
-                  <datalist id={`assignee-datalist-${task.id}`}>
-                    <option value="">배정 안됨</option>
-                    {assigneeOptions.length > 0
-                      ? assigneeOptions.map(a => <option key={a} value={a} />)
-                      : allAssignees.map(a => <option key={a} value={a} />)}
-                  </datalist>
-                </>
-              )}
-              {!hasAssignments && (
-                <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
-                  <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                </div>
-              )}
+              <input
+                id={`wbs-edit-${task.id}-assignee`}
+                type="text"
+                list={`assignee-datalist-${task.id}`}
+                value={task.assignee || ''}
+                onChange={(e) => updateTask(task.id, { assignee: e.target.value })}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v !== (task.assignee || '').trim()) {
+                    updateTask(task.id, { assignee: v });
+                  }
+                }}
+                readOnly={!tableEditMode}
+                tabIndex={tableEditMode ? 0 : -1}
+                onMouseDown={(e) => {
+                  if (!tableEditMode) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                }}
+                placeholder="배정 ..."
+                className={cn(
+                  "w-full bg-transparent p-1 pr-6 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 transition-colors",
+                  !tableEditMode && "cursor-default"
+                )}
+              />
+              <datalist id={`assignee-datalist-${task.id}`}>
+                <option value="">배정 안됨</option>
+                {assigneeOptions.length > 0
+                  ? assigneeOptions.map(a => <option key={a} value={a} />)
+                  : allAssignees.map(a => <option key={a} value={a} />)}
+              </datalist>
+              <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
+                <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+              </div>
             </div>
           );
         }
         if (colId === 'allocation') {
-          const assignee = (task.assignee || '').trim() || task.assignments?.[0]?.assignee?.trim() || '';
+          const assignee = (task.assignee || '').trim();
           const projectList = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
-          const fromTask = task.assignments?.find(a => (a.assignee || '').trim() === assignee);
           const fromProject = projectList.find(a => (a.assignee || '').trim() === assignee);
-          const primaryPercent = fromTask?.allocationPercent ?? fromProject?.allocationPercent ?? 100;
+          const primaryPercent = fromProject?.allocationPercent ?? 100;
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
           const isFocusedAlloc = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
           return (
@@ -3524,25 +3501,7 @@ function SortableTaskRowInner({
                   autoFocus
                   defaultValue={primaryPercent}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const v = parseInt(e.target.value, 10);
-                    if (!isNaN(v) && v >= 0 && v <= 100 && assignee) {
-                      const newPercent = Math.round(v);
-                      let nextAssignments: TaskAssignment[];
-                      if (task.assignments?.length) {
-                        const matchIdx = task.assignments.findIndex(a => (a.assignee || '').trim() === assignee);
-                        if (matchIdx >= 0) {
-                          nextAssignments = task.assignments.map((a, i) =>
-                            i === matchIdx ? { ...a, allocationPercent: newPercent } : a
-                          );
-                        } else {
-                          nextAssignments = [...task.assignments, { assignee, allocationPercent: newPercent }];
-                        }
-                      } else {
-                        nextAssignments = [{ assignee, allocationPercent: newPercent }];
-                      }
-                      updateTask(task.id, { assignments: nextAssignments, assignee });
-                    }
+                  onBlur={() => {
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {
@@ -3775,7 +3734,6 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.endDate === next.task.endDate &&
     prev.task.progress === next.task.progress &&
     prev.task.assignee === next.task.assignee &&
-    prev.task.assignments === next.task.assignments &&
     prev.task.projectId === next.task.projectId &&
     prev.task.status === next.task.status &&
     prev.task.expanded === next.task.expanded &&

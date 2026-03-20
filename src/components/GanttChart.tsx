@@ -851,7 +851,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
                       style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelRowBg(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }}
-                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignments?.length ? ` · 투입: ${task.assignments.map(a => `${a.assignee} ${a.allocationPercent}%`).join(', ')}` : task.assignee ? ` · ${task.assignee}` : ''}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${task.assignee}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (

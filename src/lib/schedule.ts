@@ -1,5 +1,5 @@
 import { parseISO, format, isValid } from 'date-fns';
-import type { TaskAssignment, Task } from '../types';
+import type { Task, ProjectAssignment as TaskAssignment } from '../types';
 import {
   addBusinessDaysEx,
   subtractBusinessDaysEx,
@@ -248,12 +248,11 @@ export function getCriticalPathTaskIds(
   return critical;
 }
 
-/** 작업별 투입비율: task.assignments 우선, 없으면 프로젝트 투입인력 사용 */
+/** 작업별 투입비율: 프로젝트 투입인력 사용 */
 function getAssignmentsForTask(
   task: Task,
   projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>
 ): TaskAssignment[] | undefined {
-  if (task.assignments && task.assignments.length > 0) return task.assignments;
   if (projectAssignmentsByProjectId && task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
     if (pa && pa.length > 0) return pa;

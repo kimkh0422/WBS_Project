@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { Task, Project, TaskAssignment } from '../types';
+import { Task, Project, ProjectAssignment } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
@@ -1520,7 +1520,7 @@ export function WBSProvider({
       if (project && needsTaskClamp) {
         saveHistory();
         setAllTasks(currentTasks => {
-          const projectAssignmentsMap = new Map<string, TaskAssignment[]>(prev.map(p => [p.id, p.assignments ?? []]));
+          const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(prev.map(p => [p.id, p.assignments ?? []]));
           const holidays = getHolidaysForTaskDates(currentTasks);
           let shifted = currentTasks.map(t => {
             if (t.projectId !== id) return t;
@@ -1528,9 +1528,7 @@ export function WBSProvider({
             let taskEnd = t.endDate;
 
             if (newStart && taskStart && taskStart < newStart) {
-              const assignments = (t.assignments && t.assignments.length > 0)
-                ? t.assignments
-                : projectAssignmentsMap.get(t.projectId);
+              const assignments = projectAssignmentsMap.get(t.projectId);
               const start = parseISO(taskStart);
               const end = parseISO(taskEnd);
               let computedEnd: string;
@@ -1719,10 +1717,8 @@ export function WBSProvider({
       if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
         resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };
       }
-      const projectAssignmentsMap = new Map<string, TaskAssignment[]>(projects.map(p => [p.id, p.assignments ?? []]));
-      const assignments = (task.assignments && task.assignments.length > 0)
-        ? task.assignments
-        : (task.projectId ? projectAssignmentsMap.get(task.projectId) : undefined);
+      const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projects.map(p => [p.id, p.assignments ?? []]));
+      const assignments = task.projectId ? projectAssignmentsMap.get(task.projectId) : undefined;
       const holidays = getHolidaysForTaskDates(prev);
 
       // 시작일 변경 또는 workEffort 변경 시 새로운 endDate 계산
@@ -1993,15 +1989,12 @@ export function WBSProvider({
       return next;
     });
 
-    // 작업의 assignee 및 assignments 담당자명 변경
+    // 작업의 assignee 담당자명 변경
     setAllTasks(prev => {
       const next = prev.map(t => {
         const nextAssignee = ((t.assignee ?? '').trim() === from) ? to : t.assignee;
-        const nextAssignments = Array.isArray(t.assignments)
-          ? t.assignments.map(a => ((a.assignee ?? '').trim() === from ? { ...a, assignee: to } : a))
-          : t.assignments;
-        if (nextAssignee === t.assignee && nextAssignments === t.assignments) return t;
-        return { ...t, assignee: nextAssignee ?? '', assignments: nextAssignments };
+        if (nextAssignee === t.assignee) return t;
+        return { ...t, assignee: nextAssignee ?? '' };
       });
       if (!useLocalOnly) upsertTasks(next).catch(err => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
       return next;
@@ -2016,7 +2009,7 @@ export function WBSProvider({
     if (projectIds.length === 0) return;
     saveHistory();
     setAllTasks(prev => {
-      const projectAssignmentsByProjectId = new Map<string, TaskAssignment[]>(
+      const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(
         projects.map(p => [p.id, p.assignments ?? []])
       );
       let result = prev;
