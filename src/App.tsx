@@ -1651,7 +1651,12 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                 onMouseDown={startResizing}
                 title="드래그하여 패널 너비 조절"
               >
-                <span className="w-1 h-16 rounded-full bg-slate-200 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-all duration-150 pointer-events-none group-hover:w-1.5 group-hover:shadow-sm" />
+                {/* 전체 높이 구분선 */}
+                <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-300 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors duration-150 pointer-events-none" />
+                {/* 중앙 드래그 핸들 (호버 시만 표시) */}
+                <span className="relative z-10 flex flex-col items-center justify-center gap-0.5 h-10 w-4 rounded bg-white border border-indigo-400 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+                  <span className="w-0.5 h-3.5 rounded-full bg-indigo-400" />
+                </span>
               </div>
               <div className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block" style={{ width: `${100 - wbsTableWidth}%` }}>
                 <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} onRowHeightChange={setSharedRowHeight} syncScrollRef={ganttScrollRef} />
