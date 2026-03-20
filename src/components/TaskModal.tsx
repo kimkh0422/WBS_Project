@@ -1144,6 +1144,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
               </div>
             </div>
           </div>
+          {/* Enter 키 저장: textarea/checklist 외 input에서 Enter 누르면 form submit 트리거 */}
+          <button type="submit" className="hidden" aria-hidden="true" />
         </form>
         <div className="px-4 py-2.5 flex justify-between items-center border-t border-[var(--color-line)] bg-slate-50/70 flex-shrink-0 gap-4">
           <div>
