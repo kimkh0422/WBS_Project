@@ -1379,9 +1379,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         if (tableEditMode) return; // 편집 모드에서는 Enter는 셀 편집 시작으로만 사용
         e.preventDefault();
 
-        // 기본 기준 행: 선택된 행이 있으면 그 행, 없으면 마지막 표시 행
+        // 기본 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행
+        // ※ selectedTaskIds.size === 1 체크 제거: 화살표 키 이동 시 selectedTaskIds는
+        //    갱신되지 않아 size가 0 또는 다수가 될 수 있지만, lastSelectedId는 항상 올바른
+        //    현재 행을 가리키므로 이를 기준으로 사용한다.
         const baseTask =
-          (selectedTaskIds.size === 1 && lastSelectedId
+          (lastSelectedId
             ? tasks.find((t) => t.id === lastSelectedId)
             : visibleTasks.length > 0
             ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
@@ -1416,9 +1419,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         if (tableEditMode) return; // 편집 모드에서는 새 작업 추가 비활성화
         e.preventDefault();
 
-        // 기준 행: 선택 1개면 그 행, 없으면 마지막 표시 행
+        // 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행
         const baseTask =
-          (selectedTaskIds.size === 1 && lastSelectedId
+          (lastSelectedId
             ? tasks.find((t) => t.id === lastSelectedId)
             : visibleTasks.length > 0
             ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
