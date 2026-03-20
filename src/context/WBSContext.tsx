@@ -837,6 +837,8 @@ export function WBSProvider({
       }
     );
 
+    let cleanedUp = false;
+
     channel.subscribe((status: string) => {
       if (import.meta.env.DEV) {
         if (status === 'SUBSCRIBED') {
@@ -845,21 +847,22 @@ export function WBSProvider({
           console.warn('[Realtime] 채널 문제:', status, channelName);
         }
       }
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        try {
-          channel.unsubscribe();
-        } catch {
-          /* ignore */
-        }
-      }
+      // CLOSED/ERROR 상태에서 unsubscribe 재호출 시 re-entrancy → call stack 오버플로우 방지
+      // cleanup은 useEffect return에서만 수행
     });
 
     return () => {
-      try {
-        channel.unsubscribe();
-      } catch {
-        /* ignore */
-      }
+      if (cleanedUp) return;
+      cleanedUp = true;
+      // removeChannel을 써야 Supabase 내부 채널 목록에서도 제거됨
+      // unsubscribe만 하면 채널이 메모리에 누적되어 Maximum call stack size exceeded 발생
+      queueMicrotask(() => {
+        try {
+          supabase!.removeChannel(channel);
+        } catch {
+          /* ignore */
+        }
+      });
     };
     // hasLocalChangesSinceSync / onConcurrentConflict 는 ref로 읽음 — 넣으면 저장할 때마다 구독이 끊김
   }, [useLocalOnly, user?.id, currentProjectId]);

@@ -523,6 +523,40 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     });
   }, [effectiveRowHeights, VIEW_PADDING_TOP, dayWidth, minDate, visibleTaskById, visibleTaskIndexById, visibleTasks, dates.length, effectiveCriticalPathSet]);
 
+  const isSplitView = !!syncScrollRef;
+
+  // Split view: 날짜 헤더 ↔ 본문 ↔ 하단 스크롤바 수평 동기화
+  // NOTE: Rules of Hooks - early return 이전에 위치해야 함
+  useEffect(() => {
+    if (!isSplitView) return;
+    const mainEl = syncScrollRef?.current;
+    if (!mainEl) return;
+    let fromMain = false;
+    let fromBottom = false;
+    const onMainScroll = () => {
+      if (fromBottom) return;
+      fromMain = true;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
+      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = mainEl.scrollLeft;
+      fromMain = false;
+    };
+    mainEl.addEventListener('scroll', onMainScroll, { passive: true });
+    return () => mainEl.removeEventListener('scroll', onMainScroll);
+  }, [isSplitView, syncScrollRef]);
+
+  useEffect(() => {
+    if (!isSplitView) return;
+    const bottomEl = bottomScrollRef.current;
+    const mainEl = syncScrollRef?.current;
+    if (!bottomEl || !mainEl) return;
+    const onBottomScroll = () => {
+      mainEl.scrollLeft = bottomEl.scrollLeft;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = bottomEl.scrollLeft;
+    };
+    bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
+    return () => bottomEl.removeEventListener('scroll', onBottomScroll);
+  }, [isSplitView, syncScrollRef]);
+
   if (visibleTasks.length === 0) return (
     <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
       {tasks.length === 0 ? '등록된 작업이 없습니다. 새 작업을 추가해 보세요.' : '필터와 일치하는 작업이 없습니다.'}
@@ -671,39 +705,6 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
       });
     }
   };
-
-  const isSplitView = !!syncScrollRef;
-
-  // Split view: 날짜 헤더 ↔ 본문 ↔ 하단 스크롤바 수평 동기화
-  useEffect(() => {
-    if (!isSplitView) return;
-    const mainEl = syncScrollRef?.current;
-    if (!mainEl) return;
-    let fromMain = false;
-    let fromBottom = false;
-    const onMainScroll = () => {
-      if (fromBottom) return;
-      fromMain = true;
-      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
-      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = mainEl.scrollLeft;
-      fromMain = false;
-    };
-    mainEl.addEventListener('scroll', onMainScroll, { passive: true });
-    return () => mainEl.removeEventListener('scroll', onMainScroll);
-  }, [isSplitView, syncScrollRef]);
-
-  useEffect(() => {
-    if (!isSplitView) return;
-    const bottomEl = bottomScrollRef.current;
-    const mainEl = syncScrollRef?.current;
-    if (!bottomEl || !mainEl) return;
-    const onBottomScroll = () => {
-      mainEl.scrollLeft = bottomEl.scrollLeft;
-      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = bottomEl.scrollLeft;
-    };
-    bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
-    return () => bottomEl.removeEventListener('scroll', onBottomScroll);
-  }, [isSplitView, syncScrollRef]);
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
   // 표의 Summary Bar와 동일 min-h로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
