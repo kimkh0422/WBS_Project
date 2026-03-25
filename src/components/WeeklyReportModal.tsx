@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Copy, AlertCircle, User, Briefcase, Layers, FolderOpen } from 'lucide-react';
+import { X, Copy, AlertCircle, User, Briefcase, Layers, FolderOpen, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   format,
   startOfWeek,
@@ -103,7 +104,7 @@ export function WeeklyReportModal({
 
   const { reportText, summary, sections } = useMemo(() => {
     if (!isOpen) {
-      return { reportText: '', summary: { thisWeekCount: 0, nextWeekCount: 0, issueCount: 0, overallProgress: 0 } };
+      return { reportText: '', summary: { thisWeekCount: 0, nextWeekCount: 0, issueCount: 0, overallProgress: 0, overallEffort: 0 }, sections: { thisWeek: [], nextWeek: [], issues: [] } };
     }
 
     const today = new Date();
@@ -416,6 +417,78 @@ export function WeeklyReportModal({
       },
     };
   }, [isOpen, tasks, projects, projectScope, selectedProjectIds, currentUserDisplay, scope, baseStartStr, baseEndStr]);
+
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const aoa: (string | number)[][] = [];
+
+    const pName =
+      projectScope === 'multiple' && selectedProjectIds.length > 0
+        ? selectedProjectIds.length === 1
+          ? (projects.find((p) => p.id === selectedProjectIds[0])?.name ?? '선택한 프로젝트')
+          : `선택한 프로젝트 (${selectedProjectIds.length}개)`
+        : '전체 프로젝트';
+
+    // 제목 행
+    aoa.push([`[주간보고] ${pName} / 담당자: ${currentUserDisplay || '작성자'} / 기간: ${baseStartStr} ~ ${baseEndStr}`]);
+    aoa.push([`전체 진척율: ${summary.overallProgress}%  |  금주한일: ${summary.thisWeekCount}건  |  차주계획: ${summary.nextWeekCount}건  |  이슈: ${summary.issueCount}건  |  총 투입공수: ${summary.overallEffort}일`]);
+    aoa.push([]);
+
+    // 프로젝트 요약 (단일 프로젝트 선택 시)
+    if (
+      currentProject &&
+      (currentProject.reportCategory || currentProject.reportAgency || currentProject.reportBudgetThisYear ||
+        currentProject.reportTotalPeriod || currentProject.reportNameShort || currentProject.reportNameFull)
+    ) {
+      aoa.push(['[프로젝트 요약]', '']);
+      aoa.push(['구분', currentProject.reportCategory || '-']);
+      aoa.push(['주관기관', currentProject.reportAgency || '-']);
+      aoa.push(['과제명(약어)', currentProject.reportNameShort || currentProject.name]);
+      if (currentProject.reportNameFull) aoa.push(['전체과제명', currentProject.reportNameFull]);
+      aoa.push(['금년도 정부출연금/예산', currentProject.reportBudgetThisYear || '-']);
+      aoa.push(['전체기간', currentProject.reportTotalPeriod || currentProject.startDate || '-']);
+      aoa.push([]);
+    }
+
+    // 헤더
+    aoa.push(['구분', '프로젝트', '업무명', '업무 내용', '담당자', '투입공수(일)', '진척율(%)', '비고']);
+
+    // 데이터 행
+    const allRows = [...sections.thisWeek, ...sections.nextWeek, ...sections.issues];
+    if (allRows.length === 0) {
+      aoa.push(['금주/차주/이슈에 해당하는 업무가 없습니다.', '', '', '', '', '', '', '']);
+    } else {
+      for (const row of allRows) {
+        aoa.push([
+          row.category,
+          row.projectName,
+          row.name,
+          row.detail,
+          row.assignee,
+          row.workEffort,
+          row.progress,
+          row.note || '',
+        ]);
+      }
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // 열 너비 설정
+    ws['!cols'] = [
+      { wch: 10 },
+      { wch: 22 },
+      { wch: 32 },
+      { wch: 48 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 10 },
+      { wch: 18 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, '주간보고');
+    XLSX.writeFile(wb, `주간보고_${baseStartStr}_${baseEndStr}.xlsx`);
+  };
 
   if (!isOpen) return null;
 
@@ -810,10 +883,18 @@ export function WeeklyReportModal({
                   // ignore
                 }
               }}
-              className="btn-primary flex items-center gap-1.5 text-xs md:text-sm"
+              className="btn-ghost flex items-center gap-1.5 text-xs md:text-sm"
             >
               <Copy size={14} />
               {copied ? '복사됨' : '텍스트 복사'}
+            </button>
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="btn-primary flex items-center gap-1.5 text-xs md:text-sm"
+            >
+              <Download size={14} />
+              Excel 내보내기
             </button>
           </div>
         </div>
