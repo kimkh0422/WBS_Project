@@ -239,7 +239,7 @@ const DEFAULT_SETTINGS: WBSSettings = {
 
 // ─── 롤업 헬퍼 ────────────────────────────────────────────────────────────────
 
-function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
+function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatusIds?: Set<string>): Task[] {
   if (!parentId) return allTasks;
   const children = allTasks.filter(t => t.parentId === parentId);
   if (children.length === 0) return allTasks;
@@ -270,7 +270,10 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
   if (!parent) return allTasks;
 
   let parentProgress: number | undefined;
-  if (totalWeight > 0) {
+  // 완료 상태인 경우 자식 롤업으로 덮어쓰지 않고 100% 유지
+  if (doneStatusIds && parent.status && doneStatusIds.has(parent.status)) {
+    parentProgress = 100;
+  } else if (totalWeight > 0) {
     parentProgress = Math.round(weightedProgressSum / totalWeight);
   } else if (children.length > 0) {
     parentProgress = Math.round(simpleProgressSum / children.length);
@@ -298,7 +301,7 @@ function syncParentRollups(allTasks: Task[], parentId: string | null): Task[] {
     )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId);
+  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds);
 }
 
 /**
@@ -346,7 +349,7 @@ function redistributeWeightsDown(tasks: Task[], parentId: string, parentWeight: 
   return nextTasks;
 }
 
-function recomputeProjectRollups(allTasks: Task[], projectId: string): Task[] {
+function recomputeProjectRollups(allTasks: Task[], projectId: string, doneStatusIds?: Set<string>): Task[] {
   if (!projectId || projectId === 'all') return allTasks;
   const projectTasks = allTasks.filter(t => t.projectId === projectId);
   if (projectTasks.length === 0) return allTasks;
@@ -372,18 +375,21 @@ function recomputeProjectRollups(allTasks: Task[], projectId: string): Task[] {
   const parentIds = Array.from(hasChildren).sort((a, b) => getDepth(b) - getDepth(a));
   let next = allTasks;
   for (const pid of parentIds) {
-    next = syncParentRollups(next, pid);
+    next = syncParentRollups(next, pid, doneStatusIds);
   }
   return next;
 }
 
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/공수를 하위 작업 기준으로 롤업 */
-function applyRollupsToTasks(tasks: Task[]): Task[] {
+function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: string; progress?: number }>): Task[] {
+  const doneStatusIds = statusConfigs
+    ? new Set(statusConfigs.filter(c => c.progress === 100).map(c => c.id))
+    : undefined;
   const projectIds = Array.from(new Set(tasks.map(t => t.projectId))).filter(
     (id): id is string => Boolean(id) && id !== 'all'
   );
   let result = tasks;
-  for (const pid of projectIds) result = recomputeProjectRollups(result, pid);
+  for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds);
   return result;
 }
 
@@ -550,7 +556,7 @@ export function WBSProvider({
         const tasksToUse = Array.isArray(fallbackTasks) ? fallbackTasks : [];
         if (projectsToUse.length > 0) {
           setProjects(projectsToUse);
-          setAllTasks(applyRollupsToTasks(tasksToUse));
+          setAllTasks(applyRollupsToTasks(tasksToUse, parsedSettings.statusConfigs));
           setWbsSettings(parsedSettings);
           const savedCurrent = sessionStorage.getItem('wbs-current-project');
           const validId = projectsToUse.find(p => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
@@ -558,7 +564,7 @@ export function WBSProvider({
         } else {
           const p = emptyStarterProject();
           setProjects([p]);
-          setAllTasks(applyRollupsToTasks(tasksToUse));
+          setAllTasks(applyRollupsToTasks(tasksToUse, DEFAULT_SETTINGS.statusConfigs));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
           try {
@@ -584,7 +590,8 @@ export function WBSProvider({
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');
             if (dbProjects.length > 0) {
               setProjects(dbProjects);
-              setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));
+              const effectiveSettings593 = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+              setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings593.statusConfigs));
               if (dbSettings) {
                 setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
               }
@@ -648,12 +655,12 @@ export function WBSProvider({
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
           if (fallbackProjects.length > 0) {
             setProjects(fallbackProjects);
-            setAllTasks(applyRollupsToTasks(fallbackTasks));
+            setAllTasks(applyRollupsToTasks(fallbackTasks, parsedSettings.statusConfigs));
             setWbsSettings(parsedSettings);
             setCurrentProjectId(fallbackProjects[0]!.id);
           } else {
             setProjects([p]);
-            setAllTasks(applyRollupsToTasks(fallbackTasks));
+            setAllTasks(applyRollupsToTasks(fallbackTasks, DEFAULT_SETTINGS.statusConfigs));
             setWbsSettings(DEFAULT_SETTINGS);
             setCurrentProjectId(p.id);
           }
@@ -878,7 +885,8 @@ export function WBSProvider({
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
       setProjects(dbProjects);
-      setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : []));
+      const effectiveSettings887 = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+      setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings887.statusConfigs));
       if (dbSettings) {
         setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
       }
@@ -1269,7 +1277,8 @@ export function WBSProvider({
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
         // DB 전체를 내려받아 로컬 스냅샷으로 사용 (merge 없이 덮어쓰기)
         snapshotProjects = dbProjects;
-        snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow));
+        const effectiveSettings1280 = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+        snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow), effectiveSettings1280.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
         replacedProjectIds = snapshotProjects.map(p => p.id);
@@ -1480,8 +1489,9 @@ export function WBSProvider({
         scope === 'all'
           ? Array.from(new Set(next.map(t => t.projectId))).filter(Boolean) as string[]
           : targetProjectIds;
+      const doneStatusIds1492 = new Set((configs as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
       for (const pid of projectIdsToRollup) {
-        next = recomputeProjectRollups(next, pid);
+        next = recomputeProjectRollups(next, pid, doneStatusIds1492);
       }
       return next;
     });
@@ -1677,7 +1687,7 @@ export function WBSProvider({
         if (index !== -1) { const arr = [...prev]; arr.splice(index + 1, 0, task); nextTasks = arr; }
         else nextTasks = [...prev, task];
       } else nextTasks = [...prev, task];
-      const result = syncParentRollups(nextTasks, task.parentId);
+      const result = syncParentRollups(nextTasks, task.parentId, new Set<string>(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id)));
       const sortOrder = result.indexOf(task);
       return result;
     });
@@ -1898,6 +1908,7 @@ export function WBSProvider({
       const affectsRollup = ['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress'].some(k =>
         Object.prototype.hasOwnProperty.call(resolvedUpdates, k)
       );
+      const doneStatusIds: Set<string> = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
       const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
       let result = nextTasks;
       if (affectsRollup) {
@@ -1905,29 +1916,15 @@ export function WBSProvider({
         // 날짜를 명시적으로 변경한 경우(드래그 등): 자식이 있어도 task 자신을 롤업 기준으로 삼으면
         // 자식들의 min/max로 덮어써지므로 부모부터 롤업 시작
         if (hasChildTasks && !hasDateChange) {
-          result = syncParentRollups(result, id);
+          result = syncParentRollups(result, id, doneStatusIds);
         } else {
-          result = syncParentRollups(result, task.parentId);
-        }
-      }
-      // 완료 상태(progress=100)로 변경한 경우 롤업이 진척률을 덮어썼을 때 100%로 복원
-      if (
-        typeof resolvedUpdates.status === 'string' &&
-        wbsSettings.linkStatusAndProgress !== false
-      ) {
-        const newStatusCfg = wbsSettings.statusConfigs?.find(c => c.id === resolvedUpdates.status);
-        if (newStatusCfg && newStatusCfg.progress === 100) {
-          const taskInResult = result.find(t => t.id === id);
-          if (taskInResult && taskInResult.progress !== 100) {
-            result = result.map(t => t.id === id ? { ...t, progress: 100 } : t);
-            result = syncParentRollups(result, task.parentId);
-          }
+          result = syncParentRollups(result, task.parentId, doneStatusIds);
         }
       }
       // 부모 변경 시 기존 부모·신규 부모 모두 롤업 재계산
       if (parentIdChanged) {
-        if (task.parentId) result = syncParentRollups(result, task.parentId);
-        if (updates.parentId) result = syncParentRollups(result, updates.parentId);
+        if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds);
+        if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds);
       }
 
       const taskInResult = result.find(t => t.id === id);
@@ -2070,8 +2067,9 @@ export function WBSProvider({
         }
       }
       const projectIds = Array.from(new Set(result.map((t) => t.projectId))).filter(Boolean) as string[];
+      const doneStatusIds2070: Set<string> = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
       for (const pid of projectIds) {
-        result = recomputeProjectRollups(result, pid);
+        result = recomputeProjectRollups(result, pid, doneStatusIds2070);
       }
       return result;
     });
@@ -2389,7 +2387,7 @@ export function WBSProvider({
     }
     setProjects(prev => [...prev, ...newProjects]);
     setAllTasks(prev => {
-      const rolled = applyRollupsToTasks([...prev, ...newTasks]);
+      const rolled = applyRollupsToTasks([...prev, ...newTasks], wbsSettings.statusConfigs);
       return rolled;
     });
     if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
