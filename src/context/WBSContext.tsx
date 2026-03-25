@@ -1717,6 +1717,17 @@ export function WBSProvider({
       if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
         resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };
       }
+      // 상태를 완료(progress=100인 상태)로 변경하는 경우 진척률을 100으로 자동 설정
+      if (
+        typeof resolvedUpdates.status === 'string' &&
+        wbsSettings.linkStatusAndProgress !== false &&
+        !Object.prototype.hasOwnProperty.call(updates, 'progress')
+      ) {
+        const newStatusCfg = wbsSettings.statusConfigs?.find(c => c.id === resolvedUpdates.status);
+        if (newStatusCfg && newStatusCfg.progress === 100) {
+          resolvedUpdates = { ...resolvedUpdates, progress: 100 };
+        }
+      }
       const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projects.map(p => [p.id, p.assignments ?? []]));
       const assignments = task.projectId ? projectAssignmentsMap.get(task.projectId) : undefined;
       const holidays = getHolidaysForTaskDates(prev);
@@ -1885,7 +1896,7 @@ export function WBSProvider({
       }
 
       const affectsRollup = ['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress'].some(k =>
-        Object.prototype.hasOwnProperty.call(updates, k)
+        Object.prototype.hasOwnProperty.call(resolvedUpdates, k)
       );
       const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
       let result = nextTasks;
@@ -1897,6 +1908,20 @@ export function WBSProvider({
           result = syncParentRollups(result, id);
         } else {
           result = syncParentRollups(result, task.parentId);
+        }
+      }
+      // 완료 상태(progress=100)로 변경한 경우 롤업이 진척률을 덮어썼을 때 100%로 복원
+      if (
+        typeof resolvedUpdates.status === 'string' &&
+        wbsSettings.linkStatusAndProgress !== false
+      ) {
+        const newStatusCfg = wbsSettings.statusConfigs?.find(c => c.id === resolvedUpdates.status);
+        if (newStatusCfg && newStatusCfg.progress === 100) {
+          const taskInResult = result.find(t => t.id === id);
+          if (taskInResult && taskInResult.progress !== 100) {
+            result = result.map(t => t.id === id ? { ...t, progress: 100 } : t);
+            result = syncParentRollups(result, task.parentId);
+          }
         }
       }
       // 부모 변경 시 기존 부모·신규 부모 모두 롤업 재계산
