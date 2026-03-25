@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Copy, AlertCircle, User, Briefcase, Layers, FolderOpen, Download } from 'lucide-react';
+import { X, Copy, AlertCircle, User, Briefcase, Layers, FolderOpen, Download, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   format,
@@ -29,6 +29,30 @@ interface WeeklyReportModalProps {
 type Scope = 'all' | 'me';
 /** 프로젝트 범위: 전체 | 다중 선택 */
 type ProjectScope = 'all' | 'multiple';
+
+type Row = {
+  category: '금주한일' | '차주계획' | '이슈사항';
+  taskId: string;
+  projectName: string;
+  name: string;
+  detail: string;
+  assignee: string;
+  progress: number;
+  workEffort: number;
+  note?: string;
+  isManual?: boolean;
+  manualId?: string;
+};
+
+type ManualIssue = {
+  id: string;
+  projectName: string;
+  name: string;
+  detail: string;
+  assignee: string;
+  workEffort: number;
+  note: string;
+};
 
 function parseDate(value?: string): Date | null {
   if (!value) return null;
@@ -61,6 +85,22 @@ export function WeeklyReportModal({
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [manualIssues, setManualIssues] = useState<ManualIssue[]>([]);
+  const [showAddIssueForm, setShowAddIssueForm] = useState(false);
+  const [newIssueDraft, setNewIssueDraft] = useState({ projectName: '', name: '', detail: '', assignee: '', workEffort: '', note: '' });
+
+  const moveWeek = (direction: -1 | 1) => {
+    const start = parseISO(baseStartStr);
+    const end = parseISO(baseEndStr);
+    const span = Math.max(1, differenceInCalendarDays(end, start) + 1);
+    setBaseStartStr(format(addDays(start, direction * span), 'yyyy-MM-dd'));
+    setBaseEndStr(format(addDays(end, direction * span), 'yyyy-MM-dd'));
+  };
+
+  const resetToThisWeek = () => {
+    setBaseStartStr(format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+    setBaseEndStr(format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+  };
   // 수정창에는 모달에 전달된 전체 tasks 사용(다른 프로젝트 작업도 편집 가능)
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : undefined;
   // 다중 선택에서 프로젝트 1개일 때 프로젝트 요약 테이블용
@@ -72,7 +112,10 @@ export function WeeklyReportModal({
   useEffect(() => {
     if (!isOpen) return;
     setCopied(false);
-  }, [isOpen, baseStartStr, baseEndStr, scope]);
+    setManualIssues([]);
+    setShowAddIssueForm(false);
+    setNewIssueDraft({ projectName: '', name: '', detail: '', assignee: '', workEffort: '', note: '' });
+  }, [isOpen]);
 
   // 모달 열릴 때 현재 화면 기준으로 프로젝트 범위 초기화
   useEffect(() => {
@@ -268,18 +311,6 @@ export function WeeklyReportModal({
 
     const { avgProgress: overallProgress, totalEffort: overallEffort } = computeOverallProgress(filteredTasks);
 
-    type Row = {
-      category: '금주한일' | '차주계획' | '이슈사항';
-      taskId: string;
-      projectName: string;
-      name: string;
-      detail: string;
-      assignee: string;
-      progress: number;
-      workEffort: number;
-      note?: string;
-    };
-
     const thisWeekRows: Row[] = [];
     const nextWeekRows: Row[] = [];
     const issueRows: Row[] = [];
@@ -336,6 +367,23 @@ export function WeeklyReportModal({
           note,
         });
       }
+    }
+
+    // 수동 추가 이슈를 issueRows에 병합
+    for (const mi of manualIssues) {
+      issueRows.push({
+        category: '이슈사항',
+        taskId: '',
+        projectName: mi.projectName || '수동 입력',
+        name: mi.name,
+        detail: mi.detail,
+        assignee: mi.assignee,
+        progress: 0,
+        workEffort: mi.workEffort,
+        note: mi.note,
+        isManual: true,
+        manualId: mi.id,
+      });
     }
 
     const allRows: Row[] = [...thisWeekRows, ...nextWeekRows, ...issueRows];
@@ -416,7 +464,7 @@ export function WeeklyReportModal({
         issues: issueRows,
       },
     };
-  }, [isOpen, tasks, projects, projectScope, selectedProjectIds, currentUserDisplay, scope, baseStartStr, baseEndStr]);
+  }, [isOpen, tasks, projects, projectScope, selectedProjectIds, currentUserDisplay, scope, baseStartStr, baseEndStr, manualIssues]);
 
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -522,6 +570,14 @@ export function WeeklyReportModal({
         <div className="px-5 py-3 border-b border-slate-200 bg-slate-50/60 flex flex-wrap gap-3 items-center text-xs md:text-sm">
           <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">기준 기간</span>
+            <button
+              type="button"
+              onClick={() => moveWeek(-1)}
+              className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+              title="지난주"
+            >
+              <ChevronLeft size={14} />
+            </button>
             <div className="flex items-center gap-1.5">
               <input
                 type="date"
@@ -552,6 +608,22 @@ export function WeeklyReportModal({
                 className="px-2 py-1 rounded-md border border-slate-200 text-xs md:text-sm"
               />
             </div>
+            <button
+              type="button"
+              onClick={() => moveWeek(1)}
+              className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+              title="다음주"
+            >
+              <ChevronRight size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={resetToThisWeek}
+              className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              title="이번주로 이동"
+            >
+              이번주
+            </button>
           </div>
 
           <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200">
@@ -737,13 +809,25 @@ export function WeeklyReportModal({
                 <div key={key}>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xs md:text-sm font-semibold text-slate-800">{title}</h3>
-                    <span className="text-[11px] text-slate-500">
-                      {rows.length}건 · 합계 공수{' '}
-                      <strong className="text-slate-700">
-                        {rows.reduce((sum, r) => sum + (r.workEffort || 0), 0).toFixed(1)}
-                      </strong>
-                      일
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {key === 'issues' && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddIssueForm((v) => !v)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition-colors"
+                        >
+                          <Plus size={11} />
+                          이슈 추가
+                        </button>
+                      )}
+                      <span className="text-[11px] text-slate-500">
+                        {rows.length}건 · 합계 공수{' '}
+                        <strong className="text-slate-700">
+                          {rows.reduce((sum, r) => sum + (r.workEffort || 0), 0).toFixed(1)}
+                        </strong>
+                        일
+                      </span>
+                    </div>
                   </div>
                   <table className="min-w-full text-xs md:text-sm border-collapse bg-white rounded-lg overflow-hidden">
                     <thead className="bg-slate-100">
@@ -841,12 +925,24 @@ export function WeeklyReportModal({
                               </div>
                             </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-700 whitespace-nowrap">
-                              <div
-                                contentEditable
-                                suppressContentEditableWarning
-                              >
-                                {row.note || '-'}
-                              </div>
+                                {row.isManual ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] text-red-500 font-medium">수동</span>
+                                    {row.note && <span className="text-[11px]">{row.note}</span>}
+                                    <button
+                                      type="button"
+                                      onClick={() => setManualIssues((prev) => prev.filter((m) => m.id !== row.manualId))}
+                                      className="ml-1 p-0.5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                      title="삭제"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div contentEditable suppressContentEditableWarning>
+                                    {row.note || '-'}
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
@@ -854,6 +950,112 @@ export function WeeklyReportModal({
                       )}
                     </tbody>
                   </table>
+                  {key === 'issues' && showAddIssueForm && (
+                    <div className="mt-2 p-3 rounded-lg border border-red-200 bg-red-50/60 space-y-2">
+                      <p className="text-[11px] font-semibold text-red-700">이슈 직접 추가</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">프로젝트</label>
+                          <select
+                            value={newIssueDraft.projectName}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, projectName: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs bg-white"
+                          >
+                            <option value="">-- 선택 --</option>
+                            {projects.map((p) => (
+                              <option key={p.id} value={p.name}>{p.name}</option>
+                            ))}
+                            <option value="기타">기타</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">담당자</label>
+                          <input
+                            type="text"
+                            placeholder="담당자"
+                            value={newIssueDraft.assignee}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, assignee: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-2 flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">이슈명 *</label>
+                          <input
+                            type="text"
+                            placeholder="이슈 내용을 입력하세요"
+                            value={newIssueDraft.name}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, name: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs"
+                          />
+                        </div>
+                        <div className="col-span-2 flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">상세 내용</label>
+                          <input
+                            type="text"
+                            placeholder="상세 내용 (선택)"
+                            value={newIssueDraft.detail}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, detail: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">비고</label>
+                          <input
+                            type="text"
+                            placeholder="비고 (선택)"
+                            value={newIssueDraft.note}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, note: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[10px] text-slate-500 font-medium">투입공수(일)</label>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            min="0"
+                            step="0.5"
+                            value={newIssueDraft.workEffort}
+                            onChange={(e) => setNewIssueDraft((d) => ({ ...d, workEffort: e.target.value }))}
+                            className="px-2 py-1 rounded border border-slate-200 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddIssueForm(false);
+                            setNewIssueDraft({ projectName: '', name: '', detail: '', assignee: '', workEffort: '', note: '' });
+                          }}
+                          className="px-3 py-1 rounded text-xs text-slate-600 hover:bg-slate-200 transition-colors"
+                        >
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!newIssueDraft.name.trim()}
+                          onClick={() => {
+                            if (!newIssueDraft.name.trim()) return;
+                            setManualIssues((prev) => [...prev, {
+                              id: `manual-${Date.now()}`,
+                              projectName: newIssueDraft.projectName || '수동 입력',
+                              name: newIssueDraft.name.trim(),
+                              detail: newIssueDraft.detail.trim(),
+                              assignee: newIssueDraft.assignee.trim(),
+                              workEffort: parseFloat(newIssueDraft.workEffort) || 0,
+                              note: newIssueDraft.note.trim(),
+                            }]);
+                            setNewIssueDraft({ projectName: '', name: '', detail: '', assignee: '', workEffort: '', note: '' });
+                            setShowAddIssueForm(false);
+                          }}
+                          className="px-3 py-1 rounded text-xs bg-red-500 text-white hover:bg-red-600 disabled:opacity-40 transition-colors"
+                        >
+                          추가
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
