@@ -1804,6 +1804,35 @@ export function WBSProvider({
       updatedTask = clampTaskToProjectRange(updatedTask, project);
       let nextTasks = prev.map(t => t.id === id ? updatedTask : t);
 
+      // 완료 상태로 변경 시 모든 하위 작업에 상태·진척률 캐스케이드
+      if (typeof resolvedUpdates.status === 'string' && wbsSettings.linkStatusAndProgress !== false) {
+        const newStatusCfg = ((wbsSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === resolvedUpdates.status);
+        if (newStatusCfg && newStatusCfg.progress === 100) {
+          const getAllDescendantIds = (rootId: string): string[] => {
+            const result: string[] = [];
+            const stack = [rootId];
+            while (stack.length) {
+              const pid = stack.pop()!;
+              for (const t of nextTasks) {
+                if (t.parentId === pid) {
+                  result.push(t.id);
+                  stack.push(t.id);
+                }
+              }
+            }
+            return result;
+          };
+          const descendantIds = new Set(getAllDescendantIds(id));
+          if (descendantIds.size > 0) {
+            nextTasks = nextTasks.map(t =>
+              descendantIds.has(t.id)
+                ? { ...t, status: newStatusCfg.id, progress: 100 }
+                : t
+            );
+          }
+        }
+      }
+
       // 상위 작업 가중치를 수동 입력한 경우: 모든 하위 레벨을 비율 유지하여 재귀 재분배 (각 레벨 합 = 해당 상위 가중치)
       if (Object.prototype.hasOwnProperty.call(updates, 'weight') && typeof updates.weight === 'number' && Number.isFinite(updates.weight)) {
         const parentWeight = updatedTask.weight ?? 0;
