@@ -305,6 +305,46 @@ function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatus
 }
 
 /**
+ * 상위 작업 진척률을 수동 변경 시, 모든 하위 레벨을 비율 유지하여 재귀적으로 배분.
+ * - 현재 자식들의 가중평균이 targetProgress가 되도록 각 자식 진척률을 비례 조정.
+ * - 현재 평균이 0이면 모든 자식을 targetProgress로 설정.
+ * - 각 자식의 하위에도 같은 방식으로 재귀 적용.
+ */
+function distributeProgressDown(allTasks: Task[], parentId: string, targetProgress: number): Task[] {
+  const children = allTasks.filter(t => t.parentId === parentId);
+  if (children.length === 0) return allTasks;
+
+  let totalWeight = 0;
+  let weightedSum = 0;
+  for (const child of children) {
+    const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
+    const weight = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
+    totalWeight += weight;
+    const progress = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
+    weightedSum += progress * weight;
+  }
+
+  const currentAvg = totalWeight > 0
+    ? weightedSum / totalWeight
+    : children.reduce((s, c) => s + (typeof c.progress === 'number' ? c.progress : 0), 0) / children.length;
+
+  let result = allTasks;
+  for (const child of children) {
+    let newChildProgress: number;
+    if (currentAvg <= 0) {
+      newChildProgress = targetProgress;
+    } else {
+      const childProgress = typeof child.progress === 'number' ? child.progress : 0;
+      newChildProgress = Math.min(100, Math.max(0, Math.round(childProgress * targetProgress / currentAvg)));
+    }
+    result = result.map(t => t.id === child.id ? { ...t, progress: newChildProgress } : t);
+    result = distributeProgressDown(result, child.id, newChildProgress);
+  }
+
+  return result;
+}
+
+/**
  * 상위 작업 가중치 변경 시, 해당 노드의 모든 하위 레벨을 비율 유지하여 재귀적으로 재분배.
  * - 직계 자식: (기존 가중치 또는 공수 비율) × 상위 가중치. 합 = 상위 가중치.
  * - 자식이 자신의 자식을 가지면, 그 자식에게 부여된 새 가중치로 다시 재분배.
@@ -1837,6 +1877,14 @@ export function WBSProvider({
       if (Object.prototype.hasOwnProperty.call(updates, 'weight') && typeof updates.weight === 'number' && Number.isFinite(updates.weight)) {
         const parentWeight = updatedTask.weight ?? 0;
         nextTasks = redistributeWeightsDown(nextTasks, id, parentWeight);
+      }
+
+      // 진척률을 직접 변경한 경우: 하위 작업들에 비례 배분 (현재 자식 가중평균 → targetProgress 가 되도록 스케일)
+      if (Object.prototype.hasOwnProperty.call(updates, 'progress') && typeof resolvedUpdates.progress === 'number') {
+        const hasChildTasks = nextTasks.some(t => t.parentId === id && t.projectId === task.projectId);
+        if (hasChildTasks) {
+          nextTasks = distributeProgressDown(nextTasks, id, resolvedUpdates.progress);
+        }
       }
 
       // 시작일/종료일/공수 변경 시: 연관된 업무(후행/하위)만 일정 재계산 (간트 드래그 시 skipCascade로 연쇄 반영 생략)
