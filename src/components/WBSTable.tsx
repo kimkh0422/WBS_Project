@@ -156,6 +156,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     setSelectedTaskIds: setSharedSelectedTaskIds,
     refreshProjectSchedule,
     canEditCurrentProject,
+    reorderTask,
   } = useWBS();
 
   const { push: pushToast } = useToast();
@@ -838,7 +839,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     setDndActiveId(event.active.id as string);
   }, []);
 
-  const handleDragOver = (event: DragOverEvent) => {
+  const handleDragOver = useCallback((event: DragOverEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) {
       setDropTarget(null);
@@ -859,15 +860,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     const position: DropPosition = rel < 0.33 ? 'before' : rel > 0.66 ? 'after' : 'inside';
 
     setDropTarget(prev => (prev?.overId === overId && prev.position === position ? prev : { overId, position }));
-  };
+  }, []);
 
-  const handleDragCancel = (_event: DragCancelEvent) => {
+  const handleDragCancel = useCallback((_event: DragCancelEvent) => {
     setDropTarget(null);
     setDndActiveId(null);
-  };
+  }, []);
 
   /** 드래그한 작업을 놓은 위치에 따라 상하 이동 또는 하위(자식) 이동 */
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     setDndActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) {
@@ -886,13 +887,19 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     }
 
     // 순환 방지: over가 드래그한 작업의 자손이면 무시 (어떤 드롭 포지션이든 안전하게 차단)
+    const childrenByParent = new Map<string, string[]>();
+    for (const t of tasks) {
+      if (t.parentId) {
+        const arr = childrenByParent.get(t.parentId) ?? [];
+        arr.push(t.id);
+        childrenByParent.set(t.parentId, arr);
+      }
+    }
     const descendantIds = new Set<string>();
     const collectDescendants = (parentId: string) => {
-      for (const t of tasks) {
-        if (t.parentId === parentId) {
-          descendantIds.add(t.id);
-          collectDescendants(t.id);
-        }
+      for (const childId of childrenByParent.get(parentId) ?? []) {
+        descendantIds.add(childId);
+        collectDescendants(childId);
       }
     };
     collectDescendants(draggedId);
@@ -906,16 +913,14 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     if (position === 'inside') {
       updateTask(draggedId, { parentId: overId });
       if (!overTask.expanded) updateTask(overId, { expanded: true });
-      setDropTarget(null);
-      return;
+    } else {
+      // before/after: overTask와 같은 부모 레벨(형제)로 이동 + 표시 순서도 같이 이동
+      const targetParentId = overTask.parentId ?? null;
+      updateTask(draggedId, { parentId: targetParentId });
+      reorderTask(draggedId, overId);
     }
-
-    // before/after: overTask와 같은 부모 레벨(형제)로 이동 + 표시 순서도 같이 이동
-    const targetParentId = overTask.parentId ?? null;
-    updateTask(draggedId, { parentId: targetParentId });
-    reorderTask(draggedId, overId);
     setDropTarget(null);
-  };
+  }, [tasks, dropTarget, updateTask, reorderTask]);
 
   // Keyboard Shortcuts
   React.useEffect(() => {
