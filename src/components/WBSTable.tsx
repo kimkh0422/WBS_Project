@@ -3813,7 +3813,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     (prev.task.userLockedFields?.length ?? 0) === (next.task.userLockedFields?.length ?? 0) &&
     (prev.task.userLockedFields ?? []).every((f, i) => (next.task.userLockedFields ?? [])[i] === f) &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
-    prev.canEdit === next.canEdit
+    prev.canEdit === next.canEdit &&
+    prev.dropIndicator === next.dropIndicator
   );
 }
 
