@@ -64,7 +64,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 ];
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, rowHeights: propRowHeights, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
-  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings } = useWBS();
+  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings, canEditCurrentProject } = useWBS();
   const { levelBarBg, levelBorderColor, levelRowBg } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
@@ -898,7 +898,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             onClose={() => setContextMenu(null)}
             actions={[
               { label: '편집', onClick: () => { setEditingTask(tasks.find(t => t.id === contextMenu.taskId) || null); } },
-              { label: '삭제', onClick: () => { deleteTask(contextMenu.taskId); }, danger: true },
+              ...(canEditCurrentProject ? [{ label: '삭제', onClick: () => { deleteTask(contextMenu.taskId); }, danger: true }] : []),
             ]}
           />
         )}
@@ -1190,14 +1190,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 if (task) setEditingTask(task);
               }
             },
-            {
+            ...(canEditCurrentProject ? [{
               label: '삭제',
               icon: <Trash2 size={14} />,
               danger: true,
               onClick: () => {
                 if (confirm('이 작업을 삭제하시겠습니까?')) deleteTask(contextMenu.taskId);
               }
-            }
+            }] : [])
           ]}
         />
       )}

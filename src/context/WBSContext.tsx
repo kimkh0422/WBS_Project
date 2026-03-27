@@ -1844,29 +1844,39 @@ export function WBSProvider({
       updatedTask = clampTaskToProjectRange(updatedTask, project);
       let nextTasks = prev.map(t => t.id === id ? updatedTask : t);
 
-      // 완료 상태로 변경 시 모든 하위 작업에 상태·진척률 캐스케이드
+      // 상태 변경 시 모든 하위 작업에 캐스케이드
       if (typeof resolvedUpdates.status === 'string' && wbsSettings.linkStatusAndProgress !== false) {
         const newStatusCfg = ((wbsSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === resolvedUpdates.status);
-        if (newStatusCfg && newStatusCfg.progress === 100) {
-          const getAllDescendantIds = (rootId: string): string[] => {
-            const result: string[] = [];
-            const stack = [rootId];
-            while (stack.length) {
-              const pid = stack.pop()!;
-              for (const t of nextTasks) {
-                if (t.parentId === pid) {
-                  result.push(t.id);
-                  stack.push(t.id);
-                }
+        const oldStatusCfg = ((wbsSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === task.status);
+        const getAllDescendantIds = (rootId: string): string[] => {
+          const result: string[] = [];
+          const stack = [rootId];
+          while (stack.length) {
+            const pid = stack.pop()!;
+            for (const t of nextTasks) {
+              if (t.parentId === pid) {
+                result.push(t.id);
+                stack.push(t.id);
               }
             }
-            return result;
-          };
-          const descendantIds = new Set(getAllDescendantIds(id));
-          if (descendantIds.size > 0) {
+          }
+          return result;
+        };
+        const descendantIds = new Set(getAllDescendantIds(id));
+        if (descendantIds.size > 0) {
+          if (newStatusCfg && newStatusCfg.progress === 100) {
+            // 완료 상태로 변경: 모든 하위 작업을 완료로 캐스케이드
             nextTasks = nextTasks.map(t =>
               descendantIds.has(t.id)
                 ? { ...t, status: newStatusCfg.id, progress: 100 }
+                : t
+            );
+          } else if (oldStatusCfg && oldStatusCfg.progress === 100 && newStatusCfg && newStatusCfg.progress !== 100) {
+            // 완료 → 비완료로 변경: 완료 상태인 하위 작업을 새 상태로 되돌림
+            const doneStatusIds = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
+            nextTasks = nextTasks.map(t =>
+              descendantIds.has(t.id) && doneStatusIds.has(t.status)
+                ? { ...t, status: newStatusCfg.id, progress: newStatusCfg.progress ?? 0 }
                 : t
             );
           }

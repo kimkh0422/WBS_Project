@@ -214,7 +214,10 @@ CREATE POLICY "projects_update" ON projects FOR UPDATE
   );
 DROP POLICY IF EXISTS "projects_delete" ON projects;
 CREATE POLICY "projects_delete" ON projects FOR DELETE
-  USING (public.is_admin_user() OR owner_id = auth.uid());
+  USING (
+    public.is_admin_user() OR
+    id = ANY(public.get_user_editable_project_ids())
+  );
 
 -- 11. tasks RLS
 DROP POLICY IF EXISTS "tasks_select" ON tasks;

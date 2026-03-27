@@ -8,6 +8,7 @@ import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
+import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
 import {
   DndContext,
   closestCenter,
@@ -18,6 +19,7 @@ import {
   DragEndEvent,
   DragOverEvent,
   DragCancelEvent,
+  DragStartEvent,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -153,6 +155,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     selectedTaskIds: sharedSelectedTaskIds,
     setSelectedTaskIds: setSharedSelectedTaskIds,
     refreshProjectSchedule,
+    canEditCurrentProject,
   } = useWBS();
 
   const { push: pushToast } = useToast();
@@ -510,6 +513,32 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const [rowHeightState, setRowHeightState] = useState<number>(20);
   const rowHeight = propRowHeight ?? rowHeightState;
 
+  // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화
+  const [dndActiveId, setDndActiveId] = useState<string | null>(null);
+  const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null;
+
+  const virtualRangeExtractor = useCallback(
+    (range: Parameters<typeof defaultRangeExtractor>[0]) => {
+      const base = defaultRangeExtractor(range);
+      if (dndActiveId) {
+        const idx = visibleTasks.findIndex(t => t.id === dndActiveId);
+        if (idx !== -1 && !base.includes(idx)) {
+          return [...base, idx].sort((a, b) => a - b);
+        }
+      }
+      return base;
+    },
+    [dndActiveId, visibleTasks]
+  );
+
+  const rowVirtualizer = useVirtualizer({
+    count: visibleTasks.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 5,
+    rangeExtractor: virtualRangeExtractor,
+  });
+
   const maxTreeLevel = useMemo(() => {
     if (tasks.length === 0) return 1;
     const taskMap = new Map<string, Task>(tasks.map(t => [t.id, t] as const));
@@ -805,6 +834,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
    * - 행 중간 1/3: 하위(inside)
    * - 행 하단 1/3: 아래(after)
    */
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setDndActiveId(event.active.id as string);
+  }, []);
+
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) {
@@ -830,10 +863,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   const handleDragCancel = (_event: DragCancelEvent) => {
     setDropTarget(null);
+    setDndActiveId(null);
   };
 
   /** 드래그한 작업을 놓은 위치에 따라 상하 이동 또는 하위(자식) 이동 */
   const handleDragEnd = (event: DragEndEvent) => {
+    setDndActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) {
       setDropTarget(null);
@@ -1223,7 +1258,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       // Delete만 삭제 메뉴 오픈 (Backspace는 브라우저 뒤로가기·입력 필드와 충돌 방지)
       if (e.key === 'Delete' || e.key === 'Del') {
         e.preventDefault();
-        if (effectiveSelectedIds.length > 0) {
+        if (canEditCurrentProject && effectiveSelectedIds.length > 0) {
           setDeleteConfirm({ isOpen: true, taskIds: effectiveSelectedIds });
         }
         return;
@@ -2232,6 +2267,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
               onDragCancel={handleDragCancel}
@@ -2241,12 +2277,21 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                 // 하지만 하위 WBS 자체를 테이블에서 숨기면 "특정 레벨 이상 펼쳐지지 않는" 현상처럼 보일 수 있으므로,
                 // 렌더링은 유지하고 표기만 비운다.
                 const tasksForRender = visibleTasks;
+                const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : null;
+                const topPad = virtualItems ? (virtualItems[0]?.start ?? 0) : 0;
+                const bottomPad = virtualItems
+                  ? rowVirtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0)
+                  : 0;
+                const itemsToRender = virtualItems
+                  ? virtualItems.map(v => ({ task: tasksForRender[v.index], rowIndex: v.index }))
+                  : tasksForRender.map((task, rowIndex) => ({ task, rowIndex }));
                 return (
               <SortableContext
                 items={tasksForRender.map(t => t.id)}
                 strategy={verticalListSortingStrategy}
               >
-                {tasksForRender.map((task, rowIndex) => (
+                {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
+                {itemsToRender.map(({ task, rowIndex }) => (
                   <React.Fragment key={task.id}>
                     <SortableTaskRow
                       rowIndex={rowIndex}
@@ -2267,6 +2312,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                         rangeAnchorRef.current = id;
                         setAnchorTaskId(id);
                       }}
+                      canEdit={canEditCurrentProject}
                       onEdit={setEditingTask}
                       onDeleteClick={handleDeleteClick}
                       onContextMenu={handleContextMenu}
@@ -2373,6 +2419,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                     )}
                   </React.Fragment>
                 ))}
+                {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
               </SortableContext>
                 );
               })()}
@@ -2593,6 +2640,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
             <div className="h-4 w-px bg-stone-200" />
 
+            {canEditCurrentProject && (
             <button
               onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
               className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
@@ -2601,6 +2649,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
               <Trash2 size={14} />
               삭제
             </button>
+            )}
             <button
               onClick={() => setSelection(new Set())}
               className="p-1.5 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
@@ -2780,7 +2829,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                     },
                   ]
                   : []),
-                {
+                ...(canEditCurrentProject ? [{
                   label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
                   icon: <Trash2 size={14} />,
                   danger: true,
@@ -2791,7 +2840,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       handleDeleteClick(contextMenu.taskId);
                     }
                   }
-                },
+                }] : []),
                 {
                   label: '컬럼 설정',
                   icon: <Settings2 size={14} />,
@@ -2841,6 +2890,7 @@ interface SortableTaskRowProps {
   onSetRowAnchor?: (taskId: string) => void;
   /** 행 클릭 시 포커스만 이동 (선택/체크는 체크박스 클릭으로만) */
   onFocusRow?: (taskId: string) => void;
+  canEdit: boolean;
   onEdit: (task: Task) => void;
   onDeleteClick: (taskId: string) => void;
   onContextMenu: (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void;
@@ -2885,6 +2935,7 @@ function SortableTaskRowInner({
   onSelect,
   onSetRowAnchor,
   onFocusRow,
+  canEdit,
   onEdit,
   onDeleteClick,
   onContextMenu,
@@ -3700,6 +3751,7 @@ function SortableTaskRowInner({
         >
           <Edit2 size={13} />
         </button>
+        {canEdit && (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -3710,6 +3762,7 @@ function SortableTaskRowInner({
         >
           <Trash2 size={13} />
         </button>
+        )}
       </div>
     </div>
   );
@@ -3759,7 +3812,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.dependencies === next.task.dependencies &&
     (prev.task.userLockedFields?.length ?? 0) === (next.task.userLockedFields?.length ?? 0) &&
     (prev.task.userLockedFields ?? []).every((f, i) => (next.task.userLockedFields ?? [])[i] === f) &&
-    (prev.task.depth ?? 0) === (next.task.depth ?? 0)
+    (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
+    prev.canEdit === next.canEdit
   );
 }
 

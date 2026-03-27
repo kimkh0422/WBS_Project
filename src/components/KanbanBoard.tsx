@@ -61,6 +61,7 @@ interface KanbanCardProps {
   /** 상위 WBS 표시명 (예: "T2.4 시뮬레이터 데") */
   parentWbsLabel?: string;
   isOverlay?: boolean;
+  canEdit?: boolean;
   onClick?: (task: Task) => void;
   onDelete?: (taskId: string) => void;
   onUpdate?: (taskId: string, updates: Partial<Task>) => void;
@@ -76,7 +77,7 @@ function getLevelStyle(level: number) {
   }
 }
 
-function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, onClick, onDelete, onUpdate, level = 1 }: KanbanCardProps) {
+function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, onClick, onDelete, onUpdate, level = 1 }: KanbanCardProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const lvStyle = getLevelStyle(level);
   const [newName, setNewName] = useState(task.name);
@@ -185,6 +186,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, onClick, onDelete,
             >
               <Edit2 size={12} />
             </button>
+            {canEdit && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); }}
               className="p-1 hover:bg-red-50 text-red-600 rounded"
@@ -192,6 +194,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, onClick, onDelete,
             >
               <Trash2 size={12} />
             </button>
+            )}
             <div
               className="p-1 text-stone-300 hover:text-stone-500 cursor-grab drag-handle"
               title="드래그하여 이동"
@@ -255,6 +258,7 @@ interface KanbanColumnProps {
   tasks: Task[];
   displayWbsMap: Map<string, string>;
   parentWbsLabelMap: Map<string, string>;
+  canEdit?: boolean;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: TaskStatus, name: string) => void;
   onDeleteTask: (taskId: string) => void;
@@ -268,6 +272,7 @@ function KanbanColumn({
   tasks,
   displayWbsMap,
   parentWbsLabelMap,
+  canEdit = true,
   onTaskClick,
   onAddTask,
   onDeleteTask,
@@ -393,6 +398,7 @@ function KanbanColumn({
               task={task}
               wbsId={displayWbsMap.get(task.id)}
               parentWbsLabel={parentWbsLabelMap.get(task.id)}
+              canEdit={canEdit}
               onClick={onTaskClick}
               onDelete={onDeleteTask}
               onUpdate={onUpdateTask}
@@ -401,7 +407,7 @@ function KanbanColumn({
           ))}
         </SortableContext>
 
-        {isAdding ? (
+        {canEdit && isAdding ? (
           <div className="bg-white p-2 rounded-lg shadow-sm border border-blue-500 animate-in fade-in zoom-in-95 duration-100">
             <textarea
               ref={inputRef}
@@ -428,7 +434,7 @@ function KanbanColumn({
               </button>
             </div>
           </div>
-        ) : (
+        ) : canEdit ? (
           <button
             onClick={() => setIsAdding(true)}
             className="flex items-center gap-2 text-stone-500 hover:text-stone-700 hover:bg-black/5 p-2 rounded-lg text-sm font-medium transition-colors text-left"
@@ -437,7 +443,7 @@ function KanbanColumn({
             <Plus size={16} />
             카드 추가
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -448,7 +454,7 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ filters }: KanbanBoardProps) {
-  const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings, currentProjectId, updateWbsSettings } = useWBS();
+  const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings, currentProjectId, updateWbsSettings, canEditCurrentProject } = useWBS();
 
   const getKanbanStorageKey = (projectId: string | 'all') =>
     `wbs-kanban-order-v1-${projectId || 'all'}`;
@@ -819,6 +825,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
               tasks={tasksByStatus[column.id] ?? []}
               displayWbsMap={displayWbsMap}
               parentWbsLabelMap={parentWbsLabelMap}
+              canEdit={canEditCurrentProject}
               onTaskClick={handleTaskClick}
               onAddTask={handleAddTask}
               onDeleteTask={handleDeleteClick}

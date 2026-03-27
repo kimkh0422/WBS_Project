@@ -136,7 +136,11 @@ CREATE POLICY "projects_update" ON projects FOR UPDATE
   USING (owner_id = auth.uid() OR id IN (SELECT project_id FROM project_members WHERE user_id = auth.uid() AND role IN ('owner', 'editor')));
 
 DROP POLICY IF EXISTS "projects_delete" ON projects;
-CREATE POLICY "projects_delete" ON projects FOR DELETE USING (owner_id = auth.uid());
+CREATE POLICY "projects_delete" ON projects FOR DELETE
+  USING (
+    public.is_admin_user() OR
+    id = ANY(public.get_user_editable_project_ids())
+  );
 
 DROP POLICY IF EXISTS "tasks_select" ON tasks;
 CREATE POLICY "tasks_select" ON tasks FOR SELECT

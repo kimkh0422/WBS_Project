@@ -390,7 +390,7 @@ interface MindMapViewProps {
 }
 
 export function MindMapView({ filters }: MindMapViewProps) {
-  const { tasks, addTask, updateTask, deleteTask, reorderTask, currentProjectId, projects, wbsMap } = useWBS();
+  const { tasks, addTask, updateTask, deleteTask, reorderTask, currentProjectId, projects, wbsMap, canEditCurrentProject } = useWBS();
   const filterId = React.useId().replace(/:/g, '');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -791,11 +791,11 @@ export function MindMapView({ filters }: MindMapViewProps) {
       case 'Backspace':
         if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) {
           e.preventDefault();
-          if (selectedTask) { setEditingTask(selectedTask); setDeleteOpen(true); }
+          if (canEditCurrentProject && selectedTask) { setEditingTask(selectedTask); setDeleteOpen(true); }
         }
         return;
       default:
-        if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); addChildTask(); }
+        if (canEditCurrentProject && e.ctrlKey && e.key === 'Enter') { e.preventDefault(); addChildTask(); }
         break;
     }
   }, [nodes, scopedTasks, selectedTaskId, selectedTask, wrappedForest, toggleCollapsed, openDetailEdit, addChildTask, panToNode, startInlineEdit, editingNodeId]);
@@ -887,6 +887,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
 
           {/* 루트 작업 추가 */}
+          {canEditCurrentProject && (
           <button
             type="button"
             onClick={addRootTask}
@@ -896,6 +897,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             <Plus size={13} />
             작업 추가
           </button>
+          )}
 
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
 
@@ -925,6 +927,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3 p-8">
               <Hand size={32} className="opacity-40" />
               <p className="text-sm font-medium">표시할 작업이 없습니다.</p>
+              {canEditCurrentProject && (
               <button
                 type="button"
                 onClick={addRootTask}
@@ -933,6 +936,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 <Plus size={15} />
                 첫 번째 작업 추가
               </button>
+              )}
             </div>
           ) : (
             <svg width="100%" height="100%" className="touch-none select-none">
