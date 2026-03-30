@@ -1017,9 +1017,10 @@ export function WBSProvider({
   const syncWithDb = async (
     scope: 'current' | 'all',
     onProgress?: (percent: number, message: string) => void,
-    opts?: { pullAfter?: boolean }
+    opts?: { pullAfter?: boolean; skipAutoPrune?: boolean }
   ): Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }> => {
     const pullAfter = opts?.pullAfter !== false;
+    const skipAutoPrune = opts?.skipAutoPrune === true;
     const syncEpochStart = dirtyEpochRef.current;
     const report = (pct: number, message: string) => {
       try {
@@ -1098,8 +1099,8 @@ export function WBSProvider({
     let workingTasks = allTasks;
     try {
       report(1, '동기화 준비 중…');
-      // Apply auto-prune locally (scope=all only)
-      if (effectiveScope === 'all' && autoDeletedProjectIds.length > 0) {
+      // Apply auto-prune locally (scope=all, 수동 전체 동기화 시에만 실행)
+      if (effectiveScope === 'all' && !skipAutoPrune && autoDeletedProjectIds.length > 0) {
         setDeletedProjectIds(prev => Array.from(new Set([...prev, ...autoDeletedProjectIds])));
         workingProjects = projects.filter(p => !autoDeletedProjectIds.includes(p.id));
         workingTasks = allTasks.filter(t => !t.projectId || !autoDeletedProjectIds.includes(t.projectId));
@@ -2525,7 +2526,7 @@ export function WBSProvider({
       deletedTaskIdsByProject,
       hasLocalChangesSinceSync,
       syncWithDb,
-      pushChangesToDb: (scope: 'current' | 'all') => syncWithDb(scope, undefined, { pullAfter: false }),
+      pushChangesToDb: (scope: 'current' | 'all') => syncWithDb(scope, undefined, { pullAfter: false, skipAutoPrune: true }),
       collabPushNonce,
       deleteAllTasks,
       deleteAllTasksInAllProjects,
