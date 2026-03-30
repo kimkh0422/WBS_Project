@@ -1,4 +1,4 @@
-type PersistKey =
+export type PersistKey =
   | 'wbs-projects'
   | 'wbs-tasks'
   | 'wbs-settings'

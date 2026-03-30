@@ -2070,7 +2070,7 @@ function AppWithProviders() {
   return (
     <WBSProvider
       useLocalOnly={false}
-      onConcurrentConflict={() => pushToast('다른 사용자가 수정했습니다. 화면이 자동으로 최신 데이터로 갱신됩니다.', { variant: 'warning', durationMs: 6000 })}
+      onConcurrentConflict={() => pushToast('다른 사용자가 동시에 수정했습니다. DB 동기화 버튼을 눌러 최신 데이터를 가져오세요.', { variant: 'warning', durationMs: 8000 })}
       onDbError={(msg) =>
         pushToast(msg, {
           variant: 'error',

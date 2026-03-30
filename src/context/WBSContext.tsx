@@ -39,6 +39,7 @@ import {
   restoreBackupToDB,
 } from '../lib/db';
 import {
+  type PersistKey,
   loadJsonWithIdbFallback,
   saveJsonWithIdbFallback,
   safeLocalGet,
@@ -724,13 +725,22 @@ export function WBSProvider({
   useEffect(() => {
     if (isLoading) return;
     void (async () => {
-      await Promise.all([
+      const results = await Promise.allSettled([
         saveJsonWithIdbFallback('wbs-projects', projects),
         saveJsonWithIdbFallback('wbs-tasks', allTasks),
         saveJsonWithIdbFallback('wbs-settings', wbsSettings),
         saveJsonWithIdbFallback('wbs-deleted-task-ids', deletedTaskIdsByProject),
         saveJsonWithIdbFallback('wbs-deleted-project-ids', deletedProjectIds),
       ]);
+      // 저장 실패 항목 감지 (용량 초과 등)
+      const keys: PersistKey[] = ['wbs-projects', 'wbs-tasks', 'wbs-settings', 'wbs-deleted-task-ids', 'wbs-deleted-project-ids'];
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 실패:', keys[i], r.reason);
+        } else if (r.value.used === 'none') {
+          if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 공간 부족:', keys[i]);
+        }
+      });
     })();
   }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject, deletedProjectIds]);
 
@@ -1249,7 +1259,7 @@ export function WBSProvider({
         const persistDeletedTasks: Record<string, string[]> = { ...deletedTaskIdsByProject };
         for (const pid of deletionPids) delete persistDeletedTasks[pid];
         const persistDeletedProjects = deletedProjectIds.filter(id => !deletionProjectIdSet.has(id));
-        await Promise.all([
+        await Promise.allSettled([
           saveJsonWithIdbFallback('wbs-projects', workingProjects),
           saveJsonWithIdbFallback('wbs-tasks', workingTasks),
           saveJsonWithIdbFallback('wbs-settings', wbsSettings),
@@ -1353,7 +1363,7 @@ export function WBSProvider({
         Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedTasks : deletedTaskIdsByProject;
       const finalDeletedProjectsForPersist =
         Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedProjects : deletedProjectIds;
-      await Promise.all([
+      await Promise.allSettled([
         saveJsonWithIdbFallback('wbs-projects', snapshotProjects),
         saveJsonWithIdbFallback('wbs-tasks', snapshotTasks),
         saveJsonWithIdbFallback('wbs-settings', finalSettings),
