@@ -1081,7 +1081,9 @@ export function WBSProvider({
       .filter(p => (taskCountByProject.get(p.id) ?? 0) === 0)
       .map(p => p.id);
     const canDeleteCount = Math.max(0, projects.length - 1);
-    const autoDeletedProjectIds = emptyOwnedProjectIdsInScope.slice(0, canDeleteCount);
+    const autoDeletedProjectIds = emptyOwnedProjectIdsInScope
+      .filter(id => id !== currentProjectId)
+      .slice(0, canDeleteCount);
 
     // Merge deletions (state + auto)
     const targetDeletedProjectIds = effectiveScope === 'all'
@@ -1398,7 +1400,7 @@ export function WBSProvider({
         handleDbError(uploadError, '동기화 중 오류가 났습니다. 서버 데이터는 로컬에 반영했습니다.');
       }
       clearInitBlankSessionFlag();
-      setHasLocalChangesSinceSync(false);
+      if (dirtyEpochRef.current === syncEpochStart) setHasLocalChangesSinceSync(false);
       return { projects: snapshotProjects!, allTasks: snapshotTasks!, summary };
     } catch (e) {
       throw toUserFacingDbError(e);
@@ -1827,7 +1829,8 @@ export function WBSProvider({
 
       const lockFields = new Set(task.userLockedFields ?? []);
       if (hasDateChange) {
-        if (resolvedUpdates.startDate != null) {
+        // 사용자가 직접 startDate를 전달한 경우에만 잠금 (자동 역산된 경우 잠금하지 않음)
+        if (Object.prototype.hasOwnProperty.call(updates, 'startDate') && resolvedUpdates.startDate != null) {
           lockFields.add('startDate');
           lockFields.delete('endDate');
         }
@@ -2301,9 +2304,9 @@ export function WBSProvider({
   };
 
   const toggleExpand = (id: string) => {
+    bumpDirty();
     setAllTasks(prev => {
       const updated = prev.map(t => t.id === id ? { ...t, expanded: !t.expanded } : t);
-      const target = updated.find(t => t.id === id);
       return updated;
     });
   };
