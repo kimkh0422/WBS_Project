@@ -176,19 +176,24 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const selectionRef = useRef({ selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask });
   selectionRef.current = { selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask };
 
-  const visibleTaskById = useMemo(
-    () => new Map(visibleTasks.map(task => [task.id, task] as const)),
-    [visibleTasks]
-  );
+  // visibleTaskById + visibleTaskIndexById를 단일 패스로 생성
+  const { visibleTaskById, visibleTaskIndexById } = useMemo(() => {
+    const byId = new Map<string, TaskWithDepth>();
+    const indexById = new Map<string, number>();
+    visibleTasks.forEach((task, index) => {
+      byId.set(task.id, task);
+      indexById.set(task.id, index);
+    });
+    return { visibleTaskById: byId, visibleTaskIndexById: indexById };
+  }, [visibleTasks]);
 
-  const visibleTaskIndexById = useMemo(
-    () => new Map(visibleTasks.map((task, index) => [task.id, index] as const)),
-    [visibleTasks]
-  );
-
-  const criticalPathSet = useMemo(() => getCriticalPathTaskIds(tasks), [tasks]);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
-  const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
+  // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
+  const criticalPathSet = useMemo(
+    () => (showCriticalPath ? getCriticalPathTaskIds(tasks) : EMPTY_CRITICAL_PATH_SET),
+    [showCriticalPath, tasks]
+  );
+  const effectiveCriticalPathSet = criticalPathSet;
 
   // Keyboard hotkeys - only when mounted
   useEffect(() => {

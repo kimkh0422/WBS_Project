@@ -218,7 +218,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     return loadClipboardTasks();
   });
 
-  const [quickAddName, setQuickAddName] = useState('');
+  const quickAddNameInlineRef = useRef<HTMLInputElement>(null);
+  const quickAddNameBottomRef = useRef<HTMLInputElement>(null);
   const [insertTargetId, setInsertTargetId] = useState<string | null>(null);
   const [inlineAddingTaskId, setInlineAddingTaskId] = useState<string | null>(null);
 
@@ -518,18 +519,21 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const [dndActiveId, setDndActiveId] = useState<string | null>(null);
   const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null;
 
+  // 드래그 중인 항목의 인덱스를 미리 계산 (virtualRangeExtractor 내 O(n) findIndex 제거)
+  const dndActiveIndex = useMemo(
+    () => (dndActiveId ? visibleTasks.findIndex(t => t.id === dndActiveId) : -1),
+    [dndActiveId, visibleTasks]
+  );
+
   const virtualRangeExtractor = useCallback(
     (range: Parameters<typeof defaultRangeExtractor>[0]) => {
       const base = defaultRangeExtractor(range);
-      if (dndActiveId) {
-        const idx = visibleTasks.findIndex(t => t.id === dndActiveId);
-        if (idx !== -1 && !base.includes(idx)) {
-          return [...base, idx].sort((a, b) => a - b);
-        }
+      if (dndActiveIndex !== -1 && !base.includes(dndActiveIndex)) {
+        return [...base, dndActiveIndex].sort((a, b) => a - b);
       }
       return base;
     },
-    [dndActiveId, visibleTasks]
+    [dndActiveIndex]
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -617,18 +621,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   // WBS ID Generation map logic was moved to WBSContext
 
-  /** taskId → 표 행 순번(1부터). 선행작업 셀에서 #1, #2 형태로 표시 */
-  const taskIdToSeqNum = useMemo(() => {
-    const m = new Map<string, number>();
-    visibleTasks.forEach((t, i) => m.set(t.id, i + 1));
-    return m;
-  }, [visibleTasks]);
-
-  /** 표 행 순번(1부터) → taskId. 선행작업 숫자 입력 시 변환용 */
-  const seqNumToTaskId = useMemo(() => {
-    const m = new Map<number, string>();
-    visibleTasks.forEach((t, i) => m.set(i + 1, t.id));
-    return m;
+  /** taskId ↔ 표 행 순번(1부터) 양방향 맵. 단일 패스로 생성 */
+  const { taskIdToSeqNum, seqNumToTaskId } = useMemo(() => {
+    const taskIdToSeqNum = new Map<string, number>();
+    const seqNumToTaskId = new Map<number, string>();
+    visibleTasks.forEach((t, i) => {
+      taskIdToSeqNum.set(t.id, i + 1);
+      seqNumToTaskId.set(i + 1, t.id);
+    });
+    return { taskIdToSeqNum, seqNumToTaskId };
   }, [visibleTasks]);
 
   /** 담당자별로 투입율을 한 번만 표기: 행 순서대로 이미 표시한 담당자 집합을 유지하고, 해당 행에 표시할 텍스트만 반환 */
@@ -1543,12 +1544,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   const handleInlineQuickAdd = (e: React.FormEvent, parentId: string | null) => {
     e.preventDefault();
-    if (!quickAddName.trim()) return;
+    const name = quickAddNameInlineRef.current?.value ?? '';
+    if (!name.trim()) return;
 
     const proj = projects.find(p => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
     const newId = addTask({
-      name: quickAddName.trim(),
+      name: name.trim(),
       parentId,
       startDate: filters.startDate || defaultDate,
       endDate: filters.endDate || defaultDate,
@@ -1558,7 +1560,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       status: 'todo'
     }, insertTargetId || undefined);
 
-    setQuickAddName('');
+    if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
     setInlineAddingTaskId(null);
     setInsertTargetId(null);
 
@@ -1591,12 +1593,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quickAddName.trim()) return;
+    const name = quickAddNameBottomRef.current?.value ?? '';
+    if (!name.trim()) return;
 
     const proj = projects.find(p => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
     addTask({
-      name: quickAddName,
+      name: name.trim(),
       startDate: filters.startDate || defaultDate,
       endDate: filters.endDate || defaultDate,
       progress: 0,
@@ -1605,7 +1608,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       status: 'todo',
       parentId: null,
     });
-    setQuickAddName('');
+    if (quickAddNameBottomRef.current) quickAddNameBottomRef.current.value = '';
   };
 
   const handleContextMenu = (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => {
@@ -2359,9 +2362,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                                 <form onSubmit={(e) => handleInlineQuickAdd(e, task.parentId)} className="flex w-full h-full relative group/form">
                                   <input
                                     autoFocus
+                                    ref={quickAddNameInlineRef}
                                     type="text"
-                                    value={quickAddName}
-                                    onChange={(e) => setQuickAddName(e.target.value)}
+                                    defaultValue=""
                                     onBlur={() => setInlineAddingTaskId(null)}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Escape') setInlineAddingTaskId(null);
@@ -2395,7 +2398,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                                         });
                                       });
 
-                                      setQuickAddName('');
+                                      if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
                                       setInlineAddingTaskId(null);
                                       setInsertTargetId(null);
                                     }}
@@ -2404,9 +2407,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                                   />
                                   <button
                                     type="submit"
-                                    disabled={!quickAddName.trim()}
                                     onMouseDown={(e) => e.preventDefault()}
-                                    className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-blue-500 disabled:bg-blue-300 uppercase px-3 hover:bg-blue-600 transition-colors opacity-0 group-hover/form:opacity-100"
+                                    className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-blue-500 uppercase px-3 hover:bg-blue-600 transition-colors opacity-0 group-hover/form:opacity-100"
                                   >
                                     확인
                                   </button>
@@ -2446,16 +2448,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       <form onSubmit={handleQuickAdd} className="flex w-full h-full">
                         <input
                           data-quick-add
+                          ref={quickAddNameBottomRef}
                           type="text"
-                          value={quickAddName}
-                          onChange={(e) => setQuickAddName(e.target.value)}
+                          defaultValue=""
                           placeholder="새 작업 추가 (Enter 키 입력)..."
                           className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
                         />
                         <button
                           type="submit"
-                          disabled={!quickAddName.trim()}
-                          className="text-[10px] font-bold text-indigo-600 disabled:opacity-50 uppercase px-4 hover:bg-indigo-50 transition-colors"
+                          className="text-[10px] font-bold text-indigo-600 uppercase px-4 hover:bg-indigo-50 transition-colors"
                         >
                           추가
                         </button>
@@ -2496,16 +2497,15 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                   <form onSubmit={handleQuickAdd} className="flex w-full h-full">
                     <input
                       data-quick-add
+                      ref={quickAddNameBottomRef}
                       type="text"
-                      value={quickAddName}
-                      onChange={(e) => setQuickAddName(e.target.value)}
+                      defaultValue=""
                       placeholder="새 작업 추가 (Enter 키 입력)..."
                       className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
                     />
                     <button
                       type="submit"
-                      disabled={!quickAddName.trim()}
-                      className="text-[10px] font-bold text-indigo-600 disabled:opacity-50 uppercase px-4 hover:bg-indigo-50 transition-colors"
+                      className="text-[10px] font-bold text-indigo-600 uppercase px-4 hover:bg-indigo-50 transition-colors"
                     >
                       추가
                     </button>

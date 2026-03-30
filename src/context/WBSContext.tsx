@@ -530,6 +530,8 @@ export function WBSProvider({
   const redoRef = useRef<Task[][]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  /** 로컬 저장 디바운스 타이머 */
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 사용자가 프로젝트/작업을 수정했을 때만 true. 동기화 성공 시 false. */
   const [hasLocalChangesSinceSync, setHasLocalChangesSinceSync] = useState(false);
   /** 푸시 완료 시점에 편집이 있었는지 판별 (동시 편집 중 오탐 클리어 방지) */
@@ -721,27 +723,33 @@ export function WBSProvider({
     loadData();
   }, [useLocalOnly, user?.id, handleDbError]);
 
-  // 모든 사용자: 상태 변경 시 로컬(IndexedDB/localStorage)에 저장
+  // 모든 사용자: 상태 변경 시 로컬(IndexedDB/localStorage)에 저장 (1초 디바운스)
   useEffect(() => {
     if (isLoading) return;
-    void (async () => {
-      const results = await Promise.allSettled([
-        saveJsonWithIdbFallback('wbs-projects', projects),
-        saveJsonWithIdbFallback('wbs-tasks', allTasks),
-        saveJsonWithIdbFallback('wbs-settings', wbsSettings),
-        saveJsonWithIdbFallback('wbs-deleted-task-ids', deletedTaskIdsByProject),
-        saveJsonWithIdbFallback('wbs-deleted-project-ids', deletedProjectIds),
-      ]);
-      // 저장 실패 항목 감지 (용량 초과 등)
-      const keys: PersistKey[] = ['wbs-projects', 'wbs-tasks', 'wbs-settings', 'wbs-deleted-task-ids', 'wbs-deleted-project-ids'];
-      results.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 실패:', keys[i], r.reason);
-        } else if (r.value.used === 'none') {
-          if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 공간 부족:', keys[i]);
-        }
-      });
-    })();
+    if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
+    persistDebounceRef.current = setTimeout(() => {
+      void (async () => {
+        const results = await Promise.allSettled([
+          saveJsonWithIdbFallback('wbs-projects', projects),
+          saveJsonWithIdbFallback('wbs-tasks', allTasks),
+          saveJsonWithIdbFallback('wbs-settings', wbsSettings),
+          saveJsonWithIdbFallback('wbs-deleted-task-ids', deletedTaskIdsByProject),
+          saveJsonWithIdbFallback('wbs-deleted-project-ids', deletedProjectIds),
+        ]);
+        // 저장 실패 항목 감지 (용량 초과 등)
+        const keys: PersistKey[] = ['wbs-projects', 'wbs-tasks', 'wbs-settings', 'wbs-deleted-task-ids', 'wbs-deleted-project-ids'];
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 실패:', keys[i], r.reason);
+          } else if (r.value.used === 'none') {
+            if (import.meta.env.DEV) console.warn('[persist] 로컬 저장 공간 부족:', keys[i]);
+          }
+        });
+      })();
+    }, 1000);
+    return () => {
+      if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
+    };
   }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject, deletedProjectIds]);
 
   // ─── Realtime: DB 변경사항 자동 반영 (저장 단위 공동편집) ────────────────────
@@ -1497,7 +1505,9 @@ export function WBSProvider({
     };
     buildWbs(null, '', 1);
     return { wbsMap: map, displayWbsMap: displayMap };
-  }, [tasks, wbsSettings]);
+  // wbsSettings 전체가 아닌 WBS 번호 생성에 실제 사용되는 필드만 의존
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, wbsSettings.level1Prefix, wbsSettings.level2Prefix, wbsSettings.level3Prefix, wbsSettings.maxLevel]);
 
   // ─── WBS 설정 ─────────────────────────────────────────────────────────────
 
