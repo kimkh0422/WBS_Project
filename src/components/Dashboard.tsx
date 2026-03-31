@@ -8,8 +8,52 @@ import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import type { Task } from '../types';
+
+/** 주어진 task 목록에서 깊이(depth)를 메모이제이션하여 반환하는 getter 생성 */
+function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
+    const memo = new Map<string, number>();
+    const get = (id: string): number => {
+        const cached = memo.get(id);
+        if (cached !== undefined) return cached;
+        const t = taskById.get(id);
+        if (!t || !t.parentId || !taskById.has(t.parentId)) { memo.set(id, 0); return 0; }
+        const d = get(t.parentId) + 1;
+        memo.set(id, d);
+        return d;
+    };
+    return get;
+}
+
+/** progress × weight 가중평균 진척율 계산 */
+function computeWeightedProgress(items: Task[]): number {
+    let totalWeight = 0;
+    let acc = 0;
+    for (const t of items) {
+        const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
+        const w =
+            typeof (t as any).weight === 'number' && Number.isFinite((t as any).weight)
+                ? (t as any).weight
+                : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
+        totalWeight += w;
+        acc += p * w;
+    }
+    if (totalWeight > 0) return Math.round(acc / totalWeight);
+    if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+    return 0;
+}
+
 export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavigate?: (view: any, filters: any) => void; registeredMemberDisplayNames?: Set<string> }) {
     const { projects, allTasks, wbsSettings } = useWBS();
+
+    // 공유 파생 데이터 — 여러 useMemo에서 재사용
+    const projectMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects]);
+    // 자식이 있는 task의 ID 집합 — leaf 판별 O(n)화
+    const parentIdSet = useMemo(() => {
+        const s = new Set<string>();
+        allTasks.forEach(t => { if (t.parentId) s.add(t.parentId); });
+        return s;
+    }, [allTasks]);
 
     // Calculate stats for each project
     const projectStats = useMemo(() => {
@@ -28,38 +72,15 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
 
             // 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균 우선. (weight 없으면 공수로 대체)
             // 1레벨이 없으면 폴백으로 리프(단말) 단순 평균.
-            const taskById = new Map(pTasks.map(t => [t.id, t] as const));
-            const depthMemo = new Map<string, number>();
-            const getDepth = (id: string): number => {
-                const cached = depthMemo.get(id);
-                if (cached !== undefined) return cached;
-                const t = taskById.get(id);
-                if (!t || !t.parentId || !taskById.has(t.parentId)) { depthMemo.set(id, 0); return 0; }
-                const d = getDepth(t.parentId) + 1;
-                depthMemo.set(id, d);
-                return d;
-            };
+            const taskById = new Map<string, Task>(pTasks.map(t => [t.id, t]));
+            const getDepth = buildDepthGetter(taskById);
             const level1 = pTasks.filter(t => getDepth(t.id) === 1);
-            const computeWeighted = (items: any[]) => {
-                let totalWeight = 0;
-                let acc = 0;
-                for (const t of items) {
-                    const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-                    const w =
-                        typeof t.weight === 'number' && Number.isFinite(t.weight)
-                            ? t.weight
-                            : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
-                    totalWeight += w;
-                    acc += p * w;
-                }
-                if (totalWeight > 0) return Math.round(acc / totalWeight);
-                if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
-                return 0;
-            };
-            const leafTasks = pTasks.filter(t => !pTasks.some(other => other.parentId === t.id));
+            // 프로젝트 내 부모 ID 세트로 leaf 판별 O(n)화
+            const pParentIdSet = new Set(pTasks.map(t => t.parentId).filter(Boolean));
+            const leafTasks = pTasks.filter(t => !pParentIdSet.has(t.id));
             const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
             const progress = level1.length > 0
-                ? computeWeighted(level1)
+                ? computeWeightedProgress(level1)
                 : (forAggregate.length > 0
                     ? Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)
                     : 0);
@@ -87,42 +108,18 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
         const doneStatus = wbsSettings.statusConfigs.find(c => c.progress === 100)?.id || 'done';
         const inProgressStatus = wbsSettings.statusConfigs.find(c => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
 
-      const totalTasks = allTasks.length;
-      const taskById = new Map(allTasks.map(t => [t.id, t] as const));
-      const depthMemo = new Map<string, number>();
-      const getDepth = (id: string): number => {
-        const cached = depthMemo.get(id);
-        if (cached !== undefined) return cached;
-        const t = taskById.get(id);
-        if (!t || !t.parentId || !taskById.has(t.parentId)) { depthMemo.set(id, 0); return 0; }
-        const d = getDepth(t.parentId) + 1;
-        depthMemo.set(id, d);
-        return d;
-      };
-      const level1 = allTasks.filter(t => getDepth(t.id) === 1);
-      const computeWeighted = (items: any[]) => {
-        let totalWeight = 0;
-        let acc = 0;
-        for (const t of items) {
-          const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-          const w =
-            typeof t.weight === 'number' && Number.isFinite(t.weight)
-              ? t.weight
-              : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
-          totalWeight += w;
-          acc += p * w;
-        }
-        if (totalWeight > 0) return Math.round(acc / totalWeight);
-        if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
-        return 0;
-      };
-      const leafTasks = allTasks.filter(t => !allTasks.some(other => other.parentId === t.id));
-      const forAggregate = leafTasks.length > 0 ? leafTasks : allTasks;
-      const avgProgress = level1.length > 0
-        ? computeWeighted(level1)
-        : (forAggregate.length > 0
-          ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
-          : 0);
+        const totalTasks = allTasks.length;
+        const taskById = new Map<string, Task>(allTasks.map(t => [t.id, t]));
+        const getDepth = buildDepthGetter(taskById);
+        const level1 = allTasks.filter(t => getDepth(t.id) === 1);
+        // parentIdSet(공유)으로 leaf 판별 O(n)화
+        const leafTasks = allTasks.filter(t => !parentIdSet.has(t.id));
+        const forAggregate = leafTasks.length > 0 ? leafTasks : allTasks;
+        const avgProgress = level1.length > 0
+            ? computeWeightedProgress(level1)
+            : (forAggregate.length > 0
+                ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
+                : 0);
 
         // Global status counts across all projects
         const statusCounts: Record<string, number> = {};
@@ -157,7 +154,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
             assigneeCount: assignees.length,
             earliestStartDate,
         }
-    }, [projects, allTasks, wbsSettings.statusConfigs]);
+    }, [projects, allTasks, wbsSettings.statusConfigs, parentIdSet]);
 
     // 마일스톤 목록 (날짜순)
     const milestones = useMemo(() => {
@@ -165,10 +162,10 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
             .filter(t => t.isMilestone)
             .map(t => ({
                 ...t,
-                projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
+                projectName: projectMap.get(t.projectId)?.name ?? '-',
             }))
             .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
-    }, [allTasks, projects]);
+    }, [allTasks, projectMap]);
 
     // 금주 일정: 이번 주(월~일)와 기간이 겹치는 작업 (최하위 WBS만 표시)
     const { weekStartStr, weekEndStr, weekLabel, thisWeekTasks } = useMemo(() => {
@@ -178,11 +175,8 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
         const weekStartStr = format(weekStart, 'yyyy-MM-dd');
         const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
         const weekLabel = `${format(weekStart, 'M/d', { locale: ko })} ~ ${format(weekEnd, 'M/d', { locale: ko })}`;
-        const leafTaskIds = new Set(
-            allTasks.filter(t => !allTasks.some(other => other.parentId === t.id)).map(t => t.id)
-        );
         const tasks = allTasks
-            .filter(t => leafTaskIds.has(t.id))
+            .filter(t => !parentIdSet.has(t.id))
             .filter(t => {
                 const start = t.startDate || '';
                 const end = t.endDate || '';
@@ -190,11 +184,11 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
             })
             .map(t => ({
                 ...t,
-                projectName: projects.find(p => p.id === t.projectId)?.name ?? '-',
+                projectName: projectMap.get(t.projectId)?.name ?? '-',
             }))
             .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
         return { weekStartStr, weekEndStr, weekLabel, thisWeekTasks: tasks };
-    }, [allTasks, projects]);
+    }, [allTasks, parentIdSet, projectMap]);
 
     // Calculate stats by assignee (with project breakdown for M/D + allocation %)
     const assigneeStats = useMemo(() => {
