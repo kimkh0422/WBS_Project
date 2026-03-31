@@ -29,6 +29,7 @@ import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { saveJsonWithIdbFallback, loadJsonWithIdbFallback } from '../lib/persist';
 
 // Column configuration
 const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
@@ -460,7 +461,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings, currentProjectId, updateWbsSettings, canEditCurrentProject } = useWBS();
 
   const getKanbanStorageKey = (projectId: string | 'all') =>
-    `wbs-kanban-order-v1-${projectId || 'all'}`;
+    `wbs-kanban-order-v1-${projectId || 'all'}` as any;
 
   const loadKanbanOrder = (projectId: string | 'all'): Record<string, string[]> => {
     try {
@@ -481,11 +482,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   };
 
   const saveKanbanOrder = (projectId: string | 'all', order: Record<string, string[]>) => {
-    try {
-      localStorage.setItem(getKanbanStorageKey(projectId), JSON.stringify(order));
-    } catch {
-      // ignore quota / private mode errors
-    }
+    void saveJsonWithIdbFallback(getKanbanStorageKey(projectId), order);
   };
 
   const effectiveProjectId = useMemo(() => {
@@ -499,7 +496,21 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   );
 
   useEffect(() => {
-    setKanbanOrder(loadKanbanOrder(effectiveProjectId || 'all'));
+    const key = getKanbanStorageKey(effectiveProjectId || 'all');
+    let cancelled = false;
+    void loadJsonWithIdbFallback(key).then(data => {
+      if (cancelled) return;
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        const result: Record<string, string[]> = {};
+        Object.entries(data as Record<string, unknown>).forEach(([status, ids]) => {
+          if (Array.isArray(ids)) result[status] = ids.filter(id => typeof id === 'string');
+        });
+        setKanbanOrder(result);
+      } else {
+        setKanbanOrder(loadKanbanOrder(effectiveProjectId || 'all'));
+      }
+    });
+    return () => { cancelled = true; };
   }, [effectiveProjectId]);
 
   const columns = useMemo(() => {

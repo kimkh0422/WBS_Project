@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
 import { addDays, differenceInDays, format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, min, max, parseISO, startOfMonth, endOfMonth, eachMonthOfInterval, eachWeekOfInterval, getWeek } from 'date-fns';
@@ -198,6 +199,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     return { visibleTaskById: byId, visibleTaskIndexById: indexById };
   }, [visibleTasks]);
 
+  const [showBaseline, setShowBaseline] = useState(false);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
   const criticalPathSet = useMemo(
@@ -528,6 +530,13 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
   const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 
+  const ganttVirtualizer = useVirtualizer({
+    count: visibleTasks.length,
+    getScrollElement: () => syncScrollRef?.current ?? null,
+    estimateSize: (i) => effectiveRowHeights[i] ?? ROW_HEIGHT,
+    overscan: 10,
+  });
+
   const dates = useMemo(
     () => visibleTasks.flatMap(t => [parseISO(t.startDate), parseISO(t.endDate)]).filter(d => !isNaN(d.getTime())),
     [visibleTasks]
@@ -856,6 +865,14 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 </div>
               </>
             )}
+            <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
+            <button
+              onClick={() => setShowBaseline(prev => !prev)}
+              className={cn("text-[10px] px-2 py-0.5 rounded transition-colors shrink-0 whitespace-nowrap", showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700')}
+              title="베이스라인 일정 표시 토글"
+            >
+              베이스라인
+            </button>
           </div>
           {/* 헤더 고정 (스크롤 밖) - 수평 스크롤은 본문과 동기화 */}
           <div ref={headerScrollRef} className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-hidden">
@@ -895,7 +912,10 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                   />
                 ))}
               </svg>
-              {visibleTasks.map((task, index) => {
+              {(visibleTasks.length > 50 ? ganttVirtualizer.getVirtualItems() : visibleTasks.map((_, i) => ({ index: i, start: effectiveRowHeights.slice(0, i).reduce((a, b) => a + b, 0), size: effectiveRowHeights[i] }))).map((virtualRow) => {
+                const index = virtualRow.index;
+                const task = visibleTasks[index];
+                if (!task) return null;
                 const isSelected = selectedSet.has(task.id);
                 const preview = dragPreview?.get(task.id);
                 const isBeingDragged = !!preview;
@@ -916,8 +936,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                 return (
                   <div
                     key={task.id}
-                    className={cn("relative group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
-                    style={{ width: totalWidth, height: rowH }}
+                    className={cn("absolute left-0 right-0 group transition-colors", isSelected ? "bg-blue-50/50" : "hover:bg-stone-50")}
+                    style={{ width: totalWidth, height: rowH, top: virtualRow.start }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     <div
@@ -943,6 +963,21 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       <div className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 hover:bg-black/20" onMouseDown={(e) => handleResizeMouseDown(e, task, 'resize-left')} />
                       <div className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 hover:bg-black/20" onMouseDown={(e) => handleResizeMouseDown(e, task, 'resize-right')} />
                     </div>
+                    {showBaseline && task.baselineStartDate && task.baselineEndDate && (() => {
+                      const blStart = parseISO(task.baselineStartDate);
+                      const blEnd = parseISO(task.baselineEndDate);
+                      const blOffsetDays = differenceInDays(blStart, minDate);
+                      const blDuration = differenceInDays(blEnd, blStart) + 1;
+                      const blLeft = blOffsetDays * dayWidth;
+                      const blWidth = Math.max(blDuration * dayWidth, dayWidth);
+                      return (
+                        <div
+                          className="absolute rounded-sm pointer-events-none border border-dashed border-orange-400"
+                          style={{ left: blLeft, width: Math.max(blWidth - 4, 4), height: 4, bottom: 1, backgroundColor: 'rgba(251,146,60,0.35)' }}
+                          title={`베이스라인: ${task.baselineStartDate} → ${task.baselineEndDate}`}
+                        />
+                      );
+                    })()}
                     {isBeingDragged && (
                       <div className="absolute -top-7 bg-stone-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none" style={{ left: Math.max(0, left) }}>
                         {effectiveStartDate} ~ {effectiveEndDate}

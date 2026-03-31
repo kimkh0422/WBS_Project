@@ -95,6 +95,8 @@ export interface FilterState {
   pastDueOnly?: boolean;
   /** true면 이번 주에 완료(상태 'done' + 종료일이 이번 주)된 작업만 표시 */
   completedThisWeekOnly?: boolean;
+  /** 작업명/설명 텍스트 검색 */
+  searchText?: string;
 }
 
 export const MOCK_PROJECTS: Project[] = [

@@ -560,7 +560,7 @@ export function WBSProvider({
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
   const allTasksRef = useRef<Task[]>([]);
   const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {
-    const localMap = new Map(allTasksRef.current.map(t => [t.id, t.expanded]));
+    const localMap = new Map<string, boolean>(allTasksRef.current.map(t => [t.id, t.expanded]));
     if (localMap.size === 0) return incoming;
     return incoming.map(t => {
       const localExp = localMap.get(t.id);
@@ -1476,8 +1476,9 @@ export function WBSProvider({
     setCanUndo(historyRef.current.length > 0);
     setCanRedo(true);
     setAllTasks(previous);
+    bumpDirty();
     if (!useLocalOnlyRef.current) upsertTasks(previous).catch(err => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
-  }, [handleDbError]);
+  }, [handleDbError, bumpDirty]);
 
   const redo = useCallback(() => {
     if (redoRef.current.length === 0) return;
@@ -1487,8 +1488,9 @@ export function WBSProvider({
     setCanRedo(redoRef.current.length > 0);
     setCanUndo(true);
     setAllTasks(next);
+    bumpDirty();
     if (!useLocalOnlyRef.current) upsertTasks(next).catch(err => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
-  }, [handleDbError]);
+  }, [handleDbError, bumpDirty]);
 
   // ─── Derived 상태 ─────────────────────────────────────────────────────────
 

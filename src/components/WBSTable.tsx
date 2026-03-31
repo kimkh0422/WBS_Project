@@ -3236,7 +3236,7 @@ function SortableTaskRowInner({
                 <span
                   className={cn("font-medium text-[var(--color-ink)] flex items-center gap-1.5", tableEditMode ? "cursor-cell" : "cursor-default")}
                   onClick={(e) => { if (tableEditMode) { e.stopPropagation(); setFocusedCell({ taskId: task.id, columnId: 'name' }); setInlineEditingNameId(task.id); } }}
-                  onDoubleClick={() => setInlineEditingNameId(task.id)}
+                  onDoubleClick={(e) => { e.stopPropagation(); setInlineEditingNameId(task.id); }}
                   title={tableEditMode ? '클릭하여 작업명 수정' : getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}

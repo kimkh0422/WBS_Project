@@ -142,6 +142,12 @@ function matchesFilters(task: Task, filters: FilterState) {
     if (filters.startDate && hasTaskEnd && taskEnd < filters.startDate) return false;
     if (filters.endDate && hasTaskStart && taskStart > filters.endDate) return false;
   }
+  if (filters.searchText) {
+    const q = filters.searchText.toLowerCase();
+    const nameMatch = (task.name || '').toLowerCase().includes(q);
+    const descMatch = (task.description || '').toLowerCase().includes(q);
+    if (!nameMatch && !descMatch) return false;
+  }
   return true;
 }
 
@@ -186,7 +192,8 @@ export function buildVisibleTasks(
     !!filters.milestoneOnly ||
     !!filters.issueOnly ||
     !!filters.pastDueOnly ||
-    !!filters.completedThisWeekOnly;
+    !!filters.completedThisWeekOnly ||
+    !!filters.searchText;
   const levelFilter = typeof filters.level === 'number';
   const targetLevel = levelFilter ? filters.level! : 0;
   const compare = createTaskComparator(sortConfig);

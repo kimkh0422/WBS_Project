@@ -1,10 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import { WBSTable } from './components/WBSTable';
-import { GanttChart } from './components/GanttChart';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
-import { KanbanBoard } from './components/KanbanBoard';
-import { MindMapView } from './components/MindMapView';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ProjectModal } from './components/ProjectModal';
@@ -19,13 +16,7 @@ import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBac
 import { clearAllLocalData } from './lib/persist';
 import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds, getMyEditableProjectIds } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { Dashboard } from './components/Dashboard';
-import { ProjectsPage } from './components/ProjectsPage';
-import { AllocationOverviewPage } from './components/AllocationOverviewPage';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
-import { AIAnalysisModal } from './components/AIAnalysisModal';
-import { WBSSettingsModal } from './components/WBSSettingsModal';
-import { VersionManager } from './components/VersionManager';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
@@ -35,14 +26,24 @@ import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
 import { ProjectAccessRequestBanner } from './components/ProjectAccessRequestBanner';
-import { AuditLogModal } from './components/AuditLogModal';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
-import { ExportModal } from './components/ExportModal';
 import type { ExportScope, ExportFormat } from './components/ExportModal';
-import { WeeklyReportModal } from './components/WeeklyReportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
+
+const GanttChart = React.lazy(() => import('./components/GanttChart').then(m => ({ default: m.GanttChart })));
+const KanbanBoard = React.lazy(() => import('./components/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
+const MindMapView = React.lazy(() => import('./components/MindMapView').then(m => ({ default: m.MindMapView })));
+const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then(m => ({ default: m.ProjectsPage })));
+const AllocationOverviewPage = React.lazy(() => import('./components/AllocationOverviewPage').then(m => ({ default: m.AllocationOverviewPage })));
+const AIAnalysisModal = React.lazy(() => import('./components/AIAnalysisModal').then(m => ({ default: m.AIAnalysisModal })));
+const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then(m => ({ default: m.WBSSettingsModal })));
+const VersionManager = React.lazy(() => import('./components/VersionManager').then(m => ({ default: m.VersionManager })));
+const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then(m => ({ default: m.AuditLogModal })));
+const ExportModal = React.lazy(() => import('./components/ExportModal').then(m => ({ default: m.ExportModal })));
+const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then(m => ({ default: m.WeeklyReportModal })));
 
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -717,6 +718,34 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
           : `wbs_export_${timestamp}.md`;
         exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects);
+      } else if (format === 'csv') {
+        const fileName = filteredProjects.length === 1
+          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.csv`
+          : `wbs_export_${timestamp}.csv`;
+        const projectMap = new Map(filteredProjects.map(p => [p.id, p.name]));
+        const header = ['WBS','프로젝트','작업명','담당자','상태','진행률','시작일','종료일','공수'];
+        const escape = (v: string) => {
+          if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+          return v;
+        };
+        const rows = filteredTasks.map(t => [
+          wbsMap.get(t.id) ?? '',
+          projectMap.get(t.projectId) ?? '',
+          t.name,
+          t.assignee ?? '',
+          t.status,
+          String(t.progress ?? 0),
+          t.startDate ?? '',
+          t.endDate ?? '',
+          t.workEffort != null ? String(t.workEffort) : '',
+        ].map(escape).join(','));
+        const bom = '\uFEFF';
+        const csv = bom + [header.join(','), ...rows].join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fileName; a.click();
+        URL.revokeObjectURL(url);
       } else {
         const fullBackup = exportFullBackup();
         const partialBackup: BackupData = {
@@ -1118,7 +1147,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     !!filters.issueOnly ||
     (typeof filters.level === 'number') ||
     !!filters.pastDueOnly ||
-    !!filters.completedThisWeekOnly
+    !!filters.completedThisWeekOnly ||
+    !!filters.searchText
   );
   const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
   const effectiveFilters: FilterState = filterOn
@@ -1139,6 +1169,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       level: 'all',
       pastDueOnly: false,
       completedThisWeekOnly: false,
+      searchText: '',
     }));
   }, []);
 
@@ -1615,6 +1646,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   level: 'all',
                   pastDueOnly: false,
                   completedThisWeekOnly: false,
+                  searchText: '',
                 }));
               }}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50/80 hover:bg-red-100 transition-all shrink-0 ml-auto active:scale-95"
@@ -1638,6 +1670,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         </div>
       )}
       <main className={cn("min-h-0 overflow-hidden flex flex-row relative", view === 'list' ? "flex-shrink-0" : "flex-1", isFullscreen && "fixed inset-0 z-50 bg-white")}>
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400" size={28} /></div>}>
         <div className="flex-1 min-w-0 relative bg-white">
           {!effectiveIsAdmin &&
             currentProjectId &&
@@ -1731,10 +1764,12 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           )}
         </div>
         {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
+        </Suspense>
       </main>
 
       <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
       <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
+      <Suspense fallback={null}>
       <WBSSettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -1996,6 +2031,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         currentProjectId={currentProjectId}
         currentUserDisplay={currentUserDisplay}
       />
+      </Suspense>
 
       <input
         type="file"

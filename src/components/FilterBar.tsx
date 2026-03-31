@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
-import { ChevronDown, Flag, User, Bug, Clock, X } from 'lucide-react';
+import { ChevronDown, Flag, User, Bug, Clock, X, Search } from 'lucide-react';
 import { FilterState, Project } from '../types';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 
@@ -191,6 +191,23 @@ export function WbsFilterBar({
               );
             })()}
           </div>
+        )}
+      </div>
+
+      {/* 검색 */}
+      <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-amber-50/60 border border-amber-100">
+        <Search size={12} className="text-amber-500 shrink-0" />
+        <input
+          type="text"
+          value={filters.searchText ?? ''}
+          onChange={e => setFilters(f => ({ ...f, searchText: e.target.value }))}
+          placeholder="작업 검색..."
+          className="bg-transparent text-xs text-stone-700 placeholder-stone-400 outline-none w-28 sm:w-36"
+        />
+        {filters.searchText && (
+          <button onClick={() => setFilters(f => ({ ...f, searchText: '' }))} className="text-stone-400 hover:text-stone-600">
+            <X size={10} />
+          </button>
         )}
       </div>
 
@@ -403,6 +420,7 @@ export function WbsFilterBar({
               level: 'all',
               pastDueOnly: false,
               completedThisWeekOnly: false,
+              searchText: '',
             }));
           }}
           className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50/80 hover:bg-red-100 transition-all shrink-0 ml-auto active:scale-95"

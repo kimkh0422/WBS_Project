@@ -318,6 +318,21 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     setProgressInput(typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
   }, [isOpen, initialData?.id]);
 
+  const descendantIds = useMemo(() => {
+    if (!initialData?.id) return new Set<string>();
+    const ids = new Set<string>();
+    const collect = (pid: string) => {
+      for (const t of parentOptions) {
+        if (t.parentId === pid && !ids.has(t.id)) {
+          ids.add(t.id);
+          collect(t.id);
+        }
+      }
+    };
+    collect(initialData.id);
+    return ids;
+  }, [initialData?.id, parentOptions]);
+
   const depOptions = parentOptions.filter(t => t.id !== initialData?.id);
   const idToNum = new Map<string, number>(depOptions.map((t, i) => [t.id, i + 1] as const));
   const numToId = new Map<number, string>(depOptions.map((t, i) => [i + 1, t.id] as const));
@@ -413,6 +428,28 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     return unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
   };
 
+  const hasDependencyCycle = (taskId: string, newDeps: string[]): boolean => {
+    const depsMap = new Map<string, string[]>();
+    for (const t of parentOptions) {
+      if (t.id !== taskId) depsMap.set(t.id, t.dependencies ?? []);
+    }
+    depsMap.set(taskId, newDeps);
+    const visited = new Set<string>();
+    const stack = new Set<string>();
+    const dfs = (id: string): boolean => {
+      if (stack.has(id)) return true;
+      if (visited.has(id)) return false;
+      visited.add(id);
+      stack.add(id);
+      for (const dep of depsMap.get(id) ?? []) {
+        if (dfs(dep)) return true;
+      }
+      stack.delete(id);
+      return false;
+    };
+    return dfs(taskId);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (readOnly) return;
@@ -436,6 +473,10 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist };
     const start = toMerge.startDate || '';
     const end = toMerge.endDate || start;
+    if (start && end && start > end) {
+      alert('시작일이 종료일보다 늦을 수 없습니다.');
+      return;
+    }
     if (taskProject?.startDate && start < taskProject.startDate) {
       alert(`작업 시작일은 프로젝트 시작일(${taskProject.startDate})보다 이전일 수 없습니다.`);
       return;
@@ -746,7 +787,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                   disabled={readOnly}
                 >
                   <option value="">없음</option>
-                  {parentOptions.filter(t => t.id !== initialData?.id).map((task) => (
+                  {parentOptions.filter(t => t.id !== initialData?.id && !descendantIds.has(t.id)).map((task) => (
                     <option key={task.id} value={task.id}>{displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}{task.name}</option>
                   ))}
                 </select>
@@ -982,9 +1023,17 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                     .map(s => parseInt(s.trim(), 10))
                     .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
                   const unique: number[] = Array.from(new Set<number>(nums));
-                  const ids = unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
+                  let ids = unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
+                  if (initialData?.id) {
+                    ids = ids.filter(id => id !== initialData.id);
+                    if (hasDependencyCycle(initialData.id, ids)) {
+                      pushToast('순환 의존관계가 발견되어 제거되었습니다.', { variant: 'warning' });
+                      ids = formData.dependencies ?? [];
+                    }
+                  }
                   setFormData(prev => ({ ...prev, dependencies: ids }));
-                  setDepsInput(unique.sort((a, b) => a - b).join(', '));
+                  const displayNums = ids.map(id => idToNum.get(id)).filter((n): n is number => n != null).sort((a, b) => a - b);
+                  setDepsInput(displayNums.join(', '));
                 }}
                 placeholder="선행 작업 번호 (쉼표/공백 구분, 예: 1, 3, 4)"
                 className="input-field py-1.5 text-sm w-full"

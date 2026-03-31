@@ -1540,7 +1540,36 @@ export async function deleteMemberAsAdmin(
 
 export async function restoreBackupToDB(data: BackupData, ownerId?: string): Promise<void> {
   requireSupabase();
-  // 기존 데이터 전체 삭제 후 재삽입
+
+  let snapshotProjects: Project[] = [];
+  let snapshotTasks: Task[] = [];
+  try {
+    snapshotProjects = await fetchProjects();
+    snapshotTasks = await fetchTasks();
+  } catch {
+    // snapshot best-effort
+  }
+
+  const rollback = async () => {
+    try {
+      await supabase!.from('tasks').delete().not('id', 'is', null);
+      await supabase!.from('projects').delete().not('id', 'is', null);
+      if (snapshotProjects.length > 0) {
+        const projRows = snapshotProjects.map(p => toProjectRow(p));
+        await supabase!.from('projects').insert(projRows);
+      }
+      if (snapshotTasks.length > 0) {
+        const taskRows = snapshotTasks.map((t, i) => toTaskRow(t, i));
+        const ordered = orderTaskRowsParentsFirst(taskRows);
+        for (let i = 0; i < ordered.length; i += TASKS_UPSERT_BATCH_SIZE) {
+          await supabase!.from('tasks').insert(ordered.slice(i, i + TASKS_UPSERT_BATCH_SIZE));
+        }
+      }
+    } catch {
+      // rollback best-effort
+    }
+  };
+
   const { error: delTasksErr } = await supabase!
     .from('tasks')
     .delete()
@@ -1552,6 +1581,8 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
     .delete()
     .not('id', 'is', null);
   if (delProjErr) throw delProjErr;
+
+  try {
 
   if (data.projects.length > 0) {
     const rows = data.projects.map(p => {
@@ -1604,6 +1635,11 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
 
   if (data.settings) {
     await upsertSettings(data.settings);
+  }
+
+  } catch (restoreErr) {
+    await rollback();
+    throw restoreErr;
   }
 }
 

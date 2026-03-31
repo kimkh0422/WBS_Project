@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Download, FileSpreadsheet, FileJson, FileText } from 'lucide-react';
+import { X, Download, FileSpreadsheet, FileJson, FileText, Table } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../context/WBSContext';
 
 export type ExportScope = 'all' | 'selected';
-export type ExportFormat = 'excel' | 'json' | 'markdown';
+export type ExportFormat = 'excel' | 'json' | 'markdown' | 'csv';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -91,7 +91,7 @@ export function ExportModal({
   };
 
   const selectAllFormats = () => {
-    setSelectedFormats(['excel', 'json', 'markdown']);
+    setSelectedFormats(['excel', 'json', 'markdown', 'csv']);
   };
 
   const handleExport = () => {
@@ -242,6 +242,19 @@ export function ExportModal({
                 <FileText size={18} />
                 <span className="text-sm font-medium">Markdown (.md)</span>
               </button>
+              <button
+                type="button"
+                onClick={() => toggleFormat('csv')}
+                className={cn(
+                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  selectedFormats.includes('csv')
+                    ? "bg-cyan-50 text-cyan-700 border-cyan-200"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                )}
+              >
+                <Table size={18} />
+                <span className="text-sm font-medium">CSV (.csv)</span>
+              </button>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
               {selectedFormats.length === 1 && selectedFormats[0] === 'excel' &&
@@ -250,6 +263,8 @@ export function ExportModal({
                 '프로젝트·작업·설정을 백업 형식으로 저장합니다.'}
               {selectedFormats.length === 1 && selectedFormats[0] === 'markdown' &&
                 '문서·위키에 붙여넣기 좋은 마크다운 형식입니다.'}
+              {selectedFormats.length === 1 && selectedFormats[0] === 'csv' &&
+                '범용 CSV 형식으로 Excel·스프레드시트에서 열 수 있습니다.'}
               {selectedFormats.length > 1 &&
                 '선택한 모든 형식으로 내보내기가 진행됩니다.'}
             </p>
