@@ -493,6 +493,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                     },
                                 }}
                                 onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
+                                wbsSettings={wbsSettings}
                             />
                         )}
 
@@ -501,6 +502,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                 key={project.id}
                                 project={project}
                                 onClick={() => onNavigate?.('list', { projectId: project.id, status: 'all', assignee: '' })}
+                                wbsSettings={wbsSettings}
                             />
                         ))}
                     </div>
@@ -518,6 +520,7 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                 key={stat.name}
                                 stat={stat}
                                 onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: stat.name === '미지정' ? '' : stat.name })}
+                                wbsSettings={wbsSettings}
                             />
                         ))}
                     </div>
@@ -545,8 +548,7 @@ function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: st
     );
 }
 
-function ProjectCard({ project, onClick }: { project: any; onClick?: () => void; key?: React.Key }) {
-    const { wbsSettings } = useWBS();
+function ProjectCard({ project, onClick, wbsSettings }: { project: any; onClick?: () => void; key?: React.Key; wbsSettings: any }) {
     const s = project.stats;
 
     return (
@@ -612,8 +614,7 @@ function ProjectCard({ project, onClick }: { project: any; onClick?: () => void;
     );
 }
 
-function AssigneeCard({ stat, onClick }: { stat: any; onClick?: () => void; key?: React.Key }) {
-    const { wbsSettings } = useWBS();
+function AssigneeCard({ stat, onClick, wbsSettings }: { stat: any; onClick?: () => void; key?: React.Key; wbsSettings: any }) {
     const total = stat.total || 1;
 
     return (

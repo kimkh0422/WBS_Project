@@ -1695,10 +1695,12 @@ export function WBSProvider({
     if (currentProjectIdRef.current === id) setCurrentProjectId(projectsRef.current.find(p => p.id !== id)?.id || '');
   }, [bumpDirty, recordDeletedTaskIds]);
 
-  const copyProject = (sourceProjectId: string) => {
-    const source = projects.find(p => p.id === sourceProjectId);
+  const copyProject = useCallback((sourceProjectId: string) => {
+    const projs = projectsRef.current;
+    const tasks = allTasksRef.current;
+    const source = projs.find(p => p.id === sourceProjectId);
     if (!source) return;
-    const sourceTasks = allTasks.filter(t => t.projectId === sourceProjectId);
+    const sourceTasks = tasks.filter(t => t.projectId === sourceProjectId);
     const newProjectId = uuidv4();
     const newProject: Project = {
       id: newProjectId,
@@ -1708,7 +1710,7 @@ export function WBSProvider({
       endDate: source.endDate,
       assignments: source.assignments?.map(a => ({ ...a })),
       minWorkEffortDays: source.minWorkEffortDays,
-      ownerId: ownerId ?? undefined,
+      ownerId: ownerIdRef.current ?? undefined,
     };
     const taskIdMap = new Map<string, string>();
     for (const t of sourceTasks) taskIdMap.set(t.id, uuidv4());
@@ -1735,11 +1737,11 @@ export function WBSProvider({
       const rolled = recomputeProjectRollups(combined, newProjectId);
       return rolled;
     });
-  };
+  }, [saveHistory]);
 
   // ─── 작업 CRUD ────────────────────────────────────────────────────────────
 
-  const clampTaskToProjectRange = (t: Task, proj?: Project): Task => {
+  const clampTaskToProjectRange = useCallback((t: Task, proj?: Project): Task => {
     if (!proj) return t;
     let start = t.startDate;
     let end = t.endDate;
@@ -1748,7 +1750,7 @@ export function WBSProvider({
     if (start && end && start > end) start = end;
     if (start !== t.startDate || end !== t.endDate) return { ...t, startDate: start, endDate: end };
     return t;
-  };
+  }, []);
 
   const addTask = useCallback((newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string): string => {
     saveHistory();
@@ -2456,9 +2458,9 @@ export function WBSProvider({
     });
   }, [saveHistory, recordDeletedTaskIds]);
 
-  const resetAllProjectsToNew = async (): Promise<void> => {
+  const resetAllProjectsToNew = useCallback(async (): Promise<void> => {
     // 전체 프로젝트를 제거하고 '새 프로젝트'로 리셋 (명시적 사용자 액션)
-    const newProject: Project = { id: uuidv4(), name: '새 프로젝트', ownerId: ownerId };
+    const newProject: Project = { id: uuidv4(), name: '새 프로젝트', ownerId: ownerIdRef.current };
     saveHistory();
     setSelectedTaskIds([]);
     setProjects([newProject]);
@@ -2477,11 +2479,11 @@ export function WBSProvider({
     } catch (_) {}
 
     // DB 동기화는 수동 버튼에서 처리
-  };
+  }, [saveHistory, recordDeletedTaskIds]);
 
   // ─── 백업 ─────────────────────────────────────────────────────────────────
 
-  const restoreBackup = (data: BackupData) => {
+  const restoreBackup = useCallback((data: BackupData) => {
     bumpDirty();
     const projectIds = Array.from(new Set(data.tasks.map(t => t.projectId))).filter(Boolean) as string[];
     let rolled = data.tasks;
@@ -2490,23 +2492,25 @@ export function WBSProvider({
     setAllTasks(rolled);
     setWbsSettings(parseSettings(data.settings));
     if (data.projects.length > 0) {
-      if (!data.projects.find(p => p.id === currentProjectId)) setCurrentProjectId(data.projects[0].id);
+      if (!data.projects.find(p => p.id === currentProjectIdRef.current)) setCurrentProjectId(data.projects[0].id);
     } else setCurrentProjectId('');
     // DB 동기화는 수동 버튼에서 처리
-  };
+  }, [bumpDirty]);
 
-  const exportFullBackup = (): BackupData => ({
-    version: '1.0', projects, tasks: allTasks, settings: wbsSettings, exportDate: new Date().toISOString(),
-  });
+  const exportFullBackup = useCallback((): BackupData => ({
+    version: '1.0', projects: projectsRef.current, tasks: allTasksRef.current, settings: wbsSettingsRef.current, exportDate: new Date().toISOString(),
+  }), []);
 
-  const mergeBackups = (backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
+  const mergeBackups = useCallback((backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
     bumpDirty();
     const newProjects: Project[] = [];
     const newTasks: Task[] = [];
+    const currentOwnerId = ownerIdRef.current;
+    const statusConfigs = wbsSettingsRef.current.statusConfigs;
     for (const backup of backups) {
       const projectIdMap = new Map<string, string>();
       for (const project of backup.projects) {
-        const newId = uuidv4(); projectIdMap.set(project.id, newId); newProjects.push({ ...project, id: newId, ownerId: ownerId ?? project.ownerId });
+        const newId = uuidv4(); projectIdMap.set(project.id, newId); newProjects.push({ ...project, id: newId, ownerId: currentOwnerId ?? project.ownerId });
       }
       const taskIdMap = new Map<string, string>();
       for (const task of backup.tasks) taskIdMap.set(task.id, uuidv4());
@@ -2518,12 +2522,12 @@ export function WBSProvider({
     }
     setProjects(prev => [...prev, ...newProjects]);
     setAllTasks(prev => {
-      const rolled = applyRollupsToTasks([...prev, ...newTasks], wbsSettings.statusConfigs);
+      const rolled = applyRollupsToTasks([...prev, ...newTasks], statusConfigs);
       return rolled;
     });
     if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
     return { addedProjects: newProjects.length, addedTasks: newTasks.length };
-  };
+  }, [bumpDirty]);
 
   const canEditCurrentProject =
     editableProjectIds === undefined ||
