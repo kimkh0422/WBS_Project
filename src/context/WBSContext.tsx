@@ -559,6 +559,14 @@ export function WBSProvider({
   /** 서버 스냅샷으로 화면 맞춤(다른 계정·Realtime 누락 시 일치용) */
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
   const allTasksRef = useRef<Task[]>([]);
+  const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {
+    const localMap = new Map(allTasksRef.current.map(t => [t.id, t.expanded]));
+    if (localMap.size === 0) return incoming;
+    return incoming.map(t => {
+      const localExp = localMap.get(t.id);
+      return localExp !== undefined ? { ...t, expanded: localExp } : t;
+    });
+  }, []);
   /** 동시 수정 충돌 시 토스트/refetch 중복 방지 (2초 내 재호출 스킵) */
   const lastConflictRef = useRef<number>(0);
   const CONFLICT_DEBOUNCE_MS = 2000;
@@ -856,9 +864,13 @@ export function WBSProvider({
             notifyConflictLater('task');
           }
           setAllTasks(prev => {
-            const next = prev.map(t => (t.id === serverTask.id ? serverTask : t));
-            if (prev.some(t => t.id === serverTask.id)) return next;
-            return insertTaskBySortOrder(next, serverTask, row.sort_order);
+            const localMatch = prev.find(t => t.id === serverTask.id);
+            const merged = localMatch
+              ? { ...serverTask, expanded: localMatch.expanded }
+              : serverTask;
+            const next = prev.map(t => (t.id === merged.id ? merged : t));
+            if (localMatch) return next;
+            return insertTaskBySortOrder(next, merged, row.sort_order);
           });
         });
       }
@@ -953,7 +965,7 @@ export function WBSProvider({
       if (!Array.isArray(dbProjects)) return;
       setProjects(dbProjects);
       const effectiveSettings887 = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
-      setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings887.statusConfigs));
+      setAllTasks(preserveLocalExpanded(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings887.statusConfigs)));
       if (dbSettings) {
         setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
       }
@@ -1356,7 +1368,7 @@ export function WBSProvider({
         }, {});
 
         setProjects(snapshotProjects);
-        setAllTasks(snapshotTasks);
+        setAllTasks(preserveLocalExpanded(snapshotTasks));
         if (dbSettings) setWbsSettings(prev => ({ ...prev, ...dbSettings }));
         setDeletedTaskIdsByProject(finalDeletedTasks);
         setDeletedProjectIds(finalDeletedProjects);
@@ -2348,9 +2360,8 @@ export function WBSProvider({
   }, [saveHistory]);
 
   const toggleExpand = useCallback((id: string) => {
-    bumpDirty();
     setAllTasks(prev => prev.map(t => t.id === id ? { ...t, expanded: !t.expanded } : t));
-  }, [bumpDirty]);
+  }, []);
 
   const expandToLevel = useCallback((level: number) => {
     const targetLevel = Math.max(1, Math.floor(level || 1));
@@ -2381,7 +2392,7 @@ export function WBSProvider({
       });
       return result;
     });
-  }, [saveHistory, bumpDirty]);
+  }, [saveHistory]);
 
   // ─── 가져오기 / 삭제 ──────────────────────────────────────────────────────
 

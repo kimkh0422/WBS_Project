@@ -104,8 +104,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               "pointer-events-auto border rounded-xl shadow-lg backdrop-blur bg-white/85 overflow-hidden",
               ringFor(t.variant)
             )}
-            role="status"
-            aria-live="polite"
+            role={t.variant === 'error' || t.variant === 'warning' ? 'alert' : 'status'}
+            aria-live={t.variant === 'error' || t.variant === 'warning' ? 'assertive' : 'polite'}
           >
             <div className="flex items-start gap-2 p-3">
               <div className="mt-0.5 shrink-0">{iconFor(t.variant)}</div>
@@ -132,6 +132,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 onClick={() => dismiss(t.id)}
                 className="p-1 rounded-md hover:bg-black/5 text-slate-400 hover:text-slate-700 transition-colors"
                 title="닫기"
+                aria-label="닫기"
               >
                 <X size={14} />
               </button>

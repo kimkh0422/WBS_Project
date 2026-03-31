@@ -299,7 +299,6 @@ function taskContentFingerprint(row: TaskRow): string {
     progress: row.progress,
     assignee: row.assignee,
     status: row.status,
-    expanded: row.expanded,
     dependencies: deps,
     work_effort: row.work_effort,
     description: row.description,
@@ -452,7 +451,7 @@ export function mergeTasksDelta(
         lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined }
       );
     } else {
-      out.push(st);
+      out.push(lt ? { ...st, expanded: lt.expanded } : st);
       const pid = row.project_id ?? '';
       replacedByProject[pid] = (replacedByProject[pid] ?? 0) + 1;
     }

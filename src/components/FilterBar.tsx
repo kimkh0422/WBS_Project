@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
 import { ChevronDown, Flag, User, Bug, Clock, X } from 'lucide-react';
 import { FilterState, Project } from '../types';
@@ -44,8 +44,13 @@ export function WbsFilterBar({
   setCurrentProjectId
 }: FilterBarProps) {
   const [isProjectFilterDropdownOpen, setIsProjectFilterDropdownOpen] = React.useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
   const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
   const projectFilterAllCheckboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isProjectFilterDropdownOpen) setProjectSearch('');
+  }, [isProjectFilterDropdownOpen]);
 
   useEffect(() => {
     if (!isProjectFilterDropdownOpen) return;
@@ -96,8 +101,19 @@ export function WbsFilterBar({
             className="absolute left-0 top-full mt-1 z-50 min-w-[280px] max-w-[320px] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg py-2"
             onMouseDown={(e) => e.preventDefault()}
           >
+            <input
+              type="text"
+              value={projectSearch}
+              onChange={(e) => setProjectSearch(e.target.value)}
+              placeholder="프로젝트 검색..."
+              className="w-full px-2 py-1.5 text-xs border-b border-stone-200 outline-none placeholder:text-stone-400"
+            />
             {(() => {
               const allIds = projectsSortedByName.map((x) => x.id);
+              const q = projectSearch.trim().toLowerCase();
+              const filteredProjects = q
+                ? projectsSortedByName.filter((p) => p.name.toLowerCase().includes(q))
+                : projectsSortedByName;
               const isAll = filters.projectIds === 'all';
               const isPartial = Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
               return (
@@ -124,7 +140,7 @@ export function WbsFilterBar({
                     />
                     전체 (모든 프로젝트)
                   </label>
-                  {projectsSortedByName.map((p) => {
+                  {filteredProjects.map((p) => {
                     const checked = isAll || (Array.isArray(filters.projectIds) && filters.projectIds.includes(p.id));
                     return (
                       <label

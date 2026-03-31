@@ -178,11 +178,12 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
         </div>
 
         {!isOverlay && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
             <button
               onClick={(e) => { e.stopPropagation(); onClick?.(task); }}
               className="p-1 hover:bg-blue-50 text-blue-600 rounded"
               title="수정"
+              aria-label="수정"
             >
               <Edit2 size={12} />
             </button>
@@ -191,6 +192,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
               onClick={(e) => { e.stopPropagation(); onDelete?.(task.id); }}
               className="p-1 hover:bg-red-50 text-red-600 rounded"
               title="삭제"
+              aria-label="삭제"
             >
               <Trash2 size={12} />
             </button>
@@ -429,6 +431,7 @@ function KanbanColumn({
                 onClick={() => setIsAdding(false)}
                 className="text-stone-500 hover:text-stone-700 p-1 rounded hover:bg-stone-100"
                 title="취소"
+                aria-label="취소"
               >
                 <X size={16} />
               </button>

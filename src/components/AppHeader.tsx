@@ -256,6 +256,7 @@ export function AppHeader({
           onClick={() => setIsHeaderCollapsed(false)}
           className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
           title="메뉴 펼치기"
+          aria-label="메뉴 펼치기"
         >
           <ChevronDown size={20} />
         </button>
@@ -446,6 +447,7 @@ export function AppHeader({
                                             }}
                                             className="text-stone-400 hover:text-teal-600 p-1 rounded"
                                             title="프로젝트 공유"
+                                            aria-label="프로젝트 공유"
                                           >
                                             <Share2 size={12} />
                                           </button>
@@ -457,6 +459,7 @@ export function AppHeader({
                                             }}
                                             className="text-stone-400 hover:text-blue-600 p-1 rounded"
                                             title="프로젝트 복사"
+                                            aria-label="프로젝트 복사"
                                           >
                                             <Copy size={12} />
                                           </button>
@@ -469,6 +472,7 @@ export function AppHeader({
                                             }}
                                             className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
                                             title="프로젝트 편집"
+                                            aria-label="프로젝트 편집"
                                           >
                                             <Edit size={12} />
                                           </button>
@@ -482,6 +486,7 @@ export function AppHeader({
                                               }}
                                               className="text-stone-400 hover:text-red-500 p-1 rounded"
                                               title="프로젝트 삭제"
+                                              aria-label="프로젝트 삭제"
                                             >
                                               <Trash2 size={12} />
                                             </button>
@@ -497,6 +502,7 @@ export function AppHeader({
                                         }}
                                         className="text-stone-400 hover:text-amber-600 p-1 rounded"
                                         title="변경 이력"
+                                        aria-label="변경 이력"
                                       >
                                         <History size={12} />
                                       </button>
@@ -530,6 +536,7 @@ export function AppHeader({
               disabled={!canUndo}
               className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="실행 취소 (Ctrl+Z)"
+              aria-label="실행 취소 (Ctrl+Z)"
             >
               <History size={16} /> {/* Replace Undo2 */}
             </button>
@@ -538,6 +545,7 @@ export function AppHeader({
               disabled={!canRedo}
               className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="다시 실행 (Ctrl+Shift+Z)"
+              aria-label="다시 실행 (Ctrl+Shift+Z)"
             >
               <RotateCcw size={16} /> {/* Replace Redo2 */}
             </button>
@@ -602,6 +610,7 @@ export function AppHeader({
                 isMoreMenuOpen ? 'text-[var(--color-ink)] bg-slate-100' : 'text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50'
               )}
               title="추가 옵션"
+              aria-label="추가 옵션"
             >
               <MoreHorizontal size={18} />
               {isAIBusy && (
@@ -865,6 +874,7 @@ export function AppHeader({
             onClick={() => setIsHeaderCollapsed(true)}
             className="md:hidden p-2.5 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
             title="메뉴 접어서 표 넓게 보기"
+            aria-label="메뉴 접어서 표 넓게 보기"
           >
             <ChevronUp size={18} />
           </button>

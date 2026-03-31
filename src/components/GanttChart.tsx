@@ -4,12 +4,14 @@ import { Task, FilterState, SortConfig } from '../types';
 import { addDays, differenceInDays, format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, min, max, parseISO, startOfMonth, endOfMonth, eachMonthOfInterval, eachWeekOfInterval, getWeek } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { TaskModal } from './TaskModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu } from './ContextMenu';
 import { Edit2, Trash2, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildVisibleTasks, TaskWithDepth } from '../lib/taskView';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { getCriticalPathTaskIds } from '../lib/schedule';
+import { useToast } from './Toast';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -68,6 +70,11 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const { levelBarBg, levelBorderColor, levelRowBg } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ taskId: string } | null>(null);
+  const [tappedBar, setTappedBar] = useState<{ taskId: string; x: number; y: number } | null>(null);
+  const barPopoverRef = useRef<HTMLDivElement>(null);
+  /** true after significant pointer move during bar drag/resize, or mousedown on resize handle — suppress tap-to-preview */
+  const suppressBarPopoverClickRef = useRef(false);
   const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -173,6 +180,10 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     [tasks, filters, sortConfig]
   );
 
+  const { push: pushToast } = useToast();
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
+
   const selectionRef = useRef({ selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask });
   selectionRef.current = { selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask };
 
@@ -244,6 +255,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const handleBarMouseDown = useCallback((e: React.MouseEvent, task: Task) => {
     e.preventDefault();
     e.stopPropagation();
+    suppressBarPopoverClickRef.current = false;
     // 다중 선택된 작업 중 하나를 드래그하면 전체 선택 항목 이동
     const baseIds =
       selectedSet.has(task.id) && selectedSet.size > 1
@@ -294,6 +306,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, task: Task, type: 'resize-left' | 'resize-right') => {
     e.preventDefault();
     e.stopPropagation();
+    suppressBarPopoverClickRef.current = true;
     // 부모 리사이즈 시 자손도 함께 클램프하기 위해 자손 포함
     const getDescendants = (parentId: string): Task[] => {
       const result: Task[] = [];
@@ -335,6 +348,10 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
 
       const drag = dragStateRef.current;
       if (!drag) return;
+
+      if (Math.abs(e.clientX - drag.startX) > 10 || Math.abs(e.clientY - drag.startY) > 10) {
+        suppressBarPopoverClickRef.current = true;
+      }
 
       const dw = dayWidthRef.current;
       const deltaX = e.clientX - drag.startX;
@@ -408,10 +425,25 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         const moved = Math.abs(e.clientX - drag.startX) > 10 || Math.abs(e.clientY - drag.startY) > 10;
         if (moved) {
           const { updateTask: upd } = selectionRef.current;
+          let anyDateChange = false;
           for (const t of drag.tasks) {
             const startChanged = t.previewStartDate !== t.originalStartDate || t.previewEndDate !== t.originalEndDate;
             if (startChanged) {
+              anyDateChange = true;
               upd(t.taskId, { startDate: t.previewStartDate, endDate: t.previewEndDate }, { skipCascade: true });
+            }
+          }
+          if (anyDateChange) {
+            const changed = (x: TaskDragInfo) => x.previewStartDate !== x.originalStartDate || x.previewEndDate !== x.originalEndDate;
+            const p =
+              drag.tasks.find(x => x.taskId === drag.taskId && changed(x)) ??
+              drag.tasks.find(changed);
+            if (p) {
+              const oldStart = format(parseISO(p.originalStartDate), 'MM/dd');
+              const oldEnd = format(parseISO(p.originalEndDate), 'MM/dd');
+              const newStart = format(parseISO(p.previewStartDate), 'MM/dd');
+              const newEnd = format(parseISO(p.previewEndDate), 'MM/dd');
+              pushToastRef.current(`일정 변경: ${oldStart} ~ ${oldEnd} → ${newStart} ~ ${newEnd}`, { variant: 'info', durationMs: 3000 });
             }
           }
         } else if (drag.type === 'move') {
@@ -462,6 +494,28 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, taskId });
   };
+
+  const handleBarClickForPopover = useCallback((e: React.MouseEvent, task: Task) => {
+    if (suppressBarPopoverClickRef.current) {
+      suppressBarPopoverClickRef.current = false;
+      return;
+    }
+    setTappedBar({ taskId: task.id, x: e.clientX, y: e.clientY });
+  }, []);
+
+  useEffect(() => {
+    if (!tappedBar) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      if (barPopoverRef.current?.contains(ev.target as Node)) return;
+      setTappedBar(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [tappedBar]);
+
+  useEffect(() => {
+    if (editingTask) setTappedBar(null);
+  }, [editingTask]);
 
   const ROW_HEIGHT = propRowHeight ?? 20;
   const VIEW_PADDING_TOP = 0;
@@ -561,6 +615,27 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
     return () => bottomEl.removeEventListener('scroll', onBottomScroll);
   }, [isSplitView, syncScrollRef]);
+
+  const tappedBarPopoverEl =
+    tappedBar &&
+    (() => {
+      const t = visibleTaskById.get(tappedBar.taskId) ?? tasks.find(x => x.id === tappedBar.taskId);
+      if (!t) return null;
+      const wbs = displayWbsMap.get(t.id);
+      const displayName = wbs ? `${wbs} ${t.name}` : t.name;
+      return (
+        <div
+          ref={barPopoverRef}
+          className="fixed z-50 bg-white border border-stone-200 rounded-lg shadow-lg p-3 text-sm max-w-[240px]"
+          style={{ left: tappedBar.x, top: tappedBar.y, transform: 'translate(-50%, 8px)' }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="font-semibold text-stone-800 break-words">{displayName}</div>
+          <div className="text-stone-600 mt-1 tabular-nums">{formatRange(t.startDate, t.endDate)}</div>
+          {t.assignee ? <div className="text-stone-500 mt-1 break-words">{t.assignee}</div> : null}
+        </div>
+      );
+    })();
 
   if (visibleTasks.length === 0) return (
     <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
@@ -847,6 +922,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                   >
                     <div
                       onDoubleClick={() => setEditingTask(task)}
+                      onClick={(e) => handleBarClickForPopover(e, task)}
                       onMouseDown={(e) => handleBarMouseDown(e, task)}
                       className={cn(
                         "absolute top-0 rounded shadow-sm overflow-hidden transition-all border",
@@ -894,6 +970,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
             <div style={{ width: totalWidth, height: 1 }} />
           </div>
         </div>
+
+        {tappedBarPopoverEl}
 
         <TaskModal isOpen={!!editingTask} onClose={() => setEditingTask(null)} onSave={handleSave} initialData={editingTask || undefined} parentOptions={tasks} onOpenTask={(task) => setEditingTask(task)} />
         {contextMenu && (
@@ -1107,6 +1185,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                     {/* 마일스톤: 다이아몬드 / 일반 작업: 바 */}
                     <div
                       onDoubleClick={() => setEditingTask(task)}
+                      onClick={(e) => handleBarClickForPopover(e, task)}
                       onMouseDown={(e) => handleBarMouseDown(e, task)}
                       className={cn(
                         "absolute top-0 overflow-hidden transition-all",
@@ -1172,6 +1251,8 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
         </div>
       </div>
 
+      {tappedBarPopoverEl}
+
       <TaskModal
         isOpen={!!editingTask}
         onClose={() => setEditingTask(null)}
@@ -1200,12 +1281,22 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               icon: <Trash2 size={14} />,
               danger: true,
               onClick: () => {
-                if (confirm('이 작업을 삭제하시겠습니까?')) deleteTask(contextMenu.taskId);
+                setDeleteConfirm({ taskId: contextMenu.taskId });
               }
             }] : [])
           ]}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={() => { if (deleteConfirm) deleteTask(deleteConfirm.taskId); }}
+        title="작업 삭제"
+        message="이 작업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+        confirmLabel="삭제"
+        isDanger
+      />
 
     </>
   );

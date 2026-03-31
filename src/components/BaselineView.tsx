@@ -6,6 +6,7 @@ import { differenceInDays, parseISO, format, min, max, addDays, startOfWeek, end
 import { ko } from 'date-fns/locale';
 import { Target, Calendar } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const emptyFilters: FilterState = {
   projectIds: 'all',
@@ -52,6 +53,10 @@ export function BaselineView() {
 
   const [showOnlyWithBaseline, setShowOnlyWithBaseline] = useState(true);
   const [baselineSelectedIds, setBaselineSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmSetAll, setConfirmSetAll] = useState(false);
+
+  const showEffortColumns = showOnlyWithBaseline;
+  const effortColCount = showEffortColumns ? 3 : 0;
 
   const filters: FilterState = useMemo(
     () => ({
@@ -148,7 +153,7 @@ export function BaselineView() {
               {effectiveSelectedCount > 0 && ` (${effectiveSelectedCount})`}
             </button>
             <button
-              onClick={() => setBaselineForAllTasks()}
+              onClick={() => setConfirmSetAll(true)}
               className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
             >
               전체 베이스라인 설정
@@ -178,12 +183,19 @@ export function BaselineView() {
                   <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-24">현재 종료</th>
                   <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-20 text-center">시작 차이(일)</th>
                   <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-20 text-center">종료 차이(일)</th>
+                  {showEffortColumns && (
+                    <>
+                      <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-20 text-right">계획 공수</th>
+                      <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-20 text-right">현재 공수</th>
+                      <th className="p-2 text-[10px] font-bold text-stone-500 uppercase tracking-wider w-20 text-center">공수 차이</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {listToShow.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-stone-400 text-sm">
+                    <td colSpan={9 + effortColCount} className="p-8 text-center text-stone-400 text-sm">
                       {showOnlyWithBaseline
                         ? '베이스라인이 설정된 작업이 없습니다. 표/간트에서 작업을 선택한 뒤 "선택 작업 베이스라인 설정" 또는 "전체 베이스라인 설정"을 사용하세요.'
                         : '표시할 작업이 없습니다.'}
@@ -195,6 +207,12 @@ export function BaselineView() {
                     const endVar = varianceDays(task.baselineEndDate, task.endDate);
                     const isSelected = effectiveSelectedIds.has(task.id);
                     const wbsId = displayWbsMap.get(task.id) ?? wbsMap.get(task.id) ?? '';
+                    const hasBaselineEffort =
+                      typeof task.baselineWorkEffort === 'number' && Number.isFinite(task.baselineWorkEffort);
+                    const effortDiff = hasBaselineEffort
+                      ? (task.workEffort ?? 0) - (task.baselineWorkEffort ?? 0)
+                      : null;
+                    const fmtEffort = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
                     return (
                       <tr
                         key={task.id}
@@ -240,6 +258,32 @@ export function BaselineView() {
                             '-'
                           )}
                         </td>
+                        {showEffortColumns && (
+                          <>
+                            <td className="p-2 text-xs font-mono text-right text-stone-600">
+                              {task.baselineWorkEffort != null && Number.isFinite(task.baselineWorkEffort)
+                                ? fmtEffort(task.baselineWorkEffort)
+                                : '-'}
+                            </td>
+                            <td className="p-2 text-xs font-mono text-right text-stone-700">
+                              {task.workEffort != null && Number.isFinite(task.workEffort) ? fmtEffort(task.workEffort) : '-'}
+                            </td>
+                            <td className="p-2 text-xs font-mono text-center">
+                              {effortDiff !== null ? (
+                                <span
+                                  className={cn(
+                                    effortDiff > 0 ? 'text-red-600' : effortDiff < 0 ? 'text-emerald-600' : 'text-stone-500'
+                                  )}
+                                >
+                                  {effortDiff > 0 ? '+' : ''}
+                                  {fmtEffort(effortDiff)}
+                                </span>
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })
@@ -296,6 +340,15 @@ export function BaselineView() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmSetAll}
+        onClose={() => setConfirmSetAll(false)}
+        onConfirm={() => setBaselineForAllTasks()}
+        title="전체 베이스라인 설정"
+        message="모든 작업의 현재 일정·공수를 베이스라인으로 저장합니다. 기존 베이스라인이 덮어씌워집니다. 계속하시겠습니까?"
+        confirmLabel="설정"
+      />
     </div>
   );
 }

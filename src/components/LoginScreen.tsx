@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 
@@ -9,6 +9,7 @@ export function LoginScreen() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -81,16 +82,30 @@ export function LoginScreen() {
                 className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
                 autoComplete="email"
                 disabled={loading}
+                aria-label="이메일"
               />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호 (6자 이상)"
-                className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
-                autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                disabled={loading}
-              />
+              <div className="relative w-full">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="비밀번호 (6자 이상)"
+                  className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl pl-4 pr-12 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  disabled={loading}
+                  aria-label="비밀번호"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+                  title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                  disabled={loading}
+                  aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
               {error && (
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
                   <p className="text-red-400 text-sm text-left">{error}</p>
@@ -111,6 +126,8 @@ export function LoginScreen() {
                 {!loading && <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />}
               </button>
             </form>
+
+            <p className="text-xs text-stone-500 mt-3 text-center">비밀번호를 잊으셨나요? 관리자에게 문의하세요.</p>
 
             <button
               type="button"

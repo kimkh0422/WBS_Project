@@ -3,7 +3,7 @@ import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getVisitorStats } from '../lib/db';
-import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays } from 'lucide-react';
+import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays, Loader2 } from 'lucide-react';
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
@@ -264,14 +264,17 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
     // Visitor tracking: DB 기반 (Supabase)
     const { user } = useAuth();
     const [visitorStats, setVisitorStats] = React.useState({ daily: 0, total: 0 });
+    const [loadingVisitorStats, setLoadingVisitorStats] = React.useState(false);
 
     React.useEffect(() => {
         if (!isSupabaseConfigured || !supabase || !user) {
             setVisitorStats({ daily: 0, total: 0 });
+            setLoadingVisitorStats(false);
             return;
         }
 
         const run = async () => {
+            setLoadingVisitorStats(true);
             // 세션당 하루 1회만 기록
             let sessionId = sessionStorage.getItem('wbs-visit-session-id');
             if (!sessionId) {
@@ -290,6 +293,8 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                 setVisitorStats(stats);
             } catch {
                 setVisitorStats({ daily: 0, total: 0 });
+            } finally {
+                setLoadingVisitorStats(false);
             }
         };
 
@@ -350,8 +355,18 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                             highlight="text-amber-600"
                             onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
                         />
-                        <SummaryCard title="금일 접속자" value={visitorStats.daily} subtitle="" highlight="text-blue-600" />
-                        <SummaryCard title="누적 접속자" value={visitorStats.total} subtitle="" highlight="text-purple-600" />
+                        <SummaryCard
+                            title="금일 접속자"
+                            value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.daily}
+                            subtitle=""
+                            highlight="text-blue-600"
+                        />
+                        <SummaryCard
+                            title="누적 접속자"
+                            value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.total}
+                            subtitle=""
+                            highlight="text-purple-600"
+                        />
                     </div>
                 </section>
 
@@ -367,7 +382,15 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                 {milestones.map(task => (
                                     <li
                                         key={task.id}
+                                        role="button"
+                                        tabIndex={0}
                                         onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' })}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' });
+                                            }
+                                        }}
                                         className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
                                     >
                                         <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
@@ -431,7 +454,15 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                                 {thisWeekTasks.map(task => (
                                     <li
                                         key={task.id}
+                                        role="button"
+                                        tabIndex={0}
                                         onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr });
+                                            }
+                                        }}
                                         className="flex items-center gap-4 px-6 py-3 hover:bg-slate-50/80 cursor-pointer transition-colors"
                                     >
                                         <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center">
@@ -529,6 +560,18 @@ function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: st
     return (
         <div
             onClick={onClick}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={
+                onClick
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClick();
+                          }
+                      }
+                    : undefined
+            }
             className={cn(
                 "card-elevated p-6 flex flex-col justify-center transform hover:-translate-y-1 transition-all duration-300 relative overflow-hidden group/card",
                 onClick && "cursor-pointer hover:border-indigo-200"
@@ -548,6 +591,18 @@ function ProjectCard({ project, onClick, wbsSettings }: { project: any; onClick?
     return (
         <div
             onClick={onClick}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={
+                onClick
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClick();
+                          }
+                      }
+                    : undefined
+            }
             className={cn(
                 "card flex flex-col overflow-hidden group",
                 onClick && "cursor-pointer hover:border-indigo-200"
@@ -614,6 +669,18 @@ function AssigneeCard({ stat, onClick, wbsSettings }: { stat: any; onClick?: () 
     return (
         <div
             onClick={onClick}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={
+                onClick
+                    ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClick();
+                          }
+                      }
+                    : undefined
+            }
             className={cn(
                 "card p-5 group",
                 onClick && "cursor-pointer hover:border-indigo-200"

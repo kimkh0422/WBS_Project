@@ -870,6 +870,21 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     return () => window.removeEventListener('keydown', handleViewShortcut);
   }, [navigateWithTip, effectiveIsAdmin, hiddenViews]);
 
+  // ?: 단축키 사이드바 토글 (Shift+/ 포함)
+  useEffect(() => {
+    const handleShortcutsToggle = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      const isQuestion = e.key === '?' || (e.key === '/' && e.shiftKey);
+      if (!isQuestion) return;
+      e.preventDefault();
+      setIsShortcutsVisible((prev) => !prev);
+    };
+    window.addEventListener('keydown', handleShortcutsToggle);
+    return () => window.removeEventListener('keydown', handleShortcutsToggle);
+  }, []);
+
   // Ctrl+S: 즉시 서버 반영(자동 저장과 동일 경로, 토스트 없음)
   // 캡처 단계: 표 셀 input이 keydown에서 stopPropagation 하므로 버블 리스너로는 도달하지 않음
   useEffect(() => {
@@ -1110,6 +1125,23 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     ? filters
     : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false, completedThisWeekOnly: false };
 
+  const resetWbsFilters = useCallback(() => {
+    setFilters((prev) => ({
+      ...prev,
+      projectIds: 'all',
+      status: 'all',
+      assignee: '',
+      assigneeUnassignedOnly: false,
+      startDate: '',
+      endDate: '',
+      milestoneOnly: false,
+      issueOnly: false,
+      level: 'all',
+      pastDueOnly: false,
+      completedThisWeekOnly: false,
+    }));
+  }, []);
+
   const requestRefresh = useCallback(async () => {
     if (hasLocalChangesSinceSync && isSupabaseConfigured) {
       try {
@@ -1258,13 +1290,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         </div>
       )}
 
-      {/* Filter bar: 모바일에서 헤더 접힌 상태면 숨김 */}
+      {/* Filter bar: filterOn일 때 항상 표시 (모바일에서도 헤더 접힘과 무관) */}
       {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && (
         <div
-          className={cn(
-            "bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40",
-            isHeaderCollapsed && "hidden md:flex"
-          )}
+          className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40"
           style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
         >
           {/* 프로젝트 (다중 선택) */}
@@ -1634,6 +1663,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   onRowHeightChange={setSharedRowHeight}
                   onRowHeightsChange={setRowHeights}
                   onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                  onResetFilters={resetWbsFilters}
                   onSort={(key) => {
                     setSortConfig(current => {
                       if (key === 'wbs' && current?.key === 'wbs') return null;
@@ -1669,6 +1699,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                 filters={effectiveFilters}
                 sortConfig={sortConfig}
                 onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                onResetFilters={resetWbsFilters}
                 onSort={(key) => {
                   setSortConfig(current => {
                     if (key === 'wbs' && current?.key === 'wbs') return null;

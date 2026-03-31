@@ -559,7 +559,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
     return () => el.removeEventListener('wheel', prevent);
   }, []);
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || draggingNodeId) return;
     setDragging(true);
     dragRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
@@ -567,15 +567,15 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
   useEffect(() => {
     if (!dragging) return;
-    const move = (e: MouseEvent) => {
+    const move = (e: PointerEvent) => {
       if (draggingNodeId) return;
       const d = dragRef.current;
       setPan({ x: d.panX + e.clientX - d.x, y: d.panY + e.clientY - d.y });
     };
     const up = () => setDragging(false);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
   }, [dragging, draggingNodeId]);
 
   // ─── 노드 드래그 (부모 변경) ────────────────────────────────────────────────
@@ -598,13 +598,13 @@ export function MindMapView({ filters }: MindMapViewProps) {
       return null;
     };
     let hasMoved = false;
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       hasMoved = true;
       const pt = clientToSvg(e.clientX, e.clientY);
       if (!pt) return;
       setDropTargetId(getNodeAt(pt.sx, pt.sy)?.task.id ?? null);
     };
-    const onUp = (e: MouseEvent) => {
+    const onUp = (e: PointerEvent) => {
       justDraggedRef.current = hasMoved;
       const pt = clientToSvg(e.clientX, e.clientY);
       if (pt) {
@@ -623,9 +623,9 @@ export function MindMapView({ filters }: MindMapViewProps) {
       setDraggingNodeId(null);
       setDropTargetId(null);
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
   }, [draggingNodeId, scopedTasks, updateTask, reorderTask, wrappedForest]);
 
   // ─── 화면 맞추기 ───────────────────────────────────────────────────────────
@@ -871,6 +871,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             onClick={expandAll}
             className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
             title="전체 펼치기"
+            aria-label="전체 펼치기"
           >
             <ChevronsUpDown size={15} />
           </button>
@@ -880,6 +881,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             onClick={collapseAll}
             className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
             title="전체 접기"
+            aria-label="전체 접기"
           >
             <ChevronsDownUp size={15} />
           </button>
@@ -902,9 +904,9 @@ export function MindMapView({ filters }: MindMapViewProps) {
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
 
           {/* 확대/축소/맞춤 */}
-          <button type="button" onClick={() => setScale((s) => Math.min(2.5, s + 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="확대"><ZoomIn size={15} /></button>
-          <button type="button" onClick={() => setScale((s) => Math.max(0.35, s - 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="축소"><ZoomOut size={15} /></button>
-          <button type="button" onClick={fitView} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="화면에 맞추기"><Maximize2 size={15} /></button>
+          <button type="button" onClick={() => setScale((s) => Math.min(2.5, s + 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="확대" aria-label="확대"><ZoomIn size={15} /></button>
+          <button type="button" onClick={() => setScale((s) => Math.max(0.35, s - 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="축소" aria-label="축소"><ZoomOut size={15} /></button>
+          <button type="button" onClick={fitView} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="화면에 맞추기" aria-label="화면에 맞추기"><Maximize2 size={15} /></button>
         </div>
       </div>
 
@@ -920,7 +922,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
             draggingNodeId ? 'cursor-grabbing' : dragging ? 'cursor-grabbing' : 'cursor-grab'
           )}
           onWheel={onWheel}
-          onMouseDown={(e) => { onMouseDown(e); focusContainer(); }}
+          onPointerDown={(e) => { onPointerDown(e); focusContainer(); }}
           onKeyDown={onKeyDown}
         >
           {scopedTasks.length === 0 ? (
@@ -995,7 +997,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                       key={n.task.id}
                       transform={`translate(${n.x},${n.y})`}
                       className={isVirtualRoot ? 'cursor-default' : 'cursor-pointer'}
-                      onMouseDown={(e) => { e.stopPropagation(); focusContainer(); }}
+                      onPointerDown={(e) => { e.stopPropagation(); focusContainer(); }}
                     >
                       {/* 접기/펼치기 토글 (가상 루트는 항상 열려 있음 — 접기 불가) */}
                       {hasKids && !isVirtualRoot && (
@@ -1011,7 +1013,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                       {/* 노드 본체 */}
                       <g
                         transform={hasKids && !isVirtualRoot ? `translate(${TOGGLE_W},0)` : ''}
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           if (isVirtualRoot) return; // 가상 루트 드래그 불가
                           e.stopPropagation();
                           setDraggingNodeId(n.task.id);
@@ -1185,7 +1187,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">선택한 작업</h3>
                 <p className="mt-1 text-sm font-bold text-slate-800 break-words">{selectedTask.name || '(이름 없음)'}</p>
               </div>
-              <button type="button" onClick={() => setSelectedTaskId(null)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 shrink-0" title="패널 닫기">
+              <button type="button" onClick={() => setSelectedTaskId(null)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 shrink-0" title="패널 닫기" aria-label="패널 닫기">
                 <X size={16} />
               </button>
             </div>

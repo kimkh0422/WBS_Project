@@ -13,6 +13,7 @@ import {
   Copy,
   List,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project } from '../types';
@@ -42,6 +43,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
   const [groupByOwner, setGroupByOwner] = useState(false);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -49,8 +51,15 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return;
-    fetchProfiles().then(setProfiles).catch(() => setProfiles([]));
+    if (!user?.id) {
+      setLoadingProfiles(false);
+      return;
+    }
+    setLoadingProfiles(true);
+    fetchProfiles()
+      .then(setProfiles)
+      .catch(() => setProfiles([]))
+      .finally(() => setLoadingProfiles(false));
   }, [user?.id]);
 
   useEffect(() => {
@@ -236,6 +245,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const renderProjectCard = (project: Project) => (
     <div
       key={project.id}
+      role="button"
+      tabIndex={0}
       className={cn(
         'bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all',
         'hover:shadow-md hover:border-stone-300 cursor-pointer'
@@ -243,6 +254,13 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       onDoubleClick={() => {
         setEditingProject(project);
         setIsProjectModalOpen(true);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setEditingProject(project);
+          setIsProjectModalOpen(true);
+        }
       }}
       title="더블클릭: 편집"
     >
@@ -273,7 +291,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             className="text-xs text-stone-400 truncate block mt-0.5"
             title={project.ownerId ? profileMap[project.ownerId] ?? project.ownerId : undefined}
           >
-            소유(만든 사람): {ownerLabel(project.ownerId)}
+            소유(만든 사람):{' '}
+            {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
+              <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
+            ) : (
+              ownerLabel(project.ownerId)
+            )}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">

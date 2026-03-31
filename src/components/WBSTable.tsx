@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { cn, formatDate, round2, formatNum2 } from '../lib/utils';
-import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Pencil, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
 import { ExcelGrid } from './ExcelGrid';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
 import { TaskModal } from './TaskModal';
@@ -52,6 +52,8 @@ interface WBSTableProps {
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */
   fillHeight?: boolean;
+  /** 필터로 인해 표시 행이 없을 때 "필터 초기화" 등에 사용 */
+  onResetFilters?: () => void;
 }
 
 type TableColumnId = 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'weight' | 'assignee' | 'allocation' | 'status' | 'progress' | 'deliverables' | 'dependencies';
@@ -130,7 +132,7 @@ function getTaskDetailTooltip(
   return lines.join('\n');
 }
 
-export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight: propRowHeight, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings, fillHeight = false }: WBSTableProps) {
+export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight: propRowHeight, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings, fillHeight = false, onResetFilters }: WBSTableProps) {
   const {
     tasks,
     projects,
@@ -159,7 +161,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     reorderTask,
   } = useWBS();
 
-  const { push: pushToast } = useToast();
+  const { push: pushToast, tipOnce } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
   const currentUserDisplayName =
@@ -244,6 +246,17 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   }, [excelView, tableEditMode]);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
   const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+
+  const toggleTableEditMode = useCallback(() => {
+    setTableEditMode((wasOn) => {
+      if (!wasOn) {
+        queueMicrotask(() => {
+          tipOnce('wbs-edit-mode-tip', '편집 모드: 셀을 클릭하여 직접 수정할 수 있습니다. Esc로 종료합니다.');
+        });
+      }
+      return !wasOn;
+    });
+  }, [tipOnce]);
   // ─── Realtime: 표 셀 포커스 공유(상대 커서 느낌) ────────────────────────────
   type OtherCellFocus = {
     userId: string;
@@ -1144,7 +1157,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         // Paste copied tasks into current project (supports cross-project via localStorage clipboard)
         e.preventDefault();
         const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
-        if (clipboard.length === 0) return;
+        if (clipboard.length === 0) {
+          pushToast('복사된 작업이 없습니다.', { variant: 'info' });
+          return;
+        }
 
         // Paste target: if a row is selected, insert after it; otherwise append to the end.
         const fallbackInsertAfterId = visibleTasks.length > 0 ? visibleTasks[visibleTasks.length - 1].id : undefined;
@@ -1523,7 +1539,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, excelView, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, focusedCell, editableColumnIds, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand]);
+  }, [hotkeysEnabled, excelView, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, focusedCell, editableColumnIds, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand, pushToast]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지). 인라인 새 작업 추가 중이면 유지.
   useEffect(() => {
@@ -2079,6 +2095,20 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                 <Divider />
                 <button
                   type="button"
+                  onClick={toggleTableEditMode}
+                  aria-pressed={tableEditMode}
+                  className={cn(
+                    "flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
+                    tableEditMode
+                      ? "border-blue-400 bg-blue-100 text-blue-700"
+                      : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                  )}
+                  title="스프레드시트 편집 모드 (F2)"
+                >
+                  <Pencil size={14} strokeWidth={2} aria-hidden />
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
                     const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
@@ -2124,6 +2154,20 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
             <>
               <div className="flex-1" />
+              <button
+                type="button"
+                onClick={toggleTableEditMode}
+                aria-pressed={tableEditMode}
+                className={cn(
+                  "flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
+                  tableEditMode
+                    ? "border-blue-400 bg-blue-100 text-blue-700"
+                    : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                )}
+                title="스프레드시트 편집 모드 (F2)"
+              >
+                <Pencil size={14} strokeWidth={2} aria-hidden />
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -2471,6 +2515,18 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             {visibleTasks.length === 0 && tasks.length === 0 && (
               <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
                 등록된 작업이 없습니다. 새 작업을 추가해 보세요.
+              </div>
+            )}
+            {visibleTasks.length === 0 && tasks.length > 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-stone-400 gap-3">
+                <p className="text-sm">필터 조건에 맞는 작업이 없습니다.</p>
+                <button
+                  type="button"
+                  onClick={() => onResetFilters?.()}
+                  className="text-xs text-[var(--color-accent)] hover:underline"
+                >
+                  필터 초기화
+                </button>
               </div>
             )}
           </div>

@@ -55,13 +55,18 @@ export function ConfirmDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200"
+      >
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             {isDanger && <AlertTriangle className="text-red-500" size={20} />}
-            <h2 className="text-lg font-bold text-[var(--color-ink)]">{title}</h2>
+            <h2 id="confirm-dialog-title" className="text-lg font-bold text-[var(--color-ink)]">{title}</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800">
+          <button aria-label="닫기" onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800">
             <X size={18} />
           </button>
         </div>
