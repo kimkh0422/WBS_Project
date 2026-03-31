@@ -2,7 +2,22 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(grep -r \"admin-delete-user\\\\|Edge Function\\\\|RLS\" /c/gmtProject/WBS_MG/src --include=*.ts --include=*.tsx --include=*.js)",
+      "Bash(grep:*)",
+      "Bash(find C:gmtProjectWBS_MG -name *.sql -type f)",
+      "Bash(xargs wc:*)",
+      "Bash(find /c/gmtProject/WBS_MG/src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
+      "Bash(ls -lh /c/gmtProject/WBS_MG/src/components/*.tsx)",
+      "Read(//c/gmtProject/WBS_MG/**)",
+      "Bash(awk 'NR>=2600 && NR<=2750 && /return|content/' \"c:\\\\gmtProject\\\\WBS_MG\\\\src\\\\components\\\\WBSTable.tsx\")",
+      "Bash(npm install:*)",
+      "Bash(find /c/gmtProject/WBS_MG/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))"
     ]
   }
 }
