@@ -548,6 +548,12 @@ export function WBSProvider({
   /** Realtime 콜백에서 최신 프로젝트 목록 참조 */
   const projectsRef = useRef<Project[]>([]);
   projectsRef.current = projects;
+  const currentProjectIdRef = useRef(currentProjectId);
+  currentProjectIdRef.current = currentProjectId;
+  const wbsSettingsRef = useRef<WBSSettings>(DEFAULT_SETTINGS);
+  wbsSettingsRef.current = wbsSettings;
+  const useLocalOnlyRef = useRef(useLocalOnly);
+  useLocalOnlyRef.current = useLocalOnly;
   const onConcurrentConflictRef = useRef(onConcurrentConflict);
   onConcurrentConflictRef.current = onConcurrentConflict;
   /** 서버 스냅샷으로 화면 맞춤(다른 계정·Realtime 누락 시 일치용) */
@@ -566,6 +572,8 @@ export function WBSProvider({
   // ─── 초기 데이터 로딩 (Supabase) ────────────────────────────────────────────
 
   const ownerId = user?.id ?? undefined;
+  const ownerIdRef = useRef<string | undefined>(undefined);
+  ownerIdRef.current = ownerId;
 
   useEffect(() => {
     const loadData = async () => {
@@ -1021,7 +1029,7 @@ export function WBSProvider({
     return () => clearTimeout(t);
   }, [currentProjectId, isLoading, useLocalOnly, user?.id]);
 
-  const recordDeletedTaskIds = (projectId: string, ids: string[]) => {
+  const recordDeletedTaskIds = useCallback((projectId: string, ids: string[]) => {
     const pid = String(projectId ?? '');
     const unique = Array.from(new Set(ids.filter(Boolean)));
     if (!pid || unique.length === 0) return;
@@ -1031,7 +1039,7 @@ export function WBSProvider({
       if (merged.length === existing.length) return prev;
       return { ...prev, [pid]: merged };
     });
-  };
+  }, []);
 
   const syncWithDb = async (
     scope: 'current' | 'all',
@@ -1424,6 +1432,14 @@ export function WBSProvider({
     }
   };
 
+  // syncWithDb는 매 렌더마다 새로 생성되므로 ref로 안정화 → pushChangesToDb를 stable callback으로 만들기 위함
+  const syncWithDbRef = useRef(syncWithDb);
+  syncWithDbRef.current = syncWithDb;
+  const pushChangesToDb = useCallback(
+    (scope: 'current' | 'all') => syncWithDbRef.current(scope, undefined, { pullAfter: false, skipAutoPrune: true }),
+    []
+  );
+
   useEffect(() => {
     if (currentProjectId) sessionStorage.setItem('wbs-current-project', currentProjectId);
   }, [currentProjectId]);
@@ -1432,15 +1448,15 @@ export function WBSProvider({
 
   allTasksRef.current = allTasks;
 
-  const saveHistory = () => {
+  const saveHistory = useCallback(() => {
     bumpDirty();
     historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
     redoRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
-  };
+  }, [bumpDirty]);
 
-  const undo = () => {
+  const undo = useCallback(() => {
     if (historyRef.current.length === 0) return;
     const previous = historyRef.current[historyRef.current.length - 1];
     historyRef.current = historyRef.current.slice(0, -1);
@@ -1448,10 +1464,10 @@ export function WBSProvider({
     setCanUndo(historyRef.current.length > 0);
     setCanRedo(true);
     setAllTasks(previous);
-    if (!useLocalOnly) upsertTasks(previous).catch(err => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
-  };
+    if (!useLocalOnlyRef.current) upsertTasks(previous).catch(err => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
+  }, [handleDbError]);
 
-  const redo = () => {
+  const redo = useCallback(() => {
     if (redoRef.current.length === 0) return;
     const next = redoRef.current[redoRef.current.length - 1];
     redoRef.current = redoRef.current.slice(0, -1);
@@ -1459,8 +1475,8 @@ export function WBSProvider({
     setCanRedo(redoRef.current.length > 0);
     setCanUndo(true);
     setAllTasks(next);
-    if (!useLocalOnly) upsertTasks(next).catch(err => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
-  };
+    if (!useLocalOnlyRef.current) upsertTasks(next).catch(err => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
+  }, [handleDbError]);
 
   // ─── Derived 상태 ─────────────────────────────────────────────────────────
 
@@ -1511,23 +1527,24 @@ export function WBSProvider({
 
   // ─── WBS 설정 ─────────────────────────────────────────────────────────────
 
-  const updateWbsSettings = (updates: Partial<WBSSettings>) => {
-    const newSettings = { ...wbsSettings, ...updates };
+  const updateWbsSettings = useCallback((updates: Partial<WBSSettings>) => {
+    const newSettings = { ...wbsSettingsRef.current, ...updates };
     setWbsSettings(newSettings);
-    if (!useLocalOnly) upsertSettings(newSettings).catch(err => handleDbError(err, '설정 저장에 실패했습니다.'));
-  };
+    if (!useLocalOnlyRef.current) upsertSettings(newSettings).catch(err => handleDbError(err, '설정 저장에 실패했습니다.'));
+  }, [handleDbError]);
 
-  const syncProgressFromStatusConfigs = (scope: 'current' | 'all') => {
+  const syncProgressFromStatusConfigs = useCallback((scope: 'current' | 'all') => {
     // 상태-진척도 연동을 끈 경우에는 상태 기반 일괄 동기화를 수행하지 않는다.
-    if (wbsSettings.linkStatusAndProgress === false) return;
-    const configs = wbsSettings.statusConfigs ?? [];
+    if (wbsSettingsRef.current.linkStatusAndProgress === false) return;
+    const configs = wbsSettingsRef.current.statusConfigs ?? [];
     if (!configs || configs.length === 0) return;
     const configMap = new Map(configs.map(c => [c.id, c] as const));
     setAllTasks(prev => {
+      const cpi = currentProjectIdRef.current;
       const targetProjectIds =
         scope === 'all'
           ? Array.from(new Set(prev.map(t => t.projectId))).filter(Boolean) as string[]
-          : (currentProjectId && currentProjectId !== 'all' ? [currentProjectId] : []);
+          : (cpi && cpi !== 'all' ? [cpi] : []);
       if (targetProjectIds.length === 0) return prev;
       const targetSet = new Set(targetProjectIds);
       let changed = false;
@@ -1556,11 +1573,11 @@ export function WBSProvider({
       }
       return next;
     });
-  };
+  }, []);
 
   // ─── 프로젝트 CRUD ────────────────────────────────────────────────────────
 
-  const addProject = (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => {
+  const addProject = useCallback((name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => {
     bumpDirty();
     const newProject: Project = {
       id: uuidv4(),
@@ -1570,15 +1587,15 @@ export function WBSProvider({
       endDate,
       assignments,
       minWorkEffortDays,
-      ownerId: ownerId,
+      ownerId: ownerIdRef.current,
       ...reportExtras,
     };
     setProjects(prev => [...prev, newProject]);
     setCurrentProjectId(newProject.id);
-    if (!useLocalOnly) upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
-  };
+    if (!useLocalOnlyRef.current) upsertProject(newProject).catch(err => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
+  }, [bumpDirty, handleDbError]);
 
-  const updateProject = (id: string, updates: Partial<Project>) => {
+  const updateProject = useCallback((id: string, updates: Partial<Project>) => {
     bumpDirty();
     setProjects(prev => {
       const project = prev.find(p => p.id === id);
@@ -1654,20 +1671,20 @@ export function WBSProvider({
           const adjustedById = new Map(adjusted.map(t => [t.id, t]));
           shifted = shifted.map(t => t.projectId === id && adjustedById.has(t.id) ? adjustedById.get(t.id)! : t);
           shifted = recomputeProjectRollups(shifted, id);
-          if (!useLocalOnly) upsertTasks(shifted).catch(err => handleDbError(err, '날짜 이동 저장에 실패했습니다.'));
+          if (!useLocalOnlyRef.current) upsertTasks(shifted).catch(err => handleDbError(err, '날짜 이동 저장에 실패했습니다.'));
           return shifted;
         });
       }
       return prev.map(p => p.id === id ? { ...p, ...updates } : p);
     });
-    const updated = projects.find(p => p.id === id);
-    if (updated && !useLocalOnly) upsertProject({ ...updated, ...updates }).catch(err => handleDbError(err, '프로젝트 수정 저장에 실패했습니다.'));
-  };
+    const updated = projectsRef.current.find(p => p.id === id);
+    if (updated && !useLocalOnlyRef.current) upsertProject({ ...updated, ...updates }).catch(err => handleDbError(err, '프로젝트 수정 저장에 실패했습니다.'));
+  }, [bumpDirty, saveHistory, handleDbError]);
 
-  const deleteProject = (id: string) => {
-    if (projects.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
+  const deleteProject = useCallback((id: string) => {
+    if (projectsRef.current.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
     bumpDirty();
-    const idsToDelete = allTasks.filter(t => t.projectId === id).map(t => t.id);
+    const idsToDelete = allTasksRef.current.filter(t => t.projectId === id).map(t => t.id);
     if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);
     setDeletedProjectIds(prev => {
       if (!id) return prev;
@@ -1675,8 +1692,8 @@ export function WBSProvider({
     });
     setProjects(prev => prev.filter(p => p.id !== id));
     setAllTasks(prev => prev.filter(t => t.projectId !== id));
-    if (currentProjectId === id) setCurrentProjectId(projects.find(p => p.id !== id)?.id || '');
-  };
+    if (currentProjectIdRef.current === id) setCurrentProjectId(projectsRef.current.find(p => p.id !== id)?.id || '');
+  }, [bumpDirty, recordDeletedTaskIds]);
 
   const copyProject = (sourceProjectId: string) => {
     const source = projects.find(p => p.id === sourceProjectId);
@@ -1733,10 +1750,12 @@ export function WBSProvider({
     return t;
   };
 
-  const addTask = (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string): string => {
+  const addTask = useCallback((newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string): string => {
     saveHistory();
-    const projectId = projectIdOverride ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
-    const project = projects.find(p => p.id === projectId);
+    const cpi = currentProjectIdRef.current;
+    const projs = projectsRef.current;
+    const projectId = projectIdOverride ?? (cpi === 'all' ? (projs[0]?.id || '') : cpi);
+    const project = projs.find(p => p.id === projectId);
     const task: Task = clampTaskToProjectRange(
       { ...newTask, id: uuidv4(), projectId } as Task,
       project
@@ -1748,17 +1767,18 @@ export function WBSProvider({
         if (index !== -1) { const arr = [...prev]; arr.splice(index + 1, 0, task); nextTasks = arr; }
         else nextTasks = [...prev, task];
       } else nextTasks = [...prev, task];
-      const result = syncParentRollups(nextTasks, task.parentId, new Set<string>(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id)));
-      const sortOrder = result.indexOf(task);
+      const result = syncParentRollups(nextTasks, task.parentId, new Set<string>(((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id)));
       return result;
     });
     return task.id;
-  };
+  }, [saveHistory]);
 
-  const addTasks = (newTasks: Task[]) => {
+  const addTasks = useCallback((newTasks: Task[]) => {
     saveHistory();
-    const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId;
-    const project = projects.find(p => p.id === effectiveProjectId);
+    const cpi = currentProjectIdRef.current;
+    const projs = projectsRef.current;
+    const effectiveProjectId = cpi === 'all' ? (projs[0]?.id || '') : cpi;
+    const project = projs.find(p => p.id === effectiveProjectId);
     const tasksWithProject = newTasks.map(t =>
       clampTaskToProjectRange({ ...t, projectId: effectiveProjectId }, project)
     );
@@ -1766,12 +1786,14 @@ export function WBSProvider({
       const result = recomputeProjectRollups([...prev, ...tasksWithProject], effectiveProjectId);
       return result;
     });
-  };
+  }, [saveHistory]);
 
-  const updateTask = (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => {
+  const updateTask = useCallback((id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => {
     const skipCascade = options?.skipCascade ?? false;
     saveHistory();
     setAllTasks(prev => {
+      const wSettings = wbsSettingsRef.current;
+      const projs = projectsRef.current;
       const task = prev.find(t => t.id === id);
       if (!task) return prev;
       const hasDateChange = Object.prototype.hasOwnProperty.call(updates, 'startDate') || Object.prototype.hasOwnProperty.call(updates, 'endDate');
@@ -1791,15 +1813,15 @@ export function WBSProvider({
       // 상태를 완료(progress=100인 상태)로 변경하는 경우 진척률을 100으로 자동 설정
       if (
         typeof resolvedUpdates.status === 'string' &&
-        wbsSettings.linkStatusAndProgress !== false &&
+        wSettings.linkStatusAndProgress !== false &&
         !Object.prototype.hasOwnProperty.call(updates, 'progress')
       ) {
-        const newStatusCfg = wbsSettings.statusConfigs?.find(c => c.id === resolvedUpdates.status);
+        const newStatusCfg = wSettings.statusConfigs?.find(c => c.id === resolvedUpdates.status);
         if (newStatusCfg && newStatusCfg.progress === 100) {
           resolvedUpdates = { ...resolvedUpdates, progress: 100 };
         }
       }
-      const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projects.map(p => [p.id, p.assignments ?? []]));
+      const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projs.map(p => [p.id, p.assignments ?? []]));
       const assignments = task.projectId ? projectAssignmentsMap.get(task.projectId) : undefined;
       const holidays = getHolidaysForTaskDates(prev);
 
@@ -1862,14 +1884,14 @@ export function WBSProvider({
       }
 
       let updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
-      const project = projects.find(p => p.id === task.projectId);
+      const project = projs.find(p => p.id === task.projectId);
       updatedTask = clampTaskToProjectRange(updatedTask, project);
       let nextTasks = prev.map(t => t.id === id ? updatedTask : t);
 
       // 상태 변경 시 모든 하위 작업에 캐스케이드
-      if (typeof resolvedUpdates.status === 'string' && wbsSettings.linkStatusAndProgress !== false) {
-        const newStatusCfg = ((wbsSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === resolvedUpdates.status);
-        const oldStatusCfg = ((wbsSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === task.status);
+      if (typeof resolvedUpdates.status === 'string' && wSettings.linkStatusAndProgress !== false) {
+        const newStatusCfg = ((wSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === resolvedUpdates.status);
+        const oldStatusCfg = ((wSettings.statusConfigs ?? []) as StatusConfig[]).find(c => c.id === task.status);
         const getAllDescendantIds = (rootId: string): string[] => {
           const result: string[] = [];
           const stack = [rootId];
@@ -1895,7 +1917,7 @@ export function WBSProvider({
             );
           } else if (oldStatusCfg && oldStatusCfg.progress === 100 && newStatusCfg && newStatusCfg.progress !== 100) {
             // 완료 → 비완료로 변경: 완료 상태인 하위 작업을 새 상태로 되돌림
-            const doneStatusIds = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
+            const doneStatusIds = new Set(((wSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
             nextTasks = nextTasks.map(t =>
               descendantIds.has(t.id) && doneStatusIds.has(t.status)
                 ? { ...t, status: newStatusCfg.id, progress: newStatusCfg.progress ?? 0 }
@@ -2017,7 +2039,7 @@ export function WBSProvider({
       const affectsRollup = ['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress'].some(k =>
         Object.prototype.hasOwnProperty.call(resolvedUpdates, k)
       );
-      const doneStatusIds: Set<string> = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
+      const doneStatusIds: Set<string> = new Set(((wSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
       const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
       let result = nextTasks;
       if (affectsRollup) {
@@ -2037,15 +2059,11 @@ export function WBSProvider({
       }
 
       const taskInResult = result.find(t => t.id === id);
-      const sortOrder = taskInResult != null ? result.indexOf(taskInResult) : 0;
-      if (!useLocalOnly) {
-        // DB 동기화는 수동 버튼에서 처리
-      }
       return result;
     });
-  };
+  }, [saveHistory]);
 
-  const updateTasksBulk = (taskIds: string[], updates: Partial<Task>) => {
+  const updateTasksBulk = useCallback((taskIds: string[], updates: Partial<Task>) => {
     const hasScheduleChange =
       Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
       Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
@@ -2072,9 +2090,9 @@ export function WBSProvider({
       });
       return next;
     });
-  };
+  }, [saveHistory]);
 
-  const setBaselineForTasks = (taskIds: string[]) => {
+  const setBaselineForTasks = useCallback((taskIds: string[]) => {
     if (taskIds.length === 0) return;
     saveHistory();
     setAllTasks(prev => {
@@ -2090,16 +2108,17 @@ export function WBSProvider({
       });
       return next;
     });
-  };
+  }, [saveHistory]);
 
-  const setBaselineForAllTasks = () => {
-    const ids = currentProjectId === 'all'
-      ? allTasks.map(t => t.id)
-      : allTasks.filter(t => t.projectId === currentProjectId).map(t => t.id);
+  const setBaselineForAllTasks = useCallback(() => {
+    const cpi = currentProjectIdRef.current;
+    const ids = cpi === 'all'
+      ? allTasksRef.current.map(t => t.id)
+      : allTasksRef.current.filter(t => t.projectId === cpi).map(t => t.id);
     setBaselineForTasks(ids);
-  };
+  }, [setBaselineForTasks]);
 
-  const renameAssignee = (oldName: string, newName: string) => {
+  const renameAssignee = useCallback((oldName: string, newName: string) => {
     const from = (oldName ?? '').trim();
     const to = (newName ?? '').trim();
     if (!from || !to || from === to) return;
@@ -2127,21 +2146,23 @@ export function WBSProvider({
         if (nextAssignee === t.assignee) return t;
         return { ...t, assignee: nextAssignee ?? '' };
       });
-      if (!useLocalOnly) upsertTasks(next).catch(err => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
+      if (!useLocalOnlyRef.current) upsertTasks(next).catch(err => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
       return next;
     });
-  };
+  }, [saveHistory, handleDbError]);
 
   /** 선후관계·기간(공수·투입율)을 반영해 현재 프로젝트(또는 전체) 일정을 앞당기도록 재계산 */
-  const refreshProjectSchedule = () => {
-    const projectIds = currentProjectId === 'all'
-      ? projects.map(p => p.id).filter(Boolean)
-      : [currentProjectId].filter(Boolean);
+  const refreshProjectSchedule = useCallback(() => {
+    const cpi = currentProjectIdRef.current;
+    const projs = projectsRef.current;
+    const projectIds = cpi === 'all'
+      ? projs.map(p => p.id).filter(Boolean)
+      : [cpi].filter(Boolean);
     if (projectIds.length === 0) return;
     saveHistory();
     setAllTasks(prev => {
       const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(
-        projects.map(p => [p.id, p.assignments ?? []])
+        projectsRef.current.map(p => [p.id, p.assignments ?? []])
       );
       let result = prev;
       for (const effectiveProjectId of projectIds) {
@@ -2154,37 +2175,39 @@ export function WBSProvider({
       }
       return result;
     });
-  };
+  }, [saveHistory]);
 
   /** 과부하 자동 수정: 항목별로 선택한 전략(기간 연장/투입율 증가) 적용. */
-  const fixOverload = (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => {
+  const fixOverload = useCallback((overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => {
     if (overloadsToFix.length === 0) return;
     saveHistory();
     const extendOverloads = overloadsToFix.filter((x) => x.strategy === 'extend').map((x) => x.overload);
     const allocationOverloads = overloadsToFix.filter((x) => x.strategy === 'increaseAllocation').map((x) => x.overload);
     setAllTasks((prev) => {
+      const projs = projectsRef.current;
+      const settings = wbsSettingsRef.current;
       let result = [...prev];
       const allocationTaskIds = new Set(allocationOverloads.flatMap((o) => o.taskIds));
       if (extendOverloads.length > 0) {
-        result = fixOverloadByExtending(result, projects, extendOverloads);
+        result = fixOverloadByExtending(result, projs, extendOverloads);
       }
       if (allocationOverloads.length > 0) {
-        const { overloads: currentOverloads } = computeWorkloadOverloads(result, projects);
+        const { overloads: currentOverloads } = computeWorkloadOverloads(result, projs);
         const toAllocate = currentOverloads.filter((o) => o.taskIds.some((tid) => allocationTaskIds.has(tid)));
         if (toAllocate.length > 0) {
-          result = fixOverloadByIncreasingAllocation(result, projects, toAllocate);
+          result = fixOverloadByIncreasingAllocation(result, projs, toAllocate);
         }
       }
       const projectIds = Array.from(new Set(result.map((t) => t.projectId))).filter(Boolean) as string[];
-      const doneStatusIds2070: Set<string> = new Set(((wbsSettings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
+      const doneStatusIds2070: Set<string> = new Set(((settings.statusConfigs ?? []) as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
       for (const pid of projectIds) {
         result = recomputeProjectRollups(result, pid, doneStatusIds2070);
       }
       return result;
     });
-  };
+  }, [saveHistory]);
 
-  const deleteTask = (id: string) => {
+  const deleteTask = useCallback((id: string) => {
     saveHistory();
     setAllTasks(prev => {
       const taskToDelete = prev.find(t => t.id === id);
@@ -2197,15 +2220,16 @@ export function WBSProvider({
       if (taskToDelete.projectId) recordDeletedTaskIds(taskToDelete.projectId, idsToDelete);
       return syncParentRollups(prev.filter(t => !new Set(idsToDelete).has(t.id)), taskToDelete.parentId);
     });
-  };
+  }, [saveHistory, recordDeletedTaskIds]);
 
   // ─── 이동 / 재정렬 ────────────────────────────────────────────────────────
 
-  const moveTask = (id: string, direction: 'up' | 'down') => {
+  const moveTask = useCallback((id: string, direction: 'up' | 'down') => {
     saveHistory();
     setAllTasks(prev => {
-      const projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      const projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const task = projectTasks.find(t => t.id === id);
       if (!task) return prev;
       const siblings = projectTasks.filter(t => t.parentId === task.parentId);
@@ -2220,34 +2244,34 @@ export function WBSProvider({
         const iB = projectTasks.findIndex(t => t.id === siblings[idx + 1].id);
         [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB], newProjectTasks[iA]];
       } else return prev;
-      const result = [...otherTasks, ...newProjectTasks];
-      return result;
+      return [...otherTasks, ...newProjectTasks];
     });
-  };
+  }, [saveHistory]);
 
-  const reorderTask = (id: string, overId: string) => {
+  const reorderTask = useCallback((id: string, overId: string) => {
     saveHistory();
     setAllTasks(prev => {
-      const projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      const projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const oldIndex = projectTasks.findIndex(t => t.id === id);
       const newIndex = projectTasks.findIndex(t => t.id === overId);
       if (oldIndex === -1 || newIndex === -1) return prev;
       const arr = [...projectTasks];
       const [moved] = arr.splice(oldIndex, 1);
       arr.splice(newIndex, 0, moved);
-      const result = [...otherTasks, ...arr];
-      return result;
+      return [...otherTasks, ...arr];
     });
-  };
+  }, [saveHistory]);
 
   // ─── 들여쓰기 ─────────────────────────────────────────────────────────────
 
-  const indentTask = (id: string) => {
+  const indentTask = useCallback((id: string) => {
     saveHistory();
     setAllTasks(prev => {
-      const projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      const projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const task = projectTasks.find(t => t.id === id);
       if (!task) return prev;
       const siblings = projectTasks.filter(t => t.parentId === task.parentId);
@@ -2259,31 +2283,31 @@ export function WBSProvider({
         if (t.id === newParent.id) return { ...t, expanded: true };
         return t;
       });
-      const result = recomputeProjectRollups([...otherTasks, ...updated], currentProjectId);
-      return result;
+      return recomputeProjectRollups([...otherTasks, ...updated], cpi);
     });
-  };
+  }, [saveHistory]);
 
-  const outdentTask = (id: string) => {
+  const outdentTask = useCallback((id: string) => {
     saveHistory();
     setAllTasks(prev => {
-      const projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      const projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const task = projectTasks.find(t => t.id === id);
       if (!task || !task.parentId) return prev;
       const parent = projectTasks.find(t => t.id === task.parentId);
       if (!parent) return prev;
       const updated = projectTasks.map(t => t.id === id ? { ...t, parentId: parent.parentId } : t);
-      const result = recomputeProjectRollups([...otherTasks, ...updated], currentProjectId);
-      return result;
+      return recomputeProjectRollups([...otherTasks, ...updated], cpi);
     });
-  };
+  }, [saveHistory]);
 
-  const indentTasks = (ids: string[]) => {
+  const indentTasks = useCallback((ids: string[]) => {
     saveHistory();
     setAllTasks(prev => {
-      let projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      let projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const selectedIds = new Set(ids);
       for (const id of ids) {
         const task = projectTasks.find(t => t.id === id);
@@ -2299,16 +2323,16 @@ export function WBSProvider({
           });
         }
       }
-      const result = recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
-      return result;
+      return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi);
     });
-  };
+  }, [saveHistory]);
 
-  const outdentTasks = (ids: string[]) => {
+  const outdentTasks = useCallback((ids: string[]) => {
     saveHistory();
     setAllTasks(prev => {
-      let projectTasks = prev.filter(t => t.projectId === currentProjectId);
-      const otherTasks = prev.filter(t => t.projectId !== currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      let projectTasks = prev.filter(t => t.projectId === cpi);
+      const otherTasks = prev.filter(t => t.projectId !== cpi);
       const selectedIds = new Set(ids);
       for (const id of ids) {
         const task = projectTasks.find(t => t.id === id);
@@ -2317,25 +2341,22 @@ export function WBSProvider({
         if (!parent) continue;
         projectTasks = projectTasks.map(t => t.id === id ? { ...t, parentId: parent.parentId } : t);
       }
-      const result = recomputeProjectRollups([...otherTasks, ...projectTasks], currentProjectId);
-      return result;
+      return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi);
     });
-  };
+  }, [saveHistory]);
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = useCallback((id: string) => {
     bumpDirty();
-    setAllTasks(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, expanded: !t.expanded } : t);
-      return updated;
-    });
-  };
+    setAllTasks(prev => prev.map(t => t.id === id ? { ...t, expanded: !t.expanded } : t));
+  }, [bumpDirty]);
 
-  const expandToLevel = (level: number) => {
+  const expandToLevel = useCallback((level: number) => {
     const targetLevel = Math.max(1, Math.floor(level || 1));
     setTreeExpandLevel(targetLevel);
     saveHistory();
     setAllTasks(prev => {
-      const relevant = currentProjectId === 'all' ? prev : prev.filter(t => t.projectId === currentProjectId);
+      const cpi = currentProjectIdRef.current;
+      const relevant = cpi === 'all' ? prev : prev.filter(t => t.projectId === cpi);
       const relevantIds = new Set(relevant.map(t => t.id));
       const taskMap = new Map<string, Task>(relevant.map(t => [t.id, t] as const));
       const depthMemo = new Map<string, number>();
@@ -2358,14 +2379,16 @@ export function WBSProvider({
       });
       return result;
     });
-  };
+  }, [saveHistory, bumpDirty]);
 
   // ─── 가져오기 / 삭제 ──────────────────────────────────────────────────────
 
-  const importTasks = async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
+  const importTasks = useCallback(async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
     saveHistory();
+    const cpi = currentProjectIdRef.current;
+    const projs = projectsRef.current;
     let effectiveProjectId =
-      targetProjectId ?? (currentProjectId === 'all' ? (projects[0]?.id || '') : currentProjectId);
+      targetProjectId ?? (cpi === 'all' ? (projs[0]?.id || '') : cpi);
 
     const createNewProject =
       effectiveProjectId === '__new__' && typeof newProjectName === 'string' && newProjectName.trim().length > 0;
@@ -2374,7 +2397,7 @@ export function WBSProvider({
       ? {
           id: uuidv4(),
           name: newProjectName!.trim() || '가져온 프로젝트',
-          ownerId: ownerId ?? undefined,
+          ownerId: ownerIdRef.current ?? undefined,
         }
       : null;
 
@@ -2399,11 +2422,11 @@ export function WBSProvider({
         effectiveProjectId
       );
     });
-  };
+  }, [saveHistory, recordDeletedTaskIds]);
 
-  const deleteAllTasks = () => {
+  const deleteAllTasks = useCallback(() => {
     saveHistory();
-    const effectiveProjectId = currentProjectId === 'all' ? '' : currentProjectId;
+    const effectiveProjectId = currentProjectIdRef.current === 'all' ? '' : currentProjectIdRef.current;
     setAllTasks(prev => {
       if (effectiveProjectId) {
         const ids = prev.filter(t => t.projectId === effectiveProjectId).map(t => t.id);
@@ -2416,12 +2439,11 @@ export function WBSProvider({
         });
         idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
       }
-      const result = effectiveProjectId ? prev.filter(t => t.projectId !== effectiveProjectId) : [];
-      return result;
+      return effectiveProjectId ? prev.filter(t => t.projectId !== effectiveProjectId) : [];
     });
-  };
+  }, [saveHistory, recordDeletedTaskIds]);
 
-  const deleteAllTasksInAllProjects = () => {
+  const deleteAllTasksInAllProjects = useCallback(() => {
     saveHistory();
     setAllTasks(prev => {
       const idsByProject = new Map<string, string[]>();
@@ -2432,7 +2454,7 @@ export function WBSProvider({
       idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
       return [];
     });
-  };
+  }, [saveHistory, recordDeletedTaskIds]);
 
   const resetAllProjectsToNew = async (): Promise<void> => {
     // 전체 프로젝트를 제거하고 '새 프로젝트'로 리셋 (명시적 사용자 액션)
@@ -2503,68 +2525,87 @@ export function WBSProvider({
     return { addedProjects: newProjects.length, addedTasks: newTasks.length };
   };
 
+  const canEditCurrentProject =
+    editableProjectIds === undefined ||
+    !currentProjectId ||
+    currentProjectId === 'all' ||
+    editableProjectIds.includes(currentProjectId);
+
+  const contextValue = React.useMemo(() => ({
+    allTasks,
+    tasks,
+    projects,
+    editableProjectIds,
+    canEditCurrentProject,
+    currentProjectId,
+    setCurrentProjectId,
+    selectedTaskIds,
+    setSelectedTaskIds,
+    wbsSettings,
+    updateWbsSettings,
+    syncProgressFromStatusConfigs,
+    treeExpandLevel,
+    setTreeExpandLevel,
+    addProject,
+    updateProject,
+    deleteProject,
+    copyProject,
+    addTask,
+    addTasks,
+    updateTask,
+    updateTasksBulk,
+    deleteTask,
+    moveTask,
+    reorderTask,
+    indentTask,
+    outdentTask,
+    indentTasks,
+    outdentTasks,
+    toggleExpand,
+    expandToLevel,
+    importTasks,
+    deletedTaskIdsByProject,
+    hasLocalChangesSinceSync,
+    syncWithDb,
+    pushChangesToDb,
+    collabPushNonce,
+    deleteAllTasks,
+    deleteAllTasksInAllProjects,
+    resetAllProjectsToNew,
+    wbsMap,
+    displayWbsMap,
+    restoreBackup,
+    mergeBackups,
+    exportFullBackup,
+    undo,
+    canUndo,
+    redo,
+    canRedo,
+    setBaselineForTasks,
+    setBaselineForAllTasks,
+    renameAssignee,
+    refreshProjectSchedule,
+    fixOverload,
+    isLoading,
+  }), [
+    allTasks, tasks, projects, editableProjectIds, canEditCurrentProject,
+    currentProjectId, setCurrentProjectId, selectedTaskIds, setSelectedTaskIds,
+    wbsSettings, updateWbsSettings, syncProgressFromStatusConfigs,
+    treeExpandLevel, setTreeExpandLevel,
+    addProject, updateProject, deleteProject, copyProject,
+    addTask, addTasks, updateTask, updateTasksBulk,
+    deleteTask, moveTask, reorderTask, indentTask, outdentTask, indentTasks, outdentTasks,
+    toggleExpand, expandToLevel, importTasks,
+    deletedTaskIdsByProject, hasLocalChangesSinceSync, syncWithDb, pushChangesToDb, collabPushNonce,
+    deleteAllTasks, deleteAllTasksInAllProjects, resetAllProjectsToNew,
+    wbsMap, displayWbsMap, restoreBackup, mergeBackups, exportFullBackup,
+    undo, canUndo, redo, canRedo,
+    setBaselineForTasks, setBaselineForAllTasks, renameAssignee, refreshProjectSchedule, fixOverload,
+    isLoading,
+  ]);
+
   return (
-    <WBSContext.Provider value={{
-      allTasks,
-      tasks,
-      projects,
-      editableProjectIds,
-      canEditCurrentProject:
-        editableProjectIds === undefined ||
-        !currentProjectId ||
-        currentProjectId === 'all' ||
-        editableProjectIds.includes(currentProjectId),
-      currentProjectId,
-      setCurrentProjectId,
-      selectedTaskIds,
-      setSelectedTaskIds,
-      wbsSettings,
-      updateWbsSettings,
-      syncProgressFromStatusConfigs,
-      treeExpandLevel,
-      setTreeExpandLevel,
-      addProject,
-      updateProject,
-      deleteProject,
-      copyProject,
-      addTask,
-      addTasks,
-      updateTask,
-      updateTasksBulk,
-      deleteTask,
-      moveTask,
-      reorderTask,
-      indentTask,
-      outdentTask,
-      indentTasks,
-      outdentTasks,
-      toggleExpand,
-      expandToLevel,
-      importTasks,
-      deletedTaskIdsByProject,
-      hasLocalChangesSinceSync,
-      syncWithDb,
-      pushChangesToDb: (scope: 'current' | 'all') => syncWithDb(scope, undefined, { pullAfter: false, skipAutoPrune: true }),
-      collabPushNonce,
-      deleteAllTasks,
-      deleteAllTasksInAllProjects,
-      resetAllProjectsToNew,
-      wbsMap,
-      displayWbsMap,
-      restoreBackup,
-      mergeBackups,
-      exportFullBackup,
-      undo,
-      canUndo,
-      redo,
-      canRedo,
-      setBaselineForTasks,
-      setBaselineForAllTasks,
-      renameAssignee,
-      refreshProjectSchedule,
-      fixOverload,
-      isLoading,
-    }}>
+    <WBSContext.Provider value={contextValue}>
       {children}
     </WBSContext.Provider>
   );
