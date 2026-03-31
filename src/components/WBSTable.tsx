@@ -741,12 +741,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   );
 
   // Selection Logic
-  const setSelection = (next: Set<string>) => {
+  const setSelection = useCallback((next: Set<string>) => {
     setSelectedTaskIds(next);
     setSharedSelectedTaskIds(Array.from(next));
-  };
+  }, [setSharedSelectedTaskIds]);
 
-  const handleSelect = (taskId: string, multi: boolean, range: boolean) => {
+  const handleSelect = useCallback((taskId: string, multi: boolean, range: boolean) => {
     let newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
 
     // 계층 구조: 상위 작업 선택 시 하위 작업 전체를 함께 선택/해제
@@ -806,7 +806,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
     setSelection(newSelected);
     setLastSelectedId(taskId);
-  };
+  }, [selectedTaskIds, visibleTasks, anchorTaskId, lastSelectedId, setSelection]);
 
   const handleSelectAll = () => {
     if (selectedTaskIds.size === visibleTasks.length) {
@@ -1611,13 +1611,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     if (quickAddNameBottomRef.current) quickAddNameBottomRef.current.value = '';
   };
 
-  const handleContextMenu = (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => {
     e.preventDefault();
     if (!selectedTaskIds.has(taskId)) {
       handleSelect(taskId, false, false);
     }
     setContextMenu({ x: e.clientX, y: e.clientY, type: 'task', taskId, columnId });
-  };
+  }, [selectedTaskIds, handleSelect]);
 
   const handleSyncProgressFromStatus = () => {
     const idsToSync = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : (contextMenu?.taskId ? [contextMenu.taskId] : []);
@@ -1639,9 +1639,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     setContextMenu({ x: e.clientX, y: e.clientY, type: 'header', columnId });
   };
 
-  const handleDeleteClick = (taskId: string) => {
+  const handleDeleteClick = useCallback((taskId: string) => {
     setDeleteConfirm({ isOpen: true, taskIds: [taskId] });
-  };
+  }, []);
 
   const executeDelete = () => {
     // 1. Fully identify all task IDs to be deleted (including descendants)
@@ -3800,6 +3800,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&
     prev.allocationDisplayText === next.allocationDisplayText &&
+    prev.displayWbsMap === next.displayWbsMap &&
     prev.task.id === next.task.id &&
     prev.task.parentId === next.task.parentId &&
     prev.task.name === next.task.name &&
@@ -3825,18 +3826,3 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
 
 const SortableTaskRow = React.memo(SortableTaskRowInner, areRowPropsEqual);
 
-function StatusBadge({ status }: { status: Task['status'] }) {
-  const { wbsSettings } = useWBS();
-  const badgeClass = {
-    todo: 'badge-todo',
-    'in-progress': 'badge-progress',
-    done: 'badge-done',
-    blocked: 'badge-blocked',
-  }[status];
-
-  return (
-    <span className={cn('badge', badgeClass)}>
-      {wbsSettings?.statusNames?.[status] ?? status}
-    </span>
-  );
-}
