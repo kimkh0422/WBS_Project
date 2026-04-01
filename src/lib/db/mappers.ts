@@ -1,6 +1,6 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
 import type { Task, Project, ProjectAssignment } from '../../types';
-import type { WBSSettings } from '../../context/WBSContext';
+import type { WBSSettings } from '../wbsSettings';
 
 export function toTaskRow(task: Task, sortOrder: number): TaskRow {
   return {

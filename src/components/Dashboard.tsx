@@ -9,7 +9,7 @@ import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { Task, Project } from '../types';
-import type { WBSSettings, StatusConfig } from '../context/WBSContext';
+import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 
 interface ProjectStats {
     total: number;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Download, FileSpreadsheet, FileJson, FileText, Table } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Project, Task } from '../types';
-import type { WBSSettings } from '../context/WBSContext';
+import type { WBSSettings } from '../lib/wbsSettings';
 
 export type ExportScope = 'all' | 'selected';
 export type ExportFormat = 'excel' | 'json' | 'markdown' | 'csv';

@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 import type { Task, Project } from '../../types';
-import type { WBSSettings } from '../../context/WBSContext';
+import type { WBSSettings } from '../wbsSettings';
 import type { BackupData } from '../export';
 import { requireSupabase } from './client';
 import { toProjectRow, toProjectRowMinimal, toTaskRow } from './mappers';

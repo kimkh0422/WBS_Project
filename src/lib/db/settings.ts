@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 import type { SettingsRow } from '../supabase';
-import type { WBSSettings } from '../../context/WBSContext';
+import type { WBSSettings } from '../wbsSettings';
 import { requireSupabase } from './client';
 import { toSettingsRow, fromSettingsRow } from './mappers';
 

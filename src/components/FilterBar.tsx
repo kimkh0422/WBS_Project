@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
 import { ChevronDown, Flag, User, Bug, Clock, X, Search } from 'lucide-react';
 import { FilterState, Project } from '../types';
-import type { WBSSettings, StatusConfig } from '../context/WBSContext';
+import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 

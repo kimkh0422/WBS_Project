@@ -1,6 +1,6 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
 import type { Task, Project } from '../../types';
-import type { WBSSettings } from '../../context/WBSContext';
+import type { WBSSettings } from '../wbsSettings';
 import { toTaskRow, toProjectRow, fromTaskRow, toSettingsRow } from './mappers';
 
 function normAssignmentsForSync(a: ProjectAssignmentRow[] | null | undefined): unknown {
