@@ -1949,13 +1949,8 @@ export function WBSProvider({
         nextTasks = redistributeWeightsDown(nextTasks, id, parentWeight);
       }
 
-      // 진척률을 직접 변경한 경우: 하위 작업들에 비례 배분 (현재 자식 가중평균 → targetProgress 가 되도록 스케일)
-      if (Object.prototype.hasOwnProperty.call(updates, 'progress') && typeof resolvedUpdates.progress === 'number') {
-        const hasChildTasks = nextTasks.some(t => t.parentId === id && t.projectId === task.projectId);
-        if (hasChildTasks) {
-          nextTasks = distributeProgressDown(nextTasks, id, resolvedUpdates.progress);
-        }
-      }
+      // 진척률을 직접 변경한 경우: 하위 작업에는 영향 주지 않고 상위 롤업만 반영
+      // (distributeProgressDown 제거 — 진척률 변경이 자식에게 전파되지 않도록)
 
       // 시작일/종료일/공수 변경 시: 연관된 업무(후행/하위)만 일정 재계산 (간트 드래그 시 skipCascade로 연쇄 반영 생략)
       if (hasScheduleChange && task.projectId && !skipCascade) {
