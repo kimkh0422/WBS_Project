@@ -1,5 +1,5 @@
 import { Project, Task } from '../types';
-import { WBSSettings } from '../context/WBSContext';
+import { WBSSettings } from './wbsSettings';
 import { buildTasksInTreeOrderWithWbs } from './taskView';
 import { formatNum2, round2 } from './utils';
 

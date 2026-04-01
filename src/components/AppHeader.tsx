@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Sett
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
-import type { WBSSettings } from '../context/WBSContext';
+import type { WBSSettings } from '../lib/wbsSettings';
 import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
