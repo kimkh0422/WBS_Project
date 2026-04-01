@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
 import { ChevronDown, Flag, User, Bug, Clock, X, Search } from 'lucide-react';
 import { FilterState, Project } from '../types';
+import type { WBSSettings, StatusConfig } from '../context/WBSContext';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 
 export interface FilterBarProps {
@@ -15,8 +17,8 @@ export interface FilterBarProps {
   projectsSortedByName: Project[];
   selectProject: (projectId: string) => void;
   headerProjectFilterSyncKey: React.MutableRefObject<string | null>;
-  wbsSettings: any;
-  user: any;
+  wbsSettings: WBSSettings;
+  user: SupabaseUser | null;
   profileMap: Record<string, string>;
   allAssignees: string[];
   setFilterOn: React.Dispatch<React.SetStateAction<boolean>>;
@@ -216,7 +218,7 @@ export function WbsFilterBar({
         <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
         <div className="flex flex-wrap items-center gap-1.5">
           <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
-          {wbsSettings.statusConfigs.map((config: any) => (
+          {wbsSettings.statusConfigs.map((config: StatusConfig) => (
             <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
           ))}
         </div>

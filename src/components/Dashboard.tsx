@@ -8,7 +8,23 @@ import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
-import type { Task } from '../types';
+import type { Task, Project } from '../types';
+import type { WBSSettings, StatusConfig } from '../context/WBSContext';
+
+interface ProjectStats {
+    total: number;
+    statusCounts: Record<string, number>;
+    progress: number;
+    assigneeCount: number;
+}
+
+interface AssigneeStat {
+    name: string;
+    total: number;
+    statusCounts: Record<string, number>;
+    workEffort: number;
+    projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number; allocationPercent?: number }>;
+}
 
 /** 주어진 task 목록에서 깊이(depth)를 메모이제이션하여 반환하는 getter 생성 */
 function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
@@ -32,8 +48,8 @@ function computeWeightedProgress(items: Task[]): number {
     for (const t of items) {
         const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
         const w =
-            typeof (t as any).weight === 'number' && Number.isFinite((t as any).weight)
-                ? (t as any).weight
+            typeof t.weight === 'number' && Number.isFinite(t.weight)
+                ? t.weight
                 : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
         totalWeight += w;
         acc += p * w;
@@ -43,7 +59,7 @@ function computeWeightedProgress(items: Task[]): number {
     return 0;
 }
 
-export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavigate?: (view: any, filters: any) => void; registeredMemberDisplayNames?: Set<string> }) {
+export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavigate?: (view: string, filters: Record<string, string>) => void; registeredMemberDisplayNames?: Set<string> }) {
     const { projects, allTasks, wbsSettings } = useWBS();
 
     // 공유 파생 데이터 — 여러 useMemo에서 재사용
@@ -585,7 +601,7 @@ function SummaryCard({ title, value, subtitle, highlight, onClick }: { title: st
     );
 }
 
-function ProjectCard({ project, onClick, wbsSettings }: { project: any; onClick?: () => void; key?: React.Key; wbsSettings: any }) {
+function ProjectCard({ project, onClick, wbsSettings }: { project: Project & { stats: ProjectStats }; onClick?: () => void; key?: React.Key; wbsSettings: WBSSettings }) {
     const s = project.stats;
 
     return (
@@ -663,7 +679,7 @@ function ProjectCard({ project, onClick, wbsSettings }: { project: any; onClick?
     );
 }
 
-function AssigneeCard({ stat, onClick, wbsSettings }: { stat: any; onClick?: () => void; key?: React.Key; wbsSettings: any }) {
+function AssigneeCard({ stat, onClick, wbsSettings }: { stat: AssigneeStat; onClick?: () => void; key?: React.Key; wbsSettings: WBSSettings }) {
     const total = stat.total || 1;
 
     return (

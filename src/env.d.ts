@@ -10,6 +10,12 @@ declare module '*.png' {
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
+  readonly VITE_HIDDEN_VIEWS?: string;
+  readonly VITE_ENABLE_PRESENCE?: string;
+  readonly VITE_REALTIME_ENABLED?: string;
+  readonly DEV: boolean;
+  readonly PROD: boolean;
+  readonly MODE: string;
 }
 
 interface ImportMeta {

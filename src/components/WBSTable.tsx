@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useWBS } from '../context/WBSContext';
+import { useWBS, type StatusConfig } from '../context/WBSContext';
 import { cn, formatDate, round2, formatNum2 } from '../lib/utils';
 import { ChevronRight, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Pencil, ArrowUpDown, ArrowUp, ArrowDown, X, MoreHorizontal, CornerDownRight, GripVertical, CalendarDays, Clock, TrendingUp, ListChecks, Settings2, RefreshCw, Flag, EyeOff, RotateCcw, Unlink, Lock, Bug } from 'lucide-react';
 import { ExcelGrid } from './ExcelGrid';
@@ -30,7 +30,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { v4 as uuidv4 } from 'uuid';
-import { buildParentSet, buildVisibleTasks } from '../lib/taskView';
+import { buildParentSet, buildVisibleTasks, type TaskWithDepth } from '../lib/taskView';
 import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { levelRowBg } from '../lib/levelColors';
 import { useToast } from './Toast';
@@ -165,7 +165,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
   const currentUserDisplayName =
-    String((user as any)?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+    String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
 
   const projectAssignmentsByProjectId = useMemo(
     () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
@@ -304,7 +304,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       return list.filter(x => now - x.ts < 15000); // 15s stale prune
     };
 
-    channel.on('broadcast', { event: 'cell_focus' }, (payload: any) => {
+    channel.on('broadcast', { event: 'cell_focus' }, (payload) => {
       const raw = payload?.payload ?? payload;
       queueMicrotask(() => {
         const p = raw;
@@ -323,7 +323,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       });
     });
 
-    channel.on('broadcast', { event: 'cell_blur' }, (payload: any) => {
+    channel.on('broadcast', { event: 'cell_blur' }, (payload) => {
       const raw = payload?.payload ?? payload;
       queueMicrotask(() => {
         const p = raw;
@@ -353,7 +353,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     if (!tableEditMode) return;
     if (!currentUserId) return;
     const cell = editingCell ?? focusedCell;
-    const send = (event: 'cell_focus' | 'cell_blur', payload: any) => {
+    const send = (event: 'cell_focus' | 'cell_blur', payload: Record<string, string>) => {
       try {
         channel.send({ type: 'broadcast', event, payload });
       } catch {
@@ -476,16 +476,16 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   }, [resizingCol, updateWbsSettings]);
 
   const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
-    const cols = (wbsSettings as any)?.tableColumns;
+    const cols = wbsSettings?.tableColumns;
     const incoming = Array.isArray(cols) && (cols.length > 0) ? cols : DEFAULT_TABLE_COLUMNS;
 
     const allow = new Set(DEFAULT_TABLE_COLUMNS.map(c => c.id));
     const seen = new Set<string>();
     const cleaned = incoming
-      .filter((c: any) => c && typeof c.id === 'string')
-      .map((c: any) => ({ id: String(c.id) as TableColumnId, visible: c.visible !== false }))
-      .filter((c: any) => allow.has(c.id))
-      .filter((c: any) => {
+      .filter((c: { id: string; visible: boolean }) => c && typeof c.id === 'string')
+      .map((c: { id: string; visible: boolean }) => ({ id: String(c.id) as TableColumnId, visible: c.visible !== false }))
+      .filter((c: { id: TableColumnId; visible: boolean }) => allow.has(c.id))
+      .filter((c: { id: TableColumnId; visible: boolean }) => {
         if (seen.has(c.id)) return false;
         seen.add(c.id);
         return true;
@@ -510,7 +510,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     parts.push(`${columnWidths.expand}px`);
     for (const id of visibleColumnIds) {
       if (id === 'name') parts.push(`${columnWidths.name}px`);
-      else parts.push(`${(columnWidths as any)[id]}px`);
+      else parts.push(`${(columnWidths as Record<string, number>)[id]}px`);
     }
     parts.push(`${columnWidths.actions}px`);
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
@@ -598,7 +598,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       const scrollEl = syncScrollRef.current;
       if (!scrollEl) return;
       const rows = scrollEl.querySelectorAll<HTMLElement>('[id^="task-row-"]');
-      const heights = Array.from(rows).map(el => el.offsetHeight);
+      const heights = [...rows].map(el => el.offsetHeight);
       if (heights.length === 0) return;
       // 변경된 경우에만 콜백 호출 (Maximum update depth 방지)
       const prev = lastHeightsRef.current;
@@ -1195,7 +1195,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
           // Strip fields that shouldn't be copied as-is / computed fields.
           // We also postpone dependency remap until all ids exist.
-          const { id: _id, projectId: _pid, depth: _depth, dependencies: _deps, ...rest } = t as any;
+          const { id: _id, projectId: _pid, depth: _depth, dependencies: _deps, ...rest } = t as Task & { depth?: number };
           const addedId = addTask(
             {
               ...rest,
@@ -1248,7 +1248,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         const selected = visibleTasks
           .filter(t => selectedTaskIds.has(t.id))
           .map((t) => {
-            const { depth: _depth, ...rest } = t as any;
+            const { depth: _depth, ...rest } = t as TaskWithDepth;
             return rest as Task;
           });
         setCopiedTasks(selected);
@@ -1585,7 +1585,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     setLastSelectedId(newId);
   };
 
-  const handleSave = (updates: any) => {
+  const handleSave = (updates: Partial<Task>) => {
     if (editingTask) {
       if (editingTask.id === '') {
         // Creating a new subtask
@@ -1641,7 +1641,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     idsToSync.forEach((id) => {
       const task = tasks.find((t) => t.id === id);
       if (!task) return;
-      const config = configs.find((c: any) => c.id === task.status);
+      const config = configs.find((c: StatusConfig) => c.id === task.status);
       if (config && config.progress !== undefined) {
         updateTask(id, { progress: config.progress });
       }
@@ -1756,13 +1756,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   const executeBulkWorkEffort = () => {
     const value = parseFloat(bulkWorkEffort);
     if (isNaN(value) || value < 0) return;
-    const taskById = new Map(tasks.map(t => [t.id, t]));
-    Array.from(selectedTaskIds).forEach(id => {
+    const taskById = new Map<string, Task>(tasks.map(t => [t.id, t]));
+    for (const id of selectedTaskIds) {
       const prev = taskById.get(id);
-      const locked = new Set(prev?.userLockedFields ?? []);
+      const locked = new Set<string>(prev?.userLockedFields ?? []);
       locked.add('workEffort');
-      updateTask(id, { workEffort: value, userLockedFields: Array.from(locked) });
-    });
+      updateTask(id, { workEffort: value, userLockedFields: [...locked] });
+    }
     setBulkWorkEffort('');
     setSelection(new Set());
     setLastSelectedId(null);
@@ -1794,13 +1794,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   };
 
   const executeBulkClearDependencies = () => {
-    const taskById = new Map(tasks.map(t => [t.id, t]));
-    Array.from(selectedTaskIds).forEach(id => {
+    const taskById = new Map<string, Task>(tasks.map(t => [t.id, t]));
+    for (const id of selectedTaskIds) {
       const prev = taskById.get(id);
-      const locked = new Set(prev?.userLockedFields ?? []);
+      const locked = new Set<string>(prev?.userLockedFields ?? []);
       locked.add('dependencies');
-      updateTask(id, { dependencies: [], userLockedFields: Array.from(locked) });
-    });
+      updateTask(id, { dependencies: [], userLockedFields: [...locked] });
+    }
     setSelection(new Set());
     setLastSelectedId(null);
   };
@@ -1822,7 +1822,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     const forAggregate = leafTasks.length > 0 ? leafTasks : source;
 
     const totalEffort = forAggregate.reduce((sum, t) => sum + (t.workEffort || 0), 0);
-    const taskById = new Map(source.map(t => [t.id, t] as const));
+    const taskById = new Map<string, Task>(source.map(t => [t.id, t]));
     const depthMemo = new Map<string, number>();
     const getDepth = (id: string): number => {
       const cached = depthMemo.get(id);
@@ -1840,8 +1840,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       for (const t of items) {
         const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
         const w =
-          typeof (t as any).weight === 'number' && Number.isFinite((t as any).weight)
-            ? (t as any).weight
+          typeof t.weight === 'number' && Number.isFinite(t.weight)
+            ? t.weight
             : (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0);
         totalWeight += w;
         acc += p * w;
@@ -2796,12 +2796,12 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       },
                     });
                   }
-                  if ((columnWidths as any)[colId] !== undefined) {
+                  if ((columnWidths as Record<string, number>)[colId] !== undefined) {
                     headerActions.push({
                       label: '컬럼 너비 초기화',
                       icon: <RotateCcw size={14} />,
                       onClick: () => {
-                        const defaultW = (DEFAULT_COLUMN_WIDTHS as any)[colId];
+                        const defaultW = (DEFAULT_COLUMN_WIDTHS as Record<string, number>)[colId];
                         if (defaultW != null) {
                           const next = { ...columnWidths, [colId]: defaultW };
                           setColumnWidths(next);

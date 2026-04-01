@@ -57,7 +57,7 @@ const toIsoDate = (val: unknown): string | '' => {
   }
   if (typeof val === 'number' && Number.isFinite(val)) {
     // Excel date serial
-    const ssf = (XLSX as any)?.SSF;
+    const ssf = (XLSX as unknown as { SSF?: { parse_date_code?: (v: number) => { y: number; m: number; d: number } | null } }).SSF;
     if (ssf?.parse_date_code) {
       const parsed = ssf.parse_date_code(val);
       if (!parsed) return '';
@@ -170,7 +170,7 @@ const fillMergedHeaders = (headers: string[]) => {
   return out;
 };
 
-const adjustIndexForMergedHeader = (rows: any[][], headers: string[], idx: number) => {
+const adjustIndexForMergedHeader = (rows: unknown[][], headers: string[], idx: number) => {
   if (idx < 0) return idx;
   const target = normalizeHeader(headers[idx]);
   if (!target) return idx;
@@ -247,7 +247,7 @@ const pickBestSheetAndHeader = (workbook: XLSX.WorkBook) => {
   for (const sheetName of workbook.SheetNames) {
     const ws = workbook.Sheets[sheetName];
     if (!ws) continue;
-    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][];
     if (!rows || rows.length === 0) continue;
 
     const scanLimit = Math.min(80, rows.length);
@@ -382,7 +382,7 @@ const findAllColumnIndices = (headers: string[], candidates: string[]) => {
   return out;
 };
 
-const firstNonEmptyInColumns = (cells: any[], cols: number[]) => {
+const firstNonEmptyInColumns = (cells: unknown[], cols: number[]) => {
   for (const c of cols) {
     const v = cells?.[c];
     const s = String(v ?? '').trim();
@@ -410,7 +410,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     };
   }
 
-  const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' }) as any[][];
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '' }) as unknown[][];
   if (!rawRows || rawRows.length === 0) {
     return {
       tasks: [],
@@ -441,14 +441,14 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     const today = new Date().toISOString().split('T')[0];
     for (const row of rawRows.slice(headerRowIndex + 1)) {
       const cells = Array.isArray(row) ? row : [];
-      const rowObj: Record<string, any> = {};
+      const rowObj: Record<string, unknown> = {};
       for (let i = 0; i < headerRow.length; i++) {
         const key = headerRow[i];
         if (!key) continue;
         rowObj[key] = cells[i];
       }
 
-      const task: any = {};
+      const task: Record<string, unknown> = {};
       let parsedLevel: LevelValue = undefined;
       Object.keys(rowObj).forEach((header) => {
         const key = REVERSE_HEADER_MAP[header];
@@ -483,21 +483,21 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       if (!task.startDate) task.startDate = today;
       if (!task.endDate) task.endDate = task.startDate;
       if (task.workEffort === undefined) {
-        const est = estimateWorkEffortFromDates(task.startDate, task.endDate);
+        const est = estimateWorkEffortFromDates(task.startDate as string, task.endDate as string);
         if (est !== undefined) task.workEffort = est;
       }
       if (!task.expanded) task.expanded = true;
       if (task.parentId === undefined) task.parentId = null;
       if (!task.dependencies) task.dependencies = [];
-      tasks.push(task as Task);
-      if (parsedLevel) levelsByTaskId.set(task.id, parsedLevel);
+      tasks.push(task as unknown as Task);
+      if (parsedLevel) levelsByTaskId.set(task.id as string, parsedLevel);
     }
 
     // 1) WBS번호 기반 계층 복원 (가능하면 우선)
     const wbsToTaskId = new Map<string, string>();
     const pendingParentByWbs = new Map<string, string>();
     for (const t of tasks) {
-      const wbsKey = normalizeWbsKey((t as any).wbsId);
+      const wbsKey = normalizeWbsKey((t as Task & { wbsId?: string }).wbsId);
       if (!wbsKey) continue;
       wbsToTaskId.set(wbsKey, t.id);
       const parts = wbsKey.split('.').filter(Boolean);
@@ -521,7 +521,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
         if (pid) t.parentId = pid;
       }
     }
-    for (const t of tasks) delete (t as any).wbsId;
+    for (const t of tasks) delete (t as Task & { wbsId?: string }).wbsId;
 
     const findColumnByAliases = (aliases: string[]): { index: number; header: string } => {
       for (const a of aliases) {
@@ -805,7 +805,7 @@ function toSheetName(name: string, used: Set<string>): string {
     .trim()
     .slice(0, 31);
   if (!s) s = 'Sheet';
-  let base = s;
+  const base = s;
   let n = 1;
   while (used.has(s)) {
     s = `${base.slice(0, 28)}_${n}`.slice(0, 31);

@@ -76,7 +76,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   const barPopoverRef = useRef<HTMLDivElement>(null);
   /** true after significant pointer move during bar drag/resize, or mousedown on resize handle — suppress tap-to-preview */
   const suppressBarPopoverClickRef = useRef(false);
-  const selectedSet = useMemo(() => new Set(selectedTaskIds), [selectedTaskIds]);
+  const selectedSet = useMemo(() => new Set<string>(selectedTaskIds), [selectedTaskIds]);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === 'undefined') return 240;
@@ -108,7 +108,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
   // - leaf(최하위) 작업: status === 'done' 이면 완료
   // - 상위 작업: 하위 leaf 작업들이 모두 완료면 완료로 간주(흑백 처리)
   const allLeafDoneById = useMemo(() => {
-    const byId = new Map(tasks.map(t => [t.id, t] as const));
+    const byId = new Map<string, Task>(tasks.map(t => [t.id, t]));
     const childrenByParent = new Map<string, string[]>();
     for (const t of tasks) {
       if (!t.parentId) continue;
@@ -243,7 +243,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [hotkeysEnabled, propRowHeight, onRowHeightChange]);
 
-  const handleSave = (updates: any) => {
+  const handleSave = (updates: Partial<Task>) => {
     if (editingTask) {
       if (editingTask.id !== '') updateTask(editingTask.id, updates);
       setEditingTask(null);
@@ -261,11 +261,11 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     // 다중 선택된 작업 중 하나를 드래그하면 전체 선택 항목 이동
     const baseIds =
       selectedSet.has(task.id) && selectedSet.size > 1
-        ? Array.from(selectedSet).filter(id => visibleTaskById.has(id))
+        ? [...selectedSet].filter(id => visibleTaskById.has(id))
         : [task.id];
     // 부모 작업 드래그 시 모든 자손도 함께 이동 (자손 포함 안 하면 DB 동기화 시 롤업으로 날짜 복원됨)
     const expandWithDescendants = (rootIds: string[]): string[] => {
-      const result = new Set(rootIds);
+      const result = new Set<string>(rootIds);
       const stack = [...rootIds];
       while (stack.length > 0) {
         const pid = stack.pop()!;
@@ -276,7 +276,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           }
         }
       }
-      return Array.from(result);
+      return [...result];
     };
     const idsToMove = expandWithDescendants(baseIds);
     const taskInfos: TaskDragInfo[] = idsToMove.map(id => {
@@ -454,7 +454,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
           const taskId = drag.clickTaskId;
           const multi = drag.ctrlKey;
           const range = drag.shiftKey;
-          const current = new Set(sel);
+          const current = new Set<string>(sel);
           let next: string[];
           if (range && anchorTaskIdRef.current) {
             const idx = vis.findIndex(t => t.id === taskId);
@@ -467,10 +467,10 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
               next = [...current, taskId];
             }
           } else if (multi) {
-            const nextSet = new Set(current);
+            const nextSet = new Set<string>(current);
             if (nextSet.has(taskId)) nextSet.delete(taskId);
             else nextSet.add(taskId);
-            next = Array.from(nextSet);
+            next = [...nextSet];
           } else {
             next = [taskId];
             anchorTaskIdRef.current = taskId;
@@ -600,7 +600,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
     const mainEl = syncScrollRef?.current;
     if (!mainEl) return;
     let fromMain = false;
-    let fromBottom = false;
+    const fromBottom = false;
     const onMainScroll = () => {
       if (fromBottom) return;
       fromMain = true;

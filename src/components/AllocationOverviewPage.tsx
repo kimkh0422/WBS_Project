@@ -350,7 +350,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                     <div className="text-xs text-stone-500">
                       {items.length}개 프로젝트 · 총 {totalPercent}% 투입
                       {(() => {
-                        const totalMd = Array.from(personProjectWorkEffort.get(person)?.values() ?? []).reduce((s, v) => s + v, 0);
+                        const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce((s: number, v: number) => s + v, 0);
                         return totalMd > 0 ? ` · 총 ${totalMd} M/D` : null;
                       })()}
                     </div>

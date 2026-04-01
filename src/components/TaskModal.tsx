@@ -1068,9 +1068,8 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                 </div>
                 <div className="relative min-h-[7rem] max-h-48">
                   {descCollab ? (
-                    <>
+                    <React.Fragment key={`${initialData?.id}-${taskProjectId}`}>
                       <TaskDescriptionCollabEditor
-                        key={`${initialData?.id}-${taskProjectId}`}
                         doc={descCollab.doc}
                         awareness={descCollab.provider.awareness}
                         readOnly={readOnly}
@@ -1087,7 +1086,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
                           실시간 공동편집: 같은 작업의 설명을 여러 명이 동시에 수정할 수 있습니다.
                         </div>
                       )}
-                    </>
+                    </React.Fragment>
                   ) : (
                     <textarea
                       value={formData.description || ''}

@@ -8,6 +8,7 @@ import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider, type DbSyncSummaryByProject } from './context/WBSContext';
 import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, RefreshCw, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug, RotateCcw, Network, MoreHorizontal } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
+import { useModalStates } from './hooks/useModalStates';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
@@ -91,30 +92,37 @@ interface WBSAppProps {
 function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
   const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('table');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
-  const [isAIBusy, setIsAIBusy] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
-  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
+  const modals = useModalStates();
+  const {
+    isModalOpen, setIsModalOpen, isProjectModalOpen, setIsProjectModalOpen,
+    isAIModalOpen, setIsAIModalOpen, isAIBusy, setIsAIBusy,
+    isSettingsModalOpen, setIsSettingsModalOpen, isShortcutsVisible, setIsShortcutsVisible,
+    isVersionHistoryOpen, setIsVersionHistoryOpen,
+    isExportModalOpen, setIsExportModalOpen,
+    exportSelectedProjectIds, setExportSelectedProjectIds,
+    isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen,
+    projectToDelete, setProjectToDelete,
+    isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen,
+    editingProject, setEditingProject,
+    isShareOpen, setIsShareOpen, isAuditLogOpen, setIsAuditLogOpen,
+    auditLogProjectId, setAuditLogProjectId,
+    isMembersModalOpen, setIsMembersModalOpen,
+    isAdminPasswordModalOpen, setIsAdminPasswordModalOpen,
+    isResetConfirmOpen, setIsResetConfirmOpen,
+    isWeeklyReportOpen, setIsWeeklyReportOpen,
+    isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen,
+    isDeleteChoiceOpen, setIsDeleteChoiceOpen,
+    lastExportPrefs, setLastExportPrefs,
+    importPreview, setImportPreview,
+    backupConfirm, setBackupConfirm,
+    multiMergeConfirm, setMultiMergeConfirm,
+    errorAlert, setErrorAlert,
+  } = modals;
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
-  const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
-  const [projectToDelete, setProjectToDelete] = useState<any>(null);
-  const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
-  const [editingProject, setEditingProject] = useState<any>(null);
-  const [isShareOpen, setIsShareOpen] = useState(false);
-  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
-  const [auditLogProjectId, setAuditLogProjectId] = useState<string | null>(null);
-  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
-  const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
@@ -127,36 +135,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     () => localStorage.getItem('wbs-backup-banner-dismissed') === '1'
   );
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-  const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
-  const [lastExportPrefs, setLastExportPrefs] = useState<{
-    scope: ExportScope;
-    format: ExportFormat;
-    projectIds: string[];
-  } | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = window.localStorage.getItem('wbs.lastExportPrefs');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { scope?: string; format?: string; projectIds?: unknown };
-      if (
-        (parsed.scope === 'all' || parsed.scope === 'selected') &&
-        (parsed.format === 'excel' || parsed.format === 'json' || parsed.format === 'markdown') &&
-        Array.isArray(parsed.projectIds)
-      ) {
-        return {
-          scope: parsed.scope,
-          format: parsed.format,
-          projectIds: parsed.projectIds.filter(id => typeof id === 'string') as string[],
-        };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  });
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
   const hiddenViews = React.useMemo(() => {
-    const raw = (import.meta as any)?.env?.VITE_HIDDEN_VIEWS as string | undefined;
+    const raw = import.meta.env.VITE_HIDDEN_VIEWS as string | undefined;
     const value = typeof raw === 'string' ? raw.trim() : '';
     return new Set(
       value
@@ -582,8 +563,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   });
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
-  const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
-  const [isDeleteChoiceOpen, setIsDeleteChoiceOpen] = useState(false);
 
   const selectProject = useCallback((projectId: string) => {
     setCurrentProjectId(projectId);
@@ -605,35 +584,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     return () => document.removeEventListener('mousedown', close);
   }, [isProjectFilterDropdownOpen]);
 
-  const [importPreview, setImportPreview] = useState<{
-    isOpen: boolean;
-    tasks: Task[];
-    files: { fileName: string; taskCount: number; meta: ExcelImportMeta }[];
-  }>({
-    isOpen: false,
-    tasks: [],
-    files: [],
-  });
-
-  const [backupConfirm, setBackupConfirm] = useState<{ isOpen: boolean; data: BackupData | null }>({
-    isOpen: false,
-    data: null,
-  });
-
-  const [multiMergeConfirm, setMultiMergeConfirm] = useState<{ isOpen: boolean; dataArray: BackupData[]; fileCount: number }>({
-    isOpen: false,
-    dataArray: [],
-    fileCount: 0,
-  });
-
-  const [errorAlert, setErrorAlert] = useState<{ isOpen: boolean; message: string }>({
-    isOpen: false,
-    message: '',
-  });
-
   const currentProject = projects.find(p => p.id === currentProjectId);
 
-  const handleSaveTask = (taskData: any) => addTask(taskData);
+  const handleSaveTask = (taskData: Partial<Task>) => addTask(taskData);
 
   const handleSaveProject = (
     name: string,
@@ -965,7 +918,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       }));
     };
 
-    const parsed = await Promise.all(files.map(f => parseExcelWithMeta(f as any)));
+    const parsed = await Promise.all(files.map(f => parseExcelWithMeta(f)));
 
     const perFileTasks = parsed.map(p => p.tasks);
     const importedTasks = files.length > 1
@@ -1025,8 +978,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     if (files.length === 0) return;
     try {
       await importFromBackupJsonFiles(files as File[]);
-    } catch (error: any) {
-      setErrorAlert({ isOpen: true, message: error.message || '백업 파일을 읽는 중 오류 발생' });
+    } catch (error: unknown) {
+      setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '백업 파일을 읽는 중 오류 발생' });
     } finally {
       if (backupInputRef.current) backupInputRef.current.value = '';
     }
@@ -1038,8 +991,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     try {
       const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
       setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
-    } catch (error: any) {
-      setErrorAlert({ isOpen: true, message: error.message || '오류 발생' });
+    } catch (error: unknown) {
+      setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '오류 발생' });
     } finally {
       if (mergeInputRef.current) mergeInputRef.current.value = '';
     }
@@ -1091,7 +1044,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     }
   };
 
-  const handleDashboardNavigate = (newView: any, newFilters: Partial<FilterState> & { projectId?: string }) => {
+  const handleDashboardNavigate = (newView: typeof view, newFilters: Partial<FilterState> & { projectId?: string }) => {
     // 대시보드 카드 클릭 시, 해당 조건으로 필터된 내역을 바로 보여주기 위한 내비게이션
     setView(newView);
 

@@ -3,9 +3,13 @@ import { cn } from '../lib/utils';
 import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Settings2, Keyboard, Trash2, RotateCcw, Users, User, LogOut, Network, History, Map as MapIcon, Sparkles, FolderPlus, Briefcase, Share2, Copy, Edit, LayoutDashboard, LayoutList, CheckSquare, Target, MoreHorizontal, Cloud, CloudOff, Loader2, Clock } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
+import type { Project, Task } from '../types';
+import type { WBSSettings } from '../context/WBSContext';
+import type { PresenceUser } from '../hooks/usePresence';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface AppHeaderProps {
-  wbsSettings: any;
+  wbsSettings: WBSSettings;
   isHeaderCollapsed: boolean;
   setIsHeaderCollapsed: (v: boolean) => void;
   requestRefresh: () => void;
@@ -18,14 +22,14 @@ export interface AppHeaderProps {
   isProjectDropdownOpen: boolean;
   setIsProjectDropdownOpen: (v: boolean) => void;
   currentProjectId: string;
-  currentProject: any;
-  user: any;
+  currentProject: Project | null;
+  user: SupabaseUser | null;
   effectiveIsAdmin: boolean;
   profileMap: Record<string, string>;
-  presenceOthers: any[];
+  presenceOthers: PresenceUser[];
   selectProject: (id: string) => void;
-  allTasks: any[];
-  projectsSortedByName: any[];
+  allTasks: Task[];
+  projectsSortedByName: Project[];
   taskCountByProject: Record<string, number>;
   /** 프로젝트 목록에 없는 소속 작업 수(합계 불일치 시 안내) */
   orphanAndUnassignedTaskCount?: number;
@@ -34,20 +38,20 @@ export interface AppHeaderProps {
   myEditableProjectIds: string[] | undefined;
   setIsShareOpen: (v: boolean) => void;
   copyProject: (id: string) => void;
-  setEditingProject: (p: any) => void;
+  setEditingProject: (p: Project | null) => void;
   setIsProjectModalOpen: (v: boolean) => void;
-  setProjectToDelete: (p: any) => void;
+  setProjectToDelete: (p: Project | null) => void;
   setIsDeleteProjectConfirmOpen: (v: boolean) => void;
   setAuditLogProjectId: (id: string) => void;
   setIsAuditLogOpen: (v: boolean) => void;
-  setView: (v: any) => void;
+  setView: (v: string) => void;
   undo: () => void;
   canUndo: boolean;
   redo: () => void;
   canRedo: boolean;
   hiddenViews: Set<string>;
   view: string;
-  navigateWithTip: (v: any) => void;
+  navigateWithTip: (v: string) => void;
   filterOn: boolean;
   setFilterOn: (v: boolean | ((prev: boolean) => boolean)) => void;
   tipOnce: (key: string, msg: string) => void;
@@ -329,8 +333,8 @@ export function AppHeader({
                   <span className="font-medium">
                     {presenceOthers.length}명이 보고 있음:
                   </span>
-                  <span className="truncate max-w-[180px]" title={presenceOthers.map((o: any) => o.displayName).join(', ')}>
-                    {presenceOthers.map((o:any) => o.displayName).join(', ')}
+                  <span className="truncate max-w-[180px]" title={presenceOthers.map((o) => o.displayName).join(', ')}>
+                    {presenceOthers.map((o) => o.displayName).join(', ')}
                   </span>
                 </div>
               )}

@@ -67,8 +67,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       setOwnerDisplayNames({});
       return;
     }
-    const knownIds = new Set(profiles.map(p => p.id));
-    const missingOwnerIds = [...new Set(projects.map(p => p.ownerId).filter((id): id is string => !!id))].filter(id => !knownIds.has(id));
+    const knownIds = new Set<string>(profiles.map(p => p.id));
+    const missingOwnerIds = [...new Set<string>(projects.map(p => p.ownerId).filter((id): id is string => !!id))].filter(id => !knownIds.has(id));
     if (missingOwnerIds.length === 0) {
       setOwnerDisplayNames({});
       return;

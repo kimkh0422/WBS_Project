@@ -134,7 +134,7 @@ export function ShareModal({
     setAdding(true);
     setError(null);
     try {
-      const ids = Array.from(selectedAddUserIds);
+      const ids = [...selectedAddUserIds];
       const results = await Promise.all(ids.map((id) => upsertProjectMember(projectId, id, addRole)));
       const failed = results.filter((r) => !r.success);
       if (failed.length > 0) {

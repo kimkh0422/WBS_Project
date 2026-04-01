@@ -29,7 +29,7 @@ import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
-import { saveJsonWithIdbFallback, loadJsonWithIdbFallback } from '../lib/persist';
+import { saveJsonWithIdbFallback, loadJsonWithIdbFallback, type PersistKey } from '../lib/persist';
 
 // Column configuration
 const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
@@ -461,7 +461,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   const { tasks, updateTask, addTask, deleteTask, wbsMap, displayWbsMap, wbsSettings, currentProjectId, updateWbsSettings, canEditCurrentProject } = useWBS();
 
   const getKanbanStorageKey = (projectId: string | 'all') =>
-    `wbs-kanban-order-v1-${projectId || 'all'}` as any;
+    `wbs-kanban-order-v1-${projectId || 'all'}` as PersistKey;
 
   const loadKanbanOrder = (projectId: string | 'all'): Record<string, string[]> => {
     try {
@@ -553,7 +553,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   // 상위 작업 표시명 (WBS 번호 + 이름) — 카드에서 한눈에 보기 위함
   const parentWbsLabelMap = useMemo(() => {
     const map = new Map<string, string>();
-    const taskById = new Map(tasks.map(t => [t.id, t]));
+    const taskById = new Map<string, Task>(tasks.map(t => [t.id, t]));
     tasks.forEach(task => {
       if (!task.parentId) return;
       const parent = taskById.get(task.parentId);
@@ -794,7 +794,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     });
   };
 
-  const handleSaveTask = (taskData: any) => {
+  const handleSaveTask = (taskData: Partial<Task>) => {
     if (editingTask) {
       updateTask(editingTask.id, taskData);
     } else {

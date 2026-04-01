@@ -46,8 +46,17 @@ import {
   WBS_INIT_BLANK_SESSION_KEY,
   clearInitBlankSessionFlag,
 } from '../lib/persist';
-import { supabase, isSupabaseConfigured, type TaskRow } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, type TaskRow, type ProjectRow, type SettingsRow } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { useWbsHistory } from '../hooks/useWbsHistory';
+
+/** Supabase Realtime postgres_changes 콜백 페이로드 */
+interface RealtimeChangePayload {
+  eventType?: string;
+  event?: string;
+  new?: Record<string, unknown>;
+  old?: Record<string, unknown>;
+}
 
 /** 프로젝트별 동기화 건수 (토스트·상세 표시용) */
 export type DbSyncSummaryByProject = {
@@ -226,7 +235,7 @@ const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'endDate', visible: true },
     { id: 'workEffort', visible: true },
     // 가중치는 기본적으로도 표시
-    { id: 'weight', visible: true } as any,
+    { id: 'weight', visible: true },
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
     { id: 'status', visible: true },
@@ -442,10 +451,11 @@ function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: string; 
 
 // ─── WBSSettings 파싱 헬퍼 ────────────────────────────────────────────────────
 
-function parseSettings(raw: any): WBSSettings {
+function parseSettings(raw: unknown): WBSSettings {
   if (!raw) return DEFAULT_SETTINGS;
   try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as
+      Partial<WBSSettings> & { statusNames?: Record<string, string>; statusProgress?: Record<string, number> };
     let statusConfigs = parsed.statusConfigs;
     if (!statusConfigs && (parsed.statusNames || parsed.statusProgress)) {
       statusConfigs = (['todo', 'in-progress', 'blocked', 'done'] as const).map(id => ({
@@ -462,8 +472,8 @@ function parseSettings(raw: any): WBSSettings {
       statusConfigs: statusConfigs || DEFAULT_STATUS_CONFIGS,
       tableColumns: Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
         ? parsed.tableColumns
-            .filter((c: any) => c && typeof c.id === 'string')
-            .map((c: any) => ({ id: String(c.id), visible: c.visible !== false }))
+            .filter((c) => c && typeof c.id === 'string')
+            .map((c) => ({ id: String(c.id), visible: c.visible !== false }))
         : DEFAULT_SETTINGS.tableColumns,
       showCriticalPath: parsed.showCriticalPath === true,
       wrapTextInCells: parsed.wrapTextInCells === true,
@@ -532,10 +542,6 @@ export function WBSProvider({
   const [deletedTaskIdsByProject, setDeletedTaskIdsByProject] = useState<Record<string, string[]>>({});
   const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>([]);
 
-  const historyRef = useRef<Task[][]>([]);
-  const redoRef = useRef<Task[][]>([]);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   /** 로컬 저장 디바운스 타이머 */
   const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 사용자가 프로젝트/작업을 수정했을 때만 true. 동기화 성공 시 false. */
@@ -548,6 +554,7 @@ export function WBSProvider({
     setCollabPushNonce(n => n + 1);
     setHasLocalChangesSinceSync(true);
   }, []);
+
   /** Realtime 콜백에서 최신값 참조(의존성에 넣으면 구독이 끊겼다 붙어 이벤트 누락됨) */
   const hasLocalChangesSinceSyncRef = useRef(false);
   hasLocalChangesSinceSyncRef.current = hasLocalChangesSinceSync;
@@ -565,6 +572,15 @@ export function WBSProvider({
   /** 서버 스냅샷으로 화면 맞춤(다른 계정·Realtime 누락 시 일치용) */
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
   const allTasksRef = useRef<Task[]>([]);
+
+  const { saveHistory, undo, redo, canUndo, canRedo } = useWbsHistory({
+    allTasksRef,
+    setAllTasks,
+    bumpDirty,
+    useLocalOnlyRef,
+    handleDbError,
+  });
+
   const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {
     const localMap = new Map<string, boolean>(allTasksRef.current.map(t => [t.id, t.expanded]));
     if (localMap.size === 0) return incoming;
@@ -611,7 +627,7 @@ export function WBSProvider({
         const [fallbackProjects, fallbackTasks, rawSettings, fallbackDeleted, fallbackDeletedProjects] = await Promise.all([
           loadJsonWithIdbFallback<Project[]>('wbs-projects'),
           loadJsonWithIdbFallback<Task[]>('wbs-tasks'),
-          loadJsonWithIdbFallback<any>('wbs-settings'),
+          loadJsonWithIdbFallback<unknown>('wbs-settings'),
           loadJsonWithIdbFallback<Record<string, string[]>>('wbs-deleted-task-ids'),
           loadJsonWithIdbFallback<string[]>('wbs-deleted-project-ids'),
         ]);
@@ -831,7 +847,7 @@ export function WBSProvider({
         table: 'tasks',
         ...(currentProjectId !== 'all' ? { filter: `project_id=eq.${currentProjectId}` } : {}),
       },
-      (payload: any) => {
+      (payload: RealtimeChangePayload) => {
         queueMicrotask(() => {
           const ev = String(payload?.eventType ?? payload?.event ?? '').toUpperCase();
           if (ev === 'DELETE') {
@@ -842,10 +858,10 @@ export function WBSProvider({
           }
           const row = payload?.new;
           if (!row || !row.id) return;
-          const serverTask = fromTaskRow(row as any);
+          const serverTask = fromTaskRow(row as unknown as TaskRow);
           const before = allTasksRef.current;
           const existingBefore = before.find(t => t.id === serverTask.id);
-          const rowTyped = row as TaskRow;
+          const rowTyped = row as unknown as TaskRow;
           const contentMatches =
             !!existingBefore && serverTaskRowMatchesLocalTask(existingBefore, rowTyped);
 
@@ -886,7 +902,7 @@ export function WBSProvider({
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'projects' },
-      (payload: any) => {
+      (payload: RealtimeChangePayload) => {
         queueMicrotask(() => {
           const ev = String(payload?.eventType ?? payload?.event ?? '').toUpperCase();
           if (ev === 'DELETE') {
@@ -897,7 +913,7 @@ export function WBSProvider({
           }
           const row = payload?.new;
           if (!row || !row.id) return;
-          const serverProject = fromProjectRow(row as any);
+          const serverProject = fromProjectRow(row as unknown as ProjectRow);
           // conflict check을 updater 밖에서 수행 (updater 안에서 토스트 호출 금지)
           const before = projectsRef.current;
           const existingBefore = before.find(p => p.id === serverProject.id);
@@ -916,11 +932,11 @@ export function WBSProvider({
     channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'wbs_settings', filter: 'id=eq.default' },
-      (payload: any) => {
+      (payload: RealtimeChangePayload) => {
         queueMicrotask(() => {
           const row = payload?.new;
           if (!row) return;
-          const partial = fromSettingsRow(row as any);
+          const partial = fromSettingsRow(row as unknown as SettingsRow);
           setWbsSettings(prev => ({ ...prev, ...partial }));
           notifyConflictLater('settings');
         });
@@ -1011,7 +1027,7 @@ export function WBSProvider({
       lastServerPullAtRef.current = Date.now();
       void serverPullFromDbRef.current();
     }, 16000);
-    let visTimer: ReturnType<typeof setTimeout> | undefined;
+    let visTimer: number | undefined;
     const onVis = () => {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - appReadyAtRef.current < 5000) return;
@@ -1089,7 +1105,7 @@ export function WBSProvider({
       }
       if (e instanceof Error) return e;
       if (e && typeof e === 'object') {
-        const anyE = e as any;
+        const anyE = e as Record<string, unknown>;
         const msg = String(anyE.message ?? anyE.error_description ?? anyE.details ?? anyE.hint ?? '').trim();
         const code = String(anyE.code ?? anyE.status ?? '').trim();
         const composed = [code ? `[${code}]` : '', msg].filter(Boolean).join(' ');
@@ -1163,7 +1179,7 @@ export function WBSProvider({
       const serverProjectById = new Map(preProjects.map(p => [p.id, p]));
 
       let uploadError: unknown = null;
-      const taskProjectIdSet = new Set(targetProjectsAfterAutoDelete.map(p => p.id));
+      const taskProjectIdSet = new Set<string>(targetProjectsAfterAutoDelete.map(p => p.id));
       const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
       let nProj = targetProjectsAfterAutoDelete.length;
       let nProjUp = 0;
@@ -1450,9 +1466,14 @@ export function WBSProvider({
     }
   };
 
-  // syncWithDb는 매 렌더마다 새로 생성되므로 ref로 안정화 → pushChangesToDb를 stable callback으로 만들기 위함
   const syncWithDbRef = useRef(syncWithDb);
   syncWithDbRef.current = syncWithDb;
+
+  const stableSyncWithDb = useCallback(
+    (...args: Parameters<typeof syncWithDb>) => syncWithDbRef.current(...args),
+    []
+  );
+
   const pushChangesToDb = useCallback(
     (scope: 'current' | 'all') => syncWithDbRef.current(scope, undefined, { pullAfter: false, skipAutoPrune: true }),
     []
@@ -1465,38 +1486,6 @@ export function WBSProvider({
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
   allTasksRef.current = allTasks;
-
-  const saveHistory = useCallback(() => {
-    bumpDirty();
-    historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
-    redoRef.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
-  }, [bumpDirty]);
-
-  const undo = useCallback(() => {
-    if (historyRef.current.length === 0) return;
-    const previous = historyRef.current[historyRef.current.length - 1];
-    historyRef.current = historyRef.current.slice(0, -1);
-    redoRef.current = [...redoRef.current.slice(-49), [...allTasksRef.current]];
-    setCanUndo(historyRef.current.length > 0);
-    setCanRedo(true);
-    setAllTasks(previous);
-    bumpDirty();
-    if (!useLocalOnlyRef.current) upsertTasks(previous).catch(err => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
-  }, [handleDbError, bumpDirty]);
-
-  const redo = useCallback(() => {
-    if (redoRef.current.length === 0) return;
-    const next = redoRef.current[redoRef.current.length - 1];
-    redoRef.current = redoRef.current.slice(0, -1);
-    historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
-    setCanRedo(redoRef.current.length > 0);
-    setCanUndo(true);
-    setAllTasks(next);
-    bumpDirty();
-    if (!useLocalOnlyRef.current) upsertTasks(next).catch(err => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
-  }, [handleDbError, bumpDirty]);
 
   // ─── Derived 상태 ─────────────────────────────────────────────────────────
 
@@ -1558,7 +1547,7 @@ export function WBSProvider({
     if (wbsSettingsRef.current.linkStatusAndProgress === false) return;
     const configs = wbsSettingsRef.current.statusConfigs ?? [];
     if (!configs || configs.length === 0) return;
-    const configMap = new Map(configs.map(c => [c.id, c] as const));
+    const configMap = new Map<string, StatusConfig>(configs.map(c => [c.id, c]));
     setAllTasks(prev => {
       const cpi = currentProjectIdRef.current;
       const targetProjectIds =
@@ -1630,7 +1619,7 @@ export function WBSProvider({
         setAllTasks(currentTasks => {
           const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(prev.map(p => [p.id, p.assignments ?? []]));
           const holidays = getHolidaysForTaskDates(currentTasks);
-          let shifted = currentTasks.map(t => {
+          let shifted: Task[] = currentTasks.map(t => {
             if (t.projectId !== id) return t;
             let taskStart = t.startDate;
             let taskEnd = t.endDate;
@@ -1688,7 +1677,7 @@ export function WBSProvider({
 
           const projectTasks = shifted.filter(t => t.projectId === id);
           const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsMap);
-          const adjustedById = new Map(adjusted.map(t => [t.id, t]));
+          const adjustedById = new Map<string, Task>(adjusted.map(t => [t.id, t]));
           shifted = shifted.map(t => t.projectId === id && adjustedById.has(t.id) ? adjustedById.get(t.id)! : t);
           shifted = recomputeProjectRollups(shifted, id);
           if (!useLocalOnlyRef.current) upsertTasks(shifted).catch(err => handleDbError(err, '날짜 이동 저장에 실패했습니다.'));
@@ -2252,7 +2241,7 @@ export function WBSProvider({
       if (!task) return prev;
       const siblings = projectTasks.filter(t => t.parentId === task.parentId);
       const idx = siblings.findIndex(t => t.id === id);
-      let newProjectTasks = [...projectTasks];
+      const newProjectTasks = [...projectTasks];
       if (direction === 'up' && idx > 0) {
         const iA = projectTasks.findIndex(t => t.id === task.id);
         const iB = projectTasks.findIndex(t => t.id === siblings[idx - 1].id);
@@ -2585,7 +2574,7 @@ export function WBSProvider({
     importTasks,
     deletedTaskIdsByProject,
     hasLocalChangesSinceSync,
-    syncWithDb,
+    syncWithDb: stableSyncWithDb,
     pushChangesToDb,
     collabPushNonce,
     deleteAllTasks,
@@ -2615,7 +2604,7 @@ export function WBSProvider({
     addTask, addTasks, updateTask, updateTasksBulk,
     deleteTask, moveTask, reorderTask, indentTask, outdentTask, indentTasks, outdentTasks,
     toggleExpand, expandToLevel, importTasks,
-    deletedTaskIdsByProject, hasLocalChangesSinceSync, syncWithDb, pushChangesToDb, collabPushNonce,
+    deletedTaskIdsByProject, hasLocalChangesSinceSync, stableSyncWithDb, pushChangesToDb, collabPushNonce,
     deleteAllTasks, deleteAllTasksInAllProjects, resetAllProjectsToNew,
     wbsMap, displayWbsMap, restoreBackup, mergeBackups, exportFullBackup,
     undo, canUndo, redo, canRedo,

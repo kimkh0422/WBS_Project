@@ -157,7 +157,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     if (!sheetName) return { text: '(엑셀 시트가 없습니다)', truncated: false };
     const ws = wb.Sheets[sheetName];
 
-    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][];
     if (!rows || rows.length === 0) return { text: '(빈 시트)', truncated: false };
 
     const MAX_ROWS = 60;
@@ -226,7 +226,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
           text: clipped,
           truncated: isTrunc,
         });
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error('Failed to read attachment', f?.name, e);
         setError(`파일을 읽는 중 오류가 발생했습니다: ${f?.name || '알 수 없는 파일'}`);
       }
@@ -478,8 +478,9 @@ ${combinedInput}
         handleResetAndClose();
       }
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("AI Analysis Error:", err);
+      const errMsg = err instanceof Error ? err.message : '';
       if (isMountedRef.current) {
         if (effectiveUseExisting) {
           setReanalyzeInBackground(false);
@@ -487,9 +488,9 @@ ${combinedInput}
           pushToast('WBS 재분석에 실패했습니다.', { variant: 'warning' });
         } else {
           dismissToast(GENERATE_PROGRESS_TOAST_ID);
-          pushToast(err.message || '텍스트 분석에 실패했습니다. 다시 시도해 주세요.', { variant: 'warning' });
+          pushToast(errMsg || '텍스트 분석에 실패했습니다. 다시 시도해 주세요.', { variant: 'warning' });
         }
-        setError(err.message || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
+        setError(errMsg || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
       }
     } finally {
       if (isMountedRef.current) setIsLoading(false);
@@ -589,12 +590,12 @@ ${combinedInput}
       // Validate IDs exist in existingTasks
       const validIds = new Set(existingTasks.map(t => t.id));
       const validated = parsed.dependencies
-        .filter((d: any) => validIds.has(d.taskId))
-        .map((d: any) => ({
+        .filter((d: { taskId: string; dependsOn: string[] }) => validIds.has(d.taskId))
+        .map((d: { taskId: string; dependsOn: string[] }) => ({
           taskId: d.taskId,
           dependsOn: (d.dependsOn || []).filter((id: string) => validIds.has(id)),
         }))
-        .filter((d: any) => d.dependsOn.length > 0);
+        .filter((d: { taskId: string; dependsOn: string[] }) => d.dependsOn.length > 0);
 
       if (isMountedRef.current) {
         setDependencyAnalysisInBackground(false);
@@ -616,11 +617,11 @@ ${combinedInput}
         pushToast(`선행관계 ${validated.length}건 적용. 일정·공휴일·투입인력(과업무 방지) 반영`, { variant: 'success' });
         handleResetAndClose();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Dependency Analysis Error:", err);
       if (isMountedRef.current) {
         setDependencyAnalysisInBackground(false);
-        setError(err.message || "선행관계 분석에 실패했습니다.");
+        setError(err instanceof Error ? err.message : "선행관계 분석에 실패했습니다.");
         dismissToast(DEP_PROGRESS_TOAST_ID);
         pushToast('선행관계 분석에 실패했습니다.', { variant: 'warning' });
       }
@@ -918,8 +919,8 @@ ${combinedInput}
               ) : (
                 (() => {
                   const treeOrder = buildTasksInTreeOrderWithWbs(existingTasks);
-                  const depMap = new Map(dependencyResults.map(d => [d.taskId, d.dependsOn]));
-                  const taskById = new Map(existingTasks.map(t => [t.id, t]));
+                  const depMap = new Map<string, string[]>(dependencyResults.map(d => [d.taskId, d.dependsOn]));
+                  const taskById = new Map<string, Task>(existingTasks.map(t => [t.id, t]));
                   return (
                     <div className="border border-stone-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto bg-stone-50">
                       <table className="w-full text-sm text-left">
