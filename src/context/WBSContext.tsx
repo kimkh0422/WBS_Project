@@ -240,7 +240,11 @@ const DEFAULT_SETTINGS: WBSSettings = {
 
 // ─── 롤업 헬퍼 ────────────────────────────────────────────────────────────────
 
-function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatusIds?: Set<string>): Task[] {
+/**
+ * @param forceProgress true: 자식 변경 전파 시 progressLocked 무시하고 항상 롤업
+ *                      false(기본): DB 싱크/전체 재계산 시 progressLocked 존중
+ */
+function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatusIds?: Set<string>, forceProgress = false): Task[] {
   if (!parentId) return allTasks;
   const children = allTasks.filter(t => t.parentId === parentId);
   if (children.length === 0) return allTasks;
@@ -283,8 +287,9 @@ function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatus
   const lockedFields = new Set(parent.userLockedFields ?? []);
   const startDateLocked = lockedFields.has('startDate');
   const endDateLocked = lockedFields.has('endDate');
-  // 수동으로 진척률을 편집한 경우(userLockedFields에 'progress' 포함) 자식 롤업으로 덮어쓰지 않음
-  const progressLocked = lockedFields.has('progress');
+  // forceProgress=true(자식 변경 전파): 잠금 무시하고 항상 롤업
+  // forceProgress=false(DB싱크/전체 재계산): progressLocked 존중하여 수동 편집값 유지
+  const progressLocked = !forceProgress && lockedFields.has('progress');
   const shouldUpdate =
     (!startDateLocked && parent.startDate !== minStart) ||
     (!endDateLocked && parent.endDate !== maxEnd) ||
@@ -303,7 +308,7 @@ function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatus
     )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds);
+  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress);
 }
 
 /**
@@ -2056,12 +2061,13 @@ export function WBSProvider({
       let result = nextTasks;
       if (affectsRollup) {
         const hasChildTasks = prev.some(t => t.parentId === id && t.projectId === task.projectId);
-        // 날짜를 명시적으로 변경한 경우(드래그 등): 자식이 있어도 task 자신을 롤업 기준으로 삼으면
-        // 자식들의 min/max로 덮어써지므로 부모부터 롤업 시작
-        if (hasChildTasks && !hasDateChange) {
-          result = syncParentRollups(result, id, doneStatusIds);
+        const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
+        if (hasChildTasks && !hasDateChange && !isDirectProgressEdit) {
+          // weight/workEffort 등 비날짜 변경: 자식 가중치 기준으로 자신부터 롤업 (forceProgress=true: 잠금 무시)
+          result = syncParentRollups(result, id, doneStatusIds, true);
         } else {
-          result = syncParentRollups(result, task.parentId, doneStatusIds);
+          // 진척률 직접 편집이거나 리프 작업 변경: task 자신은 그대로 두고 조상만 롤업 (forceProgress=true: 잠금 무시)
+          result = syncParentRollups(result, task.parentId, doneStatusIds, true);
         }
       }
       // 부모 변경 시 기존 부모·신규 부모 모두 롤업 재계산
