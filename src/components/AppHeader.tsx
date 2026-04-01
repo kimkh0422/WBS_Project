@@ -570,7 +570,7 @@ export function AppHeader({
 
           {/* 버그 사항 링크 */}
           <a
-            href="https://docs.google.com/spreadsheets/d/1NiY0EFI_7RmbYOy2buBW5X25m6VvR5fT3QQxgKBrlBo/edit?usp=drive_link"
+            href="https://docs.google.com/document/d/1h_St7qRXMRxGsV6i780uCmNSYax3a4PaazTFZgT2gqQ/edit?tab=t.0"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-500 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
