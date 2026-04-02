@@ -25,6 +25,8 @@ export interface WBSSettings {
   allocationHiddenMigrated?: boolean;
   /** 테마 모드: 'light' | 'dark' | 'system' (기본: 'system') */
   themeMode?: 'light' | 'dark' | 'system';
+  /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
+  favoriteProjectIds?: string[];
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [

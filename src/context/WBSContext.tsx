@@ -241,6 +241,10 @@ export function WBSProvider({
       try {
         if (!skipDbUntilSync && !useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
           try {
+            // 로컬에 저장된 설정을 기본값으로 읽어둠 (favoriteProjectIds, themeMode 등 DB에 없는 필드 보존)
+            const localSettingsRaw = await loadJsonWithIdbFallback<unknown>('wbs-settings');
+            const localSettings = parseSettings(localSettingsRaw);
+
             const [dbProjects, dbTasks, dbSettings] = await Promise.all([
               fetchProjects(),
               fetchTasks(),
@@ -251,10 +255,12 @@ export function WBSProvider({
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');
             if (dbProjects.length > 0) {
               setProjects(dbProjects);
-              const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+              const effectiveSettings = { ...localSettings, ...(dbSettings ?? {}) } as WBSSettings;
               setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings.statusConfigs));
               if (dbSettings) {
-                setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+                setWbsSettings(prev => ({ ...localSettings, ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+              } else {
+                setWbsSettings(localSettings);
               }
               const savedCurrent = sessionStorage.getItem('wbs-current-project');
               const validId = dbProjects.find(p => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';

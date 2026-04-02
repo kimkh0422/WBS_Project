@@ -868,6 +868,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           }}
           themeMode={activeThemeMode}
           onThemeModeChange={handleThemeModeChange}
+          onFavoriteProjectsChange={(ids) => updateWbsSettings({ favoriteProjectIds: ids })}
         />
       )}
 

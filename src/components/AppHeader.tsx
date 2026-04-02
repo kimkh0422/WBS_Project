@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Settings2, Keyboard, Trash2, RotateCcw, Users, User, LogOut, Network, History, Map as MapIcon, Sparkles, FolderPlus, Briefcase, Share2, Copy, Edit, LayoutDashboard, LayoutList, CheckSquare, Target, MoreHorizontal, Cloud, CloudOff, Loader2, Clock, Sun, Moon, Monitor } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Settings2, Keyboard, Trash2, RotateCcw, Users, User, LogOut, Network, History, Map as MapIcon, Sparkles, FolderPlus, Briefcase, Share2, Copy, Edit, LayoutDashboard, LayoutList, CheckSquare, Target, MoreHorizontal, Cloud, CloudOff, Loader2, Clock, Sun, Moon, Monitor, Star } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
@@ -78,6 +78,7 @@ export interface AppHeaderProps {
   setIsBackupBannerDismissed?: (v: boolean) => void;
   themeMode?: 'light' | 'dark' | 'system';
   onThemeModeChange?: (mode: 'light' | 'dark' | 'system') => void;
+  onFavoriteProjectsChange?: (ids: string[]) => void;
   /** DB 연동 상태 (승인+Supabase 시 연동 / 그 외 로컬) */
   dbLinkState?: {
     linked: boolean;
@@ -153,12 +154,29 @@ export function AppHeader({
   dbLinkState,
   themeMode = 'system',
   onThemeModeChange,
+  onFavoriteProjectsChange,
 }: AppHeaderProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
+
+  // 관심 프로젝트 (즐겨찾기) — wbsSettings(DB) 동기화
+  const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  const toggleFavorite = (projectId: string) => {
+    const next = new Set(favoriteIds);
+    if (next.has(projectId)) next.delete(projectId);
+    else next.add(projectId);
+    onFavoriteProjectsChange?.(Array.from(next) as string[]);
+  };
+
+  const displayProjects = useMemo(() => {
+    if (!showFavoritesOnly || favoriteIds.size === 0) return projectsSortedByName;
+    return projectsSortedByName.filter(p => favoriteIds.has(p.id));
+  }, [projectsSortedByName, showFavoritesOnly, favoriteIds]);
 
   /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
   const ownerGroups = useMemo(() => {
@@ -347,13 +365,29 @@ export function AppHeader({
                   <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
                   <div className="absolute top-full left-0 mt-2 w-[min(22rem,calc(100vw-1.5rem))] max-w-[100vw] bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu" style={{ boxShadow: 'var(--shadow-xl)' }}>
                     <div className="p-1">
-                      <div className="px-3 py-2 flex items-baseline justify-between gap-2" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">
+                      <div className="px-3 py-2 flex items-center justify-between gap-2" title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요.">
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
-                        {projectsSortedByName.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          {favoriteIds.size > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShowFavoritesOnly(prev => !prev); }}
+                              className={cn(
+                                "flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors",
+                                showFavoritesOnly
+                                  ? "bg-amber-100 text-amber-700 border border-amber-200"
+                                  : "text-stone-400 hover:text-amber-600 border border-transparent hover:border-stone-200"
+                              )}
+                              title={showFavoritesOnly ? "전체 프로젝트 보기" : "관심 프로젝트만 보기"}
+                            >
+                              <Star size={10} className={showFavoritesOnly ? "fill-amber-500" : ""} />
+                              {showFavoritesOnly ? `관심 ${favoriteIds.size}개` : "관심만"}
+                            </button>
+                          )}
                           <span className="text-[10px] text-stone-400 shrink-0">
-                            프로젝트 {projectsSortedByName.length}개 · 사용자 {ownerGroups.length}명
+                            {displayProjects.length}개
                           </span>
-                        )}
+                        </div>
                       </div>
                       {projectsSortedByName.length >= 25 && (
                         <div
@@ -396,127 +430,112 @@ export function AppHeader({
                       )}
                       <div className="h-px bg-stone-100 my-1 mx-2" />
                       <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
-                        {ownerGroups.map(([ownerKey, list]) => {
-                          const expanded = expandedOwnerKeys.has(ownerKey);
+                        {displayProjects.map((project) => {
+                          const ownerLabel = ownerGroupLabel(project.ownerId ?? '__none__');
                           return (
-                            <div key={ownerKey} className="mb-0.5">
+                            <div
+                              key={project.id}
+                              className={cn(
+                                'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors',
+                                currentProjectId === project.id
+                                  ? 'bg-stone-100 font-medium'
+                                  : 'text-stone-600 hover:bg-stone-50'
+                              )}
+                              onClick={() => {
+                                selectProject(project.id);
+                                setIsProjectDropdownOpen(false);
+                              }}
+                            >
                               <button
                                 type="button"
-                                onClick={() => toggleOwnerGroup(ownerKey)}
-                                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left hover:bg-stone-50 transition-colors border border-transparent hover:border-stone-100"
-                                title={ownerKey !== '__none__' ? `소유자 ID: ${ownerKey}` : undefined}
+                                onClick={(e) => { e.stopPropagation(); toggleFavorite(project.id); }}
+                                className={cn("shrink-0 p-0.5 rounded transition-colors", favoriteIds.has(project.id) ? "text-amber-500" : "text-stone-300 hover:text-amber-400")}
+                                title={favoriteIds.has(project.id) ? "관심 해제" : "관심 프로젝트로 등록"}
                               >
-                                {expanded ? (
-                                  <ChevronDown size={14} className="shrink-0 text-stone-400" />
-                                ) : (
-                                  <ChevronRight size={14} className="shrink-0 text-stone-400" />
-                                )}
-                                <span className="truncate flex-1 min-w-0 text-[11px] font-bold text-stone-600 uppercase tracking-wide">
-                                  {ownerGroupLabel(ownerKey)}
-                                </span>
-                                <span className="text-[10px] text-stone-400 shrink-0 tabular-nums">{list.length}개</span>
+                                <Star size={12} className={favoriteIds.has(project.id) ? "fill-amber-500" : ""} />
                               </button>
-                              {expanded &&
-                                list.map((project) => (
-                                  <div
-                                    key={project.id}
-                                    className={cn(
-                                      'ml-4 pl-2 pr-1 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border-l-2 border-stone-100',
-                                      currentProjectId === project.id
-                                        ? 'bg-stone-100 font-medium border-l-indigo-300'
-                                        : 'text-stone-600 hover:bg-stone-50'
-                                    )}
-                                    onClick={() => {
-                                      selectProject(project.id);
-                                      setIsProjectDropdownOpen(false);
-                                    }}
-                                  >
-                                    <div className="truncate flex-1 min-w-0 flex flex-col gap-0.5">
-                                      <span className="truncate flex items-center gap-1.5">
-                                        {project.name}
-                                        {(taskCountByProject[project.id] ?? 0) > 0 && (
-                                          <span className="text-[10px] text-stone-400 shrink-0">
-                                            ({taskCountByProject[project.id] ?? 0}개)
-                                          </span>
-                                        )}
-                                      </span>
-                                      <span className="text-[9px] text-stone-400 truncate" title={ownerGroupLabel(ownerKey)}>
-                                        소유: {ownerGroupLabel(ownerKey)}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      {(isAdmin || myEditableProjectIds === undefined || myEditableProjectIds.includes(project.id)) && (
-                                        <>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setIsShareOpen(true);
-                                              setIsProjectDropdownOpen(false);
-                                            }}
-                                            className="text-stone-400 hover:text-teal-600 p-1 rounded"
-                                            title="프로젝트 공유"
-                                            aria-label="프로젝트 공유"
-                                          >
-                                            <Share2 size={12} />
-                                          </button>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              copyProject(project.id);
-                                              setIsProjectDropdownOpen(false);
-                                            }}
-                                            className="text-stone-400 hover:text-blue-600 p-1 rounded"
-                                            title="프로젝트 복사"
-                                            aria-label="프로젝트 복사"
-                                          >
-                                            <Copy size={12} />
-                                          </button>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setEditingProject(project);
-                                              setIsProjectModalOpen(true);
-                                              setIsProjectDropdownOpen(false);
-                                            }}
-                                            className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
-                                            title="프로젝트 편집"
-                                            aria-label="프로젝트 편집"
-                                          >
-                                            <Edit size={12} />
-                                          </button>
-                                          {projectsSortedByName.length > 1 && (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setProjectToDelete(project);
-                                                setIsProjectDropdownOpen(false);
-                                                setIsDeleteProjectConfirmOpen(true);
-                                              }}
-                                              className="text-stone-400 hover:text-red-500 p-1 rounded"
-                                              title="프로젝트 삭제"
-                                              aria-label="프로젝트 삭제"
-                                            >
-                                              <Trash2 size={12} />
-                                            </button>
-                                          )}
-                                        </>
-                                      )}
+                              <div className="truncate flex-1 min-w-0">
+                                <span className="truncate">
+                                  {project.name}
+                                  <span className="text-[10px] text-stone-400 ml-1.5">({ownerLabel})</span>
+                                </span>
+                                {(taskCountByProject[project.id] ?? 0) > 0 && (
+                                  <span className="text-[10px] text-stone-400 ml-1">
+                                    · {taskCountByProject[project.id]}개
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                {(isAdmin || myEditableProjectIds === undefined || myEditableProjectIds.includes(project.id)) && (
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsShareOpen(true);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-teal-600 p-1 rounded"
+                                      title="프로젝트 공유"
+                                      aria-label="프로젝트 공유"
+                                    >
+                                      <Share2 size={12} />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        copyProject(project.id);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-blue-600 p-1 rounded"
+                                      title="프로젝트 복사"
+                                      aria-label="프로젝트 복사"
+                                    >
+                                      <Copy size={12} />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingProject(project);
+                                        setIsProjectModalOpen(true);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
+                                      title="프로젝트 편집"
+                                      aria-label="프로젝트 편집"
+                                    >
+                                      <Edit size={12} />
+                                    </button>
+                                    {projectsSortedByName.length > 1 && (
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setAuditLogProjectId(project.id);
-                                          setIsAuditLogOpen(true);
+                                          setProjectToDelete(project);
                                           setIsProjectDropdownOpen(false);
+                                          setIsDeleteProjectConfirmOpen(true);
                                         }}
-                                        className="text-stone-400 hover:text-amber-600 p-1 rounded"
-                                        title="변경 이력"
-                                        aria-label="변경 이력"
+                                        className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                        title="프로젝트 삭제"
+                                        aria-label="프로젝트 삭제"
                                       >
-                                        <History size={12} />
+                                        <Trash2 size={12} />
                                       </button>
-                                    </div>
-                                  </div>
-                                ))}
+                                    )}
+                                  </>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAuditLogProjectId(project.id);
+                                    setIsAuditLogOpen(true);
+                                    setIsProjectDropdownOpen(false);
+                                  }}
+                                  className="text-stone-400 hover:text-amber-600 p-1 rounded"
+                                  title="변경 이력"
+                                  aria-label="변경 이력"
+                                >
+                                  <History size={12} />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
