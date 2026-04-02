@@ -281,12 +281,13 @@ function SortableTaskRowInner({
       )}
       <div
         className="data-cell justify-center cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500"
+        onDoubleClick={(e) => e.stopPropagation()}
         {...attributes}
         {...listeners}
       >
         <GripVertical size={14} />
       </div>
-      <div className="data-cell justify-center" onClick={(e) => e.stopPropagation()}>
+      <div className="data-cell justify-center" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
@@ -306,10 +307,10 @@ function SortableTaskRowInner({
           }}
         />
       </div>
-      <div className="data-cell justify-center font-mono text-[10px] text-stone-500 tabular-nums">
+      <div className="data-cell justify-center font-mono text-[10px] text-stone-500 tabular-nums" onDoubleClick={(e) => e.stopPropagation()}>
         {rowIndex + 1}
       </div>
-      <div className="data-cell justify-center">
+      <div className="data-cell justify-center" onDoubleClick={(e) => e.stopPropagation()}>
         {isTreeView && hasChildren && (
           <button
             onClick={(e) => {
@@ -946,7 +947,7 @@ function SortableTaskRowInner({
         }
         return null;
       })}
-      <div className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onDoubleClick={(e) => e.stopPropagation()}>
         <button
           onClick={(e) => {
             e.stopPropagation();

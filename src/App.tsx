@@ -1296,16 +1296,23 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         </Suspense>
       </main>
 
-      <TaskModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
-      <ProjectModal isOpen={isProjectModalOpen} onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
+      {isModalOpen && (
+        <TaskModal isOpen onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
+      )}
+      {isProjectModalOpen && (
+        <ProjectModal isOpen onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
+      )}
       <Suspense fallback={null}>
-      <WBSSettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        onRequestReset={() => { setIsSettingsModalOpen(false); setIsResetConfirmOpen(true); }}
-      />
+      {isSettingsModalOpen && (
+        <WBSSettingsModal
+          isOpen
+          onClose={() => setIsSettingsModalOpen(false)}
+          onRequestReset={() => { setIsSettingsModalOpen(false); setIsResetConfirmOpen(true); }}
+        />
+      )}
+      {isAIModalOpen && (
       <AIAnalysisModal
-        isOpen={isAIModalOpen}
+        isOpen
         onClose={() => setIsAIModalOpen(false)}
         onBusyChange={setIsAIBusy}
         onImport={(newTasks, replace) => {
@@ -1342,11 +1349,14 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         existingTasks={tasks}
         projects={projectsSortedByName}
       />
+      )}
+      {isVersionHistoryOpen && (
       <VersionManager
-        isOpen={isVersionHistoryOpen}
+        isOpen
         onClose={() => setIsVersionHistoryOpen(false)}
         currentVersion={__APP_VERSION__}
       />
+      )}
 
       {/* 삭제 유형 선택: 전체 삭제 / 현재 보고 있는 프로젝트 삭제 / 프로젝트 선택 삭제 / 현재 프로젝트 작업만 삭제 */}
       {isDeleteChoiceOpen && (
@@ -1495,8 +1505,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       />
       <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
       <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
+      {isShareOpen && (
       <ShareModal
-        isOpen={isShareOpen}
+        isOpen
         onClose={() => setIsShareOpen(false)}
         projectId={currentProject?.id}
         projectName={currentProject?.name}
@@ -1506,6 +1517,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         profiles={profiles.map(p => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
         ownerId={currentProject?.ownerId}
       />
+      )}
       {isAuditLogOpen && (() => {
         const pid = auditLogProjectId ?? (currentProjectId !== 'all' ? currentProjectId : null);
         const proj = pid ? projects.find(p => p.id === pid) : null;
@@ -1518,8 +1530,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           />
         ) : null;
       })()}
+      {isMembersModalOpen && (
       <MembersModal
-        isOpen={isMembersModalOpen}
+        isOpen
         onClose={() => setIsMembersModalOpen(false)}
         currentUserId={user?.id}
         dbIsAdmin={isAdmin}
@@ -1529,8 +1542,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
         onApproved={() => { pushToast('회원을 승인했습니다. (전체 프로젝트 목록 조회 등 권한에 반영됩니다.)', { variant: 'success' }); onMembersUpdated?.(); }}
       />
+      )}
+      {isAdminPasswordModalOpen && (
       <AdminPasswordModal
-        isOpen={isAdminPasswordModalOpen}
+        isOpen
         onClose={() => setIsAdminPasswordModalOpen(false)}
         onSuccess={() => {
           setAdminOverride(true);
@@ -1539,8 +1554,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           pushToast('관리자 모드로 전환되었습니다.', { variant: 'success' });
         }}
       />
+      )}
+      {isExportModalOpen && (
       <ExportModal
-        isOpen={isExportModalOpen}
+        isOpen
         onClose={() => setIsExportModalOpen(false)}
         projects={projectsSortedByName}
         allTasks={allTasks}
@@ -1551,15 +1568,18 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
         onExport={handleExportFromModal}
       />
+      )}
 
+      {isWeeklyReportOpen && (
       <WeeklyReportModal
-        isOpen={isWeeklyReportOpen}
+        isOpen
         onClose={() => setIsWeeklyReportOpen(false)}
         tasks={allTasks}
         projects={projectsSortedByName}
         currentProjectId={currentProjectId}
         currentUserDisplay={currentUserDisplay}
       />
+      )}
       </Suspense>
 
       <input
