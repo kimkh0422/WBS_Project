@@ -142,18 +142,28 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // 에러 메시지 자동 해제 (5초)
+  useEffect(() => {
+    if (!formError) return;
+    const t = setTimeout(() => setFormError(null), 5000);
+    return () => clearTimeout(t);
+  }, [formError]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!name.trim()) return;
     if (startDate && endDate && startDate > endDate) {
-      alert('종료일은 시작일보다 이후여야 합니다.');
+      setFormError('종료일은 시작일보다 이후여야 합니다.');
       return;
     }
     const parsedMin = minWorkEffortDays.trim() ? parseFloat(minWorkEffortDays) : undefined;
     if (parsedMin !== undefined && (Number.isNaN(parsedMin) || parsedMin < 0)) {
-      alert('최소 공수 기준은 0 이상의 숫자를 입력해 주세요.');
+      setFormError('최소 공수 기준은 0 이상의 숫자를 입력해 주세요.');
       return;
     }
     const totalPeriodStr = formatReportTotalPeriod(reportPeriodStart, reportPeriodEnd);
@@ -489,6 +499,12 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
 
         </form>
 
+        {formError && (
+          <div className="mx-6 mb-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2 animate-in fade-in duration-200">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {formError}
+          </div>
+        )}
         <div className="flex justify-end gap-3 p-6 border-t border-slate-200/50 bg-white/60 backdrop-blur sticky bottom-0">
           <button
             type="button"

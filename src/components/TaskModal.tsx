@@ -413,6 +413,13 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const [formError, setFormError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!formError) return;
+    const t = setTimeout(() => setFormError(null), 5000);
+    return () => clearTimeout(t);
+  }, [formError]);
+
   if (!isOpen) return null;
 
   const dependencyCount = formData.dependencies?.length ?? 0;
@@ -452,6 +459,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (readOnly) return;
     // 입력 중 문자열로 유지되는 진행률을 저장 직전에 확정
     const parsedProgress = (() => {
@@ -474,15 +482,15 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     const start = toMerge.startDate || '';
     const end = toMerge.endDate || start;
     if (start && end && start > end) {
-      alert('시작일이 종료일보다 늦을 수 없습니다.');
+      setFormError('시작일이 종료일보다 늦을 수 없습니다.');
       return;
     }
     if (taskProject?.startDate && start < taskProject.startDate) {
-      alert(`작업 시작일은 프로젝트 시작일(${taskProject.startDate})보다 이전일 수 없습니다.`);
+      setFormError(`작업 시작일은 프로젝트 시작일(${taskProject.startDate})보다 이전일 수 없습니다.`);
       return;
     }
     if (taskProject?.endDate && end > taskProject.endDate) {
-      alert(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
+      setFormError(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
       return;
     }
     const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
@@ -1197,6 +1205,12 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
           {/* Enter 키 저장: textarea/checklist 외 input에서 Enter 누르면 form submit 트리거 */}
           <button type="submit" className="hidden" aria-hidden="true" />
         </form>
+        {formError && (
+          <div className="mx-4 mb-1 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2 animate-in fade-in duration-200">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {formError}
+          </div>
+        )}
         <div className="px-4 py-2.5 flex justify-between items-center border-t border-[var(--color-line)] bg-slate-50/70 flex-shrink-0 gap-4">
           <div>
             {!readOnly && onDelete && initialData && (

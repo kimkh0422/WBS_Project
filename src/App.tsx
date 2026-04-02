@@ -377,23 +377,43 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     document.title = wbsSettings.appTitle;
   }, [wbsSettings.appTitle]);
 
-  // Theme (dark mode) — apply data-theme attribute to <html>
+  // Theme (dark mode) — localStorage를 단일 소스로 사용
+  const [activeThemeMode, setActiveThemeMode] = useState<'light' | 'dark' | 'system'>(() => {
+    try {
+      const saved = localStorage.getItem('wbs-theme-mode');
+      if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    } catch { /* ignore */ }
+    return wbsSettings.themeMode ?? 'system';
+  });
+
+  const handleThemeModeChange = useCallback((mode: 'light' | 'dark' | 'system') => {
+    setActiveThemeMode(mode);
+    try { localStorage.setItem('wbs-theme-mode', mode); } catch { /* ignore */ }
+    updateWbsSettings({ themeMode: mode });
+  }, [updateWbsSettings]);
+
   useEffect(() => {
-    const mode = wbsSettings.themeMode ?? 'system';
+    // DB에서 themeMode가 내려오면 로컬 상태 동기화 (사용자가 다른 기기에서 변경한 경우)
+    if (wbsSettings.themeMode && wbsSettings.themeMode !== activeThemeMode) {
+      setActiveThemeMode(wbsSettings.themeMode);
+    }
+  }, [wbsSettings.themeMode]);
+
+  // activeThemeMode가 바뀔 때 실제 테마 적용
+  useEffect(() => {
     const applyTheme = (theme: 'light' | 'dark') => {
       document.documentElement.setAttribute('data-theme', theme);
     };
-    if (mode === 'light' || mode === 'dark') {
-      applyTheme(mode);
+    if (activeThemeMode === 'light' || activeThemeMode === 'dark') {
+      applyTheme(activeThemeMode);
       return;
     }
-    // system: follow OS preference
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     applyTheme(mq.matches ? 'dark' : 'light');
     const handler = (e: MediaQueryListEvent) => applyTheme(e.matches ? 'dark' : 'light');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
-  }, [wbsSettings.themeMode]);
+  }, [activeThemeMode]);
 
   useEffect(() => {
     const prev = prevAIBusyRef.current;
@@ -712,20 +732,49 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   }, [hasLocalChangesSinceSync, isSupabaseConfigured]);
 
   if (isLoading) {
+    // 스켈레톤 로딩: 실제 테이블 레이아웃을 모방
+    const skeletonPulse = "animate-pulse bg-[var(--color-line)] rounded";
     return (
-      <div className="h-full flex flex-col items-center justify-center bg-[var(--color-bg)] font-sans text-[var(--color-ink)] gap-5">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center">
-            <Loader2 size={24} className="animate-spin text-[var(--color-accent)]" />
+      <div className="h-full flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">
+        {/* 헤더 스켈레톤 */}
+        <div className="px-4 md:px-6 py-3 border-b border-[var(--color-line)] flex items-center gap-4">
+          <div className={`w-12 h-12 rounded-xl ${skeletonPulse}`} />
+          <div className="flex-1 space-y-2">
+            <div className={`h-4 w-48 ${skeletonPulse}`} />
+            <div className={`h-3 w-32 ${skeletonPulse}`} />
           </div>
-          <div className="text-center">
-            <p className="text-base font-semibold text-slate-700">데이터를 불러오는 중...</p>
-            <p className="text-xs text-slate-400 mt-1">
-              {isSupabaseConfigured
-                ? '서버(DB)에서 프로젝트·작업을 불러오는 중입니다.'
-                : '잠시만 기다려주세요'}
-            </p>
+          <div className="hidden md:flex gap-2">
+            {[1,2,3,4,5].map(i => <div key={i} className={`h-8 w-16 rounded-lg ${skeletonPulse}`} />)}
           </div>
+        </div>
+        {/* 요약 바 스켈레톤 */}
+        <div className="px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-4">
+          {[1,2,3,4].map(i => <div key={i} className={`h-5 w-24 rounded ${skeletonPulse}`} />)}
+        </div>
+        {/* 테이블 헤더 스켈레톤 */}
+        <div className="px-2 py-2 border-b border-[var(--color-line)] flex items-center gap-3">
+          <div className={`h-4 w-8 ${skeletonPulse}`} />
+          <div className={`h-4 w-12 ${skeletonPulse}`} />
+          {[60, 200, 70, 70, 50, 60, 60, 60].map((w, i) => <div key={i} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />)}
+        </div>
+        {/* 테이블 행 스켈레톤 */}
+        <div className="flex-1 overflow-hidden">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="px-2 py-3 border-b border-[var(--color-line-soft)] flex items-center gap-3" style={{ opacity: 1 - i * 0.06 }}>
+              <div className={`h-4 w-4 rounded ${skeletonPulse}`} />
+              <div className={`h-4 w-8 rounded ${skeletonPulse}`} />
+              <div className={`h-4 w-12 rounded ${skeletonPulse}`} />
+              <div className={`h-4 rounded ${skeletonPulse}`} style={{ width: 140 + (i % 3) * 40 }} />
+              {[65, 65, 45, 55, 55, 55].map((w, j) => <div key={j} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />)}
+            </div>
+          ))}
+        </div>
+        {/* 하단 로딩 표시 */}
+        <div className="py-3 text-center">
+          <p className="text-xs text-[var(--color-ink-muted)] flex items-center justify-center gap-2">
+            <Loader2 size={14} className="animate-spin" />
+            {isSupabaseConfigured ? '서버에서 데이터를 불러오는 중...' : '로딩 중...'}
+          </p>
         </div>
       </div>
     );
@@ -804,8 +853,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             pendingSave:
               hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
           }}
-          themeMode={wbsSettings.themeMode ?? 'system'}
-          onThemeModeChange={(mode) => updateWbsSettings({ themeMode: mode })}
+          themeMode={activeThemeMode}
+          onThemeModeChange={handleThemeModeChange}
         />
       )}
 
@@ -1671,10 +1720,10 @@ function AppWithProviders() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}>
+      <div className="h-full flex items-center justify-center bg-[var(--color-bg)]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 size={24} className="animate-spin text-indigo-400" />
-          <span className="text-white/60 text-sm font-medium">로딩 중...</span>
+          <Loader2 size={24} className="animate-spin text-[var(--color-accent)]" />
+          <span className="text-[var(--color-ink-muted)] text-sm font-medium">로딩 중...</span>
         </div>
       </div>
     );

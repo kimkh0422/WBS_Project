@@ -146,7 +146,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
   }, [bumpDirty, saveHistory, handleDbError, projectsRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId]);
 
   const deleteProject = useCallback((id: string) => {
-    if (projectsRef.current.length <= 1) { alert('최소 하나의 프로젝트는 존재해야 합니다.'); return; }
+    if (projectsRef.current.length <= 1) return; // 최소 1개 프로젝트 유지
     bumpDirty();
     const idsToDelete = allTasksRef.current.filter(t => t.projectId === id).map(t => t.id);
     if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);

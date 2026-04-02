@@ -11,6 +11,24 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <script>
+      // 페이지 로드 즉시 테마 적용 (React 로드 전 플래시 방지)
+      (function() {
+        try {
+          var mode = localStorage.getItem('wbs-theme-mode');
+          if (!mode) {
+            var raw = localStorage.getItem('wbs-settings');
+            if (raw) { var p = JSON.parse(raw); if (p && p.themeMode) mode = p.themeMode; }
+          }
+          if (!mode) mode = 'system';
+          var theme = mode;
+          if (mode === 'system') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch(e) {}
+      })();
+    </script>
     <div id="app-wrapper">
       <div id="root"></div>
     </div>
