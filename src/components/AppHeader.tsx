@@ -170,7 +170,14 @@ export function AppHeader({
     const next = new Set(favoriteIds);
     if (next.has(projectId)) next.delete(projectId);
     else next.add(projectId);
-    onFavoriteProjectsChange?.(Array.from(next) as string[]);
+    const ids = Array.from(next) as string[];
+    onFavoriteProjectsChange?.(ids);
+    // 디바운스(1초) 전에 새로고침해도 유지되도록 즉시 로컬 저장
+    try {
+      const raw = localStorage.getItem('wbs-settings');
+      const current = raw ? JSON.parse(raw) : {};
+      localStorage.setItem('wbs-settings', JSON.stringify({ ...current, favoriteProjectIds: ids }));
+    } catch { /* ignore */ }
   };
 
   const displayProjects = useMemo(() => {
