@@ -1331,7 +1331,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
             </>
           )}
         </div>
-      <div className={cn("w-full pb-20 flex flex-col min-h-0", fillHeight && "flex-1")} style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}>
+      <div className={cn("w-full flex flex-col min-h-0", fillHeight && "flex-1")} style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}>
         {/* Split view: 헤더를 스크롤 밖에 두되, 가로 스크롤은 본문과 동기화 */}
         {!excelView && isSplitView && (
           <div

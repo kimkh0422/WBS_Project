@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { WBSTable } from './components/WBSTable';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
@@ -94,7 +95,19 @@ interface WBSAppProps {
 
 function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
-  const [view, setView] = useState<'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation'>('table');
+
+  // URL 기반 뷰 라우팅 — /table, /gantt, /list 등. 뒤로가기/앞으로가기/딥링크 지원
+  type ViewType = 'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation';
+  const VALID_VIEWS = new Set<string>(['list', 'table', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation']);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const view: ViewType = useMemo(() => {
+    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    return VALID_VIEWS.has(path) ? (path as ViewType) : 'table';
+  }, [location.pathname]);
+  const setView = useCallback((v: ViewType) => {
+    navigate(`/${v}`, { replace: false });
+  }, [navigate]);
   const modals = useModalStates();
   const {
     isModalOpen, setIsModalOpen, isProjectModalOpen, setIsProjectModalOpen,
@@ -781,7 +794,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   }
 
   return (
-    <div className={cn("flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden", view === 'list' ? "min-h-screen" : "h-screen", isFullscreen && "fixed inset-0 z-50")}>
+    <div className={cn("flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden h-screen", isFullscreen && "fixed inset-0 z-50")}>
       {!isFullscreen && (
         <AppHeader
           wbsSettings={wbsSettings}
@@ -1247,7 +1260,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           </button>
         </div>
       )}
-      <main className={cn("min-h-0 overflow-hidden flex flex-row relative", view === 'list' ? "flex-shrink-0" : "flex-1", isFullscreen && "fixed inset-0 z-50 bg-white")}>
+      <main className={cn("min-h-0 overflow-hidden flex flex-row relative flex-1", isFullscreen && "fixed inset-0 z-50 bg-[var(--color-surface)]")}>
         <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400" size={28} /></div>}>
         <div className="flex-1 min-w-0 relative bg-white">
           {!effectiveIsAdmin &&

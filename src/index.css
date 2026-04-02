@@ -75,6 +75,7 @@
   .bg-slate-50, [class*="bg-slate-50\/"] { background-color: var(--color-bg) !important; }
   .bg-slate-100, [class*="bg-slate-100\/"] { background-color: #1A2436 !important; }
   .bg-slate-200, [class*="bg-slate-200\/"] { background-color: #1E293B !important; }
+  .bg-slate-300 { background-color: #334155 !important; }
   .bg-stone-50, [class*="bg-stone-50\/"] { background-color: var(--color-bg) !important; }
   .bg-stone-100, [class*="bg-stone-100\/"] { background-color: #1E293B !important; }
   .bg-stone-200 { background-color: #293548 !important; }
@@ -82,6 +83,11 @@
   /* ── Backgrounds: colored soft tones ── */
   .bg-indigo-50, [class*="bg-indigo-50\/"] { background-color: #1E1B4B !important; }
   .bg-indigo-100 { background-color: #272262 !important; }
+  .bg-indigo-200 { background-color: #312E81 !important; }
+  .bg-sky-100 { background-color: #0C4A6E !important; }
+  .bg-sky-200 { background-color: #075985 !important; }
+  .hover\:bg-indigo-200:hover { background-color: #312E81 !important; }
+  .hover\:bg-sky-200:hover { background-color: #075985 !important; }
   .bg-indigo-600 { background-color: #4F46E5 !important; }
   .bg-emerald-50, [class*="bg-emerald-50\/"] { background-color: #052E16 !important; }
   .bg-red-50, [class*="bg-red-50\/"] { background-color: #371717 !important; }
@@ -103,11 +109,12 @@
   .border-white\/30, .border-white\/50 { border-color: rgba(255,255,255,0.08) !important; }
 
   /* ── Borders: colored ── */
-  .border-indigo-100, .border-indigo-600 { border-color: #312E81 !important; }
-  .border-emerald-100 { border-color: #064E3B !important; }
-  .border-red-100, .border-red-200 { border-color: #7F1D1D !important; }
+  .border-indigo-100, [class*="border-indigo-100\/"], .border-indigo-600 { border-color: #312E81 !important; }
+  .border-emerald-100, [class*="border-emerald-100\/"] { border-color: #064E3B !important; }
+  .border-red-100, [class*="border-red-100\/"], .border-red-200 { border-color: #7F1D1D !important; }
   .border-amber-100, .border-amber-200, [class*="border-amber-200\/"] { border-color: #78350F !important; }
   .border-sky-100, .border-sky-200, [class*="border-sky-200\/"] { border-color: #0C4A6E !important; }
+  .border-indigo-200 { border-color: #312E81 !important; }
   .border-violet-100 { border-color: #4C1D95 !important; }
   .border-teal-100 { border-color: #115E59 !important; }
   .border-rose-100 { border-color: #881337 !important; }
@@ -132,6 +139,7 @@
   /* ── Text: colored ── */
   .text-indigo-500 { color: #818CF8 !important; }
   .text-indigo-700 { color: #A5B4FC !important; }
+  .text-sky-700 { color: #7DD3FC !important; }
   .text-emerald-600, .text-emerald-700 { color: #6EE7B7 !important; }
   .text-red-500, .text-red-600, .text-red-700 { color: #FCA5A5 !important; }
   .text-amber-500, .text-amber-600, .text-amber-800 { color: #FCD34D !important; }
@@ -151,6 +159,14 @@
   .hover\:text-stone-700:hover, .hover\:text-stone-800:hover { color: #E2E8F0 !important; }
   .hover\:border-slate-300:hover, .hover\:border-stone-300:hover { border-color: #3D4D63 !important; }
   .hover\:border-slate-200:hover { border-color: var(--color-line) !important; }
+
+  /* ── gray (ContextMenu 등에서 사용) ── */
+  .bg-gray-50 { background-color: #1A2436 !important; }
+  .bg-gray-100 { background-color: #1E293B !important; }
+  .bg-gray-200 { background-color: #293548 !important; }
+  .border-gray-200 { border-color: var(--color-line) !important; }
+  .text-gray-700 { color: #CBD5E1 !important; }
+  .hover\:bg-gray-50:hover { background-color: #1A2436 !important; }
 
   /* ── Scrollbar ── */
   ::-webkit-scrollbar-thumb { background-color: rgba(148,163,184,0.3) !important; }
@@ -172,6 +188,17 @@
     color: var(--color-ink) !important;
     border-color: var(--color-line) !important;
   }
+  /* 표 행 내부의 input/select는 행 배경·보더와 일치하도록 투명 유지 */
+  .data-row input,
+  .data-row select {
+    background-color: transparent !important;
+    border-color: transparent !important;
+  }
+  .data-row input:focus,
+  .data-row select:focus {
+    background-color: var(--color-surface) !important;
+    border-color: var(--color-accent) !important;
+  }
   input:focus, select:focus, textarea:focus,
   .input-field:focus, .input-field:focus-within,
   .ProseMirror:focus, [contenteditable="true"]:focus {
@@ -183,6 +210,12 @@
   .ProseMirror p.is-editor-empty:first-child::before {
     color: var(--color-ink-muted) !important;
   }
+  /* select option (브라우저 기본 드롭다운) */
+  select option {
+    background-color: var(--color-surface) !important;
+    color: var(--color-ink) !important;
+  }
+
   input[type="checkbox"] {
     background-color: var(--color-bg) !important;
     border-color: var(--color-line) !important;
@@ -202,6 +235,12 @@
 
   /* ── Dropdown menu ── */
   .dropdown-menu { background-color: var(--color-surface) !important; border-color: var(--color-line) !important; }
+
+  /* ── Cards ── */
+  .card { background-color: var(--color-surface) !important; border-color: var(--color-line) !important; }
+  .card:hover { border-color: #3D4D63 !important; }
+  .card-elevated { background-color: var(--color-surface) !important; border-color: var(--color-line) !important; }
+  .shadow-inner { box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.3) !important; }
 
   /* ── Nav pills ── */
   .nav-pill-active { background-color: var(--color-surface) !important; color: var(--color-ink) !important; }
@@ -313,12 +352,12 @@
 
   /* Modern Glassmorphism effect */
   .bg-glass {
-    @apply bg-white/75 backdrop-blur-lg border border-white/30;
+    @apply bg-[var(--color-surface)]/75 backdrop-blur-lg border border-[var(--color-line)];
     box-shadow: var(--shadow-sm);
   }
 
   .bg-glass-elevated {
-    @apply bg-white/85 backdrop-blur-xl border border-white/50;
+    @apply bg-[var(--color-surface)]/85 backdrop-blur-xl border border-[var(--color-line)];
     box-shadow: var(--shadow-md), 0 0 0 1px rgba(0,0,0,0.02);
   }
 
@@ -350,7 +389,7 @@
 
   /* Form Inputs */
   .input-field {
-    @apply w-full bg-white border border-[var(--color-line)] rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-200 placeholder:text-slate-400;
+    @apply w-full bg-[var(--color-surface)] border border-[var(--color-line)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all duration-200 placeholder:text-[var(--color-ink-muted)];
     box-shadow: var(--shadow-xs);
   }
 
@@ -447,6 +486,15 @@
   }
 }
 
+/* datalist input: 브라우저 기본 드롭다운 화살표 숨김 (칸 밀림 방지) */
+input[list]::-webkit-calendar-picker-indicator {
+  display: none !important;
+  -webkit-appearance: none !important;
+}
+input[list] {
+  -webkit-appearance: none;
+}
+
 /* Technical Grid Styles */
 .data-grid {
   display: grid;
@@ -487,15 +535,16 @@
 }
 
 .col-header {
-  @apply px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-muted)] select-none flex items-center gap-1 hover:text-[var(--color-ink)] transition-colors cursor-default;
+  @apply px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-muted)] select-none flex items-center gap-1 min-w-0 overflow-hidden hover:text-[var(--color-ink)] transition-colors cursor-default;
 }
 
 .col-header:hover {
-  @apply text-slate-700;
+  @apply text-[var(--color-ink)];
 }
 
+
 .data-cell {
-  @apply px-2.5 text-[13px] flex items-center min-h-full truncate;
+  @apply px-2.5 text-[13px] flex items-center min-h-full min-w-0 truncate;
   font-family: var(--font-sans);
   font-weight: 500;
   padding-top: calc(var(--cell-padding, 4px));

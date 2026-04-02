@@ -212,12 +212,12 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-white/60 max-h-[calc(100vh-2rem)] flex flex-col">
-        <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-white/40">
+      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-[var(--color-line)] max-h-[calc(100vh-2rem)] flex flex-col">
+        <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-[var(--color-surface)]/40">
           <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-ink)]">
             {project ? '프로젝트 수정' : '새 프로젝트'}
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/60 rounded-full transition-all text-slate-400 hover:text-slate-800 hover:rotate-90 duration-300">
+          <button onClick={onClose} className="p-2 hover:bg-[var(--color-surface)]/60 rounded-full transition-all text-slate-400 hover:text-slate-800 hover:rotate-90 duration-300">
             <X size={18} />
           </button>
         </div>
@@ -299,7 +299,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
           </section>
 
           {/* 선택: 주간보고용 */}
-          <section className="border border-stone-200 rounded-xl p-4 bg-white/60 space-y-3">
+          <section className="border border-stone-200 rounded-xl p-4 bg-[var(--color-surface)]/60 space-y-3">
             <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
               <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
               주간보고용 프로젝트 정보
@@ -505,7 +505,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
             {formError}
           </div>
         )}
-        <div className="flex justify-end gap-3 p-6 border-t border-slate-200/50 bg-white/60 backdrop-blur sticky bottom-0">
+        <div className="flex justify-end gap-3 p-6 border-t border-slate-200/50 bg-[var(--color-surface)]/60 backdrop-blur sticky bottom-0">
           <button
             type="button"
             onClick={onClose}
