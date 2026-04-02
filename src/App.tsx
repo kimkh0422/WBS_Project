@@ -179,6 +179,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     canRedo,
     selectedTaskIds,
     wbsSettings,
+    updateWbsSettings,
     expandToLevel,
     setTreeExpandLevel,
     isLoading,
@@ -375,6 +376,24 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   useEffect(() => {
     document.title = wbsSettings.appTitle;
   }, [wbsSettings.appTitle]);
+
+  // Theme (dark mode) — apply data-theme attribute to <html>
+  useEffect(() => {
+    const mode = wbsSettings.themeMode ?? 'system';
+    const applyTheme = (theme: 'light' | 'dark') => {
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    if (mode === 'light' || mode === 'dark') {
+      applyTheme(mode);
+      return;
+    }
+    // system: follow OS preference
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    applyTheme(mq.matches ? 'dark' : 'light');
+    const handler = (e: MediaQueryListEvent) => applyTheme(e.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [wbsSettings.themeMode]);
 
   useEffect(() => {
     const prev = prevAIBusyRef.current;
@@ -785,6 +804,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             pendingSave:
               hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
           }}
+          themeMode={wbsSettings.themeMode ?? 'system'}
+          onThemeModeChange={(mode) => updateWbsSettings({ themeMode: mode })}
         />
       )}
 

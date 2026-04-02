@@ -23,6 +23,8 @@ export interface WBSSettings {
   columnWidths?: Record<string, number>;
   /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
   allocationHiddenMigrated?: boolean;
+  /** 테마 모드: 'light' | 'dark' | 'system' (기본: 'system') */
+  themeMode?: 'light' | 'dark' | 'system';
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [

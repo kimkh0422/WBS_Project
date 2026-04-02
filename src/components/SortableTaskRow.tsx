@@ -5,7 +5,13 @@ import { CSS } from '@dnd-kit/utilities';
 import { Task } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatDate, formatNum2, round2 } from '../lib/utils';
-import { levelRowBg } from '../lib/levelColors';
+import { levelRowBg as levelRowBgBase } from '../lib/levelColors';
+
+/** 다크모드: 행 배경 투명 (레벨 구분은 왼쪽 테두리로) */
+const levelRowBg = (level: number) =>
+  document.documentElement.getAttribute('data-theme') === 'dark'
+    ? 'transparent'
+    : levelRowBgBase(level);
 import { type TableColumnId } from './wbsTableTypes';
 
 /** taskId → 표에서의 순번(1부터) */
@@ -169,44 +175,60 @@ function SortableTaskRowInner({
   const depth = task.depth || 0;
   const level = depth + 1;
 
-  const zebraOverlay = rowIndex % 2 === 1 ? 'rgba(2, 6, 23, 0.03)' : 'transparent';
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const zebraOverlay = rowIndex % 2 === 1 ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(2, 6, 23, 0.03)') : 'transparent';
 
   const isDone = task.status === 'done' || (typeof task.progress === 'number' && task.progress >= 100);
+
+  // 다크/라이트 모드별 행 상태 색상
+  const doneNormalBg   = dark ? '#1a2332'  : '#e5e7eb';
+  const doneSelectedBg = dark ? '#2e2456'  : '#c7d2fe';
+  const doneFocusedBg  = dark ? '#3b2f1a'  : '#fef9c3';
+  const selectedBg     = dark ? '#3b2e6b'  : '#a5b4fc';
+  const focusedBg      = dark ? '#4a3a1a'  : '#fef3c7';
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     backgroundColor: isDone
-      ? (isSelected ? '#c7d2fe' : isFocused ? '#fef9c3' : '#e5e7eb')
+      ? (isSelected ? doneSelectedBg : isFocused ? doneFocusedBg : doneNormalBg)
       : isSelected
-        ? '#a5b4fc'
+        ? selectedBg
         : isFocused
-          ? '#fef3c7'
+          ? focusedBg
           : levelRowBg(level),
     backgroundImage: isSelected || isDone || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     ...(isSelected && !isDone
       ? {
-          borderLeft: '5px solid rgb(147 51 234)', // purple-600
-          boxShadow: 'inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
+          borderLeft: '5px solid rgb(147 51 234)',
+          boxShadow: dark
+            ? 'inset 0 0 0 2px rgba(168, 85, 247, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4)'
+            : 'inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
         }
       : {}),
     ...(isSelected && isDone
       ? {
-          borderLeft: '5px solid rgb(147 51 234)', // purple-600
-          boxShadow: 'inset 0 0 0 3px rgba(168, 85, 247, 0.8)',
+          borderLeft: '5px solid rgb(147 51 234)',
+          boxShadow: dark
+            ? 'inset 0 0 0 3px rgba(168, 85, 247, 0.5)'
+            : 'inset 0 0 0 3px rgba(168, 85, 247, 0.8)',
         }
       : {}),
     ...(isFocused && !isSelected && !isDone
       ? {
           borderLeft: '4px solid rgb(217 119 6)',
-          boxShadow: 'inset 0 0 0 2px rgba(245, 158, 11, 0.45), 0 1px 3px rgba(217, 119, 6, 0.25)',
+          boxShadow: dark
+            ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3)'
+            : 'inset 0 0 0 2px rgba(245, 158, 11, 0.45), 0 1px 3px rgba(217, 119, 6, 0.25)',
         }
       : {}),
     ...(isFocused && !isSelected && isDone
       ? {
           borderLeft: '4px solid rgb(217 119 6)',
-          boxShadow: 'inset 0 0 0 2px rgba(245, 158, 11, 0.5)',
+          boxShadow: dark
+            ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.3)'
+            : 'inset 0 0 0 2px rgba(245, 158, 11, 0.5)',
         }
       : {}),
     ...(isDone && !isSelected && !isFocused
@@ -224,11 +246,11 @@ function SortableTaskRowInner({
       id={`task-row-${task.id}`}
       className={cn(
         "data-row group cursor-pointer outline-none transition-colors relative",
-        isSelected && !isDone && "font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80",
-        isSelected && isDone && "font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80",
-        isFocused && !isSelected && !isDone && "font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70",
-        isFocused && !isSelected && isDone && "font-medium text-amber-800 ring-2 ring-inset ring-amber-500/60",
-        isDone && !isSelected && !isFocused && "text-stone-500"
+        isSelected && !isDone && (dark ? "font-semibold text-purple-300" : "font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80"),
+        isSelected && isDone && (dark ? "font-semibold text-purple-300" : "font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80"),
+        isFocused && !isSelected && !isDone && (dark ? "font-medium text-amber-300" : "font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70"),
+        isFocused && !isSelected && isDone && (dark ? "font-medium text-amber-300" : "font-medium text-amber-800 ring-2 ring-inset ring-amber-500/60"),
+        isDone && !isSelected && !isFocused && (dark ? "text-slate-500" : "text-stone-500")
       )}
       onClick={(e) => {
         if (e.shiftKey) {

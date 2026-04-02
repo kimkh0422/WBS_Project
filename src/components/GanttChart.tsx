@@ -68,7 +68,7 @@ const ZOOM_LEVELS: { mode: ViewMode; dayWidth: number; label: string }[] = [
 
 export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight: propRowHeight, rowHeights: propRowHeights, onRowHeightChange, syncScrollRef, hotkeysEnabled = true }: GanttChartProps) {
   const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings, canEditCurrentProject } = useWBS();
-  const { levelBarBg, levelBorderColor, levelRowBg } = useLevelColors();
+  const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ taskId: string } | null>(null);
@@ -951,7 +951,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                         isSelected && !isBeingDragged && !isCritical ? "ring-2 ring-blue-300/80" : "",
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110'
                       )}
-                      style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelRowBg(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }}
+                      style={{ left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelGanttBarFill(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${task.assignee}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
@@ -1235,7 +1235,7 @@ export function GanttChart({ filters, sortConfig, hideSidebar = false, rowHeight
                       style={
                         isMilestone
                           ? { left: left + (dayWidth / 2) - 8, top: rowH / 2 - 8, width: 16, height: 16 }
-                          : { left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelRowBg(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }
+                          : { left, width: Math.max(width - 4, 4), height: rowH, backgroundColor: levelGanttBarFill(level), borderColor: isCritical ? '#dc2626' : levelBarBg(level) }
                       }
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}`}
                     >

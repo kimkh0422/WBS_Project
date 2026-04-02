@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { fetchProfileLevelColors, updateProfileLevelColors } from '../lib/db';
-import { LEVEL_COLORS, LEVEL_DEFAULT, ROW_BG_ALPHA } from '../lib/levelColors';
+import { LEVEL_COLORS, LEVEL_DEFAULT, ROW_BG_ALPHA, ROW_BG_ALPHA_DARK } from '../lib/levelColors';
 import { isSupabaseConfigured } from '../lib/supabase';
 
 export type RgbColor = { r: number; g: number; b: number };
@@ -24,8 +24,12 @@ interface LevelColorsContextType {
   setLevelColors: (colors: RgbColor[]) => void;
   /** 기본값으로 복원 */
   resetToDefault: () => void;
+  /** 간트 바 테두리·라벨용 진한 색 (다크모드에서 약간 어둡게) */
   levelBarBg: (level: number) => string;
+  /** 표 행 배경 (다크모드: 투명) */
   levelRowBg: (level: number) => string;
+  /** 간트 바 채움색 (다크모드: 어두운 톤, 라이트: 반투명) */
+  levelGanttBarFill: (level: number) => string;
   levelBorderColor: (level: number) => string;
 }
 
@@ -83,18 +87,44 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
     }
   }, [user?.id]);
 
+  const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+
   const levelBarBg = useCallback((level: number) => {
     const { r, g, b } = getLevelRgb(level, levelColors);
+    if (isDark()) {
+      // 다크모드: 간트 바를 어둡고 탁하게 (밝기 50%, 채도 낮춤)
+      const dim = (v: number) => Math.round(v * 0.45);
+      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+    }
     return `rgb(${r}, ${g}, ${b})`;
   }, [levelColors]);
 
   const levelRowBg = useCallback((level: number) => {
+    if (isDark()) {
+      // 다크모드: 표 행 배경은 투명 (레벨 구분은 왼쪽 테두리 색으로)
+      return 'transparent';
+    }
     const { r, g, b } = getLevelRgb(level, levelColors);
+    return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
+  }, [levelColors]);
+
+  /** 간트 바 채움색: 라이트=반투명 파스텔, 다크=어두운 톤 */
+  const levelGanttBarFill = useCallback((level: number) => {
+    const { r, g, b } = getLevelRgb(level, levelColors);
+    if (isDark()) {
+      const dim = (v: number) => Math.round(v * 0.35);
+      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+    }
     return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
   }, [levelColors]);
 
   const levelBorderColor = useCallback((level: number) => {
     const { r, g, b } = getLevelRgb(level, levelColors);
+    if (isDark()) {
+      // 다크모드: 테두리 색상은 유지하되 약간 어둡게
+      const dim = (v: number) => Math.round(v * 0.6);
+      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+    }
     const darken = (v: number) => Math.max(0, Math.floor(v * 0.7));
     return `rgb(${darken(r)}, ${darken(g)}, ${darken(b)})`;
   }, [levelColors]);
@@ -105,6 +135,7 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
     resetToDefault,
     levelBarBg,
     levelRowBg,
+    levelGanttBarFill,
     levelBorderColor,
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
-import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Settings2, Keyboard, Trash2, RotateCcw, Users, User, LogOut, Network, History, Map as MapIcon, Sparkles, FolderPlus, Briefcase, Share2, Copy, Edit, LayoutDashboard, LayoutList, CheckSquare, Target, MoreHorizontal, Cloud, CloudOff, Loader2, Clock } from 'lucide-react';
+import { ChevronDown, ChevronUp, ChevronRight, Tag, Plus, Download, Upload, Settings2, Keyboard, Trash2, RotateCcw, Users, User, LogOut, Network, History, Map as MapIcon, Sparkles, FolderPlus, Briefcase, Share2, Copy, Edit, LayoutDashboard, LayoutList, CheckSquare, Target, MoreHorizontal, Cloud, CloudOff, Loader2, Clock, Sun, Moon, Monitor } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
@@ -76,6 +76,8 @@ export interface AppHeaderProps {
   setIsDemoBannerDismissed?: (v: boolean) => void;
   isBackupBannerDismissed?: boolean;
   setIsBackupBannerDismissed?: (v: boolean) => void;
+  themeMode?: 'light' | 'dark' | 'system';
+  onThemeModeChange?: (mode: 'light' | 'dark' | 'system') => void;
   /** DB 연동 상태 (승인+Supabase 시 연동 / 그 외 로컬) */
   dbLinkState?: {
     linked: boolean;
@@ -149,6 +151,8 @@ export function AppHeader({
   canEditCurrentProject,
   setIsModalOpen,
   dbLinkState,
+  themeMode = 'system',
+  onThemeModeChange,
 }: AppHeaderProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -228,7 +232,7 @@ export function AppHeader({
       <div className={cn("flex md:hidden items-center justify-between gap-2", !isHeaderCollapsed && "hidden")}>
         <div className="flex items-center gap-2 min-w-0">
           <button type="button" onClick={requestRefresh} className="shrink-0">
-            <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain" />
+            <img src={logo} alt="GMT Logo" className="w-14 h-14 object-contain dark-logo" />
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
@@ -273,7 +277,7 @@ export function AppHeader({
             onClick={requestRefresh}
             title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
           >
-            <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain" />
+            <img src={logo} alt="GMT Logo" className="w-16 h-16 object-contain dark-logo" />
           </div>
           <div>
             <div className="flex items-baseline gap-2">
@@ -858,7 +862,34 @@ export function AppHeader({
                 <ChevronDown size={12} className={cn('shrink-0 opacity-50', isUserMenuOpen && 'rotate-180')} />
               </button>
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 py-1 min-w-[160px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
+                <div className="absolute right-0 top-full mt-1 py-1 min-w-[180px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
+                  {/* 테마 선택 */}
+                  <div className="px-3 py-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">테마</span>
+                    <div className="flex items-center gap-1 mt-1.5">
+                      {([
+                        { mode: 'light' as const, icon: <Sun size={14} />, label: '라이트' },
+                        { mode: 'dark' as const, icon: <Moon size={14} />, label: '다크' },
+                        { mode: 'system' as const, icon: <Monitor size={14} />, label: '시스템' },
+                      ]).map(({ mode, icon, label }) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => onThemeModeChange?.(mode)}
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg transition-all flex-1 justify-center',
+                            themeMode === mode
+                              ? 'bg-indigo-100 text-indigo-700 font-semibold'
+                              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+                          )}
+                          title={`${label} 모드`}
+                        >
+                          {icon}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-100 my-1" />
                   <button
                     type="button"
                     className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"

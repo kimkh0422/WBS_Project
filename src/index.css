@@ -32,6 +32,200 @@
 
   /* Header height for offset calculations */
   --header-height: auto;
+
+  color-scheme: light;
+}
+
+/* ─── Dark Mode Tokens ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --color-bg: #0B1120;
+  --color-surface: #151D2E;
+  --color-ink: #E2E8F0;
+  --color-ink-muted: #94A3B8;
+  --color-line: #293548;
+  --color-line-soft: #1A2436;
+
+  --color-accent: #818CF8;
+  --color-accent-hover: #6366F1;
+  --color-accent-soft: #1E1B4B;
+
+  --color-danger: #F87171;
+  --color-danger-soft: #371717;
+  --color-success: #34D399;
+  --color-success-soft: #052E16;
+  --color-warning: #FBBF24;
+  --color-warning-soft: #3B2F08;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.35), 0 2px 4px -2px rgba(0,0,0,0.25);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.4), 0 4px 6px -4px rgba(0,0,0,0.3);
+  --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.5), 0 8px 10px -6px rgba(0,0,0,0.35);
+
+  color-scheme: dark;
+}
+
+/* ─── Dark Mode Global Overrides ─────────────────────────────────── */
+[data-theme="dark"] {
+  /* ── Backgrounds: white → surface ── */
+  .bg-white,
+  [class*="bg-white\/"] { background-color: var(--color-surface) !important; }
+
+  /* ── Backgrounds: slate/stone gray tones ── */
+  .bg-slate-50, [class*="bg-slate-50\/"] { background-color: var(--color-bg) !important; }
+  .bg-slate-100, [class*="bg-slate-100\/"] { background-color: #1A2436 !important; }
+  .bg-slate-200 { background-color: #1E293B !important; }
+  .bg-stone-50, [class*="bg-stone-50\/"] { background-color: var(--color-bg) !important; }
+  .bg-stone-100, [class*="bg-stone-100\/"] { background-color: #1E293B !important; }
+  .bg-stone-200 { background-color: #293548 !important; }
+
+  /* ── Backgrounds: colored soft tones ── */
+  .bg-indigo-50, [class*="bg-indigo-50\/"] { background-color: #1E1B4B !important; }
+  .bg-indigo-100 { background-color: #272262 !important; }
+  .bg-indigo-600 { background-color: #4F46E5 !important; }
+  .bg-emerald-50, [class*="bg-emerald-50\/"] { background-color: #052E16 !important; }
+  .bg-red-50, [class*="bg-red-50\/"] { background-color: #371717 !important; }
+  .bg-amber-50, [class*="bg-amber-50\/"] { background-color: #3B2F08 !important; }
+  .bg-amber-200, [class*="bg-amber-200\/"] { background-color: #78350F !important; }
+  .bg-sky-50, [class*="bg-sky-50\/"] { background-color: #0C1929 !important; }
+  .bg-violet-50 { background-color: #1E1338 !important; }
+  .bg-teal-50 { background-color: #042F2E !important; }
+  .bg-rose-50 { background-color: #2D1215 !important; }
+  .bg-green-50 { background-color: #052E16 !important; }
+  .bg-blue-50 { background-color: #0C1929 !important; }
+
+  /* ── Borders: neutral ── */
+  .border-slate-100, [class*="border-slate-100\/"] { border-color: var(--color-line) !important; }
+  .border-slate-200, [class*="border-slate-200\/"] { border-color: var(--color-line) !important; }
+  .border-slate-300 { border-color: #3D4D63 !important; }
+  .border-stone-100, [class*="border-stone-100\/"] { border-color: var(--color-line) !important; }
+  .border-stone-200, [class*="border-stone-200\/"] { border-color: var(--color-line) !important; }
+  .border-white\/30, .border-white\/50 { border-color: rgba(255,255,255,0.08) !important; }
+
+  /* ── Borders: colored ── */
+  .border-indigo-100, .border-indigo-600 { border-color: #312E81 !important; }
+  .border-emerald-100 { border-color: #064E3B !important; }
+  .border-red-100, .border-red-200 { border-color: #7F1D1D !important; }
+  .border-amber-100, .border-amber-200, [class*="border-amber-200\/"] { border-color: #78350F !important; }
+  .border-sky-100, .border-sky-200, [class*="border-sky-200\/"] { border-color: #0C4A6E !important; }
+  .border-violet-100 { border-color: #4C1D95 !important; }
+  .border-teal-100 { border-color: #115E59 !important; }
+  .border-rose-100 { border-color: #881337 !important; }
+  .border-green-100 { border-color: #064E3B !important; }
+  .border-blue-100 { border-color: #1E3A5F !important; }
+  .border-blue-400 { border-color: #3B82F6 !important; }
+
+  /* ── Text: slate/stone ── */
+  .text-slate-300 { color: #94A3B8 !important; }
+  .text-slate-400 { color: #64748B !important; }
+  .text-slate-500 { color: #7B8CA3 !important; }
+  .text-slate-600 { color: #94A3B8 !important; }
+  .text-slate-700 { color: #CBD5E1 !important; }
+  .text-slate-800 { color: #E2E8F0 !important; }
+  .text-slate-900 { color: #F1F5F9 !important; }
+  .text-stone-400 { color: #6B7280 !important; }
+  .text-stone-500 { color: #7B8CA3 !important; }
+  .text-stone-600 { color: #94A3B8 !important; }
+  .text-stone-700 { color: #CBD5E1 !important; }
+  .text-stone-800 { color: #E2E8F0 !important; }
+
+  /* ── Text: colored ── */
+  .text-indigo-500 { color: #818CF8 !important; }
+  .text-indigo-700 { color: #A5B4FC !important; }
+  .text-emerald-600, .text-emerald-700 { color: #6EE7B7 !important; }
+  .text-red-500, .text-red-600, .text-red-700 { color: #FCA5A5 !important; }
+  .text-amber-500, .text-amber-600, .text-amber-800 { color: #FCD34D !important; }
+  .text-sky-500, .text-sky-800 { color: #7DD3FC !important; }
+  .text-teal-700 { color: #5EEAD4 !important; }
+  .text-violet-600 { color: #C4B5FD !important; }
+  .text-blue-600 { color: #93C5FD !important; }
+
+  /* ── Hover states ── */
+  .hover\:bg-slate-50:hover, .hover\:bg-stone-50:hover { background-color: #1A2436 !important; }
+  .hover\:bg-slate-100:hover, .hover\:bg-stone-100:hover { background-color: #1E293B !important; }
+  .hover\:bg-white\/50:hover { background-color: rgba(21,29,46,0.5) !important; }
+  .hover\:bg-red-50:hover { background-color: #371717 !important; }
+  .hover\:bg-red-100:hover { background-color: #4A1E1E !important; }
+  .hover\:bg-amber-300:hover { background-color: #78350F !important; }
+  .hover\:text-slate-700:hover, .hover\:text-slate-800:hover { color: #E2E8F0 !important; }
+  .hover\:text-stone-700:hover, .hover\:text-stone-800:hover { color: #E2E8F0 !important; }
+  .hover\:border-slate-300:hover, .hover\:border-stone-300:hover { border-color: #3D4D63 !important; }
+  .hover\:border-slate-200:hover { border-color: var(--color-line) !important; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar-thumb { background-color: rgba(148,163,184,0.3) !important; }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgba(148,163,184,0.5) !important; }
+
+  /* ── Selection ── */
+  ::selection { background-color: rgba(99,102,241,0.4) !important; color: #F1F5F9 !important; }
+
+  /* ── Modal ── */
+  .modal-overlay { background-color: rgba(0,0,0,0.7) !important; }
+  .modal-content { background-color: var(--color-surface) !important; }
+
+  /* ── Inputs, selects, textareas, contenteditable (TipTap 등) ── */
+  input, select, textarea,
+  .input-field,
+  .ProseMirror,
+  [contenteditable="true"] {
+    background-color: var(--color-bg) !important;
+    color: var(--color-ink) !important;
+    border-color: var(--color-line) !important;
+  }
+  input:focus, select:focus, textarea:focus,
+  .input-field:focus, .input-field:focus-within,
+  .ProseMirror:focus, [contenteditable="true"]:focus {
+    border-color: var(--color-accent) !important;
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-ink-muted) !important;
+  }
+  .ProseMirror p.is-editor-empty:first-child::before {
+    color: var(--color-ink-muted) !important;
+  }
+  input[type="checkbox"] {
+    background-color: var(--color-bg) !important;
+    border-color: var(--color-line) !important;
+  }
+  input[type="checkbox"]:checked {
+    background-color: var(--color-accent) !important;
+    border-color: var(--color-accent) !important;
+  }
+
+  /* ── Gantt & Table: level colors adapt by reducing opacity for dark bg ── */
+  .gantt-completed {
+    filter: grayscale(0.8) saturate(0.2) contrast(1.1) brightness(0.8) !important;
+  }
+
+  /* ── Dividers ── */
+  .h-px, .w-px { background-color: var(--color-line) !important; }
+
+  /* ── Dropdown menu ── */
+  .dropdown-menu { background-color: var(--color-surface) !important; border-color: var(--color-line) !important; }
+
+  /* ── Nav pills ── */
+  .nav-pill-active { background-color: var(--color-surface) !important; color: var(--color-ink) !important; }
+  .nav-pill-inactive { color: var(--color-ink-muted) !important; }
+  .nav-pill-inactive:hover { color: var(--color-ink) !important; }
+
+  /* ── Filter chips ── */
+  .filter-chip-inactive {
+    background-color: var(--color-surface) !important;
+    color: var(--color-ink-muted) !important;
+    border-color: var(--color-line) !important;
+  }
+  .filter-chip-inactive:hover {
+    background-color: var(--color-line-soft) !important;
+  }
+
+  /* ── Header box-shadow override ── */
+  header { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.15) !important; }
+
+  /* ── Logo: 다크모드에서 밝기 낮추고 배경 투명하게 ── */
+  .dark-logo {
+    filter: brightness(0.75) saturate(1.2);
+    mix-blend-mode: lighten;
+  }
 }
 
 @layer base {
@@ -135,12 +329,12 @@
   }
 
   .btn-secondary {
-    @apply bg-white border border-[var(--color-line)] text-[var(--color-ink)] px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-slate-50 hover:border-slate-300 transition-all duration-200 active:scale-[0.97];
+    @apply bg-[var(--color-surface)] border border-[var(--color-line)] text-[var(--color-ink)] px-4 py-2.5 rounded-xl font-semibold text-sm hover:border-[var(--color-line)] transition-all duration-200 active:scale-[0.97];
     box-shadow: var(--shadow-xs);
   }
 
   .btn-ghost {
-    @apply text-[var(--color-ink-muted)] px-3 py-2 rounded-xl font-medium text-sm hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors duration-200;
+    @apply text-[var(--color-ink-muted)] px-3 py-2 rounded-xl font-medium text-sm hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)] transition-colors duration-200;
   }
 
   /* Form Inputs */
@@ -251,20 +445,20 @@
 .data-row {
   display: grid;
   align-items: center;
-  @apply border-b border-slate-100/80 bg-white transition-colors duration-100 text-xs border-l-[3px] border-l-transparent;
+  @apply border-b border-slate-100/80 bg-[var(--color-surface)] transition-colors duration-100 text-xs border-l-[3px] border-l-transparent;
   height: var(--row-height, 20px);
 }
 
 .data-row:hover {
-  @apply bg-slate-50/70;
+  background-color: var(--color-line-soft);
 }
 
 /* Even row subtle stripe */
 .data-row:nth-child(even) {
-  @apply bg-slate-50/30;
+  background-color: color-mix(in srgb, var(--color-bg) 30%, var(--color-surface));
 }
 .data-row:nth-child(even):hover {
-  @apply bg-slate-50/80;
+  background-color: var(--color-line-soft);
 }
 
 /* 줄바꿈 켜짐: 행 높이 자동 확장 */
@@ -277,12 +471,12 @@
 .data-header {
   display: grid;
   align-items: center;
-  @apply bg-slate-50/95 backdrop-blur-lg border-b border-slate-200 sticky top-0 z-10;
+  @apply bg-[var(--color-bg)] backdrop-blur-lg border-b border-[var(--color-line)] sticky top-0 z-10;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
 .col-header {
-  @apply px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 select-none flex items-center gap-1 hover:text-slate-700 transition-colors cursor-default;
+  @apply px-2.5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-ink-muted)] select-none flex items-center gap-1 hover:text-[var(--color-ink)] transition-colors cursor-default;
 }
 
 .col-header:hover {

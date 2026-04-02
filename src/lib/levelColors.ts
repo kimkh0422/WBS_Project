@@ -17,6 +17,8 @@ export const LEVEL_DEFAULT = { r: 87, g: 83, b: 78 };
 
 /** 표 행 배경용 동일 농도(알파) - 레벨 구분이 잘 보이도록 충분히 진하게 */
 export const ROW_BG_ALPHA = 0.42;
+/** 다크모드에서의 레벨 행 배경 알파 (어두운 배경에서 눈이 편하도록 낮춤) */
+export const ROW_BG_ALPHA_DARK = 0.18;
 
 export function getLevelRgb(level: number): { r: number; g: number; b: number } {
   const i = level - 1;
@@ -29,9 +31,10 @@ export function levelBarBg(level: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-export function levelRowBg(level: number): string {
+export function levelRowBg(level: number, dark?: boolean): string {
   const { r, g, b } = getLevelRgb(level);
-  return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
+  const alpha = dark ? ROW_BG_ALPHA_DARK : ROW_BG_ALPHA;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function levelBorderColor(level: number): string {
