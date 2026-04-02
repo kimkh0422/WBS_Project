@@ -74,7 +74,7 @@
   /* ── Backgrounds: slate/stone gray tones ── */
   .bg-slate-50, [class*="bg-slate-50\/"] { background-color: var(--color-bg) !important; }
   .bg-slate-100, [class*="bg-slate-100\/"] { background-color: #1A2436 !important; }
-  .bg-slate-200 { background-color: #1E293B !important; }
+  .bg-slate-200, [class*="bg-slate-200\/"] { background-color: #1E293B !important; }
   .bg-stone-50, [class*="bg-stone-50\/"] { background-color: var(--color-bg) !important; }
   .bg-stone-100, [class*="bg-stone-100\/"] { background-color: #1E293B !important; }
   .bg-stone-200 { background-color: #293548 !important; }
@@ -220,6 +220,17 @@
 
   /* ── Header box-shadow override ── */
   header { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.15) !important; }
+
+  /* ── Gradients ── */
+  .from-white { --tw-gradient-from: var(--color-surface) !important; }
+  .via-white { --tw-gradient-via: var(--color-surface) !important; }
+  .to-white { --tw-gradient-to: var(--color-surface) !important; }
+  .from-slate-50 { --tw-gradient-from: var(--color-bg) !important; }
+  .to-slate-50, [class*="to-slate-50\/"] { --tw-gradient-to: var(--color-bg) !important; }
+  .from-sky-50 { --tw-gradient-from: #0C1929 !important; }
+  .to-indigo-50 { --tw-gradient-to: #1E1B4B !important; }
+  [class*="to-violet-50"] { --tw-gradient-to: #1E1338 !important; }
+  .via-slate-200 { --tw-gradient-via: var(--color-line) !important; }
 
   /* ── Logo: 다크모드에서 밝기 낮추고 배경 투명하게 ── */
   .dark-logo {

@@ -344,38 +344,47 @@ function isDescendant(tasks: Task[], ancestorId: string, id: string): boolean {
 
 // ─── 색상 ────────────────────────────────────────────────────────────────────
 
-const DEPTH_FILL: Record<number, string> = {
-  0: '#1e293b',   // 프로젝트 루트 (가상)
-  1: '#fee2e2',   // 빨 (red-100)
-  2: '#ffedd5',   // 주 (orange-100)
-  3: '#fef9c3',   // 노 (yellow-100)
-  4: '#d1fae5',   // 초 (emerald-100)
-  5: '#dbeafe',   // 파 (blue-100)
-  6: '#e0e7ff',   // 남 (indigo-100)
-  7: '#f3e8ff',   // 보 (violet-100)
+const DEPTH_FILL_LIGHT: Record<number, string> = {
+  0: '#1e293b', 1: '#fee2e2', 2: '#ffedd5', 3: '#fef9c3', 4: '#d1fae5', 5: '#dbeafe', 6: '#e0e7ff', 7: '#f3e8ff',
 };
-const DEPTH_STROKE: Record<number, string> = {
-  0: '#0f172a',
-  1: '#dc2626',   // red-600
-  2: '#ea580c',   // orange-600
-  3: '#ca8a04',   // yellow-600 (노랑 가시성 위해 약간 어둡게)
-  4: '#059669',   // emerald-600
-  5: '#2563eb',   // blue-600
-  6: '#4338ca',   // indigo-700
-  7: '#7c3aed',   // violet-600
+const DEPTH_FILL_DARK: Record<number, string> = {
+  0: '#0f172a', 1: '#371717', 2: '#3b2008', 3: '#3b2f08', 4: '#052e16', 5: '#172554', 6: '#1e1b4b', 7: '#2e1065',
 };
-const STATUS_FILL: Record<string, string> = {
+const DEPTH_STROKE_LIGHT: Record<number, string> = {
+  0: '#0f172a', 1: '#dc2626', 2: '#ea580c', 3: '#ca8a04', 4: '#059669', 5: '#2563eb', 6: '#4338ca', 7: '#7c3aed',
+};
+const DEPTH_STROKE_DARK: Record<number, string> = {
+  0: '#334155', 1: '#b91c1c', 2: '#c2410c', 3: '#a16207', 4: '#047857', 5: '#1d4ed8', 6: '#3730a3', 7: '#6d28d9',
+};
+const DEPTH_FILL = new Proxy({} as Record<number, string>, { get: (_, k) => (_isDark() ? DEPTH_FILL_DARK : DEPTH_FILL_LIGHT)[Number(k)] });
+const DEPTH_STROKE = new Proxy({} as Record<number, string>, { get: (_, k) => (_isDark() ? DEPTH_STROKE_DARK : DEPTH_STROKE_LIGHT)[Number(k)] });
+const STATUS_FILL_LIGHT: Record<string, string> = {
   todo: '#f1f5f9',
   'in-progress': '#dbeafe',
   blocked: '#fee2e2',
   done: '#dcfce7',
 };
-const STATUS_STROKE: Record<string, string> = {
+const STATUS_FILL_DARK: Record<string, string> = {
+  todo: '#1e293b',
+  'in-progress': '#172554',
+  blocked: '#371717',
+  done: '#052e16',
+};
+const STATUS_STROKE_LIGHT: Record<string, string> = {
   todo: '#94a3b8',
   'in-progress': '#3b82f6',
   blocked: '#ef4444',
   done: '#22c55e',
 };
+const STATUS_STROKE_DARK: Record<string, string> = {
+  todo: '#64748b',
+  'in-progress': '#2563eb',
+  blocked: '#dc2626',
+  done: '#16a34a',
+};
+const _isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+const STATUS_FILL = new Proxy({} as Record<string, string>, { get: (_, k: string) => (_isDark() ? STATUS_FILL_DARK : STATUS_FILL_LIGHT)[k] });
+const STATUS_STROKE = new Proxy({} as Record<string, string>, { get: (_, k: string) => (_isDark() ? STATUS_STROKE_DARK : STATUS_STROKE_LIGHT)[k] });
 const STATUS_LABEL: Record<string, string> = {
   todo: '예정',
   'in-progress': '진행중',
@@ -821,7 +830,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
   // ─── 렌더 ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-0 bg-gradient-to-br from-slate-50 via-white to-violet-50/40">
+    <div className="flex flex-col h-full min-h-0" style={{ background: _isDark() ? 'linear-gradient(135deg, #0B1120 0%, #151D2E 50%, #1E1338 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 50%, rgba(245,243,255,0.4) 100%)' }}>
       {/* 툴바 */}
       <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm flex-wrap">
         <div className="min-w-0">
@@ -944,10 +953,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
             <svg width="100%" height="100%" className="touch-none select-none">
               <defs>
                 <filter id={`mmShadow-${filterId}`} x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity="0.1" floodColor="#64748b" />
+                  <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity={_isDark() ? '0.4' : '0.1'} floodColor={_isDark() ? '#000000' : '#64748b'} />
                 </filter>
                 <filter id={`mmShadowStrong-${filterId}`} x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodOpacity="0.15" floodColor="#475569" />
+                  <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodOpacity={_isDark() ? '0.5' : '0.15'} floodColor={_isDark() ? '#000000' : '#475569'} />
                 </filter>
               </defs>
               <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
@@ -961,7 +970,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                         ? `M ${e.x1} ${e.y1} C ${e.x1 + (e.x2 - e.x1) * 0.5} ${e.y1}, ${e.x2 - (e.x2 - e.x1) * 0.5} ${e.y2}, ${e.x2} ${e.y2}`
                         : `M ${e.x1} ${e.y1} L ${e.x2} ${e.y2}`}
                     fill="none"
-                    stroke={e.isMainBranch ? '#64748b' : '#94a3b8'}
+                    stroke={e.isMainBranch ? (_isDark() ? '#475569' : '#64748b') : (_isDark() ? '#334155' : '#94a3b8')}
                     strokeWidth={(e.isMainBranch ? 2 : 1.25) / scale}
                     strokeOpacity={e.isMainBranch ? 0.9 : 0.75}
                     className="pointer-events-none"
@@ -983,10 +992,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
                   // 가상 루트: 고정 스타일
                   const fill = isVirtualRoot
-                    ? 'white'
-                    : isDropTarget ? 'rgb(240 253 244)' : getNodeFill(n);
+                    ? (_isDark() ? '#1e293b' : 'white')
+                    : isDropTarget ? (_isDark() ? '#052e16' : 'rgb(240 253 244)') : getNodeFill(n);
                   const stroke = isVirtualRoot
-                    ? '#1e293b'
+                    ? (_isDark() ? '#475569' : '#1e293b')
                     : isDropTarget ? '#22c55e' : isSelected ? '#6366f1' : getNodeStroke(n);
 
                   const progress = isVirtualRoot ? 0 : (typeof n.task.progress === 'number' ? Math.min(100, Math.max(0, n.task.progress)) : 0);
@@ -1078,7 +1087,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                               x={8}
                               y={TEXT_AREA_H / 2 + 4}
                               className="pointer-events-none font-mono font-medium"
-                              style={{ fontSize: n.depth <= 1 ? 11 : 10, fill: 'rgb(100 116 139)' }}
+                              style={{ fontSize: n.depth <= 1 ? 11 : 10, fill: _isDark() ? '#94a3b8' : 'rgb(100 116 139)' }}
                             >
                               {wbsId}
                             </text>
@@ -1104,7 +1113,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                                 style={{
                                   fontSize: isVirtualRoot ? 15 : n.depth === 1 ? 12 : 11,
                                   fontWeight: isVirtualRoot ? 700 : n.depth === 1 ? 600 : 500,
-                                  fill: '#1e293b',
+                                  fill: _isDark() ? '#e2e8f0' : '#1e293b',
                                 }}
                               >
                                 {label}
@@ -1135,7 +1144,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                             y={nodeH - PROGRESS_H / 2 + 0.5}
                             textAnchor="middle"
                             className="pointer-events-none"
-                            style={{ fontSize: 7, fill: progress > 50 ? 'white' : 'rgba(0,0,0,0.5)', fontWeight: 600 }}
+                            style={{ fontSize: 7, fill: progress > 50 ? 'white' : (_isDark() ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)'), fontWeight: 600 }}
                           >
                             {progress}%
                           </text>
@@ -1160,8 +1169,8 @@ export function MindMapView({ filters }: MindMapViewProps) {
                                 padding: '0 10px',
                                 fontSize: 11,
                                 fontWeight: 500,
-                                color: '#1e293b',
-                                background: 'white',
+                                color: _isDark() ? '#e2e8f0' : '#1e293b',
+                                background: _isDark() ? '#1e293b' : 'white',
                                 border: 'none',
                                 outline: '2.5px solid #6366f1',
                                 borderRadius: 8,
