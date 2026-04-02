@@ -224,7 +224,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           setIsDbPushInProgress(false);
         }
       })();
-    }, 2000);
+    }, 500);
     return () => window.clearTimeout(id);
   }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
   const prevAIBusyRef = useRef(false);
