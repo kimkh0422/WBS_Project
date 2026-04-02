@@ -10,6 +10,10 @@ import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
 import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, RefreshCw, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug, RotateCcw, Network, MoreHorizontal } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
 import { useModalStates } from './hooks/useModalStates';
+import { useFileImportExport, type ImportPreviewState, type BackupConfirmState, type MultiMergeConfirmState, type LastExportPrefs } from './hooks/useFileImportExport';
+import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
+import { useScrollSync } from './hooks/useScrollSync';
+import { useResizablePane } from './hooks/useResizablePane';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
@@ -340,20 +344,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     return projectsSortedByName.filter(p => (taskCountByProject[p.id] ?? 0) > 0);
   }, [projectsSortedByName, taskCountByProject]);
 
-  // Shift+F12: 관리자 모드 전환
-  useEffect(() => {
-    const handleAdminHotkey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-      if (e.shiftKey && e.key === 'F12') {
-        e.preventDefault();
-        setIsAdminPasswordModalOpen(true);
-      }
-    };
-    window.addEventListener('keydown', handleAdminHotkey);
-    return () => window.removeEventListener('keydown', handleAdminHotkey);
-  }, []);
-
   // 초대 링크 수락 (?invite=token)
   useEffect(() => {
     if (isLoading) return;
@@ -380,85 +370,13 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
   const mergeInputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll sync refs for split-view
-  const wbsScrollRef = useRef<HTMLDivElement>(null);
-  const ganttScrollRef = useRef<HTMLDivElement>(null);
   const [sharedRowHeight, setSharedRowHeight] = useState(20);
   const [rowHeights, setRowHeights] = useState<number[]>([]);
-  const isSyncingScroll = useRef(false);
 
-  // 표·간트 스크롤 동기화: ref가 준비될 때까지 재시도 (간트가 빈 상태에서 작업 목록이 뜨면 ref가 나중에 붙음)
-  const [scrollSyncRetry, setScrollSyncRetry] = useState(0);
-  const scrollSyncRetryCountRef = useRef(0);
-
-  useEffect(() => {
-    if (view !== 'list') {
-      scrollSyncRetryCountRef.current = 0;
-      return;
-    }
-    const wbs = wbsScrollRef.current;
-    const gantt = ganttScrollRef.current;
-    if (!wbs || !gantt) {
-      if (scrollSyncRetryCountRef.current < 30) {
-        scrollSyncRetryCountRef.current += 1;
-        const t = setTimeout(() => setScrollSyncRetry((r) => r + 1), 80);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
-    scrollSyncRetryCountRef.current = 0;
-
-    const syncFromWbs = (e: Event) => {
-      if (isSyncingScroll.current) return;
-      isSyncingScroll.current = true;
-      const top = (e.target as HTMLDivElement).scrollTop;
-      gantt.scrollTop = top;
-      // 플래그를 한 프레임 뒤에 해제해, gantt.scrollTop 설정으로 인한 scroll 이벤트가 역동기화하지 않도록 함
-      requestAnimationFrame(() => { isSyncingScroll.current = false; });
-    };
-    const syncFromGantt = (e: Event) => {
-      if (isSyncingScroll.current) return;
-      isSyncingScroll.current = true;
-      const top = (e.target as HTMLDivElement).scrollTop;
-      wbs.scrollTop = top;
-      requestAnimationFrame(() => { isSyncingScroll.current = false; });
-    };
-
-    wbs.addEventListener('scroll', syncFromWbs, { passive: true });
-    gantt.addEventListener('scroll', syncFromGantt, { passive: true });
-    // 표 스크롤 위치에 맞춰 간트도 동일 위치로 초기 맞춤
-    gantt.scrollTop = wbs.scrollTop;
-
-    return () => {
-      wbs.removeEventListener('scroll', syncFromWbs);
-      gantt.removeEventListener('scroll', syncFromGantt);
-    };
-  }, [view, scrollSyncRetry]);
-
-  // Resizable Panes State
-  const WBS_TABLE_WIDTH_STORAGE_KEY = 'wbs.split.wbsTableWidth';
-  const DEFAULT_WBS_TABLE_WIDTH = 75; // 좌측 패널 기본 너비 (이전 50%의 1.5배)
-  const [wbsTableWidth, setWbsTableWidth] = useState(() => {
-    try {
-      const saved = window.localStorage.getItem(WBS_TABLE_WIDTH_STORAGE_KEY);
-      const parsed = saved ? Number(saved) : NaN;
-      if (!Number.isFinite(parsed)) return DEFAULT_WBS_TABLE_WIDTH;
-      return Math.min(80, Math.max(20, parsed));
-    } catch {
-      return DEFAULT_WBS_TABLE_WIDTH;
-    }
-  });
-  const [isDraggingResizer, setIsDraggingResizer] = useState(false);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(WBS_TABLE_WIDTH_STORAGE_KEY, String(wbsTableWidth));
-    } catch {
-      // ignore
-    }
-  }, [wbsTableWidth]);
+  // Extracted hooks: scroll sync & resizable pane
+  const { wbsScrollRef, ganttScrollRef } = useScrollSync(view);
+  const { containerRef, wbsTableWidth, isDraggingResizer, startResizing } = useResizablePane();
 
   useEffect(() => {
     document.title = wbsSettings.appTitle;
@@ -484,70 +402,17 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
   }, [tipOnce, setView, view]);
 
-  const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
-    setIsDraggingResizer(true);
-  }, []);
+  // startResizing, resize, stopResizing — provided by useResizablePane()
 
-  const stopResizing = useCallback(() => {
-    setIsDraggingResizer(false);
-  }, []);
+  // Keyboard shortcuts — extracted to useAppKeyboardShortcuts
+  useAppKeyboardShortcuts({
+    undo, redo, expandToLevel, setTreeExpandLevel,
+    navigateWithTip, hiddenViews,
+    setIsShortcutsVisible, setIsAdminPasswordModalOpen,
+    pushChangesToDbRef, setIsDbPushInProgress, pushToast,
+  });
 
-  const resize = useCallback(
-    (mouseMoveEvent: MouseEvent) => {
-      if (isDraggingResizer && containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const newWidthPx = mouseMoveEvent.clientX - containerRect.left;
-        const newWidthPercent = (newWidthPx / containerRect.width) * 100;
-
-        if (newWidthPercent > 20 && newWidthPercent < 80) {
-          setWbsTableWidth(newWidthPercent);
-        }
-      }
-    },
-    [isDraggingResizer]
-  );
-
-  useEffect(() => {
-    window.addEventListener('mousemove', resize);
-    window.addEventListener('mouseup', stopResizing);
-    return () => {
-      window.removeEventListener('mousemove', resize);
-      window.removeEventListener('mouseup', stopResizing);
-    };
-  }, [resize, stopResizing]);
-
-  useEffect(() => {
-    const handleUndoRedo = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      }
-    };
-    window.addEventListener('keydown', handleUndoRedo);
-    return () => window.removeEventListener('keydown', handleUndoRedo);
-  }, [undo, redo]);
-
-  useEffect(() => {
-    const handleExpandLevelHotkey = (e: KeyboardEvent) => {
-      // Ctrl+Alt+1..9 (Win/Linux), Cmd+Option+1..9 (macOS)
-      if (!(e.altKey && (e.ctrlKey || e.metaKey))) return;
-
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-
-      if (!/^[1-9]$/.test(e.key)) return;
-      const level = parseInt(e.key, 10);
-      e.preventDefault();
-      setTreeExpandLevel(level);
-      expandToLevel(level);
-    };
-
-    window.addEventListener('keydown', handleExpandLevelHotkey);
-    return () => window.removeEventListener('keydown', handleExpandLevelHotkey);
-  }, [expandToLevel, setTreeExpandLevel]);
+  // Undo/Redo & Expand level hotkeys — now in useAppKeyboardShortcuts
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
@@ -828,83 +693,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     })();
   }, [isLoading, executeDbSync, isSupabaseConfigured]);
 
-  // Ctrl+Shift+1~7: 뷰 전환 단축키
-  useEffect(() => {
-    const VIEW_SHORTCUTS: Record<string, typeof view> = {
-      'Digit1': 'dashboard',
-      'Digit2': 'allocation',
-      'Digit3': 'list',
-      'Digit4': 'table',
-      'Digit5': 'gantt',
-      'Digit6': 'kanban',
-      'Digit7': 'mindmap',
-    };
-    const handleViewShortcut = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-      const nextView = VIEW_SHORTCUTS[e.code];
-      if (!nextView) return;
-      if (hiddenViews.has(nextView)) return;
-      e.preventDefault();
-      navigateWithTip(nextView);
-    };
-    window.addEventListener('keydown', handleViewShortcut);
-    return () => window.removeEventListener('keydown', handleViewShortcut);
-  }, [navigateWithTip, effectiveIsAdmin, hiddenViews]);
-
-  // ?: 단축키 사이드바 토글 (Shift+/ 포함)
-  useEffect(() => {
-    const handleShortcutsToggle = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      const tag = el?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
-      const isQuestion = e.key === '?' || (e.key === '/' && e.shiftKey);
-      if (!isQuestion) return;
-      e.preventDefault();
-      setIsShortcutsVisible((prev) => !prev);
-    };
-    window.addEventListener('keydown', handleShortcutsToggle);
-    return () => window.removeEventListener('keydown', handleShortcutsToggle);
-  }, []);
-
-  // Ctrl+S: 즉시 서버 반영(자동 저장과 동일 경로, 토스트 없음)
-  // 캡처 단계: 표 셀 input이 keydown에서 stopPropagation 하므로 버블 리스너로는 도달하지 않음
-  useEffect(() => {
-    const handleSaveHotkey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 's') return;
-      if (!isSupabaseConfigured) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const run = async () => {
-        const el = document.activeElement as HTMLElement | null;
-        const inTable =
-          el &&
-          /^INPUT|TEXTAREA|SELECT$/i.test(el.tagName) &&
-          el.closest?.('[data-wbs-table]');
-        if (inTable) {
-          el.blur();
-          await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-        }
-        setIsDbPushInProgress(true);
-        try {
-          await pushChangesToDbRef.current('all');
-        } finally {
-          setIsDbPushInProgress(false);
-        }
-      };
-      void run().catch((err: unknown) => {
-        setIsDbPushInProgress(false);
-        pushToast(err instanceof Error ? err.message : '서버 반영 실패', { variant: 'error' });
-      });
-    };
-    window.addEventListener('keydown', handleSaveHotkey, true);
-    return () => window.removeEventListener('keydown', handleSaveHotkey, true);
-  }, [isSupabaseConfigured, pushToast]);
+  // View switch, shortcuts toggle, Ctrl+S — now in useAppKeyboardShortcuts
 
   const importFromExcelFiles = async (files: File[]) => {
     const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
