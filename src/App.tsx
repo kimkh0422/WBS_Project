@@ -17,8 +17,6 @@ import { useResizablePane } from './hooks/useResizablePane';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
-import { exportToExcel, parseExcelWithMeta, ExcelImportMeta } from './lib/excel';
-import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons, BackupData } from './lib/export';
 import { clearAllLocalData } from './lib/persist';
 import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds, getMyEditableProjectIds } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
@@ -367,10 +365,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     });
   }, [isLoading, setCurrentProjectId, pushToast]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const backupInputRef = useRef<HTMLInputElement>(null);
-  const mergeInputRef = useRef<HTMLInputElement>(null);
-
   const [sharedRowHeight, setSharedRowHeight] = useState(20);
   const [rowHeights, setRowHeights] = useState<number[]>([]);
 
@@ -519,114 +513,22 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     setIsDeleteProjectConfirmOpen(false);
   };
 
-  const handleExportFromModal = (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => {
-    const { formats, projectIds, scope } = params;
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-    const filteredProjects = projects.filter(p => projectIds.includes(p.id));
-    const filteredTasks = allTasks.filter(t => t.projectId && projectIds.includes(t.projectId));
-
-    const doExport = (format: ExportFormat) => {
-      if (format === 'excel') {
-        const fileName = filteredProjects.length === 1
-          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
-          : `wbs_export_${timestamp}.xlsx`;
-        exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects);
-      } else if (format === 'markdown') {
-        const fileName = filteredProjects.length === 1
-          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
-          : `wbs_export_${timestamp}.md`;
-        exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects);
-      } else if (format === 'csv') {
-        const fileName = filteredProjects.length === 1
-          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.csv`
-          : `wbs_export_${timestamp}.csv`;
-        const projectMap = new Map(filteredProjects.map(p => [p.id, p.name]));
-        const header = ['WBS','프로젝트','작업명','담당자','상태','진행률','시작일','종료일','공수'];
-        const escape = (v: string) => {
-          if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
-          return v;
-        };
-        const rows = filteredTasks.map(t => [
-          wbsMap.get(t.id) ?? '',
-          projectMap.get(t.projectId) ?? '',
-          t.name,
-          t.assignee ?? '',
-          t.status,
-          String(t.progress ?? 0),
-          t.startDate ?? '',
-          t.endDate ?? '',
-          t.workEffort != null ? String(t.workEffort) : '',
-        ].map(escape).join(','));
-        const bom = '\uFEFF';
-        const csv = bom + [header.join(','), ...rows].join('\r\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = fileName; a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const fullBackup = exportFullBackup();
-        const partialBackup: BackupData = {
-          ...fullBackup,
-          projects: filteredProjects,
-          tasks: filteredTasks,
-        };
-        const fileName = filteredProjects.length === 1
-          ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
-          : `wbs_backup_${timestamp}.json`;
-        exportBackupToJson(partialBackup, fileName);
-      }
-    };
-
-    formats.forEach(doExport);
-
-    pushToast('내보내기가 완료되었습니다.');
-    // 마지막 내보내기 설정 저장 (빠른 내보내기용) - 첫 번째 형식을 기준으로 저장
-    const primaryFormat = formats[0] ?? 'excel';
-    const prefs = { scope, format: primaryFormat as ExportFormat, projectIds };
-    setLastExportPrefs(prefs);
-    try {
-      window.localStorage.setItem('wbs.lastExportPrefs', JSON.stringify(prefs));
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleQuickExport = () => {
-    if (!lastExportPrefs) {
-      // 이전 설정이 없으면 일반 내보내기 모달을 열어서 한 번 세팅하게 함
-      setIsExportModalOpen(true);
-      return;
-    }
-    const availableProjectIds = projects.map(p => p.id);
-    const projectIds =
-      lastExportPrefs.scope === 'all'
-        ? availableProjectIds
-        : lastExportPrefs.projectIds.filter(id => availableProjectIds.includes(id));
-    if (projectIds.length === 0) {
-      // 더 이상 존재하지 않는 프로젝트만 포함된 경우 → 모달로 유도
-      setIsExportModalOpen(true);
-      return;
-    }
-    handleExportFromModal({
-      scope: lastExportPrefs.scope,
-      formats: [lastExportPrefs.format],
-      projectIds,
-    });
-  };
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleImportBackupClick = () => {
-    backupInputRef.current?.click();
-  };
-
-  const handleMergeImportClick = () => {
-    mergeInputRef.current?.click();
-  };
+  // File import/export — extracted to useFileImportExport hook
+  const fileIO = useFileImportExport({
+    projects, allTasks, currentProjectId, wbsMap,
+    pushToast, importTasks, restoreBackup, mergeBackups, exportFullBackup,
+    setCurrentProjectId, setFilters,
+    setImportPreview, setBackupConfirm, setMultiMergeConfirm, setErrorAlert,
+    setIsExportModalOpen,
+    lastExportPrefs, setLastExportPrefs,
+    importPreview, backupConfirm, multiMergeConfirm,
+  });
+  const {
+    fileInputRef, backupInputRef, mergeInputRef,
+    handleExportFromModal, handleImportClick,
+    handleFileChange, handleBackupFileChange, handleMergeFileChange,
+    executeMultiMerge, executeImport, executeRestoreBackup, executeRestoreBackupIntoProject,
+  } = fileIO;
 
   const executeDbSync = useCallback(async (scope: 'current' | 'all'): Promise<boolean> => {
     setIsDbSyncing(true);
@@ -695,144 +597,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   // View switch, shortcuts toggle, Ctrl+S — now in useAppKeyboardShortcuts
 
-  const importFromExcelFiles = async (files: File[]) => {
-    const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
-      const idMap = new Map<string, string>();
-      tasksInFile.forEach(t => idMap.set(t.id, uuidv4()));
-      return tasksInFile.map(t => ({
-        ...t,
-        id: idMap.get(t.id)!,
-        parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
-        dependencies: (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!),
-        expanded: true,
-      }));
-    };
-
-    const parsed = await Promise.all(files.map(f => parseExcelWithMeta(f)));
-
-    const perFileTasks = parsed.map(p => p.tasks);
-    const importedTasks = files.length > 1
-      ? perFileTasks.flatMap(remapIdsWithinFile)
-      : perFileTasks.flat();
-
-    setImportPreview({
-      isOpen: true,
-      tasks: importedTasks,
-      files: parsed.map((p, idx) => ({
-        fileName: files[idx]?.name || `file-${idx + 1}`,
-        taskCount: p.tasks.length,
-        meta: p.meta,
-      })),
-    });
-  };
-
-  const importFromBackupJsonFiles = async (files: File[]) => {
-    if (files.length === 1) {
-      const parsedData = await parseBackupJson(files[0] as File);
-      setBackupConfirm({ isOpen: true, data: parsedData });
-    } else {
-      const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
-      setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-
-    const firstExt = files[0].name.split('.').pop()?.toLowerCase() ?? '';
-
-    try {
-      if (firstExt === 'xlsx' || firstExt === 'xls' || firstExt === 'xlsm') {
-        await importFromExcelFiles(files as File[]);
-      } else if (firstExt === 'json') {
-        await importFromBackupJsonFiles(files as File[]);
-      } else if (firstExt === 'md') {
-        setErrorAlert({
-          isOpen: true,
-          message: 'Markdown(.md) 파일 가져오기는 아직 지원되지 않습니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택해주세요.',
-        });
-      } else {
-        setErrorAlert({
-          isOpen: true,
-          message: '지원하지 않는 파일 형식입니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일만 선택할 수 있습니다.',
-        });
-      }
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleBackupFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-    try {
-      await importFromBackupJsonFiles(files as File[]);
-    } catch (error: unknown) {
-      setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '백업 파일을 읽는 중 오류 발생' });
-    } finally {
-      if (backupInputRef.current) backupInputRef.current.value = '';
-    }
-  };
-
-  const handleMergeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    try {
-      const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
-      setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
-    } catch (error: unknown) {
-      setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '오류 발생' });
-    } finally {
-      if (mergeInputRef.current) mergeInputRef.current.value = '';
-    }
-  };
-
-  const executeMultiMerge = () => {
-    mergeBackups(multiMergeConfirm.dataArray);
-    setMultiMergeConfirm({ isOpen: false, dataArray: [], fileCount: 0 });
-  };
-
-  const executeImport = async (targetProjectId: string, newProjectName?: string) => {
-    try {
-      await importTasks(importPreview.tasks, targetProjectId, newProjectName);
-      if (targetProjectId !== '__new__') setCurrentProjectId(targetProjectId);
-      setFilters(prev => ({ ...prev, projectIds: 'all' }));
-      setImportPreview({ isOpen: false, tasks: [], files: [] });
-      pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
-    } catch {
-      // 에러 토스트는 WBSProvider(onDbError)에서 처리되므로 여기서는 추가 처리만 최소화
-    }
-  };
-
-  const executeRestoreBackup = () => {
-    if (backupConfirm.data) restoreBackup(backupConfirm.data);
-    setBackupConfirm({ isOpen: false, data: null });
-  };
-
-  const executeRestoreBackupIntoProject = async (targetProjectId: string) => {
-    if (!backupConfirm.data) return;
-    const idMap = new Map<string, string>();
-    const remappedTasks = backupConfirm.data.tasks.map(t => {
-      const newId = uuidv4();
-      idMap.set(t.id, newId);
-      return { ...t, id: newId };
-    }).map(t => ({
-      ...t,
-      projectId: targetProjectId,
-      parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
-      dependencies: (t.dependencies ?? []).filter(depId => idMap.has(depId)).map(depId => idMap.get(depId)!),
-      expanded: true,
-    }));
-    try {
-      await importTasks(remappedTasks, targetProjectId);
-      setCurrentProjectId(targetProjectId);
-      setBackupConfirm({ isOpen: false, data: null });
-      pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
-    } catch {
-      // onDbError 토스트 사용
-    }
-  };
+  // importFromExcelFiles ~ executeRestoreBackupIntoProject — now in useFileImportExport
 
   const handleDashboardNavigate = (newView: typeof view, newFilters: Partial<FilterState> & { projectId?: string }) => {
     // 대시보드 카드 클릭 시, 해당 조건으로 필터된 내역을 바로 보여주기 위한 내비게이션

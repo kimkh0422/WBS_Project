@@ -6,6 +6,7 @@ import { ChevronRight, ChevronDown, ChevronUp, Plus, Pencil, ArrowUpDown, ArrowU
 import { type TableColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
+import { useColumnResize, DEFAULT_COLUMN_WIDTHS } from './hooks/useColumnResize';
 import { SortableTaskRow, type TaskIdToSeqNum, type SeqNumToTaskId, type OtherCellFocus, type SortableTaskRowProps } from './SortableTaskRow';
 import { ExcelGrid } from './ExcelGrid';
 import { Task, TaskStatus, FilterState, SortConfig } from '../types';
@@ -244,81 +245,13 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     return map;
   }, [projects, tasks]);
 
-  // Custom Column Widths
-  const DEFAULT_COLUMN_WIDTHS = {
-    grip: 32,
-    checkbox: 40,
-    seq: 48,
-    expand: 40,
-    wbsId: 60,
-    name: 300,
-    startDate: 85,
-    endDate: 85,
-    workEffort: 56,
-    weight: 56,
-    assignee: 70,
-    allocation: 72,
-    status: 70,
-    progress: 70,
-    deliverables: 120,
-    dependencies: 120,
-    actions: 70
-  };
-  const [columnWidths, setColumnWidths] = useState({ ...DEFAULT_COLUMN_WIDTHS });
-  const columnWidthsRef = useRef(columnWidths);
-  const hasRestoredColumnWidths = useRef(false);
-  useEffect(() => {
-    columnWidthsRef.current = columnWidths;
-  }, [columnWidths]);
-  useEffect(() => {
-    const saved = wbsSettings?.columnWidths;
-    if (hasRestoredColumnWidths.current || !saved || Object.keys(saved).length === 0) return;
-    setColumnWidths(prev => ({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
-    hasRestoredColumnWidths.current = true;
-  }, [wbsSettings]);
-
-  const [resizingCol, setResizingCol] = useState<keyof typeof columnWidths | null>(null);
-  const resizeStartRef = useRef<{ col: keyof typeof columnWidths; startX: number; startWidth: number } | null>(null);
+  // Column resize hook + gridStyle — moved below allocationDisplayByTaskId/taskIdToSeqNum
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   /** 스플릿 뷰에서 헤더 가로 스크롤 동기화용 */
   const headerScrollRef = useRef<HTMLDivElement | null>(null);
   const isSyncingScrollRef = useRef(false);
 
-  const handleMouseDown = (e: React.MouseEvent, col: keyof typeof columnWidths) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizeStartRef.current = { col, startX: e.clientX, startWidth: columnWidths[col] };
-    setResizingCol(col);
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'col-resize';
-  };
-
-  useEffect(() => {
-    if (!resizingCol) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const start = resizeStartRef.current;
-      if (!start) return;
-      const diff = e.clientX - start.startX;
-      const newWidth = Math.max(30, start.startWidth + diff);
-      setColumnWidths(prev => ({ ...prev, [start.col]: newWidth }));
-    };
-
-    const handleMouseUp = () => {
-      resizeStartRef.current = null;
-      setResizingCol(null);
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-      updateWbsSettings({ columnWidths: columnWidthsRef.current });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingCol, updateWbsSettings]);
+  // handleMouseDown + resize useEffect — now in useColumnResize
 
   const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
     const cols = wbsSettings?.tableColumns;
@@ -347,19 +280,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   /** 편집 모드에서 좌우 이동 시 사용할 편집 가능 컬럼 순서 (wbsId 제외) */
   const editableColumnIds = useMemo(() => visibleColumnIds.filter(id => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
 
-  const gridStyle = useMemo(() => {
-    const parts: string[] = [];
-    parts.push(`${columnWidths.grip}px`);
-    parts.push(`${columnWidths.checkbox}px`);
-    parts.push(`${columnWidths.seq}px`);
-    parts.push(`${columnWidths.expand}px`);
-    for (const id of visibleColumnIds) {
-      if (id === 'name') parts.push(`${columnWidths.name}px`);
-      else parts.push(`${(columnWidths as Record<string, number>)[id]}px`);
-    }
-    parts.push(`${columnWidths.actions}px`);
-    return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
-  }, [columnWidths, visibleColumnIds]);
+  // gridStyle — moved below useColumnResize hook call
 
   // Bulk Edit State
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
@@ -512,73 +433,32 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     return map;
   }, [visibleTasks, projectAssignmentsByProjectId]);
 
-  /** 컬럼 헤더 더블클릭 시 텍스트에 맞춰 너비 자동 조정용 측정 요소 */
-  const measureRef = useRef<HTMLDivElement | null>(null);
-  const measureText = useCallback((text: string): number => {
-    const el = measureRef.current;
-    if (!el) return 60;
-    el.style.whiteSpace = 'nowrap';
-    el.textContent = text || '0';
-    return Math.ceil(el.getBoundingClientRect().width) + 1;
-  }, []);
+  // Column resize — extracted to useColumnResize hook (placed after allocationDisplayByTaskId/taskIdToSeqNum)
+  const {
+    columnWidths, resizingCol, setResizingCol, measureText, measureRef,
+    handleColumnHeaderDoubleClick, startColumnResize,
+  } = useColumnResize({
+    wbsSettings,
+    updateWbsSettings,
+    visibleTasks,
+    displayWbsMap,
+    allocationDisplayByTaskId,
+    taskIdToSeqNum,
+  });
 
-  /** 데이터 컬럼별 헤더 표시 텍스트 */
-  const COLUMN_HEADER_LABELS: Record<TableColumnId, string> = {
-    wbsId: 'WBS',
-    name: '작업명',
-    startDate: '시작일',
-    endDate: '종료일',
-    workEffort: '공수(d)',
-    weight: '가중치',
-    assignee: '담당자',
-    allocation: '투입율',
-    status: '상태',
-    progress: '진척(%)',
-    deliverables: '산출물',
-    dependencies: '선행작업',
-  };
-
-  /** 컬럼 헤더 더블클릭: 해당 컬럼 너비를 텍스트에 맞게 자동 조정 (고정 컬럼은 기본값으로 복원) */
-  const handleColumnHeaderDoubleClick = useCallback((col: keyof typeof columnWidths) => {
-    const fixedCols: (keyof typeof columnWidths)[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
-    if (fixedCols.includes(col)) {
-      setColumnWidths(prev => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTHS[col] }));
-      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: DEFAULT_COLUMN_WIDTHS[col] } });
-      return;
+  const gridStyle = useMemo(() => {
+    const parts: string[] = [];
+    parts.push(`${columnWidths.grip}px`);
+    parts.push(`${columnWidths.checkbox}px`);
+    parts.push(`${columnWidths.seq}px`);
+    parts.push(`${columnWidths.expand}px`);
+    for (const id of visibleColumnIds) {
+      if (id === 'name') parts.push(`${columnWidths.name}px`);
+      else parts.push(`${(columnWidths as Record<string, number>)[id]}px`);
     }
-    const colId = col as TableColumnId;
-    let maxW = measureText(COLUMN_HEADER_LABELS[colId] ?? String(colId));
-    for (const task of visibleTasks) {
-      let cellText = '';
-      if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
-      else if (colId === 'name') cellText = (displayWbsMap?.get(task.id) ? `${displayWbsMap.get(task.id)} ` : '') + (task.name ?? '');
-      else if (colId === 'startDate') cellText = formatDate(task.startDate);
-      else if (colId === 'endDate') cellText = formatDate(task.endDate);
-      else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
-      else if (colId === 'weight') cellText = task.weight != null ? formatNum2(task.weight) : '-';
-      else if (colId === 'assignee') {
-        cellText = task.assignee || '—';
-      } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
-      else if (colId === 'status') {
-        const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
-        cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
-      } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—';
-      else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
-      else if (colId === 'dependencies') {
-        const nums = (task.dependencies ?? [])
-          .map(id => taskIdToSeqNum.get(id))
-          .filter((n): n is number => n != null)
-          .sort((a, b) => a - b);
-        cellText = nums.length > 0 ? nums.join(', ') : '';
-      }
-      const w = measureText(cellText);
-      if (w > maxW) maxW = w;
-    }
-    const padding = 24;
-    const newWidth = Math.max(30, Math.min(800, maxW + padding));
-    setColumnWidths(prev => ({ ...prev, [col]: newWidth }));
-    updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
-  }, [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, wbsSettings?.statusConfigs, measureText, updateWbsSettings]);
+    parts.push(`${columnWidths.actions}px`);
+    return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
+  }, [columnWidths, visibleColumnIds]);
 
   const baseTasks = useMemo(
     () =>
@@ -1113,7 +993,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     <div
       className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-l-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
       title="컬럼 너비 조절 (드래그)"
-      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, col); }}
+      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); startColumnResize(col, e.clientX); }}
       onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
       onDoubleClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
       onContextMenu={(e) => { e.stopPropagation(); }}
@@ -2039,12 +1919,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
                       label: '컬럼 너비 초기화',
                       icon: <RotateCcw size={14} />,
                       onClick: () => {
-                        const defaultW = (DEFAULT_COLUMN_WIDTHS as Record<string, number>)[colId];
-                        if (defaultW != null) {
-                          const next = { ...columnWidths, [colId]: defaultW };
-                          setColumnWidths(next);
-                          updateWbsSettings({ columnWidths: next });
-                        }
+                        handleColumnHeaderDoubleClick(colId);
                       },
                     });
                   }
