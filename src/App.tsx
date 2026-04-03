@@ -5,6 +5,7 @@ import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
@@ -1278,7 +1279,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => { })}
             />
           ) : view === 'list' ? (
-            <div ref={containerRef} className={cn("relative flex w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
+            <ErrorBoundary viewName="표+간트"><div ref={containerRef} className={cn("relative flex w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
               <div className="flex-shrink-0 overflow-hidden flex flex-col min-h-0 list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
                 <WBSTable
                   filters={effectiveFilters}
@@ -1316,9 +1317,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               <div className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block" style={{ width: `${100 - wbsTableWidth}%` }}>
                 <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} onRowHeightChange={setSharedRowHeight} syncScrollRef={ganttScrollRef} />
               </div>
-            </div>
+            </div></ErrorBoundary>
           ) : view === 'table' ? (
-            <div className="h-full overflow-hidden">
+            <ErrorBoundary viewName="표"><div className="h-full overflow-hidden">
               <WBSTable
                 fillHeight
                 filters={effectiveFilters}
@@ -1336,23 +1337,25 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   });
                 }}
               />
-            </div>
+            </div></ErrorBoundary>
           ) : view === 'gantt' ? (
-            <GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} />
+            <ErrorBoundary viewName="간트차트"><GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} /></ErrorBoundary>
           ) : view === 'dashboard' ? (
-            <Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} />
+            <ErrorBoundary viewName="대시보드"><Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} /></ErrorBoundary>
           ) : view === 'projects' ? (
-            <ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} />
+            <ErrorBoundary viewName="프로젝트 관리"><ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} /></ErrorBoundary>
           ) : view === 'allocation' ? (
+            <ErrorBoundary viewName="투입현황">
             <AllocationOverviewPage
               registeredMemberDisplayNames={registeredMemberDisplayNames}
               onEditProject={(p) => { setEditingProject(p); setIsProjectModalOpen(true); }}
               onNavigateToWork={(projectId) => { setCurrentProjectId(projectId); setView('list'); }}
             />
+            </ErrorBoundary>
           ) : view === 'mindmap' ? (
-            <MindMapView filters={effectiveFilters} />
+            <ErrorBoundary viewName="마인드맵"><MindMapView filters={effectiveFilters} /></ErrorBoundary>
           ) : (
-            <KanbanBoard filters={effectiveFilters} />
+            <ErrorBoundary viewName="칸반"><KanbanBoard filters={effectiveFilters} /></ErrorBoundary>
           )}
         </div>
         {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
