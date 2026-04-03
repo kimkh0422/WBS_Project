@@ -10,6 +10,7 @@ import { startOfWeek, endOfWeek, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { Task, Project } from '../types';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
+import { BurndownChart } from './BurndownChart';
 
 interface ProjectStats {
     total: number;
@@ -565,6 +566,15 @@ export function Dashboard({ onNavigate, registeredMemberDisplayNames }: { onNavi
                             />
                         ))}
                     </div>
+                </section>
+
+                {/* 번다운 차트 */}
+                <section>
+                    <BurndownChart
+                        tasks={allTasks}
+                        projects={projects}
+                        statusConfigs={wbsSettings.statusConfigs}
+                    />
                 </section>
 
             </div>
