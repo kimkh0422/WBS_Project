@@ -1,11 +1,13 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.4.67",
+  "version": "0.4.68",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "version:patch": "node scripts/update-release.mjs patch",
     "version:minor": "node scripts/update-release.mjs minor",
     "version:major": "node scripts/update-release.mjs major",
@@ -81,7 +83,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.58.0",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^4.1.2"
   },
   "simple-git-hooks": {
     "commit-msg": "node scripts/bump-version-from-commit-msg.mjs",
