@@ -87,7 +87,7 @@ const StatChip = ({ icon, label, value }: { icon: React.ReactNode; label: string
 
 const Divider = () => <div className="w-px h-4 bg-stone-200 flex-shrink-0" />;
 
-export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight: propRowHeight, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings, fillHeight = false, onResetFilters }: WBSTableProps) {
+export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight: propRowHeight, onRowHeightChange, onRowHeightsChange, hotkeysEnabled = true, onOpenColumnSettings, fillHeight = false, onResetFilters, scrollToTaskId }: WBSTableProps) {
   const {
     tasks,
     projects,
@@ -146,9 +146,11 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
   );
 
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() =>
+    sharedSelectedTaskIds && sharedSelectedTaskIds.length > 0 ? new Set(sharedSelectedTaskIds) : new Set()
+  );
 
-  // 외부(검색 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set도 동기화
+  // 외부(검색/알림 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set 동기화
   useEffect(() => {
     if (!sharedSelectedTaskIds || sharedSelectedTaskIds.length === 0) return;
     const shared = new Set(sharedSelectedTaskIds);
@@ -158,7 +160,10 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     });
     if (sharedSelectedTaskIds.length === 1) setLastSelectedId(sharedSelectedTaskIds[0]);
   }, [sharedSelectedTaskIds]);
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  // 스크롤은 rowVirtualizer 선언 후 별도 useEffect에서 처리 (아래 scrollToSelectedTask)
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(() =>
+    sharedSelectedTaskIds && sharedSelectedTaskIds.length > 0 ? sharedSelectedTaskIds[0] : null
+  );
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
   /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
   const rangeAnchorRef = useRef<string | null>(null);
@@ -333,6 +338,21 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     overscan: 5,
     rangeExtractor: virtualRangeExtractor,
   });
+
+  // scrollToTaskId prop: 외부에서 지정한 작업으로 스크롤 (가상 스크롤 + 프로젝트 전환 대응)
+  useEffect(() => {
+    if (!scrollToTaskId) return;
+    const idx = visibleTasks.findIndex(t => t.id === scrollToTaskId);
+    if (idx < 0) return;
+    requestAnimationFrame(() => {
+      if (shouldVirtualize) {
+        rowVirtualizer.scrollToIndex(idx, { align: 'center', behavior: 'smooth' });
+      }
+      setTimeout(() => {
+        document.getElementById(`task-row-${scrollToTaskId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 200);
+    });
+  }, [scrollToTaskId, visibleTasks, shouldVirtualize, rowVirtualizer]);
 
   const maxTreeLevel = useMemo(() => {
     if (tasks.length === 0) return 1;

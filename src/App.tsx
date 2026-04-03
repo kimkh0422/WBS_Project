@@ -7,6 +7,7 @@ import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SearchModal } from './components/SearchModal';
+import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
@@ -147,6 +148,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
   const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(
     () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1'
   );
@@ -180,6 +182,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     setCurrentProjectId,
     addProject,
     updateProject,
+    updateTask,
     deleteProject,
     copyProject,
     deleteAllTasks,
@@ -205,6 +208,11 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     pushChangesToDb,
     collabPushNonce,
   } = useWBS();
+
+  // NotificationBell용 메모
+  const notifProjectNameMap = React.useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects]);
+  const notifStatusNameMap = React.useMemo(() => new Map((wbsSettings.statusConfigs ?? []).map(c => [c.id, c.name])), [wbsSettings.statusConfigs]);
+  const notifDoneStatusIds = React.useMemo(() => new Set((wbsSettings.statusConfigs ?? []).filter(c => c.progress === 100).map(c => c.id)), [wbsSettings.statusConfigs]);
 
   const pushChangesToDbRef = useRef(pushChangesToDb);
   pushChangesToDbRef.current = pushChangesToDb;
@@ -513,6 +521,30 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const currentProject = projects.find(p => p.id === currentProjectId);
 
   const handleSaveTask = (taskData: Partial<Task>) => addTask(taskData);
+
+  /** 특정 작업의 모든 조상을 펼쳐서 해당 작업이 보이게 함 */
+  const expandAncestors = useCallback((taskId: string) => {
+    const taskMap = new Map<string, Task>(allTasks.map(t => [t.id, t]));
+    let current = taskMap.get(taskId);
+    while (current?.parentId) {
+      const parent = taskMap.get(current.parentId);
+      if (parent && !parent.expanded) {
+        updateTask(parent.id, { expanded: true }, { skipCascade: true });
+      }
+      current = parent;
+    }
+  }, [allTasks, updateTask]);
+
+  /** 검색/알림에서 작업 선택 시 공통 동작 */
+  const navigateToTask = useCallback((taskId: string, projectId: string) => {
+    setCurrentProjectId(projectId);
+    setSelectedTaskIds([taskId]);
+    expandAncestors(taskId);
+    setScrollToTaskId(taskId);
+    setView('table');
+    // 스크롤 완료 후 scrollToTaskId 해제 (다음 클릭에도 동작하도록)
+    setTimeout(() => setScrollToTaskId(null), 2000);
+  }, [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView]);
 
   const handleSaveProject = (
     name: string,
@@ -883,6 +915,16 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           themeMode={activeThemeMode}
           onThemeModeChange={handleThemeModeChange}
           onFavoriteProjectsChange={(ids) => updateWbsSettings({ favoriteProjectIds: ids })}
+          headerRightSlot={
+            <NotificationBell
+              allTasks={allTasks}
+              currentUserDisplay={currentUserDisplay}
+              projectNameMap={notifProjectNameMap}
+              statusNameMap={notifStatusNameMap}
+              doneStatusIds={notifDoneStatusIds}
+              onSelectTask={navigateToTask}
+            />
+          }
         />
       )}
 
@@ -1303,6 +1345,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   onRowHeightsChange={setRowHeights}
                   onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                   onResetFilters={resetWbsFilters}
+                  scrollToTaskId={scrollToTaskId}
                   onSort={(key) => {
                     setSortConfig(current => {
                       if (key === 'wbs' && current?.key === 'wbs') return null;
@@ -1339,6 +1382,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                 sortConfig={sortConfig}
                 onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                 onResetFilters={resetWbsFilters}
+                scrollToTaskId={scrollToTaskId}
                 onSort={(key) => {
                   setSortConfig(current => {
                     if (key === 'wbs' && current?.key === 'wbs') return null;
@@ -1379,14 +1423,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         <SearchModal
           isOpen
           onClose={() => setIsSearchOpen(false)}
-          onSelectTask={(taskId, projectId) => {
-            setCurrentProjectId(projectId);
-            setSelectedTaskIds([taskId]);
-            setView('table');
-            setTimeout(() => {
-              document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }, 200);
-          }}
+          onSelectTask={navigateToTask}
           onSelectProject={(projectId) => {
             setCurrentProjectId(projectId);
             setView('table');

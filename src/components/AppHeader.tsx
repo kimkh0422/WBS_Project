@@ -79,6 +79,8 @@ export interface AppHeaderProps {
   themeMode?: 'light' | 'dark' | 'system';
   onThemeModeChange?: (mode: 'light' | 'dark' | 'system') => void;
   onFavoriteProjectsChange?: (ids: string[]) => void;
+  /** 알림 벨 등 헤더 우측에 추가할 슬롯 */
+  headerRightSlot?: React.ReactNode;
   /** DB 연동 상태 (승인+Supabase 시 연동 / 그 외 로컬) */
   dbLinkState?: {
     linked: boolean;
@@ -155,6 +157,7 @@ export function AppHeader({
   themeMode = 'system',
   onThemeModeChange,
   onFavoriteProjectsChange,
+  headerRightSlot,
 }: AppHeaderProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -874,6 +877,8 @@ export function AppHeader({
           >
             <Plus size={15} /> <span>새 작업</span>
           </button>
+
+          {headerRightSlot}
 
           {user?.id && (
             <div className="relative shrink-0" ref={userMenuRef}>

@@ -19,4 +19,6 @@ export interface WBSTableProps {
   fillHeight?: boolean;
   /** 필터로 인해 표시 행이 없을 때 "필터 초기화" 등에 사용 */
   onResetFilters?: () => void;
+  /** 설정 시 해당 작업으로 자동 스크롤 (검색/알림에서 이동 시 사용) */
+  scrollToTaskId?: string | null;
 }
