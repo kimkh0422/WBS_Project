@@ -74,7 +74,7 @@ export class SupabaseYjsProvider {
         if (this.destroyed) return;
         const payload = raw;
         if (!payload || typeof payload !== 'object') return;
-        if ((payload as any).from === this.clientId) return;
+        if ((payload as Record<string, unknown>).from === this.clientId) return;
         if (payload.t === 'sync_step1') {
           const sv = base64ToUint8(payload.sv);
           const u = encodeStateAsUpdate(this.doc, sv);

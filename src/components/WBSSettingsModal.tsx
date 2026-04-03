@@ -227,12 +227,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             const startDate = projectDates[project.id] ?? '';
             const endDate = projectEndDates[project.id] ?? '';
 
-            const updates: Partial<typeof project> = {};
+            const updates: Record<string, string | undefined> = {};
             if ((project.startDate || '') !== startDate) {
-                (updates as any).startDate = startDate || undefined;
+                updates.startDate = startDate || undefined;
             }
             if ((project.endDate || '') !== endDate) {
-                (updates as any).endDate = endDate || undefined;
+                updates.endDate = endDate || undefined;
             }
 
             if (Object.keys(updates).length > 0) {

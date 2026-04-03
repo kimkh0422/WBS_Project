@@ -7,9 +7,7 @@ export interface PresenceUser {
 }
 
 const presenceEnabled = (() => {
-  // 프로젝트에 vite env 타입 선언이 없어서(import.meta.env.*) TS 에러가 날 수 있음.
-  // 런타임 동작만 필요하므로 안전하게 any로 접근.
-  const v = String((import.meta as any)?.env?.VITE_ENABLE_PRESENCE ?? '').toLowerCase();
+  const v = String(import.meta.env.VITE_ENABLE_PRESENCE ?? '').toLowerCase();
   return v === '1' || v === 'true';
 })();
 
@@ -95,7 +93,7 @@ export function usePresence(
           if (ch) {
             setTimeout(() => {
               try {
-                supabase?.removeChannel(ch as any);
+                supabase?.removeChannel(ch);
               } catch {
                 // ignore
               }

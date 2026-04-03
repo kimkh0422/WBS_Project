@@ -149,7 +149,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
           if (!taskId) return;
           const field = e.colDef.field as keyof Task | '_wbs' | undefined;
           if (!field || field === '_wbs') return;
-          const newValue = (e.data as any)[field];
+          const newValue = (e.data as Record<string, unknown>)[field];
           onTaskChange(taskId, { [field]: newValue } as Partial<Task>);
         }}
       />

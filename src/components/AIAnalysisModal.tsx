@@ -227,7 +227,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
           truncated: isTrunc,
         });
       } catch (e: unknown) {
-        console.error('Failed to read attachment', f?.name, e);
+        if (import.meta.env.DEV) console.error('Failed to read attachment', f?.name, e);
         setError(`파일을 읽는 중 오류가 발생했습니다: ${f?.name || '알 수 없는 파일'}`);
       }
     }
@@ -479,7 +479,7 @@ ${combinedInput}
       }
 
     } catch (err: unknown) {
-      console.error("AI Analysis Error:", err);
+      if (import.meta.env.DEV) console.error("AI Analysis Error:", err);
       const errMsg = err instanceof Error ? err.message : '';
       if (isMountedRef.current) {
         if (effectiveUseExisting) {
@@ -618,7 +618,7 @@ ${combinedInput}
         handleResetAndClose();
       }
     } catch (err: unknown) {
-      console.error("Dependency Analysis Error:", err);
+      if (import.meta.env.DEV) console.error("Dependency Analysis Error:", err);
       if (isMountedRef.current) {
         setDependencyAnalysisInBackground(false);
         setError(err instanceof Error ? err.message : "선행관계 분석에 실패했습니다.");

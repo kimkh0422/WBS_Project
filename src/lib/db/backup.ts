@@ -200,7 +200,7 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
     localStorage.removeItem('wbs-settings');
     localStorage.removeItem('wbs-current-project');
 
-    console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
+    if (import.meta.env.DEV) console.log('[DB] localStorage 데이터를 Supabase로 마이그레이션 완료');
     return true;
   } catch (err) {
     if (import.meta.env.DEV) console.warn('[DB] 마이그레이션 실패:', err);

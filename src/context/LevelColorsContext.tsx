@@ -52,7 +52,7 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
           if (Array.isArray(parsed) && parsed.length > 0) {
             const valid = parsed.filter(
               (c): c is RgbColor =>
-                c && typeof c === 'object' && typeof (c as any).r === 'number' && typeof (c as any).g === 'number' && typeof (c as any).b === 'number'
+                c && typeof c === 'object' && typeof (c as Record<string, unknown>).r === 'number' && typeof (c as Record<string, unknown>).g === 'number' && typeof (c as Record<string, unknown>).b === 'number'
             );
             if (valid.length > 0) setLevelColorsState(valid);
           }

@@ -500,10 +500,12 @@ export function WBSProvider({
 
     channel.subscribe((status: string) => {
       if (import.meta.env.DEV) {
-        if (status === 'SUBSCRIBED') {
-          console.debug('[Realtime] 구독됨', channelName, 'tasks/projects/wbs_settings 변경 수신');
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn('[Realtime] 채널 문제:', status, channelName);
+        if (import.meta.env.DEV) {
+          if (status === 'SUBSCRIBED') {
+            console.debug('[Realtime] 구독됨', channelName, 'tasks/projects/wbs_settings 변경 수신');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('[Realtime] 채널 문제:', status, channelName);
+          }
         }
       }
     });

@@ -80,7 +80,7 @@ function tiptapDocFromPlainText(text: string) {
     content: line ? [{ type: 'text', text: line }] : [],
     ...(idx < lines.length - 1 ? {} : {}),
   }));
-  return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph', content: [] }] } as any;
+  return { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph', content: [] }] } as Record<string, unknown>;
 }
 
 function colorForUserId(uid: string) {
@@ -118,7 +118,7 @@ function TaskDescriptionCollabEditor({
       Collaboration.configure({ document: doc, field: 'description' }),
       // TipTap CollaborationCursor는 provider.awareness 를 참조함 (Awareness 단독 전달 시 크래시)
       CollaborationCursor.configure({
-        provider: { awareness } as any,
+        provider: { awareness } as unknown as { awareness: typeof awareness },
         user: { name: userName, color: userColor },
       }),
     ],
@@ -165,7 +165,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
-  const currentUserName = String((user as any)?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+  const currentUserName = String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find(p => p.id === taskProjectId);
   const projectAssignments = (taskProject?.assignments ?? []).map(a => ({ assignee: a.assignee, allocationPercent: a.allocationPercent }));
@@ -513,7 +513,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
       const { id, ...rest } = toSave as Task & { id?: string };
       onSave(rest);
     } else {
-      onSave(toSave as any);
+      onSave(toSave as Partial<Task>);
     }
     onClose();
   };
@@ -731,7 +731,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     for (const item of Array.from(items) as DataTransferItem[]) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
-        const file = (item as any).getAsFile();
+        const file = (item as DataTransferItem).getAsFile();
         if (!file) continue;
 
         const reader = new FileReader();

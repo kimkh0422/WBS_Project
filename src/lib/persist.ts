@@ -43,7 +43,7 @@ async function idbSet<T>(key: PersistKey, value: T): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
-    const req = store.put(value as any, key);
+    const req = store.put(value as unknown, key);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error ?? new Error('IndexedDB put failed'));
   });
