@@ -6,6 +6,7 @@ import { AppHeader } from './components/AppHeader';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SearchModal } from './components/SearchModal';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
@@ -145,6 +146,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(
     () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1'
   );
@@ -192,6 +194,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     redo,
     canRedo,
     selectedTaskIds,
+    setSelectedTaskIds,
     wbsSettings,
     updateWbsSettings,
     expandToLevel,
@@ -459,7 +462,17 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     pushChangesToDbRef, setIsDbPushInProgress, pushToast,
   });
 
-  // Undo/Redo & Expand level hotkeys — now in useAppKeyboardShortcuts
+  // Ctrl+K: 검색 모달
+  useEffect(() => {
+    const handleSearchHotkey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleSearchHotkey);
+    return () => window.removeEventListener('keydown', handleSearchHotkey);
+  }, []);
 
   // Filter State
   const [filters, setFilters] = useState<FilterState>({
@@ -1361,6 +1374,25 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
         {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
         </Suspense>
       </main>
+
+      {isSearchOpen && (
+        <SearchModal
+          isOpen
+          onClose={() => setIsSearchOpen(false)}
+          onSelectTask={(taskId, projectId) => {
+            setCurrentProjectId(projectId);
+            setSelectedTaskIds([taskId]);
+            setView('table');
+            setTimeout(() => {
+              document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }, 200);
+          }}
+          onSelectProject={(projectId) => {
+            setCurrentProjectId(projectId);
+            setView('table');
+          }}
+        />
+      )}
 
       {isModalOpen && (
         <TaskModal isOpen onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />

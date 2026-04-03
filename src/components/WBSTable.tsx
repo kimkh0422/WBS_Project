@@ -147,6 +147,17 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+
+  // 외부(검색 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set도 동기화
+  useEffect(() => {
+    if (!sharedSelectedTaskIds || sharedSelectedTaskIds.length === 0) return;
+    const shared = new Set(sharedSelectedTaskIds);
+    setSelectedTaskIds(prev => {
+      if (prev.size === shared.size && [...shared].every(id => prev.has(id))) return prev;
+      return shared;
+    });
+    if (sharedSelectedTaskIds.length === 1) setLastSelectedId(sharedSelectedTaskIds[0]);
+  }, [sharedSelectedTaskIds]);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
   /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
