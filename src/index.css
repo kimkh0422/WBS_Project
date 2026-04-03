@@ -178,6 +178,13 @@
   /* ── Modal ── */
   .modal-overlay { background-color: rgba(0,0,0,0.7) !important; }
   .modal-content { background-color: var(--color-surface) !important; }
+  /* 모달 다이얼로그 래퍼 (bg-white rounded-2xl 패턴) */
+  [role="dialog"],
+  .fixed .bg-white.rounded-2xl,
+  .fixed > .bg-white {
+    background-color: var(--color-surface) !important;
+    border-color: var(--color-line) !important;
+  }
 
   /* ── Inputs, selects, textareas, contenteditable (TipTap 등) ── */
   input, select, textarea,
@@ -324,6 +331,19 @@
   /* Focus-visible ring for keyboard navigation */
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-indigo-500/50;
+  }
+
+  /* Screen-reader only (접근성: 시각적으로 숨기되 스크린리더에는 읽힘) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 }
 

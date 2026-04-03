@@ -6,7 +6,7 @@ import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
 import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
-import { GoogleGenAI } from '@google/genai';
+// GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import * as Y from 'yjs';
@@ -566,6 +566,7 @@ export function TaskModal({ isOpen, onClose, onSave, onDelete, initialData, pare
     }
     setIsCorrectingDescription(true);
     try {
+      const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
       const result = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
