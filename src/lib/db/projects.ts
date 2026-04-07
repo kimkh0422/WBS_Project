@@ -15,7 +15,8 @@ export async function fetchProjects(): Promise<Project[]> {
   requireSupabase();
   const { data, error } = await supabase!
     .from('projects')
-    .select('*')
+    // egress 절감: 필요한 컬럼만 조회
+    .select('id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,created_at')
     .order('created_at', { ascending: true });
   if (error) throw error;
   const rows = (data ?? []) as ProjectRow[];

@@ -127,14 +127,31 @@ export async function fetchTasks(): Promise<Task[]> {
   return rows.map(fromTaskRow);
 }
 
+/** 단일 작업의 description, checklist 등 큰 필드를 개별 조회 (egress 절감) */
+export async function fetchTaskDetail(taskId: string): Promise<{ description: string | null; checklist: { id: string; text: string; completed: boolean }[] } | null> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('tasks')
+    .select('description, checklist')
+    .eq('id', taskId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    description: (data as Record<string, unknown>).description as string | null,
+    checklist: ((data as Record<string, unknown>).checklist ?? []) as { id: string; text: string; completed: boolean }[],
+  };
+}
+
 export async function fetchTaskRows(): Promise<TaskRow[]> {
   requireSupabase();
   const all: TaskRow[] = [];
   let offset = 0;
   while (true) {
+    // egress 절감: description, checklist은 큰 텍스트 → 목록 조회에서 제외 (작업 수정 시 개별 조회)
+    const TASK_LIST_COLUMNS = 'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,created_at,updated_at';
     const { data, error } = await supabase!
       .from('tasks')
-      .select('*')
+      .select(TASK_LIST_COLUMNS)
       .order('sort_order', { ascending: true })
       .range(offset, offset + TASKS_PAGE_SIZE - 1);
     if (error) throw error;
