@@ -471,7 +471,7 @@ export function WBSProvider({
           const serverProject = fromProjectRow(row as unknown as ProjectRow);
           const before = projectsRef.current;
           const existingBefore = before.find(p => p.id === serverProject.id);
-          if (existingBefore && projectNeedsDbUpload(existingBefore, new Map([[serverProject.id, serverProject]]))) {
+          if (existingBefore && !hasLocalChangesSinceSyncRef.current && projectNeedsDbUpload(existingBefore, new Map([[serverProject.id, serverProject]]))) {
             notifyConflictLater('project');
           }
           setProjects(prev => {
@@ -490,8 +490,10 @@ export function WBSProvider({
           const row = payload?.new;
           if (!row) return;
           const partial = fromSettingsRow(row as unknown as SettingsRow);
-          setWbsSettings(prev => ({ ...prev, ...partial }));
-          notifyConflictLater('settings');
+          // 자기 변경 에코일 가능성: 로컬 변경이 있을 때는 충돌 알림 생략
+          if (!hasLocalChangesSinceSyncRef.current) {
+            setWbsSettings(prev => ({ ...prev, ...partial }));
+          }
         });
       },
     );
