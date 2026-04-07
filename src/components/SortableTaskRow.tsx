@@ -270,14 +270,8 @@ function SortableTaskRowInner({
       onDoubleClick={() => onEdit(task)}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
-      {dropIndicator === 'before' && (
-        <div className="absolute left-0 right-0 top-0 h-0.5 bg-indigo-500 pointer-events-none" />
-      )}
-      {dropIndicator === 'after' && (
-        <div className="absolute left-0 right-0 bottom-0 h-0.5 bg-indigo-500 pointer-events-none" />
-      )}
-      {dropIndicator === 'inside' && (
-        <div className="absolute inset-0 ring-2 ring-indigo-400/60 bg-indigo-50/40 pointer-events-none" />
+      {dropIndicator && (
+        <div className="absolute inset-0 ring-2 ring-indigo-400 bg-indigo-50/40 pointer-events-none z-10" />
       )}
       <div
         className="data-cell justify-center cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500"

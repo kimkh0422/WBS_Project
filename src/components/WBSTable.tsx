@@ -600,13 +600,9 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
 
   type DropPosition = 'before' | 'inside' | 'after';
   const [dropTarget, setDropTarget] = useState<{ overId: string; position: DropPosition } | null>(null);
+  // 드래그 후 배치 옵션 팝업
+  const [dropMenu, setDropMenu] = useState<{ draggedId: string; overId: string; x: number; y: number } | null>(null);
 
-  /**
-   * 드롭 위치 결정 규칙
-   * - 행 상단 1/3: 위(before)
-   * - 행 중간 1/3: 하위(inside)
-   * - 행 하단 1/3: 아래(after)
-   */
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDndActiveId(event.active.id as string);
   }, []);
@@ -617,21 +613,7 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
       setDropTarget(null);
       return;
     }
-
-    const overId = over.id as string;
-    const activeRect = active.rect.current.translated ?? active.rect.current.initial;
-    const overRect = over.rect;
-
-    if (!activeRect || !overRect) {
-      setDropTarget({ overId, position: 'inside' });
-      return;
-    }
-
-    const draggedCenterY = activeRect.top + activeRect.height / 2;
-    const rel = (draggedCenterY - overRect.top) / Math.max(1, overRect.height);
-    const position: DropPosition = rel < 0.33 ? 'before' : rel > 0.66 ? 'after' : 'inside';
-
-    setDropTarget(prev => (prev?.overId === overId && prev.position === position ? prev : { overId, position }));
+    setDropTarget({ overId: over.id as string, position: 'inside' });
   }, []);
 
   const handleDragCancel = useCallback((_event: DragCancelEvent) => {
@@ -639,60 +621,56 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     setDndActiveId(null);
   }, []);
 
-  /** 드래그한 작업을 놓은 위치에 따라 상하 이동 또는 하위(자식) 이동 */
+  /** 드래그 종료 → 배치 옵션 팝업 표시 */
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     setDndActiveId(null);
+    setDropTarget(null);
     const { active, over } = event;
-    if (!over || active.id === over.id) {
-      setDropTarget(null);
-      return;
-    }
+    if (!over || active.id === over.id) return;
 
     const draggedId = active.id as string;
     const overId = over.id as string;
 
     const draggedTask = tasks.find(t => t.id === draggedId);
     const overTask = tasks.find(t => t.id === overId);
-    if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) {
-      setDropTarget(null);
-      return;
-    }
+    if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) return;
 
-    // 순환 방지: over가 드래그한 작업의 자손이면 무시 (어떤 드롭 포지션이든 안전하게 차단)
-    const childrenByParent = new Map<string, string[]>();
-    for (const t of tasks) {
-      if (t.parentId) {
-        const arr = childrenByParent.get(t.parentId) ?? [];
-        arr.push(t.id);
-        childrenByParent.set(t.parentId, arr);
+    // 순환 방지: over가 드래그한 작업의 자손이면 차단
+    const isDescendant = (ancestorId: string, checkId: string): boolean => {
+      let cur = tasks.find(t => t.id === checkId);
+      while (cur?.parentId) {
+        if (cur.parentId === ancestorId) return true;
+        cur = tasks.find(t => t.id === cur!.parentId);
       }
-    }
-    const descendantIds = new Set<string>();
-    const collectDescendants = (parentId: string) => {
-      for (const childId of childrenByParent.get(parentId) ?? []) {
-        descendantIds.add(childId);
-        collectDescendants(childId);
-      }
+      return false;
     };
-    collectDescendants(draggedId);
-    if (descendantIds.has(overId)) {
-      setDropTarget(null);
-      return;
-    }
+    if (isDescendant(draggedId, overId)) return;
 
-    const position: DropPosition = dropTarget?.overId === overId ? dropTarget.position : 'inside';
+    const el = document.getElementById(`task-row-${overId}`);
+    const rect = el?.getBoundingClientRect();
+    // 시작일 칸 정도 위치 (행 왼쪽 + 약 350px)
+    const x = rect ? rect.left + Math.min(450, rect.width * 0.38) : 450;
+    const y = rect ? rect.bottom + 4 : window.innerHeight / 2;
+    setDropMenu({ draggedId, overId, x, y });
+  }, [tasks]);
 
-    if (position === 'inside') {
+  /** 배치 옵션 선택 시 실행 */
+  const executeDropAction = useCallback((action: 'before' | 'inside' | 'after') => {
+    if (!dropMenu) return;
+    const { draggedId, overId } = dropMenu;
+    const overTask = tasks.find(t => t.id === overId);
+    if (!overTask) { setDropMenu(null); return; }
+
+    if (action === 'inside') {
       updateTask(draggedId, { parentId: overId });
       if (!overTask.expanded) updateTask(overId, { expanded: true });
     } else {
-      // before/after: overTask와 같은 부모 레벨(형제)로 이동 + 표시 순서도 같이 이동
       const targetParentId = overTask.parentId ?? null;
       updateTask(draggedId, { parentId: targetParentId });
       reorderTask(draggedId, overId);
     }
-    setDropTarget(null);
-  }, [tasks, dropTarget, updateTask, reorderTask]);
+    setDropMenu(null);
+  }, [dropMenu, tasks, updateTask, reorderTask]);
 
   // Keyboard Shortcuts — extracted to useWbsTableKeyboard
   useWbsTableKeyboard({
@@ -2067,6 +2045,41 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
         confirmLabel="삭제"
         isDanger={true}
       />
+
+      {/* 드래그 후 배치 옵션 팝업 */}
+      {dropMenu && (() => {
+        const overTask = tasks.find(t => t.id === dropMenu.overId);
+        const draggedTask = tasks.find(t => t.id === dropMenu.draggedId);
+        if (!overTask || !draggedTask) return null;
+        const overName = overTask.name.length > 15 ? overTask.name.slice(0, 15) + '…' : overTask.name;
+        return (
+          <>
+            <div className="fixed inset-0 z-50" onClick={() => setDropMenu(null)} />
+            <div
+              className="fixed z-50 bg-[var(--color-surface)]/80 backdrop-blur-lg border border-[var(--color-line)] rounded-xl shadow-xl py-1.5 min-w-[200px] animate-in fade-in zoom-in-95 duration-100"
+              style={{ left: Math.min(dropMenu.x - 100, window.innerWidth - 220), top: Math.min(dropMenu.y, window.innerHeight - 160) }}
+            >
+              <div className="px-3 py-1.5 text-[10px] font-bold text-[var(--color-ink-muted)] uppercase tracking-wider border-b border-[var(--color-line)] mb-1 truncate">
+                배치 위치 선택
+              </div>
+              <button type="button" onClick={() => executeDropAction('before')} className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-line-soft)] text-[var(--color-ink)] flex items-center gap-2">
+                <span className="text-indigo-500 text-base">↑</span> <span className="truncate">'{overName}' 위에</span>
+              </button>
+              <button type="button" onClick={() => executeDropAction('after')} className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-line-soft)] text-[var(--color-ink)] flex items-center gap-2">
+                <span className="text-indigo-500 text-base">↓</span> <span className="truncate">'{overName}' 아래에</span>
+              </button>
+              <button type="button" onClick={() => executeDropAction('inside')} className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 text-emerald-700 font-medium flex items-center gap-2">
+                <span className="text-base">→</span> <span className="truncate">'{overName}' 하위 작업으로</span>
+              </button>
+              <div className="border-t border-[var(--color-line)] mt-1 pt-1">
+                <button type="button" onClick={() => setDropMenu(null)} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-ink-muted)] hover:bg-[var(--color-line-soft)]">
+                  취소
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </>
   );
   return <div className={cn("flex flex-col min-h-0", fillHeight && "h-full")}>{content}</div>;
