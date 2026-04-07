@@ -583,6 +583,8 @@ export function WBSTable({ filters, sortConfig, onSort, syncScrollRef, rowHeight
     } else {
       setSelection(new Set(visibleTasks.map(t => t.id)));
     }
+    // 체크박스에서 테이블로 포커스 이동 (Delete 등 키보드 단축키 즉시 동작)
+    requestAnimationFrame(() => tableScrollRef.current?.focus());
   };
 
   const sensors = useSensors(
