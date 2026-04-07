@@ -167,7 +167,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
           ) : (
             <>
               <h3 className="font-medium text-sm text-stone-800 line-clamp-2 leading-tight">
-                {wbsId ? `${wbsId} ` : ''}{task.name}
+                {task.name}
               </h3>
               {parentWbsLabel && (
                 <p className="text-[10px] text-stone-500 mt-0.5 truncate" title={parentWbsLabel}>
