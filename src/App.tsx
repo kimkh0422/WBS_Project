@@ -542,8 +542,12 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     expandAncestors(taskId);
     setScrollToTaskId(taskId);
     setView('table');
-    // 스크롤 완료 후 scrollToTaskId 해제 (다음 클릭에도 동작하도록)
-    setTimeout(() => setScrollToTaskId(null), 2000);
+    // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
+    setTimeout(() => {
+      setScrollToTaskId(null);
+      const table = document.querySelector<HTMLElement>('[data-wbs-table]');
+      table?.focus();
+    }, 500);
   }, [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView]);
 
   const handleSaveProject = (
