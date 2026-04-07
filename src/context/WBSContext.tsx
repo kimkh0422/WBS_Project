@@ -1083,11 +1083,13 @@ export function WBSProvider({
   }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
+  const currentProjectObj = projects.find(p => p.id === currentProjectId);
   const canEditCurrentProject =
     editableProjectIds === undefined ||
     !currentProjectId ||
     currentProjectId === 'all' ||
-    editableProjectIds.includes(currentProjectId);
+    editableProjectIds.includes(currentProjectId) ||
+    currentProjectObj?.ownerId === ownerId; // 소유자 본인이면 항상 편집 가능
 
   // ─── Context Value ─────────────────────────────────────────────────────────
   const contextValue = React.useMemo(() => ({
