@@ -37,6 +37,10 @@ export function ConfirmDialog({
         e.preventDefault();
         onClose();
       }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+      }
     };
 
     if (isOpen) {

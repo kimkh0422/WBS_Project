@@ -555,10 +555,12 @@ export function WBSProvider({
     if (!isLoading) appReadyAtRef.current = Date.now();
   }, [isLoading]);
 
+  // 주기적 서버 풀: Realtime이 변경사항을 실시간 전파하므로 폴링은 백업용으로만 사용
+  // egress 절약: 25초 → 5분, 탭 복귀 시에만 추가 풀
   useEffect(() => {
     if (isLoading || useLocalOnly || !isSupabaseConfigured || !user?.id) return;
-    const MIN_GAP_MS = 12000;
-    const INTERVAL_MS = 25000;
+    const MIN_GAP_MS = 60000;      // 최소 풀 간격 60초 (기존 12초)
+    const INTERVAL_MS = 300000;    // 주기적 풀 5분 (기존 25초)
     const run = () => {
       if (hasLocalChangesSinceSyncRef.current) return;
       const now = Date.now();
@@ -567,12 +569,6 @@ export function WBSProvider({
       void serverPullFromDbRef.current();
     };
     const iv = window.setInterval(run, INTERVAL_MS);
-    const once = window.setTimeout(() => {
-      if (Date.now() - appReadyAtRef.current < 4000) return;
-      if (hasLocalChangesSinceSyncRef.current) return;
-      lastServerPullAtRef.current = Date.now();
-      void serverPullFromDbRef.current();
-    }, 16000);
     let visTimer: number | undefined;
     const onVis = () => {
       if (document.visibilityState !== 'visible') return;
@@ -584,30 +580,17 @@ export function WBSProvider({
         if (now - lastServerPullAtRef.current < MIN_GAP_MS) return;
         lastServerPullAtRef.current = now;
         void serverPullFromDbRef.current();
-      }, 1600);
+      }, 2000);
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
       clearInterval(iv);
-      clearTimeout(once);
       clearTimeout(visTimer);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [isLoading, useLocalOnly, user?.id]);
 
-  useEffect(() => {
-    if (isLoading || useLocalOnly || !user?.id || !isSupabaseConfigured) return;
-    if (!currentProjectId || currentProjectId === 'all') return;
-    if (Date.now() - appReadyAtRef.current < 8000) return;
-    const t = window.setTimeout(() => {
-      if (hasLocalChangesSinceSyncRef.current) return;
-      const now = Date.now();
-      if (now - lastServerPullAtRef.current < 10000) return;
-      lastServerPullAtRef.current = now;
-      void serverPullFromDbRef.current();
-    }, 900);
-    return () => clearTimeout(t);
-  }, [currentProjectId, isLoading, useLocalOnly, user?.id]);
+  // 프로젝트 전환 시 풀 제거 — Realtime이 이미 처리하므로 불필요한 egress 방지
 
   // ─── DB 동기화 ─────────────────────────────────────────────────────────────
   const syncWithDb = async (
