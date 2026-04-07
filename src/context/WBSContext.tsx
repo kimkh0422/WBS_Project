@@ -1043,6 +1043,8 @@ export function WBSProvider({
   const updateWbsSettings = useCallback((updates: Partial<WBSSettings>) => {
     const newSettings = { ...wbsSettingsRef.current, ...updates };
     setWbsSettings(newSettings);
+    // 로컬에 즉시 저장 (디바운스 전 새로고침 시에도 유지)
+    saveJsonWithIdbFallback('wbs-settings', newSettings).catch(() => {});
     if (!useLocalOnlyRef.current) upsertSettings(newSettings).catch(err => handleDbError(err, '설정 저장에 실패했습니다.'));
   }, [handleDbError]);
 
