@@ -155,6 +155,8 @@ export interface SettingsRow {
   level2_prefix: string;
   level3_prefix: string;
   max_level: number;
+  /** 나머지 모든 설정 (statusConfigs, appTitle, themeMode 등) */
+  config_json?: Record<string, unknown> | null;
 }
 
 export interface ProfileRow {

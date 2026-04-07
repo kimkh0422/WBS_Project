@@ -144,7 +144,8 @@ export function settingsNeedDbUpload(settings: WBSSettings, serverRow: SettingsR
     local.level1_prefix !== serverRow.level1_prefix ||
     local.level2_prefix !== serverRow.level2_prefix ||
     local.level3_prefix !== serverRow.level3_prefix ||
-    local.max_level !== serverRow.max_level
+    local.max_level !== serverRow.max_level ||
+    JSON.stringify(local.config_json ?? {}) !== JSON.stringify(serverRow.config_json ?? {})
   );
 }
 

@@ -118,20 +118,28 @@ export function fromProjectRow(row: ProjectRow): Project {
 }
 
 export function toSettingsRow(settings: WBSSettings): SettingsRow {
+  // 기존 4개 컬럼 외 나머지를 config_json에 저장
+  const { level1Prefix, level2Prefix, level3Prefix, maxLevel, ...rest } = settings;
   return {
     id: 'default',
-    level1_prefix: settings.level1Prefix,
-    level2_prefix: settings.level2Prefix,
-    level3_prefix: settings.level3Prefix,
-    max_level: settings.maxLevel,
+    level1_prefix: level1Prefix,
+    level2_prefix: level2Prefix,
+    level3_prefix: level3Prefix,
+    max_level: maxLevel,
+    config_json: rest as Record<string, unknown>,
   };
 }
 
 export function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
-  return {
+  const base: Partial<WBSSettings> = {
     level1Prefix: row.level1_prefix,
     level2Prefix: row.level2_prefix,
     level3Prefix: row.level3_prefix,
     maxLevel: row.max_level,
   };
+  // config_json에서 나머지 설정 복원
+  if (row.config_json && typeof row.config_json === 'object') {
+    Object.assign(base, row.config_json);
+  }
+  return base;
 }
