@@ -476,7 +476,7 @@ export function AppHeader({
                                 )}
                               </div>
                               <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                {(isAdmin || myEditableProjectIds === undefined || myEditableProjectIds.includes(project.id)) && (
+                                {(isAdmin || myEditableProjectIds === undefined || myEditableProjectIds.includes(project.id) || project.ownerId === user?.id) && (
                                   <>
                                     <button
                                       onClick={(e) => {

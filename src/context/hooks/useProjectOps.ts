@@ -201,7 +201,13 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       const rolled = recomputeProjectRollups(combined, newProjectId);
       return rolled;
     });
-  }, [saveHistory, projectsRef, allTasksRef, ownerIdRef, setProjects, setAllTasks, setCurrentProjectId]);
+    // 복사 직후 DB에 즉시 저장 (프로젝트 먼저 → 작업 순서, FK 제약 충족)
+    if (!useLocalOnlyRef.current) {
+      upsertProject(newProject)
+        .then(() => upsertTasks(newTasks))
+        .catch(err => handleDbError(err, '복사 프로젝트 저장에 실패했습니다.'));
+    }
+  }, [saveHistory, handleDbError, projectsRef, allTasksRef, ownerIdRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId]);
 
   return { addProject, updateProject, deleteProject, copyProject };
 }
