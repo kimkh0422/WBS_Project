@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { isComposingKeyEvent } from '../lib/ime';
 
 interface KeyboardShortcutsDeps {
   undo: () => void;
@@ -17,15 +18,23 @@ interface KeyboardShortcutsDeps {
 
 export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   const {
-    undo, redo, expandToLevel, setTreeExpandLevel,
-    navigateWithTip, hiddenViews,
-    setIsShortcutsVisible, setIsAdminPasswordModalOpen,
-    pushChangesToDbRef, setIsDbPushInProgress, pushToast,
+    undo,
+    redo,
+    expandToLevel,
+    setTreeExpandLevel,
+    navigateWithTip,
+    hiddenViews,
+    setIsShortcutsVisible,
+    setIsAdminPasswordModalOpen,
+    pushChangesToDbRef,
+    setIsDbPushInProgress,
+    pushToast,
   } = deps;
 
   // Ctrl+Z / Ctrl+Shift+Z: Undo/Redo
   useEffect(() => {
     const handleUndoRedo = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -41,6 +50,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   // Ctrl+Alt+1..9: Expand tree to level
   useEffect(() => {
     const handleExpandLevelHotkey = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       if (!(e.altKey && (e.ctrlKey || e.metaKey))) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
@@ -57,15 +67,16 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   // Ctrl+Shift+1~7: View switch
   useEffect(() => {
     const VIEW_SHORTCUTS: Record<string, string> = {
-      'Digit1': 'dashboard',
-      'Digit2': 'allocation',
-      'Digit3': 'list',
-      'Digit4': 'table',
-      'Digit5': 'gantt',
-      'Digit6': 'kanban',
-      'Digit7': 'mindmap',
+      Digit1: 'dashboard',
+      Digit2: 'allocation',
+      Digit3: 'list',
+      Digit4: 'table',
+      Digit5: 'gantt',
+      Digit6: 'kanban',
+      Digit7: 'mindmap',
     };
     const handleViewShortcut = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
@@ -82,6 +93,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   // ?: Toggle shortcuts sidebar
   useEffect(() => {
     const handleShortcutsToggle = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       const el = e.target as HTMLElement;
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
@@ -97,6 +109,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   // Shift+F12: Admin mode
   useEffect(() => {
     const handleAdminHotkey = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.shiftKey && e.key === 'F12') {
@@ -111,6 +124,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   // Ctrl+S: Save to DB
   useEffect(() => {
     const handleSaveHotkey = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.shiftKey || e.altKey) return;
       if (e.key.toLowerCase() !== 's') return;
@@ -121,10 +135,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
 
       const run = async () => {
         const el = document.activeElement as HTMLElement | null;
-        const inTable =
-          el &&
-          /^INPUT|TEXTAREA|SELECT$/i.test(el.tagName) &&
-          el.closest?.('[data-wbs-table]');
+        const inTable = el && /^INPUT|TEXTAREA|SELECT$/i.test(el.tagName) && el.closest?.('[data-wbs-table]');
         if (inTable) {
           el.blur();
           await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));

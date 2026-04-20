@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { isComposingKeyEvent } from '../lib/ime';
 
 export interface ContextMenuAction {
   label?: string;
@@ -18,7 +19,7 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const actionItems = actions.filter(a => !a.divider);
+  const actionItems = actions.filter((a) => !a.divider);
   const [focusIndex, setFocusIndex] = useState(-1);
 
   const adjustedPos = useCallback(() => {
@@ -52,10 +53,15 @@ export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+      if (isComposingKeyEvent(e)) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        setFocusIndex(prev => {
+        setFocusIndex((prev) => {
           const len = actionItems.length;
           if (len === 0) return -1;
           if (e.key === 'ArrowDown') return prev < len - 1 ? prev + 1 : 0;
@@ -113,6 +119,6 @@ export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
         );
       })}
     </div>,
-    document.body
+    document.body,
   );
 }

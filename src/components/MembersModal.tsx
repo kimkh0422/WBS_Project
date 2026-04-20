@@ -1,6 +1,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Users, Loader2, Trash2, Pencil, Check, UserCheck, ArrowUpDown, ArrowUp, ArrowDown, FolderGit2, ThumbsUp, ThumbsDown } from 'lucide-react';
-import { fetchProfiles, getProfileStatus, getMemberVisitStats, deleteMemberAsAdmin, updateProfileFullName, updateMemberRole, updateMemberApproved, listPendingProjectAccessRequests, approveProjectAccessRequest, rejectProjectAccessRequest } from '../lib/db';
+import {
+  X,
+  Users,
+  Loader2,
+  Trash2,
+  Pencil,
+  Check,
+  UserCheck,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  FolderGit2,
+  ThumbsUp,
+  ThumbsDown,
+} from 'lucide-react';
+import {
+  fetchProfiles,
+  getProfileStatus,
+  getMemberVisitStats,
+  deleteMemberAsAdmin,
+  updateProfileFullName,
+  updateMemberRole,
+  updateMemberApproved,
+  listPendingProjectAccessRequests,
+  approveProjectAccessRequest,
+  rejectProjectAccessRequest,
+} from '../lib/db';
 import { WBS_ADMIN_PASSWORD } from '../constants/adminBypass';
 import { ProfileRow } from '../lib/supabase';
 import type { ProjectAccessRequestRow } from '../lib/supabase';
@@ -23,7 +48,17 @@ interface MembersModalProps {
   onApproved?: () => void;
 }
 
-export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false, adminOverride = false, projects = [], profileMap = {}, onDeleted, onApproved }: MembersModalProps) {
+export function MembersModal({
+  isOpen,
+  onClose,
+  currentUserId,
+  dbIsAdmin = false,
+  adminOverride = false,
+  projects = [],
+  profileMap = {},
+  onDeleted,
+  onApproved,
+}: MembersModalProps) {
   const [members, setMembers] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +78,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else {
       setSortKey(key);
       setSortDir(key === 'full_name' || key === 'email' ? 'asc' : 'desc');
@@ -110,11 +145,11 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
         setError(e instanceof Error ? e.message : '접속 통계를 불러오지 못했습니다.');
       }
       setMembers(
-        list.map(p => ({
+        list.map((p) => ({
           ...p,
           login_count: stats[p.id]?.login_count ?? 0,
           last_visited_at: stats[p.id]?.last_visited_at ?? null,
-        }))
+        })),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : '회원 목록을 불러오지 못했습니다.');
@@ -145,7 +180,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
     const result = await approveProjectAccessRequest(requestId);
     setProcessingRequestId(null);
     if (result.success) {
-      setAccessRequests(prev => prev.filter(r => r.id !== requestId));
+      setAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
     } else {
       setError(result.error ?? '승인에 실패했습니다.');
     }
@@ -157,7 +192,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
     const result = await rejectProjectAccessRequest(requestId);
     setProcessingRequestId(null);
     if (result.success) {
-      setAccessRequests(prev => prev.filter(r => r.id !== requestId));
+      setAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
     } else {
       setError(result.error ?? '거절에 실패했습니다.');
     }
@@ -182,7 +217,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
     setEditingId(null);
     setEditingName('');
     if (result.success) {
-      setMembers(prev => prev.map(m => m.id === editingId ? { ...m, full_name: name || null } : m));
+      setMembers((prev) => prev.map((m) => (m.id === editingId ? { ...m, full_name: name || null } : m)));
     } else {
       setError(result.error ?? '이름 저장에 실패했습니다.');
     }
@@ -194,7 +229,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
     const result = await updateMemberRole(member.id, isAdmin);
     setSavingRoleId(null);
     if (result.success) {
-      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, is_admin: isAdmin } : m));
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, is_admin: isAdmin } : m)));
     } else {
       setError(result.error ?? '역할 변경에 실패했습니다.');
     }
@@ -206,7 +241,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
     const result = await updateMemberApproved(member.id, true);
     setApprovingId(null);
     if (result.success) {
-      setMembers(prev => prev.map(m => m.id === member.id ? { ...m, approved: true } : m));
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, approved: true } : m)));
       onApproved?.();
     } else {
       setError(result.error ?? '승인에 실패했습니다.');
@@ -247,9 +282,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
         </div>
 
         <div className="p-5 overflow-y-auto flex-1">
-          {error && (
-            <p className="text-red-500 text-sm mb-4">{error}</p>
-          )}
+          {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
           {loading ? (
             <div className="flex items-center justify-center py-12 gap-2 text-stone-500">
               <Loader2 size={24} className="animate-spin" />
@@ -262,53 +295,144 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
               <thead>
                 <tr className="border-b border-[var(--color-line)]">
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('full_name')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="회원명으로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('full_name')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="회원명으로 정렬"
+                    >
                       회원명
-                      {sortKey === 'full_name' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'full_name' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('email')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="이메일로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('email')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="이메일로 정렬"
+                    >
                       이메일
-                      {sortKey === 'email' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'email' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('created_at')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="가입일로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('created_at')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="가입일로 정렬"
+                    >
                       가입일
-                      {sortKey === 'created_at' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'created_at' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('login_count')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="접속횟수로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('login_count')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="접속횟수로 정렬"
+                    >
                       접속횟수
-                      {sortKey === 'login_count' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'login_count' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('last_visited_at')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="마지막 접속으로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('last_visited_at')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="마지막 접속으로 정렬"
+                    >
                       마지막 접속시각
-                      {sortKey === 'last_visited_at' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'last_visited_at' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('approved')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="승인 여부로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('approved')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="승인 여부로 정렬"
+                    >
                       승인
-                      {sortKey === 'approved' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'approved' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트 권한</th>
                   <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button type="button" onClick={() => toggleSort('role')} className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors" title="역할로 정렬">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort('role')}
+                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                      title="역할로 정렬"
+                    >
                       역할
-                      {sortKey === 'role' ? (sortDir === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-40" />}
+                      {sortKey === 'role' ? (
+                        sortDir === 'asc' ? (
+                          <ArrowUp size={14} />
+                        ) : (
+                          <ArrowDown size={14} />
+                        )
+                      ) : (
+                        <ArrowUpDown size={14} className="opacity-40" />
+                      )}
                     </button>
                   </th>
                   <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedMembers.map(m => (
+                {sortedMembers.map((m) => (
                   <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50">
                     <td className="py-3 px-2 text-[var(--color-ink)]">
                       {editingId === m.id ? (
@@ -318,6 +442,7 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
                             onKeyDown={(e) => {
+                              if (e.nativeEvent.isComposing) return;
                               if (e.key === 'Enter') saveName();
                               if (e.key === 'Escape') cancelEdit();
                             }}
@@ -354,17 +479,19 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                         <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
                           {format(new Date(m.created_at), 'yyyy-MM-dd')}
                         </span>
-                      ) : '-'}
+                      ) : (
+                        '-'
+                      )}
                     </td>
-                    <td className="py-3 px-2 text-stone-600 tabular-nums">
-                      {m.login_count != null ? m.login_count : '-'}
-                    </td>
+                    <td className="py-3 px-2 text-stone-600 tabular-nums">{m.login_count != null ? m.login_count : '-'}</td>
                     <td className="py-3 px-2 text-stone-500 whitespace-nowrap">
                       {m.last_visited_at ? (
                         <span title={format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm:ss')}>
                           {format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm')}
                         </span>
-                      ) : '-'}
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="py-3 px-2">
                       {m.approved ? (
@@ -398,7 +525,9 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                     </td>
                     <td className="py-3 px-2">
                       {m.id === currentUserId ? (
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}>
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                        >
                           {m.is_admin ? '관리자' : '회원'}
                         </span>
                       ) : savingRoleId === m.id ? (
@@ -441,7 +570,9 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                 <FolderGit2 size={16} />
                 프로젝트 권한 요청 (대기 중)
               </h3>
-              <p className="text-xs text-stone-500 mb-3">승인된 회원이 특정 프로젝트에 대한 보기/편집 권한을 요청한 목록입니다. 승인 시 해당 회원이 프로젝트 내용을 볼 수 있습니다.</p>
+              <p className="text-xs text-stone-500 mb-3">
+                승인된 회원이 특정 프로젝트에 대한 보기/편집 권한을 요청한 목록입니다. 승인 시 해당 회원이 프로젝트 내용을 볼 수 있습니다.
+              </p>
               <table className="w-full text-sm border border-stone-200 rounded-lg overflow-hidden">
                 <thead>
                   <tr className="bg-stone-50 border-b border-stone-200">
@@ -454,9 +585,9 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
                 </thead>
                 <tbody>
                   {accessRequests.map((req) => {
-                    const projectName = projects.find(p => p.id === req.project_id)?.name ?? req.project_id;
-                    const requester = members.find(m => m.id === req.user_id);
-                    const requesterName = requester ? (requester.full_name || requester.email || req.user_id) : req.user_id;
+                    const projectName = projects.find((p) => p.id === req.project_id)?.name ?? req.project_id;
+                    const requester = members.find((m) => m.id === req.user_id);
+                    const requesterName = requester ? requester.full_name || requester.email || req.user_id : req.user_id;
                     const isProcessing = processingRequestId === req.id;
                     return (
                       <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
@@ -514,7 +645,12 @@ export function MembersModal({ isOpen, onClose, currentUserId, dbIsAdmin = false
             <div className="p-5 border-b border-[var(--color-line)]">
               <h3 className="text-lg font-bold text-[var(--color-ink)]">회원 삭제</h3>
               <p className="mt-2 text-sm text-stone-600">
-                <strong>{memberToDelete.full_name ? `${memberToDelete.full_name} (${memberToDelete.email || '이메일 없음'})` : memberToDelete.email || '(이메일 없음)'}</strong> 회원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며, 해당 회원의 모든 데이터가 삭제됩니다.
+                <strong>
+                  {memberToDelete.full_name
+                    ? `${memberToDelete.full_name} (${memberToDelete.email || '이메일 없음'})`
+                    : memberToDelete.email || '(이메일 없음)'}
+                </strong>{' '}
+                회원을 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며, 해당 회원의 모든 데이터가 삭제됩니다.
               </p>
             </div>
             <div className="p-5 flex justify-end gap-2">

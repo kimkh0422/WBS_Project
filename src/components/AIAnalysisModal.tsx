@@ -1,6 +1,18 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
-import { X, Sparkles, Loader2, Check, AlertCircle, Settings, GitBranch, UploadCloud, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
+import {
+  X,
+  Sparkles,
+  Loader2,
+  Check,
+  AlertCircle,
+  Settings,
+  GitBranch,
+  UploadCloud,
+  FileText,
+  FileSpreadsheet,
+  Trash2,
+} from 'lucide-react';
 import { Task, TaskStatus, Project } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
@@ -49,7 +61,15 @@ interface AIResponseTask {
   subtasks?: AIResponseTask[];
 }
 
-export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, currentProjectId, existingTasks = [], projects = [] }: AIAnalysisModalProps) {
+export function AIAnalysisModal({
+  isOpen,
+  onClose,
+  onBusyChange,
+  onImport,
+  currentProjectId,
+  existingTasks = [],
+  projects = [],
+}: AIAnalysisModalProps) {
   const { push: pushToast, dismiss: dismissToast } = useToast();
   const [inputText, setInputText] = useState('');
   const [userRequest, setUserRequest] = useState('');
@@ -101,15 +121,9 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const projectAssignmentsByProjectId = useMemo(
-    () => new Map(projects.map((p) => [p.id, p.assignments ?? []])),
-    [projects]
-  );
+  const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
 
-  const currentProject = useMemo(
-    () => projects.find((p) => p.id === currentProjectId),
-    [projects, currentProjectId]
-  );
+  const currentProject = useMemo(() => projects.find((p) => p.id === currentProjectId), [projects, currentProjectId]);
 
   const projectConstraintsBlock = useMemo(() => {
     if (!currentProject) return '프로젝트가 선택되지 않았거나 제약조건이 없습니다.';
@@ -117,7 +131,9 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     if (currentProject.startDate) parts.push(`- 프로젝트 시작일: ${currentProject.startDate}`);
     if (currentProject.endDate) parts.push(`- 프로젝트 종료일: ${currentProject.endDate}`);
     if (currentProject.minWorkEffortDays != null) {
-      parts.push(`- 최소 WBS 작업공수 (일): ${currentProject.minWorkEffortDays} (작업 공수는 ${currentProject.minWorkEffortDays} 단위로 분해: 0.5d, 1d 등)`);
+      parts.push(
+        `- 최소 WBS 작업공수 (일): ${currentProject.minWorkEffortDays} (작업 공수는 ${currentProject.minWorkEffortDays} 단위로 분해: 0.5d, 1d 등)`,
+      );
     }
     const assignments = currentProject.assignments ?? [];
     if (assignments.length > 0) {
@@ -162,13 +178,19 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
     const MAX_ROWS = 60;
     const MAX_COLS = 18;
-    const limited = rows.slice(0, MAX_ROWS).map(r => (Array.isArray(r) ? r.slice(0, MAX_COLS) : []));
-    const truncated = rows.length > MAX_ROWS || Math.max(...limited.map(r => r.length), 0) > MAX_COLS;
+    const limited = rows.slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.slice(0, MAX_COLS) : []));
+    const truncated = rows.length > MAX_ROWS || Math.max(...limited.map((r) => r.length), 0) > MAX_COLS;
 
-    const headerRow = (limited[0] ?? []).map(v => String(v ?? '').trim());
+    const headerRow = (limited[0] ?? []).map((v) => String(v ?? '').trim());
     const safeHeader = headerRow.map((h, i) => (h ? h : `컬럼${i + 1}`));
 
-    const bodyRows = limited.slice(1).map(r => safeHeader.map((_, i) => String(r?.[i] ?? '').replace(/\r?\n/g, ' ').trim()));
+    const bodyRows = limited.slice(1).map((r) =>
+      safeHeader.map((_, i) =>
+        String(r?.[i] ?? '')
+          .replace(/\r?\n/g, ' ')
+          .trim(),
+      ),
+    );
     const esc = (s: string) => s.replace(/\|/g, '\\|');
 
     const mdLines: string[] = [];
@@ -177,7 +199,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
     mdLines.push(`| ${safeHeader.map(esc).join(' | ')} |`);
     mdLines.push(`| ${safeHeader.map(() => '---').join(' | ')} |`);
     for (const r of bodyRows) {
-      mdLines.push(`| ${r.map(v => esc(v)).join(' | ')} |`);
+      mdLines.push(`| ${r.map((v) => esc(v)).join(' | ')} |`);
     }
     if (truncated) mdLines.push('', '(표는 일부만 첨부되었습니다: 행/열 제한)');
     return { text: mdLines.join('\n'), truncated };
@@ -185,7 +207,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
   const attachmentBlock = useMemo(() => {
     if (attachments.length === 0) return '';
-    const parts = attachments.map(a => {
+    const parts = attachments.map((a) => {
       const meta = `파일명: ${a.name} (${formatBytes(a.size)})`;
       const content = a.text?.trim() ? a.text.trim() : '(내용 없음)';
       return `---\n${meta}\n\n${content}\n`;
@@ -209,14 +231,15 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       try {
         const ext = (f.name.split('.').pop() || '').toLowerCase();
         const isExcel = ext === 'xlsx' || ext === 'xls' || ext === 'xlsm' || f.type.includes('spreadsheet') || f.type.includes('excel');
-        const textResult = isExcel
-          ? await excelFileToMarkdown(f)
-          : { text: await readFileAsText(f), truncated: false };
+        const textResult = isExcel ? await excelFileToMarkdown(f) : { text: await readFileAsText(f), truncated: false };
 
         // Hard guard against huge prompts
         const MAX_CHARS = 40_000;
         const isTrunc = textResult.truncated || textResult.text.length > MAX_CHARS;
-        const clipped = textResult.text.length > MAX_CHARS ? `${textResult.text.slice(0, MAX_CHARS)}\n\n(내용이 길어 일부만 첨부되었습니다: 글자수 제한)` : textResult.text;
+        const clipped =
+          textResult.text.length > MAX_CHARS
+            ? `${textResult.text.slice(0, MAX_CHARS)}\n\n(내용이 길어 일부만 첨부되었습니다: 글자수 제한)`
+            : textResult.text;
 
         next.push({
           id: randomUUID(),
@@ -231,7 +254,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
         setError(`파일을 읽는 중 오류가 발생했습니다: ${f?.name || '알 수 없는 파일'}`);
       }
     }
-    if (next.length > 0) setAttachments(prev => [...prev, ...next]);
+    if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
   };
 
   // Keep component mounted even when closed so background analysis can continue.
@@ -243,7 +266,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
   const handleSaveApiKey = () => {
     if (!tempApiKey.trim()) {
-      setError("API 키를 입력해주세요.");
+      setError('API 키를 입력해주세요.');
       return;
     }
     localStorage.setItem('gemini-api-key', tempApiKey.trim());
@@ -294,7 +317,7 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
 
     try {
       if (!apiKey) {
-        throw new Error("Gemini API Key가 누락되었습니다.");
+        throw new Error('Gemini API Key가 누락되었습니다.');
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -302,26 +325,30 @@ export function AIAnalysisModal({ isOpen, onClose, onBusyChange, onImport, curre
       let prompt = '';
 
       if (effectiveUseExisting) {
-        const tasksJson = JSON.stringify(existingTasks.map(t => ({
-          name: t.name,
-          startDate: t.startDate,
-          endDate: t.endDate,
-          status: t.status,
-          assignee: t.assignee,
-          progress: t.progress,
-          workEffort: t.workEffort,
-          parentId: t.parentId,
-          id: t.id,
-          description: t.description,
-          deliverables: t.deliverables
-        })), null, 2);
+        const tasksJson = JSON.stringify(
+          existingTasks.map((t) => ({
+            name: t.name,
+            startDate: t.startDate,
+            endDate: t.endDate,
+            status: t.status,
+            assignee: t.assignee,
+            progress: t.progress,
+            workEffort: t.workEffort,
+            parentId: t.parentId,
+            id: t.id,
+            description: t.description,
+            deliverables: t.deliverables,
+          })),
+          null,
+          2,
+        );
 
         let promptBody = DEFAULT_WBS_CORRECTION_PROMPT.includes('[프로젝트 제약조건]')
           ? DEFAULT_WBS_CORRECTION_PROMPT.replace('[프로젝트 제약조건]', projectConstraintsBlock)
           : `[프로젝트 제약조건]\n${projectConstraintsBlock}\n\n` + DEFAULT_WBS_CORRECTION_PROMPT;
         promptBody = promptBody.replace(
           '[여기에 기존 WBS 붙여넣기]',
-          `현재 날짜: ${new Date().toISOString().split('T')[0]}\n\n${userRequest ? `사용자 추가 요청 (선택적 반영):\n"${userRequest}"\n\n` : ''}현재 작업 목록 (JSON):\n${tasksJson}`
+          `현재 날짜: ${new Date().toISOString().split('T')[0]}\n\n${userRequest ? `사용자 추가 요청 (선택적 반영):\n"${userRequest}"\n\n` : ''}현재 작업 목록 (JSON):\n${tasksJson}`,
         );
 
         prompt = `${promptBody}
@@ -389,48 +416,45 @@ ${combinedInput}
         `;
       }
 
-      pushToast(
-        effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...',
-        {
-          variant: 'info',
-          id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
-          ...PROGRESS_TOAST_OPTS,
-          detail: 'AI에 요청 전송 중...',
-          progress: 30,
-        }
-      );
+      pushToast(effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...', {
+        variant: 'info',
+        id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
+        ...PROGRESS_TOAST_OPTS,
+        detail: 'AI에 요청 전송 중...',
+        progress: 30,
+      });
 
       const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: 'gemini-2.5-flash',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: { responseMimeType: "application/json" }
+        config: { responseMimeType: 'application/json' },
       });
 
       const responseText = result.text;
       if (!responseText) {
-        throw new Error("AI로부터 응답이 없습니다. API 키와 네트워크 연결을 확인해 주세요.");
+        throw new Error('AI로부터 응답이 없습니다. API 키와 네트워크 연결을 확인해 주세요.');
       }
 
-      pushToast(
-        effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...',
-        {
-          variant: 'info',
-          id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
-          ...PROGRESS_TOAST_OPTS,
-          detail: '응답 처리 및 일정 반영 중...',
-          progress: 85,
-        }
-      );
+      pushToast(effectiveUseExisting ? 'WBS 재분석 중...' : 'WBS 분석 중...', {
+        variant: 'info',
+        id: effectiveUseExisting ? REANALYZE_PROGRESS_TOAST_ID : GENERATE_PROGRESS_TOAST_ID,
+        ...PROGRESS_TOAST_OPTS,
+        detail: '응답 처리 및 일정 반영 중...',
+        progress: 85,
+      });
 
       let parsed: { tasks?: unknown[] };
       try {
-        const jsonStr = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+        const jsonStr = responseText
+          .replace(/^```json\s*/i, '')
+          .replace(/```\s*$/i, '')
+          .trim();
         parsed = JSON.parse(jsonStr);
       } catch {
-        throw new Error("AI 응답을 파싱할 수 없습니다. 다시 시도해 주세요.");
+        throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해 주세요.');
       }
       if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
-        throw new Error("AI 응답 형식이 올바르지 않습니다. (tasks 배열 필요)");
+        throw new Error('AI 응답 형식이 올바르지 않습니다. (tasks 배열 필요)');
       }
 
       // Process and flatten the tasks
@@ -452,13 +476,13 @@ ${combinedInput}
           expanded: true,
           dependencies: [],
           ...(aiTask.description && { description: aiTask.description }),
-          ...(aiTask.deliverables && { deliverables: aiTask.deliverables })
+          ...(aiTask.deliverables && { deliverables: aiTask.deliverables }),
         };
 
         flattenedTasks.push(task);
 
         if (aiTask.subtasks && aiTask.subtasks.length > 0) {
-          aiTask.subtasks.forEach(sub => processTask(sub, id));
+          aiTask.subtasks.forEach((sub) => processTask(sub, id));
         }
       };
 
@@ -477,9 +501,8 @@ ${combinedInput}
         }
         handleResetAndClose();
       }
-
     } catch (err: unknown) {
-      if (import.meta.env.DEV) console.error("AI Analysis Error:", err);
+      if (import.meta.env.DEV) console.error('AI Analysis Error:', err);
       const errMsg = err instanceof Error ? err.message : '';
       if (isMountedRef.current) {
         if (effectiveUseExisting) {
@@ -490,7 +513,7 @@ ${combinedInput}
           dismissToast(GENERATE_PROGRESS_TOAST_ID);
           pushToast(errMsg || '텍스트 분석에 실패했습니다. 다시 시도해 주세요.', { variant: 'warning' });
         }
-        setError(errMsg || "텍스트 분석에 실패했습니다. 다시 시도해 주세요.");
+        setError(errMsg || '텍스트 분석에 실패했습니다. 다시 시도해 주세요.');
       }
     } finally {
       if (isMountedRef.current) setIsLoading(false);
@@ -498,7 +521,11 @@ ${combinedInput}
   };
 
   const handleDependencyAnalysis = async () => {
-    if (!apiKey) { setTempApiKey(''); setStep('settings'); return; }
+    if (!apiKey) {
+      setTempApiKey('');
+      setStep('settings');
+      return;
+    }
     if (existingTasks.length === 0) return;
 
     setIsLoading(true);
@@ -522,7 +549,7 @@ ${combinedInput}
         const indent = '  '.repeat(depth);
         return `${indent}${wbsCode} [id: ${task.id}] ${task.name}`;
       });
-      const taskList = existingTasks.map(t => ({
+      const taskList = existingTasks.map((t) => ({
         id: t.id,
         name: t.name,
         parentId: t.parentId,
@@ -566,13 +593,13 @@ ${combinedInput}
       });
 
       const result = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: 'gemini-2.5-flash',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: { responseMimeType: "application/json" }
+        config: { responseMimeType: 'application/json' },
       });
 
       const responseText = result.text;
-      if (!responseText) throw new Error("AI로부터 응답이 없습니다.");
+      if (!responseText) throw new Error('AI로부터 응답이 없습니다.');
 
       pushToast('선행관계 분석 중...', {
         variant: 'info',
@@ -584,11 +611,11 @@ ${combinedInput}
 
       const parsed = JSON.parse(responseText);
       if (!parsed.dependencies || !Array.isArray(parsed.dependencies)) {
-        throw new Error("AI 응답 형식이 올바르지 않습니다.");
+        throw new Error('AI 응답 형식이 올바르지 않습니다.');
       }
 
       // Validate IDs exist in existingTasks
-      const validIds = new Set(existingTasks.map(t => t.id));
+      const validIds = new Set(existingTasks.map((t) => t.id));
       const validated = parsed.dependencies
         .filter((d: { taskId: string; dependsOn: string[] }) => validIds.has(d.taskId))
         .map((d: { taskId: string; dependsOn: string[] }) => ({
@@ -610,7 +637,9 @@ ${combinedInput}
           ...t,
           dependencies: t.userLockedFields?.includes('dependencies')
             ? (t.dependencies ?? [])
-            : (depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || [])),
+            : depMap.has(t.id)
+              ? depMap.get(t.id)!
+              : t.dependencies || [],
         }));
         const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
         onImport(withConsistentDates, true);
@@ -618,10 +647,10 @@ ${combinedInput}
         handleResetAndClose();
       }
     } catch (err: unknown) {
-      if (import.meta.env.DEV) console.error("Dependency Analysis Error:", err);
+      if (import.meta.env.DEV) console.error('Dependency Analysis Error:', err);
       if (isMountedRef.current) {
         setDependencyAnalysisInBackground(false);
-        setError(err instanceof Error ? err.message : "선행관계 분석에 실패했습니다.");
+        setError(err instanceof Error ? err.message : '선행관계 분석에 실패했습니다.');
         dismissToast(DEP_PROGRESS_TOAST_ID);
         pushToast('선행관계 분석에 실패했습니다.', { variant: 'warning' });
       }
@@ -631,12 +660,14 @@ ${combinedInput}
   };
 
   const handleImportDependencies = () => {
-    const depMap = new Map<string, string[]>(dependencyResults.map(d => [d.taskId, d.dependsOn]));
-    const withDeps: Task[] = existingTasks.map(t => ({
+    const depMap = new Map<string, string[]>(dependencyResults.map((d) => [d.taskId, d.dependsOn]));
+    const withDeps: Task[] = existingTasks.map((t) => ({
       ...t,
       dependencies: t.userLockedFields?.includes('dependencies')
         ? (t.dependencies ?? [])
-        : (depMap.has(t.id) ? depMap.get(t.id)! : (t.dependencies || [])),
+        : depMap.has(t.id)
+          ? depMap.get(t.id)!
+          : t.dependencies || [],
     }));
     const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
     onImport(withConsistentDates, true);
@@ -678,7 +709,6 @@ ${combinedInput}
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] flex flex-col max-h-[85vh]">
-
         {/* Header */}
         <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50">
           <div className="flex items-center gap-2">
@@ -686,9 +716,12 @@ ${combinedInput}
               {step === 'settings' ? <Settings size={18} /> : <Sparkles size={18} />}
             </div>
             <h2 className="font-bold text-lg text-[var(--color-ink)]">
-              {step === 'settings' ? 'API 설정'
-                : step === 'preview' && analysisMode === 'dependency' ? '선행관계 분석 결과'
-                  : step === 'preview' && isReanalyzing ? 'WBS 재분석 결과'
+              {step === 'settings'
+                ? 'API 설정'
+                : step === 'preview' && analysisMode === 'dependency'
+                  ? '선행관계 분석 결과'
+                  : step === 'preview' && isReanalyzing
+                    ? 'WBS 재분석 결과'
                     : 'AI로 WBS 만들기'}
             </h2>
           </div>
@@ -705,7 +738,11 @@ ${combinedInput}
                 <Settings size={18} />
               </button>
             )}
-            <button onClick={handleHide} className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]" title="닫기">
+            <button
+              onClick={handleHide}
+              className="p-1.5 hover:bg-stone-200 rounded-full transition-colors text-stone-500 hover:text-[var(--color-ink)]"
+              title="닫기"
+            >
               <X size={18} />
             </button>
           </div>
@@ -721,7 +758,12 @@ ${combinedInput}
                   Gemini API 키가 필요합니다
                 </p>
                 <p className="mb-2">AI 기능을 사용하려면 Google Gemini API 키가 필요합니다. 이 키는 브라우저에만 안전하게 저장됩니다.</p>
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium underline hover:text-blue-800">
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 font-medium underline hover:text-blue-800"
+                >
                   Google AI Studio에서 무료 API 키 발급받기 &rarr;
                 </a>
               </div>
@@ -736,6 +778,7 @@ ${combinedInput}
                   className="w-full p-3 rounded-lg border border-stone-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all font-mono"
                   autoComplete="off"
                   onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === 'Enter') handleSaveApiKey();
                   }}
                 />
@@ -753,19 +796,15 @@ ${combinedInput}
               <p className="text-sm text-stone-600">
                 요구사항·계획을 붙여넣으면 AI가 WBS를 만들어 줍니다.
                 {existingTasks.length > 0 && (
-                  <span className="block mt-1.5 text-purple-600 font-medium">
-                    기존 작업 있음. 내용 없이 누르면 기존 WBS만 정리됩니다.
-                  </span>
+                  <span className="block mt-1.5 text-purple-600 font-medium">기존 작업 있음. 내용 없이 누르면 기존 WBS만 정리됩니다.</span>
                 )}
               </p>
 
               {/* Attachments (Drag & Drop) */}
               <div
                 className={[
-                  "rounded-xl border border-dashed p-4 transition-all select-none",
-                  isDragActive
-                    ? "border-purple-400 bg-purple-50/60"
-                    : "border-stone-200 bg-stone-50/60 hover:bg-stone-50",
+                  'rounded-xl border border-dashed p-4 transition-all select-none',
+                  isDragActive ? 'border-purple-400 bg-purple-50/60' : 'border-stone-200 bg-stone-50/60 hover:bg-stone-50',
                 ].join(' ')}
                 onDragEnter={(e) => {
                   e.preventDefault();
@@ -791,7 +830,12 @@ ${combinedInput}
                 }}
               >
                 <div className="flex items-start gap-3">
-                  <div className={["p-2 rounded-lg border", isDragActive ? "bg-white border-purple-200 text-purple-600" : "bg-white border-stone-200 text-stone-500"].join(' ')}>
+                  <div
+                    className={[
+                      'p-2 rounded-lg border',
+                      isDragActive ? 'bg-white border-purple-200 text-purple-600' : 'bg-white border-stone-200 text-stone-500',
+                    ].join(' ')}
+                  >
                     <UploadCloud size={18} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -829,11 +873,21 @@ ${combinedInput}
 
                     {attachments.length > 0 && (
                       <div className="mt-3 space-y-1.5">
-                        {attachments.map(a => {
-                          const isExcel = a.name.toLowerCase().endsWith('.xlsx') || a.name.toLowerCase().endsWith('.xls') || a.name.toLowerCase().endsWith('.xlsm');
+                        {attachments.map((a) => {
+                          const isExcel =
+                            a.name.toLowerCase().endsWith('.xlsx') ||
+                            a.name.toLowerCase().endsWith('.xls') ||
+                            a.name.toLowerCase().endsWith('.xlsm');
                           return (
                             <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg bg-white border border-stone-200">
-                              <div className={["p-1.5 rounded-md border", isExcel ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-blue-50 border-blue-200 text-blue-700"].join(' ')}>
+                              <div
+                                className={[
+                                  'p-1.5 rounded-md border',
+                                  isExcel
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-blue-50 border-blue-200 text-blue-700',
+                                ].join(' ')}
+                              >
                                 {isExcel ? <FileSpreadsheet size={14} /> : <FileText size={14} />}
                               </div>
                               <div className="min-w-0 flex-1">
@@ -849,7 +903,7 @@ ${combinedInput}
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))}
+                                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
                                 disabled={isLoading}
                                 className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
                                 title="첨부 제거"
@@ -913,14 +967,12 @@ ${combinedInput}
                 </button>
               </div>
               {dependencyResults.length === 0 ? (
-                <div className="text-center py-10 text-stone-400 text-sm">
-                  명확한 선행관계가 감지되지 않았습니다.
-                </div>
+                <div className="text-center py-10 text-stone-400 text-sm">명확한 선행관계가 감지되지 않았습니다.</div>
               ) : (
                 (() => {
                   const treeOrder = buildTasksInTreeOrderWithWbs(existingTasks);
-                  const depMap = new Map<string, string[]>(dependencyResults.map(d => [d.taskId, d.dependsOn]));
-                  const taskById = new Map<string, Task>(existingTasks.map(t => [t.id, t]));
+                  const depMap = new Map<string, string[]>(dependencyResults.map((d) => [d.taskId, d.dependsOn]));
+                  const taskById = new Map<string, Task>(existingTasks.map((t) => [t.id, t]));
                   return (
                     <div className="border border-stone-200 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto bg-stone-50">
                       <table className="w-full text-sm text-left">
@@ -934,11 +986,14 @@ ${combinedInput}
                         <tbody className="divide-y divide-stone-200">
                           {treeOrder.map(({ task, depth, wbsCode }) => {
                             const dependsOn = depMap.get(task.id) ?? [];
-                            const predecessors = dependsOn.map(id => taskById.get(id)?.name).filter(Boolean);
+                            const predecessors = dependsOn.map((id) => taskById.get(id)?.name).filter(Boolean);
                             return (
                               <tr key={task.id} className="bg-white hover:bg-stone-50">
                                 <td className="px-2 py-2 font-mono text-stone-600 whitespace-nowrap">{wbsCode}</td>
-                                <td className="px-2 py-2 font-medium text-stone-800 truncate max-w-[200px]" style={{ paddingLeft: `${12 + depth * 20}px` }}>
+                                <td
+                                  className="px-2 py-2 font-medium text-stone-800 truncate max-w-[200px]"
+                                  style={{ paddingLeft: `${12 + depth * 20}px` }}
+                                >
                                   {depth > 0 && <span className="text-stone-400 mr-1">↳</span>}
                                   {task.name}
                                 </td>
@@ -946,7 +1001,10 @@ ${combinedInput}
                                   {predecessors.length > 0 ? (
                                     <div className="flex flex-wrap gap-1">
                                       {predecessors.map((name, i) => (
-                                        <span key={i} className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-xs">
+                                        <span
+                                          key={i}
+                                          className="bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded text-xs"
+                                        >
                                           {name}
                                         </span>
                                       ))}
@@ -969,10 +1027,7 @@ ${combinedInput}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-stone-700">생성된 작업 미리보기 ({generatedTasks.length})</h3>
-                <button
-                  onClick={() => setStep('input')}
-                  className="text-xs text-stone-500 hover:text-[var(--color-ink)] underline"
-                >
+                <button onClick={() => setStep('input')} className="text-xs text-stone-500 hover:text-[var(--color-ink)] underline">
                   수정하기
                 </button>
               </div>
@@ -1000,10 +1055,10 @@ ${combinedInput}
                         <td className="px-4 py-2 text-stone-600 whitespace-nowrap">{task.endDate}</td>
                         <td className="px-4 py-2 text-stone-600">
                           {task.assignee ? (
-                            <span className="bg-stone-100 px-2 py-0.5 rounded text-xs border border-stone-200">
-                              {task.assignee}
-                            </span>
-                          ) : '-'}
+                            <span className="bg-stone-100 px-2 py-0.5 rounded text-xs border border-stone-200">{task.assignee}</span>
+                          ) : (
+                            '-'
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1039,7 +1094,15 @@ ${combinedInput}
               <button
                 onClick={() => handleAnalyze(false)}
                 disabled={isLoading}
-                title={!canProceed ? '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.' : !apiKey ? 'API 키를 먼저 설정해 주세요.' : hasAnyInput ? '새 WBS 만들기' : '기존 WBS를 정리합니다'}
+                title={
+                  !canProceed
+                    ? '프로젝트 설명을 입력하거나 파일을 첨부해 주세요.'
+                    : !apiKey
+                      ? 'API 키를 먼저 설정해 주세요.'
+                      : hasAnyInput
+                        ? '새 WBS 만들기'
+                        : '기존 WBS를 정리합니다'
+                }
                 className="btn-primary bg-purple-600 hover:bg-purple-700 border-transparent flex items-center gap-2"
               >
                 {isLoading && !isReanalyzing ? (
@@ -1057,7 +1120,13 @@ ${combinedInput}
             </>
           ) : analysisMode === 'dependency' ? (
             <>
-              <button onClick={() => { setStep('input'); setAnalysisMode('generate'); }} className="btn-ghost">
+              <button
+                onClick={() => {
+                  setStep('input');
+                  setAnalysisMode('generate');
+                }}
+                className="btn-ghost"
+              >
                 취소
               </button>
               <button
@@ -1074,10 +1143,7 @@ ${combinedInput}
               <button onClick={() => setStep('input')} className="btn-ghost">
                 삭제
               </button>
-              <button
-                onClick={handleImport}
-                className="btn-primary flex items-center gap-2"
-              >
+              <button onClick={handleImport} className="btn-primary flex items-center gap-2">
                 <Check size={16} />
                 {isReanalyzing ? '작업 덮어쓰기' : '작업 가져오기'}
               </button>

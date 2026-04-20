@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { isComposingKeyEvent } from '../lib/ime';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export function ConfirmDialog({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
       // Don't trigger if typing in an input inside a modal (though ConfirmDialog has no inputs, good practice)
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
@@ -73,9 +75,15 @@ export function ConfirmDialog({
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             {isDanger && <AlertTriangle className="text-red-500" size={20} />}
-            <h2 id="confirm-dialog-title" className="text-lg font-bold text-[var(--color-ink)]">{title}</h2>
+            <h2 id="confirm-dialog-title" className="text-lg font-bold text-[var(--color-ink)]">
+              {title}
+            </h2>
           </div>
-          <button aria-label="닫기" onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800">
+          <button
+            aria-label="닫기"
+            onClick={onClose}
+            className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800"
+          >
             <X size={18} />
           </button>
         </div>
@@ -95,14 +103,7 @@ export function ConfirmDialog({
           <button type="button" onClick={onClose} className="btn-ghost">
             {cancelLabel}
           </button>
-          <button
-            ref={confirmButtonRef}
-            type="submit"
-            className={cn(
-              "btn-primary",
-              isDanger && "bg-red-600 hover:bg-red-700"
-            )}
-          >
+          <button ref={confirmButtonRef} type="submit" className={cn('btn-primary', isDanger && 'bg-red-600 hover:bg-red-700')}>
             {confirmLabel}
           </button>
         </form>

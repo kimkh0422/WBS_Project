@@ -2,6 +2,7 @@ import { useEffect, type RefObject } from 'react';
 import type { Task, TaskStatus, FilterState, SortConfig, Project } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
+import { isComposingKeyEvent } from '../../lib/ime';
 
 /** Clipboard payload shape (defined in WBSTable, passed in as type parameter) */
 type ClipboardPayloadV1 = { version: 1; copiedAt: string; tasks: Task[] };
@@ -124,6 +125,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!hotkeysEnabled) return;
+      if (isComposingKeyEvent(e)) return;
       const target = e.target as HTMLElement;
       if (editingTask || deleteConfirm.isOpen) return;
       if (target.tagName === 'TEXTAREA' || target.isContentEditable) return;
@@ -192,7 +194,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               parentId: base?.parentId ?? null,
               expanded: true,
             },
-            currentTaskId
+            currentTaskId,
           );
           setSelection(new Set([newId]));
           moveToTaskId(newId);
@@ -203,7 +205,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
       // number 타입 input에서는 화살표 키를 값 증감에만 사용하고 셀 이동하지 않는다
       // (빠르게 누를 경우 blur → row 포커스 → 행 더블클릭 오작동 방지)
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (editingCell || inlineEditingNameId) && target.closest('[data-wbs-table]')) {
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        (editingCell || inlineEditingNameId) &&
+        target.closest('[data-wbs-table]')
+      ) {
         if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') return;
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
@@ -242,7 +248,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 편집 모드에서 셀 간 화살표 이동 (편집 중이 아닐 때)
-      if (tableEditMode && !editingCell && !inlineEditingNameId && target.closest('[data-wbs-table]') && focusedCell && editableColumnIds.length > 0) {
+      if (
+        tableEditMode &&
+        !editingCell &&
+        !inlineEditingNameId &&
+        target.closest('[data-wbs-table]') &&
+        focusedCell &&
+        editableColumnIds.length > 0
+      ) {
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           const rowIdx = visibleTasks.findIndex((t) => t.id === focusedCell.taskId);
           const colIdx = editableColumnIds.indexOf(focusedCell.columnId);
@@ -351,14 +364,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         const baseInsertAfterId: string | undefined = lastSelectedId ?? fallbackInsertAfterId;
 
         // If a row is selected, paste as siblings under its parent; otherwise paste as root items.
-        const selectedTask = lastSelectedId ? tasks.find(t => t.id === lastSelectedId) : undefined;
+        const selectedTask = lastSelectedId ? tasks.find((t) => t.id === lastSelectedId) : undefined;
         const pasteParentId: string | null = selectedTask?.parentId ?? null;
 
         // IMPORTANT:
         // addTask() generates a NEW id. If we precompute ids and set parentId/dependencies
         // with those fake ids, children become orphans and won't render.
         // So we build mapping from OLD -> ACTUAL NEW id returned from addTask().
-        const clipboardIdSet = new Set(clipboard.map(t => t.id));
+        const clipboardIdSet = new Set(clipboard.map((t) => t.id));
         const idToNewId = new Map<string, string>();
 
         let insertAfterId: string | undefined = baseInsertAfterId;
@@ -368,14 +381,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         const pending = [...clipboard];
         let safety = 0;
         while (pending.length > 0 && safety < clipboard.length * 4) {
-          const idx = pending.findIndex(t => !t.parentId || !clipboardIdSet.has(t.parentId) || idToNewId.has(t.parentId));
+          const idx = pending.findIndex((t) => !t.parentId || !clipboardIdSet.has(t.parentId) || idToNewId.has(t.parentId));
           const t = idx === -1 ? pending[0] : pending[idx];
           pending.splice(idx === -1 ? 0 : idx, 1);
 
           const isRootOfCopy = !(t.parentId && clipboardIdSet.has(t.parentId));
-          const newParentId = isRootOfCopy
-            ? pasteParentId
-            : (idToNewId.get(t.parentId!) ?? pasteParentId);
+          const newParentId = isRootOfCopy ? pasteParentId : (idToNewId.get(t.parentId!) ?? pasteParentId);
 
           // Strip fields that shouldn't be copied as-is / computed fields.
           // We also postpone dependency remap until all ids exist.
@@ -387,7 +398,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               expanded: true,
               dependencies: undefined,
             },
-            isRootOfCopy ? insertAfterId : undefined
+            isRootOfCopy ? insertAfterId : undefined,
           );
 
           if (isRootOfCopy) insertAfterId = addedId;
@@ -401,8 +412,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const newId = idToNewId.get(t.id);
           if (!newId) continue;
           const mappedDeps = (t.dependencies ?? [])
-            .filter(depId => clipboardIdSet.has(depId))
-            .map(depId => idToNewId.get(depId))
+            .filter((depId) => clipboardIdSet.has(depId))
+            .map((depId) => idToNewId.get(depId))
             .filter(Boolean) as string[];
           if (mappedDeps.length > 0) {
             updateTask(newId, { dependencies: mappedDeps, userLockedFields: ['dependencies'] });
@@ -424,13 +435,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      const effectiveSelectedIds =
-        selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : (sharedSelectedTaskIds || []);
+      const effectiveSelectedIds = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : sharedSelectedTaskIds || [];
 
       const copySelectionToClipboard = () => {
         if (selectedTaskIds.size === 0) return;
         const selected = visibleTasks
-          .filter(t => selectedTaskIds.has(t.id))
+          .filter((t) => selectedTaskIds.has(t.id))
           .map((t) => {
             const { depth: _depth, ...rest } = t as TaskWithDepth;
             return rest as Task;
@@ -473,16 +483,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // F2: 선택 셀(편집 모드 포커스) 또는 현재 행·작업명을 즉시 인라인 편집 (엑셀과 동일)
       if (e.key === 'F2') {
         e.preventDefault();
-        const taskId =
-          tableEditMode && focusedCell
-            ? focusedCell.taskId
-            : lastSelectedId || visibleTasks[0]?.id;
+        const taskId = tableEditMode && focusedCell ? focusedCell.taskId : lastSelectedId || visibleTasks[0]?.id;
         if (!taskId || editableColumnIds.length === 0) return;
         const columnId =
-          tableEditMode &&
-          focusedCell &&
-          focusedCell.taskId === taskId &&
-          editableColumnIds.includes(focusedCell.columnId)
+          tableEditMode && focusedCell && focusedCell.taskId === taskId && editableColumnIds.includes(focusedCell.columnId)
             ? focusedCell.columnId
             : editableColumnIds.includes('name')
               ? 'name'
@@ -531,10 +535,16 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // WBS 정렬일 때만 순서/레벨 변경 허용 (다른 정렬·필터 시 표시 순서와 트리 순서가 달라 혼동 방지)
-      const isSortedOrFiltered = (sortConfig !== null && sortConfig.key !== 'wbs') ||
-        filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate || !!filters.milestoneOnly || !!filters.issueOnly;
+      const isSortedOrFiltered =
+        (sortConfig !== null && sortConfig.key !== 'wbs') ||
+        filters.status !== 'all' ||
+        filters.assignee ||
+        filters.startDate ||
+        filters.endDate ||
+        !!filters.milestoneOnly ||
+        !!filters.issueOnly;
 
-      const currentIndex = visibleTasks.findIndex(t => t.id === lastSelectedId);
+      const currentIndex = visibleTasks.findIndex((t) => t.id === lastSelectedId);
       if (currentIndex === -1) return;
 
       if (e.key === 'ArrowUp') {
@@ -542,8 +552,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (e.altKey) {
           // Alt+↑: 한 칸 위로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
           const canMove =
-            !isSortedOrFiltered &&
-            (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
+            !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
           if (canMove) {
             moveTask(lastSelectedId, 'up');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
@@ -564,8 +573,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (e.altKey) {
           // Alt+↓: 한 칸 아래로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
           const canMove =
-            !isSortedOrFiltered &&
-            (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
+            !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
           if (canMove) {
             moveTask(lastSelectedId, 'down');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
@@ -586,13 +594,17 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (tableEditMode) return;
         // 트리 뷰에서만: ← 접기, → 펼치기 (자식이 있는 행에서만 동작)
         const isTreeView = !(
-          filters.status !== 'all' || filters.assignee || filters.startDate || filters.endDate ||
-          !!filters.milestoneOnly || !!filters.issueOnly
+          filters.status !== 'all' ||
+          filters.assignee ||
+          filters.startDate ||
+          filters.endDate ||
+          !!filters.milestoneOnly ||
+          !!filters.issueOnly
         );
         // NOTE: 체크박스 선택이 없어도, 포커스(lastSelectedId)가 있으면 접기/펼치기 가능해야 함.
         if (isTreeView && lastSelectedId) {
-          const task = tasks.find(t => t.id === lastSelectedId);
-          const hasChildren = task ? tasks.some(t => t.parentId === task.id) : false;
+          const task = tasks.find((t) => t.id === lastSelectedId);
+          const hasChildren = task ? tasks.some((t) => t.parentId === task.id) : false;
           if (hasChildren) {
             if (e.key === 'ArrowLeft' && task?.expanded) {
               e.preventDefault();
@@ -608,7 +620,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         e.preventDefault();
         if (selectedTaskIds.size > 0) {
           // Tab: 레벨 한 단계 내리기(들여쓰기), Shift+Tab: 레벨 한 단계 올리기(내어쓰기)
-          const orderedIds = visibleTasks.filter(t => selectedTaskIds.has(t.id)).map(t => t.id);
+          const orderedIds = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
           if (e.shiftKey) {
             outdentTasks(orderedIds);
           } else {
@@ -628,15 +640,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           (lastSelectedId
             ? tasks.find((t) => t.id === lastSelectedId)
             : visibleTasks.length > 0
-            ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
-            : undefined) || null;
+              ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
+              : undefined) || null;
 
         const proj = projects.find((p) => p.id === (baseTask?.projectId || currentProjectId));
         const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
-        const parentIdForNew =
-          baseTask?.parentId ??
-          null; // 기준 행이 없으면 루트 작업으로 추가
+        const parentIdForNew = baseTask?.parentId ?? null; // 기준 행이 없으면 루트 작업으로 추가
 
         const insertAfterId = baseTask?.id;
 
@@ -651,7 +661,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             status: 'todo',
             parentId: parentIdForNew,
           },
-          insertAfterId
+          insertAfterId,
         );
         setSelection(new Set([newId]));
         setLastSelectedId(newId);
@@ -665,8 +675,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           (lastSelectedId
             ? tasks.find((t) => t.id === lastSelectedId)
             : visibleTasks.length > 0
-            ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
-            : undefined) || null;
+              ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
+              : undefined) || null;
         const proj = projects.find((p) => p.id === (baseTask?.projectId || currentProjectId));
         const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
@@ -687,7 +697,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               status: 'todo',
               parentId: baseTask.parentId ?? null,
             },
-            insertAfterId
+            insertAfterId,
           );
           setSelection(new Set([newId]));
           setLastSelectedId(newId);
@@ -706,7 +716,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               status: 'todo',
               parentId: parentForChildId,
             },
-            baseTask?.id
+            baseTask?.id,
           );
 
           // Expand the parent so the new task is visible
@@ -723,7 +733,36 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, excelView, selectedTaskIds, sharedSelectedTaskIds, lastSelectedId, visibleTasks, editingTask, editingCell, inlineEditingNameId, tableEditMode, focusedCell, editableColumnIds, deleteConfirm, moveTask, indentTask, outdentTask, indentTasks, outdentTasks, tasks, sortConfig, filters, copiedTasks, addTask, rowHeight, handleSetRowHeight, handleSelectAll, toggleExpand, pushToast]);
+  }, [
+    hotkeysEnabled,
+    excelView,
+    selectedTaskIds,
+    sharedSelectedTaskIds,
+    lastSelectedId,
+    visibleTasks,
+    editingTask,
+    editingCell,
+    inlineEditingNameId,
+    tableEditMode,
+    focusedCell,
+    editableColumnIds,
+    deleteConfirm,
+    moveTask,
+    indentTask,
+    outdentTask,
+    indentTasks,
+    outdentTasks,
+    tasks,
+    sortConfig,
+    filters,
+    copiedTasks,
+    addTask,
+    rowHeight,
+    handleSetRowHeight,
+    handleSelectAll,
+    toggleExpand,
+    pushToast,
+  ]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지). 인라인 새 작업 추가 중이면 유지.
   useEffect(() => {
