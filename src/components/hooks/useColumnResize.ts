@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type RefObject } from 'react';
 import { type TableColumnId } from '../wbsTableTypes';
 import { formatDate, formatNum2 } from '../../lib/utils';
+import type { Task } from '../../types';
 
 // ── Default column widths ──────────────────────────────────────────
 export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
@@ -43,7 +44,7 @@ const COLUMN_HEADER_LABELS: Record<TableColumnId, string> = {
 export interface UseColumnResizeParams {
   wbsSettings: { columnWidths?: Record<string, number>; statusConfigs?: Array<{ id: string; name?: string }> } | undefined;
   updateWbsSettings: (updates: Record<string, unknown>) => void;
-  visibleTasks: Array<{ id: string; [key: string]: any }>;
+  visibleTasks: Task[];
   displayWbsMap: Map<string, string> | undefined;
   allocationDisplayByTaskId: Map<string, string>;
   taskIdToSeqNum: Map<string, number>;
@@ -81,7 +82,7 @@ export function useColumnResize({
   useEffect(() => {
     const saved = wbsSettings?.columnWidths;
     if (hasRestoredColumnWidths.current || !saved || Object.keys(saved).length === 0) return;
-    setColumnWidths(prev => ({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
+    setColumnWidths((prev) => ({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
     hasRestoredColumnWidths.current = true;
   }, [wbsSettings]);
 
@@ -106,7 +107,7 @@ export function useColumnResize({
       if (!start) return;
       const diff = e.clientX - start.startX;
       const newWidth = Math.max(30, start.startWidth + diff);
-      setColumnWidths(prev => ({ ...prev, [start.col]: newWidth }));
+      setColumnWidths((prev) => ({ ...prev, [start.col]: newWidth }));
     };
 
     const handleMouseUp = () => {
@@ -136,46 +137,49 @@ export function useColumnResize({
   }, []);
 
   // ── Double-click auto-fit ──
-  const handleColumnHeaderDoubleClick = useCallback((col: string) => {
-    const fixedCols: string[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
-    if (fixedCols.includes(col)) {
-      setColumnWidths(prev => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTHS[col] }));
-      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: DEFAULT_COLUMN_WIDTHS[col] } });
-      return;
-    }
-    const colId = col as TableColumnId;
-    let maxW = measureText(COLUMN_HEADER_LABELS[colId] ?? String(colId));
-    for (const task of visibleTasks) {
-      let cellText = '';
-      if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
-      else if (colId === 'name') cellText = (displayWbsMap?.get(task.id) ? `${displayWbsMap.get(task.id)} ` : '') + (task.name ?? '');
-      else if (colId === 'startDate') cellText = formatDate(task.startDate);
-      else if (colId === 'endDate') cellText = formatDate(task.endDate);
-      else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
-      else if (colId === 'weight') cellText = task.weight != null ? formatNum2(task.weight) : '-';
-      else if (colId === 'assignee') {
-        cellText = task.assignee || '—';
-      } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
-      else if (colId === 'status') {
-        const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
-        cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
-      } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—';
-      else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
-      else if (colId === 'dependencies') {
-        const nums = (task.dependencies ?? [])
-          .map((id: string) => taskIdToSeqNum.get(id))
-          .filter((n: number | undefined): n is number => n != null)
-          .sort((a: number, b: number) => a - b);
-        cellText = nums.length > 0 ? nums.join(', ') : '';
+  const handleColumnHeaderDoubleClick = useCallback(
+    (col: string) => {
+      const fixedCols: string[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
+      if (fixedCols.includes(col)) {
+        setColumnWidths((prev) => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTHS[col] }));
+        updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: DEFAULT_COLUMN_WIDTHS[col] } });
+        return;
       }
-      const w = measureText(cellText);
-      if (w > maxW) maxW = w;
-    }
-    const padding = 24;
-    const newWidth = Math.max(30, Math.min(800, maxW + padding));
-    setColumnWidths(prev => ({ ...prev, [col]: newWidth }));
-    updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
-  }, [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, wbsSettings?.statusConfigs, measureText, updateWbsSettings]);
+      const colId = col as TableColumnId;
+      let maxW = measureText(COLUMN_HEADER_LABELS[colId] ?? String(colId));
+      for (const task of visibleTasks) {
+        let cellText = '';
+        if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
+        else if (colId === 'name') cellText = (displayWbsMap?.get(task.id) ? `${displayWbsMap.get(task.id)} ` : '') + (task.name ?? '');
+        else if (colId === 'startDate') cellText = formatDate(task.startDate);
+        else if (colId === 'endDate') cellText = formatDate(task.endDate);
+        else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
+        else if (colId === 'weight') cellText = task.weight != null ? formatNum2(task.weight) : '-';
+        else if (colId === 'assignee') {
+          cellText = task.assignee || '—';
+        } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
+        else if (colId === 'status') {
+          const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
+          cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
+        } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—';
+        else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
+        else if (colId === 'dependencies') {
+          const nums = (task.dependencies ?? [])
+            .map((id: string) => taskIdToSeqNum.get(id))
+            .filter((n: number | undefined): n is number => n != null)
+            .sort((a: number, b: number) => a - b);
+          cellText = nums.length > 0 ? nums.join(', ') : '';
+        }
+        const w = measureText(cellText);
+        if (w > maxW) maxW = w;
+      }
+      const padding = 24;
+      const newWidth = Math.max(30, Math.min(800, maxW + padding));
+      setColumnWidths((prev) => ({ ...prev, [col]: newWidth }));
+      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
+    },
+    [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, wbsSettings?.statusConfigs, measureText, updateWbsSettings],
+  );
 
   return {
     columnWidths,

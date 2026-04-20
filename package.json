@@ -1,7 +1,7 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.4.85",
+  "version": "0.4.86",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -63,17 +63,13 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.1.14",
-    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.11.10",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
-    "better-sqlite3": "^12.4.1",
-    "dotenv": "^17.2.3",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "express": "^4.21.2",
     "lint-staged": "^16.4.0",
     "pg": "^8.13.0",
     "prettier": "^3.8.1",

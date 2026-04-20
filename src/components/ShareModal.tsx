@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Copy, Check, Link2, Users, Loader2, UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
-import {
-  fetchProjectMembers,
-  createProjectInvite,
-  removeProjectMember,
-  upsertProjectMember,
-  setProjectMemberRole,
-} from '../lib/db';
+import { fetchProjectMembers, createProjectInvite, removeProjectMember, upsertProjectMember, setProjectMemberRole } from '../lib/db';
 import { ProjectMemberRow } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
@@ -64,7 +58,7 @@ export function ShareModal({
     setError(null);
     fetchProjectMembers(projectId)
       .then(setMembers)
-      .catch(err => {
+      .catch((err) => {
         setError(err.message);
         setMembers([]);
       })
@@ -82,8 +76,8 @@ export function ShareModal({
       } else {
         setError('초대 링크 생성에 실패했습니다.');
       }
-    } catch (err: any) {
-      setError(err.message || '초대 링크 생성 실패');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '초대 링크 생성 실패');
     } finally {
       setInviteCreating(false);
     }
@@ -110,9 +104,9 @@ export function ShareModal({
     if (!projectId || !canManage) return;
     try {
       await removeProjectMember(projectId, userId);
-      setMembers(prev => prev.filter(m => m.user_id !== userId));
-    } catch (err: any) {
-      setError(err.message || '멤버 제거 실패');
+      setMembers((prev) => prev.filter((m) => m.user_id !== userId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '멤버 제거 실패');
     }
   };
 
@@ -123,7 +117,7 @@ export function ShareModal({
     const result = await setProjectMemberRole(projectId, userId, role);
     setRoleChangingId(null);
     if (result.success) {
-      setMembers(prev => prev.map(m => (m.user_id === userId ? { ...m, role } : m)));
+      setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, role } : m)));
     } else {
       setError(result.error || '역할 변경 실패');
     }
@@ -145,17 +139,15 @@ export function ShareModal({
       }
       const list = await fetchProjectMembers(projectId);
       setMembers(list);
-    } catch (err: any) {
-      setError(err?.message || '멤버 추가 실패');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '멤버 추가 실패');
     } finally {
       setAdding(false);
     }
   };
 
-  const memberUserIds = new Set(members.map(m => m.user_id));
-  const addableProfiles = profiles.filter(
-    p => !memberUserIds.has(p.id) && p.id !== ownerId
-  );
+  const memberUserIds = new Set(members.map((m) => m.user_id));
+  const addableProfiles = profiles.filter((p) => !memberUserIds.has(p.id) && p.id !== ownerId);
   const filteredAddableProfiles = addableProfiles.filter((p) => {
     const q = addSearch.trim().toLowerCase();
     if (!q) return true;
@@ -197,16 +189,13 @@ export function ShareModal({
             <X size={18} />
           </button>
         </div>
-        {projectName && (
-          <p className="text-sm text-stone-500 mb-3">프로젝트: {projectName}</p>
-        )}
+        {projectName && <p className="text-sm text-stone-500 mb-3">프로젝트: {projectName}</p>}
         <p className="text-xs text-stone-500 mb-3">
-          프로젝트를 만든 사람(소유자)이 멤버를 초대하고 권한을 줄 수 있습니다. <strong>보기</strong>: 담당자별 필터로 조회만 가능. <strong>편집</strong>: 작업·일정 수정 가능.
+          프로젝트를 만든 사람(소유자)이 멤버를 초대하고 권한을 줄 수 있습니다. <strong>보기</strong>: 담당자별 필터로 조회만 가능.{' '}
+          <strong>편집</strong>: 작업·일정 수정 가능.
         </p>
 
-        {error && (
-          <p className="text-sm text-red-500 mb-3">{error}</p>
-        )}
+        {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
 
         {canManage && (
           <div className="mb-4">
@@ -218,8 +207,8 @@ export function ShareModal({
                 onClick={handleCreateInvite}
                 disabled={inviteCreating}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors",
-                  inviteCreating ? "bg-stone-100 text-stone-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"
+                  'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
+                  inviteCreating ? 'bg-stone-100 text-stone-400 cursor-not-allowed' : 'bg-teal-600 text-white hover:bg-teal-700',
                 )}
               >
                 {inviteCreating ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
@@ -236,8 +225,8 @@ export function ShareModal({
                 <button
                   onClick={() => handleCopyLink(inviteLink)}
                   className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors",
-                    copied ? "bg-emerald-100 text-emerald-700" : "bg-teal-600 text-white hover:bg-teal-700"
+                    'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
+                    copied ? 'bg-emerald-100 text-emerald-700' : 'bg-teal-600 text-white hover:bg-teal-700',
                   )}
                 >
                   {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -262,15 +251,13 @@ export function ShareModal({
             <p className="text-sm text-stone-500 py-2">공유된 멤버가 없습니다.</p>
           ) : (
             <ul className="space-y-2">
-              {members.map(m => {
+              {members.map((m) => {
                 const displayName = m.user_id === user?.id ? '나' : (profileMap[m.user_id] ?? `멤버 (${m.user_id.slice(0, 8)}...)`);
                 const canChangeRole = canManage && m.role !== 'owner' && (m.role === 'editor' || m.role === 'viewer');
                 return (
                   <li key={m.id} className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-stone-50">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-sm font-medium text-[var(--color-ink)] truncate">
-                        {displayName}
-                      </span>
+                      <span className="text-sm font-medium text-[var(--color-ink)] truncate">{displayName}</span>
                       {canChangeRole ? (
                         <select
                           value={m.role}
@@ -286,9 +273,7 @@ export function ShareModal({
                           {m.role === 'owner' ? '소유자' : m.role === 'editor' ? '편집' : '보기'}
                         </span>
                       )}
-                      {roleChangingId === m.user_id && (
-                        <Loader2 size={12} className="animate-spin text-stone-400 shrink-0" />
-                      )}
+                      {roleChangingId === m.user_id && <Loader2 size={12} className="animate-spin text-stone-400 shrink-0" />}
                     </div>
                     {canManage && m.user_id !== user?.id && m.role !== 'owner' && (
                       <button
@@ -319,7 +304,9 @@ export function ShareModal({
                       className="text-[11px] font-medium text-stone-500 hover:text-[var(--color-accent)]"
                       title="현재 목록 전체 선택/해제"
                     >
-                      {filteredAddableProfiles.length > 0 && filteredAddableProfiles.every(p => selectedAddUserIds.has(p.id)) ? '전체 해제' : '전체 선택'}
+                      {filteredAddableProfiles.length > 0 && filteredAddableProfiles.every((p) => selectedAddUserIds.has(p.id))
+                        ? '전체 해제'
+                        : '전체 선택'}
                     </button>
                   </div>
                   <input
@@ -346,7 +333,9 @@ export function ShareModal({
                                   onChange={() => toggleAddSelection(p.id)}
                                   className="rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
                                 />
-                                <span className="text-sm text-stone-700 truncate" title={label}>{label}</span>
+                                <span className="text-sm text-stone-700 truncate" title={label}>
+                                  {label}
+                                </span>
                               </label>
                             </li>
                           );
@@ -372,10 +361,10 @@ export function ShareModal({
                   onClick={handleAddMembersBulk}
                   disabled={selectedAddUserIds.size === 0 || adding}
                   className={cn(
-                    "px-4 py-2 rounded-lg font-medium text-sm transition-colors shrink-0",
+                    'px-4 py-2 rounded-lg font-medium text-sm transition-colors shrink-0',
                     selectedAddUserIds.size > 0 && !adding
-                      ? "bg-teal-600 text-white hover:bg-teal-700"
-                      : "bg-stone-100 text-stone-400 cursor-not-allowed"
+                      ? 'bg-teal-600 text-white hover:bg-teal-700'
+                      : 'bg-stone-100 text-stone-400 cursor-not-allowed',
                   )}
                   title="체크한 사용자에게 권한을 일괄 부여"
                 >
@@ -383,7 +372,9 @@ export function ShareModal({
                 </button>
               </div>
               {isAdmin && (
-                <p className="text-[11px] text-stone-400 mt-1.5">관리자: 모든 프로젝트에 대해 사용자별 보기/편집 권한을 부여할 수 있습니다.</p>
+                <p className="text-[11px] text-stone-400 mt-1.5">
+                  관리자: 모든 프로젝트에 대해 사용자별 보기/편집 권한을 부여할 수 있습니다.
+                </p>
               )}
             </div>
           )}

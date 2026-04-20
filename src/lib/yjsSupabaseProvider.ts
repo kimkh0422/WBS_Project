@@ -38,18 +38,14 @@ export class SupabaseYjsProvider {
   public awareness: Awareness;
   private clientId: string;
   private destroyed = false;
-  private localUpdateHandler: ((update: Uint8Array, origin: any) => void) | null = null;
-  private awarenessUpdateHandler: (({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: any) => void) | null = null;
+  private localUpdateHandler: ((update: Uint8Array, origin: unknown) => void) | null = null;
+  private awarenessUpdateHandler:
+    | (({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => void)
+    | null = null;
   private outbox: BroadcastPayload[] = [];
   private flushScheduled = false;
 
-  constructor(opts: {
-    supabase: SupabaseClient;
-    channelName: string;
-    doc: Y.Doc;
-    awareness?: Awareness;
-    clientId: string;
-  }) {
+  constructor(opts: { supabase: SupabaseClient; channelName: string; doc: Y.Doc; awareness?: Awareness; clientId: string }) {
     this.supabase = opts.supabase;
     this.channelName = opts.channelName;
     this.doc = opts.doc;
@@ -68,8 +64,8 @@ export class SupabaseYjsProvider {
 
     // Defer handling off the Realtime _trigger stack to avoid re-entrancy
     // (RangeError: Maximum call stack size exceeded in some client versions).
-    channel.on('broadcast', { event: 'yjs' }, (evt: any) => {
-      const raw = (evt?.payload ?? evt) as BroadcastPayload | undefined;
+    channel.on('broadcast', { event: 'yjs' }, (evt: { payload?: BroadcastPayload } | BroadcastPayload | undefined) => {
+      const raw = ((evt as { payload?: BroadcastPayload } | undefined)?.payload ?? evt) as BroadcastPayload | undefined;
       queueMicrotask(() => {
         if (this.destroyed) return;
         const payload = raw;
@@ -111,7 +107,7 @@ export class SupabaseYjsProvider {
       }
     });
 
-    this.localUpdateHandler = (update: Uint8Array, origin: any) => {
+    this.localUpdateHandler = (update: Uint8Array, origin: unknown) => {
       if (origin === this) return;
       const msg: BroadcastPayload = { t: 'update', u: uint8ToBase64(update), from: this.clientId };
       this.enqueueSend(msg);
@@ -120,7 +116,7 @@ export class SupabaseYjsProvider {
 
     this.awarenessUpdateHandler = (
       { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
-      origin: unknown
+      origin: unknown,
     ) => {
       // Remote applyAwarenessUpdate(..., this) must not echo back (storm / re-entrancy).
       if (origin === this) return;
@@ -192,4 +188,3 @@ export class SupabaseYjsProvider {
     this.channel = null;
   }
 }
-

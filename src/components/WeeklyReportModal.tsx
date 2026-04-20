@@ -1,17 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Copy, AlertCircle, User, Briefcase, Layers, FolderOpen, Download, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  addDays,
-  differenceInCalendarDays,
-  parseISO,
-  isBefore,
-  isAfter,
-  isValid,
-} from 'date-fns';
+import { format, startOfWeek, endOfWeek, addDays, differenceInCalendarDays, parseISO, isBefore, isAfter, isValid } from 'date-fns';
 import { Task, Project } from '../types';
 import { TaskModal } from './TaskModal';
 import { useWBS } from '../context/WBSContext';
@@ -65,21 +55,10 @@ function isInRange(date: Date | null, from: Date, to: Date): boolean {
   return !isBefore(date, from) && !isAfter(date, to);
 }
 
-export function WeeklyReportModal({
-  isOpen,
-  onClose,
-  tasks,
-  projects,
-  currentProjectId,
-  currentUserDisplay,
-}: WeeklyReportModalProps) {
+export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentProjectId, currentUserDisplay }: WeeklyReportModalProps) {
   const { updateTask, addTask } = useWBS();
-  const [baseStartStr, setBaseStartStr] = useState(() =>
-    format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-  );
-  const [baseEndStr, setBaseEndStr] = useState(() =>
-    format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-  );
+  const [baseStartStr, setBaseStartStr] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+  const [baseEndStr, setBaseEndStr] = useState(() => format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [scope, setScope] = useState<Scope>('me');
   const [projectScope, setProjectScope] = useState<ProjectScope>('all');
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
@@ -105,9 +84,7 @@ export function WeeklyReportModal({
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : undefined;
   // 다중 선택에서 프로젝트 1개일 때 프로젝트 요약 테이블용
   const currentProject =
-    projectScope === 'multiple' && selectedProjectIds.length === 1
-      ? projects.find((p) => p.id === selectedProjectIds[0]) || null
-      : null;
+    projectScope === 'multiple' && selectedProjectIds.length === 1 ? projects.find((p) => p.id === selectedProjectIds[0]) || null : null;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -147,7 +124,11 @@ export function WeeklyReportModal({
 
   const { reportText, summary, sections } = useMemo(() => {
     if (!isOpen) {
-      return { reportText: '', summary: { thisWeekCount: 0, nextWeekCount: 0, issueCount: 0, overallProgress: 0, overallEffort: 0 }, sections: { thisWeek: [], nextWeek: [], issues: [] } };
+      return {
+        reportText: '',
+        summary: { thisWeekCount: 0, nextWeekCount: 0, issueCount: 0, overallProgress: 0, overallEffort: 0 },
+        sections: { thisWeek: [], nextWeek: [], issues: [] },
+      };
     }
 
     const today = new Date();
@@ -160,9 +141,7 @@ export function WeeklyReportModal({
 
     // 프로젝트 범위에 따른 허용 projectId 집합 (null = 전체)
     const allowedProjectIds: Set<string> | null =
-      projectScope === 'all' || selectedProjectIds.length === 0
-        ? null
-        : new Set(selectedProjectIds);
+      projectScope === 'all' || selectedProjectIds.length === 0 ? null : new Set(selectedProjectIds);
 
     const projectName =
       projectScope === 'multiple' && selectedProjectIds.length > 0
@@ -213,7 +192,11 @@ export function WeeklyReportModal({
      *  - 체크리스트가 없으면 하위 작업 중 완료된 항목을 대신 사용
      */
     const getCompletedChecklistDetail = (task: Task): string => {
-      const completed = task.checklist?.filter((c) => c.completed).map((c) => c.text.trim()).filter(Boolean) ?? [];
+      const completed =
+        task.checklist
+          ?.filter((c) => c.completed)
+          .map((c) => c.text.trim())
+          .filter(Boolean) ?? [];
       if (completed.length > 0) return completed.map((t) => `• ${t}`).join('\n');
 
       // 체크리스트가 없으면 하위 작업의 완료 항목을 사용
@@ -233,7 +216,11 @@ export function WeeklyReportModal({
      *  - 체크리스트가 없으면 하위 작업 중 미완료 항목을 대신 사용
      */
     const getIncompleteChecklistDetail = (task: Task): string => {
-      const incomplete = task.checklist?.filter((c) => !c.completed).map((c) => c.text.trim()).filter(Boolean) ?? [];
+      const incomplete =
+        task.checklist
+          ?.filter((c) => !c.completed)
+          .map((c) => c.text.trim())
+          .filter(Boolean) ?? [];
       if (incomplete.length > 0) return incomplete.map((t) => `• ${t}`).join('\n');
 
       // 체크리스트가 없으면 하위 작업의 미완료 항목을 사용
@@ -259,7 +246,9 @@ export function WeeklyReportModal({
         const w =
           typeof t.weight === 'number' && Number.isFinite(t.weight)
             ? t.weight
-            : (typeof t.workEffort === 'number' && t.workEffort > 0 ? t.workEffort : 0);
+            : typeof t.workEffort === 'number' && t.workEffort > 0
+              ? t.workEffort
+              : 0;
         totalWeight += w;
         acc += p * w;
       }
@@ -275,7 +264,7 @@ export function WeeklyReportModal({
       const start = parseDate(t.startDate);
       const end = parseDate(t.endDate);
       const progress = typeof t.progress === 'number' ? t.progress : 0;
-      const isDone = (t.status === 'done') || progress >= 100;
+      const isDone = t.status === 'done' || progress >= 100;
 
       // 금주 완료
       if (isDone && isInRange(end, thisWeekStart, thisWeekEnd)) {
@@ -348,8 +337,7 @@ export function WeeklyReportModal({
     for (const [pname, items] of byProject(issues)) {
       for (const t of items) {
         const end = parseDate(t.endDate);
-        const overdue =
-          end && isBefore(end, today) && (typeof t.progress === 'number' ? t.progress : 0) < 100;
+        const overdue = end && isBefore(end, today) && (typeof t.progress === 'number' ? t.progress : 0) < 100;
         const tags: string[] = [];
         if (t.isIssue) tags.push('이슈');
         if (t.status === 'blocked') tags.push('지연됨');
@@ -400,7 +388,15 @@ export function WeeklyReportModal({
       '',
     );
 
-    if (currentProject && (currentProject.reportCategory || currentProject.reportAgency || currentProject.reportBudgetThisYear || currentProject.reportTotalPeriod || currentProject.reportNameShort || currentProject.reportNameFull)) {
+    if (
+      currentProject &&
+      (currentProject.reportCategory ||
+        currentProject.reportAgency ||
+        currentProject.reportBudgetThisYear ||
+        currentProject.reportTotalPeriod ||
+        currentProject.reportNameShort ||
+        currentProject.reportNameFull)
+    ) {
       const taskNameShort = currentProject.reportNameShort || currentProject.name;
       const taskNameFull = currentProject.reportNameFull || (currentProject.reportNameShort ? '' : currentProject.name);
       lines.push(
@@ -415,18 +411,7 @@ export function WeeklyReportModal({
       );
     }
 
-    lines.push(
-      [
-        '구분',
-        '프로젝트',
-        '업무명',
-        '업무 내용',
-        '담당자',
-        '투입공수(일)',
-        '진척율(%)',
-        '비고',
-      ].join(' | '),
-    );
+    lines.push(['구분', '프로젝트', '업무명', '업무 내용', '담당자', '투입공수(일)', '진척율(%)', '비고'].join(' | '));
     lines.push(['---', '---', '---', '---', '---', '---', '---', '---'].join(' | '));
 
     if (allRows.length === 0) {
@@ -479,14 +464,20 @@ export function WeeklyReportModal({
 
     // 제목 행
     aoa.push([`[주간보고] ${pName} / 담당자: ${currentUserDisplay || '작성자'} / 기간: ${baseStartStr} ~ ${baseEndStr}`]);
-    aoa.push([`전체 진척율: ${summary.overallProgress}%  |  금주한일: ${summary.thisWeekCount}건  |  차주계획: ${summary.nextWeekCount}건  |  이슈: ${summary.issueCount}건  |  총 투입공수: ${summary.overallEffort}일`]);
+    aoa.push([
+      `전체 진척율: ${summary.overallProgress}%  |  금주한일: ${summary.thisWeekCount}건  |  차주계획: ${summary.nextWeekCount}건  |  이슈: ${summary.issueCount}건  |  총 투입공수: ${summary.overallEffort}일`,
+    ]);
     aoa.push([]);
 
     // 프로젝트 요약 (단일 프로젝트 선택 시)
     if (
       currentProject &&
-      (currentProject.reportCategory || currentProject.reportAgency || currentProject.reportBudgetThisYear ||
-        currentProject.reportTotalPeriod || currentProject.reportNameShort || currentProject.reportNameFull)
+      (currentProject.reportCategory ||
+        currentProject.reportAgency ||
+        currentProject.reportBudgetThisYear ||
+        currentProject.reportTotalPeriod ||
+        currentProject.reportNameShort ||
+        currentProject.reportNameFull)
     ) {
       aoa.push(['[프로젝트 요약]', '']);
       aoa.push(['구분', currentProject.reportCategory || '-']);
@@ -507,32 +498,14 @@ export function WeeklyReportModal({
       aoa.push(['금주/차주/이슈에 해당하는 업무가 없습니다.', '', '', '', '', '', '', '']);
     } else {
       for (const row of allRows) {
-        aoa.push([
-          row.category,
-          row.projectName,
-          row.name,
-          row.detail,
-          row.assignee,
-          row.workEffort,
-          row.progress,
-          row.note || '',
-        ]);
+        aoa.push([row.category, row.projectName, row.name, row.detail, row.assignee, row.workEffort, row.progress, row.note || '']);
       }
     }
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
     // 열 너비 설정
-    ws['!cols'] = [
-      { wch: 10 },
-      { wch: 22 },
-      { wch: 32 },
-      { wch: 48 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 18 },
-    ];
+    ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 32 }, { wch: 48 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 18 }];
 
     XLSX.utils.book_append_sheet(wb, ws, '주간보고');
     XLSX.writeFile(wb, `주간보고_${baseStartStr}_${baseEndStr}.xlsx`);
@@ -552,9 +525,7 @@ export function WeeklyReportModal({
               <div className="flex items-center gap-2">
                 <h2 className="text-base md:text-lg font-bold text-slate-900">주간보고 자동 생성</h2>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                금주 완료·차주 계획·이슈를 현재 작업에서 자동으로 추출합니다.
-              </p>
+              <p className="text-xs text-slate-500 mt-0.5">금주 완료·차주 계획·이슈를 현재 작업에서 자동으로 추출합니다.</p>
             </div>
           </div>
           <button
@@ -633,22 +604,17 @@ export function WeeklyReportModal({
               onClick={() => setScope('me')}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
-                scope === 'me'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                scope === 'me' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               )}
             >
-              <User size={12} />
-              내 업무만
+              <User size={12} />내 업무만
             </button>
             <button
               type="button"
               onClick={() => setScope('all')}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
-                scope === 'all'
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                scope === 'all' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
               )}
             >
               <Briefcase size={12} />
@@ -667,9 +633,7 @@ export function WeeklyReportModal({
                 }}
                 className={cn(
                   'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
-                  projectScope === 'all'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  projectScope === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 )}
               >
                 <FolderOpen size={12} />
@@ -685,9 +649,7 @@ export function WeeklyReportModal({
                 }}
                 className={cn(
                   'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
-                  projectScope === 'multiple'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  projectScope === 'multiple' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 )}
               >
                 <Layers size={12} />
@@ -753,18 +715,14 @@ export function WeeklyReportModal({
                     <td className="px-2 py-1.5 border-b border-slate-100 align-top">
                       <div className="text-slate-700">{currentProject.reportNameFull || '-'}</div>
                       {currentProject.description && !currentProject.reportNameFull && (
-                        <div className="text-[10px] text-slate-500 mt-0.5">
-                          {currentProject.description}
-                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{currentProject.description}</div>
                       )}
                     </td>
                     <td className="px-2 py-1.5 border-b border-slate-100 align-top whitespace-nowrap">
                       {currentProject.reportBudgetThisYear || '-'}
                     </td>
                     <td className="px-2 py-1.5 border-b border-slate-100 align-top whitespace-nowrap">
-                      {currentProject.reportTotalPeriod ||
-                        currentProject.startDate ||
-                        '-'}
+                      {currentProject.reportTotalPeriod || currentProject.startDate || '-'}
                     </td>
                   </tr>
                 </tbody>
@@ -778,15 +736,8 @@ export function WeeklyReportModal({
               <strong className="text-slate-800">{summary.issueCount}</strong>건
             </span>
             <span>
-              전체 투입공수 합계{' '}
-              <strong className="text-slate-800">
-                {summary.overallEffort.toFixed(1)}
-              </strong>
-              일 · 평균 진척율{' '}
-              <strong className="text-slate-800">
-                {summary.overallProgress}
-              </strong>
-              %
+              전체 투입공수 합계 <strong className="text-slate-800">{summary.overallEffort.toFixed(1)}</strong>일 · 평균 진척율{' '}
+              <strong className="text-slate-800">{summary.overallProgress}</strong>%
             </span>
           </div>
         </div>
@@ -795,8 +746,7 @@ export function WeeklyReportModal({
           <div className="w-full h-full rounded-xl border border-slate-200 bg-slate-50/60 overflow-auto p-3 space-y-6">
             {(['thisWeek', 'nextWeek', 'issues'] as const).map((key) => {
               const rows = sections[key];
-              const title =
-                key === 'thisWeek' ? '1. 금주한일' : key === 'nextWeek' ? '2. 차주계획' : '3. 이슈사항';
+              const title = key === 'thisWeek' ? '1. 금주한일' : key === 'nextWeek' ? '2. 차주계획' : '3. 이슈사항';
 
               const projectCounts = new Map<string, number>();
               rows.forEach((r) => {
@@ -822,10 +772,7 @@ export function WeeklyReportModal({
                       )}
                       <span className="text-[11px] text-slate-500">
                         {rows.length}건 · 합계 공수{' '}
-                        <strong className="text-slate-700">
-                          {rows.reduce((sum, r) => sum + (r.workEffort || 0), 0).toFixed(1)}
-                        </strong>
-                        일
+                        <strong className="text-slate-700">{rows.reduce((sum, r) => sum + (r.workEffort || 0), 0).toFixed(1)}</strong>일
                       </span>
                     </div>
                   </div>
@@ -844,10 +791,7 @@ export function WeeklyReportModal({
                     <tbody>
                       {rows.length === 0 ? (
                         <tr>
-                          <td
-                            className="px-3 py-4 text-center text-slate-400 text-xs"
-                            colSpan={7}
-                          >
+                          <td className="px-3 py-4 text-center text-slate-400 text-xs" colSpan={7}>
                             해당되는 업무가 없습니다.
                           </td>
                         </tr>
@@ -885,45 +829,30 @@ export function WeeklyReportModal({
                               )}
                               {!isFirstForProject && null}
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-900 font-semibold min-w-[140px]">
-                                <div
-                                  contentEditable
-                                  suppressContentEditableWarning
-                                >
+                                <div contentEditable suppressContentEditableWarning>
                                   {row.name}
                                 </div>
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-700 min-w-[220px]">
-                                <div
-                                  contentEditable
-                                  suppressContentEditableWarning
-                                >
+                                <div contentEditable suppressContentEditableWarning>
                                   {row.detail || '-'}
                                 </div>
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top whitespace-nowrap text-slate-700">
-                                <div
-                                  contentEditable
-                                  suppressContentEditableWarning
-                                >
+                                <div contentEditable suppressContentEditableWarning>
                                   {row.assignee || '-'}
                                 </div>
                               </td>
-                            <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
-                              <div
-                                contentEditable
-                                suppressContentEditableWarning
-                              >
-                                {row.workEffort ? row.workEffort.toFixed(1) : '-'}
-                              </div>
-                            </td>
-                            <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
-                              <div
-                                contentEditable
-                                suppressContentEditableWarning
-                              >
-                                {typeof row.progress === 'number' ? formatNum2(row.progress) : row.progress}
-                              </div>
-                            </td>
+                              <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
+                                <div contentEditable suppressContentEditableWarning>
+                                  {row.workEffort ? row.workEffort.toFixed(1) : '-'}
+                                </div>
+                              </td>
+                              <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
+                                <div contentEditable suppressContentEditableWarning>
+                                  {typeof row.progress === 'number' ? formatNum2(row.progress) : row.progress}
+                                </div>
+                              </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-700 whitespace-nowrap">
                                 {row.isManual ? (
                                   <div className="flex items-center gap-1">
@@ -963,7 +892,9 @@ export function WeeklyReportModal({
                           >
                             <option value="">-- 선택 --</option>
                             {projects.map((p) => (
-                              <option key={p.id} value={p.name}>{p.name}</option>
+                              <option key={p.id} value={p.name}>
+                                {p.name}
+                              </option>
                             ))}
                             <option value="기타">기타</option>
                           </select>
@@ -1037,15 +968,18 @@ export function WeeklyReportModal({
                           disabled={!newIssueDraft.name.trim()}
                           onClick={() => {
                             if (!newIssueDraft.name.trim()) return;
-                            setManualIssues((prev) => [...prev, {
-                              id: `manual-${Date.now()}`,
-                              projectName: newIssueDraft.projectName || '수동 입력',
-                              name: newIssueDraft.name.trim(),
-                              detail: newIssueDraft.detail.trim(),
-                              assignee: newIssueDraft.assignee.trim(),
-                              workEffort: parseFloat(newIssueDraft.workEffort) || 0,
-                              note: newIssueDraft.note.trim(),
-                            }]);
+                            setManualIssues((prev) => [
+                              ...prev,
+                              {
+                                id: `manual-${Date.now()}`,
+                                projectName: newIssueDraft.projectName || '수동 입력',
+                                name: newIssueDraft.name.trim(),
+                                detail: newIssueDraft.detail.trim(),
+                                assignee: newIssueDraft.assignee.trim(),
+                                workEffort: parseFloat(newIssueDraft.workEffort) || 0,
+                                note: newIssueDraft.note.trim(),
+                              },
+                            ]);
                             setNewIssueDraft({ projectName: '', name: '', detail: '', assignee: '', workEffort: '', note: '' });
                             setShowAddIssueForm(false);
                           }}
@@ -1064,14 +998,11 @@ export function WeeklyReportModal({
 
         <div className="px-5 py-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center gap-3">
           <p className="text-[11px] text-slate-500">
-            * 금주한일 업무 내용=체크리스트 완료 항목(없으면 하위 작업 완료 항목), 차주계획 업무 내용=체크리스트 미완료 항목(없으면 하위 작업 미완료 항목, 차주수행업무). 체크리스트·하위 작업 모두 없으면 설명·산출물 표시.
+            * 금주한일 업무 내용=체크리스트 완료 항목(없으면 하위 작업 완료 항목), 차주계획 업무 내용=체크리스트 미완료 항목(없으면 하위
+            작업 미완료 항목, 차주수행업무). 체크리스트·하위 작업 모두 없으면 설명·산출물 표시.
           </p>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-ghost text-xs md:text-sm"
-            >
+            <button type="button" onClick={onClose} className="btn-ghost text-xs md:text-sm">
               닫기
             </button>
             <button
@@ -1090,11 +1021,7 @@ export function WeeklyReportModal({
               <Copy size={14} />
               {copied ? '복사됨' : '텍스트 복사'}
             </button>
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="btn-primary flex items-center gap-1.5 text-xs md:text-sm"
-            >
+            <button type="button" onClick={handleExportExcel} className="btn-primary flex items-center gap-1.5 text-xs md:text-sm">
               <Download size={14} />
               Excel 내보내기
             </button>
@@ -1105,7 +1032,7 @@ export function WeeklyReportModal({
       <TaskModal
         isOpen={!!editingTaskId}
         onClose={() => setEditingTaskId(null)}
-        onSave={(updates: any) => {
+        onSave={(updates: Partial<Task>) => {
           const task = editingTask;
           if (!task) return;
           if (task.id === '') {
@@ -1129,4 +1056,3 @@ export function WeeklyReportModal({
 function FileTextIcon() {
   return <span className="inline-block w-4 h-4 rounded-[4px] bg-indigo-500" />;
 }
-
