@@ -1,6 +1,21 @@
 import React, { useRef, useState, useCallback } from 'react';
 import type { Task } from '../types';
-import { upsertTasks } from '../lib/db';
+import { upsertTasks, deleteTasksFromDB } from '../lib/db';
+
+function diffRemovedIds(from: Task[], to: Task[]): string[] {
+  const toIds = new Set(to.map((t) => t.id));
+  const removed: string[] = [];
+  for (const t of from) {
+    if (!toIds.has(t.id)) removed.push(t.id);
+  }
+  return removed;
+}
+
+async function syncStateToDb(current: Task[], target: Task[]): Promise<void> {
+  const removedIds = diffRemovedIds(current, target);
+  if (removedIds.length > 0) await deleteTasksFromDB(removedIds);
+  await upsertTasks(target);
+}
 
 interface UseWbsHistoryOptions {
   allTasksRef: React.MutableRefObject<Task[]>;
@@ -10,13 +25,7 @@ interface UseWbsHistoryOptions {
   handleDbError: (err: unknown, msg: string) => void;
 }
 
-export function useWbsHistory({
-  allTasksRef,
-  setAllTasks,
-  bumpDirty,
-  useLocalOnlyRef,
-  handleDbError,
-}: UseWbsHistoryOptions) {
+export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError }: UseWbsHistoryOptions) {
   const historyRef = useRef<Task[][]>([]);
   const redoRef = useRef<Task[][]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -33,25 +42,31 @@ export function useWbsHistory({
   const undo = useCallback(() => {
     if (historyRef.current.length === 0) return;
     const previous = historyRef.current[historyRef.current.length - 1];
+    const current = allTasksRef.current;
     historyRef.current = historyRef.current.slice(0, -1);
-    redoRef.current = [...redoRef.current.slice(-49), [...allTasksRef.current]];
+    redoRef.current = [...redoRef.current.slice(-49), [...current]];
     setCanUndo(historyRef.current.length > 0);
     setCanRedo(true);
     setAllTasks(previous);
     bumpDirty();
-    if (!useLocalOnlyRef.current) upsertTasks(previous).catch(err => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
+    if (!useLocalOnlyRef.current) {
+      syncStateToDb(current, previous).catch((err) => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
+    }
   }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
 
   const redo = useCallback(() => {
     if (redoRef.current.length === 0) return;
     const next = redoRef.current[redoRef.current.length - 1];
+    const current = allTasksRef.current;
     redoRef.current = redoRef.current.slice(0, -1);
-    historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
+    historyRef.current = [...historyRef.current.slice(-49), [...current]];
     setCanRedo(redoRef.current.length > 0);
     setCanUndo(true);
     setAllTasks(next);
     bumpDirty();
-    if (!useLocalOnlyRef.current) upsertTasks(next).catch(err => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
+    if (!useLocalOnlyRef.current) {
+      syncStateToDb(current, next).catch((err) => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
+    }
   }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
 
   return { saveHistory, undo, redo, canUndo, canRedo };
