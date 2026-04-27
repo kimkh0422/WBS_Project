@@ -196,7 +196,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             },
             currentTaskId,
           );
-          setSelection(new Set([newId]));
           moveToTaskId(newId);
         }, 0);
         return;
@@ -663,7 +662,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           },
           insertAfterId,
         );
-        setSelection(new Set([newId]));
         setLastSelectedId(newId);
         setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
@@ -699,7 +697,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             },
             insertAfterId,
           );
-          setSelection(new Set([newId]));
           setLastSelectedId(newId);
           setInlineEditingNameId(newId);
         } else {
@@ -724,7 +721,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             updateTask(baseTask.id, { expanded: true });
           }
 
-          setSelection(new Set([newId]));
           setLastSelectedId(newId);
           setInlineEditingNameId(newId);
         }

@@ -623,8 +623,7 @@ export function WBSTable({
     setInlineAddingTaskId(null);
     setInsertTargetId(null);
 
-    // Select the newly added task so pressing Enter again adds below it
-    setSelection(new Set([newId]));
+    // 포커스만 새 작업으로 이동 (체크박스는 자동 선택하지 않음)
     setLastSelectedId(newId);
   };
 
