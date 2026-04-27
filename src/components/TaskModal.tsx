@@ -177,8 +177,6 @@ export function TaskModal({
 }: TaskModalProps) {
   const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, editableProjectIds } = useWBS();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
-  const readOnly =
-    readOnlyProp ?? (editableProjectIds != null && editableProjectIds.length > 0 && !editableProjectIds.includes(taskProjectId ?? ''));
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
@@ -186,6 +184,14 @@ export function TaskModal({
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find((p) => p.id === taskProjectId);
+  // 소유자는 editableProjectIds 갱신 전이라도 편집 가능 (WBSContext.canEditCurrentProject와 동일한 규칙)
+  const isOwnerOfTaskProject = !!currentUserId && taskProject?.ownerId === currentUserId;
+  const readOnly =
+    readOnlyProp ??
+    (editableProjectIds != null &&
+      editableProjectIds.length > 0 &&
+      !editableProjectIds.includes(taskProjectId ?? '') &&
+      !isOwnerOfTaskProject);
   const projectAssignments = (taskProject?.assignments ?? []).map((a) => ({
     assignee: a.assignee,
     allocationPercent: a.allocationPercent,
