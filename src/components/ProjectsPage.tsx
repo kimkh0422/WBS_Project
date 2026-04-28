@@ -5,19 +5,10 @@ import { ProjectModal } from './ProjectModal';
 import { ShareModal } from './ShareModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useToast } from './Toast';
-import {
-  FolderPlus,
-  Trash2,
-  Edit,
-  Share2,
-  Copy,
-  List,
-  ChevronRight,
-  Loader2,
-} from 'lucide-react';
+import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project } from '../types';
-import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
+import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames, getMyEditableProjectIds } from '../lib/db';
 
 interface ProjectsPageProps {
   onNavigateToWork?: (projectId?: string) => void;
@@ -33,6 +24,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isAdmin, setIsAdmin] = useState(false);
+  // 편집 권한이 부여된 프로젝트 ID. undefined: 로딩 전(fail-open으로 편집 버튼 표시)
+  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [shareProjectId, setShareProjectId] = useState<string | null>(null);
@@ -47,7 +40,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   useEffect(() => {
     if (!user?.id) return;
-    checkIsAdmin().then(setIsAdmin).catch(() => setIsAdmin(false));
+    checkIsAdmin()
+      .then(setIsAdmin)
+      .catch(() => setIsAdmin(false));
+    getMyEditableProjectIds()
+      .then(setMyEditableProjectIds)
+      .catch(() => setMyEditableProjectIds([]));
   }, [user?.id]);
 
   useEffect(() => {
@@ -67,8 +65,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       setOwnerDisplayNames({});
       return;
     }
-    const knownIds = new Set<string>(profiles.map(p => p.id));
-    const missingOwnerIds = [...new Set<string>(projects.map(p => p.ownerId).filter((id): id is string => !!id))].filter(id => !knownIds.has(id));
+    const knownIds = new Set<string>(profiles.map((p) => p.id));
+    const missingOwnerIds = [...new Set<string>(projects.map((p) => p.ownerId).filter((id): id is string => !!id))].filter(
+      (id) => !knownIds.has(id),
+    );
     if (missingOwnerIds.length === 0) {
       setOwnerDisplayNames({});
       return;
@@ -78,7 +78,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   const profileMap = useMemo(() => {
     const m: Record<string, string> = {};
-    profiles.forEach(p => {
+    profiles.forEach((p) => {
       const name = p.full_name && String(p.full_name).trim();
       m[p.id] = name || p.email || '(이메일 없음)';
     });
@@ -88,10 +88,17 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   const effectiveIsAdmin = isAdmin;
 
+  // 권한 헬퍼: 시스템 관리자 / 프로젝트 소유자 / 편집 멤버
+  const isProjectOwner = (p: Project) => !!user?.id && p.ownerId === user.id;
+  const canManageProject = (p: Project) => effectiveIsAdmin || isProjectOwner(p);
+  const canEditProject = (p: Project) => canManageProject(p) || myEditableProjectIds === undefined || myEditableProjectIds.includes(p.id);
+
   const taskCountByProject = useMemo(() => {
     const m: Record<string, number> = {};
-    projects.forEach(p => { m[p.id] = 0; });
-    allTasks.forEach(t => {
+    projects.forEach((p) => {
+      m[p.id] = 0;
+    });
+    allTasks.forEach((t) => {
       if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
     });
     return m;
@@ -100,7 +107,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   // id 기준으로만 표시 (사용자별 복사본이 원본과 합쳐지지 않음)
   const uniqueProjects = useMemo(() => {
     const seen = new Set<string>();
-    return projects.filter(p => {
+    return projects.filter((p) => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
       return true;
@@ -141,10 +148,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       if (user?.id && kb === user.id) return 1;
       if (ka === '__none__') return 1;
       if (kb === '__none__') return -1;
-      return ownerLabel(ka === '__none__' ? undefined : ka).localeCompare(
-        ownerLabel(kb === '__none__' ? undefined : kb),
-        'ko'
-      );
+      return ownerLabel(ka === '__none__' ? undefined : ka).localeCompare(ownerLabel(kb === '__none__' ? undefined : kb), 'ko');
     });
     return entries;
   }, [sortedProjects, user?.id, profileMap]);
@@ -202,14 +206,17 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   const handleBulkDelete = () => {
     const ids = Array.from(selectedProjectIds);
-    ids.forEach(id => deleteProject(id));
+    ids.forEach((id) => deleteProject(id));
     setSelectedProjectIds(new Set());
     setIsBulkDeleteConfirmOpen(false);
     pushToast(`${ids.length}개 프로젝트가 삭제되었습니다.`, { variant: 'success' });
   };
 
+  // 일괄 삭제 선택 가능한 프로젝트(소유자·관리자만)
+  const manageableProjects = useMemo(() => uniqueProjects.filter((p) => canManageProject(p)), [uniqueProjects, effectiveIsAdmin, user?.id]);
+
   const toggleProjectSelection = (projectId: string) => {
-    setSelectedProjectIds(prev => {
+    setSelectedProjectIds((prev) => {
       const next = new Set(prev);
       if (next.has(projectId)) next.delete(projectId);
       else next.add(projectId);
@@ -218,10 +225,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   };
 
   const toggleSelectAll = () => {
-    if (selectedProjectIds.size >= uniqueProjects.length) {
+    if (selectedProjectIds.size >= manageableProjects.length) {
       setSelectedProjectIds(new Set());
     } else {
-      setSelectedProjectIds(new Set(uniqueProjects.map(p => p.id)));
+      setSelectedProjectIds(new Set(manageableProjects.map((p) => p.id)));
     }
   };
 
@@ -231,9 +238,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   };
 
   const selectZeroTaskProjects = () => {
-    const emptyIds = uniqueProjects
-      .filter(p => (taskCountByProject[p.id] ?? 0) === 0)
-      .map(p => p.id);
+    const emptyIds = manageableProjects.filter((p) => (taskCountByProject[p.id] ?? 0) === 0).map((p) => p.id);
     setSelectedProjectIds(new Set(emptyIds));
   };
 
@@ -242,122 +247,130 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     onNavigateToWork?.(projectId);
   };
 
-  const renderProjectCard = (project: Project) => (
-    <div
-      key={project.id}
-      role="button"
-      tabIndex={0}
-      className={cn(
-        'bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all',
-        'hover:shadow-md hover:border-stone-300 cursor-pointer'
-      )}
-      onDoubleClick={() => {
-        setEditingProject(project);
-        setIsProjectModalOpen(true);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+  const renderProjectCard = (project: Project) => {
+    const canManage = canManageProject(project);
+    const canEdit = canEditProject(project);
+    return (
+      <div
+        key={project.id}
+        role="button"
+        tabIndex={0}
+        className={cn(
+          'bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all',
+          'hover:shadow-md hover:border-stone-300 cursor-pointer',
+        )}
+        onDoubleClick={() => {
+          if (!canEdit) return;
           setEditingProject(project);
           setIsProjectModalOpen(true);
-        }
-      }}
-      title="더블클릭: 편집"
-    >
-      <div className="flex items-center gap-4 p-4">
-        {uniqueProjects.length > 1 && (
-          <input
-            type="checkbox"
-            checked={selectedProjectIds.has(project.id)}
-            onChange={() => {}}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleProjectSelection(project.id);
-            }}
-            className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] shrink-0 cursor-pointer"
-            title="다중 선택"
-          />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
-            {(taskCountByProject[project.id] ?? 0) > 0 && (
-              <span className="text-xs text-stone-400 shrink-0">
-                ({taskCountByProject[project.id] ?? 0}개 작업)
-              </span>
-            )}
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            if (!canEdit) return;
+            e.preventDefault();
+            setEditingProject(project);
+            setIsProjectModalOpen(true);
+          }
+        }}
+        title={canEdit ? '더블클릭: 편집' : '편집 권한이 없습니다'}
+      >
+        <div className="flex items-center gap-4 p-4">
+          {manageableProjects.length > 1 && canManage && (
+            <input
+              type="checkbox"
+              checked={selectedProjectIds.has(project.id)}
+              onChange={() => {}}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleProjectSelection(project.id);
+              }}
+              className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] shrink-0 cursor-pointer"
+              title="다중 선택 (삭제 권한이 있는 프로젝트만 선택 가능)"
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
+              {(taskCountByProject[project.id] ?? 0) > 0 && (
+                <span className="text-xs text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개 작업)</span>
+              )}
+            </div>
+            <span
+              className="text-xs text-stone-400 truncate block mt-0.5"
+              title={project.ownerId ? (profileMap[project.ownerId] ?? project.ownerId) : undefined}
+            >
+              소유(만든 사람):{' '}
+              {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
+                <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
+              ) : (
+                ownerLabel(project.ownerId)
+              )}
+            </span>
           </div>
-          <span
-            className="text-xs text-stone-400 truncate block mt-0.5"
-            title={project.ownerId ? profileMap[project.ownerId] ?? project.ownerId : undefined}
-          >
-            소유(만든 사람):{' '}
-            {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
-              <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
-            ) : (
-              ownerLabel(project.ownerId)
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => handleNavigateToWork(project.id)}
+              className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
+              title="작업 보기"
+            >
+              <List size={16} />
+            </button>
+            {canManage && (
+              <button
+                onClick={() => handleOpenShare(project)}
+                className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+                title="공유"
+              >
+                <Share2 size={16} />
+              </button>
             )}
-          </span>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => handleNavigateToWork(project.id)}
-            className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
-            title="작업 보기"
-          >
-            <List size={16} />
-          </button>
-          <button
-            onClick={() => handleOpenShare(project)}
-            className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
-            title="공유"
-          >
-            <Share2 size={16} />
-          </button>
-          <button
-            onClick={() => {
-              copyProject(project.id);
-              onNavigateToWork?.();
-            }}
-            className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-            title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
-          >
-            <Copy size={16} />
-          </button>
-          <button
-            onClick={() => {
-              setEditingProject(project);
-              setIsProjectModalOpen(true);
-            }}
-            className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
-            title="편집"
-          >
-            <Edit size={16} />
-          </button>
-          {uniqueProjects.length > 1 && (
             <button
               onClick={() => {
-                setProjectToDelete(project);
-                setIsDeleteConfirmOpen(true);
+                copyProject(project.id);
+                onNavigateToWork?.();
               }}
-              className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-              title="삭제"
+              className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
             >
-              <Trash2 size={16} />
+              <Copy size={16} />
             </button>
-          )}
+            {canEdit && (
+              <button
+                onClick={() => {
+                  setEditingProject(project);
+                  setIsProjectModalOpen(true);
+                }}
+                className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                title="편집"
+              >
+                <Edit size={16} />
+              </button>
+            )}
+            {uniqueProjects.length > 1 && canManage && (
+              <button
+                onClick={() => {
+                  setProjectToDelete(project);
+                  setIsDeleteConfirmOpen(true);
+                }}
+                className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                title="삭제"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
         </div>
+        {onNavigateToWork && (
+          <button
+            onClick={() => handleNavigateToWork(project.id)}
+            className="w-full px-4 py-2 text-left text-xs font-medium text-stone-400 hover:bg-stone-50 hover:text-[var(--color-accent)] flex items-center gap-1 border-t border-stone-100"
+          >
+            작업 보기 <ChevronRight size={12} />
+          </button>
+        )}
       </div>
-      {onNavigateToWork && (
-        <button
-          onClick={() => handleNavigateToWork(project.id)}
-          className="w-full px-4 py-2 text-left text-xs font-medium text-stone-400 hover:bg-stone-50 hover:text-[var(--color-accent)] flex items-center gap-1 border-t border-stone-100"
-        >
-          작업 보기 <ChevronRight size={12} />
-        </button>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
@@ -368,7 +381,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <p className="text-sm text-stone-500 mt-0.5">프로젝트를 생성·편집·공유·삭제할 수 있습니다.</p>
           </div>
           <button
-            onClick={() => { setEditingProject(null); setIsProjectModalOpen(true); }}
+            onClick={() => {
+              setEditingProject(null);
+              setIsProjectModalOpen(true);
+            }}
             className="btn-primary flex items-center gap-2 shrink-0"
             title="새 프로젝트 생성"
           >
@@ -390,25 +406,26 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           </div>
         )}
 
-        {/* 툴바: 전체 선택 / 선택 삭제 */}
-        {uniqueProjects.length > 1 && (
+        {/* 툴바: 전체 선택 / 선택 삭제 (소유자·관리자만 다중 삭제 가능) */}
+        {manageableProjects.length > 1 && (
           <div className="flex items-center gap-3 mb-4 px-4 py-2 bg-white rounded-xl border border-stone-200 shadow-sm">
             <button
               onClick={toggleSelectAll}
               className="text-xs font-medium text-stone-500 hover:text-[var(--color-accent)]"
+              title={effectiveIsAdmin ? '전체 프로젝트 선택' : '내가 만든 프로젝트만 선택됩니다'}
             >
-              {selectedProjectIds.size >= uniqueProjects.length ? '선택 해제' : '전체 선택'}
+              {selectedProjectIds.size >= manageableProjects.length ? '선택 해제' : '전체 선택'}
             </button>
             <button
               onClick={selectZeroTaskProjects}
-              disabled={uniqueProjects.every(p => (taskCountByProject[p.id] ?? 0) > 0)}
+              disabled={manageableProjects.every((p) => (taskCountByProject[p.id] ?? 0) > 0)}
               className={cn(
-                "text-xs font-medium",
-                uniqueProjects.every(p => (taskCountByProject[p.id] ?? 0) > 0)
-                  ? "text-stone-300 cursor-not-allowed"
-                  : "text-stone-500 hover:text-[var(--color-accent)]"
+                'text-xs font-medium',
+                manageableProjects.every((p) => (taskCountByProject[p.id] ?? 0) > 0)
+                  ? 'text-stone-300 cursor-not-allowed'
+                  : 'text-stone-500 hover:text-[var(--color-accent)]',
               )}
-              title="작업이 0개인 프로젝트만 선택"
+              title="작업이 0개인 프로젝트만 선택 (삭제 권한이 있는 항목 중)"
             >
               0개만 선택
             </button>
@@ -454,10 +471,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               <FolderPlus className="mx-auto text-stone-300 mb-4" size={48} />
               <p className="text-stone-500 font-medium">등록된 프로젝트가 없습니다.</p>
               <p className="text-sm text-stone-400 mt-1">새 프로젝트를 만들어 시작하세요.</p>
-              <button
-                onClick={() => setIsProjectModalOpen(true)}
-                className="btn-primary mt-4"
-              >
+              <button onClick={() => setIsProjectModalOpen(true)} className="btn-primary mt-4">
                 새 프로젝트 만들기
               </button>
             </div>
@@ -481,25 +495,34 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
       <ProjectModal
         isOpen={isProjectModalOpen}
-        onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }}
+        onClose={() => {
+          setIsProjectModalOpen(false);
+          setEditingProject(null);
+        }}
         onSave={handleSaveProject}
         project={editingProject}
         allProjects={projects}
       />
       <ShareModal
         isOpen={!!shareProjectId}
-        onClose={() => { setShareProjectId(null); setShareProjectName(null); }}
+        onClose={() => {
+          setShareProjectId(null);
+          setShareProjectName(null);
+        }}
         projectId={shareProjectId ?? undefined}
         projectName={shareProjectName ?? undefined}
-        isOwner={projects.find(p => p.id === shareProjectId)?.ownerId === user?.id}
+        isOwner={projects.find((p) => p.id === shareProjectId)?.ownerId === user?.id}
         isAdmin={effectiveIsAdmin}
         profileMap={profileMap}
-        profiles={profiles.map(p => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
-        ownerId={projects.find(p => p.id === shareProjectId)?.ownerId}
+        profiles={profiles.map((p) => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
+        ownerId={projects.find((p) => p.id === shareProjectId)?.ownerId}
       />
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
-        onClose={() => { setIsDeleteConfirmOpen(false); setProjectToDelete(null); }}
+        onClose={() => {
+          setIsDeleteConfirmOpen(false);
+          setProjectToDelete(null);
+        }}
         onConfirm={handleDeleteProject}
         title="프로젝트 삭제"
         message={projectToDelete ? `'${projectToDelete.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까?` : ''}

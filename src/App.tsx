@@ -11,10 +11,58 @@ import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
-import { List, Plus, Download, Upload, ChevronDown, ChevronUp, FolderPlus, Trash2, X, Filter, Briefcase, Keyboard, Columns, Sparkles, Edit, Settings2, PieChart, Loader2, RefreshCw, MessageSquare, Tag, Table, BarChart3, Share2, Undo2, Redo2, Maximize2, Minimize2, Flag, AlertTriangle, LogOut, Users, User, Copy, History, Clock, Eye, Bug, RotateCcw, Network, MoreHorizontal } from 'lucide-react';
+import {
+  List,
+  Plus,
+  Download,
+  Upload,
+  ChevronDown,
+  ChevronUp,
+  FolderPlus,
+  Trash2,
+  X,
+  Filter,
+  Briefcase,
+  Keyboard,
+  Columns,
+  Sparkles,
+  Edit,
+  Settings2,
+  PieChart,
+  Loader2,
+  RefreshCw,
+  MessageSquare,
+  Tag,
+  Table,
+  BarChart3,
+  Share2,
+  Undo2,
+  Redo2,
+  Maximize2,
+  Minimize2,
+  Flag,
+  AlertTriangle,
+  LogOut,
+  Users,
+  User,
+  Copy,
+  History,
+  Clock,
+  Eye,
+  Bug,
+  RotateCcw,
+  Network,
+  MoreHorizontal,
+} from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
 import { useModalStates } from './hooks/useModalStates';
-import { useFileImportExport, type ImportPreviewState, type BackupConfirmState, type MultiMergeConfirmState, type LastExportPrefs } from './hooks/useFileImportExport';
+import {
+  useFileImportExport,
+  type ImportPreviewState,
+  type BackupConfirmState,
+  type MultiMergeConfirmState,
+  type LastExportPrefs,
+} from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useScrollSync } from './hooks/useScrollSync';
 import { useResizablePane } from './hooks/useResizablePane';
@@ -22,7 +70,15 @@ import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { clearAllLocalData } from './lib/persist';
-import { acceptInvite, checkIsAdmin, fetchProfiles, getProfileStatus, getProjectOwnerDisplayNames, getMyProjectMemberProjectIds, getMyEditableProjectIds } from './lib/db';
+import {
+  acceptInvite,
+  checkIsAdmin,
+  fetchProfiles,
+  getProfileStatus,
+  getProjectOwnerDisplayNames,
+  getMyProjectMemberProjectIds,
+  getMyEditableProjectIds,
+} from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
 import { LoginScreen } from './components/LoginScreen';
@@ -40,18 +96,20 @@ import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
 
-const GanttChart = React.lazy(() => import('./components/GanttChart').then(m => ({ default: m.GanttChart })));
-const KanbanBoard = React.lazy(() => import('./components/KanbanBoard').then(m => ({ default: m.KanbanBoard })));
-const MindMapView = React.lazy(() => import('./components/MindMapView').then(m => ({ default: m.MindMapView })));
-const Dashboard = React.lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
-const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then(m => ({ default: m.ProjectsPage })));
-const AllocationOverviewPage = React.lazy(() => import('./components/AllocationOverviewPage').then(m => ({ default: m.AllocationOverviewPage })));
-const AIAnalysisModal = React.lazy(() => import('./components/AIAnalysisModal').then(m => ({ default: m.AIAnalysisModal })));
-const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then(m => ({ default: m.WBSSettingsModal })));
-const VersionManager = React.lazy(() => import('./components/VersionManager').then(m => ({ default: m.VersionManager })));
-const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then(m => ({ default: m.AuditLogModal })));
-const ExportModal = React.lazy(() => import('./components/ExportModal').then(m => ({ default: m.ExportModal })));
-const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then(m => ({ default: m.WeeklyReportModal })));
+const GanttChart = React.lazy(() => import('./components/GanttChart').then((m) => ({ default: m.GanttChart })));
+const KanbanBoard = React.lazy(() => import('./components/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
+const MindMapView = React.lazy(() => import('./components/MindMapView').then((m) => ({ default: m.MindMapView })));
+const Dashboard = React.lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })));
+const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const AllocationOverviewPage = React.lazy(() =>
+  import('./components/AllocationOverviewPage').then((m) => ({ default: m.AllocationOverviewPage })),
+);
+const AIAnalysisModal = React.lazy(() => import('./components/AIAnalysisModal').then((m) => ({ default: m.AIAnalysisModal })));
+const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
+const VersionManager = React.lazy(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
+const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
+const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
+const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
 
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -86,7 +144,6 @@ function formatCommitDateDateOnly(value: string) {
   }
 }
 
-
 interface WBSAppProps {
   isAdmin: boolean;
   /** undefined: 편집 가능 목록 로딩 전(기존처럼 제한 없음). 배열: 해당 ID만 편집 가능 */
@@ -108,34 +165,68 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
     return VALID_VIEWS.has(path) ? (path as ViewType) : 'table';
   }, [location.pathname]);
-  const setView = useCallback((v: ViewType) => {
-    navigate(`/${v}`, { replace: false });
-  }, [navigate]);
+  const setView = useCallback(
+    (v: ViewType) => {
+      navigate(`/${v}`, { replace: false });
+    },
+    [navigate],
+  );
   const modals = useModalStates();
   const {
-    isModalOpen, setIsModalOpen, isProjectModalOpen, setIsProjectModalOpen,
-    isAIModalOpen, setIsAIModalOpen, isAIBusy, setIsAIBusy,
-    isSettingsModalOpen, setIsSettingsModalOpen, isShortcutsVisible, setIsShortcutsVisible,
-    isVersionHistoryOpen, setIsVersionHistoryOpen,
-    isExportModalOpen, setIsExportModalOpen,
-    exportSelectedProjectIds, setExportSelectedProjectIds,
-    isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen,
-    projectToDelete, setProjectToDelete,
-    isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen,
-    editingProject, setEditingProject,
-    isShareOpen, setIsShareOpen, isAuditLogOpen, setIsAuditLogOpen,
-    auditLogProjectId, setAuditLogProjectId,
-    isMembersModalOpen, setIsMembersModalOpen,
-    isAdminPasswordModalOpen, setIsAdminPasswordModalOpen,
-    isResetConfirmOpen, setIsResetConfirmOpen,
-    isWeeklyReportOpen, setIsWeeklyReportOpen,
-    isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen,
-    isDeleteChoiceOpen, setIsDeleteChoiceOpen,
-    lastExportPrefs, setLastExportPrefs,
-    importPreview, setImportPreview,
-    backupConfirm, setBackupConfirm,
-    multiMergeConfirm, setMultiMergeConfirm,
-    errorAlert, setErrorAlert,
+    isModalOpen,
+    setIsModalOpen,
+    isProjectModalOpen,
+    setIsProjectModalOpen,
+    isAIModalOpen,
+    setIsAIModalOpen,
+    isAIBusy,
+    setIsAIBusy,
+    isSettingsModalOpen,
+    setIsSettingsModalOpen,
+    isShortcutsVisible,
+    setIsShortcutsVisible,
+    isVersionHistoryOpen,
+    setIsVersionHistoryOpen,
+    isExportModalOpen,
+    setIsExportModalOpen,
+    exportSelectedProjectIds,
+    setExportSelectedProjectIds,
+    isDeleteProjectConfirmOpen,
+    setIsDeleteProjectConfirmOpen,
+    projectToDelete,
+    setProjectToDelete,
+    isDeleteAllProjectsConfirmOpen,
+    setIsDeleteAllProjectsConfirmOpen,
+    editingProject,
+    setEditingProject,
+    isShareOpen,
+    setIsShareOpen,
+    isAuditLogOpen,
+    setIsAuditLogOpen,
+    auditLogProjectId,
+    setAuditLogProjectId,
+    isMembersModalOpen,
+    setIsMembersModalOpen,
+    isAdminPasswordModalOpen,
+    setIsAdminPasswordModalOpen,
+    isResetConfirmOpen,
+    setIsResetConfirmOpen,
+    isWeeklyReportOpen,
+    setIsWeeklyReportOpen,
+    isDeleteAllConfirmOpen,
+    setIsDeleteAllConfirmOpen,
+    isDeleteChoiceOpen,
+    setIsDeleteChoiceOpen,
+    lastExportPrefs,
+    setLastExportPrefs,
+    importPreview,
+    setImportPreview,
+    backupConfirm,
+    setBackupConfirm,
+    multiMergeConfirm,
+    setMultiMergeConfirm,
+    errorAlert,
+    setErrorAlert,
   } = modals;
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -150,11 +241,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
   const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(
-    () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1'
+    () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1',
   );
-  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(
-    () => localStorage.getItem('wbs-backup-banner-dismissed') === '1'
-  );
+  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => localStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
   const hiddenViews = React.useMemo(() => {
@@ -163,8 +252,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     return new Set(
       value
         .split(',')
-        .map(s => s.trim())
-        .filter(Boolean)
+        .map((s) => s.trim())
+        .filter(Boolean),
     );
   }, []);
 
@@ -210,9 +299,15 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   } = useWBS();
 
   // NotificationBell용 메모
-  const notifProjectNameMap = React.useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects]);
-  const notifStatusNameMap = React.useMemo(() => new Map((wbsSettings.statusConfigs ?? []).map(c => [c.id, c.name])), [wbsSettings.statusConfigs]);
-  const notifDoneStatusIds = React.useMemo(() => new Set((wbsSettings.statusConfigs ?? []).filter(c => c.progress === 100).map(c => c.id)), [wbsSettings.statusConfigs]);
+  const notifProjectNameMap = React.useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+  const notifStatusNameMap = React.useMemo(
+    () => new Map((wbsSettings.statusConfigs ?? []).map((c) => [c.id, c.name])),
+    [wbsSettings.statusConfigs],
+  );
+  const notifDoneStatusIds = React.useMemo(
+    () => new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id)),
+    [wbsSettings.statusConfigs],
+  );
 
   const pushChangesToDbRef = useRef(pushChangesToDb);
   pushChangesToDbRef.current = pushChangesToDb;
@@ -250,7 +345,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     if (projects.length === 0) {
       setView('projects');
       setIsProjectDropdownOpen(false);
-      setFilters(prev => ({ ...prev, projectIds: 'all' }));
+      setFilters((prev) => ({ ...prev, projectIds: 'all' }));
     }
   }, [isLoading, projects.length]);
 
@@ -264,7 +359,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
     if (!user?.id) return;
-    fetchProfiles().then(setProfiles).catch(() => setProfiles([]));
+    fetchProfiles()
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
   }, [user?.id]);
 
   // 접근 가능한 프로젝트 소유자 표시명 보강 (RLS로 프로필 미조회 시에도 이름 표시)
@@ -273,12 +370,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       setOwnerDisplayNames({});
       return;
     }
-    const knownIds = new Set(profiles.map(p => p.id));
-    const ownerIds: string[] = projects
-      .map(p => p.ownerId)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const knownIds = new Set(profiles.map((p) => p.id));
+    const ownerIds: string[] = projects.map((p) => p.ownerId).filter((id): id is string => typeof id === 'string' && id.length > 0);
     const uniqueOwnerIds = Array.from(new Set(ownerIds));
-    const missingOwnerIds = uniqueOwnerIds.filter(id => !knownIds.has(id));
+    const missingOwnerIds = uniqueOwnerIds.filter((id) => !knownIds.has(id));
     if (missingOwnerIds.length === 0) {
       setOwnerDisplayNames({});
       return;
@@ -292,12 +387,14 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       setMyMemberProjectIds([]);
       return;
     }
-    getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => setMyMemberProjectIds([]));
+    getMyProjectMemberProjectIds()
+      .then(setMyMemberProjectIds)
+      .catch(() => setMyMemberProjectIds([]));
   }, [user?.id]);
 
   const profileMap = React.useMemo(() => {
     const m: Record<string, string> = {};
-    profiles.forEach(p => {
+    profiles.forEach((p) => {
       const name = p.full_name && String(p.full_name).trim();
       m[p.id] = name || p.email || '(이메일 없음)';
     });
@@ -308,7 +405,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   /** 대시보드 인원별 투입 현황에 표시할 등록 회원 표시명 집합 (profiles 기준) */
   const registeredMemberDisplayNames = React.useMemo(() => {
     const names = new Set<string>();
-    profiles.forEach(p => {
+    profiles.forEach((p) => {
       const name = (p.full_name && String(p.full_name).trim()) || p.email || '(이메일 없음)';
       names.add(name);
     });
@@ -317,22 +414,20 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   const currentUserDisplay = React.useMemo(() => {
     if (!user) return '';
-    const profile = profiles.find(p => p.id === user.id) as { full_name?: string | null } | undefined;
+    const profile = profiles.find((p) => p.id === user.id) as { full_name?: string | null } | undefined;
     const name = profile?.full_name || (user.user_metadata as { full_name?: string } | undefined)?.full_name;
     return (name && String(name).trim()) || user.email || '사용자';
   }, [user, profiles]);
 
   // 동시에 이 프로젝트를 보고 있는 다른 사용자 (Supabase Presence)
-  const { others: presenceOthers } = usePresence(
-    currentProjectId === 'all' ? '' : currentProjectId,
-    user?.id,
-    currentUserDisplay
-  );
+  const { others: presenceOthers } = usePresence(currentProjectId === 'all' ? '' : currentProjectId, user?.id, currentUserDisplay);
 
   const taskCountByProject = React.useMemo(() => {
     const m: Record<string, number> = {};
-    projects.forEach(p => { m[p.id] = 0; });
-    allTasks.forEach(t => {
+    projects.forEach((p) => {
+      m[p.id] = 0;
+    });
+    allTasks.forEach((t) => {
       if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
     });
     return m;
@@ -347,7 +442,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   // 프로젝트 목록: id 기준으로만 표시 (이름+소유자로 묶지 않음 → 사용자별 복사본이 원본과 합쳐지지 않음)
   const uniqueProjects = React.useMemo(() => {
     const seen = new Set<string>();
-    return projects.filter(p => {
+    return projects.filter((p) => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
       return true;
@@ -364,9 +459,11 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   const deletableProjects = React.useMemo(() => {
     // "프로젝트 선택해서 삭제"는 실제로 '프로젝트+소속 작업 삭제'이므로,
-    // 작업이 있는 프로젝트만 표시. 목록 순서 통일을 위해 projectsSortedByName 기준으로 필터
-    return projectsSortedByName.filter(p => (taskCountByProject[p.id] ?? 0) > 0);
-  }, [projectsSortedByName, taskCountByProject]);
+    // 작업이 있는 프로젝트만 표시. 관리자가 아니면 본인이 만든 프로젝트로 한정
+    return projectsSortedByName
+      .filter((p) => (taskCountByProject[p.id] ?? 0) > 0)
+      .filter((p) => effectiveIsAdmin || (user?.id ? p.ownerId === user.id : false));
+  }, [projectsSortedByName, taskCountByProject, effectiveIsAdmin, user?.id]);
 
   // 초대 링크 수락 (?invite=token)
   useEffect(() => {
@@ -374,21 +471,23 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     const params = new URLSearchParams(window.location.search);
     const token = params.get('invite');
     if (!token) return;
-    acceptInvite(token).then(result => {
-      if (result.success && result.projectId) {
-        setCurrentProjectId(result.projectId);
-        pushToast('프로젝트에 참여했습니다.', { variant: 'success' });
-      } else {
-        pushToast(result.error || '초대 수락에 실패했습니다.', { variant: 'error' });
-      }
-      params.delete('invite');
-      const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-    }).catch(() => {
-      pushToast('초대 수락에 실패했습니다.', { variant: 'error' });
-      params.delete('invite');
-      window.history.replaceState({}, '', window.location.pathname);
-    });
+    acceptInvite(token)
+      .then((result) => {
+        if (result.success && result.projectId) {
+          setCurrentProjectId(result.projectId);
+          pushToast('프로젝트에 참여했습니다.', { variant: 'success' });
+        } else {
+          pushToast(result.error || '초대 수락에 실패했습니다.', { variant: 'error' });
+        }
+        params.delete('invite');
+        const newUrl = params.toString() ? `${window.location.pathname}?${params}` : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      })
+      .catch(() => {
+        pushToast('초대 수락에 실패했습니다.', { variant: 'error' });
+        params.delete('invite');
+        window.history.replaceState({}, '', window.location.pathname);
+      });
   }, [isLoading, setCurrentProjectId, pushToast]);
 
   const [sharedRowHeight, setSharedRowHeight] = useState(20);
@@ -407,15 +506,24 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     try {
       const saved = localStorage.getItem('wbs-theme-mode');
       if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return wbsSettings.themeMode ?? 'system';
   });
 
-  const handleThemeModeChange = useCallback((mode: 'light' | 'dark' | 'system') => {
-    setActiveThemeMode(mode);
-    try { localStorage.setItem('wbs-theme-mode', mode); } catch { /* ignore */ }
-    updateWbsSettings({ themeMode: mode });
-  }, [updateWbsSettings]);
+  const handleThemeModeChange = useCallback(
+    (mode: 'light' | 'dark' | 'system') => {
+      setActiveThemeMode(mode);
+      try {
+        localStorage.setItem('wbs-theme-mode', mode);
+      } catch {
+        /* ignore */
+      }
+      updateWbsSettings({ themeMode: mode });
+    },
+    [updateWbsSettings],
+  );
 
   useEffect(() => {
     // DB에서 themeMode가 내려오면 로컬 상태 동기화 (사용자가 다른 기기에서 변경한 경우)
@@ -448,26 +556,37 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     prevAIBusyRef.current = isAIBusy;
   }, [isAIBusy, pushToast]);
 
-  const navigateWithTip = useCallback((nextView: typeof view) => {
-    setView(nextView);
-    if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
-    if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
-    if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
-    if (nextView === 'list') tipOnce('nav.all', '표+간트: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
-    if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
-    if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
-    if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
-    if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
-  }, [tipOnce, setView, view]);
+  const navigateWithTip = useCallback(
+    (nextView: typeof view) => {
+      setView(nextView);
+      if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
+      if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
+      if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
+      if (nextView === 'list')
+        tipOnce('nav.all', '표+간트: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
+      if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
+      if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
+      if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
+      if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
+    },
+    [tipOnce, setView, view],
+  );
 
   // startResizing, resize, stopResizing — provided by useResizablePane()
 
   // Keyboard shortcuts — extracted to useAppKeyboardShortcuts
   useAppKeyboardShortcuts({
-    undo, redo, expandToLevel, setTreeExpandLevel,
-    navigateWithTip, hiddenViews,
-    setIsShortcutsVisible, setIsAdminPasswordModalOpen,
-    pushChangesToDbRef, setIsDbPushInProgress, pushToast,
+    undo,
+    redo,
+    expandToLevel,
+    setTreeExpandLevel,
+    navigateWithTip,
+    hiddenViews,
+    setIsShortcutsVisible,
+    setIsAdminPasswordModalOpen,
+    pushChangesToDbRef,
+    setIsDbPushInProgress,
+    pushToast,
   });
 
   // Ctrl+K: 검색 모달
@@ -475,7 +594,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     const handleSearchHotkey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        setIsSearchOpen(prev => !prev);
+        setIsSearchOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleSearchHotkey);
@@ -498,10 +617,13 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
 
-  const selectProject = useCallback((projectId: string) => {
-    setCurrentProjectId(projectId);
-    setView('list'); // 프로젝트 선택 시 기본 "전체" 보기로 전환
-  }, [setCurrentProjectId]);
+  const selectProject = useCallback(
+    (projectId: string) => {
+      setCurrentProjectId(projectId);
+      setView('list'); // 프로젝트 선택 시 기본 "전체" 보기로 전환
+    },
+    [setCurrentProjectId],
+  );
 
   // Filter on/off (when on, filter bar and filters apply)
   const [filterOn, setFilterOn] = useState(false);
@@ -518,37 +640,43 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     return () => document.removeEventListener('mousedown', close);
   }, [isProjectFilterDropdownOpen]);
 
-  const currentProject = projects.find(p => p.id === currentProjectId);
+  const currentProject = projects.find((p) => p.id === currentProjectId);
 
   const handleSaveTask = (taskData: Partial<Task>) => addTask(taskData);
 
   /** 특정 작업의 모든 조상을 펼쳐서 해당 작업이 보이게 함 */
-  const expandAncestors = useCallback((taskId: string) => {
-    const taskMap = new Map<string, Task>(allTasks.map(t => [t.id, t]));
-    let current = taskMap.get(taskId);
-    while (current?.parentId) {
-      const parent = taskMap.get(current.parentId);
-      if (parent && !parent.expanded) {
-        updateTask(parent.id, { expanded: true }, { skipCascade: true });
+  const expandAncestors = useCallback(
+    (taskId: string) => {
+      const taskMap = new Map<string, Task>(allTasks.map((t) => [t.id, t]));
+      let current = taskMap.get(taskId);
+      while (current?.parentId) {
+        const parent = taskMap.get(current.parentId);
+        if (parent && !parent.expanded) {
+          updateTask(parent.id, { expanded: true }, { skipCascade: true });
+        }
+        current = parent;
       }
-      current = parent;
-    }
-  }, [allTasks, updateTask]);
+    },
+    [allTasks, updateTask],
+  );
 
   /** 검색/알림에서 작업 선택 시 공통 동작 */
-  const navigateToTask = useCallback((taskId: string, projectId: string) => {
-    setCurrentProjectId(projectId);
-    setSelectedTaskIds([taskId]);
-    expandAncestors(taskId);
-    setScrollToTaskId(taskId);
-    setView('table');
-    // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
-    setTimeout(() => {
-      setScrollToTaskId(null);
-      const table = document.querySelector<HTMLElement>('[data-wbs-table]');
-      table?.focus();
-    }, 500);
-  }, [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView]);
+  const navigateToTask = useCallback(
+    (taskId: string, projectId: string) => {
+      setCurrentProjectId(projectId);
+      setSelectedTaskIds([taskId]);
+      expandAncestors(taskId);
+      setScrollToTaskId(taskId);
+      setView('table');
+      // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
+      setTimeout(() => {
+        setScrollToTaskId(null);
+        const table = document.querySelector<HTMLElement>('[data-wbs-table]');
+        table?.focus();
+      }, 500);
+    },
+    [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView],
+  );
 
   const handleSaveProject = (
     name: string,
@@ -617,68 +745,90 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   // File import/export — extracted to useFileImportExport hook
   const fileIO = useFileImportExport({
-    projects, allTasks, currentProjectId, wbsMap,
-    pushToast, importTasks, restoreBackup, mergeBackups, exportFullBackup,
-    setCurrentProjectId, setFilters,
-    setImportPreview, setBackupConfirm, setMultiMergeConfirm, setErrorAlert,
+    projects,
+    allTasks,
+    currentProjectId,
+    wbsMap,
+    pushToast,
+    importTasks,
+    restoreBackup,
+    mergeBackups,
+    exportFullBackup,
+    setCurrentProjectId,
+    setFilters,
+    setImportPreview,
+    setBackupConfirm,
+    setMultiMergeConfirm,
+    setErrorAlert,
     setIsExportModalOpen,
-    lastExportPrefs, setLastExportPrefs,
-    importPreview, backupConfirm, multiMergeConfirm,
+    lastExportPrefs,
+    setLastExportPrefs,
+    importPreview,
+    backupConfirm,
+    multiMergeConfirm,
   });
   const {
-    fileInputRef, backupInputRef, mergeInputRef,
-    handleExportFromModal, handleImportClick,
-    handleFileChange, handleBackupFileChange, handleMergeFileChange,
-    executeMultiMerge, executeImport, executeRestoreBackup, executeRestoreBackupIntoProject,
+    fileInputRef,
+    backupInputRef,
+    mergeInputRef,
+    handleExportFromModal,
+    handleImportClick,
+    handleFileChange,
+    handleBackupFileChange,
+    handleMergeFileChange,
+    executeMultiMerge,
+    executeImport,
+    executeRestoreBackup,
+    executeRestoreBackupIntoProject,
   } = fileIO;
 
-  const executeDbSync = useCallback(async (scope: 'current' | 'all'): Promise<boolean> => {
-    setIsDbSyncing(true);
-    setDbSyncStep({ pct: 0, msg: '시작…' });
-    pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
-    try {
-      const snap = await syncWithDb(scope, (pct, message) => {
-        setDbSyncStep({ pct, msg: message });
-        pushToast(`DB 동기화\n${message}`, { variant: 'info', id: 'db-sync', durationMs: 300000, progress: pct });
-      });
-      const s = snap.summary;
-      const lines: string[] = [
-        '동기화 완료',
-        `↑ 업로드: 프로젝트 ${s.uploadedProjects} · 작업 ${s.uploadedTasks} · 표·상태 설정 1건 · DB 작업 삭제 ${s.uploadedTaskDeletions}건 · DB 프로젝트 삭제 ${s.uploadedProjectDeletions}건`,
-        `↓ 내려받기: 프로젝트 ${s.downloadedProjects} · 작업 ${s.downloadedTasks} · 설정 ${s.downloadedSettings ? '반영' : '없음'}`,
-      ];
-      const byProjectEntries = Object.entries(s.byProject ?? {}) as [string, DbSyncSummaryByProject][];
-      if (byProjectEntries.length > 0) {
-        lines.push(''); // 빈 줄 후 프로젝트별 요약
-        for (const [, info] of byProjectEntries) {
-          const upParts = [
-            info.uploadedProjects > 0 && '프로젝트 정보 1건',
-            info.uploadedTasks > 0 && `작업 ${info.uploadedTasks}건`,
-          ].filter(Boolean) as string[];
-          const downParts = [
-            info.appliedProjects > 0 && '프로젝트 정보 1건',
-            info.appliedTasks > 0 && `작업 ${info.appliedTasks}건`,
-          ].filter(Boolean) as string[];
-          const upStr = upParts.length ? `↑ ${upParts.join(', ')}` : '';
-          const downStr = downParts.length ? `↓ ${downParts.join(', ')}` : '';
-          const part = [upStr, downStr].filter(Boolean).join(' · ') || '변경 없음';
-          lines.push(`${info.projectName}: ${part}`);
+  const executeDbSync = useCallback(
+    async (scope: 'current' | 'all'): Promise<boolean> => {
+      setIsDbSyncing(true);
+      setDbSyncStep({ pct: 0, msg: '시작…' });
+      pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
+      try {
+        const snap = await syncWithDb(scope, (pct, message) => {
+          setDbSyncStep({ pct, msg: message });
+          pushToast(`DB 동기화\n${message}`, { variant: 'info', id: 'db-sync', durationMs: 300000, progress: pct });
+        });
+        const s = snap.summary;
+        const lines: string[] = [
+          '동기화 완료',
+          `↑ 업로드: 프로젝트 ${s.uploadedProjects} · 작업 ${s.uploadedTasks} · 표·상태 설정 1건 · DB 작업 삭제 ${s.uploadedTaskDeletions}건 · DB 프로젝트 삭제 ${s.uploadedProjectDeletions}건`,
+          `↓ 내려받기: 프로젝트 ${s.downloadedProjects} · 작업 ${s.downloadedTasks} · 설정 ${s.downloadedSettings ? '반영' : '없음'}`,
+        ];
+        const byProjectEntries = Object.entries(s.byProject ?? {}) as [string, DbSyncSummaryByProject][];
+        if (byProjectEntries.length > 0) {
+          lines.push(''); // 빈 줄 후 프로젝트별 요약
+          for (const [, info] of byProjectEntries) {
+            const upParts = [
+              info.uploadedProjects > 0 && '프로젝트 정보 1건',
+              info.uploadedTasks > 0 && `작업 ${info.uploadedTasks}건`,
+            ].filter(Boolean) as string[];
+            const downParts = [
+              info.appliedProjects > 0 && '프로젝트 정보 1건',
+              info.appliedTasks > 0 && `작업 ${info.appliedTasks}건`,
+            ].filter(Boolean) as string[];
+            const upStr = upParts.length ? `↑ ${upParts.join(', ')}` : '';
+            const downStr = downParts.length ? `↓ ${downParts.join(', ')}` : '';
+            const part = [upStr, downStr].filter(Boolean).join(' · ') || '변경 없음';
+            lines.push(`${info.projectName}: ${part}`);
+          }
         }
+        pushToast(lines.join('\n'), { variant: 'success', id: 'db-sync', durationMs: 8000, progress: 100 });
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
+        pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
+        return false;
+      } finally {
+        setIsDbSyncing(false);
+        setDbSyncStep(null);
       }
-      pushToast(
-        lines.join('\n'),
-        { variant: 'success', id: 'db-sync', durationMs: 8000, progress: 100 }
-      );
-      return true;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
-      pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
-      return false;
-    } finally {
-      setIsDbSyncing(false);
-      setDbSyncStep(null);
-    }
-  }, [syncWithDb, pushToast]);
+    },
+    [syncWithDb, pushToast],
+  );
 
   // 최초 페이지 접속 시 DB 자동 동기화 (로그인 + Supabase 설정 완료)
   useEffect(() => {
@@ -706,8 +856,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     setView(newView);
 
     const dashPid = newFilters.projectId;
-    const projectIds =
-      dashPid && dashPid !== 'all' ? ([dashPid] as string[]) : ('all' as const);
+    const projectIds = dashPid && dashPid !== 'all' ? ([dashPid] as string[]) : ('all' as const);
     const { projectId: _omit, ...rest } = newFilters;
 
     // 기존 필터를 초기 상태로 리셋한 뒤 대시보드에서 전달된 필터만 적용
@@ -747,23 +896,34 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     }));
   }, [currentProjectId]);
 
-  const hasActiveFilters = filterOn && (
-    filters.projectIds !== 'all' ||
-    filters.status !== 'all' ||
-    filters.assignee ||
-    filters.startDate ||
-    filters.endDate ||
-    !!filters.milestoneOnly ||
-    !!filters.issueOnly ||
-    (typeof filters.level === 'number') ||
-    !!filters.pastDueOnly ||
-    !!filters.completedThisWeekOnly ||
-    !!filters.searchText
-  );
-  const allAssignees = Array.from(new Set(tasks.map(t => t.assignee).filter(Boolean)));
+  const hasActiveFilters =
+    filterOn &&
+    (filters.projectIds !== 'all' ||
+      filters.status !== 'all' ||
+      filters.assignee ||
+      filters.startDate ||
+      filters.endDate ||
+      !!filters.milestoneOnly ||
+      !!filters.issueOnly ||
+      typeof filters.level === 'number' ||
+      !!filters.pastDueOnly ||
+      !!filters.completedThisWeekOnly ||
+      !!filters.searchText);
+  const allAssignees = Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean)));
   const effectiveFilters: FilterState = filterOn
     ? filters
-    : { ...filters, status: 'all', assignee: '', startDate: '', endDate: '', milestoneOnly: false, issueOnly: false, level: 'all', pastDueOnly: false, completedThisWeekOnly: false };
+    : {
+        ...filters,
+        status: 'all',
+        assignee: '',
+        startDate: '',
+        endDate: '',
+        milestoneOnly: false,
+        issueOnly: false,
+        level: 'all',
+        pastDueOnly: false,
+        completedThisWeekOnly: false,
+      };
 
   const resetWbsFilters = useCallback(() => {
     setFilters((prev) => ({
@@ -796,7 +956,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
   if (isLoading) {
     // 스켈레톤 로딩: 실제 테이블 레이아웃을 모방
-    const skeletonPulse = "animate-pulse bg-[var(--color-line)] rounded";
+    const skeletonPulse = 'animate-pulse bg-[var(--color-line)] rounded';
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">
         {/* 헤더 스켈레톤 */}
@@ -807,28 +967,40 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             <div className={`h-3 w-32 ${skeletonPulse}`} />
           </div>
           <div className="hidden md:flex gap-2">
-            {[1,2,3,4,5].map(i => <div key={i} className={`h-8 w-16 rounded-lg ${skeletonPulse}`} />)}
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className={`h-8 w-16 rounded-lg ${skeletonPulse}`} />
+            ))}
           </div>
         </div>
         {/* 요약 바 스켈레톤 */}
         <div className="px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-4">
-          {[1,2,3,4].map(i => <div key={i} className={`h-5 w-24 rounded ${skeletonPulse}`} />)}
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className={`h-5 w-24 rounded ${skeletonPulse}`} />
+          ))}
         </div>
         {/* 테이블 헤더 스켈레톤 */}
         <div className="px-2 py-2 border-b border-[var(--color-line)] flex items-center gap-3">
           <div className={`h-4 w-8 ${skeletonPulse}`} />
           <div className={`h-4 w-12 ${skeletonPulse}`} />
-          {[60, 200, 70, 70, 50, 60, 60, 60].map((w, i) => <div key={i} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />)}
+          {[60, 200, 70, 70, 50, 60, 60, 60].map((w, i) => (
+            <div key={i} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />
+          ))}
         </div>
         {/* 테이블 행 스켈레톤 */}
         <div className="flex-1 overflow-hidden">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="px-2 py-3 border-b border-[var(--color-line-soft)] flex items-center gap-3" style={{ opacity: 1 - i * 0.06 }}>
+            <div
+              key={i}
+              className="px-2 py-3 border-b border-[var(--color-line-soft)] flex items-center gap-3"
+              style={{ opacity: 1 - i * 0.06 }}
+            >
               <div className={`h-4 w-4 rounded ${skeletonPulse}`} />
               <div className={`h-4 w-8 rounded ${skeletonPulse}`} />
               <div className={`h-4 w-12 rounded ${skeletonPulse}`} />
               <div className={`h-4 rounded ${skeletonPulse}`} style={{ width: 140 + (i % 3) * 40 }} />
-              {[65, 65, 45, 55, 55, 55].map((w, j) => <div key={j} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />)}
+              {[65, 65, 45, 55, 55, 55].map((w, j) => (
+                <div key={j} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />
+              ))}
             </div>
           ))}
         </div>
@@ -844,7 +1016,12 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   }
 
   return (
-    <div className={cn("flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden h-screen", isFullscreen && "fixed inset-0 z-50")}>
+    <div
+      className={cn(
+        'flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden h-screen',
+        isFullscreen && 'fixed inset-0 z-50',
+      )}
+    >
       {!isFullscreen && (
         <AppHeader
           wbsSettings={wbsSettings}
@@ -913,8 +1090,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             initialSync: isDbSyncing,
             initialSyncPct: dbSyncStep?.pct,
             pushing: isDbPushInProgress && !isDbSyncing,
-            pendingSave:
-              hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
+            pendingSave: hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
           }}
           themeMode={activeThemeMode}
           onThemeModeChange={handleThemeModeChange}
@@ -935,7 +1111,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       {!isFullscreen && !isLocalSaveBannerDismissed && (
         <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
           <span>
-            로그인 시 데이터는 <strong>서버(DB)</strong>를 기준으로 하며, 변경 후 잠시 뒤 <strong>자동 반영</strong>됩니다. 이 기기에도 백업으로 로컬에 저장됩니다. 같은 프로젝트를 연 사람은 실시간으로 갱신됩니다.
+            로그인 시 데이터는 <strong>서버(DB)</strong>를 기준으로 하며, 변경 후 잠시 뒤 <strong>자동 반영</strong>됩니다. 이 기기에도
+            백업으로 로컬에 저장됩니다. 같은 프로젝트를 연 사람은 실시간으로 갱신됩니다.
           </span>
           <button
             onClick={() => {
@@ -953,7 +1130,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       {!isFullscreen && !isBackupBannerDismissed && (
         <div className="bg-amber-50/80 border-b border-amber-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-amber-800 text-xs">
           <AlertTriangle size={14} className="shrink-0 text-amber-500" />
-          <span>정기적으로 <strong>내보내기</strong>로 백업을 하시기 바랍니다.</span>
+          <span>
+            정기적으로 <strong>내보내기</strong>로 백업을 하시기 바랍니다.
+          </span>
           <button
             onClick={() => setIsExportModalOpen(true)}
             className="ml-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-200/60 hover:bg-amber-300 text-amber-900 transition-colors"
@@ -984,7 +1163,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             ref={projectFilterDropdownRef}
             className="relative inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200"
           >
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">프로젝트</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">
+              프로젝트
+            </span>
             <button
               type="button"
               onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
@@ -995,7 +1176,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                 {filters.projectIds === 'all'
                   ? '전체'
                   : filters.projectIds.length === 1
-                    ? uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개'
+                    ? (uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개')
                     : `${filters.projectIds.length}개 프로젝트`}
               </span>
               <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
@@ -1008,7 +1189,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                 {(() => {
                   const allIds = projectsSortedByName.map((x) => x.id);
                   const isAll = filters.projectIds === 'all';
-                  const isPartial = Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
+                  const isPartial =
+                    Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
                   return (
                     <>
                       <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
@@ -1091,46 +1273,91 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
           {/* 상태 */}
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-50/60 border border-indigo-100">
-            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
+            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">
+              상태
+            </span>
             <div className="flex flex-wrap items-center gap-1.5">
-              <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
-              {wbsSettings.statusConfigs.map(config => (
-                <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
+              <button
+                onClick={() => setFilters((f) => ({ ...f, status: 'all' }))}
+                className={cn('filter-chip', filters.status === 'all' ? 'filter-chip-active' : 'filter-chip-inactive')}
+                title="모든 상태의 작업 표시"
+              >
+                전체
+              </button>
+              {wbsSettings.statusConfigs.map((config) => (
+                <button
+                  key={config.id}
+                  onClick={() => setFilters((f) => ({ ...f, status: config.id }))}
+                  className={cn('filter-chip', filters.status === config.id ? 'filter-chip-active' : 'filter-chip-inactive')}
+                  title={`${config.name} 상태인 작업만 표시`}
+                >
+                  {config.name}
+                </button>
               ))}
             </div>
           </div>
 
           {/* 담당자 */}
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-emerald-50/70 border border-emerald-100">
-            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">담당자</span>
+            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">
+              담당자
+            </span>
             <div className="flex flex-wrap items-center gap-1.5">
-              <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("filter-chip", !filters.assignee ? "filter-chip-active" : "filter-chip-inactive")} title="모든 담당자의 작업 표시">전체</button>
+              <button
+                onClick={() => setFilters((f) => ({ ...f, assignee: '' }))}
+                className={cn('filter-chip', !filters.assignee ? 'filter-chip-active' : 'filter-chip-inactive')}
+                title="모든 담당자의 작업 표시"
+              >
+                전체
+              </button>
               {user?.id && profileMap[user.id] && (
-                <button onClick={() => { setFilterOn(true); setFilters(f => ({ ...f, assignee: profileMap[user.id] })); }} className={cn("filter-chip flex items-center gap-1", filters.assignee === profileMap[user.id] ? "filter-chip-active" : "filter-chip-inactive")} title="내가 담당자인 작업만 표시"><User size={10} className="opacity-80" /> 내 업무만</button>
+                <button
+                  onClick={() => {
+                    setFilterOn(true);
+                    setFilters((f) => ({ ...f, assignee: profileMap[user.id] }));
+                  }}
+                  className={cn(
+                    'filter-chip flex items-center gap-1',
+                    filters.assignee === profileMap[user.id] ? 'filter-chip-active' : 'filter-chip-inactive',
+                  )}
+                  title="내가 담당자인 작업만 표시"
+                >
+                  <User size={10} className="opacity-80" /> 내 업무만
+                </button>
               )}
-              {allAssignees.map(a => (
-                <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("filter-chip", filters.assignee === a ? "filter-chip-active" : "filter-chip-inactive")} title={`${a} 담당 작업만 표시`}>{a}</button>
+              {allAssignees.map((a) => (
+                <button
+                  key={a}
+                  onClick={() => setFilters((f) => ({ ...f, assignee: a }))}
+                  className={cn('filter-chip', filters.assignee === a ? 'filter-chip-active' : 'filter-chip-inactive')}
+                  title={`${a} 담당 작업만 표시`}
+                >
+                  {a}
+                </button>
               ))}
             </div>
           </div>
 
           {/* 마일스톤/이슈 (전체·마일스톤만·이슈만 3가지) */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
-            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider" title="마일스톤/이슈 기준으로 작업을 필터링합니다.">
+            <span
+              className="text-[10px] font-bold text-amber-600 uppercase tracking-wider"
+              title="마일스톤/이슈 기준으로 작업을 필터링합니다."
+            >
               마일스톤
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     milestoneOnly: false,
                     issueOnly: false,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  !filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  !filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="마일스톤/이슈 구분 없이 모든 작업 표시"
               >
@@ -1138,15 +1365,15 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               </button>
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     milestoneOnly: true,
                     issueOnly: false,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="마일스톤으로 지정된 이정표 작업만 표시"
               >
@@ -1154,15 +1381,15 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               </button>
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     milestoneOnly: false,
                     issueOnly: true,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  !filters.milestoneOnly && filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  !filters.milestoneOnly && filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="이슈로 지정된 작업만 표시"
               >
@@ -1173,15 +1400,31 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
           {/* 기간 */}
           <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-violet-50 border border-violet-100">
-            <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">기간</span>
+            <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">
+              기간
+            </span>
             <div className="flex flex-wrap items-center gap-1.5">
-              <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("filter-chip", !filters.startDate && !filters.endDate ? "filter-chip-active" : "filter-chip-inactive")} title="기간 제한 없이 모든 작업 표시">전체</button>
+              <button
+                onClick={() => setFilters((f) => ({ ...f, startDate: '', endDate: '' }))}
+                className={cn('filter-chip', !filters.startDate && !filters.endDate ? 'filter-chip-active' : 'filter-chip-inactive')}
+                title="기간 제한 없이 모든 작업 표시"
+              >
+                전체
+              </button>
               <button
                 onClick={() => {
                   const today = format(new Date(), 'yyyy-MM-dd');
-                  setFilters(f => ({ ...f, startDate: today, endDate: today }));
+                  setFilters((f) => ({ ...f, startDate: today, endDate: today }));
                 }}
-                className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === filters.endDate && filters.startDate === format(new Date(), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+                className={cn(
+                  'filter-chip',
+                  filters.startDate &&
+                    filters.endDate &&
+                    filters.startDate === filters.endDate &&
+                    filters.startDate === format(new Date(), 'yyyy-MM-dd')
+                    ? 'filter-chip-active'
+                    : 'filter-chip-inactive',
+                )}
                 title="오늘과 기간이 겹치는 작업만 표시"
               >
                 금일
@@ -1191,9 +1434,17 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   const now = new Date();
                   const weekStart = startOfWeek(now, { weekStartsOn: 1 });
                   const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-                  setFilters(f => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
+                  setFilters((f) => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
                 }}
-                className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+                className={cn(
+                  'filter-chip',
+                  filters.startDate &&
+                    filters.endDate &&
+                    filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') &&
+                    filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+                    ? 'filter-chip-active'
+                    : 'filter-chip-inactive',
+                )}
                 title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
               >
                 금주
@@ -1204,20 +1455,20 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
                   const nextWeekBase = addDays(now, 7);
                   const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
                   const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                  setFilters(f => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
+                  setFilters((f) => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
                 }}
                 className={cn(
-                  "filter-chip",
+                  'filter-chip',
                   (() => {
-                    if (!filters.startDate || !filters.endDate) return "filter-chip-inactive";
+                    if (!filters.startDate || !filters.endDate) return 'filter-chip-inactive';
                     const now = new Date();
                     const nextWeekBase = addDays(now, 7);
                     const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
                     const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
                     const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
                     const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
-                    return startMatch && endMatch ? "filter-chip-active" : "filter-chip-inactive";
-                  })()
+                    return startMatch && endMatch ? 'filter-chip-active' : 'filter-chip-inactive';
+                  })(),
                 )}
                 title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
               >
@@ -1228,21 +1479,24 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 
           {/* 금주 완료/기한 지남 (전체·금주 완료·기한 초과 3가지) */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100">
-            <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider" title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다.">
+            <span
+              className="text-[10px] font-bold text-teal-700 uppercase tracking-wider"
+              title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다."
+            >
               기한/완료
             </span>
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     pastDueOnly: false,
                     completedThisWeekOnly: false,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  !filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  !filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="기한/완료 조건 없이 모든 작업 표시"
               >
@@ -1250,15 +1504,15 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               </button>
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     completedThisWeekOnly: true,
                     pastDueOnly: false,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  filters.completedThisWeekOnly && !filters.pastDueOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  filters.completedThisWeekOnly && !filters.pastDueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="이번 주(월~일)에 완료된 항목만 표시 (상태: 완료, 종료일: 이번 주)"
               >
@@ -1266,15 +1520,15 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               </button>
               <button
                 onClick={() =>
-                  setFilters(f => ({
+                  setFilters((f) => ({
                     ...f,
                     pastDueOnly: true,
                     completedThisWeekOnly: false,
                   }))
                 }
                 className={cn(
-                  "filter-chip flex items-center gap-1",
-                  filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+                  'filter-chip flex items-center gap-1',
+                  filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
                 )}
                 title="기한이 지난 미완료 작업만 표시"
               >
@@ -1286,7 +1540,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             <button
               onClick={() => {
                 setCurrentProjectId('all');
-                setFilters(f => ({
+                setFilters((f) => ({
                   ...f,
                   projectIds: 'all',
                   status: 'all',
@@ -1321,10 +1575,21 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           </button>
         </div>
       )}
-      <main className={cn("min-h-0 overflow-hidden flex flex-row relative flex-1", isFullscreen && "fixed inset-0 z-50 bg-[var(--color-surface)]")}>
-        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400" size={28} /></div>}>
-        <div className="flex-1 min-w-0 relative bg-white">
-          {!effectiveIsAdmin &&
+      <main
+        className={cn(
+          'min-h-0 overflow-hidden flex flex-row relative flex-1',
+          isFullscreen && 'fixed inset-0 z-50 bg-[var(--color-surface)]',
+        )}
+      >
+        <Suspense
+          fallback={
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="animate-spin text-slate-400" size={28} />
+            </div>
+          }
+        >
+          <div className="flex-1 min-w-0 relative bg-white">
+            {!effectiveIsAdmin &&
             currentProjectId &&
             currentProjectId !== 'all' &&
             currentProject &&
@@ -1332,94 +1597,146 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             !myMemberProjectIds.includes(currentProjectId) &&
             !userApproved &&
             (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
-            <ProjectAccessRequestBanner
-              projectId={currentProjectId}
-              projectName={currentProject.name}
-              onRequestSent={() => getMyProjectMemberProjectIds().then(setMyMemberProjectIds).catch(() => { })}
-            />
-          ) : view === 'list' ? (
-            <ErrorBoundary viewName="표+간트"><div ref={containerRef} className={cn("relative flex w-full list-split-view", isDraggingResizer && "cursor-col-resize select-none")}>
-              <div className="flex-shrink-0 overflow-hidden flex flex-col min-h-0 list-table-pane" style={{ width: `${wbsTableWidth}%` }}>
-                <WBSTable
+              <ProjectAccessRequestBanner
+                projectId={currentProjectId}
+                projectName={currentProject.name}
+                onRequestSent={() =>
+                  getMyProjectMemberProjectIds()
+                    .then(setMyMemberProjectIds)
+                    .catch(() => {})
+                }
+              />
+            ) : view === 'list' ? (
+              <ErrorBoundary viewName="표+간트">
+                <div
+                  ref={containerRef}
+                  className={cn('relative flex w-full list-split-view', isDraggingResizer && 'cursor-col-resize select-none')}
+                >
+                  <div
+                    className="flex-shrink-0 overflow-hidden flex flex-col min-h-0 list-table-pane"
+                    style={{ width: `${wbsTableWidth}%` }}
+                  >
+                    <WBSTable
+                      filters={effectiveFilters}
+                      sortConfig={sortConfig}
+                      syncScrollRef={wbsScrollRef}
+                      rowHeight={sharedRowHeight}
+                      onRowHeightChange={setSharedRowHeight}
+                      onRowHeightsChange={setRowHeights}
+                      onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                      onResetFilters={resetWbsFilters}
+                      scrollToTaskId={scrollToTaskId}
+                      onSort={(key) => {
+                        setSortConfig((current) => {
+                          if (key === 'wbs' && current?.key === 'wbs') return null;
+                          if (current?.key === key) {
+                            if (current.direction === 'asc') return { key, direction: 'desc' };
+                            return null;
+                          }
+                          return { key, direction: 'asc' };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div
+                    className="absolute top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-10 list-resizer hidden md:flex items-center justify-center group"
+                    style={{ left: `${wbsTableWidth}%` }}
+                    onMouseDown={startResizing}
+                    title="드래그하여 패널 너비 조절"
+                  >
+                    {/* 전체 높이 구분선 */}
+                    <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-300 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors duration-150 pointer-events-none" />
+                    {/* 중앙 드래그 핸들 (호버 시만 표시) */}
+                    <span className="relative z-10 flex flex-col items-center justify-center gap-0.5 h-10 w-4 rounded bg-white border border-indigo-400 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+                      <span className="w-0.5 h-3.5 rounded-full bg-indigo-400" />
+                    </span>
+                  </div>
+                  <div
+                    className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block"
+                    style={{ width: `${100 - wbsTableWidth}%` }}
+                  >
+                    <GanttChart
+                      filters={effectiveFilters}
+                      sortConfig={sortConfig}
+                      hideSidebar={true}
+                      rowHeight={sharedRowHeight}
+                      rowHeights={rowHeights}
+                      onRowHeightChange={setSharedRowHeight}
+                      syncScrollRef={ganttScrollRef}
+                    />
+                  </div>
+                </div>
+              </ErrorBoundary>
+            ) : view === 'table' ? (
+              <ErrorBoundary viewName="표">
+                <div className="h-full overflow-hidden">
+                  <WBSTable
+                    fillHeight
+                    filters={effectiveFilters}
+                    sortConfig={sortConfig}
+                    onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                    onResetFilters={resetWbsFilters}
+                    scrollToTaskId={scrollToTaskId}
+                    onSort={(key) => {
+                      setSortConfig((current) => {
+                        if (key === 'wbs' && current?.key === 'wbs') return null;
+                        if (current?.key === key) {
+                          if (current.direction === 'asc') return { key, direction: 'desc' };
+                          return null;
+                        }
+                        return { key, direction: 'asc' };
+                      });
+                    }}
+                  />
+                </div>
+              </ErrorBoundary>
+            ) : view === 'gantt' ? (
+              <ErrorBoundary viewName="간트차트">
+                <GanttChart
                   filters={effectiveFilters}
                   sortConfig={sortConfig}
-                  syncScrollRef={wbsScrollRef}
                   rowHeight={sharedRowHeight}
                   onRowHeightChange={setSharedRowHeight}
-                  onRowHeightsChange={setRowHeights}
-                  onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                  onResetFilters={resetWbsFilters}
-                  scrollToTaskId={scrollToTaskId}
-                  onSort={(key) => {
-                    setSortConfig(current => {
-                      if (key === 'wbs' && current?.key === 'wbs') return null;
-                      if (current?.key === key) {
-                        if (current.direction === 'asc') return { key, direction: 'desc' };
-                        return null;
-                      }
-                      return { key, direction: 'asc' };
-                    });
-                  }} />
-              </div>
-              <div
-                className="absolute top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-10 list-resizer hidden md:flex items-center justify-center group"
-                style={{ left: `${wbsTableWidth}%` }}
-                onMouseDown={startResizing}
-                title="드래그하여 패널 너비 조절"
-              >
-                {/* 전체 높이 구분선 */}
-                <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-300 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors duration-150 pointer-events-none" />
-                {/* 중앙 드래그 핸들 (호버 시만 표시) */}
-                <span className="relative z-10 flex flex-col items-center justify-center gap-0.5 h-10 w-4 rounded bg-white border border-indigo-400 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
-                  <span className="w-0.5 h-3.5 rounded-full bg-indigo-400" />
-                </span>
-              </div>
-              <div className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block" style={{ width: `${100 - wbsTableWidth}%` }}>
-                <GanttChart filters={effectiveFilters} sortConfig={sortConfig} hideSidebar={true} rowHeight={sharedRowHeight} rowHeights={rowHeights} onRowHeightChange={setSharedRowHeight} syncScrollRef={ganttScrollRef} />
-              </div>
-            </div></ErrorBoundary>
-          ) : view === 'table' ? (
-            <ErrorBoundary viewName="표"><div className="h-full overflow-hidden">
-              <WBSTable
-                fillHeight
-                filters={effectiveFilters}
-                sortConfig={sortConfig}
-                onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                onResetFilters={resetWbsFilters}
-                scrollToTaskId={scrollToTaskId}
-                onSort={(key) => {
-                  setSortConfig(current => {
-                    if (key === 'wbs' && current?.key === 'wbs') return null;
-                    if (current?.key === key) {
-                      if (current.direction === 'asc') return { key, direction: 'desc' };
-                      return null;
-                    }
-                    return { key, direction: 'asc' };
-                  });
-                }}
-              />
-            </div></ErrorBoundary>
-          ) : view === 'gantt' ? (
-            <ErrorBoundary viewName="간트차트"><GanttChart filters={effectiveFilters} sortConfig={sortConfig} rowHeight={sharedRowHeight} onRowHeightChange={setSharedRowHeight} /></ErrorBoundary>
-          ) : view === 'dashboard' ? (
-            <ErrorBoundary viewName="대시보드"><Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} /></ErrorBoundary>
-          ) : view === 'projects' ? (
-            <ErrorBoundary viewName="프로젝트 관리"><ProjectsPage onNavigateToWork={(projectId) => { if (projectId) setCurrentProjectId(projectId); setView('list'); }} /></ErrorBoundary>
-          ) : view === 'allocation' ? (
-            <ErrorBoundary viewName="투입현황">
-            <AllocationOverviewPage
-              registeredMemberDisplayNames={registeredMemberDisplayNames}
-              onEditProject={(p) => { setEditingProject(p); setIsProjectModalOpen(true); }}
-              onNavigateToWork={(projectId) => { setCurrentProjectId(projectId); setView('list'); }}
-            />
-            </ErrorBoundary>
-          ) : view === 'mindmap' ? (
-            <ErrorBoundary viewName="마인드맵"><MindMapView filters={effectiveFilters} /></ErrorBoundary>
-          ) : (
-            <ErrorBoundary viewName="칸반"><KanbanBoard filters={effectiveFilters} /></ErrorBoundary>
-          )}
-        </div>
-        {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
+                />
+              </ErrorBoundary>
+            ) : view === 'dashboard' ? (
+              <ErrorBoundary viewName="대시보드">
+                <Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} />
+              </ErrorBoundary>
+            ) : view === 'projects' ? (
+              <ErrorBoundary viewName="프로젝트 관리">
+                <ProjectsPage
+                  onNavigateToWork={(projectId) => {
+                    if (projectId) setCurrentProjectId(projectId);
+                    setView('list');
+                  }}
+                />
+              </ErrorBoundary>
+            ) : view === 'allocation' ? (
+              <ErrorBoundary viewName="투입현황">
+                <AllocationOverviewPage
+                  registeredMemberDisplayNames={registeredMemberDisplayNames}
+                  onEditProject={(p) => {
+                    setEditingProject(p);
+                    setIsProjectModalOpen(true);
+                  }}
+                  onNavigateToWork={(projectId) => {
+                    setCurrentProjectId(projectId);
+                    setView('list');
+                  }}
+                />
+              </ErrorBoundary>
+            ) : view === 'mindmap' ? (
+              <ErrorBoundary viewName="마인드맵">
+                <MindMapView filters={effectiveFilters} />
+              </ErrorBoundary>
+            ) : (
+              <ErrorBoundary viewName="칸반">
+                <KanbanBoard filters={effectiveFilters} />
+              </ErrorBoundary>
+            )}
+          </div>
+          {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
         </Suspense>
       </main>
 
@@ -1436,299 +1753,388 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
       )}
 
       {isModalOpen && (
-        <TaskModal isOpen onClose={() => setIsModalOpen(false)} onSave={handleSaveTask} parentOptions={tasks} defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined} defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined} defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined} />
-      )}
-      {isProjectModalOpen && (
-        <ProjectModal isOpen onClose={() => { setIsProjectModalOpen(false); setEditingProject(null); }} onSave={handleSaveProject} project={editingProject} allProjects={projects} />
-      )}
-      <Suspense fallback={null}>
-      {isSettingsModalOpen && (
-        <WBSSettingsModal
+        <TaskModal
           isOpen
-          onClose={() => setIsSettingsModalOpen(false)}
-          onRequestReset={() => { setIsSettingsModalOpen(false); setIsResetConfirmOpen(true); }}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSaveTask}
+          parentOptions={tasks}
+          defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined}
+          defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined}
+          defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined}
         />
       )}
-      {isAIModalOpen && (
-      <AIAnalysisModal
-        isOpen
-        onClose={() => setIsAIModalOpen(false)}
-        onBusyChange={setIsAIBusy}
-        onImport={(newTasks, replace) => {
-          if (replace) {
-            const { overloads } = computeWorkloadOverloads(newTasks, projects);
-            const toImport = overloads.length > 0 ? fixOverloadByExtending(newTasks, projects, overloads) : newTasks;
-            importTasks(toImport);
-          } else {
-            const effectiveProjectId = currentProjectId === 'all' ? (projects[0]?.id || '') : (currentProjectId || projects[0]?.id || '');
-            if (effectiveProjectId) {
-              addTasks(newTasks);
-            } else {
-              importTasks(newTasks, '__new__', newTasks[0]?.name || 'AI 생성 프로젝트');
-            }
-          }
-          // AI에서 도출된 담당자를 해당 프로젝트 투입 인원 현황에 자동 추가
-          const projectId = newTasks[0]?.projectId;
-          if (projectId && newTasks.length > 0 && projects.some((p) => p.id === projectId)) {
-            const currentAssignments = projects.find((p) => p.id === projectId)?.assignments ?? [];
-            const existingNames = new Set(currentAssignments.map((a) => (a.assignee || '').trim()).filter(Boolean));
-            const assigneesFromTasks = new Set<string>();
-            newTasks.forEach((t) => {
-              const a = (t.assignee || '').trim();
-              if (a) assigneesFromTasks.add(a);
-            });
-            const toAdd = [...assigneesFromTasks].filter((name) => !existingNames.has(name));
-            if (toAdd.length > 0) {
-              const merged = [...currentAssignments, ...toAdd.map((assignee) => ({ assignee, allocationPercent: 100 }))];
-              updateProject(projectId, { assignments: merged });
-            }
-          }
-        }}
-        currentProjectId={currentProjectId}
-        existingTasks={tasks}
-        projects={projectsSortedByName}
-      />
+      {isProjectModalOpen && (
+        <ProjectModal
+          isOpen
+          onClose={() => {
+            setIsProjectModalOpen(false);
+            setEditingProject(null);
+          }}
+          onSave={handleSaveProject}
+          project={editingProject}
+          allProjects={projects}
+        />
       )}
-      {isVersionHistoryOpen && (
-      <VersionManager
-        isOpen
-        onClose={() => setIsVersionHistoryOpen(false)}
-        currentVersion={__APP_VERSION__}
-      />
-      )}
-
-      {/* 삭제 유형 선택: 전체 삭제 / 현재 보고 있는 프로젝트 삭제 / 프로젝트 선택 삭제 / 현재 프로젝트 작업만 삭제 */}
-      {isDeleteChoiceOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content max-w-md">
-            <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/30">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
-                  <AlertTriangle className="text-red-500" size={18} />
-                </div>
-                <h2 className="text-lg font-bold text-[var(--color-ink)]">삭제 유형 선택</h2>
-              </div>
-              <button onClick={() => setIsDeleteChoiceOpen(false)} className="icon-btn text-slate-400 hover:text-slate-700">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 max-h-[60vh] overflow-y-auto">
-              <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">
-                삭제 방식을 선택하세요.
-              </p>
-              <div className="mt-4 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDeleteChoiceOpen(false);
-                    setIsDeleteAllProjectsConfirmOpen(true);
-                  }}
-                  className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                >
-                  <span className="block font-semibold">전체 삭제</span>
-                  <span className="block text-xs text-red-600 mt-0.5">모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화합니다.</span>
-                </button>
-                {currentProject && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsDeleteChoiceOpen(false);
-                      setProjectToDelete(currentProject);
-                      setIsDeleteProjectConfirmOpen(true);
-                    }}
-                    className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors mt-3"
-                  >
-                    <span className="block font-semibold">현재 보고 있는 프로젝트 삭제</span>
-                    <span className="block text-xs text-red-600 mt-0.5">
-                      '{currentProject.name}' 프로젝트와 소속된 모든 작업을 삭제합니다.
-                      {effectiveIsAdmin && currentProject.ownerId && (
-                        <span className="block text-red-500/80 mt-0.5">
-                          소유: {currentProject.ownerId === user?.id ? '내 프로젝트' : (currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? '다른 사용자') : '소유자 없음')}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                )}
-                {deletableProjects.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-slate-500 mt-3">프로젝트 선택해서 삭제</p>
-                    {deletableProjects.map((project) => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        onClick={() => {
-                          setIsDeleteChoiceOpen(false);
-                          setProjectToDelete(project);
-                          setIsDeleteProjectConfirmOpen(true);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                      >
-                        <span className="block font-semibold">{project.name}</span>
-                        <span className="block text-xs text-red-600 mt-0.5">
-                          프로젝트와 소속된 모든 작업을 삭제합니다.
-                          {effectiveIsAdmin && project.ownerId && (
-                            <span className="block text-red-500/80 mt-0.5">
-                              소유: {project.ownerId === user?.id ? '내 프로젝트' : (project.ownerId ? (profileMap[project.ownerId] ?? '다른 사용자') : '소유자 없음')}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {currentProject && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsDeleteChoiceOpen(false);
-                      setIsDeleteAllConfirmOpen(true);
-                    }}
-                    className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                  >
-                    <span className="block font-semibold">현재 프로젝트 작업만 삭제</span>
-                    <span className="block text-xs text-red-600 mt-0.5">'{currentProject.name}'의 작업만 삭제하고 프로젝트는 유지합니다.</span>
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end p-5 border-t border-slate-100 bg-slate-50/30">
-              <button type="button" onClick={() => setIsDeleteChoiceOpen(false)} className="btn-ghost">
-                취소
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      <ConfirmDialog isOpen={isDeleteAllConfirmOpen} onClose={() => setIsDeleteAllConfirmOpen(false)} onConfirm={handleDeleteAll} title="모든 작업 삭제" message={currentProjectId === 'all' ? '모든 프로젝트의 작업을 전체 삭제하시겠습니까?' : `'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`} confirmLabel="삭제" isDanger={true} />
-      <ConfirmDialog isOpen={isDeleteAllProjectsConfirmOpen} onClose={() => setIsDeleteAllProjectsConfirmOpen(false)} onConfirm={handleDeleteAllProjects} title="전체 삭제" message="모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다." confirmLabel="전체 삭제" isDanger={true} />
-      <ConfirmDialog
-        isOpen={isDeleteProjectConfirmOpen}
-        onClose={() => { setIsDeleteProjectConfirmOpen(false); setProjectToDelete(null); }}
-        onConfirm={handleDeleteProject}
-        title="프로젝트 삭제"
-        message={`'${projectToDelete?.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까?`}
-        confirmLabel="프로젝트 삭제"
-        isDanger={true}
-      />
-      <ConfirmDialog
-        isOpen={isResetConfirmOpen}
-        onClose={() => setIsResetConfirmOpen(false)}
-        onConfirm={async () => {
-          await clearAllLocalData();
-          setIsResetConfirmOpen(false);
-          pushToast('로컬 데이터·설정이 초기화되었습니다. 페이지를 새로고침합니다.', { variant: 'success' });
-          window.location.reload();
-        }}
-        title="로컬 초기화"
-        message="로컬에 저장된 모든 데이터·설정을 지우고, 작업 없는 빈 '새 프로젝트'만 표시합니다. (알파 등 데모/서버 프로젝트는 이때 보이지 않습니다.) 이후 페이지를 새로고침하면 서버 데이터가 다시 내려옵니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
-        confirmLabel="초기화"
-        isDanger={true}
-      />
-      <ExcelImportPreviewModal
-        isOpen={importPreview.isOpen}
-        onClose={() => setImportPreview(prev => ({ ...prev, isOpen: false }))}
-        onConfirm={executeImport}
-        totalTaskCount={importPreview.tasks.length}
-        files={importPreview.files}
-        projects={projectsSortedByName}
-        currentProjectId={currentProjectId}
-      />
-      <BackupRestoreModal
-        isOpen={backupConfirm.isOpen}
-        onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })}
-        onConfirmFull={executeRestoreBackup}
-        onConfirmIntoProject={executeRestoreBackupIntoProject}
-        data={backupConfirm.data}
-        projects={projectsSortedByName}
-        currentProjectId={currentProjectId}
-      />
-      <ConfirmDialog isOpen={multiMergeConfirm.isOpen} onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })} onConfirm={executeMultiMerge} title="다중 프로젝트 가져오기" message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`} confirmLabel="가져오기" isDanger={false} />
-      <ConfirmDialog isOpen={errorAlert.isOpen} onClose={() => setErrorAlert({ isOpen: false, message: '' })} onConfirm={() => setErrorAlert({ isOpen: false, message: '' })} title="오류" message={errorAlert.message} confirmLabel="확인" isDanger={false} />
-      {isShareOpen && (
-      <ShareModal
-        isOpen
-        onClose={() => setIsShareOpen(false)}
-        projectId={currentProject?.id}
-        projectName={currentProject?.name}
-        isOwner={currentProject?.ownerId === user?.id}
-        isAdmin={effectiveIsAdmin}
-        profileMap={profileMap}
-        profiles={profiles.map(p => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
-        ownerId={currentProject?.ownerId}
-      />
-      )}
-      {isAuditLogOpen && (() => {
-        const pid = auditLogProjectId ?? (currentProjectId !== 'all' ? currentProjectId : null);
-        const proj = pid ? projects.find(p => p.id === pid) : null;
-        return pid ? (
-          <AuditLogModal
-            isOpen={true}
-            onClose={() => { setIsAuditLogOpen(false); setAuditLogProjectId(null); }}
-            projectId={pid}
-            projectName={proj?.name}
+      <Suspense fallback={null}>
+        {isSettingsModalOpen && (
+          <WBSSettingsModal
+            isOpen
+            onClose={() => setIsSettingsModalOpen(false)}
+            onRequestReset={() => {
+              setIsSettingsModalOpen(false);
+              setIsResetConfirmOpen(true);
+            }}
           />
-        ) : null;
-      })()}
-      {isMembersModalOpen && (
-      <MembersModal
-        isOpen
-        onClose={() => setIsMembersModalOpen(false)}
-        currentUserId={user?.id}
-        dbIsAdmin={isAdmin}
-        adminOverride={adminOverride}
-        projects={projectsSortedByName.map(p => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
-        profileMap={profileMap}
-        onDeleted={() => { pushToast('회원이 삭제되었습니다.', { variant: 'success' }); onMembersUpdated?.(); }}
-        onApproved={() => { pushToast('회원을 승인했습니다. (전체 프로젝트 목록 조회 등 권한에 반영됩니다.)', { variant: 'success' }); onMembersUpdated?.(); }}
-      />
-      )}
-      {isAdminPasswordModalOpen && (
-      <AdminPasswordModal
-        isOpen
-        onClose={() => setIsAdminPasswordModalOpen(false)}
-        onSuccess={() => {
-          setAdminOverride(true);
-          sessionStorage.setItem('wbs-admin-override', 'true');
-          setIsAdminPasswordModalOpen(false);
-          pushToast('관리자 모드로 전환되었습니다.', { variant: 'success' });
-        }}
-      />
-      )}
-      {isExportModalOpen && (
-      <ExportModal
-        isOpen
-        onClose={() => setIsExportModalOpen(false)}
-        projects={projectsSortedByName}
-        allTasks={allTasks}
-        selectedProjectIds={exportSelectedProjectIds}
-        onSelectedProjectIdsChange={setExportSelectedProjectIds}
-        wbsMap={wbsMap}
-        wbsSettings={wbsSettings}
-        currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
-        onExport={handleExportFromModal}
-      />
-      )}
+        )}
+        {isAIModalOpen && (
+          <AIAnalysisModal
+            isOpen
+            onClose={() => setIsAIModalOpen(false)}
+            onBusyChange={setIsAIBusy}
+            onImport={(newTasks, replace) => {
+              if (replace) {
+                const { overloads } = computeWorkloadOverloads(newTasks, projects);
+                const toImport = overloads.length > 0 ? fixOverloadByExtending(newTasks, projects, overloads) : newTasks;
+                importTasks(toImport);
+              } else {
+                const effectiveProjectId = currentProjectId === 'all' ? projects[0]?.id || '' : currentProjectId || projects[0]?.id || '';
+                if (effectiveProjectId) {
+                  addTasks(newTasks);
+                } else {
+                  importTasks(newTasks, '__new__', newTasks[0]?.name || 'AI 생성 프로젝트');
+                }
+              }
+              // AI에서 도출된 담당자를 해당 프로젝트 투입 인원 현황에 자동 추가
+              const projectId = newTasks[0]?.projectId;
+              if (projectId && newTasks.length > 0 && projects.some((p) => p.id === projectId)) {
+                const currentAssignments = projects.find((p) => p.id === projectId)?.assignments ?? [];
+                const existingNames = new Set(currentAssignments.map((a) => (a.assignee || '').trim()).filter(Boolean));
+                const assigneesFromTasks = new Set<string>();
+                newTasks.forEach((t) => {
+                  const a = (t.assignee || '').trim();
+                  if (a) assigneesFromTasks.add(a);
+                });
+                const toAdd = [...assigneesFromTasks].filter((name) => !existingNames.has(name));
+                if (toAdd.length > 0) {
+                  const merged = [...currentAssignments, ...toAdd.map((assignee) => ({ assignee, allocationPercent: 100 }))];
+                  updateProject(projectId, { assignments: merged });
+                }
+              }
+            }}
+            currentProjectId={currentProjectId}
+            existingTasks={tasks}
+            projects={projectsSortedByName}
+          />
+        )}
+        {isVersionHistoryOpen && <VersionManager isOpen onClose={() => setIsVersionHistoryOpen(false)} currentVersion={__APP_VERSION__} />}
 
-      {isWeeklyReportOpen && (
-      <WeeklyReportModal
-        isOpen
-        onClose={() => setIsWeeklyReportOpen(false)}
-        tasks={allTasks}
-        projects={projectsSortedByName}
-        currentProjectId={currentProjectId}
-        currentUserDisplay={currentUserDisplay}
-      />
-      )}
+        {/* 삭제 유형 선택: 전체 삭제(관리자) / 현재 프로젝트 삭제(소유자·관리자) / 프로젝트 선택 삭제(소유자·관리자) / 현재 프로젝트 작업 삭제(편집자) */}
+        {isDeleteChoiceOpen &&
+          (() => {
+            const isCurrentProjectOwner = !!currentProject && !!user?.id && currentProject.ownerId === user.id;
+            const canDeleteCurrentProject = !!currentProject && (effectiveIsAdmin || isCurrentProjectOwner);
+            const hasAnyOption =
+              effectiveIsAdmin || canDeleteCurrentProject || deletableProjects.length > 0 || (!!currentProject && canEditCurrentProject);
+            return (
+              <div className="modal-overlay">
+                <div className="modal-content max-w-md">
+                  <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/30">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
+                        <AlertTriangle className="text-red-500" size={18} />
+                      </div>
+                      <h2 className="text-lg font-bold text-[var(--color-ink)]">삭제 유형 선택</h2>
+                    </div>
+                    <button onClick={() => setIsDeleteChoiceOpen(false)} className="icon-btn text-slate-400 hover:text-slate-700">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="p-6 max-h-[60vh] overflow-y-auto">
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">삭제 방식을 선택하세요.</p>
+                    <div className="mt-4 space-y-2">
+                      {!hasAnyOption && (
+                        <div className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">
+                          삭제 권한이 있는 항목이 없습니다. 본인이 만든 프로젝트만 삭제할 수 있어요.
+                        </div>
+                      )}
+                      {effectiveIsAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsDeleteChoiceOpen(false);
+                            setIsDeleteAllProjectsConfirmOpen(true);
+                          }}
+                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                        >
+                          <span className="block font-semibold">
+                            전체 삭제{' '}
+                            <span className="text-[10px] font-bold uppercase ml-1 px-1.5 py-0.5 bg-red-200 text-red-800 rounded">
+                              관리자
+                            </span>
+                          </span>
+                          <span className="block text-xs text-red-600 mt-0.5">
+                            모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화합니다.
+                          </span>
+                        </button>
+                      )}
+                      {canDeleteCurrentProject && currentProject && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsDeleteChoiceOpen(false);
+                            setProjectToDelete(currentProject);
+                            setIsDeleteProjectConfirmOpen(true);
+                          }}
+                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors mt-3"
+                        >
+                          <span className="block font-semibold">현재 보고 있는 프로젝트 삭제</span>
+                          <span className="block text-xs text-red-600 mt-0.5">
+                            '{currentProject.name}' 프로젝트와 소속된 모든 작업을 삭제합니다.
+                            {effectiveIsAdmin && currentProject.ownerId && (
+                              <span className="block text-red-500/80 mt-0.5">
+                                소유:{' '}
+                                {currentProject.ownerId === user?.id
+                                  ? '내 프로젝트'
+                                  : currentProject.ownerId
+                                    ? (profileMap[currentProject.ownerId] ?? '다른 사용자')
+                                    : '소유자 없음'}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      )}
+                      {deletableProjects.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-slate-500 mt-3">
+                            프로젝트 선택해서 삭제 {effectiveIsAdmin ? '(전체)' : '(내 프로젝트)'}
+                          </p>
+                          {deletableProjects.map((project) => (
+                            <button
+                              key={project.id}
+                              type="button"
+                              onClick={() => {
+                                setIsDeleteChoiceOpen(false);
+                                setProjectToDelete(project);
+                                setIsDeleteProjectConfirmOpen(true);
+                              }}
+                              className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                            >
+                              <span className="block font-semibold">{project.name}</span>
+                              <span className="block text-xs text-red-600 mt-0.5">
+                                프로젝트와 소속된 모든 작업을 삭제합니다.
+                                {effectiveIsAdmin && project.ownerId && (
+                                  <span className="block text-red-500/80 mt-0.5">
+                                    소유:{' '}
+                                    {project.ownerId === user?.id
+                                      ? '내 프로젝트'
+                                      : project.ownerId
+                                        ? (profileMap[project.ownerId] ?? '다른 사용자')
+                                        : '소유자 없음'}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {currentProject && canEditCurrentProject && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsDeleteChoiceOpen(false);
+                            setIsDeleteAllConfirmOpen(true);
+                          }}
+                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
+                        >
+                          <span className="block font-semibold">현재 프로젝트 작업만 삭제</span>
+                          <span className="block text-xs text-red-600 mt-0.5">
+                            '{currentProject.name}'의 작업만 삭제하고 프로젝트는 유지합니다.
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex justify-end p-5 border-t border-slate-100 bg-slate-50/30">
+                    <button type="button" onClick={() => setIsDeleteChoiceOpen(false)} className="btn-ghost">
+                      취소
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        <ConfirmDialog
+          isOpen={isDeleteAllConfirmOpen}
+          onClose={() => setIsDeleteAllConfirmOpen(false)}
+          onConfirm={handleDeleteAll}
+          title="모든 작업 삭제"
+          message={
+            currentProjectId === 'all'
+              ? '모든 프로젝트의 작업을 전체 삭제하시겠습니까?'
+              : `'${currentProject?.name}' 프로젝트의 모든 작업을 삭제하시겠습니까?`
+          }
+          confirmLabel="삭제"
+          isDanger={true}
+        />
+        <ConfirmDialog
+          isOpen={isDeleteAllProjectsConfirmOpen}
+          onClose={() => setIsDeleteAllProjectsConfirmOpen(false)}
+          onConfirm={handleDeleteAllProjects}
+          title="전체 삭제"
+          message="모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+          confirmLabel="전체 삭제"
+          isDanger={true}
+        />
+        <ConfirmDialog
+          isOpen={isDeleteProjectConfirmOpen}
+          onClose={() => {
+            setIsDeleteProjectConfirmOpen(false);
+            setProjectToDelete(null);
+          }}
+          onConfirm={handleDeleteProject}
+          title="프로젝트 삭제"
+          message={`'${projectToDelete?.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까?`}
+          confirmLabel="프로젝트 삭제"
+          isDanger={true}
+        />
+        <ConfirmDialog
+          isOpen={isResetConfirmOpen}
+          onClose={() => setIsResetConfirmOpen(false)}
+          onConfirm={async () => {
+            await clearAllLocalData();
+            setIsResetConfirmOpen(false);
+            pushToast('로컬 데이터·설정이 초기화되었습니다. 페이지를 새로고침합니다.', { variant: 'success' });
+            window.location.reload();
+          }}
+          title="로컬 초기화"
+          message="로컬에 저장된 모든 데이터·설정을 지우고, 작업 없는 빈 '새 프로젝트'만 표시합니다. (알파 등 데모/서버 프로젝트는 이때 보이지 않습니다.) 이후 페이지를 새로고침하면 서버 데이터가 다시 내려옵니다. 되돌릴 수 없습니다. 계속하시겠습니까?"
+          confirmLabel="초기화"
+          isDanger={true}
+        />
+        <ExcelImportPreviewModal
+          isOpen={importPreview.isOpen}
+          onClose={() => setImportPreview((prev) => ({ ...prev, isOpen: false }))}
+          onConfirm={executeImport}
+          totalTaskCount={importPreview.tasks.length}
+          files={importPreview.files}
+          projects={projectsSortedByName}
+          currentProjectId={currentProjectId}
+        />
+        <BackupRestoreModal
+          isOpen={backupConfirm.isOpen}
+          onClose={() => setBackupConfirm({ ...backupConfirm, isOpen: false })}
+          onConfirmFull={executeRestoreBackup}
+          onConfirmIntoProject={executeRestoreBackupIntoProject}
+          data={backupConfirm.data}
+          projects={projectsSortedByName}
+          currentProjectId={currentProjectId}
+        />
+        <ConfirmDialog
+          isOpen={multiMergeConfirm.isOpen}
+          onClose={() => setMultiMergeConfirm({ ...multiMergeConfirm, isOpen: false })}
+          onConfirm={executeMultiMerge}
+          title="다중 프로젝트 가져오기"
+          message={`선택한 ${multiMergeConfirm.fileCount}개의 파일을 가져오시겠습니까?`}
+          confirmLabel="가져오기"
+          isDanger={false}
+        />
+        <ConfirmDialog
+          isOpen={errorAlert.isOpen}
+          onClose={() => setErrorAlert({ isOpen: false, message: '' })}
+          onConfirm={() => setErrorAlert({ isOpen: false, message: '' })}
+          title="오류"
+          message={errorAlert.message}
+          confirmLabel="확인"
+          isDanger={false}
+        />
+        {isShareOpen && (
+          <ShareModal
+            isOpen
+            onClose={() => setIsShareOpen(false)}
+            projectId={currentProject?.id}
+            projectName={currentProject?.name}
+            isOwner={currentProject?.ownerId === user?.id}
+            isAdmin={effectiveIsAdmin}
+            profileMap={profileMap}
+            profiles={profiles.map((p) => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
+            ownerId={currentProject?.ownerId}
+          />
+        )}
+        {isAuditLogOpen &&
+          (() => {
+            const pid = auditLogProjectId ?? (currentProjectId !== 'all' ? currentProjectId : null);
+            const proj = pid ? projects.find((p) => p.id === pid) : null;
+            return pid ? (
+              <AuditLogModal
+                isOpen={true}
+                onClose={() => {
+                  setIsAuditLogOpen(false);
+                  setAuditLogProjectId(null);
+                }}
+                projectId={pid}
+                projectName={proj?.name}
+              />
+            ) : null;
+          })()}
+        {isMembersModalOpen && (
+          <MembersModal
+            isOpen
+            onClose={() => setIsMembersModalOpen(false)}
+            currentUserId={user?.id}
+            dbIsAdmin={isAdmin}
+            adminOverride={adminOverride}
+            projects={projectsSortedByName.map((p) => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
+            profileMap={profileMap}
+            onDeleted={() => {
+              pushToast('회원이 삭제되었습니다.', { variant: 'success' });
+              onMembersUpdated?.();
+            }}
+            onApproved={() => {
+              pushToast('회원을 승인했습니다. (전체 프로젝트 목록 조회 등 권한에 반영됩니다.)', { variant: 'success' });
+              onMembersUpdated?.();
+            }}
+          />
+        )}
+        {isAdminPasswordModalOpen && (
+          <AdminPasswordModal
+            isOpen
+            onClose={() => setIsAdminPasswordModalOpen(false)}
+            onSuccess={() => {
+              setAdminOverride(true);
+              sessionStorage.setItem('wbs-admin-override', 'true');
+              setIsAdminPasswordModalOpen(false);
+              pushToast('관리자 모드로 전환되었습니다.', { variant: 'success' });
+            }}
+          />
+        )}
+        {isExportModalOpen && (
+          <ExportModal
+            isOpen
+            onClose={() => setIsExportModalOpen(false)}
+            projects={projectsSortedByName}
+            allTasks={allTasks}
+            selectedProjectIds={exportSelectedProjectIds}
+            onSelectedProjectIdsChange={setExportSelectedProjectIds}
+            wbsMap={wbsMap}
+            wbsSettings={wbsSettings}
+            currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
+            onExport={handleExportFromModal}
+          />
+        )}
+
+        {isWeeklyReportOpen && (
+          <WeeklyReportModal
+            isOpen
+            onClose={() => setIsWeeklyReportOpen(false)}
+            tasks={allTasks}
+            projects={projectsSortedByName}
+            currentProjectId={currentProjectId}
+            currentUserDisplay={currentUserDisplay}
+          />
+        )}
       </Suspense>
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        accept=".xlsx,.xls,.xlsm,.json,.md"
-        multiple
-        className="hidden"
-      />
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx,.xls,.xlsm,.json,.md" multiple className="hidden" />
       <input type="file" ref={backupInputRef} onChange={handleBackupFileChange} accept=".json" multiple className="hidden" />
       <input type="file" ref={mergeInputRef} onChange={handleMergeFileChange} accept=".json" multiple className="hidden" />
 
@@ -1745,7 +2151,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
               >
                 v{__APP_VERSION__} · 변경이력
               </button>
-              <span className="text-slate-300" aria-hidden>·</span>
+              <span className="text-slate-300" aria-hidden>
+                ·
+              </span>
               <span>© 2026 GMT Corporation. All rights reserved.</span>
             </div>
           </div>
@@ -1769,12 +2177,14 @@ function AppWithProviders() {
       setUserApproved(false);
       return;
     }
-    getProfileStatus().then(status => {
-      if (status) {
-        setIsAdmin(status.isAdmin);
-        setUserApproved(status.approved);
-      }
-    }).catch(() => {});
+    getProfileStatus()
+      .then((status) => {
+        if (status) {
+          setIsAdmin(status.isAdmin);
+          setUserApproved(status.approved);
+        }
+      })
+      .catch(() => {});
   }, [user?.id]);
 
   useEffect(() => {
@@ -1825,7 +2235,12 @@ function AppWithProviders() {
   return (
     <WBSProvider
       useLocalOnly={false}
-      onConcurrentConflict={() => pushToast('다른 사용자가 동시에 수정했습니다. DB 동기화 버튼을 눌러 최신 데이터를 가져오세요.', { variant: 'warning', durationMs: 8000 })}
+      onConcurrentConflict={() =>
+        pushToast('다른 사용자가 동시에 수정했습니다. DB 동기화 버튼을 눌러 최신 데이터를 가져오세요.', {
+          variant: 'warning',
+          durationMs: 8000,
+        })
+      }
       onDbError={(msg) =>
         pushToast(msg, {
           variant: 'error',
@@ -1835,12 +2250,7 @@ function AppWithProviders() {
       }
       editableProjectIds={myEditableProjectIds}
     >
-      <WBSApp
-        isAdmin={isAdmin}
-        myEditableProjectIds={myEditableProjectIds}
-        userApproved={userApproved}
-        onMembersUpdated={() => {}}
-      />
+      <WBSApp isAdmin={isAdmin} myEditableProjectIds={myEditableProjectIds} userApproved={userApproved} onMembersUpdated={() => {}} />
     </WBSProvider>
   );
 }
