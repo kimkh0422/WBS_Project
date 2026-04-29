@@ -4,6 +4,7 @@ import { X, Trash2, CornerDownRight, Info, Flag, Bug, Sparkles, Loader2 } from '
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
+import { ORG_MEMBERS } from '../data/organization';
 import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
 // GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
@@ -533,11 +534,26 @@ export function TaskModal({
     onClose();
   };
 
+  /** 이름 → "부서 · 직위" 라벨. datalist 옵션 라벨로 표시. */
+  const orgMemberLabelByName = (() => {
+    const m = new Map<string, string>();
+    for (const member of ORG_MEMBERS) {
+      if (!m.has(member.name)) {
+        m.set(member.name, `${member.department} · ${member.position}`);
+      }
+    }
+    return m;
+  })();
+
   const assigneeOptions = Array.from(
-    new Set([...projectAssignments.map((a) => a.assignee), ...parentOptions.map((t) => t.assignee).filter(Boolean)]),
+    new Set([
+      ...projectAssignments.map((a) => a.assignee),
+      ...parentOptions.map((t) => t.assignee).filter(Boolean),
+      ...ORG_MEMBERS.map((m) => m.name),
+    ]),
   )
     .filter(Boolean)
-    .sort();
+    .sort((a, b) => a.localeCompare(b, 'ko'));
 
   const handleDeleteClick = () => {
     setIsDeleteConfirmOpen(true);
@@ -731,7 +747,7 @@ export function TaskModal({
     }
   };
 
-  const assigneeTitle = '프로젝트 등록 인원 선택 또는 직접 입력. 투입비율은 프로젝트 설정에서 적용됩니다.';
+  const assigneeTitle = '프로젝트 등록 인원 또는 회사 직원(조직도)에서 선택, 또는 직접 입력. 투입비율은 프로젝트 설정에서 적용됩니다.';
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-3 sm:p-4">
@@ -876,9 +892,10 @@ export function TaskModal({
               />
               <datalist id="task-modal-assignees">
                 <option value="">선택 안 함</option>
-                {assigneeOptions.map((a) => (
-                  <option key={a} value={a} />
-                ))}
+                {assigneeOptions.map((a) => {
+                  const info = orgMemberLabelByName.get(a);
+                  return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
+                })}
               </datalist>
               <div className="mt-0.5 flex items-center gap-2">
                 <label className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율 %</label>
