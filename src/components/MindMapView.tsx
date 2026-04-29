@@ -3,7 +3,22 @@ import { useWBS } from '../context/WBSContext';
 import { FilterState, Task } from '../types';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ZoomIn, ZoomOut, Maximize2, Hand, Plus, ArrowUpToLine, ArrowDownToLine, Pencil, Trash2, X, ChevronsUpDown, ChevronsDownUp, GitBranch, Network } from 'lucide-react';
+import {
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Hand,
+  Plus,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  Pencil,
+  Trash2,
+  X,
+  ChevronsUpDown,
+  ChevronsDownUp,
+  GitBranch,
+  Network,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const NODE_W = 200;
@@ -18,8 +33,8 @@ const VIRTUAL_ROOT_ID = '__mindmap_project_root__';
 /** 트리형 레이아웃 상수 */
 const TREE_START_Y = 40;
 const TREE_CENTER_X = 600;
-const TREE_H_GAP = 20;  // 형제 노드 간 수평 간격
-const TREE_V_GAP = 44;  // 부모-자식 간 수직 간격
+const TREE_H_GAP = 20; // 형제 노드 간 수평 간격
+const TREE_V_GAP = 44; // 부모-자식 간 수직 간격
 
 /** 알마인드 레이아웃 상수 */
 const ALMIND_CENTER_X = 600;
@@ -107,7 +122,7 @@ function layoutAlmind(
   depth: number,
   side: number,
   yStart: number,
-  collapsedIds: Set<string>
+  collapsedIds: Set<string>,
 ): { root: PosNode; bottom: number } {
   const isCollapsed = collapsedIds.has(node.task.id);
   const effectiveChildren = isCollapsed ? [] : node.children;
@@ -128,14 +143,16 @@ function layoutAlmind(
       const isLeft = i < leftCount;
       const yPos = isLeft ? leftY : rightY;
       const { root: kr, bottom } = layoutAlmind(node.children[i], 1, isLeft ? -1 : 1, yPos, collapsedIds);
-      if (isLeft) { leftKids.push(kr); leftY = bottom + MIN_NODE_GAP_Y; }
-      else { rightKids.push(kr); rightY = bottom + MIN_NODE_GAP_Y; }
+      if (isLeft) {
+        leftKids.push(kr);
+        leftY = bottom + MIN_NODE_GAP_Y;
+      } else {
+        rightKids.push(kr);
+        rightY = bottom + MIN_NODE_GAP_Y;
+      }
     }
     const kids = [...leftKids, ...rightKids];
-    const maxBottom = Math.max(
-      leftKids.length ? leftY - MIN_NODE_GAP_Y : y,
-      rightKids.length ? rightY - MIN_NODE_GAP_Y : y
-    );
+    const maxBottom = Math.max(leftKids.length ? leftY - MIN_NODE_GAP_Y : y, rightKids.length ? rightY - MIN_NODE_GAP_Y : y);
     return { root: { task: node.task, x, y, depth: 0, side: 0, kids }, bottom: Math.max(maxBottom, y + NODE_H) };
   }
 
@@ -155,16 +172,17 @@ function layoutAlmind(
   return { root: { task: node.task, x, y: yStart, depth, side, kids }, bottom: curY };
 }
 
-function layoutAlmindForest(
-  forest: TreeNode[],
-  collapsedIds: Set<string>
-): { roots: PosNode[]; width: number; height: number } {
+function layoutAlmindForest(forest: TreeNode[], collapsedIds: Set<string>): { roots: PosNode[]; width: number; height: number } {
   if (forest.length === 0) return { roots: [], width: 400, height: 200 };
   if (forest.length === 1) {
     const { root } = layoutAlmind(forest[0], 0, 0, ALMIND_CENTER_Y, collapsedIds);
     const nodes = flattenPos(root);
-    let w = 0, h = 0;
-    for (const n of nodes) { w = Math.max(w, n.x + NODE_W + 80); h = Math.max(h, n.y + NODE_H + 40); }
+    let w = 0,
+      h = 0;
+    for (const n of nodes) {
+      w = Math.max(w, n.x + NODE_W + 80);
+      h = Math.max(h, n.y + NODE_H + 40);
+    }
     return { roots: [root], width: w, height: h };
   }
   const roots: PosNode[] = [];
@@ -173,10 +191,11 @@ function layoutAlmindForest(
   let maxBottom = 0;
   for (let i = 0; i < forest.length; i++) {
     const { root, bottom } = layoutAlmind(
-      forest[i], 0,
+      forest[i],
+      0,
       i < forest.length / 2 ? -1 : 1,
       ALMIND_CENTER_Y + (i - (forest.length - 1) / 2) * 60,
-      collapsedIds
+      collapsedIds,
     );
     root.x = startX + i * step;
     root.y = ALMIND_CENTER_Y;
@@ -184,8 +203,12 @@ function layoutAlmindForest(
     maxBottom = Math.max(maxBottom, bottom);
   }
   const allNodes = roots.flatMap(flattenPos);
-  let w = 0, h = 0;
-  for (const n of allNodes) { w = Math.max(w, n.x + NODE_W + 80); h = Math.max(h, n.y + NODE_H + 40); }
+  let w = 0,
+    h = 0;
+  for (const n of allNodes) {
+    w = Math.max(w, n.x + NODE_W + 80);
+    h = Math.max(h, n.y + NODE_H + 40);
+  }
   return { roots, width: w, height: Math.max(h, maxBottom) };
 }
 
@@ -198,8 +221,7 @@ function layoutAlmindForest(
 function computeSubtreeWidth(node: TreeNode, collapsedIds: Set<string>): number {
   const children = collapsedIds.has(node.task.id) ? [] : node.children;
   if (children.length === 0) return NODE_W;
-  const total = children.reduce((s, c) => s + computeSubtreeWidth(c, collapsedIds), 0)
-    + (children.length - 1) * TREE_H_GAP;
+  const total = children.reduce((s, c) => s + computeSubtreeWidth(c, collapsedIds), 0) + (children.length - 1) * TREE_H_GAP;
   return Math.max(NODE_W, total);
 }
 
@@ -213,7 +235,7 @@ function layoutTreeNode(
   centerX: number,
   y: number,
   collapsedIds: Set<string>,
-  nodeH: number = NODE_H
+  nodeH: number = NODE_H,
 ): PosNode {
   const children = collapsedIds.has(node.task.id) ? [] : node.children;
   const posNode: PosNode = {
@@ -239,16 +261,14 @@ function layoutTreeNode(
   return posNode;
 }
 
-function layoutTreeForest(
-  forest: TreeNode[],
-  collapsedIds: Set<string>
-): { roots: PosNode[]; width: number; height: number } {
+function layoutTreeForest(forest: TreeNode[], collapsedIds: Set<string>): { roots: PosNode[]; width: number; height: number } {
   if (forest.length === 0) return { roots: [], width: 400, height: 200 };
   // wrappedForest는 항상 루트 1개 (가상 프로젝트 루트)
   const rootNode = forest[0];
   const root = layoutTreeNode(rootNode, 0, TREE_CENTER_X, TREE_START_Y, collapsedIds, PROJECT_ROOT_H);
   const allNodes = flattenPos(root);
-  let w = 0, h = 0;
+  let w = 0,
+    h = 0;
   for (const n of allNodes) {
     w = Math.max(w, n.x + NODE_W + 80);
     h = Math.max(h, n.y + (n.nodeH ?? NODE_H) + 60);
@@ -345,19 +365,49 @@ function isDescendant(tasks: Task[], ancestorId: string, id: string): boolean {
 // ─── 색상 ────────────────────────────────────────────────────────────────────
 
 const DEPTH_FILL_LIGHT: Record<number, string> = {
-  0: '#1e293b', 1: '#fee2e2', 2: '#ffedd5', 3: '#fef9c3', 4: '#d1fae5', 5: '#dbeafe', 6: '#e0e7ff', 7: '#f3e8ff',
+  0: '#1e293b',
+  1: '#fee2e2',
+  2: '#ffedd5',
+  3: '#fef9c3',
+  4: '#d1fae5',
+  5: '#dbeafe',
+  6: '#e0e7ff',
+  7: '#f3e8ff',
 };
 const DEPTH_FILL_DARK: Record<number, string> = {
-  0: '#0f172a', 1: '#371717', 2: '#3b2008', 3: '#3b2f08', 4: '#052e16', 5: '#172554', 6: '#1e1b4b', 7: '#2e1065',
+  0: '#0f172a',
+  1: '#371717',
+  2: '#3b2008',
+  3: '#3b2f08',
+  4: '#052e16',
+  5: '#172554',
+  6: '#1e1b4b',
+  7: '#2e1065',
 };
 const DEPTH_STROKE_LIGHT: Record<number, string> = {
-  0: '#0f172a', 1: '#dc2626', 2: '#ea580c', 3: '#ca8a04', 4: '#059669', 5: '#2563eb', 6: '#4338ca', 7: '#7c3aed',
+  0: '#0f172a',
+  1: '#dc2626',
+  2: '#ea580c',
+  3: '#ca8a04',
+  4: '#059669',
+  5: '#2563eb',
+  6: '#4338ca',
+  7: '#7c3aed',
 };
 const DEPTH_STROKE_DARK: Record<number, string> = {
-  0: '#334155', 1: '#b91c1c', 2: '#c2410c', 3: '#a16207', 4: '#047857', 5: '#1d4ed8', 6: '#3730a3', 7: '#6d28d9',
+  0: '#334155',
+  1: '#b91c1c',
+  2: '#c2410c',
+  3: '#a16207',
+  4: '#047857',
+  5: '#1d4ed8',
+  6: '#3730a3',
+  7: '#6d28d9',
 };
 const DEPTH_FILL = new Proxy({} as Record<number, string>, { get: (_, k) => (_isDark() ? DEPTH_FILL_DARK : DEPTH_FILL_LIGHT)[Number(k)] });
-const DEPTH_STROKE = new Proxy({} as Record<number, string>, { get: (_, k) => (_isDark() ? DEPTH_STROKE_DARK : DEPTH_STROKE_LIGHT)[Number(k)] });
+const DEPTH_STROKE = new Proxy({} as Record<number, string>, {
+  get: (_, k) => (_isDark() ? DEPTH_STROKE_DARK : DEPTH_STROKE_LIGHT)[Number(k)],
+});
 const STATUS_FILL_LIGHT: Record<string, string> = {
   todo: '#f1f5f9',
   'in-progress': '#dbeafe',
@@ -383,8 +433,12 @@ const STATUS_STROKE_DARK: Record<string, string> = {
   done: '#16a34a',
 };
 const _isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
-const STATUS_FILL = new Proxy({} as Record<string, string>, { get: (_, k: string) => (_isDark() ? STATUS_FILL_DARK : STATUS_FILL_LIGHT)[k] });
-const STATUS_STROKE = new Proxy({} as Record<string, string>, { get: (_, k: string) => (_isDark() ? STATUS_STROKE_DARK : STATUS_STROKE_LIGHT)[k] });
+const STATUS_FILL = new Proxy({} as Record<string, string>, {
+  get: (_, k: string) => (_isDark() ? STATUS_FILL_DARK : STATUS_FILL_LIGHT)[k],
+});
+const STATUS_STROKE = new Proxy({} as Record<string, string>, {
+  get: (_, k: string) => (_isDark() ? STATUS_STROKE_DARK : STATUS_STROKE_LIGHT)[k],
+});
 const STATUS_LABEL: Record<string, string> = {
   todo: '예정',
   'in-progress': '진행중',
@@ -455,7 +509,8 @@ export function MindMapView({ filters }: MindMapViewProps) {
   const toggleCollapsed = useCallback((taskId: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
       return next;
     });
   }, []);
@@ -584,12 +639,18 @@ export function MindMapView({ filters }: MindMapViewProps) {
     const up = () => setDragging(false);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
   }, [dragging, draggingNodeId]);
 
   // ─── 노드 드래그 (부모 변경) ────────────────────────────────────────────────
   useEffect(() => {
-    if (!draggingNodeId) { setDropTargetId(null); return; }
+    if (!draggingNodeId) {
+      setDropTargetId(null);
+      return;
+    }
     const container = containerRef.current;
     const clientToSvg = (cx: number, cy: number) => {
       if (!container) return null;
@@ -634,7 +695,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
   }, [draggingNodeId, scopedTasks, updateTask, reorderTask, wrappedForest]);
 
   // ─── 화면 맞추기 ───────────────────────────────────────────────────────────
@@ -649,11 +713,16 @@ export function MindMapView({ filters }: MindMapViewProps) {
     setPan({ x: (w - width * s) / 2, y: (h - height * s) / 2 });
   }, [width, height, nodes.length]);
 
-  const focusContainer = useCallback(() => { containerRef.current?.focus({ preventScroll: true }); }, []);
+  const focusContainer = useCallback(() => {
+    containerRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const hasFocusedRef = useRef(false);
   useEffect(() => {
-    if (scopedTasks.length > 0 && !hasFocusedRef.current) { hasFocusedRef.current = true; focusContainer(); }
+    if (scopedTasks.length > 0 && !hasFocusedRef.current) {
+      hasFocusedRef.current = true;
+      focusContainer();
+    }
     if (scopedTasks.length === 0) hasFocusedRef.current = false;
   }, [scopedTasks.length, focusContainer]);
 
@@ -671,8 +740,16 @@ export function MindMapView({ filters }: MindMapViewProps) {
     const proj = projects.find((p) => p.id === targetProjectId);
     const start = selectedTask.startDate || proj?.startDate || new Date().toISOString().slice(0, 10);
     const end = selectedTask.endDate || proj?.endDate || start;
-    const newId = addTask({ parentId: selectedTask.id, name: '새 하위 작업', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' }, undefined, targetProjectId);
-    setCollapsedIds((prev) => { const next = new Set(prev); next.delete(selectedTask.id); return next; });
+    const newId = addTask(
+      { parentId: selectedTask.id, name: '', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' },
+      undefined,
+      targetProjectId,
+    );
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(selectedTask.id);
+      return next;
+    });
     setSelectedTaskId(newId);
     pendingPanIdRef.current = newId;
   }, [selectedTask, projects, addTask]);
@@ -684,7 +761,11 @@ export function MindMapView({ filters }: MindMapViewProps) {
     const proj = projects.find((p) => p.id === targetProjectId);
     const start = proj?.startDate || new Date().toISOString().slice(0, 10);
     const end = proj?.endDate || start;
-    addTask({ parentId: undefined, name: '새 작업', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' }, undefined, targetProjectId);
+    addTask(
+      { parentId: undefined, name: '', startDate: start, endDate: end, progress: 0, assignee: '', status: 'todo' },
+      undefined,
+      targetProjectId,
+    );
   }, [projectId, projects, addTask]);
 
   const levelUp = useCallback(() => {
@@ -702,112 +783,135 @@ export function MindMapView({ filters }: MindMapViewProps) {
     updateTask(selectedTask.id, { parentId: siblings[idx - 1].id });
   }, [selectedTask, scopedTasks, updateTask]);
 
-  const openDetailEdit = useCallback(() => { if (selectedTask) setEditingTask(selectedTask); }, [selectedTask]);
+  const openDetailEdit = useCallback(() => {
+    if (selectedTask) setEditingTask(selectedTask);
+  }, [selectedTask]);
 
   // ─── 키보드 ────────────────────────────────────────────────────────────────
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (editingNodeId) return; // 인라인 편집 중 SVG 키보드 이벤트 무시
-    if (nodes.length === 0) return;
-    if (!selectedTaskId) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
-        e.preventDefault();
-        // 가상 루트(depth 0)는 건너뛰고 첫 번째 실제 작업 노드 선택
-        const firstReal = nodes.find((n) => n.task.id !== VIRTUAL_ROOT_ID);
-        const firstId = firstReal?.task.id ?? nodes[0].task.id;
-        setSelectedTaskId(firstId);
-        panToNode(firstId);
-      }
-      return;
-    }
-    // 가상 루트가 선택된 경우 키보드 조작 차단 (클릭 선택 불가이므로 이론상 발생 안 함)
-    if (selectedTaskId === VIRTUAL_ROOT_ID) return;
-    const nav = getTreeNav(scopedTasks, selectedTaskId);
-    const selectAndPan = (id: string | null) => {
-      if (!id) return;
-      setSelectedTaskId(id);
-      panToNode(id);
-    };
-
-    switch (e.key) {
-      case 'ArrowUp':
-        e.preventDefault();
-        selectAndPan(nav.parentId);
-        return;
-      case 'ArrowDown':
-        e.preventDefault();
-        selectAndPan(nav.firstChildId);
-        return;
-      case 'ArrowLeft': {
-        e.preventDefault();
-        if (nav.prevSiblingId) {
-          selectAndPan(nav.prevSiblingId);
-        } else {
-          // 형제 없으면 같은 depth의 이전 노드 (다른 서브트리 포함)
-          const cur = nodes.find((n) => n.task.id === selectedTaskId);
-          if (cur) {
-            const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
-            const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
-            if (idx > 0) selectAndPan(sameDepth[idx - 1].task.id);
-          }
-        }
-        return;
-      }
-      case 'ArrowRight': {
-        e.preventDefault();
-        if (nav.nextSiblingId) {
-          selectAndPan(nav.nextSiblingId);
-        } else {
-          // 형제 없으면 같은 depth의 다음 노드 (다른 서브트리 포함)
-          const cur = nodes.find((n) => n.task.id === selectedTaskId);
-          if (cur) {
-            const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
-            const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
-            if (idx < sameDepth.length - 1) selectAndPan(sameDepth[idx + 1].task.id);
-          }
-        }
-        return;
-      }
-      case 'Tab':
-        e.preventDefault();
-        if (e.shiftKey) selectAndPan(nav.parentId);
-        else addChildTask();
-        return;
-      case 'Home':
-        e.preventDefault();
-        selectAndPan(nodes.find((n) => n.task.id !== VIRTUAL_ROOT_ID)?.task.id ?? null);
-        return;
-      case 'End':
-        e.preventDefault();
-        selectAndPan(nodes[nodes.length - 1].task.id);
-        return;
-      case ' ':
-        e.preventDefault();
-        if (hasChildrenInForest(wrappedForest, selectedTaskId)) toggleCollapsed(selectedTaskId);
-        return;
-      case 'F2':
-        e.preventDefault();
-        if (selectedTask) startInlineEdit(selectedTask.id, selectedTask.name || '');
-        return;
-      case 'Enter':
-        e.preventDefault();
-        openDetailEdit();
-        return;
-      case 'Escape':
-        e.preventDefault();
-        setSelectedTaskId(null);
-        return;
-      case 'Delete':
-      case 'Backspace':
-        if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) {
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (editingNodeId) return; // 인라인 편집 중 SVG 키보드 이벤트 무시
+      if (nodes.length === 0) return;
+      if (!selectedTaskId) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
           e.preventDefault();
-          if (canEditCurrentProject && selectedTask) { setEditingTask(selectedTask); setDeleteOpen(true); }
+          // 가상 루트(depth 0)는 건너뛰고 첫 번째 실제 작업 노드 선택
+          const firstReal = nodes.find((n) => n.task.id !== VIRTUAL_ROOT_ID);
+          const firstId = firstReal?.task.id ?? nodes[0].task.id;
+          setSelectedTaskId(firstId);
+          panToNode(firstId);
         }
         return;
-      default:
-        if (canEditCurrentProject && e.ctrlKey && e.key === 'Enter') { e.preventDefault(); addChildTask(); }
-        break;
-    }
-  }, [nodes, scopedTasks, selectedTaskId, selectedTask, wrappedForest, toggleCollapsed, openDetailEdit, addChildTask, panToNode, startInlineEdit, editingNodeId]);
+      }
+      // 가상 루트가 선택된 경우 키보드 조작 차단 (클릭 선택 불가이므로 이론상 발생 안 함)
+      if (selectedTaskId === VIRTUAL_ROOT_ID) return;
+      const nav = getTreeNav(scopedTasks, selectedTaskId);
+      const selectAndPan = (id: string | null) => {
+        if (!id) return;
+        setSelectedTaskId(id);
+        panToNode(id);
+      };
+
+      switch (e.key) {
+        case 'ArrowUp':
+          e.preventDefault();
+          selectAndPan(nav.parentId);
+          return;
+        case 'ArrowDown':
+          e.preventDefault();
+          selectAndPan(nav.firstChildId);
+          return;
+        case 'ArrowLeft': {
+          e.preventDefault();
+          if (nav.prevSiblingId) {
+            selectAndPan(nav.prevSiblingId);
+          } else {
+            // 형제 없으면 같은 depth의 이전 노드 (다른 서브트리 포함)
+            const cur = nodes.find((n) => n.task.id === selectedTaskId);
+            if (cur) {
+              const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
+              const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
+              if (idx > 0) selectAndPan(sameDepth[idx - 1].task.id);
+            }
+          }
+          return;
+        }
+        case 'ArrowRight': {
+          e.preventDefault();
+          if (nav.nextSiblingId) {
+            selectAndPan(nav.nextSiblingId);
+          } else {
+            // 형제 없으면 같은 depth의 다음 노드 (다른 서브트리 포함)
+            const cur = nodes.find((n) => n.task.id === selectedTaskId);
+            if (cur) {
+              const sameDepth = nodes.filter((n) => n.depth === cur.depth && n.task.id !== VIRTUAL_ROOT_ID);
+              const idx = sameDepth.findIndex((n) => n.task.id === selectedTaskId);
+              if (idx < sameDepth.length - 1) selectAndPan(sameDepth[idx + 1].task.id);
+            }
+          }
+          return;
+        }
+        case 'Tab':
+          e.preventDefault();
+          if (e.shiftKey) selectAndPan(nav.parentId);
+          else addChildTask();
+          return;
+        case 'Home':
+          e.preventDefault();
+          selectAndPan(nodes.find((n) => n.task.id !== VIRTUAL_ROOT_ID)?.task.id ?? null);
+          return;
+        case 'End':
+          e.preventDefault();
+          selectAndPan(nodes[nodes.length - 1].task.id);
+          return;
+        case ' ':
+          e.preventDefault();
+          if (hasChildrenInForest(wrappedForest, selectedTaskId)) toggleCollapsed(selectedTaskId);
+          return;
+        case 'F2':
+          e.preventDefault();
+          if (selectedTask) startInlineEdit(selectedTask.id, selectedTask.name || '');
+          return;
+        case 'Enter':
+          e.preventDefault();
+          openDetailEdit();
+          return;
+        case 'Escape':
+          e.preventDefault();
+          setSelectedTaskId(null);
+          return;
+        case 'Delete':
+        case 'Backspace':
+          if (!(e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) {
+            e.preventDefault();
+            if (canEditCurrentProject && selectedTask) {
+              setEditingTask(selectedTask);
+              setDeleteOpen(true);
+            }
+          }
+          return;
+        default:
+          if (canEditCurrentProject && e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            addChildTask();
+          }
+          break;
+      }
+    },
+    [
+      nodes,
+      scopedTasks,
+      selectedTaskId,
+      selectedTask,
+      wrappedForest,
+      toggleCollapsed,
+      openDetailEdit,
+      addChildTask,
+      panToNode,
+      startInlineEdit,
+      editingNodeId,
+    ],
+  );
 
   // ─── 노드 색상 헬퍼 ────────────────────────────────────────────────────────
   const getNodeFill = (n: PosNode) => {
@@ -830,7 +934,14 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
   // ─── 렌더 ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full min-h-0" style={{ background: _isDark() ? 'linear-gradient(135deg, #0B1120 0%, #151D2E 50%, #1E1338 100%)' : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 50%, rgba(245,243,255,0.4) 100%)' }}>
+    <div
+      className="flex flex-col h-full min-h-0"
+      style={{
+        background: _isDark()
+          ? 'linear-gradient(135deg, #0B1120 0%, #151D2E 50%, #1E1338 100%)'
+          : 'linear-gradient(135deg, #f8fafc 0%, #ffffff 50%, rgba(245,243,255,0.4) 100%)',
+      }}
+    >
       {/* 툴바 */}
       <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm flex-wrap">
         <div className="min-w-0">
@@ -843,12 +954,12 @@ export function MindMapView({ filters }: MindMapViewProps) {
           {/* 레이아웃 전환 */}
           <button
             type="button"
-            onClick={() => setLayoutMode((m) => m === 'tree' ? 'almind' : 'tree')}
+            onClick={() => setLayoutMode((m) => (m === 'tree' ? 'almind' : 'tree'))}
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors',
               layoutMode === 'almind'
                 ? 'border-violet-300 bg-violet-50 text-violet-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
             )}
             title="레이아웃 전환 (트리 ↔ 알마인드)"
           >
@@ -859,12 +970,12 @@ export function MindMapView({ filters }: MindMapViewProps) {
           {/* 색상 모드 전환 */}
           <button
             type="button"
-            onClick={() => setColorMode((m) => m === 'depth' ? 'status' : 'depth')}
+            onClick={() => setColorMode((m) => (m === 'depth' ? 'status' : 'depth'))}
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors',
               colorMode === 'status'
                 ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
             )}
             title="색상 모드 전환 (깊이별 ↔ 상태별)"
           >
@@ -899,23 +1010,47 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
           {/* 루트 작업 추가 */}
           {canEditCurrentProject && (
-          <button
-            type="button"
-            onClick={addRootTask}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-medium"
-            title="루트 작업 추가"
-          >
-            <Plus size={13} />
-            작업 추가
-          </button>
+            <button
+              type="button"
+              onClick={addRootTask}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-medium"
+              title="루트 작업 추가"
+            >
+              <Plus size={13} />
+              작업 추가
+            </button>
           )}
 
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
 
           {/* 확대/축소/맞춤 */}
-          <button type="button" onClick={() => setScale((s) => Math.min(2.5, s + 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="확대" aria-label="확대"><ZoomIn size={15} /></button>
-          <button type="button" onClick={() => setScale((s) => Math.max(0.35, s - 0.15))} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="축소" aria-label="축소"><ZoomOut size={15} /></button>
-          <button type="button" onClick={fitView} className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600" title="화면에 맞추기" aria-label="화면에 맞추기"><Maximize2 size={15} /></button>
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.min(2.5, s + 0.15))}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+            title="확대"
+            aria-label="확대"
+          >
+            <ZoomIn size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setScale((s) => Math.max(0.35, s - 0.15))}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+            title="축소"
+            aria-label="축소"
+          >
+            <ZoomOut size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={fitView}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+            title="화면에 맞추기"
+            aria-label="화면에 맞추기"
+          >
+            <Maximize2 size={15} />
+          </button>
         </div>
       </div>
 
@@ -928,10 +1063,13 @@ export function MindMapView({ filters }: MindMapViewProps) {
           aria-label="WBS 마인드맵 캔버스"
           className={cn(
             'flex-1 min-h-0 overflow-hidden outline-none',
-            draggingNodeId ? 'cursor-grabbing' : dragging ? 'cursor-grabbing' : 'cursor-grab'
+            draggingNodeId ? 'cursor-grabbing' : dragging ? 'cursor-grabbing' : 'cursor-grab',
           )}
           onWheel={onWheel}
-          onPointerDown={(e) => { onPointerDown(e); focusContainer(); }}
+          onPointerDown={(e) => {
+            onPointerDown(e);
+            focusContainer();
+          }}
           onKeyDown={onKeyDown}
         >
           {scopedTasks.length === 0 ? (
@@ -939,24 +1077,35 @@ export function MindMapView({ filters }: MindMapViewProps) {
               <Hand size={32} className="opacity-40" />
               <p className="text-sm font-medium">표시할 작업이 없습니다.</p>
               {canEditCurrentProject && (
-              <button
-                type="button"
-                onClick={addRootTask}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-sm font-medium"
-              >
-                <Plus size={15} />
-                첫 번째 작업 추가
-              </button>
+                <button
+                  type="button"
+                  onClick={addRootTask}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-700 text-sm font-medium"
+                >
+                  <Plus size={15} />첫 번째 작업 추가
+                </button>
               )}
             </div>
           ) : (
             <svg width="100%" height="100%" className="touch-none select-none">
               <defs>
                 <filter id={`mmShadow-${filterId}`} x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity={_isDark() ? '0.4' : '0.1'} floodColor={_isDark() ? '#000000' : '#64748b'} />
+                  <feDropShadow
+                    dx="0"
+                    dy="1"
+                    stdDeviation="1.5"
+                    floodOpacity={_isDark() ? '0.4' : '0.1'}
+                    floodColor={_isDark() ? '#000000' : '#64748b'}
+                  />
                 </filter>
                 <filter id={`mmShadowStrong-${filterId}`} x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodOpacity={_isDark() ? '0.5' : '0.15'} floodColor={_isDark() ? '#000000' : '#475569'} />
+                  <feDropShadow
+                    dx="0"
+                    dy="2"
+                    stdDeviation="2.5"
+                    floodOpacity={_isDark() ? '0.5' : '0.15'}
+                    floodColor={_isDark() ? '#000000' : '#475569'}
+                  />
                 </filter>
               </defs>
               <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
@@ -964,13 +1113,15 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 {edges.map((e, i) => (
                   <path
                     key={i}
-                    d={e.treePath
-                      ? e.treePath
-                      : e.curved
-                        ? `M ${e.x1} ${e.y1} C ${e.x1 + (e.x2 - e.x1) * 0.5} ${e.y1}, ${e.x2 - (e.x2 - e.x1) * 0.5} ${e.y2}, ${e.x2} ${e.y2}`
-                        : `M ${e.x1} ${e.y1} L ${e.x2} ${e.y2}`}
+                    d={
+                      e.treePath
+                        ? e.treePath
+                        : e.curved
+                          ? `M ${e.x1} ${e.y1} C ${e.x1 + (e.x2 - e.x1) * 0.5} ${e.y1}, ${e.x2 - (e.x2 - e.x1) * 0.5} ${e.y2}, ${e.x2} ${e.y2}`
+                          : `M ${e.x1} ${e.y1} L ${e.x2} ${e.y2}`
+                    }
                     fill="none"
-                    stroke={e.isMainBranch ? (_isDark() ? '#475569' : '#64748b') : (_isDark() ? '#334155' : '#94a3b8')}
+                    stroke={e.isMainBranch ? (_isDark() ? '#475569' : '#64748b') : _isDark() ? '#334155' : '#94a3b8'}
                     strokeWidth={(e.isMainBranch ? 2 : 1.25) / scale}
                     strokeOpacity={e.isMainBranch ? 0.9 : 0.75}
                     className="pointer-events-none"
@@ -992,13 +1143,29 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
                   // 가상 루트: 고정 스타일
                   const fill = isVirtualRoot
-                    ? (_isDark() ? '#1e293b' : 'white')
-                    : isDropTarget ? (_isDark() ? '#052e16' : 'rgb(240 253 244)') : getNodeFill(n);
+                    ? _isDark()
+                      ? '#1e293b'
+                      : 'white'
+                    : isDropTarget
+                      ? _isDark()
+                        ? '#052e16'
+                        : 'rgb(240 253 244)'
+                      : getNodeFill(n);
                   const stroke = isVirtualRoot
-                    ? (_isDark() ? '#475569' : '#1e293b')
-                    : isDropTarget ? '#22c55e' : isSelected ? '#6366f1' : getNodeStroke(n);
+                    ? _isDark()
+                      ? '#475569'
+                      : '#1e293b'
+                    : isDropTarget
+                      ? '#22c55e'
+                      : isSelected
+                        ? '#6366f1'
+                        : getNodeStroke(n);
 
-                  const progress = isVirtualRoot ? 0 : (typeof n.task.progress === 'number' ? Math.min(100, Math.max(0, n.task.progress)) : 0);
+                  const progress = isVirtualRoot
+                    ? 0
+                    : typeof n.task.progress === 'number'
+                      ? Math.min(100, Math.max(0, n.task.progress))
+                      : 0;
                   const assigneeInitials = isVirtualRoot ? '' : getInitials(n.task.assignee ?? '');
 
                   return (
@@ -1006,16 +1173,44 @@ export function MindMapView({ filters }: MindMapViewProps) {
                       key={n.task.id}
                       transform={`translate(${n.x},${n.y})`}
                       className={isVirtualRoot ? 'cursor-default' : 'cursor-pointer'}
-                      onPointerDown={(e) => { e.stopPropagation(); focusContainer(); }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        focusContainer();
+                      }}
                     >
                       {/* 접기/펼치기 토글 (가상 루트는 항상 열려 있음 — 접기 불가) */}
                       {hasKids && !isVirtualRoot && (
-                        <g onClick={(e) => { e.stopPropagation(); toggleCollapsed(n.task.id); }} className="fill-slate-500 hover:fill-slate-700">
+                        <g
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCollapsed(n.task.id);
+                          }}
+                          className="fill-slate-500 hover:fill-slate-700"
+                        >
                           <rect x={0} y={0} width={TOGGLE_W} height={nodeH} rx={6} fill="transparent" />
-                          {isCollapsed
-                            ? <path d="M6 5 L14 12 L6 19" fill="none" stroke="rgb(100 116 139)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none" transform="translate(2, 2)" />
-                            : <path d="M5 6 L12 14 L19 6" fill="none" stroke="rgb(100 116 139)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none" transform="translate(2, 2)" />
-                          }
+                          {isCollapsed ? (
+                            <path
+                              d="M6 5 L14 12 L6 19"
+                              fill="none"
+                              stroke="rgb(100 116 139)"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="pointer-events-none"
+                              transform="translate(2, 2)"
+                            />
+                          ) : (
+                            <path
+                              d="M5 6 L12 14 L19 6"
+                              fill="none"
+                              stroke="rgb(100 116 139)"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="pointer-events-none"
+                              transform="translate(2, 2)"
+                            />
+                          )}
                         </g>
                       )}
 
@@ -1029,7 +1224,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
                         }}
                         onClick={() => {
                           if (isVirtualRoot) return;
-                          if (justDraggedRef.current) { justDraggedRef.current = false; return; }
+                          if (justDraggedRef.current) {
+                            justDraggedRef.current = false;
+                            return;
+                          }
                           setSelectedTaskId(n.task.id);
                         }}
                         onDoubleClick={(e) => {
@@ -1061,13 +1259,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                         {/* 진행률 바 (하단) */}
                         {progress > 0 && (
                           <g clipPath={`url(#clip-${filterId}-${n.task.id})`}>
-                            <rect
-                              x={0}
-                              y={NODE_H - PROGRESS_H}
-                              width={nodeContentW}
-                              height={PROGRESS_H}
-                              fill="rgba(0,0,0,0.06)"
-                            />
+                            <rect x={0} y={NODE_H - PROGRESS_H} width={nodeContentW} height={PROGRESS_H} fill="rgba(0,0,0,0.06)" />
                             <rect
                               x={0}
                               y={nodeH - PROGRESS_H}
@@ -1124,8 +1316,20 @@ export function MindMapView({ filters }: MindMapViewProps) {
                           {/* 담당자 이니셜 배지 (가상 루트 제외) */}
                           {assigneeInitials && (
                             <g>
-                              <circle cx={nodeContentW - 14} cy={TEXT_AREA_H / 2} r={10} fill={colorMode === 'status' ? '#6366f1' : '#1d4ed8'} opacity={0.85} />
-                              <text x={nodeContentW - 14} y={TEXT_AREA_H / 2 + 4} textAnchor="middle" className="pointer-events-none" style={{ fontSize: 9, fill: 'white', fontWeight: 700 }}>
+                              <circle
+                                cx={nodeContentW - 14}
+                                cy={TEXT_AREA_H / 2}
+                                r={10}
+                                fill={colorMode === 'status' ? '#6366f1' : '#1d4ed8'}
+                                opacity={0.85}
+                              />
+                              <text
+                                x={nodeContentW - 14}
+                                y={TEXT_AREA_H / 2 + 4}
+                                textAnchor="middle"
+                                className="pointer-events-none"
+                                style={{ fontSize: 9, fill: 'white', fontWeight: 700 }}
+                              >
                                 {assigneeInitials}
                               </text>
                             </g>
@@ -1134,7 +1338,12 @@ export function MindMapView({ filters }: MindMapViewProps) {
 
                         {/* 마일스톤 표시 (가상 루트 제외) */}
                         {!isVirtualRoot && n.task.isMilestone && (
-                          <circle cx={nodeContentW - (assigneeInitials ? 28 : 12)} cy={nodeH / 2} r={4} className="fill-amber-400 pointer-events-none" />
+                          <circle
+                            cx={nodeContentW - (assigneeInitials ? 28 : 12)}
+                            cy={nodeH / 2}
+                            r={4}
+                            className="fill-amber-400 pointer-events-none"
+                          />
                         )}
 
                         {/* 진행률 텍스트 */}
@@ -1144,7 +1353,11 @@ export function MindMapView({ filters }: MindMapViewProps) {
                             y={nodeH - PROGRESS_H / 2 + 0.5}
                             textAnchor="middle"
                             className="pointer-events-none"
-                            style={{ fontSize: 7, fill: progress > 50 ? 'white' : (_isDark() ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)'), fontWeight: 600 }}
+                            style={{
+                              fontSize: 7,
+                              fill: progress > 50 ? 'white' : _isDark() ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)',
+                              fontWeight: 600,
+                            }}
                           >
                             {progress}%
                           </text>
@@ -1159,8 +1372,13 @@ export function MindMapView({ filters }: MindMapViewProps) {
                               onChange={(e) => setEditingNodeValue(e.target.value)}
                               onBlur={saveInlineEdit}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') { e.preventDefault(); saveInlineEdit(); }
-                                else if (e.key === 'Escape') { e.preventDefault(); cancelInlineEdit(); }
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  saveInlineEdit();
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  cancelInlineEdit();
+                                }
                                 e.stopPropagation();
                               }}
                               style={{
@@ -1196,7 +1414,13 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">선택한 작업</h3>
                 <p className="mt-1 text-sm font-bold text-slate-800 break-words">{selectedTask.name || '(이름 없음)'}</p>
               </div>
-              <button type="button" onClick={() => setSelectedTaskId(null)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 shrink-0" title="패널 닫기" aria-label="패널 닫기">
+              <button
+                type="button"
+                onClick={() => setSelectedTaskId(null)}
+                className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-700 shrink-0"
+                title="패널 닫기"
+                aria-label="패널 닫기"
+              >
                 <X size={16} />
               </button>
             </div>
@@ -1205,14 +1429,19 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 <span className="text-slate-400 shrink-0">상태</span>
                 <span
                   className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                  style={{ background: STATUS_FILL[selectedTask.status] ?? '#f1f5f9', color: STATUS_STROKE[selectedTask.status] ?? '#94a3b8' }}
+                  style={{
+                    background: STATUS_FILL[selectedTask.status] ?? '#f1f5f9',
+                    color: STATUS_STROKE[selectedTask.status] ?? '#94a3b8',
+                  }}
                 >
                   {STATUS_LABEL[selectedTask.status] ?? selectedTask.status}
                 </span>
               </div>
               <div>
                 <span className="text-slate-400">기간</span>
-                <span className="ml-2">{selectedTask.startDate || '-'} ~ {selectedTask.endDate || '-'}</span>
+                <span className="ml-2">
+                  {selectedTask.startDate || '-'} ~ {selectedTask.endDate || '-'}
+                </span>
               </div>
               {selectedTask.assignee && (
                 <div>
@@ -1242,22 +1471,54 @@ export function MindMapView({ filters }: MindMapViewProps) {
               )}
             </div>
             <div className="shrink-0 p-2 border-t border-slate-100 space-y-1">
-              <button type="button" onClick={openDetailEdit} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium">
-                <Pencil size={14} />세부 편집 (팝업)
+              <button
+                type="button"
+                onClick={openDetailEdit}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium"
+              >
+                <Pencil size={14} />
+                세부 편집 (팝업)
               </button>
-              <button type="button" onClick={addChildTask} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-800 text-xs font-medium">
-                <Plus size={14} />하위 목록 추가
+              <button
+                type="button"
+                onClick={addChildTask}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-violet-200 bg-violet-50 hover:bg-violet-100 text-violet-800 text-xs font-medium"
+              >
+                <Plus size={14} />
+                하위 목록 추가
               </button>
               <div className="flex gap-1">
-                <button type="button" onClick={levelUp} disabled={!selectedTask.parentId} title="레벨 올리기" className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none text-slate-600 text-xs">
-                  <ArrowUpToLine size={14} />올리기
+                <button
+                  type="button"
+                  onClick={levelUp}
+                  disabled={!selectedTask.parentId}
+                  title="레벨 올리기"
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none text-slate-600 text-xs"
+                >
+                  <ArrowUpToLine size={14} />
+                  올리기
                 </button>
-                <button type="button" onClick={levelDown} disabled={!selectedTask.parentId || scopedTasks.filter((t) => t.parentId === selectedTask.parentId).length <= 1} title="이전 형제의 하위로" className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none text-slate-600 text-xs">
-                  <ArrowDownToLine size={14} />내리기
+                <button
+                  type="button"
+                  onClick={levelDown}
+                  disabled={!selectedTask.parentId || scopedTasks.filter((t) => t.parentId === selectedTask.parentId).length <= 1}
+                  title="이전 형제의 하위로"
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none text-slate-600 text-xs"
+                >
+                  <ArrowDownToLine size={14} />
+                  내리기
                 </button>
               </div>
-              <button type="button" onClick={() => { setEditingTask(selectedTask); setDeleteOpen(true); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium">
-                <Trash2 size={14} />삭제
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingTask(selectedTask);
+                  setDeleteOpen(true);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium"
+              >
+                <Trash2 size={14} />
+                삭제
               </button>
             </div>
           </div>
@@ -1277,7 +1538,10 @@ export function MindMapView({ filters }: MindMapViewProps) {
         isOpen={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onConfirm={() => {
-          if (editingTask) { deleteTask(editingTask.id); if (selectedTaskId === editingTask.id) setSelectedTaskId(null); }
+          if (editingTask) {
+            deleteTask(editingTask.id);
+            if (selectedTaskId === editingTask.id) setSelectedTaskId(null);
+          }
           setDeleteOpen(false);
           setEditingTask(null);
         }}

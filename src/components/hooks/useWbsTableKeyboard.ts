@@ -184,7 +184,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
           const newId = addTask(
             {
-              name: '새 작업',
+              name: '',
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
@@ -651,7 +651,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
         const newId = addTask(
           {
-            name: '새 작업',
+            name: '',
             startDate: filters.startDate || defaultDate,
             endDate: filters.endDate || defaultDate,
             progress: 0,
@@ -686,7 +686,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const insertAfterId = previousSibling?.id;
           const newId = addTask(
             {
-              name: '새 작업',
+              name: '',
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
@@ -704,7 +704,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const parentForChildId = baseTask?.id ?? null;
           const newId = addTask(
             {
-              name: baseTask ? '새 하위 작업' : '새 작업',
+              name: '',
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
