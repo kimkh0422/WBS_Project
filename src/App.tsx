@@ -2159,7 +2159,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
 }
 
 function AppWithProviders() {
-  const { user, loading } = useAuth();
+  const { user, loading, isResettingPassword } = useAuth();
   const { push: pushToast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userApproved, setUserApproved] = useState(false);
@@ -2223,7 +2223,7 @@ function AppWithProviders() {
       </div>
     );
   }
-  if (!user) {
+  if (!user || isResettingPassword) {
     return <LoginScreen />;
   }
 
