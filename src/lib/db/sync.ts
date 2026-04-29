@@ -5,7 +5,7 @@ import { toTaskRow, toProjectRow, fromTaskRow, toSettingsRow } from './mappers';
 
 function normAssignmentsForSync(a: ProjectAssignmentRow[] | null | undefined): unknown {
   return [...(a ?? [])]
-    .map(x => ({
+    .map((x) => ({
       assignee: x.assignee,
       allocation_percent: x.allocation_percent,
       monthly_allocations: x.monthly_allocations && Object.keys(x.monthly_allocations).length ? x.monthly_allocations : {},
@@ -54,6 +54,7 @@ export function fingerprintProjectRowForSync(row: ProjectRow): string {
     report_total_period: row.report_total_period ?? null,
     report_name_short: row.report_name_short ?? null,
     report_name_full: row.report_name_full ?? null,
+    group_id: row.group_id ?? null,
   });
 }
 
@@ -68,27 +69,20 @@ export function projectNeedsDbUpload(project: Project, serverById: Map<string, P
  * updated_at·sort_order는 지문에 포함되지 않음 → 본인 저장 직후 에코에서 오탐 충돌 방지용.
  */
 export function serverTaskRowMatchesLocalTask(localTask: Task, serverRow: TaskRow): boolean {
-  const so =
-    typeof serverRow.sort_order === 'number' && Number.isFinite(serverRow.sort_order)
-      ? serverRow.sort_order
-      : 0;
+  const so = typeof serverRow.sort_order === 'number' && Number.isFinite(serverRow.sort_order) ? serverRow.sort_order : 0;
   const lr = toTaskRow(localTask, so);
   return taskContentFingerprint(lr) === taskContentFingerprint(serverRow);
 }
 
 /** 프로젝트 내 작업 id 나열이 서버와 다르면 순서·트리 반영을 위해 해당 프로젝트 작업 전부 업로드 */
-export function projectIdsWithTaskOrderDrift(
-  localTasks: Task[],
-  serverRows: TaskRow[],
-  projectIds: Set<string>
-): Set<string> {
+export function projectIdsWithTaskOrderDrift(localTasks: Task[], serverRows: TaskRow[], projectIds: Set<string>): Set<string> {
   const drift = new Set<string>();
-  const byPid = (pid: string) => localTasks.filter(t => t.projectId === pid).map(t => t.id);
+  const byPid = (pid: string) => localTasks.filter((t) => t.projectId === pid).map((t) => t.id);
   const serverByPid = (pid: string) =>
     serverRows
-      .filter(r => r.project_id === pid)
+      .filter((r) => r.project_id === pid)
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map(r => r.id);
+      .map((r) => r.id);
   for (const pid of projectIds) {
     if (JSON.stringify(byPid(pid)) !== JSON.stringify(serverByPid(pid))) drift.add(pid);
   }
@@ -99,7 +93,7 @@ export function collectTasksNeedingUpload(
   localTasks: Task[],
   serverById: Map<string, TaskRow>,
   projectIdSet: Set<string>,
-  sortOrders?: Map<string, number>
+  sortOrders?: Map<string, number>,
 ): Task[] {
   const serverRows = [...serverById.values()];
   const driftPids = projectIdsWithTaskOrderDrift(localTasks, serverRows, projectIdSet);
@@ -154,17 +148,20 @@ export function projectFingerprintFromProject(p: Project): string {
 }
 
 /** 서버와 내용이 다른 프로젝트만 로컬 객체 교체 (같으면 참조 유지) */
-export function mergeProjectsDelta(local: Project[], serverProjects: Project[]): {
+export function mergeProjectsDelta(
+  local: Project[],
+  serverProjects: Project[],
+): {
   merged: Project[];
   replacedFromServer: number;
   /** 서버에서 반영된(로컬과 달라 교체된) 프로젝트 id 목록 */
   replacedProjectIds: string[];
 } {
-  const sm = new Map(serverProjects.map(p => [p.id, p]));
+  const sm = new Map(serverProjects.map((p) => [p.id, p]));
   const replacedIds: string[] = [];
   const out: Project[] = [];
   for (const sp of serverProjects) {
-    const lp = local.find(p => p.id === sp.id);
+    const lp = local.find((p) => p.id === sp.id);
     if (lp && projectFingerprintFromProject(lp) === projectFingerprintFromProject(sp)) out.push(lp);
     else {
       out.push(sp);
@@ -185,22 +182,18 @@ export function mergeProjectsDelta(local: Project[], serverProjects: Project[]):
 export function mergeTasksDelta(
   local: Task[],
   serverRows: TaskRow[],
-  authoritativeProjectIds: Set<string>
+  authoritativeProjectIds: Set<string>,
 ): { merged: Task[]; replacedFromServer: number; replacedByProject: Record<string, number> } {
-  const serverIds = new Set(serverRows.map(r => r.id));
-  const lm = new Map(local.map(t => [t.id, t]));
+  const serverIds = new Set(serverRows.map((r) => r.id));
+  const lm = new Map(local.map((t) => [t.id, t]));
   const replacedByProject: Record<string, number> = {};
   const out: Task[] = [];
   for (const row of serverRows) {
     const st = fromTaskRow(row);
     const lt = lm.get(st.id);
-    const contentMatch =
-      lt &&
-      taskContentFingerprint(toTaskRow(lt, row.sort_order)) === taskContentFingerprint(row);
+    const contentMatch = lt && taskContentFingerprint(toTaskRow(lt, row.sort_order)) === taskContentFingerprint(row);
     if (contentMatch) {
-      out.push(
-        lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined }
-      );
+      out.push(lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined });
     } else {
       out.push(lt ? { ...st, expanded: lt.expanded } : st);
       const pid = row.project_id ?? '';

@@ -16,13 +16,15 @@ export async function fetchProjects(): Promise<Project[]> {
   const { data, error } = await supabase!
     .from('projects')
     // egress 절감: 필요한 컬럼만 조회
-    .select('id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,created_at')
+    .select(
+      'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,created_at',
+    )
     .order('created_at', { ascending: true });
   if (error) throw error;
   const rows = (data ?? []) as ProjectRow[];
   const seen = new Set<string>();
   return rows
-    .filter(row => {
+    .filter((row) => {
       if (seen.has(row.id)) return false;
       seen.add(row.id);
       return true;
@@ -46,7 +48,10 @@ export async function upsertProject(project: Project): Promise<void> {
   if (existingRow) {
     const { error } = await supabase!.from('projects').update(row).eq('id', project.id);
     if (error && isAssignmentsSchemaError(error)) {
-      const { error: err2 } = await supabase!.from('projects').update(toProjectRowMinimal(project) as Record<string, unknown>).eq('id', project.id);
+      const { error: err2 } = await supabase!
+        .from('projects')
+        .update(toProjectRowMinimal(project) as Record<string, unknown>)
+        .eq('id', project.id);
       if (err2) throw err2;
     } else if (error) {
       throw error;
@@ -81,11 +86,7 @@ export async function upsertProject(project: Project): Promise<void> {
 
 export async function deleteProjectFromDB(id: string): Promise<void> {
   requireSupabase();
-  const { data: project } = await supabase!
-    .from('projects')
-    .select('id, name')
-    .eq('id', id)
-    .maybeSingle();
+  const { data: project } = await supabase!.from('projects').select('id, name').eq('id', id).maybeSingle();
   const { error } = await supabase!.from('projects').delete().eq('id', id);
   if (error) throw error;
   const row = project as { id: string; name: string } | null;
