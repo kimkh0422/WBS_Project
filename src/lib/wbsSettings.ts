@@ -35,7 +35,7 @@ export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
 ];
 
 export const DEFAULT_SETTINGS: WBSSettings = {
-  appTitle: '지엠티 프로젝트 매니저',
+  appTitle: '지엠티 스마트시트',
   level1Prefix: 'W',
   level2Prefix: 'W',
   level3Prefix: 'T',
@@ -97,7 +97,8 @@ export function parseSettings(raw: unknown): WBSSettings {
     const base: WBSSettings = {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      appTitle: parsed.appTitle || DEFAULT_SETTINGS.appTitle,
+      // 사용자가 직접 변경한 적 없는(=옛 default 그대로) 값은 새 default로 자동 마이그레이션
+      appTitle: parsed.appTitle && parsed.appTitle !== '지엠티 프로젝트 매니저' ? parsed.appTitle : DEFAULT_SETTINGS.appTitle,
       statusConfigs: statusConfigs || DEFAULT_STATUS_CONFIGS,
       tableColumns:
         Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0

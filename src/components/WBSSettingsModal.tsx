@@ -333,7 +333,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       type="text"
                       value={appTitle}
                       onChange={(e) => setAppTitle(e.target.value)}
-                      placeholder="지엠티 프로젝트 매니저"
+                      placeholder="지엠티 스마트시트"
                       className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     />
                   </div>

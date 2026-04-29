@@ -146,5 +146,9 @@ export function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
     void _themeMode;
     Object.assign(base, rest);
   }
+  // 옛 기본 appTitle('지엠티 프로젝트 매니저')은 자동으로 떼어내어 새 default가 적용되도록 한다.
+  if (base.appTitle === '지엠티 프로젝트 매니저') {
+    delete base.appTitle;
+  }
   return base;
 }

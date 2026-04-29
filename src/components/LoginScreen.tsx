@@ -42,21 +42,30 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}
+    >
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/8 rounded-full blur-[150px]" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-violet-500/8 rounded-full blur-[150px]" />
 
       <div className="relative w-full max-w-md px-6">
-        <div className="bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] rounded-3xl p-8 overflow-hidden group" style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)' }}>
+        <div
+          className="bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] rounded-3xl p-8 overflow-hidden group"
+          style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)' }}
+        >
           <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-indigo-400/60 to-transparent" />
 
           <div className="flex flex-col items-center text-center space-y-7">
-            <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-500" style={{ boxShadow: '0 8px 30px rgba(15,23,42,0.4)' }}>
-              <img src={logo} alt="지엠티 프로젝트 매니저 로고" className="w-16 h-16 object-contain" />
+            <div
+              className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-500"
+              style={{ boxShadow: '0 8px 30px rgba(15,23,42,0.4)' }}
+            >
+              <img src={logo} alt="지엠티 스마트시트 로고" className="w-16 h-16 object-contain" />
             </div>
 
             <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-white tracking-tight">지엠티 프로젝트 매니저</h1>
+              <h1 className="text-2xl font-bold text-white tracking-tight">지엠티 스마트시트</h1>
               <p className="text-slate-400 text-sm leading-relaxed">
                 {isSignUp ? '회원가입하여 프로젝트를 만들고 팀원과 공유하세요.' : '로그인하여 프로젝트를 관리하세요.'}
               </p>
@@ -131,7 +140,12 @@ export function LoginScreen() {
 
             <button
               type="button"
-              onClick={() => { setIsSignUp(!isSignUp); setError(null); setSuccess(null); setFullName(''); }}
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setError(null);
+                setSuccess(null);
+                setFullName('');
+              }}
               className="text-sm text-slate-500 hover:text-white transition-colors duration-200"
             >
               {isSignUp ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입'}
