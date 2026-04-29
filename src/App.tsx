@@ -1083,13 +1083,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
           canEditCurrentProject={canEditCurrentProject}
           setIsModalOpen={setIsModalOpen}
-          dbLinkState={{
-            linked: isSupabaseConfigured,
-            initialSync: isDbSyncing,
-            initialSyncPct: dbSyncStep?.pct,
-            pushing: isDbPushInProgress && !isDbSyncing,
-            pendingSave: hasLocalChangesSinceSync && !isDbPushInProgress && !isDbSyncing,
-          }}
           themeMode={activeThemeMode}
           onThemeModeChange={handleThemeModeChange}
           onFavoriteProjectsChange={(ids) => updateWbsSettings({ favoriteProjectIds: ids })}

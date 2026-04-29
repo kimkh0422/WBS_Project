@@ -29,10 +29,6 @@ import {
   CheckSquare,
   Target,
   MoreHorizontal,
-  Cloud,
-  CloudOff,
-  Loader2,
-  Clock,
   Sun,
   Moon,
   Monitor,
@@ -121,14 +117,6 @@ export interface AppHeaderProps {
   onFavoriteProjectsChange?: (ids: string[]) => void;
   /** 알림 벨 등 헤더 우측에 추가할 슬롯 */
   headerRightSlot?: React.ReactNode;
-  /** DB 연동 상태 (승인+Supabase 시 연동 / 그 외 로컬) */
-  dbLinkState?: {
-    linked: boolean;
-    initialSync: boolean;
-    initialSyncPct?: number;
-    pushing: boolean;
-    pendingSave: boolean;
-  };
 }
 
 export function AppHeader({
@@ -195,7 +183,6 @@ export function AppHeader({
   setIsDeleteChoiceOpen,
   canEditCurrentProject,
   setIsModalOpen,
-  dbLinkState,
   themeMode = 'system',
   onThemeModeChange,
   onFavoriteProjectsChange,
@@ -319,20 +306,6 @@ export function AppHeader({
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
-            {dbLinkState?.linked && (
-              <span
-                className={cn(
-                  'shrink-0 w-2 h-2 rounded-full',
-                  dbLinkState.initialSync || dbLinkState.pushing
-                    ? 'bg-indigo-500 animate-pulse'
-                    : dbLinkState.pendingSave
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-500',
-                )}
-                title={dbLinkState.initialSync || dbLinkState.pushing ? 'DB 처리 중' : dbLinkState.pendingSave ? '반영 대기' : 'DB 연동됨'}
-              />
-            )}
-            {dbLinkState && !dbLinkState.linked && <CloudOff size={12} className="shrink-0 text-slate-400" title="로컬만 저장" />}
           </div>
         </div>
         <button
@@ -937,69 +910,6 @@ export function AppHeader({
               </>
             )}
           </div>
-
-          {dbLinkState && (
-            <div
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold shrink-0 max-w-[200px] sm:max-w-none',
-                !dbLinkState.linked && 'bg-slate-100/90 text-slate-600 border-slate-200',
-                dbLinkState.linked &&
-                  !dbLinkState.initialSync &&
-                  !dbLinkState.pushing &&
-                  !dbLinkState.pendingSave &&
-                  'bg-emerald-50 text-emerald-800 border-emerald-200',
-                dbLinkState.linked &&
-                  dbLinkState.pendingSave &&
-                  !dbLinkState.pushing &&
-                  !dbLinkState.initialSync &&
-                  'bg-amber-50 text-amber-900 border-amber-200',
-                dbLinkState.linked && (dbLinkState.pushing || dbLinkState.initialSync) && 'bg-indigo-50 text-indigo-800 border-indigo-200',
-              )}
-              title={
-                !dbLinkState.linked
-                  ? '오프라인이거나 연결되지 않은 상태입니다.'
-                  : dbLinkState.initialSync
-                    ? '첫 동기화: 서버와 전체 데이터를 맞추는 중입니다.'
-                    : dbLinkState.pushing
-                      ? '변경 내용을 서버에 올리는 중입니다.'
-                      : dbLinkState.pendingSave
-                        ? '잠시 후 자동으로 서버에 반영됩니다. Ctrl+S로 즉시 반영할 수 있습니다.'
-                        : '서버(DB)와 연동 중입니다. 편집 내용이 자동 저장·반영됩니다.'
-              }
-            >
-              {!dbLinkState.linked ? (
-                <>
-                  <CloudOff size={14} className="shrink-0 text-slate-500" />
-                  <span className="hidden sm:inline truncate">로컬만</span>
-                </>
-              ) : dbLinkState.initialSync ? (
-                <>
-                  <Loader2 size={14} className="shrink-0 animate-spin text-indigo-600" />
-                  <span className="truncate">
-                    DB 동기화
-                    {typeof dbLinkState.initialSyncPct === 'number' ? ` ${Math.round(dbLinkState.initialSyncPct)}%` : '…'}
-                  </span>
-                </>
-              ) : dbLinkState.pushing ? (
-                <>
-                  <Loader2 size={14} className="shrink-0 animate-spin text-indigo-600" />
-                  <span className="truncate">서버 반영 중…</span>
-                </>
-              ) : dbLinkState.pendingSave ? (
-                <>
-                  <Clock size={14} className="shrink-0 text-amber-600" />
-                  <span className="hidden sm:inline truncate">반영 대기</span>
-                  <span className="sm:hidden">대기</span>
-                </>
-              ) : (
-                <>
-                  <Cloud size={14} className="shrink-0 text-emerald-600" />
-                  <span className="hidden sm:inline">DB 연동</span>
-                  <span className="sm:hidden text-emerald-700">DB</span>
-                </>
-              )}
-            </div>
-          )}
 
           <button
             data-tourid="tour-new-task"
