@@ -454,15 +454,13 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <p className="text-sm text-stone-500 mt-0.5">프로젝트를 생성·편집·공유·삭제할 수 있습니다.</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {effectiveIsAdmin && (
-              <button
-                onClick={() => setIsGroupManagerOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 bg-white border border-stone-200 hover:border-stone-300 rounded-lg transition-colors"
-                title="프로젝트 그룹 추가·이름변경·삭제·순서 변경"
-              >
-                <FolderCog size={14} /> 그룹 관리
-              </button>
-            )}
+            <button
+              onClick={() => setIsGroupManagerOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 bg-white border border-stone-200 hover:border-stone-300 rounded-lg transition-colors"
+              title="프로젝트 그룹 추가·이름변경·삭제·순서 변경 (그룹은 모든 사용자에게 공통으로 보입니다)"
+            >
+              <FolderCog size={14} /> 그룹 관리
+            </button>
             <button
               onClick={() => {
                 setEditingProject(null);

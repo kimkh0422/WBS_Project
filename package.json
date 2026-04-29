@@ -1,7 +1,7 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.4.104",
+  "version": "0.4.105",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
