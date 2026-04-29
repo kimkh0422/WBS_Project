@@ -1046,33 +1046,7 @@ export function AppHeader({
               </button>
               {isUserMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 py-1 min-w-[180px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
-                  {/* 테마 선택 */}
-                  <div className="px-3 py-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">테마</span>
-                    <div className="flex items-center gap-1 mt-1.5">
-                      {[
-                        { mode: 'light' as const, icon: <Sun size={14} />, label: '라이트' },
-                        { mode: 'dark' as const, icon: <Moon size={14} />, label: '다크' },
-                        { mode: 'system' as const, icon: <Monitor size={14} />, label: '시스템' },
-                      ].map(({ mode, icon, label }) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => onThemeModeChange?.(mode)}
-                          className={cn(
-                            'flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg transition-all flex-1 justify-center',
-                            themeMode === mode
-                              ? 'bg-indigo-100 text-indigo-700 font-semibold'
-                              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
-                          )}
-                          title={`${label} 모드`}
-                        >
-                          {icon}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="border-t border-slate-100 my-1" />
+                  {/* 테마 선택 영역은 일시적으로 숨김 (라이트 모드 고정) */}
                   <button
                     type="button"
                     className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"

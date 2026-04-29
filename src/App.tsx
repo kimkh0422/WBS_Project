@@ -508,41 +508,19 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     document.title = wbsSettings.appTitle;
   }, [wbsSettings.appTitle]);
 
-  // Theme (dark mode) — localStorage 단일 소스. 사용자별 로컬 설정이며 다른 사용자/기기와 공유하지 않는다.
-  const [activeThemeMode, setActiveThemeMode] = useState<'light' | 'dark' | 'system'>(() => {
-    try {
-      const saved = localStorage.getItem('wbs-theme-mode');
-      if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
-    } catch {
-      /* ignore */
-    }
-    return 'system';
-  });
-
-  const handleThemeModeChange = useCallback((mode: 'light' | 'dark' | 'system') => {
-    setActiveThemeMode(mode);
-    try {
-      localStorage.setItem('wbs-theme-mode', mode);
-    } catch {
-      /* ignore */
-    }
+  // Theme — 일시적으로 라이트 모드 고정. 테마 토글 UI는 헤더에서 숨김 처리됨.
+  // 다시 사용 가능하게 하려면 아래 강제 라이트 적용 useEffect를 제거하고
+  // 이전 localStorage 기반 로직을 복원하면 된다.
+  const activeThemeMode: 'light' | 'dark' | 'system' = 'light';
+  const handleThemeModeChange = useCallback((_mode: 'light' | 'dark' | 'system') => {
+    // 테마 기능 비활성화 중: 변경 요청 무시
   }, []);
 
-  // activeThemeMode가 바뀔 때 실제 테마 적용
   useEffect(() => {
-    const applyTheme = (theme: 'light' | 'dark') => {
-      document.documentElement.setAttribute('data-theme', theme);
-    };
-    if (activeThemeMode === 'light' || activeThemeMode === 'dark') {
-      applyTheme(activeThemeMode);
-      return;
-    }
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    applyTheme(mq.matches ? 'dark' : 'light');
-    const handler = (e: MediaQueryListEvent) => applyTheme(e.matches ? 'dark' : 'light');
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, [activeThemeMode]);
+    document.documentElement.setAttribute('data-theme', 'light');
+    // 이전에 저장된 다크 선호가 있어도 라이트로 강제. 토글 UI가 다시 켜질 때
+    // 사용자가 새로 선택하도록 기존 저장값은 그대로 둔다(영구 삭제 X).
+  }, []);
 
   useEffect(() => {
     const prev = prevAIBusyRef.current;

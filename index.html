@@ -12,21 +12,9 @@
   </head>
   <body>
     <script>
-      // 페이지 로드 즉시 테마 적용 (React 로드 전 플래시 방지)
+      // 테마 기능 일시 비활성화 — 라이트 모드 고정. localStorage의 옛 다크 설정은 무시.
       (function() {
-        try {
-          var mode = localStorage.getItem('wbs-theme-mode');
-          if (!mode) {
-            var raw = localStorage.getItem('wbs-settings');
-            if (raw) { var p = JSON.parse(raw); if (p && p.themeMode) mode = p.themeMode; }
-          }
-          if (!mode) mode = 'system';
-          var theme = mode;
-          if (mode === 'system') {
-            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-          }
-          document.documentElement.setAttribute('data-theme', theme);
-        } catch(e) {}
+        try { document.documentElement.setAttribute('data-theme', 'light'); } catch(e) {}
       })();
     </script>
     <div id="app-wrapper">
