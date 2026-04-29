@@ -68,7 +68,7 @@ export function toProjectRow(project: Project): ProjectRow {
     description: project.description ?? null,
     start_date: project.startDate ?? null,
     end_date: project.endDate ?? null,
-    assignments: (project.assignments ?? []).map(a => ({
+    assignments: (project.assignments ?? []).map((a) => ({
       assignee: a.assignee,
       allocation_percent: a.allocationPercent,
       ...(a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 ? { monthly_allocations: a.monthlyAllocations } : {}),
@@ -119,14 +119,17 @@ export function fromProjectRow(row: ProjectRow): Project {
 
 export function toSettingsRow(settings: WBSSettings): SettingsRow {
   // 기존 4개 컬럼 외 나머지를 config_json에 저장
+  // themeMode는 사용자별 로컬 설정으로 분리되어 DB에 저장하지 않는다.
   const { level1Prefix, level2Prefix, level3Prefix, maxLevel, ...rest } = settings;
+  const { themeMode: _themeMode, ...configJson } = rest as Record<string, unknown>;
+  void _themeMode;
   return {
     id: 'default',
     level1_prefix: level1Prefix,
     level2_prefix: level2Prefix,
     level3_prefix: level3Prefix,
     max_level: maxLevel,
-    config_json: rest as Record<string, unknown>,
+    config_json: configJson,
   };
 }
 
@@ -137,9 +140,11 @@ export function fromSettingsRow(row: SettingsRow): Partial<WBSSettings> {
     level3Prefix: row.level3_prefix,
     maxLevel: row.max_level,
   };
-  // config_json에서 나머지 설정 복원
+  // config_json에서 나머지 설정 복원 (themeMode는 사용자별 로컬 설정이므로 무시)
   if (row.config_json && typeof row.config_json === 'object') {
-    Object.assign(base, row.config_json);
+    const { themeMode: _themeMode, ...rest } = row.config_json as Record<string, unknown>;
+    void _themeMode;
+    Object.assign(base, rest);
   }
   return base;
 }

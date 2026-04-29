@@ -103,7 +103,7 @@ export function WBSProvider({
   const [collabPushNonce, setCollabPushNonce] = useState(0);
   const bumpDirty = useCallback(() => {
     dirtyEpochRef.current += 1;
-    setCollabPushNonce(n => n + 1);
+    setCollabPushNonce((n) => n + 1);
     setHasLocalChangesSinceSync(true);
   }, []);
 
@@ -139,9 +139,9 @@ export function WBSProvider({
   });
 
   const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {
-    const localMap = new Map<string, boolean>(allTasksRef.current.map(t => [t.id, t.expanded]));
+    const localMap = new Map<string, boolean>(allTasksRef.current.map((t) => [t.id, t.expanded]));
     if (localMap.size === 0) return incoming;
-    return incoming.map(t => {
+    return incoming.map((t) => {
       const localExp = localMap.get(t.id);
       return localExp !== undefined ? { ...t, expanded: localExp } : t;
     });
@@ -151,7 +151,7 @@ export function WBSProvider({
     const pid = String(projectId ?? '');
     const unique = Array.from(new Set(ids.filter(Boolean)));
     if (!pid || unique.length === 0) return;
-    setDeletedTaskIdsByProject(prev => {
+    setDeletedTaskIdsByProject((prev) => {
       const existing = prev[pid] ?? [];
       const merged = Array.from(new Set([...existing, ...unique]));
       if (merged.length === existing.length) return prev;
@@ -160,30 +160,64 @@ export function WBSProvider({
   }, []);
 
   // 프로젝트 전환 시 선택 초기화
-  useEffect(() => { setSelectedTaskIds([]); }, [currentProjectId]);
+  useEffect(() => {
+    setSelectedTaskIds([]);
+  }, [currentProjectId]);
 
   // ─── Extracted Hooks ────────────────────────────────────────────────────────
 
   const projectOps = useProjectOps({
-    saveHistory, bumpDirty, handleDbError,
-    ownerIdRef, projectsRef, allTasksRef, currentProjectIdRef, useLocalOnlyRef, wbsSettingsRef,
-    setProjects, setAllTasks, setCurrentProjectId, recordDeletedTaskIds, setDeletedProjectIds,
+    saveHistory,
+    bumpDirty,
+    handleDbError,
+    ownerIdRef,
+    projectsRef,
+    allTasksRef,
+    currentProjectIdRef,
+    useLocalOnlyRef,
+    wbsSettingsRef,
+    setProjects,
+    setAllTasks,
+    setCurrentProjectId,
+    recordDeletedTaskIds,
+    setDeletedProjectIds,
   });
 
   const taskOps = useTaskOps({
-    saveHistory, handleDbError,
-    projectsRef, currentProjectIdRef, wbsSettingsRef, useLocalOnlyRef, allTasksRef,
-    setAllTasks, setProjects, recordDeletedTaskIds,
+    saveHistory,
+    handleDbError,
+    projectsRef,
+    currentProjectIdRef,
+    wbsSettingsRef,
+    useLocalOnlyRef,
+    allTasksRef,
+    setAllTasks,
+    setProjects,
+    recordDeletedTaskIds,
   });
 
   const taskMovement = useTaskMovement({
-    saveHistory, setAllTasks, currentProjectIdRef, allTasksRef, setTreeExpandLevel,
+    saveHistory,
+    setAllTasks,
+    currentProjectIdRef,
+    allTasksRef,
+    setTreeExpandLevel,
   });
 
   const backupOps = useBackupOps({
-    saveHistory, bumpDirty, recordDeletedTaskIds,
-    ownerIdRef, currentProjectIdRef, projectsRef, allTasksRef, wbsSettingsRef,
-    setProjects, setAllTasks, setCurrentProjectId, setWbsSettings, setSelectedTaskIds,
+    saveHistory,
+    bumpDirty,
+    recordDeletedTaskIds,
+    ownerIdRef,
+    currentProjectIdRef,
+    projectsRef,
+    allTasksRef,
+    wbsSettingsRef,
+    setProjects,
+    setAllTasks,
+    setCurrentProjectId,
+    setWbsSettings,
+    setSelectedTaskIds,
   });
 
   // ─── 초기 데이터 로딩 (Supabase) ────────────────────────────────────────────
@@ -223,7 +257,7 @@ export function WBSProvider({
           setAllTasks(applyRollupsToTasks(tasksToUse, parsedSettings.statusConfigs));
           setWbsSettings(parsedSettings);
           const savedCurrent = sessionStorage.getItem('wbs-current-project');
-          const validId = projectsToUse.find(p => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
+          const validId = projectsToUse.find((p) => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
           setCurrentProjectId(validId);
         } else {
           const p = emptyStarterProject();
@@ -233,7 +267,9 @@ export function WBSProvider({
           setCurrentProjectId(p.id);
           try {
             sessionStorage.setItem('wbs-current-project', p.id);
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings?.maxLevel ?? DEFAULT_SETTINGS.maxLevel) + 1)));
       };
@@ -241,15 +277,11 @@ export function WBSProvider({
       try {
         if (!skipDbUntilSync && !useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
           try {
-            // 로컬에 저장된 설정을 기본값으로 읽어둠 (favoriteProjectIds, themeMode 등 DB에 없는 필드 보존)
+            // 로컬에 저장된 설정을 기본값으로 읽어둠 (favoriteProjectIds 등 DB에 없는 필드 보존)
             const localSettingsRaw = await loadJsonWithIdbFallback<unknown>('wbs-settings');
             const localSettings = parseSettings(localSettingsRaw);
 
-            const [dbProjects, dbTasks, dbSettings] = await Promise.all([
-              fetchProjects(),
-              fetchTasks(),
-              fetchSettings(),
-            ]);
+            const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
             setDeletedTaskIdsByProject({});
             setDeletedProjectIds([]);
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');
@@ -258,12 +290,12 @@ export function WBSProvider({
               const effectiveSettings = { ...localSettings, ...(dbSettings ?? {}) } as WBSSettings;
               setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings.statusConfigs));
               if (dbSettings) {
-                setWbsSettings(prev => ({ ...localSettings, ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+                setWbsSettings((prev) => ({ ...localSettings, ...prev, ...(dbSettings as Partial<WBSSettings>) }));
               } else {
                 setWbsSettings(localSettings);
               }
               const savedCurrent = sessionStorage.getItem('wbs-current-project');
-              const validId = dbProjects.find(p => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
+              const validId = dbProjects.find((p) => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
               if (validId) setCurrentProjectId(validId);
               const ml =
                 dbSettings && typeof (dbSettings as Partial<WBSSettings>).maxLevel === 'number'
@@ -275,12 +307,16 @@ export function WBSProvider({
               setProjects([p]);
               setAllTasks([]);
               if (dbSettings) {
-                setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+                setWbsSettings((prev) => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
               } else {
                 setWbsSettings(DEFAULT_SETTINGS);
               }
               setCurrentProjectId(p.id);
-              try { sessionStorage.setItem('wbs-current-project', p.id); } catch { /* ignore */ }
+              try {
+                sessionStorage.setItem('wbs-current-project', p.id);
+              } catch {
+                /* ignore */
+              }
               setTreeExpandLevel(Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
             }
           } catch (e) {
@@ -302,13 +338,17 @@ export function WBSProvider({
             try {
               const parsed = JSON.parse(savedProjects) as Project[];
               if (Array.isArray(parsed) && parsed.length > 0) fallbackProjects = parsed;
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
           if (savedTasks) {
             try {
               const parsed = JSON.parse(savedTasks) as Task[];
               if (Array.isArray(parsed)) fallbackTasks = parsed;
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
           if (fallbackProjects.length > 0) {
@@ -384,19 +424,19 @@ export function WBSProvider({
       window.setTimeout(() => {
         try {
           onConcurrentConflictRef.current?.();
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }, 0);
     };
 
     const insertTaskBySortOrder = (list: Task[], incoming: Task, sortOrderRaw: unknown) => {
       const sortOrder = typeof sortOrderRaw === 'number' && Number.isFinite(sortOrderRaw) ? sortOrderRaw : null;
       if (sortOrder == null) return [...list, incoming];
-      const sameProject = list.filter(t => t.projectId === incoming.projectId);
-      const others = list.filter(t => t.projectId !== incoming.projectId);
-      const existingIdx = sameProject.findIndex(t => t.id === incoming.id);
-      const base = existingIdx >= 0
-        ? [...sameProject.slice(0, existingIdx), ...sameProject.slice(existingIdx + 1)]
-        : [...sameProject];
+      const sameProject = list.filter((t) => t.projectId === incoming.projectId);
+      const others = list.filter((t) => t.projectId !== incoming.projectId);
+      const existingIdx = sameProject.findIndex((t) => t.id === incoming.id);
+      const base = existingIdx >= 0 ? [...sameProject.slice(0, existingIdx), ...sameProject.slice(existingIdx + 1)] : [...sameProject];
       const insertAt = Math.min(Math.max(0, Math.round(sortOrder)), base.length);
       const nextSame = [...base.slice(0, insertAt), incoming, ...base.slice(insertAt)];
       return [...others, ...nextSame];
@@ -416,14 +456,14 @@ export function WBSProvider({
           if (ev === 'DELETE') {
             const oldId = String(payload?.old?.id ?? '').trim();
             if (!oldId) return;
-            setAllTasks(prev => prev.filter(t => t.id !== oldId));
+            setAllTasks((prev) => prev.filter((t) => t.id !== oldId));
             return;
           }
           const row = payload?.new;
           if (!row || !row.id) return;
           const serverTask = fromTaskRow(row as unknown as TaskRow);
           const before = allTasksRef.current;
-          const existingBefore = before.find(t => t.id === serverTask.id);
+          const existingBefore = before.find((t) => t.id === serverTask.id);
           const rowTyped = row as unknown as TaskRow;
           const contentMatches = !!existingBefore && serverTaskRowMatchesLocalTask(existingBefore, rowTyped);
 
@@ -441,12 +481,10 @@ export function WBSProvider({
           ) {
             notifyConflictLater('task');
           }
-          setAllTasks(prev => {
-            const localMatch = prev.find(t => t.id === serverTask.id);
-            const merged = localMatch
-              ? { ...serverTask, expanded: localMatch.expanded }
-              : serverTask;
-            const next = prev.map(t => (t.id === merged.id ? merged : t));
+          setAllTasks((prev) => {
+            const localMatch = prev.find((t) => t.id === serverTask.id);
+            const merged = localMatch ? { ...serverTask, expanded: localMatch.expanded } : serverTask;
+            const next = prev.map((t) => (t.id === merged.id ? merged : t));
             if (localMatch) return next;
             return insertTaskBySortOrder(next, merged, row.sort_order);
           });
@@ -454,33 +492,33 @@ export function WBSProvider({
       },
     );
 
-    channel.on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'projects' },
-      (payload: RealtimeChangePayload) => {
-        queueMicrotask(() => {
-          const ev = String(payload?.eventType ?? payload?.event ?? '').toUpperCase();
-          if (ev === 'DELETE') {
-            const oldId = String(payload?.old?.id ?? '').trim();
-            if (!oldId) return;
-            setProjects(prev => prev.filter(p => p.id !== oldId));
-            return;
-          }
-          const row = payload?.new;
-          if (!row || !row.id) return;
-          const serverProject = fromProjectRow(row as unknown as ProjectRow);
-          const before = projectsRef.current;
-          const existingBefore = before.find(p => p.id === serverProject.id);
-          if (existingBefore && !hasLocalChangesSinceSyncRef.current && projectNeedsDbUpload(existingBefore, new Map([[serverProject.id, serverProject]]))) {
-            notifyConflictLater('project');
-          }
-          setProjects(prev => {
-            if (prev.some(p => p.id === serverProject.id)) return prev.map(p => (p.id === serverProject.id ? serverProject : p));
-            return [...prev, serverProject];
-          });
+    channel.on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload: RealtimeChangePayload) => {
+      queueMicrotask(() => {
+        const ev = String(payload?.eventType ?? payload?.event ?? '').toUpperCase();
+        if (ev === 'DELETE') {
+          const oldId = String(payload?.old?.id ?? '').trim();
+          if (!oldId) return;
+          setProjects((prev) => prev.filter((p) => p.id !== oldId));
+          return;
+        }
+        const row = payload?.new;
+        if (!row || !row.id) return;
+        const serverProject = fromProjectRow(row as unknown as ProjectRow);
+        const before = projectsRef.current;
+        const existingBefore = before.find((p) => p.id === serverProject.id);
+        if (
+          existingBefore &&
+          !hasLocalChangesSinceSyncRef.current &&
+          projectNeedsDbUpload(existingBefore, new Map([[serverProject.id, serverProject]]))
+        ) {
+          notifyConflictLater('project');
+        }
+        setProjects((prev) => {
+          if (prev.some((p) => p.id === serverProject.id)) return prev.map((p) => (p.id === serverProject.id ? serverProject : p));
+          return [...prev, serverProject];
         });
-      },
-    );
+      });
+    });
 
     channel.on(
       'postgres_changes',
@@ -492,7 +530,7 @@ export function WBSProvider({
           const partial = fromSettingsRow(row as unknown as SettingsRow);
           // 자기 변경 에코일 가능성: 로컬 변경이 있을 때는 충돌 알림 생략
           if (!hasLocalChangesSinceSyncRef.current) {
-            setWbsSettings(prev => ({ ...prev, ...partial }));
+            setWbsSettings((prev) => ({ ...prev, ...partial }));
           }
         });
       },
@@ -518,7 +556,9 @@ export function WBSProvider({
       queueMicrotask(() => {
         try {
           supabase!.removeChannel(channel);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       });
     };
   }, [useLocalOnly, user?.id, currentProjectId]);
@@ -528,25 +568,23 @@ export function WBSProvider({
     if (useLocalOnly || !isSupabaseConfigured || !supabase || !user?.id) return;
     if (hasLocalChangesSinceSyncRef.current) return;
     try {
-      const [dbProjects, dbTasks, dbSettings] = await Promise.all([
-        fetchProjects(),
-        fetchTasks(),
-        fetchSettings(),
-      ]);
+      const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
       setProjects(dbProjects);
       const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
       setAllTasks(preserveLocalExpanded(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings.statusConfigs)));
       if (dbSettings) {
-        setWbsSettings(prev => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+        setWbsSettings((prev) => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
       }
       if (dbProjects.length > 0) {
         const saved = sessionStorage.getItem('wbs-current-project');
-        const valid = dbProjects.find(p => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
+        const valid = dbProjects.find((p) => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
         if (valid) setCurrentProjectId(valid);
       }
-    } catch { /* 다음 주기 재시도 */ }
+    } catch {
+      /* 다음 주기 재시도 */
+    }
   };
 
   const lastServerPullAtRef = useRef(0);
@@ -559,8 +597,8 @@ export function WBSProvider({
   // egress 절약: 25초 → 5분, 탭 복귀 시에만 추가 풀
   useEffect(() => {
     if (isLoading || useLocalOnly || !isSupabaseConfigured || !user?.id) return;
-    const MIN_GAP_MS = 60000;      // 최소 풀 간격 60초 (기존 12초)
-    const INTERVAL_MS = 300000;    // 주기적 풀 5분 (기존 25초)
+    const MIN_GAP_MS = 60000; // 최소 풀 간격 60초 (기존 12초)
+    const INTERVAL_MS = 300000; // 주기적 풀 5분 (기존 25초)
     const run = () => {
       if (hasLocalChangesSinceSyncRef.current) return;
       const now = Date.now();
@@ -602,7 +640,11 @@ export function WBSProvider({
     const skipAutoPrune = opts?.skipAutoPrune === true;
     const syncEpochStart = dirtyEpochRef.current;
     const report = (pct: number, message: string) => {
-      try { onProgress?.(Math.min(99, Math.max(0, Math.round(pct))), message); } catch { /* ignore */ }
+      try {
+        onProgress?.(Math.min(99, Math.max(0, Math.round(pct))), message);
+      } catch {
+        /* ignore */
+      }
     };
     if (!isSupabaseConfigured || !supabase) {
       throw new Error('Supabase 설정이 필요합니다. (DB 동기화 불가)');
@@ -613,7 +655,9 @@ export function WBSProvider({
         const code = String(anyE.code ?? '').trim();
         const msg = String(anyE.message ?? '').trim();
         if (code === '42501' || /row-level security|row level security/i.test(msg)) {
-          return new Error('이 프로젝트에 대한 편집 권한이 없습니다. 보기 권한만 있거나 멤버가 아닌 프로젝트에는 작업을 추가·수정할 수 없습니다.');
+          return new Error(
+            '이 프로젝트에 대한 편집 권한이 없습니다. 보기 권한만 있거나 멤버가 아닌 프로젝트에는 작업을 추가·수정할 수 없습니다.',
+          );
         }
       }
       if (e instanceof Error) return e;
@@ -629,15 +673,15 @@ export function WBSProvider({
     const effectiveScope = scope === 'all' ? 'all' : 'current';
     const projectIds =
       effectiveScope === 'all'
-        ? projects.map(p => p.id).filter(Boolean)
-        : (currentProjectId && currentProjectId !== 'all' ? [currentProjectId] : []);
+        ? projects.map((p) => p.id).filter(Boolean)
+        : currentProjectId && currentProjectId !== 'all'
+          ? [currentProjectId]
+          : [];
 
     const projectIdSet = new Set(projectIds);
-    const targetProjects = projects.filter(p => projectIdSet.has(p.id));
-    const targetTasks = allTasks.filter(t => t.projectId && projectIdSet.has(t.projectId));
-    const targetDeletedProjectIdsFromState = effectiveScope === 'all'
-      ? Array.from(new Set(deletedProjectIds.filter(Boolean)))
-      : [];
+    const targetProjects = projects.filter((p) => projectIdSet.has(p.id));
+    const targetTasks = allTasks.filter((t) => t.projectId && projectIdSet.has(t.projectId));
+    const targetDeletedProjectIdsFromState = effectiveScope === 'all' ? Array.from(new Set(deletedProjectIds.filter(Boolean))) : [];
 
     const taskCountByProject = (() => {
       const m = new Map<string, number>();
@@ -649,45 +693,40 @@ export function WBSProvider({
       }
       return m;
     })();
-    const ownedProjectsInScope = targetProjects.filter(p => (p.ownerId ?? undefined) === ownerId);
+    const ownedProjectsInScope = targetProjects.filter((p) => (p.ownerId ?? undefined) === ownerId);
     const autoDeletedProjectIds = ownedProjectsInScope
-      .filter(p => p._autoGenerated && (taskCountByProject.get(p.id) ?? 0) === 0)
-      .map(p => p.id);
+      .filter((p) => p._autoGenerated && (taskCountByProject.get(p.id) ?? 0) === 0)
+      .map((p) => p.id);
 
-    const targetDeletedProjectIds = effectiveScope === 'all'
-      ? Array.from(new Set([...targetDeletedProjectIdsFromState, ...autoDeletedProjectIds].filter(Boolean)))
-      : [];
+    const targetDeletedProjectIds =
+      effectiveScope === 'all' ? Array.from(new Set([...targetDeletedProjectIdsFromState, ...autoDeletedProjectIds].filter(Boolean))) : [];
     const deletionProjectIdSet = new Set(targetDeletedProjectIds);
-    const targetProjectIdSetAfterAutoDelete = new Set(projectIds.filter(id => !deletionProjectIdSet.has(id)));
-    const targetProjectsAfterAutoDelete = targetProjects.filter(p => targetProjectIdSetAfterAutoDelete.has(p.id));
-    const targetTasksAfterAutoDelete = targetTasks.filter(t => t.projectId && targetProjectIdSetAfterAutoDelete.has(t.projectId));
+    const targetProjectIdSetAfterAutoDelete = new Set(projectIds.filter((id) => !deletionProjectIdSet.has(id)));
+    const targetProjectsAfterAutoDelete = targetProjects.filter((p) => targetProjectIdSetAfterAutoDelete.has(p.id));
+    const targetTasksAfterAutoDelete = targetTasks.filter((t) => t.projectId && targetProjectIdSetAfterAutoDelete.has(t.projectId));
 
     let workingProjects = projects;
     let workingTasks = allTasks;
     try {
       report(1, '동기화 준비 중…');
       if (effectiveScope === 'all' && !skipAutoPrune && autoDeletedProjectIds.length > 0) {
-        setDeletedProjectIds(prev => Array.from(new Set([...prev, ...autoDeletedProjectIds])));
-        workingProjects = projects.filter(p => !autoDeletedProjectIds.includes(p.id));
-        workingTasks = allTasks.filter(t => !t.projectId || !autoDeletedProjectIds.includes(t.projectId));
+        setDeletedProjectIds((prev) => Array.from(new Set([...prev, ...autoDeletedProjectIds])));
+        workingProjects = projects.filter((p) => !autoDeletedProjectIds.includes(p.id));
+        workingTasks = allTasks.filter((t) => !t.projectId || !autoDeletedProjectIds.includes(t.projectId));
         setProjects(workingProjects);
         setAllTasks(workingTasks);
         if (autoDeletedProjectIds.includes(currentProjectId)) {
-          const nextId = projects.find(p => !autoDeletedProjectIds.includes(p.id))?.id ?? '';
+          const nextId = projects.find((p) => !autoDeletedProjectIds.includes(p.id))?.id ?? '';
           setCurrentProjectId(nextId);
         }
       }
 
       report(3, '서버와 비교하는 중…');
-      const [preProjects, preTaskRows, preSettingsRow] = await Promise.all([
-        fetchProjects(),
-        fetchTaskRows(),
-        fetchSettingsRow(),
-      ]);
-      const serverProjectById = new Map(preProjects.map(p => [p.id, p]));
+      const [preProjects, preTaskRows, preSettingsRow] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettingsRow()]);
+      const serverProjectById = new Map(preProjects.map((p) => [p.id, p]));
 
       let uploadError: unknown = null;
-      const taskProjectIdSet = new Set<string>(targetProjectsAfterAutoDelete.map(p => p.id));
+      const taskProjectIdSet = new Set<string>(targetProjectsAfterAutoDelete.map((p) => p.id));
       const deletionPids = Array.from(new Set([...projectIds, ...targetDeletedProjectIds].filter(Boolean)));
       let nProj = targetProjectsAfterAutoDelete.length;
       let nProjUp = 0;
@@ -702,12 +741,10 @@ export function WBSProvider({
       let replacedByProject: Record<string, number> = {};
 
       try {
-        const projectsToUpload = targetProjectsAfterAutoDelete.filter(p =>
-          projectNeedsDbUpload(p, serverProjectById),
-        );
+        const projectsToUpload = targetProjectsAfterAutoDelete.filter((p) => projectNeedsDbUpload(p, serverProjectById));
         nProj = targetProjectsAfterAutoDelete.length;
         nProjUp = projectsToUpload.length;
-        uploadedProjectIds = projectsToUpload.map(p => p.id);
+        uploadedProjectIds = projectsToUpload.map((p) => p.id);
         if (nProj === 0) {
           report(18, '업로드할 프로젝트 없음');
         } else if (nProjUp === 0) {
@@ -727,15 +764,12 @@ export function WBSProvider({
           report(20, '표·상태 설정 서버와 동일 — 업로드 생략');
         }
 
-        const serverTaskById = new Map(preTaskRows.map(r => [r.id, r]));
+        const serverTaskById = new Map(preTaskRows.map((r) => [r.id, r]));
         const taskSortOrders = new Map<string, number>();
-        targetTasksAfterAutoDelete.forEach((t, idx) => { if (t.id) taskSortOrders.set(t.id, idx); });
-        const tasksToUpload = collectTasksNeedingUpload(
-          targetTasksAfterAutoDelete,
-          serverTaskById,
-          taskProjectIdSet,
-          taskSortOrders,
-        );
+        targetTasksAfterAutoDelete.forEach((t, idx) => {
+          if (t.id) taskSortOrders.set(t.id, idx);
+        });
+        const tasksToUpload = collectTasksNeedingUpload(targetTasksAfterAutoDelete, serverTaskById, taskProjectIdSet, taskSortOrders);
         taskRows = targetTasksAfterAutoDelete.length;
         nTaskUp = tasksToUpload.length;
         for (const t of tasksToUpload) {
@@ -748,9 +782,13 @@ export function WBSProvider({
           report(62, `작업 ${taskRows}건 서버와 동일 — 업로드 생략`);
         } else {
           report(22, `작업 변경분 업로드… (${nTaskUp}/${taskRows}건)`);
-          await upsertTasks(tasksToUpload, (done, total) => {
-            report(22 + (done / Math.max(total, 1)) * 42, `작업 업로드 ${done}/${total}건`);
-          }, taskSortOrders);
+          await upsertTasks(
+            tasksToUpload,
+            (done, total) => {
+              report(22 + (done / Math.max(total, 1)) * 42, `작업 업로드 ${done}/${total}건`);
+            },
+            taskSortOrders,
+          );
         }
 
         const deletions: string[] = [];
@@ -783,13 +821,13 @@ export function WBSProvider({
           }
         }
 
-        setDeletedTaskIdsByProject(prev => {
+        setDeletedTaskIdsByProject((prev) => {
           const next = { ...prev };
           for (const pid of deletionPids) delete next[pid];
           return next;
         });
         if (targetDeletedProjectIds.length > 0) {
-          setDeletedProjectIds(prev => prev.filter(id => !deletionProjectIdSet.has(id)));
+          setDeletedProjectIds((prev) => prev.filter((id) => !deletionProjectIdSet.has(id)));
         }
       } catch (e) {
         uploadError = e;
@@ -806,7 +844,7 @@ export function WBSProvider({
         if (dirtyEpochRef.current === syncEpochStart) setHasLocalChangesSinceSync(false);
         const persistDeletedTasks: Record<string, string[]> = { ...deletedTaskIdsByProject };
         for (const pid of deletionPids) delete persistDeletedTasks[pid];
-        const persistDeletedProjects = deletedProjectIds.filter(id => !deletionProjectIdSet.has(id));
+        const persistDeletedProjects = deletedProjectIds.filter((id) => !deletionProjectIdSet.has(id));
         await Promise.allSettled([
           saveJsonWithIdbFallback('wbs-projects', workingProjects),
           saveJsonWithIdbFallback('wbs-tasks', workingTasks),
@@ -816,7 +854,7 @@ export function WBSProvider({
         ]);
         const byProject: Record<string, DbSyncSummaryByProject> = {};
         for (const pid of taskProjectIdSet) {
-          const projectName = workingProjects.find(p => p.id === pid)?.name ?? pid;
+          const projectName = workingProjects.find((p) => p.id === pid)?.name ?? pid;
           byProject[pid] = {
             projectName,
             uploadedTasks: uploadedTasksByProject[pid] ?? 0,
@@ -854,22 +892,21 @@ export function WBSProvider({
       }
 
       report(84, '서버에서 최신 데이터 받는 중…');
-      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([
-        fetchProjects(),
-        fetchTaskRows(),
-        fetchSettings(),
-      ]);
+      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
       let appliedP = 0;
       let appliedT = 0;
       report(93, 'DB 데이터 로컬에 반영 중…');
       let snapshotProjects: Project[];
       let snapshotTasks: Task[];
-      const finalDeletedTasks: Record<string, string[]> = effectiveScope === 'all' ? {} : (() => {
-        const serverPidSet = new Set((dbProjects ?? []).map(p => p.id));
-        const n = { ...deletedTaskIdsByProject };
-        for (const pid of serverPidSet) delete n[String(pid)];
-        return n;
-      })();
+      const finalDeletedTasks: Record<string, string[]> =
+        effectiveScope === 'all'
+          ? {}
+          : (() => {
+              const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
+              const n = { ...deletedTaskIdsByProject };
+              for (const pid of serverPidSet) delete n[String(pid)];
+              return n;
+            })();
       const finalDeletedProjects: string[] = effectiveScope === 'all' ? [] : deletedProjectIds;
 
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
@@ -878,7 +915,7 @@ export function WBSProvider({
         snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow), effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
-        replacedProjectIds = snapshotProjects.map(p => p.id);
+        replacedProjectIds = snapshotProjects.map((p) => p.id);
         replacedByProject = snapshotTasks.reduce<Record<string, number>>((acc, t) => {
           const pid = t.projectId ?? '';
           acc[pid] = (acc[pid] ?? 0) + 1;
@@ -887,12 +924,12 @@ export function WBSProvider({
 
         setProjects(snapshotProjects);
         setAllTasks(preserveLocalExpanded(snapshotTasks));
-        if (dbSettings) setWbsSettings(prev => ({ ...prev, ...dbSettings }));
+        if (dbSettings) setWbsSettings((prev) => ({ ...prev, ...dbSettings }));
         setDeletedTaskIdsByProject(finalDeletedTasks);
         setDeletedProjectIds(finalDeletedProjects);
 
         const savedCurrent = sessionStorage.getItem('wbs-current-project');
-        const validId = snapshotProjects.find(p => p.id === savedCurrent)?.id ?? snapshotProjects[0]?.id ?? '';
+        const validId = snapshotProjects.find((p) => p.id === savedCurrent)?.id ?? snapshotProjects[0]?.id ?? '';
         if (validId) setCurrentProjectId(validId);
       } else {
         snapshotProjects = workingProjects;
@@ -900,13 +937,9 @@ export function WBSProvider({
       }
 
       const finalSettings =
-        Array.isArray(dbProjects) && dbProjects.length > 0 && dbSettings
-          ? { ...wbsSettings, ...dbSettings }
-          : wbsSettings;
-      const finalDeletedTasksForPersist =
-        Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedTasks : deletedTaskIdsByProject;
-      const finalDeletedProjectsForPersist =
-        Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedProjects : deletedProjectIds;
+        Array.isArray(dbProjects) && dbProjects.length > 0 && dbSettings ? { ...wbsSettings, ...dbSettings } : wbsSettings;
+      const finalDeletedTasksForPersist = Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedTasks : deletedTaskIdsByProject;
+      const finalDeletedProjectsForPersist = Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedProjects : deletedProjectIds;
       await Promise.allSettled([
         saveJsonWithIdbFallback('wbs-projects', snapshotProjects),
         saveJsonWithIdbFallback('wbs-tasks', snapshotTasks),
@@ -915,14 +948,10 @@ export function WBSProvider({
         saveJsonWithIdbFallback('wbs-deleted-project-ids', finalDeletedProjectsForPersist),
       ]);
 
-      const projectIdsForSummary = new Set<string>([
-        ...taskProjectIdSet,
-        ...replacedProjectIds,
-        ...Object.keys(replacedByProject),
-      ]);
+      const projectIdsForSummary = new Set<string>([...taskProjectIdSet, ...replacedProjectIds, ...Object.keys(replacedByProject)]);
       const byProject: Record<string, DbSyncSummaryByProject> = {};
       for (const pid of projectIdsForSummary) {
-        const projectName = snapshotProjects?.find(p => p.id === pid)?.name ?? pid;
+        const projectName = snapshotProjects?.find((p) => p.id === pid)?.name ?? pid;
         const uploadedTasks = uploadedTasksByProject[pid] ?? 0;
         const uploadedProjects = uploadedProjectIds.includes(pid) ? 1 : 0;
         const appliedTasks = replacedByProject[pid] ?? 0;
@@ -963,10 +992,7 @@ export function WBSProvider({
   const syncWithDbRef = useRef(syncWithDb);
   syncWithDbRef.current = syncWithDb;
 
-  const stableSyncWithDb = useCallback(
-    (...args: Parameters<typeof syncWithDb>) => syncWithDbRef.current(...args),
-    [],
-  );
+  const stableSyncWithDb = useCallback((...args: Parameters<typeof syncWithDb>) => syncWithDbRef.current(...args), []);
 
   const pushChangesToDb = useCallback(
     (scope: 'current' | 'all') => syncWithDbRef.current(scope, undefined, { pullAfter: false, skipAutoPrune: true }),
@@ -982,7 +1008,7 @@ export function WBSProvider({
 
   // ─── Derived 상태 ──────────────────────────────────────────────────────────
   const tasks = React.useMemo(
-    () => (currentProjectId === 'all' ? allTasks : allTasks.filter(t => t.projectId === currentProjectId)),
+    () => (currentProjectId === 'all' ? allTasks : allTasks.filter((t) => t.projectId === currentProjectId)),
     [allTasks, currentProjectId],
   );
 
@@ -1012,8 +1038,10 @@ export function WBSProvider({
         let wbsId = '';
         if (depth === 1) wbsId = `${level1Prefix}${index + 1}`;
         else if (depth === 2) wbsId = `${parentPrefixStr.replace(level1Prefix, level2Prefix)}.${index + 1}`;
-        else if (depth === 3) { const n = parentPrefixStr.replace(level2Prefix, '').replace(level1Prefix, ''); wbsId = `${level3Prefix}${n}.${index + 1}`; }
-        else if (depth > 3) wbsId = `${parentPrefixStr}.${index + 1}`;
+        else if (depth === 3) {
+          const n = parentPrefixStr.replace(level2Prefix, '').replace(level1Prefix, '');
+          wbsId = `${level3Prefix}${n}.${index + 1}`;
+        } else if (depth > 3) wbsId = `${parentPrefixStr}.${index + 1}`;
         map.set(child.id, wbsId);
         displayMap.set(child.id, depth <= maxLevel ? wbsId : '');
         buildWbs(child.id, wbsId, depth + 1);
@@ -1021,33 +1049,38 @@ export function WBSProvider({
     };
     buildWbs(null, '', 1);
     return { wbsMap: map, displayWbsMap: displayMap };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, wbsSettings.level1Prefix, wbsSettings.level2Prefix, wbsSettings.level3Prefix, wbsSettings.maxLevel]);
 
   // ─── WBS 설정 ──────────────────────────────────────────────────────────────
-  const updateWbsSettings = useCallback((updates: Partial<WBSSettings>) => {
-    const newSettings = { ...wbsSettingsRef.current, ...updates };
-    setWbsSettings(newSettings);
-    // 로컬에 즉시 저장 (디바운스 전 새로고침 시에도 유지)
-    saveJsonWithIdbFallback('wbs-settings', newSettings).catch(() => {});
-    if (!useLocalOnlyRef.current) upsertSettings(newSettings).catch(err => handleDbError(err, '설정 저장에 실패했습니다.'));
-  }, [handleDbError]);
+  const updateWbsSettings = useCallback(
+    (updates: Partial<WBSSettings>) => {
+      const newSettings = { ...wbsSettingsRef.current, ...updates };
+      setWbsSettings(newSettings);
+      // 로컬에 즉시 저장 (디바운스 전 새로고침 시에도 유지)
+      saveJsonWithIdbFallback('wbs-settings', newSettings).catch(() => {});
+      if (!useLocalOnlyRef.current) upsertSettings(newSettings).catch((err) => handleDbError(err, '설정 저장에 실패했습니다.'));
+    },
+    [handleDbError],
+  );
 
   const syncProgressFromStatusConfigs = useCallback((scope: 'current' | 'all') => {
     if (wbsSettingsRef.current.linkStatusAndProgress === false) return;
     const configs = wbsSettingsRef.current.statusConfigs ?? [];
     if (!configs || configs.length === 0) return;
-    const configMap = new Map<string, StatusConfig>(configs.map(c => [c.id, c]));
-    setAllTasks(prev => {
+    const configMap = new Map<string, StatusConfig>(configs.map((c) => [c.id, c]));
+    setAllTasks((prev) => {
       const cpi = currentProjectIdRef.current;
       const targetProjectIds =
         scope === 'all'
-          ? Array.from(new Set(prev.map(t => t.projectId))).filter(Boolean) as string[]
-          : (cpi && cpi !== 'all' ? [cpi] : []);
+          ? (Array.from(new Set(prev.map((t) => t.projectId))).filter(Boolean) as string[])
+          : cpi && cpi !== 'all'
+            ? [cpi]
+            : [];
       if (targetProjectIds.length === 0) return prev;
       const targetSet = new Set(targetProjectIds);
       let changed = false;
-      let next = prev.map(t => {
+      let next = prev.map((t) => {
         if (!targetSet.has(t.projectId)) return t;
         if ((t.userLockedFields ?? []).includes('progress')) return t;
         const config = configMap.get(t.status);
@@ -1058,10 +1091,8 @@ export function WBSProvider({
       if (!changed) return prev;
 
       const projectIdsToRollup =
-        scope === 'all'
-          ? Array.from(new Set(next.map(t => t.projectId))).filter(Boolean) as string[]
-          : targetProjectIds;
-      const doneStatusIds = new Set((configs as StatusConfig[]).filter(c => c.progress === 100).map(c => c.id));
+        scope === 'all' ? (Array.from(new Set(next.map((t) => t.projectId))).filter(Boolean) as string[]) : targetProjectIds;
+      const doneStatusIds = new Set((configs as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id));
       for (const pid of projectIdsToRollup) {
         next = recomputeProjectRollups(next, pid, doneStatusIds);
       }
@@ -1070,7 +1101,7 @@ export function WBSProvider({
   }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
-  const currentProjectObj = projects.find(p => p.id === currentProjectId);
+  const currentProjectObj = projects.find((p) => p.id === currentProjectId);
   const canEditCurrentProject =
     editableProjectIds === undefined ||
     !currentProjectId ||
@@ -1079,84 +1110,104 @@ export function WBSProvider({
     currentProjectObj?.ownerId === ownerId; // 소유자 본인이면 항상 편집 가능
 
   // ─── Context Value ─────────────────────────────────────────────────────────
-  const contextValue = React.useMemo(() => ({
-    allTasks,
-    tasks,
-    projects,
-    editableProjectIds,
-    canEditCurrentProject,
-    currentProjectId,
-    setCurrentProjectId,
-    selectedTaskIds,
-    setSelectedTaskIds,
-    wbsSettings,
-    updateWbsSettings,
-    syncProgressFromStatusConfigs,
-    treeExpandLevel,
-    setTreeExpandLevel,
-    // Project ops
-    addProject: projectOps.addProject,
-    updateProject: projectOps.updateProject,
-    deleteProject: projectOps.deleteProject,
-    copyProject: projectOps.copyProject,
-    // Task ops
-    addTask: taskOps.addTask,
-    addTasks: taskOps.addTasks,
-    updateTask: taskOps.updateTask,
-    updateTasksBulk: taskOps.updateTasksBulk,
-    deleteTask: taskOps.deleteTask,
-    setBaselineForTasks: taskOps.setBaselineForTasks,
-    setBaselineForAllTasks: taskOps.setBaselineForAllTasks,
-    renameAssignee: taskOps.renameAssignee,
-    refreshProjectSchedule: taskOps.refreshProjectSchedule,
-    fixOverload: taskOps.fixOverload,
-    // Task movement
-    moveTask: taskMovement.moveTask,
-    reorderTask: taskMovement.reorderTask,
-    indentTask: taskMovement.indentTask,
-    outdentTask: taskMovement.outdentTask,
-    indentTasks: taskMovement.indentTasks,
-    outdentTasks: taskMovement.outdentTasks,
-    toggleExpand: taskMovement.toggleExpand,
-    expandToLevel: taskMovement.expandToLevel,
-    // Backup ops
-    importTasks: backupOps.importTasks,
-    deleteAllTasks: backupOps.deleteAllTasks,
-    deleteAllTasksInAllProjects: backupOps.deleteAllTasksInAllProjects,
-    resetAllProjectsToNew: backupOps.resetAllProjectsToNew,
-    restoreBackup: backupOps.restoreBackup,
-    exportFullBackup: backupOps.exportFullBackup,
-    mergeBackups: backupOps.mergeBackups,
-    // Sync
-    deletedTaskIdsByProject,
-    hasLocalChangesSinceSync,
-    syncWithDb: stableSyncWithDb,
-    pushChangesToDb,
-    collabPushNonce,
-    wbsMap,
-    displayWbsMap,
-    undo,
-    canUndo,
-    redo,
-    canRedo,
-    isLoading,
-  }), [
-    allTasks, tasks, projects, editableProjectIds, canEditCurrentProject,
-    currentProjectId, setCurrentProjectId, selectedTaskIds, setSelectedTaskIds,
-    wbsSettings, updateWbsSettings, syncProgressFromStatusConfigs,
-    treeExpandLevel, setTreeExpandLevel,
-    projectOps, taskOps, taskMovement, backupOps,
-    deletedTaskIdsByProject, hasLocalChangesSinceSync, stableSyncWithDb, pushChangesToDb, collabPushNonce,
-    wbsMap, displayWbsMap,
-    undo, canUndo, redo, canRedo,
-    isLoading,
-  ]);
-
-  return (
-    <WBSContext.Provider value={contextValue}>
-      {children}
-    </WBSContext.Provider>
+  const contextValue = React.useMemo(
+    () => ({
+      allTasks,
+      tasks,
+      projects,
+      editableProjectIds,
+      canEditCurrentProject,
+      currentProjectId,
+      setCurrentProjectId,
+      selectedTaskIds,
+      setSelectedTaskIds,
+      wbsSettings,
+      updateWbsSettings,
+      syncProgressFromStatusConfigs,
+      treeExpandLevel,
+      setTreeExpandLevel,
+      // Project ops
+      addProject: projectOps.addProject,
+      updateProject: projectOps.updateProject,
+      deleteProject: projectOps.deleteProject,
+      copyProject: projectOps.copyProject,
+      // Task ops
+      addTask: taskOps.addTask,
+      addTasks: taskOps.addTasks,
+      updateTask: taskOps.updateTask,
+      updateTasksBulk: taskOps.updateTasksBulk,
+      deleteTask: taskOps.deleteTask,
+      setBaselineForTasks: taskOps.setBaselineForTasks,
+      setBaselineForAllTasks: taskOps.setBaselineForAllTasks,
+      renameAssignee: taskOps.renameAssignee,
+      refreshProjectSchedule: taskOps.refreshProjectSchedule,
+      fixOverload: taskOps.fixOverload,
+      // Task movement
+      moveTask: taskMovement.moveTask,
+      reorderTask: taskMovement.reorderTask,
+      indentTask: taskMovement.indentTask,
+      outdentTask: taskMovement.outdentTask,
+      indentTasks: taskMovement.indentTasks,
+      outdentTasks: taskMovement.outdentTasks,
+      toggleExpand: taskMovement.toggleExpand,
+      expandToLevel: taskMovement.expandToLevel,
+      // Backup ops
+      importTasks: backupOps.importTasks,
+      deleteAllTasks: backupOps.deleteAllTasks,
+      deleteAllTasksInAllProjects: backupOps.deleteAllTasksInAllProjects,
+      resetAllProjectsToNew: backupOps.resetAllProjectsToNew,
+      restoreBackup: backupOps.restoreBackup,
+      exportFullBackup: backupOps.exportFullBackup,
+      mergeBackups: backupOps.mergeBackups,
+      // Sync
+      deletedTaskIdsByProject,
+      hasLocalChangesSinceSync,
+      syncWithDb: stableSyncWithDb,
+      pushChangesToDb,
+      collabPushNonce,
+      wbsMap,
+      displayWbsMap,
+      undo,
+      canUndo,
+      redo,
+      canRedo,
+      isLoading,
+    }),
+    [
+      allTasks,
+      tasks,
+      projects,
+      editableProjectIds,
+      canEditCurrentProject,
+      currentProjectId,
+      setCurrentProjectId,
+      selectedTaskIds,
+      setSelectedTaskIds,
+      wbsSettings,
+      updateWbsSettings,
+      syncProgressFromStatusConfigs,
+      treeExpandLevel,
+      setTreeExpandLevel,
+      projectOps,
+      taskOps,
+      taskMovement,
+      backupOps,
+      deletedTaskIdsByProject,
+      hasLocalChangesSinceSync,
+      stableSyncWithDb,
+      pushChangesToDb,
+      collabPushNonce,
+      wbsMap,
+      displayWbsMap,
+      undo,
+      canUndo,
+      redo,
+      canRedo,
+      isLoading,
+    ],
   );
+
+  return <WBSContext.Provider value={contextValue}>{children}</WBSContext.Provider>;
 }
 
 export function useWBS() {

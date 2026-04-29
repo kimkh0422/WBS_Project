@@ -5,9 +5,7 @@ export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
 if (!isSupabaseConfigured) {
-  console.warn(
-    '[Supabase] 환경변수가 설정되지 않았습니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하세요.'
-  );
+  console.warn('[Supabase] 환경변수가 설정되지 않았습니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하세요.');
 }
 
 /**
@@ -18,15 +16,11 @@ if (!isSupabaseConfigured) {
  */
 function createInProcessAuthLock() {
   let chain: Promise<unknown> = Promise.resolve();
-  return async (
-    _name: string,
-    _acquireTimeout: number,
-    fn: () => Promise<unknown>
-  ) => {
+  return async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => {
     const run = chain.then(() => fn());
     chain = run.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     );
     return run;
   };
@@ -51,9 +45,7 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         // Typed via GoTrueClientOptions.lock (serializes auth in-tab; avoids Web Locks + Strict Mode noise)
-        lock: createInProcessAuthLock() as NonNullable<
-          NonNullable<Parameters<typeof createClient>[2]>['auth']
-        >['lock'],
+        lock: createInProcessAuthLock() as NonNullable<NonNullable<Parameters<typeof createClient>[2]>['auth']>['lock'],
       },
       global: {
         fetch: makeApikeyGuardedFetch(supabaseAnonKey),
@@ -155,7 +147,7 @@ export interface SettingsRow {
   level2_prefix: string;
   level3_prefix: string;
   max_level: number;
-  /** 나머지 모든 설정 (statusConfigs, appTitle, themeMode 등) */
+  /** 나머지 모든 설정 (statusConfigs, appTitle 등) */
   config_json?: Record<string, unknown> | null;
 }
 

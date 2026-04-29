@@ -23,8 +23,6 @@ export interface WBSSettings {
   columnWidths?: Record<string, number>;
   /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
   allocationHiddenMigrated?: boolean;
-  /** 테마 모드: 'light' | 'dark' | 'system' (기본: 'system') */
-  themeMode?: 'light' | 'dark' | 'system';
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
 }
@@ -66,15 +64,34 @@ export const DEFAULT_SETTINGS: WBSSettings = {
 export function parseSettings(raw: unknown): WBSSettings {
   if (!raw) return DEFAULT_SETTINGS;
   try {
-    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as
-      Partial<WBSSettings> & { statusNames?: Record<string, string>; statusProgress?: Record<string, number> };
+    const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Partial<WBSSettings> & {
+      statusNames?: Record<string, string>;
+      statusProgress?: Record<string, number>;
+    };
     let statusConfigs = parsed.statusConfigs;
     if (!statusConfigs && (parsed.statusNames || parsed.statusProgress)) {
-      statusConfigs = (['todo', 'in-progress', 'blocked', 'done'] as const).map(id => ({
+      statusConfigs = (['todo', 'in-progress', 'blocked', 'done'] as const).map((id) => ({
         id,
-        name: parsed.statusNames?.[id] || (id === 'todo' ? '할 일' : id === 'in-progress' ? '진행 중' : id === 'blocked' ? '지연됨' : '완료'),
-        progress: parsed.statusProgress?.[id] !== undefined ? parsed.statusProgress[id] : (id === 'todo' ? 0 : id === 'in-progress' ? 10 : id === 'blocked' ? 50 : 100),
-        color: id === 'todo' ? 'bg-stone-100 border-stone-200' : id === 'in-progress' ? 'bg-blue-50 border-blue-100' : id === 'blocked' ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100',
+        name:
+          parsed.statusNames?.[id] || (id === 'todo' ? '할 일' : id === 'in-progress' ? '진행 중' : id === 'blocked' ? '지연됨' : '완료'),
+        progress:
+          parsed.statusProgress?.[id] !== undefined
+            ? parsed.statusProgress[id]
+            : id === 'todo'
+              ? 0
+              : id === 'in-progress'
+                ? 10
+                : id === 'blocked'
+                  ? 50
+                  : 100,
+        color:
+          id === 'todo'
+            ? 'bg-stone-100 border-stone-200'
+            : id === 'in-progress'
+              ? 'bg-blue-50 border-blue-100'
+              : id === 'blocked'
+                ? 'bg-red-50 border-red-100'
+                : 'bg-green-50 border-green-100',
       }));
     }
     const base: WBSSettings = {
@@ -82,11 +99,12 @@ export function parseSettings(raw: unknown): WBSSettings {
       ...parsed,
       appTitle: parsed.appTitle || DEFAULT_SETTINGS.appTitle,
       statusConfigs: statusConfigs || DEFAULT_STATUS_CONFIGS,
-      tableColumns: Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
-        ? parsed.tableColumns
-            .filter((c) => c && typeof c.id === 'string')
-            .map((c) => ({ id: String(c.id), visible: c.visible !== false }))
-        : DEFAULT_SETTINGS.tableColumns,
+      tableColumns:
+        Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
+          ? parsed.tableColumns
+              .filter((c) => c && typeof c.id === 'string')
+              .map((c) => ({ id: String(c.id), visible: c.visible !== false }))
+          : DEFAULT_SETTINGS.tableColumns,
       showCriticalPath: parsed.showCriticalPath === true,
       wrapTextInCells: parsed.wrapTextInCells === true,
       linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
@@ -95,9 +113,7 @@ export function parseSettings(raw: unknown): WBSSettings {
     // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)
     if (!parsed.allocationHiddenMigrated) {
       const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
-      base.tableColumns = cols.map(c =>
-        c && c.id === 'allocation' ? { ...c, visible: false } : c
-      );
+      base.tableColumns = cols.map((c) => (c && c.id === 'allocation' ? { ...c, visible: false } : c));
       base.allocationHiddenMigrated = true;
     }
 

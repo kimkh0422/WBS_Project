@@ -508,7 +508,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     document.title = wbsSettings.appTitle;
   }, [wbsSettings.appTitle]);
 
-  // Theme (dark mode) — localStorage를 단일 소스로 사용
+  // Theme (dark mode) — localStorage 단일 소스. 사용자별 로컬 설정이며 다른 사용자/기기와 공유하지 않는다.
   const [activeThemeMode, setActiveThemeMode] = useState<'light' | 'dark' | 'system'>(() => {
     try {
       const saved = localStorage.getItem('wbs-theme-mode');
@@ -516,28 +516,17 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     } catch {
       /* ignore */
     }
-    return wbsSettings.themeMode ?? 'system';
+    return 'system';
   });
 
-  const handleThemeModeChange = useCallback(
-    (mode: 'light' | 'dark' | 'system') => {
-      setActiveThemeMode(mode);
-      try {
-        localStorage.setItem('wbs-theme-mode', mode);
-      } catch {
-        /* ignore */
-      }
-      updateWbsSettings({ themeMode: mode });
-    },
-    [updateWbsSettings],
-  );
-
-  useEffect(() => {
-    // DB에서 themeMode가 내려오면 로컬 상태 동기화 (사용자가 다른 기기에서 변경한 경우)
-    if (wbsSettings.themeMode && wbsSettings.themeMode !== activeThemeMode) {
-      setActiveThemeMode(wbsSettings.themeMode);
+  const handleThemeModeChange = useCallback((mode: 'light' | 'dark' | 'system') => {
+    setActiveThemeMode(mode);
+    try {
+      localStorage.setItem('wbs-theme-mode', mode);
+    } catch {
+      /* ignore */
     }
-  }, [wbsSettings.themeMode]);
+  }, []);
 
   // activeThemeMode가 바뀔 때 실제 테마 적용
   useEffect(() => {
