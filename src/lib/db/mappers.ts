@@ -81,6 +81,7 @@ export function toProjectRow(project: Project): ProjectRow {
     report_total_period: project.reportTotalPeriod ?? null,
     report_name_short: project.reportNameShort ?? null,
     report_name_full: project.reportNameFull ?? null,
+    group_id: project.groupId ?? null,
   };
 }
 
@@ -114,6 +115,7 @@ export function fromProjectRow(row: ProjectRow): Project {
     reportTotalPeriod: row.report_total_period ?? undefined,
     reportNameShort: row.report_name_short ?? undefined,
     reportNameFull: row.report_name_full ?? undefined,
+    groupId: row.group_id ?? undefined,
   };
 }
 

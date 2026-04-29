@@ -78,6 +78,8 @@ export interface ProjectRow {
   report_total_period?: string | null;
   report_name_short?: string | null;
   report_name_full?: string | null;
+  /** 사용자 정의 그룹 ID. wbs_settings.config_json.projectGroups의 항목과 매핑 */
+  group_id?: string | null;
 }
 
 export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';

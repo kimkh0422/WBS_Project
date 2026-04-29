@@ -5,6 +5,14 @@ export interface StatusConfig {
   color?: string;
 }
 
+/** 프로젝트 그룹(폴더) 정의. 1단계 평탄, 한 프로젝트는 한 그룹에 속한다. */
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  /** 정렬 순서 (낮은 값이 먼저). 동일 값이면 name 가나다순 */
+  sortOrder?: number;
+}
+
 export interface WBSSettings {
   appTitle: string;
   level1Prefix: string;
@@ -25,6 +33,8 @@ export interface WBSSettings {
   allocationHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
+  /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
+  projectGroups?: ProjectGroup[];
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [

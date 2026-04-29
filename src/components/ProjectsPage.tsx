@@ -4,10 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import { ProjectModal } from './ProjectModal';
 import { ShareModal } from './ShareModal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ProjectGroupManagerModal } from './ProjectGroupManagerModal';
 import { useToast } from './Toast';
-import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, Loader2 } from 'lucide-react';
+import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, ChevronDown, Loader2, FolderOpen, FolderCog } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project } from '../types';
+import type { ProjectGroup } from '../lib/wbsSettings';
 import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames, getMyEditableProjectIds } from '../lib/db';
 
 interface ProjectsPageProps {
@@ -18,7 +20,7 @@ type ProjectSortKey = 'default' | 'task_desc' | 'task_asc';
 
 export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { user } = useAuth();
-  const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId } = useWBS();
+  const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId, wbsSettings } = useWBS();
   const { push: pushToast } = useToast();
 
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
@@ -37,6 +39,29 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
   const [groupByOwner, setGroupByOwner] = useState(false);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('wbs-projects-collapsed-groups');
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      /* ignore */
+    }
+    return new Set();
+  });
+  const toggleGroupCollapsed = (id: string) => {
+    setCollapsedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem('wbs-projects-collapsed-groups', JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -134,6 +159,27 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     if (ownerId === user?.id) return '내 프로젝트';
     return profileMap[ownerId] ?? `사용자 (${ownerId.slice(0, 8)}…)`;
   };
+
+  const sortedGroups = useMemo<ProjectGroup[]>(() => {
+    const list = wbsSettings.projectGroups ?? [];
+    return [...list].sort((a, b) => {
+      const ao = a.sortOrder ?? 0;
+      const bo = b.sortOrder ?? 0;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+  }, [wbsSettings.projectGroups]);
+
+  const projectsGroupedByGroup = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    sortedGroups.forEach((g) => map.set(g.id, []));
+    map.set('__none__', []);
+    for (const p of sortedProjects) {
+      const k = p.groupId && map.has(p.groupId) ? p.groupId : '__none__';
+      map.get(k)!.push(p);
+    }
+    return map;
+  }, [sortedProjects, sortedGroups]);
 
   const projectsGroupedByOwner = useMemo(() => {
     const map = new Map<string, Project[]>();
@@ -306,6 +352,33 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 ownerLabel(project.ownerId)
               )}
             </span>
+            {sortedGroups.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                <FolderOpen size={11} className="text-stone-300 shrink-0" />
+                {canEdit ? (
+                  <select
+                    value={project.groupId ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateProject(project.id, { groupId: val === '' ? undefined : val });
+                    }}
+                    className="text-[11px] text-stone-500 bg-transparent border border-stone-200 rounded px-1.5 py-0.5 hover:border-stone-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    title="그룹 선택"
+                  >
+                    <option value="">그룹 미지정</option>
+                    {sortedGroups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-[11px] text-stone-400">
+                    {sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정'}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <button
@@ -380,16 +453,27 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <h1 className="text-xl font-bold text-[var(--color-ink)]">프로젝트 관리</h1>
             <p className="text-sm text-stone-500 mt-0.5">프로젝트를 생성·편집·공유·삭제할 수 있습니다.</p>
           </div>
-          <button
-            onClick={() => {
-              setEditingProject(null);
-              setIsProjectModalOpen(true);
-            }}
-            className="btn-primary flex items-center gap-2 shrink-0"
-            title="새 프로젝트 생성"
-          >
-            <FolderPlus size={16} /> 새 프로젝트
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {effectiveIsAdmin && (
+              <button
+                onClick={() => setIsGroupManagerOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 bg-white border border-stone-200 hover:border-stone-300 rounded-lg transition-colors"
+                title="프로젝트 그룹 추가·이름변경·삭제·순서 변경"
+              >
+                <FolderCog size={14} /> 그룹 관리
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setEditingProject(null);
+                setIsProjectModalOpen(true);
+              }}
+              className="btn-primary flex items-center gap-2"
+              title="새 프로젝트 생성"
+            >
+              <FolderPlus size={16} /> 새 프로젝트
+            </button>
+          </div>
         </div>
 
         {uniqueProjects.length > 0 && uniqueProjects.length < 2 && (
@@ -487,6 +571,37 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 </section>
               ))}
             </div>
+          ) : sortedGroups.length > 0 ? (
+            <div className="space-y-6">
+              {[...sortedGroups, { id: '__none__', name: '그룹 미지정' } as ProjectGroup].map((g) => {
+                const list = projectsGroupedByGroup.get(g.id) ?? [];
+                if (g.id === '__none__' && list.length === 0) return null;
+                const collapsed = collapsedGroupIds.has(g.id);
+                return (
+                  <section key={g.id}>
+                    <h2 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 px-1 flex items-center gap-2 border-b border-stone-200/80 pb-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroupCollapsed(g.id)}
+                        className="flex items-center gap-1.5 text-stone-500 hover:text-stone-800"
+                        aria-expanded={!collapsed}
+                      >
+                        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                        <FolderOpen size={14} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
+                        <span>{g.name}</span>
+                      </button>
+                      <span className="font-normal text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
+                    </h2>
+                    {!collapsed &&
+                      (list.length > 0 ? (
+                        <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
+                      ) : (
+                        <div className="text-xs text-stone-400 px-2 py-3">소속된 프로젝트가 없습니다.</div>
+                      ))}
+                  </section>
+                );
+              })}
+            </div>
           ) : (
             <div className="space-y-2">{sortedProjects.map((p) => renderProjectCard(p))}</div>
           )}
@@ -538,6 +653,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         confirmLabel="일괄 삭제"
         isDanger={true}
       />
+      {isGroupManagerOpen && <ProjectGroupManagerModal isOpen onClose={() => setIsGroupManagerOpen(false)} />}
     </div>
   );
 }
