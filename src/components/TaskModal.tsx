@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Calculator, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
-import { computeEndDateFromEffort, computeWorkEffortFromDates } from '../lib/schedule';
+import { computeEndDateFromEffort } from '../lib/schedule';
 import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
 // GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
@@ -444,8 +444,7 @@ export function TaskModal({
         .map((s) => s.trim())
         .filter(Boolean).length
     : 0;
-  const effortHelpText =
-    '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다. 기간 자동: 시작일+공수→종료일. 공수 역산: 시작~종료일→공수.';
+  const effortHelpText = '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다.';
 
   const parseDepsInput = (): string[] => {
     const nums: number[] = depsInput
@@ -539,35 +538,6 @@ export function TaskModal({
   )
     .filter(Boolean)
     .sort();
-
-  const handleApplyEndDateFromEffort = () => {
-    const start = formData.startDate || new Date().toISOString().split('T')[0];
-    const effort = typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : 1;
-    const assignee = (formData.assignee || '').trim();
-    const pct = Math.min(100, Math.max(0, formData.allocationPercent ?? 100));
-    const assignmentsForEffort = assignee
-      ? [{ assignee, allocationPercent: pct }]
-      : projectAssignments.length > 0
-        ? projectAssignments
-        : undefined;
-    let end = computeEndDateFromEffort(start, effort, assignmentsForEffort);
-    if (taskProject?.endDate && end > taskProject.endDate) end = taskProject.endDate;
-    setFormData((prev) => ({ ...prev, startDate: start, endDate: end }));
-  };
-
-  const handleApplyWorkEffortFromDates = () => {
-    const start = formData.startDate || new Date().toISOString().split('T')[0];
-    const end = formData.endDate || start;
-    const assignee = (formData.assignee || '').trim();
-    const pct = Math.min(100, Math.max(0, formData.allocationPercent ?? 100));
-    const assignmentsForEffort = assignee
-      ? [{ assignee, allocationPercent: pct }]
-      : projectAssignments.length > 0
-        ? projectAssignments
-        : undefined;
-    const effort = computeWorkEffortFromDates(start, end, assignmentsForEffort);
-    setFormData((prev) => ({ ...prev, workEffort: effort }));
-  };
 
   const handleDeleteClick = () => {
     setIsDeleteConfirmOpen(true);
@@ -1034,26 +1004,6 @@ export function TaskModal({
                       readOnly={readOnly}
                       disabled={readOnly}
                     />
-                    {!readOnly && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleApplyEndDateFromEffort}
-                          className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors shrink-0"
-                          title="시작일·공수·투입비율 → 종료일"
-                        >
-                          <Calculator size={12} /> 기간자동
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleApplyWorkEffortFromDates}
-                          className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-ink)] hover:bg-slate-100 rounded-lg border border-[var(--color-line)] transition-colors shrink-0"
-                          title="시작일·종료일 → 공수"
-                        >
-                          공수역산
-                        </button>
-                      </>
-                    )}
                     <span
                       className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)] p-0.5 shrink-0"
                       title={effortHelpText}
