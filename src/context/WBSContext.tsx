@@ -406,7 +406,13 @@ export function WBSProvider({
   }, [isLoading, projects, allTasks, wbsSettings, deletedTaskIdsByProject, deletedProjectIds]);
 
   // ─── Realtime: DB 변경사항 자동 반영 ───────────────────────────────────────
+  // 협업(Realtime 자동 동기화) 기능 토글.
+  // false면 다른 사용자/기기에서 일어난 DB 변경이 즉시 반영되지 않고,
+  // 새로고침 또는 명시적 동기화 시에만 가져온다. 자기 변경의 자동 저장은 영향 없음.
+  // 다시 켜려면 true로 변경.
+  const ENABLE_REALTIME_DB_SYNC = false;
   useEffect(() => {
+    if (!ENABLE_REALTIME_DB_SYNC) return;
     if (useLocalOnly) return;
     if (!isSupabaseConfigured || !supabase) return;
     if (!user?.id) return;
