@@ -579,22 +579,22 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 const collapsed = collapsedGroupIds.has(g.id);
                 return (
                   <section key={g.id}>
-                    <h2 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 px-1 flex items-center gap-2 border-b border-stone-200/80 pb-2">
+                    <h2 className="mb-3 px-1 flex items-center gap-3 border-b border-stone-200/80 pb-2.5">
                       <button
                         type="button"
                         onClick={() => toggleGroupCollapsed(g.id)}
-                        className="flex items-center gap-1.5 text-stone-500 hover:text-stone-800"
+                        className="flex items-center gap-2 text-stone-800 hover:text-indigo-600"
                         aria-expanded={!collapsed}
                       >
-                        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                        <FolderOpen size={14} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
-                        <span>{g.name}</span>
+                        {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+                        <FolderOpen size={20} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
+                        <span className="text-base font-bold">{g.name}</span>
                       </button>
-                      <span className="font-normal text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
+                      <span className="text-xs font-medium text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
                     </h2>
                     {!collapsed &&
                       (list.length > 0 ? (
-                        <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
+                        <div className="space-y-2 pl-1">{list.map((p) => renderProjectCard(p))}</div>
                       ) : (
                         <div className="text-xs text-stone-400 px-2 py-3">소속된 프로젝트가 없습니다.</div>
                       ))}

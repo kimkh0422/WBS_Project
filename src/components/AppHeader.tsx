@@ -20,6 +20,7 @@ import {
   Map as MapIcon,
   Sparkles,
   FolderPlus,
+  FolderOpen,
   Briefcase,
   Share2,
   Copy,
@@ -193,6 +194,14 @@ export function AppHeader({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
+  const [showByGroup, setShowByGroup] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wbs-header-projects-by-group') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
 
   // 관심 프로젝트 (즐겨찾기) — wbsSettings(DB) 동기화
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
@@ -243,6 +252,57 @@ export function AppHeader({
     });
     return entries;
   }, [projectsSortedByName, user?.id, profileMap]);
+
+  /** 사용자 정의 프로젝트 그룹 정렬 */
+  const sortedProjectGroups = useMemo(() => {
+    const list = wbsSettings.projectGroups ?? [];
+    return [...list].sort((a, b) => {
+      const ao = a.sortOrder ?? 0;
+      const bo = b.sortOrder ?? 0;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+  }, [wbsSettings.projectGroups]);
+
+  /** 표시할 프로젝트들을 그룹 단위로 묶음. "그룹 미지정"은 마지막 항목으로 자동 추가. */
+  const projectsByGroup = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    sortedProjectGroups.forEach((g) => map.set(g.id, []));
+    map.set('__none__', []);
+    for (const p of displayProjects) {
+      const k = p.groupId && map.has(p.groupId) ? p.groupId : '__none__';
+      map.get(k)!.push(p);
+    }
+    return map;
+  }, [displayProjects, sortedProjectGroups]);
+
+  const toggleGroupExpanded = (key: string) => {
+    setExpandedGroupKeys((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  };
+
+  // 드롭다운 열릴 때 모든 그룹 자동 펼침 + 현재 프로젝트 소속 그룹 펼침 보장
+  useEffect(() => {
+    if (isProjectDropdownOpen && showByGroup) {
+      const next = new Set<string>();
+      sortedProjectGroups.forEach((g) => next.add(g.id));
+      next.add('__none__');
+      setExpandedGroupKeys(next);
+    }
+  }, [isProjectDropdownOpen, showByGroup, sortedProjectGroups]);
+
+  const persistShowByGroup = (v: boolean) => {
+    setShowByGroup(v);
+    try {
+      localStorage.setItem('wbs-header-projects-by-group', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
 
   const ownerGroupLabel = (ownerKey: string) => {
     if (ownerKey === '__none__') return '소유자 미지정';
@@ -414,6 +474,25 @@ export function AppHeader({
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
+                          {sortedProjectGroups.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                persistShowByGroup(!showByGroup);
+                              }}
+                              className={cn(
+                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                showByGroup
+                                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                  : 'text-stone-400 hover:text-indigo-600 border border-transparent hover:border-stone-200',
+                              )}
+                              title={showByGroup ? '평탄 목록으로 보기' : '그룹별로 묶어 보기'}
+                            >
+                              <FolderOpen size={10} />
+                              그룹별
+                            </button>
+                          )}
                           {favoriteIds.size > 0 && (
                             <button
                               type="button"
@@ -475,117 +554,143 @@ export function AppHeader({
                       )}
                       <div className="h-px bg-stone-100 my-1 mx-2" />
                       <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
-                        {displayProjects.map((project) => {
-                          const ownerLabel = ownerGroupLabel(project.ownerId ?? '__none__');
-                          return (
-                            <div
-                              key={project.id}
-                              className={cn(
-                                'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors',
-                                currentProjectId === project.id ? 'bg-stone-100 font-medium' : 'text-stone-600 hover:bg-stone-50',
-                              )}
-                              onClick={() => {
-                                selectProject(project.id);
-                                setIsProjectDropdownOpen(false);
-                              }}
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleFavorite(project.id);
-                                }}
+                        {(() => {
+                          const renderProjectRow = (project: Project) => {
+                            const ownerLabel = ownerGroupLabel(project.ownerId ?? '__none__');
+                            return (
+                              <div
+                                key={project.id}
                                 className={cn(
-                                  'shrink-0 p-0.5 rounded transition-colors',
-                                  favoriteIds.has(project.id) ? 'text-amber-500' : 'text-stone-300 hover:text-amber-400',
+                                  'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors',
+                                  currentProjectId === project.id ? 'bg-stone-100 font-medium' : 'text-stone-600 hover:bg-stone-50',
                                 )}
-                                title={favoriteIds.has(project.id) ? '관심 해제' : '관심 프로젝트로 등록'}
+                                onClick={() => {
+                                  selectProject(project.id);
+                                  setIsProjectDropdownOpen(false);
+                                }}
                               >
-                                <Star size={12} className={favoriteIds.has(project.id) ? 'fill-amber-500' : ''} />
-                              </button>
-                              <div className="truncate flex-1 min-w-0">
-                                <span className="truncate">
-                                  {project.name}
-                                  <span className="text-[10px] text-stone-400 ml-1.5">({ownerLabel})</span>
-                                </span>
-                                {(taskCountByProject[project.id] ?? 0) > 0 && (
-                                  <span className="text-[10px] text-stone-400 ml-1">· {taskCountByProject[project.id]}개</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {canManageProject(project) && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setIsShareOpen(true);
-                                      setIsProjectDropdownOpen(false);
-                                    }}
-                                    className="text-stone-400 hover:text-teal-600 p-1 rounded"
-                                    title="프로젝트 공유"
-                                    aria-label="프로젝트 공유"
-                                  >
-                                    <Share2 size={12} />
-                                  </button>
-                                )}
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    copyProject(project.id);
-                                    setIsProjectDropdownOpen(false);
+                                    toggleFavorite(project.id);
                                   }}
-                                  className="text-stone-400 hover:text-blue-600 p-1 rounded"
-                                  title="프로젝트 복사 (내 프로젝트로 복사본 생성)"
-                                  aria-label="프로젝트 복사"
+                                  className={cn(
+                                    'shrink-0 p-0.5 rounded transition-colors',
+                                    favoriteIds.has(project.id) ? 'text-amber-500' : 'text-stone-300 hover:text-amber-400',
+                                  )}
+                                  title={favoriteIds.has(project.id) ? '관심 해제' : '관심 프로젝트로 등록'}
                                 >
-                                  <Copy size={12} />
+                                  <Star size={12} className={favoriteIds.has(project.id) ? 'fill-amber-500' : ''} />
                                 </button>
-                                {canEditProject(project) && (
+                                <div className="truncate flex-1 min-w-0">
+                                  <span className="truncate">
+                                    {project.name}
+                                    <span className="text-[10px] text-stone-400 ml-1.5">({ownerLabel})</span>
+                                  </span>
+                                  {(taskCountByProject[project.id] ?? 0) > 0 && (
+                                    <span className="text-[10px] text-stone-400 ml-1">· {taskCountByProject[project.id]}개</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {canManageProject(project) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsShareOpen(true);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-teal-600 p-1 rounded"
+                                      title="프로젝트 공유"
+                                      aria-label="프로젝트 공유"
+                                    >
+                                      <Share2 size={12} />
+                                    </button>
+                                  )}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setEditingProject(project);
-                                      setIsProjectModalOpen(true);
+                                      copyProject(project.id);
                                       setIsProjectDropdownOpen(false);
                                     }}
-                                    className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
-                                    title="프로젝트 편집"
-                                    aria-label="프로젝트 편집"
+                                    className="text-stone-400 hover:text-blue-600 p-1 rounded"
+                                    title="프로젝트 복사 (내 프로젝트로 복사본 생성)"
+                                    aria-label="프로젝트 복사"
                                   >
-                                    <Edit size={12} />
+                                    <Copy size={12} />
                                   </button>
-                                )}
-                                {canManageProject(project) && projectsSortedByName.length > 1 && (
+                                  {canEditProject(project) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingProject(project);
+                                        setIsProjectModalOpen(true);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
+                                      title="프로젝트 편집"
+                                      aria-label="프로젝트 편집"
+                                    >
+                                      <Edit size={12} />
+                                    </button>
+                                  )}
+                                  {canManageProject(project) && projectsSortedByName.length > 1 && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setProjectToDelete(project);
+                                        setIsProjectDropdownOpen(false);
+                                        setIsDeleteProjectConfirmOpen(true);
+                                      }}
+                                      className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                      title="프로젝트 삭제"
+                                      aria-label="프로젝트 삭제"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  )}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setProjectToDelete(project);
+                                      setAuditLogProjectId(project.id);
+                                      setIsAuditLogOpen(true);
                                       setIsProjectDropdownOpen(false);
-                                      setIsDeleteProjectConfirmOpen(true);
                                     }}
-                                    className="text-stone-400 hover:text-red-500 p-1 rounded"
-                                    title="프로젝트 삭제"
-                                    aria-label="프로젝트 삭제"
+                                    className="text-stone-400 hover:text-amber-600 p-1 rounded"
+                                    title="변경 이력"
+                                    aria-label="변경 이력"
                                   >
-                                    <Trash2 size={12} />
+                                    <History size={12} />
                                   </button>
-                                )}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAuditLogProjectId(project.id);
-                                    setIsAuditLogOpen(true);
-                                    setIsProjectDropdownOpen(false);
-                                  }}
-                                  className="text-stone-400 hover:text-amber-600 p-1 rounded"
-                                  title="변경 이력"
-                                  aria-label="변경 이력"
-                                >
-                                  <History size={12} />
-                                </button>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          };
+
+                          if (showByGroup && sortedProjectGroups.length > 0) {
+                            return [...sortedProjectGroups, { id: '__none__', name: '그룹 미지정' }].map((g) => {
+                              const list = projectsByGroup.get(g.id) ?? [];
+                              if (g.id === '__none__' && list.length === 0) return null;
+                              const expanded = expandedGroupKeys.has(g.id);
+                              return (
+                                <div key={g.id} className="mb-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleGroupExpanded(g.id)}
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-stone-600 hover:bg-stone-50"
+                                  >
+                                    {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                    <FolderOpen size={12} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
+                                    <span className="text-xs font-semibold flex-1 text-left">{g.name}</span>
+                                    <span className="text-[10px] text-stone-400">{list.length}</span>
+                                  </button>
+                                  {expanded && list.length > 0 && <div className="pl-2">{list.map((p) => renderProjectRow(p))}</div>}
+                                </div>
+                              );
+                            });
+                          }
+                          return displayProjects.map((p) => renderProjectRow(p));
+                        })()}
                       </div>
                       <div className="border-t border-[var(--color-line)] my-1"></div>
                       <button
