@@ -110,6 +110,7 @@ const VersionManager = React.lazy(() => import('./components/VersionManager').th
 const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
 const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
+const OrganizationModal = React.lazy(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
 
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -213,6 +214,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
     setIsResetConfirmOpen,
     isWeeklyReportOpen,
     setIsWeeklyReportOpen,
+    isOrganizationOpen,
+    setIsOrganizationOpen,
     isDeleteAllConfirmOpen,
     setIsDeleteAllConfirmOpen,
     isDeleteChoiceOpen,
@@ -234,6 +237,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
+  const effectiveIsAdmin = isAdmin || adminOverride;
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
@@ -246,16 +250,23 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => localStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
+  // 추가로 비관리자에게는 대시보드/투입현황/마인드맵을 항상 숨긴다(관리자 전용 뷰).
   const hiddenViews = React.useMemo(() => {
     const raw = import.meta.env.VITE_HIDDEN_VIEWS as string | undefined;
     const value = typeof raw === 'string' ? raw.trim() : '';
-    return new Set(
+    const set = new Set(
       value
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
     );
-  }, []);
+    if (!effectiveIsAdmin) {
+      set.add('dashboard');
+      set.add('allocation');
+      set.add('mindmap');
+    }
+    return set;
+  }, [effectiveIsAdmin]);
 
   const { push: pushToast, tipOnce } = useToast();
 
@@ -337,8 +348,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const prevAIBusyRef = useRef(false);
   const initialDbSyncDoneRef = useRef(false);
 
-  const effectiveIsAdmin = isAdmin || adminOverride;
-
   // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동
   useEffect(() => {
     if (isLoading) return;
@@ -353,8 +362,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   useEffect(() => {
     if (hiddenViews.has(view)) setView('table');
   }, [hiddenViews, view]);
-
-  // 마인드맵은 전체 공개 — 관리자 전용 제한 없음
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -1075,6 +1082,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           isAIBusy={isAIBusy}
           setIsAIModalOpen={setIsAIModalOpen}
           setIsWeeklyReportOpen={setIsWeeklyReportOpen}
+          setIsOrganizationOpen={setIsOrganizationOpen}
+          userApproved={userApproved}
           handleImportClick={handleImportClick}
           setIsExportModalOpen={setIsExportModalOpen}
           setIsSettingsModalOpen={setIsSettingsModalOpen}
@@ -1786,7 +1795,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             }}
           />
         )}
-        {isAIModalOpen && (
+        {isAIModalOpen && effectiveIsAdmin && (
           <AIAnalysisModal
             isOpen
             onClose={() => setIsAIModalOpen(false)}
@@ -2122,7 +2131,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           />
         )}
 
-        {isWeeklyReportOpen && (
+        {isWeeklyReportOpen && effectiveIsAdmin && (
           <WeeklyReportModal
             isOpen
             onClose={() => setIsWeeklyReportOpen(false)}
@@ -2131,6 +2140,10 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
             currentProjectId={currentProjectId}
             currentUserDisplay={currentUserDisplay}
           />
+        )}
+
+        {isOrganizationOpen && (userApproved || effectiveIsAdmin) && (
+          <OrganizationModal isOpen onClose={() => setIsOrganizationOpen(false)} />
         )}
       </Suspense>
 

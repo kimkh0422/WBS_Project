@@ -99,6 +99,9 @@ export interface AppHeaderProps {
   isAIBusy: boolean;
   setIsAIModalOpen: (v: boolean) => void;
   setIsWeeklyReportOpen: (v: boolean) => void;
+  setIsOrganizationOpen: (v: boolean) => void;
+  /** 승인된 사용자 여부. 조직 현황 메뉴 노출 조건. */
+  userApproved: boolean;
   handleImportClick: () => void;
   setIsExportModalOpen: (v: boolean) => void;
   setIsSettingsModalOpen: (v: boolean) => void;
@@ -180,6 +183,8 @@ export function AppHeader({
   isAIBusy,
   setIsAIModalOpen,
   setIsWeeklyReportOpen,
+  setIsOrganizationOpen,
+  userApproved,
   handleImportClick,
   setIsExportModalOpen,
   setIsSettingsModalOpen,
@@ -716,14 +721,16 @@ export function AppHeader({
               title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다."
               tourId="tour-nav-kanban"
             />
-            <NavButton
-              active={view === 'mindmap'}
-              onClick={() => navigateWithTip('mindmap')}
-              icon={<Network size={14} />}
-              label="마인드맵"
-              title="WBS 계층을 트리 형태로 보고, 노드를 눌러 작업을 편집할 수 있어요."
-              tourId="tour-nav-mindmap"
-            />
+            {!hiddenViews.has('mindmap') && (
+              <NavButton
+                active={view === 'mindmap'}
+                onClick={() => navigateWithTip('mindmap')}
+                icon={<Network size={14} />}
+                label="마인드맵"
+                title="WBS 계층을 트리 형태로 보고, 노드를 눌러 작업을 편집할 수 있어요."
+                tourId="tour-nav-mindmap"
+              />
+            )}
           </div>
 
           <div className="toolbar-divider" />
@@ -784,36 +791,56 @@ export function AppHeader({
                   className="absolute top-full right-0 mt-2 w-44 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 shadow-xl dropdown-menu flex flex-col py-1"
                   style={{ boxShadow: 'var(--shadow-xl)' }}
                 >
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">기능</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setIsAIModalOpen(true);
-                      tipOnce?.(
-                        'menu.ai',
-                        'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에도 창을 닫으면 백그라운드에서 계속 진행돼요.',
-                      );
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <Sparkles size={14} className={isAIBusy ? 'text-purple-500 animate-pulse' : ''} />
-                    AI 분석
-                    {isAIBusy && <span className="text-[10px] text-purple-500">(진행중)</span>}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setIsWeeklyReportOpen(true);
-                      tipOnce?.('menu.weeklyReport', '현재 작업을 기준으로 금주실적·차주계획·이슈를 자동으로 정리합니다.');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <History size={14} /> 주간보고
-                  </button>
+                  {(userApproved || effectiveIsAdmin) && (
+                    <>
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">조직</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMoreMenuOpen(false);
+                          setIsOrganizationOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Users size={14} /> 조직 현황
+                      </button>
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                    </>
+                  )}
+                  {effectiveIsAdmin && (
+                    <>
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">기능</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMoreMenuOpen(false);
+                          setIsAIModalOpen(true);
+                          tipOnce?.(
+                            'menu.ai',
+                            'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에도 창을 닫으면 백그라운드에서 계속 진행돼요.',
+                          );
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Sparkles size={14} className={isAIBusy ? 'text-purple-500 animate-pulse' : ''} />
+                        AI 분석
+                        {isAIBusy && <span className="text-[10px] text-purple-500">(진행중)</span>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMoreMenuOpen(false);
+                          setIsWeeklyReportOpen(true);
+                          tipOnce?.('menu.weeklyReport', '현재 작업을 기준으로 금주실적·차주계획·이슈를 자동으로 정리합니다.');
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <History size={14} /> 주간보고
+                      </button>
 
-                  <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                    </>
+                  )}
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
                   <button
                     type="button"

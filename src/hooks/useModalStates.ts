@@ -24,6 +24,7 @@ export function useModalStates() {
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
+  const [isOrganizationOpen, setIsOrganizationOpen] = useState(false);
   const [isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen] = useState(false);
   const [isDeleteChoiceOpen, setIsDeleteChoiceOpen] = useState(false);
   const [exportSelectedProjectIds, setExportSelectedProjectIds] = useState<string[]>([]);
@@ -45,10 +46,12 @@ export function useModalStates() {
         return {
           scope: parsed.scope,
           format: parsed.format,
-          projectIds: parsed.projectIds.filter(id => typeof id === 'string') as string[],
+          projectIds: parsed.projectIds.filter((id) => typeof id === 'string') as string[],
         };
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return null;
   });
 
@@ -59,44 +62,77 @@ export function useModalStates() {
   }>({ isOpen: false, tasks: [], files: [] });
 
   const [backupConfirm, setBackupConfirm] = useState<{ isOpen: boolean; data: BackupData | null }>({
-    isOpen: false, data: null,
+    isOpen: false,
+    data: null,
   });
 
   const [multiMergeConfirm, setMultiMergeConfirm] = useState<{ isOpen: boolean; dataArray: BackupData[]; fileCount: number }>({
-    isOpen: false, dataArray: [], fileCount: 0,
+    isOpen: false,
+    dataArray: [],
+    fileCount: 0,
   });
 
   const [errorAlert, setErrorAlert] = useState<{ isOpen: boolean; message: string }>({
-    isOpen: false, message: '',
+    isOpen: false,
+    message: '',
   });
 
   return {
-    isModalOpen, setIsModalOpen,
-    isProjectModalOpen, setIsProjectModalOpen,
-    isAIModalOpen, setIsAIModalOpen,
-    isAIBusy, setIsAIBusy,
-    isSettingsModalOpen, setIsSettingsModalOpen,
-    isShortcutsVisible, setIsShortcutsVisible,
-    isVersionHistoryOpen, setIsVersionHistoryOpen,
-    isExportModalOpen, setIsExportModalOpen,
-    isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen,
-    projectToDelete, setProjectToDelete,
-    isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen,
-    editingProject, setEditingProject,
-    isShareOpen, setIsShareOpen,
-    isAuditLogOpen, setIsAuditLogOpen,
-    auditLogProjectId, setAuditLogProjectId,
-    isMembersModalOpen, setIsMembersModalOpen,
-    isAdminPasswordModalOpen, setIsAdminPasswordModalOpen,
-    isResetConfirmOpen, setIsResetConfirmOpen,
-    isWeeklyReportOpen, setIsWeeklyReportOpen,
-    isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen,
-    isDeleteChoiceOpen, setIsDeleteChoiceOpen,
-    exportSelectedProjectIds, setExportSelectedProjectIds,
-    lastExportPrefs, setLastExportPrefs,
-    importPreview, setImportPreview,
-    backupConfirm, setBackupConfirm,
-    multiMergeConfirm, setMultiMergeConfirm,
-    errorAlert, setErrorAlert,
+    isModalOpen,
+    setIsModalOpen,
+    isProjectModalOpen,
+    setIsProjectModalOpen,
+    isAIModalOpen,
+    setIsAIModalOpen,
+    isAIBusy,
+    setIsAIBusy,
+    isSettingsModalOpen,
+    setIsSettingsModalOpen,
+    isShortcutsVisible,
+    setIsShortcutsVisible,
+    isVersionHistoryOpen,
+    setIsVersionHistoryOpen,
+    isExportModalOpen,
+    setIsExportModalOpen,
+    isDeleteProjectConfirmOpen,
+    setIsDeleteProjectConfirmOpen,
+    projectToDelete,
+    setProjectToDelete,
+    isDeleteAllProjectsConfirmOpen,
+    setIsDeleteAllProjectsConfirmOpen,
+    editingProject,
+    setEditingProject,
+    isShareOpen,
+    setIsShareOpen,
+    isAuditLogOpen,
+    setIsAuditLogOpen,
+    auditLogProjectId,
+    setAuditLogProjectId,
+    isMembersModalOpen,
+    setIsMembersModalOpen,
+    isAdminPasswordModalOpen,
+    setIsAdminPasswordModalOpen,
+    isResetConfirmOpen,
+    setIsResetConfirmOpen,
+    isWeeklyReportOpen,
+    setIsWeeklyReportOpen,
+    isOrganizationOpen,
+    setIsOrganizationOpen,
+    isDeleteAllConfirmOpen,
+    setIsDeleteAllConfirmOpen,
+    isDeleteChoiceOpen,
+    setIsDeleteChoiceOpen,
+    exportSelectedProjectIds,
+    setExportSelectedProjectIds,
+    lastExportPrefs,
+    setLastExportPrefs,
+    importPreview,
+    setImportPreview,
+    backupConfirm,
+    setBackupConfirm,
+    multiMergeConfirm,
+    setMultiMergeConfirm,
+    errorAlert,
+    setErrorAlert,
   };
 }

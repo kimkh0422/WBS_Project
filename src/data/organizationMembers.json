@@ -1,0 +1,986 @@
+[
+  {
+    "name": "김현",
+    "department": "기술개발본부",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김민엽",
+    "department": "ICT사업부",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "신희용",
+    "department": "솔루션사업부",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "이상재",
+    "department": "운영기술개발실",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "박성규",
+    "department": "응용기술개발센터",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "고석영",
+    "department": "SM사업팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "양승훈",
+    "department": "솔루션사업부",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "김길용",
+    "department": "운영기술개발실",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "신동훈",
+    "department": "응용개발1팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "하재철",
+    "department": "SM사업팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김요셉",
+    "department": "솔루션사업부",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "권순환",
+    "department": "운영기술개발실",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "이훈휘",
+    "department": "응용개발1팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "이준영",
+    "department": "SM사업팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "마상권",
+    "department": "솔루션사업부",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "김홍태",
+    "department": "운영기술개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "오헌경",
+    "department": "응용개발1팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "황상윤",
+    "department": "SM사업팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김완호",
+    "department": "솔루션사업부",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "최우혁",
+    "department": "운영기술개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "안준혁",
+    "department": "응용개발1팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "서정인",
+    "department": "SM사업팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "오재권",
+    "department": "솔루션사업부",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "김경환",
+    "department": "운영기술개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "이예섭",
+    "department": "응용개발1팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "최경규",
+    "department": "SM사업팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "배성희",
+    "department": "솔루션사업부",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "박서준",
+    "department": "운영기술개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "신원지",
+    "department": "응용개발1팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "김세영",
+    "department": "SM사업팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "정현석",
+    "department": "솔루션사업부",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "정회성",
+    "department": "운영기술개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "이재훈",
+    "department": "응용개발2팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "조영은",
+    "department": "SM사업팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "김대영",
+    "department": "솔루션사업부",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "문병욱",
+    "department": "CEO",
+    "position": "대표이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김지산",
+    "department": "응용개발2팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "허유나",
+    "department": "SM사업팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "박현수",
+    "department": "솔루션사업부",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "임우철",
+    "department": "경영지원팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "복은서",
+    "department": "응용개발2팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "이경준",
+    "department": "SM사업팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "이수정",
+    "department": "솔루션사업부",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "장은영",
+    "department": "경영지원팀",
+    "position": "책임",
+    "gender": "여자"
+  },
+  {
+    "name": "이자영",
+    "department": "응용개발2팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "박정훈",
+    "department": "SI사업팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "정태창",
+    "department": "솔루션사업부",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김민성",
+    "department": "경영지원팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "이현민",
+    "department": "응용개발2팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "양이레",
+    "department": "SI사업팀",
+    "position": "책임",
+    "gender": "여자"
+  },
+  {
+    "name": "한규혁",
+    "department": "항해통신사업부",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "이경진",
+    "department": "경영지원팀",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "이슬",
+    "department": "응용개발2팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "배석",
+    "department": "SI사업팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "황준호",
+    "department": "항해통신사업1팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "이혜진",
+    "department": "경영지원팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "정민환",
+    "department": "비전개발센터",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "장민규",
+    "department": "SI사업팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "신진우",
+    "department": "항해통신사업1팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "허단비",
+    "department": "경영지원팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "이상길",
+    "department": "비전개발센터",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "김선화",
+    "department": "SI사업팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "노재원",
+    "department": "항해통신사업1팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "지경민",
+    "department": "구매팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "유병규",
+    "department": "비전개발센터",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "전인호A",
+    "department": "SI사업팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "이준혁",
+    "department": "항해통신사업1팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김은정",
+    "department": "R&D지원팀",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "박성웅",
+    "department": "비전개발센터",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "전인호",
+    "department": "SI사업팀",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김주영",
+    "department": "항해통신사업1팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "조아라",
+    "department": "R&D지원팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "문성준",
+    "department": "비전개발센터",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "김태식",
+    "department": "지능형해상교통사업부",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "박상일",
+    "department": "항해통신사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "신현빈",
+    "department": "모빌리티사업부",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "최윤석",
+    "department": "비전개발센터",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "김영실",
+    "department": "사업기획팀",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "이의용",
+    "department": "항해통신사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "한영석",
+    "department": "모빌리티사업1팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "임서율",
+    "department": "비전개발센터",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "허지원",
+    "department": "사업기획팀",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "강동석",
+    "department": "항해통신사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "은준우",
+    "department": "모빌리티사업1팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "권준영",
+    "department": "비전개발센터",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "이동규",
+    "department": "사업수행팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "이신용",
+    "department": "항해통신사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "이수빈",
+    "department": "모빌리티사업1팀",
+    "position": "사원",
+    "gender": "여자"
+  },
+  {
+    "name": "이승하",
+    "department": "비전개발센터",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "문성대",
+    "department": "사업수행팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "송유신",
+    "department": "항해통신사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "정기현",
+    "department": "모빌리티사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "김재현",
+    "department": "비전개발센터",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "정성윤",
+    "department": "사업수행팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "이강호",
+    "department": "항해통신사업2팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "송우진",
+    "department": "모빌리티사업2팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "성유경",
+    "department": "비전개발센터",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "남우준",
+    "department": "사업수행팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "이기석",
+    "department": "항해통신사업2팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "하정효",
+    "department": "모빌리티사업2팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "박은성",
+    "department": "비전개발센터",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "문준석",
+    "department": "사업수행팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "고병용",
+    "department": "항해통신사업2팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김완재",
+    "department": "모빌리티사업2팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "이남규",
+    "department": "비전개발센터",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "구현수",
+    "department": "사업수행팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "박형호",
+    "department": "항해통신사업2팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김다운",
+    "department": "모빌리티사업2팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "신현호",
+    "department": "비전개발센터",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "최성복",
+    "department": "사업수행팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "김도훈",
+    "department": "항해통신사업2팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김영심",
+    "department": "모빌리티사업2팀",
+    "position": "사원",
+    "gender": "여자"
+  },
+  {
+    "name": "정윤수",
+    "department": "비전개발센터",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "이지우",
+    "department": "사업수행팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "박관웅",
+    "department": "항해통신사업2팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "하재술",
+    "department": "자문위원",
+    "position": "고문",
+    "gender": "남자"
+  },
+  {
+    "name": "박준호",
+    "department": "플랫폼개발센터",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "조유민",
+    "department": "사업수행팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "서원택",
+    "department": "AI개발실",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "이권우",
+    "department": "영업대표 - 전략사업",
+    "position": "전무",
+    "gender": "남자"
+  },
+  {
+    "name": "박수영",
+    "department": "플랫폼개발센터",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "홍영호",
+    "department": "사업수행팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "심지우",
+    "department": "AI개발실",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "박진우",
+    "department": "영업대표 - 전략사업",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "김동균",
+    "department": "플랫폼개발센터",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "윤성우",
+    "department": "AI개발실",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "김창민",
+    "department": "영업대표 - 공공부문",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "김현철",
+    "department": "플랫폼개발센터",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "정주은",
+    "department": "AI개발실",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "박상규",
+    "department": "영업대표 - 공공부문",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "최재환",
+    "department": "플랫폼개발센터",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "권혜정",
+    "department": "AI개발실",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "남정찬",
+    "department": "영업대표 - 공공부문",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "박종화",
+    "department": "플랫폼개발센터",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "이지호",
+    "department": "AI개발실",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "주현석",
+    "department": "에너지사업부",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "문병권",
+    "department": "플랫폼개발센터",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "송용학",
+    "department": "항행관제사업부",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "최재연",
+    "department": "에너지사업부",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "이예은",
+    "department": "플랫폼개발센터",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "양승호",
+    "department": "항행관제사업부",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김태민",
+    "department": "에너지사업부",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "최현정",
+    "department": "플랫폼개발센터",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "김현근",
+    "department": "항행관제사업1팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "이선호",
+    "department": "에너지사업부",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "양재훈",
+    "department": "모빌리티개발팀",
+    "position": "상무",
+    "gender": "남자"
+  },
+  {
+    "name": "노수기",
+    "department": "항행관제사업1팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "이덕수",
+    "department": "에너지사업부",
+    "position": "이사",
+    "gender": "남자"
+  },
+  {
+    "name": "김희창",
+    "department": "모빌리티개발팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "장호철",
+    "department": "항행관제사업1팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "김영훈",
+    "department": "전략기획실",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "이정호",
+    "department": "모빌리티개발팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "김서현",
+    "department": "항행관제사업1팀",
+    "position": "연구원",
+    "gender": "여자"
+  },
+  {
+    "name": "이섬결",
+    "department": "전략기획실",
+    "position": "책임",
+    "gender": "여자"
+  },
+  {
+    "name": "이재욱",
+    "department": "모빌리티개발팀",
+    "position": "책임",
+    "gender": "남자"
+  },
+  {
+    "name": "김일웅",
+    "department": "항행관제사업2팀",
+    "position": "수석",
+    "gender": "남자"
+  },
+  {
+    "name": "양승원",
+    "department": "전략기획실",
+    "position": "선임",
+    "gender": "여자"
+  },
+  {
+    "name": "김민균",
+    "department": "모빌리티개발팀",
+    "position": "전임",
+    "gender": "남자"
+  },
+  {
+    "name": "오병희",
+    "department": "항행관제사업2팀",
+    "position": "선임",
+    "gender": "남자"
+  },
+  {
+    "name": "지소휘",
+    "department": "전략기획실",
+    "position": "전임",
+    "gender": "여자"
+  },
+  {
+    "name": "김선환",
+    "department": "모빌리티개발팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "윤태상",
+    "department": "항행관제사업2팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "심지열",
+    "department": "항행관제사업2팀",
+    "position": "연구원",
+    "gender": "남자"
+  },
+  {
+    "name": "김다해",
+    "department": "항행관제사업2팀",
+    "position": "사원",
+    "gender": "여자"
+  }
+]
