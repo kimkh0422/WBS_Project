@@ -151,6 +151,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       //    아래의 target.closest 체크에서 제외되도록 설계되어 있음)
       if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && inWbsTable) {
         e.preventDefault();
+        // 편집 권한 없으면 새 작업 추가 비활성화 (현재 셀 편집 종료만)
+        if (!canEditCurrentProject) {
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          return;
+        }
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
@@ -629,6 +634,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       } else if (e.key === 'Enter') {
         // Enter: 동일 레벨(형제) 작업을 현재 행 "아래"에 추가
         if (tableEditMode) return; // 편집 모드에서는 Enter는 셀 편집 시작으로만 사용
+        if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
         e.preventDefault();
 
         // 기본 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행
@@ -666,6 +672,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
         if (tableEditMode) return; // 편집 모드에서는 새 작업 추가 비활성화
+        if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
         e.preventDefault();
 
         // 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행

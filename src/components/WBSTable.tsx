@@ -600,6 +600,7 @@ export function WBSTable({
 
   const handleInlineQuickAdd = (e: React.FormEvent, parentId: string | null) => {
     e.preventDefault();
+    if (!canEditCurrentProject) return; // 편집 권한 없으면 인라인 추가 비활성화
     const name = quickAddNameInlineRef.current?.value ?? '';
     if (!name.trim()) return;
 
@@ -654,6 +655,7 @@ export function WBSTable({
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEditCurrentProject) return; // 편집 권한 없으면 빠른 추가 비활성화
     const name = quickAddNameBottomRef.current?.value ?? '';
     if (!name.trim()) return;
 
@@ -1121,6 +1123,7 @@ export function WBSTable({
                                             e.stopPropagation();
                                           }}
                                           onPaste={(e) => {
+                                            if (!canEditCurrentProject) return;
                                             const pasteText = e.clipboardData.getData('text');
                                             if (!pasteText || !pasteText.includes('\n')) {
                                               return;
@@ -1187,7 +1190,7 @@ export function WBSTable({
               </DndContext>
 
               {/* Quick Add Row: split view에서는 스크롤 밖에 두어 표·간트 행 높이 일치(첫/끝 행 정렬) */}
-              {!isSplitView ? (
+              {!isSplitView && canEditCurrentProject ? (
                 <div className="data-row bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
                   <div className="data-cell"></div>
                   <div className="data-cell"></div>
@@ -1244,7 +1247,7 @@ export function WBSTable({
           </div>
         )}
         {/* Split view: 새 작업 추가 행을 스크롤 밖 하단에 두어 표·간트 행 수를 동일하게 유지 */}
-        {isSplitView && (
+        {isSplitView && canEditCurrentProject && (
           <div className="data-row flex-shrink-0 bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
             <div className="data-cell"></div>
             <div className="data-cell"></div>

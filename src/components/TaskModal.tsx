@@ -185,14 +185,11 @@ export function TaskModal({
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find((p) => p.id === taskProjectId);
-  // 소유자는 editableProjectIds 갱신 전이라도 편집 가능 (WBSContext.canEditCurrentProject와 동일한 규칙)
+  // 권한 모델: 관리자/본인 owner인 프로젝트만 편집 가능.
+  // editableProjectIds에 포함되거나 본인이 owner인 경우 편집 가능. 그 외는 읽기 전용.
   const isOwnerOfTaskProject = !!currentUserId && taskProject?.ownerId === currentUserId;
   const readOnly =
-    readOnlyProp ??
-    (editableProjectIds != null &&
-      editableProjectIds.length > 0 &&
-      !editableProjectIds.includes(taskProjectId ?? '') &&
-      !isOwnerOfTaskProject);
+    readOnlyProp ?? (!isOwnerOfTaskProject && editableProjectIds != null && !editableProjectIds.includes(taskProjectId ?? ''));
   const projectAssignments = (taskProject?.assignments ?? []).map((a) => ({
     assignee: a.assignee,
     allocationPercent: a.allocationPercent,

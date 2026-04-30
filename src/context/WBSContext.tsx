@@ -1107,13 +1107,16 @@ export function WBSProvider({
   }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
+  // 권한 모델: 관리자는 모든 프로젝트, 일반 사용자는 본인 owner인 프로젝트만 편집 가능.
+  // editableProjectIds는 관리자면 전체 ID, 일반은 본인 owner인 프로젝트만 담긴다(서버 RPC).
+  // 새로 만든 직후라 editableProjectIds에 아직 없는 케이스를 위해 owner 본인 여부도 OR로.
   const currentProjectObj = projects.find((p) => p.id === currentProjectId);
-  const canEditCurrentProject =
-    editableProjectIds === undefined ||
-    !currentProjectId ||
-    currentProjectId === 'all' ||
-    editableProjectIds.includes(currentProjectId) ||
-    currentProjectObj?.ownerId === ownerId; // 소유자 본인이면 항상 편집 가능
+  const canEditCurrentProject = (() => {
+    if (!currentProjectId || currentProjectId === 'all') return false;
+    if (currentProjectObj?.ownerId === ownerId) return true; // 본인이 만든 프로젝트
+    if (editableProjectIds === undefined) return false; // 로딩 전: 본인 소유 아니면 편집 불가
+    return editableProjectIds.includes(currentProjectId);
+  })();
 
   // ─── Context Value ─────────────────────────────────────────────────────────
   const contextValue = React.useMemo(

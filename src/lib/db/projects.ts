@@ -61,7 +61,12 @@ export async function upsertProject(project: Project): Promise<void> {
     // RLS projects_insert는 owner_id = auth.uid()를 요구하므로,
     // 신규 INSERT 시에는 현재 로그인 사용자를 owner로 강제한다.
     const authedUserId = await getAuthedUserId();
-    const insertRow = { ...row, owner_id: authedUserId ?? row.owner_id };
+    if (!authedUserId) {
+      // 인증 세션이 아직 잡히지 않은 상태에서는 INSERT를 거부.
+      // owner_id NULL로 저장되면 이후 RLS가 모든 변경을 거부해 데이터가 보이지 않게 됨.
+      throw new Error('로그인 세션이 준비되지 않아 프로젝트를 저장할 수 없습니다.');
+    }
+    const insertRow = { ...row, owner_id: authedUserId };
     const { error } = await supabase!.from('projects').insert(insertRow);
     if (error && isAssignmentsSchemaError(error)) {
       const minimal = toProjectRowMinimal(project) as Record<string, unknown>;

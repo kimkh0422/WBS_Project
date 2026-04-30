@@ -334,7 +334,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           await pushChangesToDbRef.current('all');
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-          // 보기 전용·비멤버 프로젝트: 자동 저장은 계속 시도되어도 같은 에러 토스트를 반복하지 않음
+          // 자동 sync가 다른 사용자 프로젝트도 upsert 시도해 RLS로 거부될 수 있다.
+          // 본인 프로젝트는 정상 저장되므로 "편집 권한 없습니다" 메시지는 무음 처리.
+          // 그 외 진짜 에러만 토스트로 표시.
           if (!/편집 권한이 없습니다/.test(msg)) {
             pushToast(msg, { variant: 'error', durationMs: 6000, id: `db-push:${msg}` });
           }
@@ -342,7 +344,7 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
           setIsDbPushInProgress(false);
         }
       })();
-    }, 500);
+    }, 100);
     return () => window.clearTimeout(id);
   }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
   const prevAIBusyRef = useRef(false);
