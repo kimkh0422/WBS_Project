@@ -19,79 +19,92 @@ export interface BackupOpsDeps {
   setCurrentProjectId: (id: string) => void;
   setWbsSettings: Dispatch<SetStateAction<WBSSettings>>;
   setSelectedTaskIds: (ids: string[]) => void;
+  setDeletedProjectIds: Dispatch<SetStateAction<string[]>>;
 }
 
 export function useBackupOps(deps: BackupOpsDeps) {
   const {
-    saveHistory, bumpDirty, recordDeletedTaskIds,
-    ownerIdRef, currentProjectIdRef, projectsRef, allTasksRef, wbsSettingsRef,
-    setProjects, setAllTasks, setCurrentProjectId, setWbsSettings, setSelectedTaskIds,
+    saveHistory,
+    bumpDirty,
+    recordDeletedTaskIds,
+    ownerIdRef,
+    currentProjectIdRef,
+    projectsRef,
+    allTasksRef,
+    wbsSettingsRef,
+    setProjects,
+    setAllTasks,
+    setCurrentProjectId,
+    setWbsSettings,
+    setSelectedTaskIds,
+    setDeletedProjectIds,
   } = deps;
 
-  const importTasks = useCallback(async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
-    saveHistory();
-    const cpi = currentProjectIdRef.current;
-    const projs = projectsRef.current;
-    let effectiveProjectId =
-      targetProjectId ?? (cpi === 'all' ? (projs[0]?.id || '') : cpi);
+  const importTasks = useCallback(
+    async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
+      saveHistory();
+      const cpi = currentProjectIdRef.current;
+      const projs = projectsRef.current;
+      let effectiveProjectId = targetProjectId ?? (cpi === 'all' ? projs[0]?.id || '' : cpi);
 
-    const createNewProject =
-      effectiveProjectId === '__new__' && typeof newProjectName === 'string' && newProjectName.trim().length > 0;
+      const createNewProject = effectiveProjectId === '__new__' && typeof newProjectName === 'string' && newProjectName.trim().length > 0;
 
-    const newProject: Project | null = createNewProject
-      ? {
-          id: uuidv4(),
-          name: newProjectName!.trim() || '가져온 프로젝트',
-          ownerId: ownerIdRef.current ?? undefined,
-        }
-      : null;
+      const newProject: Project | null = createNewProject
+        ? {
+            id: uuidv4(),
+            name: newProjectName!.trim() || '가져온 프로젝트',
+            ownerId: ownerIdRef.current ?? undefined,
+          }
+        : null;
 
-    if (newProject) {
-      effectiveProjectId = newProject.id;
-    }
+      if (newProject) {
+        effectiveProjectId = newProject.id;
+      }
 
-    const tasksWithProject = newTasks.map((t) => ({ ...t, projectId: effectiveProjectId }));
+      const tasksWithProject = newTasks.map((t) => ({ ...t, projectId: effectiveProjectId }));
 
-    if (newProject) {
-      setProjects((prev) => [...prev, newProject]);
-      setCurrentProjectId(newProject.id);
-    }
-    setAllTasks((prev) => {
-      const prevProjectTaskIds = prev.filter(t => t.projectId === effectiveProjectId).map(t => t.id);
-      const nextProjectTaskIds = tasksWithProject.map(t => t.id);
-      const removed = prevProjectTaskIds.filter(id => !new Set(nextProjectTaskIds).has(id));
-      if (removed.length > 0) recordDeletedTaskIds(effectiveProjectId, removed);
-      return recomputeProjectRollups(
-        [...prev.filter((t) => t.projectId !== effectiveProjectId), ...tasksWithProject],
-        effectiveProjectId,
-      );
-    });
-  }, [saveHistory, recordDeletedTaskIds, ownerIdRef, currentProjectIdRef, projectsRef, setProjects, setAllTasks, setCurrentProjectId]);
+      if (newProject) {
+        setProjects((prev) => [...prev, newProject]);
+        setCurrentProjectId(newProject.id);
+      }
+      setAllTasks((prev) => {
+        const prevProjectTaskIds = prev.filter((t) => t.projectId === effectiveProjectId).map((t) => t.id);
+        const nextProjectTaskIds = tasksWithProject.map((t) => t.id);
+        const removed = prevProjectTaskIds.filter((id) => !new Set(nextProjectTaskIds).has(id));
+        if (removed.length > 0) recordDeletedTaskIds(effectiveProjectId, removed);
+        return recomputeProjectRollups(
+          [...prev.filter((t) => t.projectId !== effectiveProjectId), ...tasksWithProject],
+          effectiveProjectId,
+        );
+      });
+    },
+    [saveHistory, recordDeletedTaskIds, ownerIdRef, currentProjectIdRef, projectsRef, setProjects, setAllTasks, setCurrentProjectId],
+  );
 
   const deleteAllTasks = useCallback(() => {
     saveHistory();
     const effectiveProjectId = currentProjectIdRef.current === 'all' ? '' : currentProjectIdRef.current;
-    setAllTasks(prev => {
+    setAllTasks((prev) => {
       if (effectiveProjectId) {
-        const ids = prev.filter(t => t.projectId === effectiveProjectId).map(t => t.id);
+        const ids = prev.filter((t) => t.projectId === effectiveProjectId).map((t) => t.id);
         if (ids.length > 0) recordDeletedTaskIds(effectiveProjectId, ids);
       } else {
         const idsByProject = new Map<string, string[]>();
-        prev.forEach(t => {
+        prev.forEach((t) => {
           if (!t.projectId) return;
           idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
         });
         idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
       }
-      return effectiveProjectId ? prev.filter(t => t.projectId !== effectiveProjectId) : [];
+      return effectiveProjectId ? prev.filter((t) => t.projectId !== effectiveProjectId) : [];
     });
   }, [saveHistory, recordDeletedTaskIds, currentProjectIdRef, setAllTasks]);
 
   const deleteAllTasksInAllProjects = useCallback(() => {
     saveHistory();
-    setAllTasks(prev => {
+    setAllTasks((prev) => {
       const idsByProject = new Map<string, string[]>();
-      prev.forEach(t => {
+      prev.forEach((t) => {
         if (!t.projectId) return;
         idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
       });
@@ -104,10 +117,18 @@ export function useBackupOps(deps: BackupOpsDeps) {
     const newProject: Project = { id: uuidv4(), name: '새 프로젝트', ownerId: ownerIdRef.current };
     saveHistory();
     setSelectedTaskIds([]);
+
+    // 기존 프로젝트들의 ID를 deletedProjectIds에 기록 → 다음 sync에서 DB에서도 삭제됨.
+    // 그러지 않으면 클라이언트만 리셋되고 DB엔 남아 다음 fetch에서 다시 보인다.
+    const existingProjectIds = projectsRef.current.map((p) => p.id).filter(Boolean);
+    if (existingProjectIds.length > 0) {
+      setDeletedProjectIds((prev) => Array.from(new Set([...prev, ...existingProjectIds])));
+    }
+
     setProjects([newProject]);
-    setAllTasks(prev => {
+    setAllTasks((prev) => {
       const idsByProject = new Map<string, string[]>();
-      prev.forEach(t => {
+      prev.forEach((t) => {
         if (!t.projectId) return;
         idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
       });
@@ -115,58 +136,96 @@ export function useBackupOps(deps: BackupOpsDeps) {
       return [];
     });
     setCurrentProjectId(newProject.id);
+    bumpDirty(); // 자동 sync trigger → DB에서 기존 프로젝트들 삭제됨
     try {
-      sessionStorage.setItem('wbs-current-project', newProject.id);
+      localStorage.setItem('wbs-current-project', newProject.id);
     } catch (_) {}
-  }, [saveHistory, recordDeletedTaskIds, ownerIdRef, setProjects, setAllTasks, setCurrentProjectId, setSelectedTaskIds]);
+  }, [
+    saveHistory,
+    bumpDirty,
+    recordDeletedTaskIds,
+    ownerIdRef,
+    projectsRef,
+    setProjects,
+    setAllTasks,
+    setCurrentProjectId,
+    setSelectedTaskIds,
+    setDeletedProjectIds,
+  ]);
 
-  const restoreBackup = useCallback((data: BackupData) => {
-    bumpDirty();
-    const projectIds = Array.from(new Set(data.tasks.map(t => t.projectId))).filter(Boolean) as string[];
-    let rolled = data.tasks;
-    for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid);
-    setProjects(data.projects);
-    setAllTasks(rolled);
-    setWbsSettings(parseSettings(data.settings));
-    if (data.projects.length > 0) {
-      if (!data.projects.find(p => p.id === currentProjectIdRef.current)) setCurrentProjectId(data.projects[0].id);
-    } else setCurrentProjectId('');
-  }, [bumpDirty, currentProjectIdRef, setProjects, setAllTasks, setWbsSettings, setCurrentProjectId]);
+  const restoreBackup = useCallback(
+    (data: BackupData) => {
+      bumpDirty();
+      const projectIds = Array.from(new Set(data.tasks.map((t) => t.projectId))).filter(Boolean) as string[];
+      let rolled = data.tasks;
+      for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid);
+      setProjects(data.projects);
+      setAllTasks(rolled);
+      setWbsSettings(parseSettings(data.settings));
+      if (data.projects.length > 0) {
+        if (!data.projects.find((p) => p.id === currentProjectIdRef.current)) setCurrentProjectId(data.projects[0].id);
+      } else setCurrentProjectId('');
+    },
+    [bumpDirty, currentProjectIdRef, setProjects, setAllTasks, setWbsSettings, setCurrentProjectId],
+  );
 
-  const exportFullBackup = useCallback((): BackupData => ({
-    version: '1.0', projects: projectsRef.current, tasks: allTasksRef.current, settings: wbsSettingsRef.current, exportDate: new Date().toISOString(),
-  }), [projectsRef, allTasksRef, wbsSettingsRef]);
+  const exportFullBackup = useCallback(
+    (): BackupData => ({
+      version: '1.0',
+      projects: projectsRef.current,
+      tasks: allTasksRef.current,
+      settings: wbsSettingsRef.current,
+      exportDate: new Date().toISOString(),
+    }),
+    [projectsRef, allTasksRef, wbsSettingsRef],
+  );
 
-  const mergeBackups = useCallback((backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
-    bumpDirty();
-    const newProjects: Project[] = [];
-    const newTasks: Task[] = [];
-    const currentOwnerId = ownerIdRef.current;
-    const statusConfigs = wbsSettingsRef.current.statusConfigs;
-    for (const backup of backups) {
-      const projectIdMap = new Map<string, string>();
-      for (const project of backup.projects) {
-        const newId = uuidv4(); projectIdMap.set(project.id, newId); newProjects.push({ ...project, id: newId, ownerId: currentOwnerId ?? project.ownerId });
+  const mergeBackups = useCallback(
+    (backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
+      bumpDirty();
+      const newProjects: Project[] = [];
+      const newTasks: Task[] = [];
+      const currentOwnerId = ownerIdRef.current;
+      const statusConfigs = wbsSettingsRef.current.statusConfigs;
+      for (const backup of backups) {
+        const projectIdMap = new Map<string, string>();
+        for (const project of backup.projects) {
+          const newId = uuidv4();
+          projectIdMap.set(project.id, newId);
+          newProjects.push({ ...project, id: newId, ownerId: currentOwnerId ?? project.ownerId });
+        }
+        const taskIdMap = new Map<string, string>();
+        for (const task of backup.tasks) taskIdMap.set(task.id, uuidv4());
+        for (const task of backup.tasks) {
+          const newProjectId = projectIdMap.get(task.projectId);
+          if (!newProjectId) continue;
+          newTasks.push({
+            ...task,
+            id: taskIdMap.get(task.id)!,
+            projectId: newProjectId,
+            parentId: task.parentId ? (taskIdMap.get(task.parentId) ?? null) : null,
+            dependencies: task.dependencies?.map((depId) => taskIdMap.get(depId) ?? depId) ?? [],
+          });
+        }
       }
-      const taskIdMap = new Map<string, string>();
-      for (const task of backup.tasks) taskIdMap.set(task.id, uuidv4());
-      for (const task of backup.tasks) {
-        const newProjectId = projectIdMap.get(task.projectId);
-        if (!newProjectId) continue;
-        newTasks.push({ ...task, id: taskIdMap.get(task.id)!, projectId: newProjectId, parentId: task.parentId ? (taskIdMap.get(task.parentId) ?? null) : null, dependencies: task.dependencies?.map(depId => taskIdMap.get(depId) ?? depId) ?? [] });
-      }
-    }
-    setProjects(prev => [...prev, ...newProjects]);
-    setAllTasks(prev => {
-      const rolled = applyRollupsToTasks([...prev, ...newTasks], statusConfigs);
-      return rolled;
-    });
-    if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
-    return { addedProjects: newProjects.length, addedTasks: newTasks.length };
-  }, [bumpDirty, ownerIdRef, wbsSettingsRef, setProjects, setAllTasks, setCurrentProjectId]);
+      setProjects((prev) => [...prev, ...newProjects]);
+      setAllTasks((prev) => {
+        const rolled = applyRollupsToTasks([...prev, ...newTasks], statusConfigs);
+        return rolled;
+      });
+      if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
+      return { addedProjects: newProjects.length, addedTasks: newTasks.length };
+    },
+    [bumpDirty, ownerIdRef, wbsSettingsRef, setProjects, setAllTasks, setCurrentProjectId],
+  );
 
   return {
-    importTasks, deleteAllTasks, deleteAllTasksInAllProjects, resetAllProjectsToNew,
-    restoreBackup, exportFullBackup, mergeBackups,
+    importTasks,
+    deleteAllTasks,
+    deleteAllTasksInAllProjects,
+    resetAllProjectsToNew,
+    restoreBackup,
+    exportFullBackup,
+    mergeBackups,
   };
 }

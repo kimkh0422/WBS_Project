@@ -15,10 +15,8 @@ import {
   Users,
   User,
   LogOut,
-  Network,
   History,
   Map as MapIcon,
-  Sparkles,
   FolderPlus,
   FolderOpen,
   Briefcase,
@@ -310,12 +308,11 @@ export function AppHeader({
     return profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
   };
 
-  // 권한 체크 헬퍼: 시스템 관리자 / 프로젝트 소유자 / 편집 멤버
+  // 권한 체크 헬퍼: 시스템 관리자 / 프로젝트 소유자만
+  // 정책: 프로젝트는 만든 사람(소유자)과 시스템 관리자만 수정/삭제 가능. editor 멤버여도 수정 불가.
   const isProjectOwner = (p: Project) => !!user?.id && p.ownerId === user.id;
-  // canManage: 공유·편집·삭제 등 "다른 사용자에게 영향가는" 작업
   const canManageProject = (p: Project) => effectiveIsAdmin || isProjectOwner(p);
-  // canEdit: 작업 CRUD 등 프로젝트 내용 편집 (편집 멤버 포함, 로딩 전에는 fail-open)
-  const canEditProject = (p: Project) => canManageProject(p) || myEditableProjectIds === undefined || myEditableProjectIds.includes(p.id);
+  const canEditProject = canManageProject;
 
   useEffect(() => {
     if (isProjectDropdownOpen && !wasDropdownOpen.current) {
@@ -799,16 +796,7 @@ export function AppHeader({
               title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다."
               tourId="tour-nav-kanban"
             />
-            {!hiddenViews.has('mindmap') && (
-              <NavButton
-                active={view === 'mindmap'}
-                onClick={() => navigateWithTip('mindmap')}
-                icon={<Network size={14} />}
-                label="마인드맵"
-                title="WBS 계층을 트리 형태로 보고, 노드를 눌러 작업을 편집할 수 있어요."
-                tourId="tour-nav-mindmap"
-              />
-            )}
+            {/* 마인드맵: 관리자에게도 숨김 처리 */}
           </div>
 
           <div className="toolbar-divider" />
@@ -885,40 +873,7 @@ export function AppHeader({
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                     </>
                   )}
-                  {effectiveIsAdmin && (
-                    <>
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">기능</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMoreMenuOpen(false);
-                          setIsAIModalOpen(true);
-                          tipOnce?.(
-                            'menu.ai',
-                            'AI가 프로젝트 내용을 분석해 WBS를 생성합니다. 분석 중에도 창을 닫으면 백그라운드에서 계속 진행돼요.',
-                          );
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                      >
-                        <Sparkles size={14} className={isAIBusy ? 'text-purple-500 animate-pulse' : ''} />
-                        AI 분석
-                        {isAIBusy && <span className="text-[10px] text-purple-500">(진행중)</span>}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMoreMenuOpen(false);
-                          setIsWeeklyReportOpen(true);
-                          tipOnce?.('menu.weeklyReport', '현재 작업을 기준으로 금주실적·차주계획·이슈를 자동으로 정리합니다.');
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                      >
-                        <History size={14} /> 주간보고
-                      </button>
-
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
-                    </>
-                  )}
+                  {/* AI 분석·주간보고: 관리자에게도 숨김 처리 */}
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
                   <button
                     type="button"
@@ -986,17 +941,7 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsMoreMenuOpen(false);
-                          setIsResetConfirmOpen(true);
-                          tipOnce?.('menu.reset', '로컬 데이터를 모두 초기화합니다.');
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 flex items-center gap-2"
-                      >
-                        <RotateCcw size={14} /> 로컬 초기화
-                      </button>
+                      {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>
                   )}
 

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Users } from 'lucide-react';
 import { BaseModal } from './Base/Modal';
-import { ORG_TREE, OrgNode, OrgMember, getDirectMembers, countMembersDeep } from '../data/organization';
+import type { OrgNode, OrgMember } from '../data/organization';
+import { useOrganization, getDirectMembersFromTree, countMembersDeepFromTree } from '../context/OrganizationContext';
 import { cn } from '../lib/utils';
 
 interface OrganizationModalProps {
@@ -16,13 +17,14 @@ interface TreeNodeProps {
   toggle: (id: string) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  members: OrgMember[];
 }
 
-const TreeNodeView: React.FC<TreeNodeProps> = ({ node, depth, expanded, toggle, selectedId, onSelect }) => {
+const TreeNodeView: React.FC<TreeNodeProps> = ({ node, depth, expanded, toggle, selectedId, onSelect, members }) => {
   const hasChildren = (node.children?.length ?? 0) > 0;
   const isOpen = expanded.has(node.id);
   const isSelected = selectedId === node.id;
-  const total = countMembersDeep(node);
+  const total = countMembersDeepFromTree(node, members);
 
   return (
     <div>
@@ -72,6 +74,7 @@ const TreeNodeView: React.FC<TreeNodeProps> = ({ node, depth, expanded, toggle, 
               toggle={toggle}
               selectedId={selectedId}
               onSelect={onSelect}
+              members={members}
             />
           ))}
         </div>
@@ -109,15 +112,22 @@ function sortMembers(members: OrgMember[]): OrgMember[] {
 }
 
 export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
+  const { orgTree, orgMembers, isLoading, isHydratedFromDb } = useOrganization();
+
   const initialExpanded = useMemo(() => {
     // 기본: 최상위 2단계만 펼침
     const set = new Set<string>();
-    set.add(ORG_TREE.id);
-    for (const c of ORG_TREE.children ?? []) set.add(c.id);
+    set.add(orgTree.id);
+    for (const c of orgTree.children ?? []) set.add(c.id);
     return set;
-  }, []);
+  }, [orgTree]);
   const [expanded, setExpanded] = useState<Set<string>>(initialExpanded);
   const [selectedId, setSelectedId] = useState<string | null>('gmt-root');
+
+  // 트리가 바뀌면(DB 로드 완료) 펼침 상태 재초기화
+  React.useEffect(() => {
+    setExpanded(initialExpanded);
+  }, [initialExpanded]);
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
@@ -128,21 +138,21 @@ export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
     });
   };
 
-  const expandAll = () => setExpanded(new Set(collectAllIds(ORG_TREE)));
-  const collapseAll = () => setExpanded(new Set([ORG_TREE.id]));
+  const expandAll = () => setExpanded(new Set(collectAllIds(orgTree)));
+  const collapseAll = () => setExpanded(new Set([orgTree.id]));
 
-  const selectedNode = selectedId ? findNodeById(ORG_TREE, selectedId) : null;
+  const selectedNode = selectedId ? findNodeById(orgTree, selectedId) : null;
 
   // 선택 노드의 직속 인원 + 자식 노드별 그룹화하여 표시
   const groupedMembers = useMemo(() => {
     if (!selectedNode) return [] as { label: string; members: OrgMember[] }[];
     const groups: { label: string; members: OrgMember[] }[] = [];
-    const direct = getDirectMembers(selectedNode);
+    const direct = getDirectMembersFromTree(selectedNode, orgMembers);
     if (direct.length > 0) {
       groups.push({ label: `${selectedNode.name} 직속`, members: sortMembers(direct) });
     }
     const walkChild = (node: OrgNode) => {
-      const directOfChild = getDirectMembers(node);
+      const directOfChild = getDirectMembersFromTree(node, orgMembers);
       if (directOfChild.length > 0) {
         groups.push({ label: node.name, members: sortMembers(directOfChild) });
       }
@@ -150,9 +160,9 @@ export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
     };
     for (const c of selectedNode.children ?? []) walkChild(c);
     return groups;
-  }, [selectedNode]);
+  }, [selectedNode, orgMembers]);
 
-  const totalSelected = selectedNode ? countMembersDeep(selectedNode) : 0;
+  const totalSelected = selectedNode ? countMembersDeepFromTree(selectedNode, orgMembers) : 0;
 
   return (
     <BaseModal
@@ -163,7 +173,10 @@ export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
         <span className="flex items-center gap-2">
           <Users size={18} className="text-indigo-500" />
           조직 현황
-          <span className="text-xs font-normal text-slate-400">총 {countMembersDeep(ORG_TREE)}명</span>
+          <span className="text-xs font-normal text-slate-400">
+            총 {countMembersDeepFromTree(orgTree, orgMembers)}명
+            {isLoading && !isHydratedFromDb && <span className="ml-2 text-slate-300">(로드 중…)</span>}
+          </span>
         </span>
       }
       bodyClassName="p-0"
@@ -179,7 +192,15 @@ export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto py-1">
-            <TreeNodeView node={ORG_TREE} depth={0} expanded={expanded} toggle={toggle} selectedId={selectedId} onSelect={setSelectedId} />
+            <TreeNodeView
+              node={orgTree}
+              depth={0}
+              expanded={expanded}
+              toggle={toggle}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              members={orgMembers}
+            />
           </div>
         </aside>
         <section className="flex-1 overflow-y-auto p-4 bg-slate-50/40">

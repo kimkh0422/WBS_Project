@@ -8,3 +8,4 @@ export * from './audit';
 export * from './members';
 export * from './profiles';
 export * from './backup';
+export * from './organization';

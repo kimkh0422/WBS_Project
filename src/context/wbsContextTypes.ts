@@ -48,7 +48,9 @@ export interface WBSContextType {
   projects: Project[];
   /** 편집 가능한 프로젝트 ID 목록. 없으면 모두 편집 가능(기존 동작). 보기 전용일 때 이 목록에 없음 */
   editableProjectIds?: string[];
-  /** 현재 선택된 프로젝트에 편집 권한이 있는지. 보기 전용 프로젝트면 false */
+  /** 시스템 관리자 여부 (관리자 비밀번호 임시 진입 포함) */
+  isAdmin: boolean;
+  /** 현재 선택된 프로젝트에 편집 권한이 있는지. 본인이 만든 프로젝트(소유자)이거나 관리자일 때만 true */
   canEditCurrentProject: boolean;
   currentProjectId: string;
   setCurrentProjectId: (id: string) => void;
@@ -60,7 +62,17 @@ export interface WBSContextType {
   syncProgressFromStatusConfigs: (scope: 'current' | 'all') => void;
   treeExpandLevel: number;
   setTreeExpandLevel: (level: number) => void;
-  addProject: (name: string, description?: string, startDate?: string, endDate?: string, assignments?: Project['assignments'], minWorkEffortDays?: number, reportExtras?: Partial<Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>>) => void;
+  addProject: (
+    name: string,
+    description?: string,
+    startDate?: string,
+    endDate?: string,
+    assignments?: Project['assignments'],
+    minWorkEffortDays?: number,
+    reportExtras?: Partial<
+      Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>
+    >,
+  ) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
@@ -88,7 +100,7 @@ export interface WBSContextType {
   syncWithDb: (
     scope: 'current' | 'all',
     onProgress?: (percent: number, message: string) => void,
-    opts?: { pullAfter?: boolean }
+    opts?: { pullAfter?: boolean },
   ) => Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }>;
   /** 업로드만 수행(전체 재조회 없음). 실시간 협업·백그라운드 저장용. */
   pushChangesToDb: (scope: 'current' | 'all') => Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }>;

@@ -1,38 +1,16 @@
-import membersJson from './organizationMembers.json';
-
+/* eslint-disable */
 /**
- * 조직 데이터(부서 트리 + 인원).
+ * src/data/organization.ts의 ORG_TREE + organizationMembers.json을 읽어
+ * Supabase 시드 마이그레이션 SQL을 생성한다.
  *
- * 주: 이 파일은 더 이상 런타임에서 직접 소비하지 않는다.
- * - DB 마이그레이션 `20260430120000_add_organization_tables.sql` + `20260430120001_seed_organization.sql`로 데이터가 Supabase에 적재된다.
- * - 앱은 `<OrganizationProvider>` (src/context/OrganizationContext.tsx)에서 DB를 조회해 사용한다.
- * - 이 파일은 (a) 시드 데이터의 단일 소스 (b) DB 미연결/미시드 상황 폴백으로 유지된다.
- *   조직 변경 시 이 파일을 수정한 뒤 `node scripts/build-org-seed-sql.cjs`로 시드 SQL을 재생성한다.
+ * 출력: supabase/migrations/20260430120001_seed_organization.sql
  */
 
-export interface OrgMember {
-  name: string;
-  department: string;
-  position: string;
-  gender: string;
-}
+const fs = require('fs');
+const path = require('path');
 
-export interface OrgNode {
-  id: string;
-  name: string;
-  /** 이 노드에 직접 매핑되는 엑셀의 부서명. 자식 노드의 합과는 별개로 "직속" 인원으로 잡힌다. */
-  departments?: string[];
-  children?: OrgNode[];
-}
-
-export const ORG_MEMBERS: OrgMember[] = membersJson as OrgMember[];
-
-/**
- * 참고 UI 트리. 엑셀 부서명 → 노드 매핑.
- * - 자식 노드를 갖는 상위 노드도 직속 인원(`departments`)을 가질 수 있다.
- *   예) `모빌리티사업부`(직속) + `모빌리티사업1팀` + `모빌리티사업2팀`
- */
-export const ORG_TREE: OrgNode = {
+// ─── 트리 정의 (organization.ts와 동기화) ────────────────────────────────────
+const ORG_TREE = {
   id: 'gmt',
   name: '(주)지엠티',
   children: [
@@ -127,16 +105,69 @@ export const ORG_TREE: OrgNode = {
   ],
 };
 
-/** 노드의 직속 부서에 속한 멤버. 자식 노드 멤버는 포함하지 않는다. */
-export function getDirectMembers(node: OrgNode): OrgMember[] {
-  if (!node.departments || node.departments.length === 0) return [];
-  const set = new Set(node.departments);
-  return ORG_MEMBERS.filter((m) => set.has(m.department));
-}
+const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
 
-/** 노드 + 모든 하위 노드를 포함한 총 인원 수. */
-export function countMembersDeep(node: OrgNode): number {
-  let total = getDirectMembers(node).length;
-  for (const child of node.children ?? []) total += countMembersDeep(child);
-  return total;
-}
+const flattenNodes = () => {
+  const rows = [];
+  const walk = (node, parentId, sortOrder) => {
+    rows.push({
+      id: node.id,
+      name: node.name,
+      parentId: parentId,
+      departments: node.departments ?? [],
+      sortOrder,
+    });
+    (node.children ?? []).forEach((child, idx) => walk(child, node.id, idx));
+  };
+  walk(ORG_TREE, null, 0);
+  return rows;
+};
+
+const buildSql = () => {
+  const nodes = flattenNodes();
+  const members = require(path.join(__dirname, '..', 'src', 'data', 'organizationMembers.json'));
+
+  const lines = [];
+  lines.push('-- 조직 트리 + 인원 시드 데이터 (정적 JSON 이관)');
+  lines.push('-- 멱등성: org_nodes는 ON CONFLICT(id) DO UPDATE, org_members는 (name, department) 유니크 제약이 없어');
+  lines.push("--          기존 데이터를 모두 비우고 다시 INSERT 한다. 운영 환경에서 사용자 편집을 보존하려면 이 시드를 재실행하지 말 것.");
+  lines.push('');
+  lines.push('BEGIN;');
+  lines.push('');
+
+  // org_nodes upsert (트리 자기참조이므로 부모 → 자식 순서)
+  lines.push('-- org_nodes ─────────────────────────────────────────────────────────');
+  for (const n of nodes) {
+    const parent = n.parentId ? `'${esc(n.parentId)}'` : 'NULL';
+    const aliases = `ARRAY[${n.departments.map((d) => `'${esc(d)}'`).join(', ')}]::text[]`;
+    lines.push(
+      `INSERT INTO org_nodes (id, name, parent_id, department_aliases, sort_order) VALUES ` +
+        `('${esc(n.id)}', '${esc(n.name)}', ${parent}, ${aliases}, ${n.sortOrder}) ` +
+        `ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, parent_id=EXCLUDED.parent_id, ` +
+        `department_aliases=EXCLUDED.department_aliases, sort_order=EXCLUDED.sort_order;`,
+    );
+  }
+
+  lines.push('');
+  lines.push('-- org_members ──────────────────────────────────────────────────────');
+  // 깨끗한 시드: 기존 인원 모두 제거 후 재삽입 (관리자 편집 데이터가 있다면 이 시드 재실행 금지)
+  lines.push('DELETE FROM org_members;');
+  lines.push('INSERT INTO org_members (name, department, position, gender, sort_order) VALUES');
+  const valuesParts = members.map((m, idx) => {
+    return `('${esc(m.name)}', '${esc(m.department)}', '${esc(m.position)}', '${esc(m.gender)}', ${idx})`;
+  });
+  lines.push(valuesParts.join(',\n') + ';');
+
+  lines.push('');
+  lines.push('COMMIT;');
+  lines.push('');
+
+  return lines.join('\n');
+};
+
+const out = buildSql();
+const outPath = path.join(__dirname, '..', 'supabase', 'migrations', '20260430120001_seed_organization.sql');
+fs.writeFileSync(outPath, out, 'utf8');
+console.log(`Wrote: ${outPath}`);
+console.log(`  Nodes: ${flattenNodes().length}`);
+console.log(`  Members: ${require(path.join(__dirname, '..', 'src', 'data', 'organizationMembers.json')).length}`);

@@ -10,7 +10,7 @@ import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, ChevronDown
 import { cn } from '../lib/utils';
 import { Project } from '../types';
 import type { ProjectGroup } from '../lib/wbsSettings';
-import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames, getMyEditableProjectIds } from '../lib/db';
+import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
 
 interface ProjectsPageProps {
   onNavigateToWork?: (projectId?: string) => void;
@@ -26,8 +26,6 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isAdmin, setIsAdmin] = useState(false);
-  // 편집 권한이 부여된 프로젝트 ID. undefined: 로딩 전(fail-open으로 편집 버튼 표시)
-  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [shareProjectId, setShareProjectId] = useState<string | null>(null);
@@ -68,9 +66,6 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     checkIsAdmin()
       .then(setIsAdmin)
       .catch(() => setIsAdmin(false));
-    getMyEditableProjectIds()
-      .then(setMyEditableProjectIds)
-      .catch(() => setMyEditableProjectIds([]));
   }, [user?.id]);
 
   useEffect(() => {
@@ -113,10 +108,11 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   const effectiveIsAdmin = isAdmin;
 
-  // 권한 헬퍼: 시스템 관리자 / 프로젝트 소유자 / 편집 멤버
+  // 권한 헬퍼: 시스템 관리자 / 프로젝트 소유자만
+  // 정책: 프로젝트는 만든 사람(소유자)과 시스템 관리자만 수정/삭제 가능. editor 멤버여도 수정 불가.
   const isProjectOwner = (p: Project) => !!user?.id && p.ownerId === user.id;
   const canManageProject = (p: Project) => effectiveIsAdmin || isProjectOwner(p);
-  const canEditProject = (p: Project) => canManageProject(p) || myEditableProjectIds === undefined || myEditableProjectIds.includes(p.id);
+  const canEditProject = canManageProject;
 
   const taskCountByProject = useMemo(() => {
     const m: Record<string, number> = {};

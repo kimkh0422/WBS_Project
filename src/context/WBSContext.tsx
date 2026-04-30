@@ -61,12 +61,14 @@ export function WBSProvider({
   onConcurrentConflict,
   onDbError,
   editableProjectIds,
+  isAdmin = false,
 }: {
   children: React.ReactNode;
   useLocalOnly?: boolean;
   onConcurrentConflict?: () => void;
   onDbError?: (message: string) => void;
   editableProjectIds?: string[];
+  isAdmin?: boolean;
 }) {
   const { user } = useAuth();
   const handleDbError = React.useCallback(
@@ -218,6 +220,7 @@ export function WBSProvider({
     setCurrentProjectId,
     setWbsSettings,
     setSelectedTaskIds,
+    setDeletedProjectIds,
   });
 
   // ─── 초기 데이터 로딩 (Supabase) ────────────────────────────────────────────
@@ -256,7 +259,7 @@ export function WBSProvider({
           setProjects(projectsToUse);
           setAllTasks(applyRollupsToTasks(tasksToUse, parsedSettings.statusConfigs));
           setWbsSettings(parsedSettings);
-          const savedCurrent = sessionStorage.getItem('wbs-current-project');
+          const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
           const validId = projectsToUse.find((p) => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
           setCurrentProjectId(validId);
         } else {
@@ -266,7 +269,7 @@ export function WBSProvider({
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
           try {
-            sessionStorage.setItem('wbs-current-project', p.id);
+            localStorage.setItem('wbs-current-project', p.id);
           } catch {
             /* ignore */
           }
@@ -294,7 +297,7 @@ export function WBSProvider({
               } else {
                 setWbsSettings(localSettings);
               }
-              const savedCurrent = sessionStorage.getItem('wbs-current-project');
+              const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
               const validId = dbProjects.find((p) => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
               if (validId) setCurrentProjectId(validId);
               const ml =
@@ -313,7 +316,7 @@ export function WBSProvider({
               }
               setCurrentProjectId(p.id);
               try {
-                sessionStorage.setItem('wbs-current-project', p.id);
+                localStorage.setItem('wbs-current-project', p.id);
               } catch {
                 /* ignore */
               }
@@ -584,7 +587,7 @@ export function WBSProvider({
         setWbsSettings((prev) => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
       }
       if (dbProjects.length > 0) {
-        const saved = sessionStorage.getItem('wbs-current-project');
+        const saved = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
         const valid = dbProjects.find((p) => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
         if (valid) setCurrentProjectId(valid);
       }
@@ -934,7 +937,7 @@ export function WBSProvider({
         setDeletedTaskIdsByProject(finalDeletedTasks);
         setDeletedProjectIds(finalDeletedProjects);
 
-        const savedCurrent = sessionStorage.getItem('wbs-current-project');
+        const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
         const validId = snapshotProjects.find((p) => p.id === savedCurrent)?.id ?? snapshotProjects[0]?.id ?? '';
         if (validId) setCurrentProjectId(validId);
       } else {
@@ -1006,7 +1009,13 @@ export function WBSProvider({
   );
 
   useEffect(() => {
-    if (currentProjectId) sessionStorage.setItem('wbs-current-project', currentProjectId);
+    if (currentProjectId) {
+      try {
+        localStorage.setItem('wbs-current-project', currentProjectId);
+      } catch {
+        /* ignore quota errors */
+      }
+    }
   }, [currentProjectId]);
 
   // ─── Undo ref ──────────────────────────────────────────────────────────────
@@ -1107,15 +1116,13 @@ export function WBSProvider({
   }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
-  // 권한 모델: 관리자는 모든 프로젝트, 일반 사용자는 본인 owner인 프로젝트만 편집 가능.
-  // editableProjectIds는 관리자면 전체 ID, 일반은 본인 owner인 프로젝트만 담긴다(서버 RPC).
-  // 새로 만든 직후라 editableProjectIds에 아직 없는 케이스를 위해 owner 본인 여부도 OR로.
+  // 권한 모델: 프로젝트를 만든 사람(소유자)과 시스템 관리자만 편집 가능.
+  // editor 멤버여도 편집 불가 (보기만 가능). DB RLS도 owner 기준으로 동일하게 시행됨.
   const currentProjectObj = projects.find((p) => p.id === currentProjectId);
   const canEditCurrentProject = (() => {
     if (!currentProjectId || currentProjectId === 'all') return false;
-    if (currentProjectObj?.ownerId === ownerId) return true; // 본인이 만든 프로젝트
-    if (editableProjectIds === undefined) return false; // 로딩 전: 본인 소유 아니면 편집 불가
-    return editableProjectIds.includes(currentProjectId);
+    if (isAdmin) return true; // 시스템 관리자
+    return currentProjectObj?.ownerId === ownerId; // 본인이 만든 프로젝트만
   })();
 
   // ─── Context Value ─────────────────────────────────────────────────────────
@@ -1125,6 +1132,7 @@ export function WBSProvider({
       tasks,
       projects,
       editableProjectIds,
+      isAdmin,
       canEditCurrentProject,
       currentProjectId,
       setCurrentProjectId,
@@ -1187,6 +1195,7 @@ export function WBSProvider({
       tasks,
       projects,
       editableProjectIds,
+      isAdmin,
       canEditCurrentProject,
       currentProjectId,
       setCurrentProjectId,

@@ -206,6 +206,29 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
+      // 인라인 작업명 편집 중 ↑/↓: 편집을 종료하고 인접 행으로 포커스만 이동.
+      // (Enter로 새 작업 추가 직후처럼 작업명 편집이 시작된 상태에서, 위/아래 키로
+      //  계속 다른 행의 편집 모드로 끌려가지 않고 단순히 행 선택만 옮긴다.)
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && inlineEditingNameId && !editingCell && target.closest('[data-wbs-table]')) {
+        const currentIndex = visibleTasks.findIndex((t) => t.id === inlineEditingNameId);
+        if (currentIndex >= 0) {
+          const nextRowIdx = e.key === 'ArrowUp' ? Math.max(0, currentIndex - 1) : Math.min(visibleTasks.length - 1, currentIndex + 1);
+          const nextTask = visibleTasks[nextRowIdx];
+          if (nextTask && nextTask.id !== inlineEditingNameId) {
+            e.preventDefault();
+            (document.activeElement as HTMLElement | null)?.blur?.();
+            setInlineEditingNameId(null);
+            setEditingCell(null);
+            setLastSelectedId(nextTask.id);
+            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+            requestAnimationFrame(() => {
+              tableScrollRef.current?.focus();
+            });
+          }
+        }
+        return;
+      }
+
       // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
       // number 타입 input에서는 화살표 키를 값 증감에만 사용하고 셀 이동하지 않는다
       // (빠르게 누를 경우 blur → row 포커스 → 행 더블클릭 오작동 방지)

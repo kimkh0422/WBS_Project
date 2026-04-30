@@ -27,13 +27,15 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const commitDate = (() => {
     try {
-      return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
     } catch {
       return new Date().toISOString();
     }
   })();
   const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
-  const appVersion = (pkg && typeof pkg.version === 'string') ? pkg.version : '0.0.0';
+  const appVersion = pkg && typeof pkg.version === 'string' ? pkg.version : '0.0.0';
   // 앱 '변경이력' 메뉴 표시용: docs/변경이력_주요기능.md 우선, 없거나 비면 CHANGELOG.md 사용
   const changelogPath = path.resolve(__dirname, 'docs/변경이력_주요기능.md');
   const fallbackChangelogPath = path.resolve(__dirname, 'CHANGELOG.md');
@@ -66,9 +68,9 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      '__APP_VERSION__': JSON.stringify(appVersion),
-      '__APP_COMMIT_DATE__': JSON.stringify(commitDate),
-      '__APP_CHANGELOG_JSON__': JSON.stringify(changelogSections),
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __APP_COMMIT_DATE__: JSON.stringify(commitDate),
+      __APP_CHANGELOG_JSON__: JSON.stringify(changelogSections),
     },
     resolve: {
       alias: {
@@ -84,7 +86,12 @@ export default defineConfig(({ mode }) => {
             'vendor-xlsx': ['xlsx'],
             'vendor-datefns': ['date-fns'],
             'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
-            'vendor-tiptap': ['@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-collaboration', '@tiptap/extension-collaboration-cursor'],
+            'vendor-tiptap': [
+              '@tiptap/react',
+              '@tiptap/starter-kit',
+              '@tiptap/extension-collaboration',
+              '@tiptap/extension-collaboration-cursor',
+            ],
             'vendor-yjs': ['yjs'],
             'vendor-motion': ['motion'],
             'vendor-uuid': ['uuid'],
@@ -94,9 +101,17 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: true,
+      // 내부망(사내 LAN)에서 IP/호스트네임/도메인 어떤 형태로 접속해도
+      // Vite의 host 헤더 검증에 차단되지 않도록 모든 호스트 허용
+      allowedHosts: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+    },
+    preview: {
+      host: true,
+      port: 3000,
+      allowedHosts: true,
     },
   };
 });

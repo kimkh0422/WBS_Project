@@ -6,6 +6,7 @@ import { Task } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatDate, formatNum2, round2 } from '../lib/utils';
 import { levelRowBg as levelRowBgBase } from '../lib/levelColors';
+import { useOrganization } from '../context/OrganizationContext';
 
 /** 다크모드: 행 배경 투명 (레벨 구분은 왼쪽 테두리로) */
 const levelRowBg = (level: number) =>
@@ -150,6 +151,15 @@ function SortableTaskRowInner({
   otherFocusByCellKey,
 }: SortableTaskRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const { orgMembers } = useOrganization();
+  const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
+  const orgMemberLabelByName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const member of orgMembers) {
+      if (!m.has(member.name)) m.set(member.name, `${member.department} · ${member.position}`);
+    }
+    return m;
+  }, [orgMembers]);
 
   const depsDisplayValue = useMemo(() => {
     const depIds = task.dependencies ?? [];
@@ -822,7 +832,9 @@ function SortableTaskRowInner({
         }
         if (colId === 'assignee') {
           const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
-          const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim()].filter(Boolean))).sort();
+          const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim(), ...orgMemberNames].filter(Boolean))).sort(
+            (a, b) => a.localeCompare(b, 'ko'),
+          );
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
           const isFocusedAssignee = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
           return (
@@ -872,9 +884,10 @@ function SortableTaskRowInner({
                   />
                   <datalist id={`assignee-datalist-${task.id}`}>
                     <option value="">배정 안됨</option>
-                    {assigneeOptions.length > 0
-                      ? assigneeOptions.map((a) => <option key={a} value={a} />)
-                      : allAssignees.map((a) => <option key={a} value={a} />)}
+                    {(assigneeOptions.length > 0 ? assigneeOptions : allAssignees).map((a) => {
+                      const info = orgMemberLabelByName.get(a);
+                      return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
+                    })}
                   </datalist>
                 </>
               ) : (

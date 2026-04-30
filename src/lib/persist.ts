@@ -1,9 +1,4 @@
-export type PersistKey =
-  | 'wbs-projects'
-  | 'wbs-tasks'
-  | 'wbs-settings'
-  | 'wbs-deleted-task-ids'
-  | 'wbs-deleted-project-ids';
+export type PersistKey = 'wbs-projects' | 'wbs-tasks' | 'wbs-settings' | 'wbs-deleted-task-ids' | 'wbs-deleted-project-ids';
 
 const DB_NAME = 'wbs_mg';
 const DB_VERSION = 1;
@@ -121,13 +116,7 @@ export async function removePersistedEverywhere(key: PersistKey): Promise<void> 
   }
 }
 
-const PERSIST_KEYS: PersistKey[] = [
-  'wbs-projects',
-  'wbs-tasks',
-  'wbs-settings',
-  'wbs-deleted-task-ids',
-  'wbs-deleted-project-ids',
-];
+const PERSIST_KEYS: PersistKey[] = ['wbs-projects', 'wbs-tasks', 'wbs-settings', 'wbs-deleted-task-ids', 'wbs-deleted-project-ids'];
 
 /** 로컬 초기화 직후: DB 자동 로드를 건너뛰고 빈 상태 유지. DB 동기화 성공 시 제거됨. */
 export const WBS_INIT_BLANK_SESSION_KEY = 'wbs-init-blank-session';
@@ -154,6 +143,7 @@ export async function clearAllLocalData(): Promise<void> {
     'wbs-level-colors',
     'gemini-api-key',
     'wbs-correction-prompt',
+    'wbs-current-project',
   ];
   for (const key of localKeys) {
     try {
@@ -183,6 +173,7 @@ export async function clearAllLocalData(): Promise<void> {
     'wbs-current-project',
     'wbs-visit-session-id',
   ];
+  // 'wbs-current-project'는 localStorage로 이전됐지만, 구버전 잔존 데이터를 위해 sessionStorage에서도 함께 제거.
   for (const key of sessionKeys) {
     try {
       sessionStorage.removeItem(key);

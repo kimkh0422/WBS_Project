@@ -4,7 +4,7 @@ import { X, Trash2, CornerDownRight, Info, Flag, Bug, Sparkles, Loader2 } from '
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
-import { ORG_MEMBERS } from '../data/organization';
+import { useOrganization } from '../context/OrganizationContext';
 import { randomUUID, cn, round2 } from '../lib/utils';
 import { useToast } from './Toast';
 // GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
@@ -176,7 +176,8 @@ export function TaskModal({
   defaultStartDate,
   defaultEndDate,
 }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, editableProjectIds } = useWBS();
+  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, isAdmin } = useWBS();
+  const { orgMembers } = useOrganization();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
   const { push: pushToast } = useToast();
   const { user } = useAuth();
@@ -185,11 +186,10 @@ export function TaskModal({
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskProject = projects.find((p) => p.id === taskProjectId);
-  // 권한 모델: 관리자/본인 owner인 프로젝트만 편집 가능.
-  // editableProjectIds에 포함되거나 본인이 owner인 경우 편집 가능. 그 외는 읽기 전용.
+  // 권한 모델: 프로젝트를 만든 사람(소유자)과 시스템 관리자만 편집 가능.
+  // editor 멤버여도 읽기 전용. DB RLS도 동일 정책으로 시행됨.
   const isOwnerOfTaskProject = !!currentUserId && taskProject?.ownerId === currentUserId;
-  const readOnly =
-    readOnlyProp ?? (!isOwnerOfTaskProject && editableProjectIds != null && !editableProjectIds.includes(taskProjectId ?? ''));
+  const readOnly = readOnlyProp ?? !(isAdmin || isOwnerOfTaskProject);
   const projectAssignments = (taskProject?.assignments ?? []).map((a) => ({
     assignee: a.assignee,
     allocationPercent: a.allocationPercent,
@@ -534,7 +534,7 @@ export function TaskModal({
   /** 이름 → "부서 · 직위" 라벨. datalist 옵션 라벨로 표시. */
   const orgMemberLabelByName = (() => {
     const m = new Map<string, string>();
-    for (const member of ORG_MEMBERS) {
+    for (const member of orgMembers) {
       if (!m.has(member.name)) {
         m.set(member.name, `${member.department} · ${member.position}`);
       }
@@ -546,7 +546,7 @@ export function TaskModal({
     new Set([
       ...projectAssignments.map((a) => a.assignee),
       ...parentOptions.map((t) => t.assignee).filter(Boolean),
-      ...ORG_MEMBERS.map((m) => m.name),
+      ...orgMembers.map((m) => m.name),
     ]),
   )
     .filter(Boolean)

@@ -151,10 +151,13 @@ interface WBSAppProps {
   myEditableProjectIds: string[] | undefined;
   /** 관리자 승인(approved) 회원은 멤버가 아니어도 프로젝트 내용 조회 가능 */
   userApproved: boolean;
+  /** 관리자 비밀번호로 임시 진입한 상태인지 (sessionStorage 기반, AppWithProviders가 보유) */
+  adminOverride: boolean;
+  setAdminOverride: (v: boolean) => void;
   onMembersUpdated?: () => void;
 }
 
-function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated }: WBSAppProps) {
+function WBSApp({ isAdmin, myEditableProjectIds, userApproved, adminOverride, setAdminOverride, onMembersUpdated }: WBSAppProps) {
   const { user, signOut } = useAuth();
 
   // URL 기반 뷰 라우팅 — /table, /gantt, /list 등. 뒤로가기/앞으로가기/딥링크 지원
@@ -236,7 +239,6 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, onMembersUpdated 
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
-  const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   const effectiveIsAdmin = isAdmin || adminOverride;
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
@@ -2143,6 +2145,9 @@ function AppWithProviders() {
   const { push: pushToast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userApproved, setUserApproved] = useState(false);
+  /** 관리자 비밀번호로 임시 관리자 모드에 진입한 상태 (sessionStorage 기반) */
+  const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
+  const effectiveIsAdminGlobal = isAdmin || adminOverride;
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
@@ -2224,8 +2229,16 @@ function AppWithProviders() {
         })
       }
       editableProjectIds={myEditableProjectIds}
+      isAdmin={effectiveIsAdminGlobal}
     >
-      <WBSApp isAdmin={isAdmin} myEditableProjectIds={myEditableProjectIds} userApproved={userApproved} onMembersUpdated={() => {}} />
+      <WBSApp
+        isAdmin={isAdmin}
+        myEditableProjectIds={myEditableProjectIds}
+        userApproved={userApproved}
+        adminOverride={adminOverride}
+        setAdminOverride={setAdminOverride}
+        onMembersUpdated={() => {}}
+      />
     </WBSProvider>
   );
 }
