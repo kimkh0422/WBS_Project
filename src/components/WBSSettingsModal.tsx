@@ -857,22 +857,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
           </div>
 
           <div className="p-6 pt-4 flex justify-between items-center gap-3 border-t border-[var(--color-line)] bg-white sticky bottom-0">
-            <div className="flex items-center gap-2">
-              {onRequestReset && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    onRequestReset();
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 rounded-lg border border-amber-200 transition-colors"
-                  title="로컬에 저장된 모든 데이터·설정을 지우고 빈 상태로 되돌립니다."
-                >
-                  <AlertTriangle size={14} />
-                  로컬 초기화
-                </button>
-              )}
-            </div>
+            {/* 로컬 초기화: 관리자/일반 사용자 모두 숨김 처리 (실수 방지). onRequestReset prop은 호환을 위해 유지하되 UI에는 노출하지 않는다. */}
+            <div className="flex items-center gap-2" />
             <div className="flex justify-end gap-3">
               <button type="button" onClick={onClose} className="btn-ghost">
                 취소

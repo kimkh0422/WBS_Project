@@ -104,26 +104,7 @@ export function SummaryBar({
             >
               <Pencil size={14} strokeWidth={2} aria-hidden />
             </button>
-            <button
-              type="button"
-              onClick={onOpenMdEditor}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200"
-              title="표 내용을 마크다운(.md)으로 열어 직접 수정"
-            >
-              <Edit2 size={12} />
-              MD편집
-            </button>
-            <button
-              type="button"
-              onClick={() => setExcelView((v) => !v)}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0',
-                excelView ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              )}
-              title={excelView ? '엑셀 시트 보기 해제' : '엑셀 시트 형태로 보기 (셀 이동/편집은 엑셀처럼 동작)'}
-            >
-              <span>엑셀편집</span>
-            </button>
+            {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
               <input
@@ -156,26 +137,7 @@ export function SummaryBar({
           >
             <Pencil size={14} strokeWidth={2} aria-hidden />
           </button>
-          <button
-            type="button"
-            onClick={onOpenMdEditor}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200"
-            title="표 내용을 마크다운으로 편집"
-          >
-            <Edit2 size={12} />
-            MD편집
-          </button>
-          <button
-            type="button"
-            onClick={() => setExcelView((v) => !v)}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-colors shrink-0',
-              excelView ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-            )}
-            title={excelView ? '엑셀 시트 보기 해제' : '엑셀 시트 형태로 보기 (셀 이동/편집은 엑셀처럼 동작)'}
-          >
-            <span>엑셀편집</span>
-          </button>
+          {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
           <div className="w-px h-5 bg-stone-200 shrink-0" />
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>

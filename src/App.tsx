@@ -10,7 +10,6 @@ import { SearchModal } from './components/SearchModal';
 import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
 import { useWBS, WBSProvider } from './context/WBSContext';
-import type { DbSyncSummaryByProject } from './context/wbsContextTypes';
 import {
   List,
   Plus,
@@ -762,42 +761,18 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, adminOverride, se
 
   const executeDbSync = useCallback(
     async (scope: 'current' | 'all'): Promise<boolean> => {
+      // 동기화 진행/완료 토스트는 노이즈가 커서 일시 숨김 처리.
+      // 진행률 state(setDbSyncStep)는 다른 UI에서 참조될 수 있어 유지.
       setIsDbSyncing(true);
       setDbSyncStep({ pct: 0, msg: '시작…' });
-      pushToast('DB 동기화\n시작…', { variant: 'info', id: 'db-sync', durationMs: 300000, progress: 0 });
       try {
-        const snap = await syncWithDb(scope, (pct, message) => {
+        await syncWithDb(scope, (pct, message) => {
           setDbSyncStep({ pct, msg: message });
-          pushToast(`DB 동기화\n${message}`, { variant: 'info', id: 'db-sync', durationMs: 300000, progress: pct });
         });
-        const s = snap.summary;
-        const lines: string[] = [
-          '동기화 완료',
-          `↑ 업로드: 프로젝트 ${s.uploadedProjects} · 작업 ${s.uploadedTasks} · 표·상태 설정 1건 · DB 작업 삭제 ${s.uploadedTaskDeletions}건 · DB 프로젝트 삭제 ${s.uploadedProjectDeletions}건`,
-          `↓ 내려받기: 프로젝트 ${s.downloadedProjects} · 작업 ${s.downloadedTasks} · 설정 ${s.downloadedSettings ? '반영' : '없음'}`,
-        ];
-        const byProjectEntries = Object.entries(s.byProject ?? {}) as [string, DbSyncSummaryByProject][];
-        if (byProjectEntries.length > 0) {
-          lines.push(''); // 빈 줄 후 프로젝트별 요약
-          for (const [, info] of byProjectEntries) {
-            const upParts = [
-              info.uploadedProjects > 0 && '프로젝트 정보 1건',
-              info.uploadedTasks > 0 && `작업 ${info.uploadedTasks}건`,
-            ].filter(Boolean) as string[];
-            const downParts = [
-              info.appliedProjects > 0 && '프로젝트 정보 1건',
-              info.appliedTasks > 0 && `작업 ${info.appliedTasks}건`,
-            ].filter(Boolean) as string[];
-            const upStr = upParts.length ? `↑ ${upParts.join(', ')}` : '';
-            const downStr = downParts.length ? `↓ ${downParts.join(', ')}` : '';
-            const part = [upStr, downStr].filter(Boolean).join(' · ') || '변경 없음';
-            lines.push(`${info.projectName}: ${part}`);
-          }
-        }
-        pushToast(lines.join('\n'), { variant: 'success', id: 'db-sync', durationMs: 8000, progress: 100 });
         return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
+        // 실패만 사용자에게 알림(같은 id로 누적 디바운스).
         pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
         return false;
       } finally {

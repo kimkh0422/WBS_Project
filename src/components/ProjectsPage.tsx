@@ -36,6 +36,21 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
   const [groupByOwner, setGroupByOwner] = useState(false);
+  const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wbs-projects-my-only') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleShowMyOnly = (v: boolean) => {
+    setShowMyOnly(v);
+    try {
+      localStorage.setItem('wbs-projects-my-only', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => {
@@ -126,14 +141,16 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   }, [projects, allTasks]);
 
   // id 기준으로만 표시 (사용자별 복사본이 원본과 합쳐지지 않음)
+  // showMyOnly가 true면 본인 owner인 프로젝트만 노출.
   const uniqueProjects = useMemo(() => {
     const seen = new Set<string>();
     return projects.filter((p) => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
+      if (showMyOnly && user?.id && p.ownerId !== user.id) return false;
       return true;
     });
-  }, [projects]);
+  }, [projects, showMyOnly, user?.id]);
 
   const sortedProjects = useMemo(() => {
     if (projectSort === 'default') return uniqueProjects;
@@ -507,6 +524,19 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             >
               0개만 선택
             </button>
+            <div className="h-4 w-px bg-stone-200/80" />
+            <label
+              className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0"
+              title="내가 만든 프로젝트만 보기"
+            >
+              <input
+                type="checkbox"
+                checked={showMyOnly}
+                onChange={(e) => toggleShowMyOnly(e.target.checked)}
+                className="rounded border-stone-300 text-[var(--color-accent)]"
+              />
+              내 프로젝트만
+            </label>
             <div className="h-4 w-px bg-stone-200/80" />
             <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0">
               <input

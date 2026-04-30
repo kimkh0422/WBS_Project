@@ -205,6 +205,23 @@ export function AppHeader({
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
+  // "내 프로젝트만" 보기 토글 (localStorage에 사용자별 저장)
+  const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wbs-header-projects-my-only') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const persistShowMyOnly = (v: boolean) => {
+    setShowMyOnly(v);
+    try {
+      localStorage.setItem('wbs-header-projects-my-only', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
+
   const toggleFavorite = (projectId: string) => {
     const next = new Set(favoriteIds);
     if (next.has(projectId)) next.delete(projectId);
@@ -222,9 +239,15 @@ export function AppHeader({
   };
 
   const displayProjects = useMemo(() => {
-    if (!showFavoritesOnly || favoriteIds.size === 0) return projectsSortedByName;
-    return projectsSortedByName.filter((p) => favoriteIds.has(p.id));
-  }, [projectsSortedByName, showFavoritesOnly, favoriteIds]);
+    let list = projectsSortedByName;
+    if (showMyOnly && user?.id) {
+      list = list.filter((p) => p.ownerId === user.id);
+    }
+    if (showFavoritesOnly && favoriteIds.size > 0) {
+      list = list.filter((p) => favoriteIds.has(p.id));
+    }
+    return list;
+  }, [projectsSortedByName, showFavoritesOnly, favoriteIds, showMyOnly, user?.id]);
 
   /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
   const ownerGroups = useMemo(() => {
@@ -471,6 +494,24 @@ export function AppHeader({
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
+                          {!!user?.id && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                persistShowMyOnly(!showMyOnly);
+                              }}
+                              className={cn(
+                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                showMyOnly
+                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                  : 'text-stone-400 hover:text-emerald-600 border border-transparent hover:border-stone-200',
+                              )}
+                              title={showMyOnly ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
+                            >
+                              <User size={10} />내 프로젝트만
+                            </button>
+                          )}
                           {sortedProjectGroups.length > 0 && (
                             <button
                               type="button"
