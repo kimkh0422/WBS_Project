@@ -624,7 +624,7 @@ export function WBSTable({
     setInlineAddingTaskId(null);
     setInsertTargetId(null);
 
-    // 포커스만 새 작업으로 이동 (체크박스는 자동 선택하지 않음)
+    // 포커스 행 지정 → 노란색 강조 + ↑/↓ 단축키로 즉시 이동 가능. 체크박스 자동 체크 X.
     setLastSelectedId(newId);
   };
 
@@ -661,7 +661,7 @@ export function WBSTable({
 
     const proj = projects.find((p) => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-    addTask({
+    const newId = addTask({
       name: name.trim(),
       startDate: filters.startDate || defaultDate,
       endDate: filters.endDate || defaultDate,
@@ -671,7 +671,15 @@ export function WBSTable({
       status: 'todo',
       parentId: null,
     });
-    if (quickAddNameBottomRef.current) quickAddNameBottomRef.current.value = '';
+    if (quickAddNameBottomRef.current) {
+      quickAddNameBottomRef.current.value = '';
+      // input에서 포커스 빼야 ↑/↓ 단축키가 동작 (useWbsTableKeyboard의 inQuickAdd 가드)
+      quickAddNameBottomRef.current.blur();
+    }
+    if (newId) {
+      // 포커스 행 지정 → 노란색 강조 + ↑/↓로 즉시 이동 가능. 체크박스는 자동 체크 X.
+      setLastSelectedId(newId);
+    }
   };
 
   const handleContextMenu = useCallback(
