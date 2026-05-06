@@ -275,7 +275,8 @@ function WBSApp({
     return window.matchMedia('(max-width: 767px)').matches;
   });
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
-  // 추가로 비관리자에게는 대시보드/투입현황/마인드맵을 항상 숨긴다(관리자 전용 뷰).
+  // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨).
+  // 투입현황/마인드맵은 관리자 전용 유지.
   const hiddenViews = React.useMemo(() => {
     const raw = import.meta.env.VITE_HIDDEN_VIEWS as string | undefined;
     const value = typeof raw === 'string' ? raw.trim() : '';
@@ -286,7 +287,6 @@ function WBSApp({
         .filter(Boolean),
     );
     if (!effectiveIsAdmin) {
-      set.add('dashboard');
       set.add('allocation');
       set.add('mindmap');
     }
