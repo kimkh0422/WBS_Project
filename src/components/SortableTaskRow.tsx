@@ -415,14 +415,10 @@ function SortableTaskRowInner({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (tableEditMode) return; // 편집 모드에서는 펼치기/접기 비활성화
               toggleExpand(task.id);
             }}
-            className={cn(
-              'rounded p-0.5 text-xs font-mono tabular-nums transition-colors',
-              tableEditMode ? 'text-stone-300 cursor-default' : 'hover:bg-stone-200 text-stone-600',
-            )}
-            title={tableEditMode ? '편집 모드에서는 펼치기/접기 불가 (Esc로 편집 모드 해제)' : task.expanded ? '접기' : '펼치기'}
+            className="rounded p-0.5 text-xs font-mono tabular-nums transition-colors hover:bg-stone-200 text-stone-600"
+            title={task.expanded ? '접기' : '펼치기'}
           >
             {task.expanded ? '▣' : '□'}
           </button>

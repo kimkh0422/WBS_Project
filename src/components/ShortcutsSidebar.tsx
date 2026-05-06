@@ -58,12 +58,12 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
   );
 
   const ShortcutRow = ({ shortcut }: { shortcut: Shortcut }) => (
-    <div className="grid grid-cols-[1fr_auto] gap-3 items-start py-2">
-      <div className="min-w-0">
-        <div className="text-[12px] font-bold text-slate-700 whitespace-normal break-keep leading-snug">{shortcut.label}</div>
-        {shortcut.hint && <div className="text-[10px] text-slate-400 leading-snug mt-0.5">{shortcut.hint}</div>}
+    <div className="py-2 space-y-1.5">
+      <div>
+        <div className="text-[12px] font-bold text-slate-700 leading-snug break-keep">{shortcut.label}</div>
+        {shortcut.hint && <div className="text-[10px] text-slate-400 leading-snug mt-0.5 break-keep">{shortcut.hint}</div>}
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {shortcut.keys.map((token, idx) => (
           <React.Fragment key={idx}>
             <KeyCap>{token}</KeyCap>
