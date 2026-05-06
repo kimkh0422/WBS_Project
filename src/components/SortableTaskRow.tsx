@@ -1297,11 +1297,17 @@ function SortableTaskRowInner({
                       e.preventDefault();
                       e.stopPropagation();
                       applyPickDependency(depSuggestionsList[depPickIdx]!.id);
+                      // Enter로 픽한 후에는 편집 모드를 종료해 다른 셀처럼 화살표로 자유롭게 이동 가능.
+                      // (드롭다운에서 마우스 클릭으로 픽한 경우는 그대로 유지 — 연속 선택 가능)
+                      setDepsFocused(false);
+                      setEditingCell(null);
+                      e.currentTarget.blur();
                       return;
                     }
                     if (e.key === 'Enter') {
                       setDepsFocused(false);
                       applyDependenciesInput((depsInputValue ?? '').trim());
+                      setEditingCell(null);
                       e.currentTarget.blur();
                     }
                   }}
