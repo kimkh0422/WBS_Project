@@ -172,11 +172,21 @@ function SortableTaskRowInner({
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
 
   /**
-   * 셀 클릭 시 호출: 편집모드 자동 진입 + 행 포커스/앵커 갱신 + 편집 시작.
-   * - name 셀은 인라인 편집(setInlineEditingNameId), 그 외는 setEditingCell.
-   * - 편집모드 토글 버튼과 무관하게 셀 클릭만으로 편집 가능 (Excel/Notion DB 방식).
+   * 셀 클릭 시 호출: 2단계 동작 (Excel 패턴).
+   * - 1단계: 아직 포커스되지 않은 행의 셀을 클릭 → 행/셀 포커스만 잡고 편집은 시작하지 않음.
+   * - 2단계: 이미 포커스된 행의 셀(같거나 다른 셀)을 클릭 → 편집 모드 진입.
+   * - F2를 누르면 항상 현재 포커스된 셀(없으면 name)을 편집할 수 있음 (모든 컬럼 동일).
    */
   const beginEdit = (columnId: TableColumnId) => {
+    // 1단계: 다른 행에서 처음 클릭 → 포커스만
+    if (!isFocused) {
+      setTableEditMode(true);
+      setFocusedCell({ taskId: task.id, columnId });
+      onFocusRow?.(task.id);
+      onSetRowAnchor?.(task.id);
+      return;
+    }
+    // 2단계: 이미 선택된 행의 셀 클릭 → 편집 시작
     setTableEditMode(true);
     setFocusedCell({ taskId: task.id, columnId });
     onFocusRow?.(task.id);
@@ -425,7 +435,18 @@ function SortableTaskRowInner({
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
         if (colId === 'wbsId') {
           return (
-            <div key={colId} className="data-cell font-mono text-[10px] text-stone-400">
+            <div
+              key={colId}
+              className="data-cell font-mono text-[10px] text-stone-400 cursor-pointer"
+              onClick={() => {
+                // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
+                const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
+                onFocusRow?.(task.id);
+                onSetRowAnchor?.(task.id);
+                setFocusedCell({ taskId: task.id, columnId: firstEditable });
+                setTableEditMode(true);
+              }}
+            >
               {wbsId}
             </div>
           );
