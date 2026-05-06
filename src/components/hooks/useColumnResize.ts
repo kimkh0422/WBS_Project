@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type RefObject } from 'react';
 import { type BuiltInTableColumnId, type TableColumnId } from '../wbsTableTypes';
-import { formatDate, formatNum2 } from '../../lib/utils';
+import { formatDate, formatNum1, formatNum2 } from '../../lib/utils';
 import type { Task } from '../../types';
 
 // ── Default column widths ──────────────────────────────────────────
@@ -159,7 +159,7 @@ export function useColumnResize({
         else if (colId === 'startDate') cellText = formatDate(task.startDate);
         else if (colId === 'endDate') cellText = formatDate(task.endDate);
         else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
-        else if (colId === 'weight') cellText = task.weight != null ? formatNum2(task.weight) : '-';
+        else if (colId === 'weight') cellText = task.weight != null ? formatNum1(task.weight) : '-';
         else if (colId === 'assignee') {
           cellText = task.assignee || '—';
         } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';

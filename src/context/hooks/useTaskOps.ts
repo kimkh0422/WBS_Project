@@ -4,7 +4,7 @@ import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { upsertTasks } from '../../lib/db';
-import { round2 } from '../../lib/utils';
+import { round1, round2 } from '../../lib/utils';
 import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../../lib/schedule';
 import { getHolidaysForTaskDates } from '../../lib/calendar';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
@@ -161,7 +161,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const endDateLocked = taskLockedFields.has('endDate');
         let resolvedUpdates = { ...updates };
         if (typeof resolvedUpdates.weight === 'number' && Number.isFinite(resolvedUpdates.weight)) {
-          resolvedUpdates = { ...resolvedUpdates, weight: round2(resolvedUpdates.weight) };
+          resolvedUpdates = { ...resolvedUpdates, weight: round1(resolvedUpdates.weight) };
         }
         if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
           resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };

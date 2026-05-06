@@ -4,7 +4,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatDate, formatNum2, round2 } from '../lib/utils';
+import { cn, formatDate, formatNum1, formatNum2, round1, round2 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { useWBS } from '../context/WBSContext';
@@ -53,7 +53,7 @@ function getTaskDetailTooltip(
         : '—'
     }`,
   );
-  if (task.weight != null) lines.push(`가중치: ${task.weight}`);
+  if (task.weight != null) lines.push(`가중치: ${formatNum1(task.weight)}`);
   lines.push(`담당: ${assigneeText}`);
   lines.push(`상태: ${statusName}`);
   lines.push(`진척률: ${typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—'}`);
@@ -787,7 +787,7 @@ function SortableTaskRowInner({
                   onBlur={(e) => {
                     const v = parseFloat(e.target.value);
                     if (!isNaN(v) && v >= 0) {
-                      const rounded = round2(v);
+                      const rounded = round1(v);
                       if (rounded !== (task.weight ?? NaN)) updateTask(task.id, { weight: rounded });
                     }
                     setEditingCell(null);
@@ -815,7 +815,7 @@ function SortableTaskRowInner({
                   }}
                   title="클릭하여 가중치 수정"
                 >
-                  {task.weight != null ? formatNum2(task.weight) : '-'}
+                  {task.weight != null ? formatNum1(task.weight) : '-'}
                 </button>
               )}
             </div>

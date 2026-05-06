@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { Task, TaskStatus } from '../../types';
 import type { WBSSettings } from '../../lib/wbsSettings';
-import { round2 } from '../../lib/utils';
+import { round1, round2 } from '../../lib/utils';
 
 interface UseWbsBulkEditOptions {
   selectedTaskIds: Set<string>;
@@ -63,7 +63,7 @@ export function useWbsBulkEdit({
     }
     if (bulkWeight !== '') {
       const val = parseFloat(bulkWeight);
-      if (!isNaN(val) && val >= 0) updates.weight = round2(val);
+      if (!isNaN(val) && val >= 0) updates.weight = round1(val);
     }
     if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
     if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();

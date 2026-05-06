@@ -7,7 +7,7 @@ import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
 import { useOrganization } from '../context/OrganizationContext';
 import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
-import { randomUUID, cn, round2 } from '../lib/utils';
+import { randomUUID, cn, round1, round2 } from '../lib/utils';
 import {
   filterTasksForDependencyPicker,
   getActiveDependencyToken,
@@ -562,7 +562,7 @@ export function TaskModal({
     const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
     const toSave = { ...toMergeRest } as Partial<Task>;
     if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
-    if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round2(toSave.weight);
+    if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round1(toSave.weight);
     if (initialData?.id) {
       type LockedField = NonNullable<Task['userLockedFields']>[number];
       const locked = new Set<LockedField>(initialData.userLockedFields ?? []);

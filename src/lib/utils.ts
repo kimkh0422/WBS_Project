@@ -34,3 +34,16 @@ export function formatNum2(n: number): string {
   const r = round2(n);
   return r % 1 === 0 ? String(Math.round(r)) : r.toFixed(2);
 }
+
+/** 소수 1자리로 반올림 (저장·표시용) */
+export function round1(n: number): number {
+  if (!Number.isFinite(n)) return n;
+  return Math.round(n * 10) / 10;
+}
+
+/** 소수 1자리까지만 표시 (정수면 소수점 생략). 가중치 등 한 자리만 의미 있는 수에 사용. */
+export function formatNum1(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
+  const r = round1(n);
+  return r % 1 === 0 ? String(Math.round(r)) : r.toFixed(1);
+}
