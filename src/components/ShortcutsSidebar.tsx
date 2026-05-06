@@ -14,7 +14,7 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
         { label: '다시 실행', keys: ['Ctrl', 'Y'], hint: 'Ctrl+Shift+Z 도 가능' },
         { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
         { label: '줄높이 높이기 / 낮추기', keys: ['Ctrl', '+ / -'] },
-        { label: '단축키 사이드바 토글', keys: ['?'] },
+        { label: '단축키 사이드바 토글', keys: ['Shift', '?'] },
       ],
     },
     {
@@ -27,8 +27,8 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
         },
         {
           label: '하위 접기 / 펼치기',
-          keys: [<ArrowLeft size={14} key="left" />, '/', <ArrowRight size={14} key="right" />],
-          hint: '트리 뷰일 때만 동작',
+          keys: ['Shift', <ArrowLeft size={14} key="left" />, '/', <ArrowRight size={14} key="right" />],
+          hint: '트리 뷰일 때만 동작 (←/→는 셀 이동에 사용)',
         },
         { label: '체크박스 토글', keys: ['Space'] },
         {

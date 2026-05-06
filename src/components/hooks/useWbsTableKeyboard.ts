@@ -396,13 +396,18 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
       // 빠진 경우에도 ←/→가 동작하도록 한다. (focusedCell이 있고 편집 중이 아니면 표 사용자
       // 의도가 명확함 — 실제 입력 요소 안이라면 isWbsTableCellTypingTarget 체크로 분리됨)
+      // Alt(작업 순서 변경)·Shift(트리 펼치기)·Ctrl(범위 선택) 조합은 다른 핸들러로 패스.
       if (
         tableEditMode &&
         !editingCell &&
         !inlineEditingNameId &&
         !isWbsTableCellTypingTarget(target) &&
         focusedCell &&
-        editableColumnIds.length > 0
+        editableColumnIds.length > 0 &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey
       ) {
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           const rowIdx = visibleTasks.findIndex((t) => t.id === focusedCell.taskId);
@@ -746,13 +751,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        // 편집/입력 중에는 화살표로 접기·펼치기 하지 않음 (커서 이동 등)
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) {
+        // Shift+←/→: 트리 접기/펼치기 (←/→는 셀 이동에 전용)
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
-        // 셀 포커스가 있으면 ←/→는 셀 이동으로 동작해야 하므로 트리 펼치기 차단.
-        // (셀 이동은 위쪽 363행 블록에서 이미 처리되지만, 그 블록에 안 잡히는 엣지 케이스 방어)
-        if (focusedCell) return;
-        // 트리 뷰에서만: ← 접기, → 펼치기 (자식이 있는 행에서만 동작)
+        // 트리 뷰에서만: Shift+← 접기, Shift+→ 펼치기 (자식이 있는 행에서만 동작)
         const isTreeView = !(
           filters.status !== 'all' ||
           filters.assignee ||
