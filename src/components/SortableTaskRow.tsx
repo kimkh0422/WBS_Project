@@ -1229,6 +1229,8 @@ function SortableTaskRowInner({
               onClick={(e) => {
                 e.stopPropagation();
                 beginFocus('dependencies');
+                // 셀의 빈 영역을 클릭해도 input이 직접 포커스되어 드롭다운이 자동으로 펼쳐지도록 보정
+                document.getElementById(`wbs-edit-${task.id}-dependencies`)?.focus();
               }}
               title={
                 hiddenDepLabels.length > 0
