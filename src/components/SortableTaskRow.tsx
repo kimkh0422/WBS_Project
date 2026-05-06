@@ -1284,7 +1284,7 @@ function SortableTaskRowInner({
                       e.currentTarget.blur();
                     }
                   }}
-                  placeholder=""
+                  placeholder="번호 또는 이름…"
                   className="w-full min-w-0 bg-transparent p-1 font-mono text-inherit border border-transparent hover:border-stone-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
                   autoComplete="off"
                 />
