@@ -28,7 +28,7 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
     weight: task.weight ?? null,
-    custom_fields: task.customFields ?? null,
+    custom_fields: task.customFields ?? {},
   };
 }
 
