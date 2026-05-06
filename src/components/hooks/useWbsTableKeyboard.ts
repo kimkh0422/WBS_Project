@@ -154,20 +154,51 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작
       if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
 
-      // 셀/작업명 편집 중 Enter: 값 커밋(blur) 후
-      // - 현재 행 바로 아래에 같은 레벨(형제) 새 작업을 추가하고 그 작업으로 계속 편집.
-      // - Shift+Enter: 현재 행 바로 "위"에 같은 레벨(형제) 새 작업 추가.
-      // - (의존성 입력칸 등 자체 Enter 처리가 있는 input은 여기로 오기 전에 stopPropagation 되거나,
-      //    아래의 target.closest 체크에서 제외되도록 설계되어 있음)
-      if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && inWbsTable) {
+      // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값만 커밋하고 같은 셀에 머무름.
+      // 이 시점부터 ←/→로 자유 이동 가능. (Shift+Enter는 다음 행 같은 컬럼으로 포커스 이동)
+      if (e.key === 'Enter' && editingCell && inWbsTable) {
+        e.preventDefault();
+        const currentTaskId = editingCell.taskId;
+        const currentColId = editingCell.columnId;
+        // blur로 onBlur 핸들러를 트리거해 값 커밋
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        setTimeout(() => {
+          setEditingCell(null);
+          setInlineEditingNameId(null);
+          setTableEditMode(true);
+          if (e.shiftKey) {
+            // Shift+Enter: 다음 행 같은 컬럼으로 포커스 이동 (편집은 시작 안 함, F2로 편집)
+            const idx = visibleTasks.findIndex((t) => t.id === currentTaskId);
+            const next = idx >= 0 ? visibleTasks[idx + 1] : null;
+            if (next) {
+              setLastSelectedId(next.id);
+              setFocusedCell({ taskId: next.id, columnId: currentColId });
+              document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
+            } else {
+              setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
+            }
+          } else {
+            // 그냥 Enter: 같은 셀 유지 (←/→로 자유 이동)
+            setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
+          }
+          requestAnimationFrame(() => {
+            tableScrollRef.current?.focus();
+          });
+        }, 0);
+        return;
+      }
+
+      // 작업명(name) 편집 중 Enter: 빠른 입력 패턴 유지 — 같은 레벨(형제) 새 작업을 현재 행 아래에 추가하고 계속 편집.
+      // Shift+Enter: 현재 행 바로 "위"에 같은 레벨(형제) 새 작업 추가.
+      if (e.key === 'Enter' && inlineEditingNameId && inWbsTable) {
         e.preventDefault();
         // 편집 권한 없으면 새 작업 추가 비활성화 (현재 셀 편집 종료만)
         if (!canEditCurrentProject) {
           (document.activeElement as HTMLElement | null)?.blur?.();
           return;
         }
-        const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
-        const columnId: TableColumnId = editingCell?.columnId ?? 'name';
+        const currentTaskId = inlineEditingNameId;
+        const columnId: TableColumnId = 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
         const insertAbove = e.shiftKey;
 
