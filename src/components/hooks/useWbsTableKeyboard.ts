@@ -275,71 +275,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // 셀/작업명 편집 중 화살표: 현재 입력 커밋(blur) 후 인접 셀로 포커스만 이동.
-      // 셀 단위 편집 패턴 — 새 셀에서 다시 편집하려면 F2(또는 같은 셀 클릭) 필요.
-      // (계속 입력하며 옆 칸으로 넘어가고 싶을 때는 Tab/Shift+Tab 사용 — 그 핸들러는 그대로 유지됨)
-      // number 타입 input에서는 ↑/↓는 값 증감(브라우저 기본)에 사용하므로 셀 이동에서 제외.
-      if (
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-        (editingCell || inlineEditingNameId) &&
-        target.closest('[data-wbs-table]')
-      ) {
-        if (
-          target.tagName === 'INPUT' &&
-          (target as HTMLInputElement).type === 'number' &&
-          (e.key === 'ArrowUp' || e.key === 'ArrowDown')
-        ) {
-          return;
-        }
-        const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
-        const columnId: TableColumnId = editingCell?.columnId ?? 'name';
-        const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
-        const colIdx = editableColumnIds.indexOf(columnId);
-        if (currentIndex >= 0 && colIdx >= 0) {
-          let nextRowIdx = currentIndex;
-          let nextColIdx = colIdx;
-          if (e.key === 'ArrowDown') nextRowIdx = Math.min(visibleTasks.length - 1, currentIndex + 1);
-          else if (e.key === 'ArrowUp') nextRowIdx = Math.max(0, currentIndex - 1);
-          else if (e.key === 'ArrowLeft') {
-            // 첫 컬럼에서 ← : 이전 행 마지막 컬럼으로 wrap (Excel 패턴)
-            if (colIdx === 0) {
-              nextColIdx = editableColumnIds.length - 1;
-              nextRowIdx = Math.max(0, currentIndex - 1);
-            } else {
-              nextColIdx = colIdx - 1;
-            }
-          } else if (e.key === 'ArrowRight') {
-            // 마지막 컬럼에서 → : 다음 행 첫 컬럼으로 wrap (Excel 패턴) — 선행작업처럼 마지막 컬럼에서도 이동 가능
-            if (colIdx === editableColumnIds.length - 1) {
-              nextColIdx = 0;
-              nextRowIdx = Math.min(visibleTasks.length - 1, currentIndex + 1);
-            } else {
-              nextColIdx = colIdx + 1;
-            }
-          }
-
-          const nextTask = visibleTasks[nextRowIdx];
-          const nextCol = editableColumnIds[nextColIdx];
-          if (nextTask && nextCol) {
-            e.preventDefault();
-            // 현재 입력 커밋(blur)하면 onBlur 핸들러가 값을 저장
-            (document.activeElement as HTMLElement)?.blur?.();
-            setTimeout(() => {
-              setLastSelectedId(nextTask.id);
-              setTableEditMode(true);
-              setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
-              // 편집 모드는 끄고 포커스만 — F2를 눌러야 다음 셀의 편집이 시작됨
-              setEditingCell(null);
-              setInlineEditingNameId(null);
-              document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-              requestAnimationFrame(() => {
-                tableScrollRef.current?.focus();
-              });
-            }, 0);
-          }
-        }
-        return;
-      }
+      // 편집 중 화살표는 input의 기본 동작(텍스트 커서 이동/숫자 값 증감)만 허용.
+      // 셀 이동은 Enter(커밋) 또는 Esc(취소) 또는 Tab/Shift+Tab(연속 편집) 후에만 가능.
+      // → 사용자가 편집 중 의도치 않게 다른 셀로 이동되는 것을 방지.
 
       // Tab / Shift+Tab: 셀 단위 좌우 이동 (Excel 스타일)
       // - 편집 중(셀 편집 또는 작업명 인라인 편집): 현재 입력값 커밋(blur) 후 다음/이전 셀로 이동하여 계속 편집

@@ -652,6 +652,13 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         type="text"
                         value={cc.name}
                         onChange={(e) => setCustomColumns((prev) => prev.map((x) => (x.id === cc.id ? { ...x, name: e.target.value } : x)))}
+                        onKeyDown={(e) => {
+                          // Enter가 form submit으로 모달을 닫지 않도록 차단 (다중 컬럼 추가 가능)
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
                         className="input-field py-1.5 text-xs"
                         placeholder="컬럼명"
                       />

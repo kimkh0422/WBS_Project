@@ -1218,9 +1218,8 @@ function SortableTaskRowInner({
             setDepsInputValue(visibleNums.join(', '));
           };
           const isFocusedDep = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
-          const isEditingDep = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
-          // input의 onFocus가 배치/타이밍 이슈로 안 잡힐 수 있어 editingCell/focusedCell도 보강 조건으로 사용
-          const depsMenuOpen = (depsFocused || isEditingDep || isFocusedDep) && depSuggestionsList.length > 0;
+          // 드롭다운은 input이 실제 포커스됐을 때만 열림. Enter로 편집 종료 시 setDepsFocused(false)로 자동 닫힘.
+          const depsMenuOpen = depsFocused && depSuggestionsList.length > 0;
           // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
           // 막기 위해 Portal로 body에 렌더링하고 input의 위치를 추적해 따라가게 한다.
           const renderDepsDropdown = depsMenuOpen
