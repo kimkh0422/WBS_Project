@@ -232,6 +232,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (statusProgressInvalid) return;
+    // 사용자 정의 컬럼은 일반 회원도 추가/수정/삭제 가능 (전역 공유)
+    const cleanedCustomColumns = customColumns
+      .map((c) => ({ id: c.id, name: c.name.trim() }))
+      .filter((c) => c.id.startsWith('custom:') && c.name.length > 0);
+
     // 전역 설정·색상·상태진척도 적용: 관리자만 (UI에서 입력은 disabled 처리되지만 방어적으로 한 번 더 차단)
     if (canEditGlobal) {
       updateWbsSettings({
@@ -245,12 +250,27 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         statusConfigs: statusConfigs,
         linkStatusAndProgress,
         tableColumns: normalizedTableColumns,
-        customColumns: customColumns
-          .map((c) => ({ id: c.id, name: c.name.trim() }))
-          .filter((c) => c.id.startsWith('custom:') && c.name.length > 0),
+        customColumns: cleanedCustomColumns,
       });
 
       setLevelColors(levelColorsState);
+    } else {
+      // 비관리자: customColumns + 그것을 포함한 tableColumns만 저장 (다른 전역 설정은 변경하지 않음)
+      const prevCustomIds = new Set((wbsSettings.customColumns ?? []).map((c) => c.id));
+      const nextCustomIds = new Set(cleanedCustomColumns.map((c) => c.id));
+      const customChanged =
+        prevCustomIds.size !== nextCustomIds.size ||
+        [...prevCustomIds].some((id) => !nextCustomIds.has(id)) ||
+        cleanedCustomColumns.some((c) => {
+          const prev = (wbsSettings.customColumns ?? []).find((p) => p.id === c.id);
+          return !prev || prev.name !== c.name;
+        });
+      if (customChanged) {
+        updateWbsSettings({
+          customColumns: cleanedCustomColumns,
+          tableColumns: normalizedTableColumns,
+        });
+      }
     }
 
     // 프로젝트별 일정: 본인 프로젝트 또는 관리자만 반영
@@ -520,9 +540,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             )}
 
             {activeTab === 'columns' && (
-              <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
-                {/* Table Columns */}
-                <div className="space-y-4">
+              <div className="space-y-8 m-0 p-0 border-0 min-w-0">
+                {/* 표 필드 표시/순서 — 전역 설정이라 관리자만 수정 가능 */}
+                <fieldset disabled={!canEditGlobal} className="m-0 p-0 border-0 min-w-0 space-y-4 disabled:opacity-70">
                   <div className="flex justify-between items-center border-b border-stone-200 pb-2">
                     <h3 className="font-bold text-sm text-[var(--color-ink)]">표 필드(컬럼) 표시/순서</h3>
                     <button
@@ -603,55 +623,56 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       );
                     })}
                   </div>
-                  <div className="mt-5 border-t border-stone-200 pt-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold text-stone-700">사용자 정의 컬럼</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const id = `custom:${Date.now()}`;
-                          setCustomColumns((prev) => [...prev, { id, name: '새 컬럼' }]);
-                          setTableColumns((prev) => [...(prev || []), { id, visible: true }]);
-                        }}
-                        className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
-                      >
-                        <Plus size={14} />
-                        컬럼 추가
-                      </button>
-                    </div>
-                    {(customColumns ?? []).length === 0 && (
-                      <p className="text-[11px] text-stone-500">추가된 사용자 정의 컬럼이 없습니다.</p>
-                    )}
-                    {(customColumns ?? []).map((cc) => (
-                      <div key={cc.id} className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={cc.name}
-                          onChange={(e) =>
-                            setCustomColumns((prev) => prev.map((x) => (x.id === cc.id ? { ...x, name: e.target.value } : x)))
-                          }
-                          className="input-field py-1.5 text-xs"
-                          placeholder="컬럼명"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCustomColumns((prev) => prev.filter((x) => x.id !== cc.id));
-                            setTableColumns((prev) => (prev || []).filter((x) => x.id !== cc.id));
-                          }}
-                          className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
-                          title="삭제"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
                   <p className="text-[10px] text-stone-400 leading-relaxed">
                     작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시 반영됩니다.
                   </p>
+                </fieldset>
+
+                {/* 사용자 정의 컬럼 — 일반 회원도 추가/수정/삭제 가능 (전역 공유) */}
+                <div className="border-t border-stone-200 pt-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-stone-700">사용자 정의 컬럼</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = `custom:${Date.now()}`;
+                        setCustomColumns((prev) => [...prev, { id, name: '새 컬럼' }]);
+                        setTableColumns((prev) => [...(prev || []), { id, visible: true }]);
+                      }}
+                      className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                    >
+                      <Plus size={14} />
+                      컬럼 추가
+                    </button>
+                  </div>
+                  {(customColumns ?? []).length === 0 && <p className="text-[11px] text-stone-500">추가된 사용자 정의 컬럼이 없습니다.</p>}
+                  {(customColumns ?? []).map((cc) => (
+                    <div key={cc.id} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cc.name}
+                        onChange={(e) => setCustomColumns((prev) => prev.map((x) => (x.id === cc.id ? { ...x, name: e.target.value } : x)))}
+                        className="input-field py-1.5 text-xs"
+                        placeholder="컬럼명"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomColumns((prev) => prev.filter((x) => x.id !== cc.id));
+                          setTableColumns((prev) => (prev || []).filter((x) => x.id !== cc.id));
+                        }}
+                        className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                        title="삭제"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {!canEditGlobal && (
+                    <p className="text-[10px] text-stone-400 leading-relaxed">※ 사용자 정의 컬럼은 모든 사용자에게 공유됩니다.</p>
+                  )}
                 </div>
-              </fieldset>
+              </div>
             )}
 
             {activeTab === 'status' && (
