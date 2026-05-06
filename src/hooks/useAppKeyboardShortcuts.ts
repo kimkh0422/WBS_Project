@@ -31,21 +31,35 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     pushToast,
   } = deps;
 
-  // Ctrl+Z / Ctrl+Shift+Z: Undo/Redo
+  // Ctrl+Z: Undo (Ctrl+Shift+Z는 사용하지 않음)
   useEffect(() => {
-    const handleUndoRedo = (e: KeyboardEvent) => {
+    const handleUndo = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      e.preventDefault();
+      undo();
     };
-    window.addEventListener('keydown', handleUndoRedo);
-    return () => window.removeEventListener('keydown', handleUndoRedo);
-  }, [undo, redo]);
+    window.addEventListener('keydown', handleUndo);
+    return () => window.removeEventListener('keydown', handleUndo);
+  }, [undo]);
+
+  // Ctrl+Y / Cmd+Y: Redo
+  useEffect(() => {
+    const handleRedo = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== 'y') return;
+      e.preventDefault();
+      redo();
+    };
+    window.addEventListener('keydown', handleRedo);
+    return () => window.removeEventListener('keydown', handleRedo);
+  }, [redo]);
 
   // Ctrl+Alt+1..9: Expand tree to level
   useEffect(() => {
@@ -64,7 +78,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     return () => window.removeEventListener('keydown', handleExpandLevelHotkey);
   }, [expandToLevel, setTreeExpandLevel]);
 
-  // Ctrl+Shift+1~7: View switch
+  // Alt+1~7: View switch (Ctrl+Shift 조합 미사용)
   useEffect(() => {
     const VIEW_SHORTCUTS: Record<string, string> = {
       Digit1: 'dashboard',
@@ -74,10 +88,17 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
       Digit5: 'gantt',
       Digit6: 'kanban',
       Digit7: 'mindmap',
+      Numpad1: 'dashboard',
+      Numpad2: 'allocation',
+      Numpad3: 'list',
+      Numpad4: 'table',
+      Numpad5: 'gantt',
+      Numpad6: 'kanban',
+      Numpad7: 'mindmap',
     };
     const handleViewShortcut = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return;
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       const nextView = VIEW_SHORTCUTS[e.code];

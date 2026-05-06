@@ -817,8 +817,8 @@ export function AppHeader({
               onClick={redo}
               disabled={!canRedo}
               className="icon-btn text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              title="다시 실행 (Ctrl+Shift+Z)"
-              aria-label="다시 실행 (Ctrl+Shift+Z)"
+              title="다시 실행 (Ctrl+Y)"
+              aria-label="다시 실행 (Ctrl+Y)"
             >
               <RotateCcw size={16} /> {/* Replace Redo2 */}
             </button>

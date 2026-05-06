@@ -9,15 +9,13 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
   const sections: Section[] = [
     {
       title: '뷰 전환',
-      items: [
-        { label: '대시보드 / 투입 / 표+간트 / 표 / 간트 / 칸반 / 마인드맵', keys: ['Ctrl', 'Shift', '1~7'], hint: '뷰 순서대로 1~7 매핑' },
-      ],
+      items: [{ label: '대시보드 / 투입 / 표+간트 / 표 / 간트 / 칸반 / 마인드맵', keys: ['Alt', '1~7'], hint: '뷰 순서대로 1~7 매핑' }],
     },
     {
       title: '공통',
       items: [
         { label: '되돌리기', keys: ['Ctrl', 'Z'] },
-        { label: '다시 실행', keys: ['Ctrl', 'Shift', 'Z'] },
+        { label: '다시 실행', keys: ['Ctrl', 'Y'] },
         { label: '즉시 서버 반영', keys: ['Ctrl', 'S'], hint: '자동 저장 대기 없이 업로드' },
         { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
         { label: '줄높이 높이기 / 낮추기', keys: ['Ctrl', '+ / -'] },

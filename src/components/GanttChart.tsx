@@ -189,12 +189,14 @@ export function GanttChart({
       const currentRowHeight = propRowHeight ?? 20;
       // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통)
       if (onRowHeightChange && (e.ctrlKey || e.metaKey)) {
-        if (e.key === '+' || e.key === '=') {
+        const isInc = e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+' || e.key === '=';
+        const isDec = e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-' || e.key === '_';
+        if (isInc) {
           e.preventDefault();
           onRowHeightChange(Math.min(64, currentRowHeight + 2));
           return;
         }
-        if (e.key === '-' || e.key === '_') {
+        if (isDec) {
           e.preventDefault();
           onRowHeightChange(Math.max(15, currentRowHeight - 2));
           return;
