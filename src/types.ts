@@ -1,3 +1,6 @@
+/** 프로젝트별 저장 공수 숫자의 단위 (스케줄링은 MD로 환산: 8h=1MD, 1주=5영업일) */
+export type WorkEffortUnit = 'minute' | 'hour' | 'day' | 'week';
+
 export type TaskStatus = string;
 
 export type SortConfig = {
@@ -26,6 +29,8 @@ export interface Project {
   ownerId?: string;
   /** 작업 최소 공수 기준(일). 0.5, 1, 3 등. WBS 작업 세부 분류에 사용 */
   minWorkEffortDays?: number;
+  /** 이 프로젝트 작업의 workEffort·baselineWorkEffort 숫자 단위 (기본 일) */
+  workEffortUnit?: WorkEffortUnit;
   /** 주간보고용 분류(예: 국책, 매출 등) */
   reportCategory?: string;
   /** 주간보고용 주관기관(예: KRISO, LS전선 등) */
@@ -56,7 +61,8 @@ export interface Task {
   status: TaskStatus;
   expanded?: boolean; // UI state for tree view
   dependencies?: string[]; // Array of predecessor task IDs
-  workEffort?: number; // Man-days (작업 공수)
+  /** 프로젝트 `workEffortUnit` 기준 저장값 (표시·편집). 스케줄링 시 MD로 환산 */
+  workEffort?: number;
   /** 진척 가중치. 지정 시 상위 작업·요약 진척률에 이 값을 우선 사용 (없으면 공수 기준) */
   weight?: number;
   description?: string;
@@ -72,10 +78,12 @@ export interface Task {
   baselineStartDate?: string;
   /** 베이스라인 종료일 */
   baselineEndDate?: string;
-  /** 베이스라인 공수(일) */
+  /** 베이스라인 공수(프로젝트 공수 단위와 동일) */
   baselineWorkEffort?: number;
   /** 사용자가 수동 수정한 항목. AI 업데이트 시 이 필드들은 덮어쓰지 않음. progress 잠금 시 상위 작업 진척률은 하위 롤업으로 덮어쓰지 않음 */
   userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort' | 'progress')[];
+  /** 사용자 정의 컬럼 값 저장소. 키: custom column id, 값: 문자열 */
+  customFields?: Record<string, string>;
 }
 
 export interface FilterState {

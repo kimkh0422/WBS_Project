@@ -16,6 +16,7 @@ import {
   EyeOff,
   RotateCcw,
   Unlink,
+  Link2,
   Edit2,
   Trash2,
 } from 'lucide-react';
@@ -44,6 +45,7 @@ import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 import { useAuth } from '../context/AuthContext';
+import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -117,6 +119,7 @@ export function WBSTable({
     refreshProjectSchedule,
     canEditCurrentProject,
     reorderTask,
+    linkSequentialPredecessors,
   } = useWBS();
 
   const { push: pushToast, tipOnce } = useToast();
@@ -125,14 +128,15 @@ export function WBSTable({
   const currentUserDisplayName = String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
 
   const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
+  const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   const criticalPathSet = useMemo(() => {
     try {
-      const set = getCriticalPathTaskIds(tasks, projectAssignmentsByProjectId);
+      const set = getCriticalPathTaskIds(tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId);
       return set instanceof Set ? set : new Set<string>();
     } catch {
       return new Set<string>();
     }
-  }, [tasks, projectAssignmentsByProjectId]);
+  }, [tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId]);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
@@ -143,6 +147,16 @@ export function WBSTable({
     () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: true }),
     [tasks, filters, sortConfig],
   );
+
+  const workEffortHeaderTitle = useMemo(() => {
+    const pids = filters.projectIds;
+    let singlePid: string | undefined;
+    if (currentProjectId !== 'all') singlePid = currentProjectId;
+    else if (Array.isArray(pids) && pids.length === 1) singlePid = pids[0];
+    if (!singlePid) return '공수';
+    const u = normalizeWorkEffortUnit(projects.find((pr) => pr.id === singlePid)?.workEffortUnit);
+    return `공수(${workEffortUnitSuffixKo(u)})`;
+  }, [currentProjectId, filters.projectIds, projects]);
 
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   // 선택 상태/로직 — extracted to useWbsSelection (called below after tableScrollRef)
@@ -194,18 +208,20 @@ export function WBSTable({
   const [tableEditMode, setTableEditMode] = useState(false);
   /** 전체를 스프레드시트(AG Grid) 뷰로 보는 모드 */
   const [excelView, setExcelView] = useState(false);
+  /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
+  const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
 
-  // 엑셀 시트(AG Grid) 뷰로 전환/종료할 때는 표 인라인 편집 모드도 함께 종료
+  // 엑셀 시트(AG Grid) 뷰로 전환할 때만 표 인라인 편집 모드를 종료한다.
+  // (이전에는 !excelView && tableEditMode 일 때마다 초기화되어, 일반 표에서 F2/셀 클릭으로
+  //  tableEditMode를 켜는 순간 바로 inlineEditingNameId까지 지워지는 버그가 있었음)
   useEffect(() => {
-    if (!excelView && tableEditMode) {
+    if (excelView) {
       setTableEditMode(false);
       setEditingCell(null);
       setInlineEditingNameId(null);
       setFocusedCell(null);
     }
-  }, [excelView, tableEditMode]);
-  /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
-  const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+  }, [excelView]);
 
   const toggleTableEditMode = useCallback(() => {
     setTableEditMode((wasOn) => {
@@ -259,11 +275,22 @@ export function WBSTable({
 
   // handleMouseDown + resize useEffect — now in useColumnResize
 
+  const customColumnNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    const customColumns = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
+    for (const col of customColumns) {
+      if (!col || typeof col.id !== 'string') continue;
+      map.set(col.id, (col.name || '').trim() || col.id.replace(/^custom:/, ''));
+    }
+    return map;
+  }, [wbsSettings?.customColumns]);
+
   const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
     const cols = wbsSettings?.tableColumns;
     const incoming = Array.isArray(cols) && cols.length > 0 ? cols : DEFAULT_TABLE_COLUMNS;
 
     const allow = new Set(DEFAULT_TABLE_COLUMNS.map((c) => c.id));
+    for (const id of customColumnNameById.keys()) allow.add(id);
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c: { id: string; visible: boolean }) => c && typeof c.id === 'string')
@@ -280,7 +307,7 @@ export function WBSTable({
     }
 
     return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
-  }, [wbsSettings]);
+  }, [wbsSettings, customColumnNameById]);
 
   const visibleColumnIds = useMemo(() => tableColumns.filter((c) => c.visible).map((c) => c.id), [tableColumns]);
   /** 편집 모드에서 좌우 이동 시 사용할 편집 가능 컬럼 순서 (wbsId 제외) */
@@ -309,7 +336,9 @@ export function WBSTable({
   } = useWbsDragDrop({ tasks, updateTask, reorderTask });
 
   // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화
-  const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null;
+  // 작업명 인라인 편집 중에는 가상 스크롤 비활성화 — 스크롤/범위 변경 시 행이 언마운트되면
+  // input blur로 편집이 즉시 종료되며(F2 후 깜빡임), 빈 이름 셀에서 입력이 불가능해진다.
+  const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null && inlineEditingNameId === null;
 
   // 드래그 중인 항목의 인덱스를 미리 계산 (virtualRangeExtractor 내 O(n) findIndex 제거)
   const dndActiveIndex = useMemo(
@@ -471,6 +500,7 @@ export function WBSTable({
       displayWbsMap,
       allocationDisplayByTaskId,
       taskIdToSeqNum,
+      customColumnNameById,
     });
 
   const gridStyle = useMemo(() => {
@@ -481,7 +511,7 @@ export function WBSTable({
     parts.push(`${columnWidths.expand}px`);
     for (const id of visibleColumnIds) {
       if (id === 'name') parts.push(`${columnWidths.name}px`);
-      else parts.push(`${(columnWidths as Record<string, number>)[id]}px`);
+      else parts.push(`${(columnWidths as Record<string, number>)[id] ?? 120}px`);
     }
     parts.push(`${columnWidths.actions}px`);
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
@@ -526,7 +556,10 @@ export function WBSTable({
     setBulkAssignee,
     bulkWorkEffort,
     setBulkWorkEffort,
+    bulkProgress,
     setBulkProgress,
+    bulkWeight,
+    setBulkWeight,
     bulkStartDate,
     setBulkStartDate,
     bulkEndDate,
@@ -535,12 +568,15 @@ export function WBSTable({
     executeBulkEdit,
     executeBulkAssignee,
     executeBulkClearDependencies,
+    executeBulkLinkSequentialPredecessors,
   } = useWbsBulkEdit({
     selectedTaskIds,
     tasks,
+    visibleTasks,
     wbsSettings,
     updateTask,
     updateTasksBulk,
+    linkSequentialPredecessors,
     setSelection,
     setLastSelectedId,
   });
@@ -757,14 +793,13 @@ export function WBSTable({
     deleteConfirm.taskIds.forEach((id) => deleteTask(id));
     setDeleteConfirm({ isOpen: false, taskIds: [] });
 
-    // 4. Update selection
+    // 4. Update selection - 체크박스는 해제, 포커스(노란색 강조)만 다음 행으로 이동
+    setSelection(new Set());
     if (nextSelectId) {
-      setSelection(new Set([nextSelectId]));
       setLastSelectedId(nextSelectId);
       rangeAnchorRef.current = nextSelectId;
       setAnchorTaskId(nextSelectId);
     } else {
-      setSelection(new Set());
       setLastSelectedId(null);
       rangeAnchorRef.current = null;
       setAnchorTaskId(null);
@@ -772,7 +807,7 @@ export function WBSTable({
   };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
-  const summaryStats = useWbsSummaryStats(baseTasks);
+  const summaryStats = useWbsSummaryStats(baseTasks, projects);
 
   const isSplitView = !!syncScrollRef;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
@@ -805,6 +840,8 @@ export function WBSTable({
     <React.Fragment key={id}>
       <HeaderCell
         id={id}
+        label={id.startsWith('custom:') ? customColumnNameById.get(id) : undefined}
+        workEffortHeaderTitle={workEffortHeaderTitle}
         sortConfig={sortConfig}
         onSort={onSort}
         resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
@@ -1091,6 +1128,7 @@ export function WBSTable({
                             focusedCell={focusedCell}
                             setFocusedCell={setFocusedCell}
                             tableEditMode={tableEditMode}
+                            setTableEditMode={setTableEditMode}
                             allAssignees={allAssignees}
                             assigneeOptionsByProjectId={assigneeOptionsByProjectId}
                             updateTask={updateTask}
@@ -1099,6 +1137,8 @@ export function WBSTable({
                             criticalPathSet={effectiveCriticalPathSet}
                             allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
                             otherFocusByCellKey={otherFocusByCellKey}
+                            customColumnNameById={customColumnNameById}
+                            projectEffortUnitByProjectId={projectEffortUnitByProjectId}
                           />
                           {inlineAddingTaskId === task.id && (
                             <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -1197,42 +1237,6 @@ export function WBSTable({
                 })()}
               </DndContext>
 
-              {/* Quick Add Row: split view에서는 스크롤 밖에 두어 표·간트 행 높이 일치(첫/끝 행 정렬) */}
-              {!isSplitView && canEditCurrentProject ? (
-                <div className="data-row bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell justify-center text-stone-400">
-                    <Plus size={14} />
-                  </div>
-                  {visibleColumnIds.map((colId) => {
-                    if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-                    return (
-                      <div key={colId} className="data-cell p-0">
-                        <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                          <input
-                            data-quick-add
-                            ref={quickAddNameBottomRef}
-                            type="text"
-                            defaultValue=""
-                            placeholder="새 작업 추가 (Enter 키 입력)..."
-                            className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
-                          />
-                          <button
-                            type="submit"
-                            className="text-[10px] font-bold text-indigo-600 uppercase px-4 hover:bg-indigo-50 transition-colors"
-                          >
-                            추가
-                          </button>
-                        </form>
-                      </div>
-                    );
-                  })}
-                  <div className="data-cell"></div>
-                </div>
-              ) : null}
-
               {visibleTasks.length === 0 && tasks.length === 0 && (
                 <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
                   등록된 작업이 없습니다. 새 작업을 추가해 보세요.
@@ -1254,8 +1258,9 @@ export function WBSTable({
             <ExcelGrid tasks={visibleTasks} displayWbsMap={displayWbsMap} onTaskChange={updateTask} />
           </div>
         )}
-        {/* Split view: 새 작업 추가 행을 스크롤 밖 하단에 두어 표·간트 행 수를 동일하게 유지 */}
-        {isSplitView && canEditCurrentProject && (
+        {/* 새 작업 추가 행: 스크롤 밖 하단에 항상 고정 (split·non-split 공통).
+            작업이 많은 프로젝트에서 새로고침 후에도 메뉴가 묻히지 않도록 표 영역 바깥에 배치. */}
+        {!excelView && canEditCurrentProject && (
           <div className="data-row flex-shrink-0 bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
             <div className="data-cell"></div>
             <div className="data-cell"></div>
@@ -1360,17 +1365,47 @@ export function WBSTable({
               </div>
             </div>
 
-            {/* 공수(d) */}
+            {/* 공수 — 프로젝트 단위에 맞게 입력 */}
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">공수(d)</label>
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">{workEffortHeaderTitle}</label>
               <input
                 type="number"
                 min="0"
                 step="0.5"
                 value={bulkWorkEffort}
                 onChange={(e) => setBulkWorkEffort(e.target.value)}
-                placeholder="공수(d) 일괄 지정..."
+                placeholder={`${workEffortHeaderTitle} 일괄`}
                 className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
+              />
+            </div>
+
+            {/* 진척율(%) — 0~100 */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">진척율(%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={bulkProgress}
+                onChange={(e) => setBulkProgress(e.target.value)}
+                placeholder="0~100"
+                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+              />
+            </div>
+
+            {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">가중치</label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={bulkWeight}
+                onChange={(e) => setBulkWeight(e.target.value)}
+                placeholder="가중치 일괄 지정..."
+                title="진척 가중치. 지정 시 상위/요약 진척률 산정에서 공수 대신 사용됩니다."
+                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
               />
             </div>
 
@@ -1402,13 +1437,15 @@ export function WBSTable({
               />
             </div>
 
-            {/* 적용 버튼 - 상태, 담당자, 공수, 시작일, 완료일 등 입력된 모든 항목 일괄 적용 */}
+            {/* 적용 버튼 - 상태, 담당자, 공수, 진척율, 가중치, 시작일, 완료일 등 입력된 모든 항목 일괄 적용 */}
             <button
               onClick={executeBulkEdit}
               disabled={
                 !bulkStatus &&
                 !bulkAssignee.trim() &&
                 (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
+                (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
+                (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
                 !bulkStartDate.trim() &&
                 !bulkEndDate.trim()
               }
@@ -1417,6 +1454,18 @@ export function WBSTable({
             >
               적용
             </button>
+
+            {canEditCurrentProject && selectedTaskIds.size >= 2 && (
+              <button
+                type="button"
+                onClick={executeBulkLinkSequentialPredecessors}
+                className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다"
+              >
+                <Link2 size={14} />
+                선행 순차 연결
+              </button>
+            )}
 
             <button
               onClick={executeBulkClearDependencies}
@@ -1603,6 +1652,21 @@ export function WBSTable({
                       }
                     },
                   },
+                  ...(canEditCurrentProject && selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                    ? [
+                        {
+                          label: '선행 순차 연결',
+                          icon: <Link2 size={14} />,
+                          onClick: () => {
+                            const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+                            if (ordered.length >= 2) linkSequentialPredecessors(ordered);
+                            setSelection(new Set());
+                            setLastSelectedId(null);
+                            setContextMenu(null);
+                          },
+                        },
+                      ]
+                    : []),
                   ...(contextMenu.taskId &&
                   !(
                     sortConfig !== null ||

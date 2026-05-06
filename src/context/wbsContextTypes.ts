@@ -82,6 +82,8 @@ export interface WBSContextType {
   updateTask: (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => void;
   /** 여러 작업에 동일한 수정 일괄 적용 (일정 변경 없을 때만 사용, 충돌 방지) */
   updateTasksBulk: (taskIds: string[], updates: Partial<Task>) => void;
+  /** 화면 순서대로 선행작업 체인 연결 (각 작업의 선행은 목록에서 바로 위 작업만) */
+  linkSequentialPredecessors: (orderedTaskIds: string[]) => void;
   deleteTask: (id: string) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;

@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import { useToast } from './Toast';
 import { applyDependencySchedule } from '../lib/schedule';
+import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { buildTasksInTreeOrderWithWbs } from '../lib/taskView';
 import { randomUUID } from '../lib/utils';
 
@@ -122,6 +123,7 @@ export function AIAnalysisModal({
   }, [isOpen, onClose]);
 
   const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
+  const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
 
   const currentProject = useMemo(() => projects.find((p) => p.id === currentProjectId), [projects, currentProjectId]);
 
@@ -374,7 +376,8 @@ export function AIAnalysisModal({
       } else {
         const combinedInput = [inputText.trim(), attachmentBlock.trim()].filter(Boolean).join('\n\n');
         const minEffort = currentProject?.minWorkEffortDays ?? 0.5;
-        const effortUnit = minEffort === 0.5 ? '0.5d 단위' : minEffort === 1 ? '1d 단위' : `${minEffort}d 단위`;
+        const effortBreakdownHint = minEffort === 0.5 ? '0.5d 단위' : minEffort === 1 ? '1d 단위' : `${minEffort}d 단위`;
+        const storeUnitLabel = workEffortUnitSuffixKo(normalizeWorkEffortUnit(currentProject?.workEffortUnit));
         prompt = `
 당신은 프로젝트 관리 전문가입니다.
 
@@ -392,7 +395,7 @@ ${combinedInput}
 [지침]
 - 입력에 나온 단계, 산출물, 일정, 담당자, 작업명 등을 그대로 살려서 WBS를 구성하세요. 입력에 없는 단계나 작업을 임의로 넣지 마세요.
 - 레벨은 입력 내용에 맞게 적절히만 분류: 마일스톤/단계 → 작업 그룹 → 실행 작업 수준으로 계층을 나누되, 과도한 분해나 통합은 하지 마세요.
-- 작업 공수는 ${effortUnit}, 일정은 제약조건(시작일·종료일·투입율)에 맞게 설정하세요. 프로젝트에 투입인원이 있으면 그 인원으로 담당을 배정하세요.
+- 작업 공수 숫자(workEffort)는 프로젝트 공수 단위 「${storeUnitLabel}」로 넣으세요. 세부 분해는 최소 공수 기준 ${effortBreakdownHint}를 참고합니다. 일정은 제약조건(시작일·종료일·투입율)에 맞게 설정하세요. 프로젝트에 투입인원이 있으면 그 인원으로 담당을 배정하세요.
 - 각 작업에 description(작업설명), deliverables(산출물)를 넣어 주세요.
 
 [JSON 출력]
@@ -489,8 +492,7 @@ ${combinedInput}
       parsed.tasks.forEach((t: AIResponseTask) => processTask(t));
 
       if (isMountedRef.current) {
-        const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
-        const adjusted = applyDependencySchedule(flattenedTasks, projectAssignmentsByProjectId);
+        const adjusted = applyDependencySchedule(flattenedTasks, projectAssignmentsByProjectId, undefined, projectEffortUnitByProjectId);
         onImport(adjusted, effectiveUseExisting);
         if (effectiveUseExisting) {
           dismissToast(REANALYZE_PROGRESS_TOAST_ID);
@@ -641,7 +643,12 @@ ${combinedInput}
               ? depMap.get(t.id)!
               : t.dependencies || [],
         }));
-        const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
+        const withConsistentDates = applyDependencySchedule(
+          withDeps,
+          projectAssignmentsByProjectId,
+          undefined,
+          projectEffortUnitByProjectId,
+        );
         onImport(withConsistentDates, true);
         pushToast(`선행관계 ${validated.length}건 적용. 일정·공휴일·투입인력(과업무 방지) 반영`, { variant: 'success' });
         handleResetAndClose();
@@ -669,13 +676,13 @@ ${combinedInput}
           ? depMap.get(t.id)!
           : t.dependencies || [],
     }));
-    const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId);
+    const withConsistentDates = applyDependencySchedule(withDeps, projectAssignmentsByProjectId, undefined, projectEffortUnitByProjectId);
     onImport(withConsistentDates, true);
     handleResetAndClose();
   };
 
   const handleImport = () => {
-    const adjusted = applyDependencySchedule(generatedTasks, projectAssignmentsByProjectId);
+    const adjusted = applyDependencySchedule(generatedTasks, projectAssignmentsByProjectId, undefined, projectEffortUnitByProjectId);
     onImport(adjusted, isReanalyzing);
     handleResetAndClose();
   };

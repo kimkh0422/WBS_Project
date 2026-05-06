@@ -1,7 +1,20 @@
 import React from 'react';
 import { Task, FilterState, SortConfig } from '../types';
 
-export type TableColumnId = 'wbsId' | 'name' | 'startDate' | 'endDate' | 'workEffort' | 'weight' | 'assignee' | 'allocation' | 'status' | 'progress' | 'deliverables' | 'dependencies';
+export type BuiltInTableColumnId =
+  | 'wbsId'
+  | 'name'
+  | 'startDate'
+  | 'endDate'
+  | 'workEffort'
+  | 'weight'
+  | 'assignee'
+  | 'allocation'
+  | 'status'
+  | 'progress'
+  | 'deliverables'
+  | 'dependencies';
+export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;
 
 export interface WBSTableProps {
   filters: FilterState;

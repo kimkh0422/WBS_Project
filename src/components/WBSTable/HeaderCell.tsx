@@ -1,15 +1,15 @@
 import React from 'react';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import type { Task, SortConfig } from '../../types';
-import type { TableColumnId } from '../wbsTableTypes';
+import type { BuiltInTableColumnId, TableColumnId } from '../wbsTableTypes';
 
 /** 컬럼 헤더 마우스 오버 시 툴팁 */
-export const COLUMN_TOOLTIPS: Record<TableColumnId, string> = {
+export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   wbsId: 'WBS 식별자',
   name: '작업명 (클릭하여 정렬)',
   startDate: '시작일 (클릭하여 정렬)',
   endDate: '종료일 (클릭하여 정렬)',
-  workEffort: '공수(일 단위) (클릭하여 정렬)',
+  workEffort: '프로젝트 공수 단위(분·시간·일·주) (클릭하여 정렬)',
   weight: '진척 가중치 (클릭하여 정렬)',
   assignee: '담당자 (클릭하여 정렬)',
   allocation: '투입율 (%)',
@@ -32,6 +32,9 @@ export function SortIcon({ column, sortConfig }: SortIconProps) {
 
 interface HeaderCellProps {
   id: TableColumnId;
+  label?: string;
+  /** workEffort 컬럼 표시 텍스트(단일 프로젝트 표시 시 단위 포함) */
+  workEffortHeaderTitle?: string;
   sortConfig: SortConfig;
   onSort: (key: keyof Task | 'wbs') => void;
   resizeGrip: React.ReactNode;
@@ -39,7 +42,29 @@ interface HeaderCellProps {
   onColDoubleClick: (ev: React.MouseEvent) => void;
 }
 
-export function HeaderCell({ id, sortConfig, onSort, resizeGrip, onColContextMenu, onColDoubleClick }: HeaderCellProps) {
+export function HeaderCell({
+  id,
+  label,
+  workEffortHeaderTitle,
+  sortConfig,
+  onSort,
+  resizeGrip,
+  onColContextMenu,
+  onColDoubleClick,
+}: HeaderCellProps) {
+  if (id.startsWith('custom:')) {
+    return (
+      <div
+        className="col-header relative"
+        onDoubleClick={onColDoubleClick}
+        onContextMenu={onColContextMenu}
+        title={`${label ?? id} · 더블클릭: 너비 자동`}
+      >
+        {label ?? id}
+        {resizeGrip}
+      </div>
+    );
+  }
   switch (id) {
     case 'wbsId':
       return (
@@ -102,7 +127,7 @@ export function HeaderCell({ id, sortConfig, onSort, resizeGrip, onColContextMen
           onContextMenu={onColContextMenu}
           title={COLUMN_TOOLTIPS.workEffort + ' · 더블클릭: 너비 자동'}
         >
-          공수(d) <SortIcon column="workEffort" sortConfig={sortConfig} />
+          {workEffortHeaderTitle ?? '공수'} <SortIcon column="workEffort" sortConfig={sortConfig} />
           {resizeGrip}
         </div>
       );

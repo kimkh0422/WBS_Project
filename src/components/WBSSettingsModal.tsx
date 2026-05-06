@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette, AlertTriangle } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
+import { useAuth } from '../context/AuthContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
 import { cn, round2, formatNum2 } from '../lib/utils';
@@ -71,8 +72,13 @@ function hexToRgb(hex: string): RgbColor | null {
 }
 
 export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSettingsModalProps) {
-  const { wbsSettings, updateWbsSettings, projects, updateProject, syncProgressFromStatusConfigs } = useWBS();
+  const { wbsSettings, updateWbsSettings, projects, updateProject, syncProgressFromStatusConfigs, isAdmin } = useWBS();
+  const { user } = useAuth();
   const { levelColors, setLevelColors } = useLevelColors();
+  // 권한: 전역 설정(웹 타이틀, WBS prefix, 표 컬럼, 상태/진척도, 색상 등)은 관리자만 수정 가능.
+  // 프로젝트별 일정은 본인이 만든 프로젝트(소유자)이거나 관리자일 때만 수정 가능.
+  const canEditGlobal = isAdmin;
+  const canEditProject = (ownerId?: string | null) => isAdmin || (!!user?.id && ownerId === user.id);
 
   const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
   const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath === true);
@@ -89,6 +95,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [projectDates, setProjectDates] = useState<Record<string, string>>({});
   const [projectEndDates, setProjectEndDates] = useState<Record<string, string>>({});
   const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
+  const [customColumns, setCustomColumns] = useState<Array<{ id: string; name: string }>>(wbsSettings.customColumns || []);
   const [levelColorsState, setLevelColorsState] = useState<RgbColor[]>(DEFAULT_LEVEL_COLORS);
   const [activeTab, setActiveTab] = useState<'basic' | 'columns' | 'status' | 'projects'>('basic');
 
@@ -130,6 +137,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   const normalizedTableColumns = useMemo(() => {
     const incoming = tableColumns && tableColumns.length > 0 ? tableColumns : wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS;
+    const customIds = new Set((customColumns ?? []).map((c) => c.id));
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c) => c && typeof c.id === 'string')
@@ -139,6 +147,13 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         seen.add(c.id);
         return true;
       });
+
+    // 사용자 정의 컬럼은 기본 컬럼 뒤에 자동 보강
+    for (const cc of customColumns ?? []) {
+      if (!cc || !cc.id || seen.has(cc.id)) continue;
+      cleaned.push({ id: cc.id, visible: true });
+      seen.add(cc.id);
+    }
 
     // Ensure required columns exist (especially name)
     const ensureIds = DEFAULT_TABLE_COLUMNS.map((c) => c.id);
@@ -159,7 +174,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
     // Keep name always visible
     return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
-  }, [tableColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
+    // 정의가 제거된 사용자 컬럼은 목록에서 제거
+    return cleaned
+      .filter((c) => !c.id.startsWith('custom:') || customIds.has(c.id))
+      .map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
+  }, [tableColumns, customColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
 
   useEffect(() => {
     if (isOpen) {
@@ -174,6 +193,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       setLinkStatusAndProgress(wbsSettings.linkStatusAndProgress !== false);
       setStatusApplyMode('current');
       setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
+      setCustomColumns(wbsSettings.customColumns || []);
       setLevelColorsState(levelColors && levelColors.length >= 5 ? [...levelColors] : [...DEFAULT_LEVEL_COLORS]);
 
       const initialStartDates: Record<string, string> = {};
@@ -212,22 +232,30 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (statusProgressInvalid) return;
-    updateWbsSettings({
-      appTitle: appTitle.trim(),
-      showCriticalPath,
-      wrapTextInCells,
-      level1Prefix: level1.trim(),
-      level2Prefix: level2.trim(),
-      level3Prefix: level3.trim(),
-      maxLevel: Number(maxLevel),
-      statusConfigs: statusConfigs,
-      linkStatusAndProgress,
-      tableColumns: normalizedTableColumns,
-    });
+    // 전역 설정·색상·상태진척도 적용: 관리자만 (UI에서 입력은 disabled 처리되지만 방어적으로 한 번 더 차단)
+    if (canEditGlobal) {
+      updateWbsSettings({
+        appTitle: appTitle.trim(),
+        showCriticalPath,
+        wrapTextInCells,
+        level1Prefix: level1.trim(),
+        level2Prefix: level2.trim(),
+        level3Prefix: level3.trim(),
+        maxLevel: Number(maxLevel),
+        statusConfigs: statusConfigs,
+        linkStatusAndProgress,
+        tableColumns: normalizedTableColumns,
+        customColumns: customColumns
+          .map((c) => ({ id: c.id, name: c.name.trim() }))
+          .filter((c) => c.id.startsWith('custom:') && c.name.length > 0),
+      });
 
-    setLevelColors(levelColorsState);
+      setLevelColors(levelColorsState);
+    }
 
+    // 프로젝트별 일정: 본인 프로젝트 또는 관리자만 반영
     projects.forEach((project) => {
+      if (!canEditProject(project.ownerId)) return;
       const startDate = projectDates[project.id] ?? '';
       const endDate = projectEndDates[project.id] ?? '';
 
@@ -244,10 +272,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       }
     });
 
-    if (statusApplyMode === 'current') {
-      syncProgressFromStatusConfigs('current');
-    } else if (statusApplyMode === 'all') {
-      syncProgressFromStatusConfigs('all');
+    if (canEditGlobal) {
+      if (statusApplyMode === 'current') {
+        syncProgressFromStatusConfigs('current');
+      } else if (statusApplyMode === 'all') {
+        syncProgressFromStatusConfigs('all');
+      }
     }
 
     onClose();
@@ -259,7 +289,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50">
           <div className="flex items-center gap-2 text-[var(--color-ink)]">
             <Settings2 size={18} />
-            <h2 className="text-lg font-bold">WBS 설정</h2>
+            <h2 className="text-lg font-bold">환경설정</h2>
           </div>
           <button
             onClick={onClose}
@@ -268,6 +298,15 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             <X size={18} />
           </button>
         </div>
+
+        {!canEditGlobal && (
+          <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+            <span>
+              관리자 전용 설정(웹 타이틀·WBS 단계·표 컬럼·상태/진척도·색상 등)은 보기만 가능합니다.
+              <strong> 본인이 만든 프로젝트의 일정만</strong> 변경할 수 있습니다.
+            </span>
+          </div>
+        )}
 
         <form onSubmit={handleSave} className="flex-1 flex flex-col overflow-hidden">
           <div className="px-6 md:px-8 pt-4 border-b border-[var(--color-line)] bg-white/70">
@@ -321,7 +360,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
           <div className="flex-1 overflow-y-auto p-6 md:p-8">
             {activeTab === 'basic' && (
-              <div className="space-y-8">
+              <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
                 {/* Application Settings */}
                 <div className="space-y-4">
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2 flex items-center gap-2">
@@ -477,11 +516,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     작업표·간트 차트에서 레벨별로 적용됩니다. 사용자별로 저장됩니다.
                   </p>
                 </div>
-              </div>
+              </fieldset>
             )}
 
             {activeTab === 'columns' && (
-              <div className="space-y-8">
+              <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
                 {/* Table Columns */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b border-stone-200 pb-2">
@@ -499,7 +538,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
                   <div className="flex flex-col gap-2.5">
                     {normalizedTableColumns.map((col, idx) => {
-                      const label = TABLE_COLUMN_LABELS[col.id] || col.id;
+                      const custom = customColumns.find((c) => c.id === col.id);
+                      const label = custom?.name || TABLE_COLUMN_LABELS[col.id] || col.id;
                       const isName = col.id === 'name';
                       return (
                         <div key={col.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border border-stone-200 bg-white">
@@ -563,15 +603,59 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       );
                     })}
                   </div>
+                  <div className="mt-5 border-t border-stone-200 pt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-stone-700">사용자 정의 컬럼</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = `custom:${Date.now()}`;
+                          setCustomColumns((prev) => [...prev, { id, name: '새 컬럼' }]);
+                          setTableColumns((prev) => [...(prev || []), { id, visible: true }]);
+                        }}
+                        className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      >
+                        <Plus size={14} />
+                        컬럼 추가
+                      </button>
+                    </div>
+                    {(customColumns ?? []).length === 0 && (
+                      <p className="text-[11px] text-stone-500">추가된 사용자 정의 컬럼이 없습니다.</p>
+                    )}
+                    {(customColumns ?? []).map((cc) => (
+                      <div key={cc.id} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={cc.name}
+                          onChange={(e) =>
+                            setCustomColumns((prev) => prev.map((x) => (x.id === cc.id ? { ...x, name: e.target.value } : x)))
+                          }
+                          className="input-field py-1.5 text-xs"
+                          placeholder="컬럼명"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomColumns((prev) => prev.filter((x) => x.id !== cc.id));
+                            setTableColumns((prev) => (prev || []).filter((x) => x.id !== cc.id));
+                          }}
+                          className="p-1.5 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                          title="삭제"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                   <p className="text-[10px] text-stone-400 leading-relaxed">
                     작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시 반영됩니다.
                   </p>
                 </div>
-              </div>
+              </fieldset>
             )}
 
             {activeTab === 'status' && (
-              <div className="space-y-8">
+              <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
                 {/* Status Name & Progress Settings */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b border-stone-200 pb-2">
@@ -811,7 +895,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       : '상태는 표시만 사용하고, 진척률은 각 작업에서 입력한 값만을 기준으로 계산합니다.'}
                   </p>
                 </div>
-              </div>
+              </fieldset>
             )}
 
             {activeTab === 'projects' && (
@@ -820,36 +904,54 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 <div className="space-y-4">
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">프로젝트 시작·종료일 관리</h3>
                   <div className="space-y-2 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
-                    {projects.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-3 bg-white p-2 border border-stone-100 rounded-lg">
-                        <div className="flex-1 truncate">
-                          <label className="text-xs font-bold text-stone-600 truncate block" title={p.name}>
-                            {p.name}
-                          </label>
-                          <p className="text-[10px] text-stone-400 truncate">WBS 작업은 설정된 기간 범위를 벗어날 수 없습니다.</p>
-                        </div>
-                        <div className="flex-shrink-0 flex items-end gap-2">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[9px] font-semibold text-stone-500">시작</span>
-                            <input
-                              type="date"
-                              value={projectDates[p.id] || ''}
-                              onChange={(e) => setProjectDates({ ...projectDates, [p.id]: e.target.value })}
-                              className="input-field py-1 text-[11px] h-7 w-28"
-                            />
+                    {projects.map((p) => {
+                      const editable = canEditProject(p.ownerId);
+                      return (
+                        <div
+                          key={p.id}
+                          className={`flex items-center justify-between gap-3 p-2 border rounded-lg ${
+                            editable ? 'bg-white border-stone-100' : 'bg-stone-50 border-stone-200'
+                          }`}
+                        >
+                          <div className="flex-1 truncate">
+                            <label className="text-xs font-bold text-stone-600 truncate block flex items-center gap-1.5" title={p.name}>
+                              <span className="truncate">{p.name}</span>
+                              {!editable && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[9px] font-medium text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded shrink-0"
+                                  title="본인이 만든 프로젝트가 아니므로 변경할 수 없습니다."
+                                >
+                                  보기 전용
+                                </span>
+                              )}
+                            </label>
+                            <p className="text-[10px] text-stone-400 truncate">WBS 작업은 설정된 기간 범위를 벗어날 수 없습니다.</p>
                           </div>
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[9px] font-semibold text-stone-500">종료</span>
-                            <input
-                              type="date"
-                              value={projectEndDates[p.id] || ''}
-                              onChange={(e) => setProjectEndDates({ ...projectEndDates, [p.id]: e.target.value })}
-                              className="input-field py-1 text-[11px] h-7 w-28"
-                            />
+                          <div className="flex-shrink-0 flex items-end gap-2">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[9px] font-semibold text-stone-500">시작</span>
+                              <input
+                                type="date"
+                                value={projectDates[p.id] || ''}
+                                onChange={(e) => setProjectDates({ ...projectDates, [p.id]: e.target.value })}
+                                disabled={!editable}
+                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[9px] font-semibold text-stone-500">종료</span>
+                              <input
+                                type="date"
+                                value={projectEndDates[p.id] || ''}
+                                onChange={(e) => setProjectEndDates({ ...projectEndDates, [p.id]: e.target.value })}
+                                disabled={!editable}
+                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>

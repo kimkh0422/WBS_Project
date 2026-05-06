@@ -8,10 +8,8 @@ import {
   getHolidaysForTaskDates,
   isNonWorkingDay,
 } from './calendar';
-import {
-  computeDurationBusinessDays,
-  computeEndDateFromEffort,
-} from './schedule';
+import { computeEndDateFromEffort } from './schedule';
+import { buildProjectEffortUnitMap, taskStoredEffortAsManDays } from './workEffortUnits';
 
 /** 인원·일자별 투입 합산 결과 (100% 초과 시 과부하) */
 export interface WorkloadDay {
@@ -31,7 +29,7 @@ export interface OverloadResult {
 /** 해당 일자에 적용되는 투입비율. 월별 설정이 있으면 해당 월 값, 없으면 기본 allocationPercent */
 export function getEffectiveAllocationPercent(
   assignment: { allocationPercent: number; monthlyAllocations?: Record<string, number> },
-  dateStr: string
+  dateStr: string,
 ): number {
   const yyyyMm = dateStr.slice(0, 7);
   if (assignment.monthlyAllocations && assignment.monthlyAllocations[yyyyMm] !== undefined) {
@@ -40,10 +38,7 @@ export function getEffectiveAllocationPercent(
   return assignment.allocationPercent ?? 0;
 }
 
-function getAssignmentsForTask(
-  task: Task,
-  projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>
-): ProjectAssignment[] {
+function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>): ProjectAssignment[] {
   if (task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
     if (pa && pa.length > 0) return pa;
@@ -57,10 +52,7 @@ function getAssignmentsForTask(
 /**
  * 인원·일자별 투입 합산. 100% 초과인 날을 과부하로 반환.
  */
-export function computeWorkloadOverloads(
-  tasks: Task[],
-  projects: Project[]
-): OverloadResult {
+export function computeWorkloadOverloads(tasks: Task[], projects: Project[]): OverloadResult {
   const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>();
   projects.forEach((p) => {
     if (p.assignments && p.assignments.length > 0) {
@@ -72,13 +64,7 @@ export function computeWorkloadOverloads(
   // assignee -> date -> { totalPercent, taskIds }
   const byAssigneeDate = new Map<string, Map<string, { totalPercent: number; taskIds: Set<string> }>>();
 
-  const leafTasks = tasks.filter(
-    (t) =>
-      !t.isMilestone &&
-      t.startDate &&
-      t.endDate &&
-      !tasks.some((other) => other.parentId === t.id)
-  );
+  const leafTasks = tasks.filter((t) => !t.isMilestone && t.startDate && t.endDate && !tasks.some((other) => other.parentId === t.id));
 
   for (const task of leafTasks) {
     const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
@@ -90,7 +76,7 @@ export function computeWorkloadOverloads(
 
     const numBusinessDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
     const businessDays = getBusinessDayStringsEx(task.startDate, numBusinessDays, holidays).filter(
-      (d) => d >= task.startDate && d <= task.endDate
+      (d) => d >= task.startDate && d <= task.endDate,
     );
 
     if (businessDays.length === 0) {
@@ -156,17 +142,8 @@ export type FixStrategy = 'extend' | 'increaseAllocation';
 /**
  * 담당자별 리프 작업 목록 (과부하 해결 시 해당 담당자 전체 작업을 고려)
  */
-function getLeafTasksByAssignee(
-  tasks: Task[],
-  projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>
-): Map<string, Task[]> {
-  const leafTasks = tasks.filter(
-    (t) =>
-      !t.isMilestone &&
-      t.startDate &&
-      t.endDate &&
-      !tasks.some((other) => other.parentId === t.id)
-  );
+function getLeafTasksByAssignee(tasks: Task[], projectAssignmentsByProjectId: Map<string, ProjectAssignment[]>): Map<string, Task[]> {
+  const leafTasks = tasks.filter((t) => !t.isMilestone && t.startDate && t.endDate && !tasks.some((other) => other.parentId === t.id));
   const byAssignee = new Map<string, Task[]>();
   for (const task of leafTasks) {
     const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
@@ -183,11 +160,7 @@ function getLeafTasksByAssignee(
  * 같은 담당자의 과부하 작업 + 같은 기간에 겹치는 다른 작업까지 포함해 순차 배치.
  * 여러 담당자에게 배정된 작업은 한 번만 배치하고, 담당자 처리 순서로 결정.
  */
-export function fixOverloadByExtending(
-  tasks: Task[],
-  projects: Project[],
-  overloads: WorkloadDay[]
-): Task[] {
+export function fixOverloadByExtending(tasks: Task[], projects: Project[], overloads: WorkloadDay[]): Task[] {
   if (overloads.length === 0) return tasks;
 
   const holidays = getHolidaysForTaskDates(tasks);
@@ -197,6 +170,8 @@ export function fixOverloadByExtending(
       projectAssignmentsByProjectId.set(p.id, p.assignments);
     }
   });
+
+  const unitByProjectId = buildProjectEffortUnitMap(projects);
 
   const byId = new Map<string, Task>();
   const result = tasks.map((t) => {
@@ -265,7 +240,10 @@ export function fixOverloadByExtending(
       if (!task || task.isMilestone) continue;
 
       const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
-      const effort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : 1;
+      const effort =
+        typeof task.workEffort === 'number' && task.workEffort > 0
+          ? Math.max(taskStoredEffortAsManDays(task, unitByProjectId), 1 / 480)
+          : 1;
       const newStart = format(cursor, 'yyyy-MM-dd');
       const endDate = computeEndDateFromEffort(newStart, effort, assignments, holidays);
       task.startDate = newStart;
@@ -283,11 +261,7 @@ export function fixOverloadByExtending(
 /**
  * 투입율 증가: 과부하 작업 중 투입율이 100% 미만인 경우 100%로 올리고 종료일 재계산.
  */
-export function fixOverloadByIncreasingAllocation(
-  tasks: Task[],
-  projects: Project[],
-  overloads: WorkloadDay[]
-): Task[] {
+export function fixOverloadByIncreasingAllocation(tasks: Task[], projects: Project[], overloads: WorkloadDay[]): Task[] {
   if (overloads.length === 0) return tasks;
 
   const holidays = getHolidaysForTaskDates(tasks);
@@ -298,14 +272,9 @@ export function fixOverloadByIncreasingAllocation(
     }
   });
 
-  const byId = new Map<string, Task>();
-  const result = tasks.map((t) => {
-    const copy = { ...t };
-    byId.set(copy.id, copy);
-    return copy;
-  });
+  const unitByProjectId = buildProjectEffortUnitMap(projects);
 
-  const taskIdsToFix = new Set<string>();
+  const byId = new Map<string, Task>();
   for (const o of overloads) {
     o.taskIds.forEach((id) => taskIdsToFix.add(id));
   }
@@ -323,8 +292,9 @@ export function fixOverloadByIncreasingAllocation(
       allocationPercent: 100,
     }));
 
-    const effort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : 1;
-    task.endDate = computeEndDateFromEffort(task.startDate, effort, newAssignments, holidays);
+    const effortMd =
+      typeof task.workEffort === 'number' && task.workEffort > 0 ? Math.max(taskStoredEffortAsManDays(task, unitByProjectId), 1 / 480) : 1;
+    task.endDate = computeEndDateFromEffort(task.startDate, effortMd, newAssignments, holidays);
   }
 
   return result;

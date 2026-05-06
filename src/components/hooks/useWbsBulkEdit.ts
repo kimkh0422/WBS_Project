@@ -6,9 +6,12 @@ import { round2 } from '../../lib/utils';
 interface UseWbsBulkEditOptions {
   selectedTaskIds: Set<string>;
   tasks: Task[];
+  /** 현재 표(필터·정렬 반영)에 보이는 행 순서 — 선행 순차 연결에 사용 */
+  visibleTasks: Task[];
   wbsSettings: WBSSettings;
   updateTask: (id: string, updates: Partial<Task>) => void;
   updateTasksBulk: (ids: string[], updates: Partial<Task>) => void;
+  linkSequentialPredecessors: (orderedTaskIds: string[]) => void;
   setSelection: (next: Set<string>) => void;
   setLastSelectedId: (id: string | null) => void;
 }
@@ -16,9 +19,11 @@ interface UseWbsBulkEditOptions {
 export function useWbsBulkEdit({
   selectedTaskIds,
   tasks,
+  visibleTasks,
   wbsSettings,
   updateTask,
   updateTasksBulk,
+  linkSequentialPredecessors,
   setSelection,
   setLastSelectedId,
 }: UseWbsBulkEditOptions) {
@@ -26,6 +31,7 @@ export function useWbsBulkEdit({
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
   const [bulkProgress, setBulkProgress] = useState('');
+  const [bulkWeight, setBulkWeight] = useState('');
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
 
@@ -34,6 +40,7 @@ export function useWbsBulkEdit({
     setBulkAssignee('');
     setBulkWorkEffort('');
     setBulkProgress('');
+    setBulkWeight('');
     setBulkStartDate('');
     setBulkEndDate('');
   }, []);
@@ -53,6 +60,10 @@ export function useWbsBulkEdit({
     if (bulkProgress !== '') {
       const val = parseFloat(bulkProgress);
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
+    }
+    if (bulkWeight !== '') {
+      const val = parseFloat(bulkWeight);
+      if (!isNaN(val) && val >= 0) updates.weight = round2(val);
     }
     if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
     if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();
@@ -75,6 +86,7 @@ export function useWbsBulkEdit({
     bulkAssignee,
     bulkWorkEffort,
     bulkProgress,
+    bulkWeight,
     bulkStartDate,
     bulkEndDate,
     wbsSettings,
@@ -118,11 +130,28 @@ export function useWbsBulkEdit({
   const executeBulkAssignee = useCallback(() => {
     const value = bulkAssignee.trim();
     if (!value) return;
-    updateTasksBulk(Array.from(selectedTaskIds), { assignee: value });
+    // 담당자 일괄 변경 시 선택된 작업의 모든 하위 작업도 동일 담당자로 자동 등록
+    const childrenByParentId = new Map<string, string[]>();
+    for (const t of tasks) {
+      if (!t.parentId) continue;
+      const list = childrenByParentId.get(t.parentId);
+      if (list) list.push(t.id);
+      else childrenByParentId.set(t.parentId, [t.id]);
+    }
+    const expanded = new Set<string>();
+    const stack = Array.from(selectedTaskIds);
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (expanded.has(id)) continue;
+      expanded.add(id);
+      const children = childrenByParentId.get(id);
+      if (children) stack.push(...children);
+    }
+    updateTasksBulk(Array.from(expanded), { assignee: value });
     setBulkAssignee('');
     setSelection(new Set());
     setLastSelectedId(null);
-  }, [bulkAssignee, selectedTaskIds, updateTasksBulk, setSelection, setLastSelectedId]);
+  }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk, setSelection, setLastSelectedId]);
 
   const executeBulkClearDependencies = useCallback(() => {
     const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
@@ -136,6 +165,15 @@ export function useWbsBulkEdit({
     setLastSelectedId(null);
   }, [tasks, selectedTaskIds, updateTask, setSelection, setLastSelectedId]);
 
+  /** 표에 보이는 순서대로 선택 행만 연쇄 선행(FS) 연결 */
+  const executeBulkLinkSequentialPredecessors = useCallback(() => {
+    const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+    if (ordered.length < 2) return;
+    linkSequentialPredecessors(ordered);
+    setSelection(new Set());
+    setLastSelectedId(null);
+  }, [visibleTasks, selectedTaskIds, linkSequentialPredecessors, setSelection, setLastSelectedId]);
+
   return {
     bulkStatus,
     setBulkStatus,
@@ -145,6 +183,8 @@ export function useWbsBulkEdit({
     setBulkWorkEffort,
     bulkProgress,
     setBulkProgress,
+    bulkWeight,
+    setBulkWeight,
     bulkStartDate,
     setBulkStartDate,
     bulkEndDate,
@@ -155,5 +195,6 @@ export function useWbsBulkEdit({
     executeBulkStatus,
     executeBulkAssignee,
     executeBulkClearDependencies,
+    executeBulkLinkSequentialPredecessors,
   };
 }

@@ -83,7 +83,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
       {
         type: 'list',
         items: [
-          'Enter: 선택한 작업과 같은 레벨 아래에 새 작업 추가.',
+          'Enter: 선택한 작업과 같은 레벨 아래에 새 작업 추가. Shift+Enter: 같은 레벨 위에 추가.',
           'Tab: 선택한 작업을 한 단계 하위 레벨로 내리기. Shift+Tab: 한 단계 상위로 올리기.',
           '작업 행 더블클릭 또는 F2: 작업 편집 창에서 이름·시작일·종료일·담당자·상태·진척률·공수(일)·설명·산출물·체크리스트·선행작업(의존성) 등을 입력.',
         ],
@@ -232,7 +232,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
         type: 'list',
         items: [
           '앱 제목: 상단에 표시되는 앱 이름.',
-          'WBS 설정: 레벨별 접두어(1., 1.1., 1.1.1 등), 최대 깊이.',
+          '환경설정: 레벨별 접두어(1., 1.1., 1.1.1 등), 최대 깊이.',
           '상태 정의: 작업 상태 이름·색·진척도(%). 예: 할당 0%, 진행중 50%, 완료 100%.',
           '표 컬럼: 표시할 컬럼(WBS ID, 이름, 시작일, 종료일, 공수, 담당자, 투입율, 상태, 진척률, 산출물, 선행작업 등)과 표시 순서.',
           '표 줄바꿈·열 너비, 간트 크리티컬 패스 표시 등.',
@@ -256,6 +256,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
           ['표', 'Alt+↑ / Alt+↓', '작업 순서 위/아래 변경'],
           ['표', 'Tab / Shift+Tab', '레벨 한 단계 내리기/올리기'],
           ['표', 'Enter', '같은 레벨 아래 새 작업 추가'],
+          ['표', 'Shift+Enter', '같은 레벨 위에 새 작업 추가'],
           ['표', 'F2', '선택한 작업 수정'],
           ['표', 'Delete', '선택한 작업 삭제'],
           ['표', 'Ctrl+C / Ctrl+V', '복사·붙여넣기'],
@@ -279,7 +280,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
         type: 'list',
         items: [
           '⋮ → AI 분석을 선택하면 Gemini를 이용해 WBS 초안 생성·재분석·의존성 추론 등을 할 수 있습니다. (API 키 설정이 필요할 수 있습니다.)',
-          '의존성·시작일·종료일·공수 등 특정 필드를 "잠금"해 두면 AI가 해당 필드를 덮어쓰지 않습니다.',
+          '의존성·시작일·종료일·공수 등 특정 필드를 고정해 두면 AI가 해당 필드를 덮어쓰지 않습니다.',
         ],
       },
       { type: 'subtitle', text: '주간보고' },
@@ -413,7 +414,7 @@ export function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
                   'w-full text-left px-4 py-2.5 flex items-center gap-2 text-sm transition-colors rounded-r-lg',
                   activeId === s.id
                     ? 'bg-indigo-50 text-indigo-700 font-semibold border-l-2 border-indigo-500'
-                    : 'text-slate-600 hover:bg-slate-100'
+                    : 'text-slate-600 hover:bg-slate-100',
                 )}
               >
                 <ChevronRight size={14} className={activeId === s.id ? 'opacity-100' : 'opacity-0'} />
@@ -432,12 +433,8 @@ export function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
                 id={`tutorial-${section.id}`}
                 className="mb-8"
               >
-                <h3 className="text-base font-bold text-slate-800 mb-4 pb-2 border-b border-slate-200">
-                  {section.title}
-                </h3>
-                <div className="space-y-0">
-                  {section.content.map((block, i) => renderBlock(block, i))}
-                </div>
+                <h3 className="text-base font-bold text-slate-800 mb-4 pb-2 border-b border-slate-200">{section.title}</h3>
+                <div className="space-y-0">{section.content.map((block, i) => renderBlock(block, i))}</div>
               </div>
             ))}
           </div>

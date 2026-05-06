@@ -4,38 +4,55 @@ import { requireSupabase, isRpcDisabled, isRpcNotFoundError, disableRpc } from '
 
 function isApprovedColumnError(err: { message?: string }): boolean {
   const msg = (err.message ?? '').toLowerCase();
-  return msg.includes("'approved'") || msg.includes('approved') && (msg.includes('schema') || msg.includes('cache'));
+  return msg.includes("'approved'") || (msg.includes('approved') && (msg.includes('schema') || msg.includes('cache')));
 }
 
-/** 회원 목록. approved 컬럼이 없으면 기존 컬럼만 조회 후 approved=true로 반환. 에러 시 예외 발생. */
+function isOrgProfileColumnsError(err: { message?: string }): boolean {
+  const msg = (err.message ?? '').toLowerCase();
+  return msg.includes('department') || msg.includes('managed_org');
+}
+
+/** 회원 목록. approved / 조직 컬럼이 없으면 단계별로 폴백 조회한다. 에러 시 예외 발생. */
 export async function fetchProfiles(): Promise<ProfileRow[]> {
   requireSupabase();
+  const mapApproved = <T extends Omit<ProfileRow, 'approved'>>(rows: T[]): ProfileRow[] => rows.map((row) => ({ ...row, approved: true }));
+
   try {
     const { data, error } = await supabase!
       .from('profiles')
-      .select('id, email, full_name, created_at, is_admin, approved')
+      .select('id, email, full_name, created_at, is_admin, approved, department, managed_org_node_id')
       .order('created_at', { ascending: false });
-    if (error) {
-      if (isApprovedColumnError(error)) {
-        const { data: dataWithoutApproved, error: err2 } = await supabase!
-          .from('profiles')
-          .select('id, email, full_name, created_at, is_admin')
-          .order('created_at', { ascending: false });
-        if (err2) throw new Error(err2.message);
-        return ((dataWithoutApproved ?? []) as Omit<ProfileRow, 'approved'>[]).map(row => ({ ...row, approved: true }));
-      }
-      throw new Error(error.message);
-    }
-    return (data ?? []) as ProfileRow[];
-  } catch (e) {
-    if (e instanceof Error) throw e;
-    if (e && typeof e === 'object' && isApprovedColumnError(e as { message?: string })) {
-      const { data, error } = await supabase!
+    if (!error) return (data ?? []) as ProfileRow[];
+    if (isApprovedColumnError(error)) {
+      const { data: r2, error: e2 } = await supabase!
+        .from('profiles')
+        .select('id, email, full_name, created_at, is_admin, department, managed_org_node_id')
+        .order('created_at', { ascending: false });
+      if (!e2) return mapApproved((r2 ?? []) as Omit<ProfileRow, 'approved'>[]);
+      const { data: r3, error: e3 } = await supabase!
         .from('profiles')
         .select('id, email, full_name, created_at, is_admin')
         .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message, { cause: e });
-      return ((data ?? []) as Omit<ProfileRow, 'approved'>[]).map(row => ({ ...row, approved: true }));
+      if (!e3) return mapApproved((r3 ?? []) as Omit<ProfileRow, 'approved'>[]);
+      throw new Error(e3.message);
+    }
+    if (isOrgProfileColumnsError(error)) {
+      const { data: r2, error: e2 } = await supabase!
+        .from('profiles')
+        .select('id, email, full_name, created_at, is_admin, approved')
+        .order('created_at', { ascending: false });
+      if (!e2) return (r2 ?? []) as ProfileRow[];
+      throw new Error(e2.message);
+    }
+    throw new Error(error.message);
+  } catch (e) {
+    if (e instanceof Error && isApprovedColumnError(e)) {
+      const { data: r3, error: e3 } = await supabase!
+        .from('profiles')
+        .select('id, email, full_name, created_at, is_admin')
+        .order('created_at', { ascending: false });
+      if (!e3) return mapApproved((r3 ?? []) as Omit<ProfileRow, 'approved'>[]);
+      throw new Error(e3.message, { cause: e });
     }
     throw e instanceof Error ? e : new Error('회원 목록을 불러올 수 없습니다.');
   }
@@ -45,17 +62,17 @@ export async function fetchProfiles(): Promise<ProfileRow[]> {
 export async function fetchProfileLevelColors(userId: string): Promise<Array<{ r: number; g: number; b: number }> | null> {
   requireSupabase();
   try {
-    const { data, error } = await supabase!
-      .from('profiles')
-      .select('level_colors')
-      .eq('id', userId)
-      .maybeSingle();
+    const { data, error } = await supabase!.from('profiles').select('level_colors').eq('id', userId).maybeSingle();
     if (error) return null;
     const colors = (data as { level_colors?: unknown } | null)?.level_colors;
     if (!Array.isArray(colors)) return null;
     const valid = colors.filter(
       (c): c is { r: number; g: number; b: number } =>
-        c && typeof c === 'object' && typeof (c as Record<string, unknown>).r === 'number' && typeof (c as Record<string, unknown>).g === 'number' && typeof (c as Record<string, unknown>).b === 'number'
+        c &&
+        typeof c === 'object' &&
+        typeof (c as Record<string, unknown>).r === 'number' &&
+        typeof (c as Record<string, unknown>).g === 'number' &&
+        typeof (c as Record<string, unknown>).b === 'number',
     );
     return valid.length > 0 ? valid : null;
   } catch {
@@ -67,10 +84,7 @@ export async function fetchProfileLevelColors(userId: string): Promise<Array<{ r
 export async function updateProfileLevelColors(userId: string, colors: Array<{ r: number; g: number; b: number }> | null): Promise<void> {
   requireSupabase();
   try {
-    const { error } = await supabase!
-      .from('profiles')
-      .update({ level_colors: colors })
-      .eq('id', userId);
+    const { error } = await supabase!.from('profiles').update({ level_colors: colors }).eq('id', userId);
     if (error) return;
   } catch {
     // profiles 테이블 없음 등 - 무시
@@ -95,14 +109,14 @@ export async function getMemberVisitStats(): Promise<Record<string, { login_coun
         msg.toLowerCase().includes('not found')
       ) {
         throw new Error(
-          '접속 통계를 불러올 수 없습니다. Supabase DB에 방문 통계 마이그레이션( visits, record_visit, get_member_visit_stats )을 적용하고, 함수 실행 권한(GRANT)을 확인하세요.'
+          '접속 통계를 불러올 수 없습니다. Supabase DB에 방문 통계 마이그레이션( visits, record_visit, get_member_visit_stats )을 적용하고, 함수 실행 권한(GRANT)을 확인하세요.',
         );
       }
       return {};
     }
     const rows = (data ?? []) as { user_id: string; login_count: number; last_visited_at: string | null }[];
     const out: Record<string, { login_count: number; last_visited_at: string | null }> = {};
-    rows.forEach(r => {
+    rows.forEach((r) => {
       out[r.user_id] = { login_count: Number(r.login_count) || 0, last_visited_at: r.last_visited_at ?? null };
     });
     return out;
@@ -125,7 +139,9 @@ export async function getProjectOwnerDisplayNames(ownerIds: string[]): Promise<R
     }
     const rows = (data ?? []) as { user_id: string; display_name: string }[];
     const out: Record<string, string> = {};
-    rows.forEach(r => { out[r.user_id] = r.display_name || '(이메일 없음)'; });
+    rows.forEach((r) => {
+      out[r.user_id] = r.display_name || '(이메일 없음)';
+    });
     return out;
   } catch {
     return {};
@@ -166,18 +182,54 @@ export async function updateProfileFullName(userId: string, fullName: string): P
   }
 }
 
-/** 관리자: 회원 역할(is_admin) 변경. RLS로 관리자만 허용. */
-export async function updateMemberRole(userId: string, isAdmin: boolean): Promise<{ success: boolean; error?: string }> {
+/** 관리자: 회원의 부서·조직 책임 범위 수정 (시스템 관리자 RLS 필요). 조직 책임자는 호출 불가. */
+export async function updateMemberOrgFields(
+  userId: string,
+  fields: { department?: string | null; managed_org_node_id?: string | null },
+): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
-    const { error } = await supabase!
-      .from('profiles')
-      .update({ is_admin: isAdmin })
-      .eq('id', userId);
+    const patch: Record<string, string | null> = {};
+    if (fields.department !== undefined) patch.department = fields.department?.trim() || null;
+    if (fields.managed_org_node_id !== undefined) {
+      patch.managed_org_node_id = fields.managed_org_node_id?.trim() || null;
+    }
+    if (Object.keys(patch).length === 0) return { success: true };
+    const { error } = await supabase!.from('profiles').update(patch).eq('id', userId);
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch {
     return { success: false, error: 'profiles 테이블을 사용할 수 없습니다.' };
+  }
+}
+
+/** 관리자·조직 책임자: 회원 역할(is_admin) 변경 — DB RPC에서 권한 분기, 미배포 DB는 관리자 직접 UPDATE 폴백 */
+export async function updateMemberRole(userId: string, isAdmin: boolean): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { data, error } = await supabase!.rpc('update_member_is_admin', {
+      p_target_user_id: userId,
+      p_is_admin: isAdmin,
+    });
+    if (!error && data !== null && data !== undefined) {
+      const row = data as { success?: boolean; error?: string };
+      if (row.success === true) return { success: true };
+      if (row.success === false && row.error) return { success: false, error: row.error };
+      if (typeof row === 'object' && row.success === false) return { success: false, error: row.error ?? '역할 변경에 실패했습니다.' };
+      return { success: true };
+    }
+
+    const rpcUnavailable = error && isRpcNotFoundError(error);
+    const rpcReturnedError = error && !rpcUnavailable;
+    if (rpcReturnedError) return { success: false, error: error.message };
+
+    /* RPC 없음 또는 네트워크 등: 폴백 (조직 책임자는 RLS로 실패 → 마이그레이션 필요 안내 가능) */
+    const { error: updErr } = await supabase!.from('profiles').update({ is_admin: isAdmin }).eq('id', userId);
+    if (updErr) return { success: false, error: updErr.message };
+    return { success: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, error: msg || '역할 변경에 실패했습니다.' };
   }
 }
 
@@ -187,56 +239,105 @@ export async function checkIsAdmin(): Promise<boolean> {
   return status?.isAdmin === true;
 }
 
-/** 로그인 사용자의 프로필 상태(관리자 여부, 승인 여부). 미승인 시 로컬 전용 사용. */
-export async function getProfileStatus(): Promise<{ isAdmin: boolean; approved: boolean } | null> {
+export type LoginProfileStatus = {
+  isAdmin: boolean;
+  approved: boolean;
+  /** 회원 계정 소속 부서 문자열 */
+  department: string | null;
+  /** 설정 시 해당 org 노드 subtree 소속 회원만 역할 수정 가능 */
+  managedOrgNodeId: string | null;
+  /** managed_org_node_id 가 비어있지 않을 때 true */
+  isOrgScopeManager: boolean;
+};
+
+/** 로그인 사용자의 프로필 상태(관리자·승인·조직 책임자 범위). 미승인 시 로컬 전용 사용. */
+export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
   requireSupabase();
+  const fallbackStatus = (): LoginProfileStatus => ({
+    isAdmin: false,
+    approved: true,
+    department: null,
+    managedOrgNodeId: null,
+    isOrgScopeManager: false,
+  });
   try {
     const { data, error } = await supabase!.rpc('ensure_profile');
     if (!error) {
-      const result = data as { is_admin?: boolean; approved?: boolean };
+      const result = data as {
+        is_admin?: boolean;
+        approved?: boolean;
+        managed_org_node_id?: string | null;
+        department?: string | null;
+        is_org_scope_manager?: boolean;
+      };
+      const rawManaged = result.managed_org_node_id;
+      const managedStr = rawManaged !== undefined && rawManaged !== null ? String(rawManaged).trim() : '';
+      const deptStr = result.department !== undefined && result.department !== null ? String(result.department).trim() : '';
       return {
         isAdmin: result?.is_admin === true,
         approved: result?.approved !== false,
+        department: deptStr.length > 0 ? deptStr : null,
+        managedOrgNodeId: managedStr.length > 0 ? managedStr : null,
+        isOrgScopeManager: result?.is_org_scope_manager === true || managedStr.length > 0,
       };
     }
     try {
       const { data: authData } = await supabase!.auth.getUser();
       const uid = authData?.user?.id;
-      if (!uid) return { isAdmin: false, approved: true };
-      const { data: row, error: selErr } = await supabase!
-        .from('profiles')
-        .select('is_admin, approved')
-        .eq('id', uid)
-        .maybeSingle();
-      if (selErr) {
-        return { isAdmin: false, approved: true };
-      }
-      const r = (row ?? {}) as { is_admin?: boolean | null; approved?: boolean | null };
+      if (!uid) return fallbackStatus();
+      let row: Record<string, unknown> | null = null;
+      const trySelectOrg = async () => {
+        const { data: r, error: selErr } = await supabase!
+          .from('profiles')
+          .select('is_admin, approved, department, managed_org_node_id')
+          .eq('id', uid)
+          .maybeSingle();
+        if (!selErr) row = r as Record<string, unknown>;
+        else {
+          const { data: r2, error: e2 } = await supabase!.from('profiles').select('is_admin, approved').eq('id', uid).maybeSingle();
+          if (!e2) row = r2 as Record<string, unknown>;
+        }
+      };
+      await trySelectOrg();
+      if (!row) return fallbackStatus();
+      const r = row;
+      const isAdminVal = r.is_admin === true;
+      const approvedVal = r.approved !== false;
+      const managedRaw = r.managed_org_node_id != null ? String(r.managed_org_node_id).trim() : '';
+      const deptRaw = r.department != null ? String(r.department).trim() : '';
       return {
-        isAdmin: r.is_admin === true,
-        approved: r.approved !== false,
+        isAdmin: isAdminVal,
+        approved: approvedVal,
+        department: deptRaw.length > 0 ? deptRaw : null,
+        managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
+        isOrgScopeManager: managedRaw.length > 0,
       };
     } catch {
-      return { isAdmin: false, approved: true };
+      return fallbackStatus();
     }
   } catch {
     try {
       const { data: authData } = await supabase!.auth.getUser();
       const uid = authData?.user?.id;
-      if (!uid) return { isAdmin: false, approved: true };
+      if (!uid) return fallbackStatus();
       const { data: row, error: selErr } = await supabase!
         .from('profiles')
-        .select('is_admin, approved')
+        .select('is_admin, approved, department, managed_org_node_id')
         .eq('id', uid)
         .maybeSingle();
-      if (selErr) return { isAdmin: false, approved: true };
-      const r = (row ?? {}) as { is_admin?: boolean | null; approved?: boolean | null };
+      if (selErr || !row) return fallbackStatus();
+      const r = row as Record<string, unknown>;
+      const managedRaw = r.managed_org_node_id != null ? String(r.managed_org_node_id).trim() : '';
+      const deptRaw = r.department != null ? String(r.department).trim() : '';
       return {
         isAdmin: r.is_admin === true,
         approved: r.approved !== false,
+        department: deptRaw.length > 0 ? deptRaw : null,
+        managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
+        isOrgScopeManager: managedRaw.length > 0,
       };
     } catch {
-      return { isAdmin: false, approved: true };
+      return fallbackStatus();
     }
   }
 }
@@ -245,14 +346,15 @@ export async function getProfileStatus(): Promise<{ isAdmin: boolean; approved: 
 export async function updateMemberApproved(userId: string, approved: boolean): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
-    const { error } = await supabase!
-      .from('profiles')
-      .update({ approved })
-      .eq('id', userId);
+    const { error } = await supabase!.from('profiles').update({ approved }).eq('id', userId);
     if (error) {
       const msg = error.message ?? '';
       if (msg.includes("'approved'") || (msg.includes('approved') && (msg.includes('schema') || msg.includes('cache')))) {
-        return { success: false, error: '승인 기능을 사용하려면 DB 마이그레이션(approved 컬럼)을 적용해 주세요. Supabase 대시보드에서 supabase/migrations/20250312010000_add_profiles_approved.sql 을 실행하세요.' };
+        return {
+          success: false,
+          error:
+            '승인 기능을 사용하려면 DB 마이그레이션(approved 컬럼)을 적용해 주세요. Supabase 대시보드에서 supabase/migrations/20250312010000_add_profiles_approved.sql 을 실행하세요.',
+        };
       }
       return { success: false, error: error.message };
     }
@@ -269,7 +371,7 @@ export async function updateMemberApproved(userId: string, approved: boolean): P
 /** 관리자: 회원 삭제 (Edge Function 호출, auth.users에서 삭제). 비밀번호 관리자 모드일 때 wbsAdminPassword 전달. */
 export async function deleteMemberAsAdmin(
   userId: string,
-  options?: { wbsAdminPassword?: string }
+  options?: { wbsAdminPassword?: string },
 ): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
@@ -283,13 +385,13 @@ export async function deleteMemberAsAdmin(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-        'apikey': supabaseAnonKey,
+        Authorization: `Bearer ${authToken}`,
+        apikey: supabaseAnonKey,
       },
       body: JSON.stringify(body),
     });
 
-    const json = await response.json() as { success?: boolean; error?: string };
+    const json = (await response.json()) as { success?: boolean; error?: string };
     if (!response.ok) {
       return { success: false, error: json?.error || `회원 삭제에 실패했습니다. (${response.status})` };
     }

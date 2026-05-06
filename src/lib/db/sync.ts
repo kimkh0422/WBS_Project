@@ -48,6 +48,7 @@ export function fingerprintProjectRowForSync(row: ProjectRow): string {
     end_date: row.end_date ?? null,
     assignments: normAssignmentsForSync(row.assignments),
     min_work_effort_days: row.min_work_effort_days ?? null,
+    work_effort_unit: row.work_effort_unit ?? null,
     report_category: row.report_category ?? null,
     report_agency: row.report_agency ?? null,
     report_budget_this_year: row.report_budget_this_year ?? null,

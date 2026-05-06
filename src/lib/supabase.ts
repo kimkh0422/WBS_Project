@@ -71,6 +71,7 @@ export interface ProjectRow {
   assignments: ProjectAssignmentRow[] | null;
   owner_id?: string | null;
   min_work_effort_days?: number | null;
+  work_effort_unit?: string | null;
   created_at?: string;
   report_category?: string | null;
   report_agency?: string | null;
@@ -139,6 +140,8 @@ export interface TaskRow {
   baseline_work_effort?: number | null;
   /** 진척 가중치 (상위 입력 시 하위 비율 재분배, DB 반영용) */
   weight?: number | null;
+  /** 사용자 정의 컬럼 값 (key: custom column id, value: text) */
+  custom_fields?: Record<string, string> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -159,6 +162,10 @@ export interface ProfileRow {
   full_name: string | null;
   created_at?: string;
   is_admin: boolean;
+  /** 조직도 부서명과 동일 문자열 (org 책임자가 같은 범위 내 역할 수정 시 필요) */
+  department?: string | null;
+  /** 지정 시 팀장·사업부장 등: 해당 org 노드 subtree 소속 회원의 is_admin만 변경 가능 */
+  managed_org_node_id?: string | null;
   /** 관리자 승인 여부. false면 로컬 전용, true면 DB 동기화 사용 가능 */
   approved?: boolean;
   /** 사용자 맞춤 레벨별 색상 [{r,g,b}, ...]. null이면 기본값 사용 */

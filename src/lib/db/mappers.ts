@@ -1,5 +1,6 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
 import type { Task, Project, ProjectAssignment } from '../../types';
+import { normalizeWorkEffortUnit } from '../workEffortUnits';
 import type { WBSSettings } from '../wbsSettings';
 
 export function toTaskRow(task: Task, sortOrder: number): TaskRow {
@@ -27,6 +28,7 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
     weight: task.weight ?? null,
+    custom_fields: task.customFields ?? null,
   };
 }
 
@@ -55,6 +57,7 @@ export function fromTaskRow(row: TaskRow): Task {
     baselineEndDate: row.baseline_end_date ?? undefined,
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
     weight: row.weight ?? undefined,
+    customFields: row.custom_fields ?? undefined,
     userLockedFields: Array.isArray(row.user_locked_fields)
       ? (row.user_locked_fields.filter(Boolean) as Task['userLockedFields'])
       : undefined,
@@ -75,6 +78,7 @@ export function toProjectRow(project: Project): ProjectRow {
     })),
     owner_id: project.ownerId ?? null,
     min_work_effort_days: project.minWorkEffortDays ?? null,
+    work_effort_unit: normalizeWorkEffortUnit(project.workEffortUnit),
     report_category: project.reportCategory ?? null,
     report_agency: project.reportAgency ?? null,
     report_budget_this_year: project.reportBudgetThisYear ?? null,
@@ -109,6 +113,7 @@ export function fromProjectRow(row: ProjectRow): Project {
     assignments: assignments.length > 0 ? assignments : undefined,
     ownerId: row.owner_id ?? undefined,
     minWorkEffortDays: minDays != null && Number.isFinite(minDays) ? minDays : undefined,
+    workEffortUnit: normalizeWorkEffortUnit(row.work_effort_unit),
     reportCategory: row.report_category ?? undefined,
     reportAgency: row.report_agency ?? undefined,
     reportBudgetThisYear: row.report_budget_this_year ?? undefined,

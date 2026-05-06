@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type RefObject } from 'react';
-import { type TableColumnId } from '../wbsTableTypes';
+import { type BuiltInTableColumnId, type TableColumnId } from '../wbsTableTypes';
 import { formatDate, formatNum2 } from '../../lib/utils';
 import type { Task } from '../../types';
 
@@ -25,7 +25,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 };
 
 /** 데이터 컬럼별 헤더 표시 텍스트 */
-const COLUMN_HEADER_LABELS: Record<TableColumnId, string> = {
+const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   wbsId: 'WBS',
   name: '작업명',
   startDate: '시작일',
@@ -48,6 +48,7 @@ export interface UseColumnResizeParams {
   displayWbsMap: Map<string, string> | undefined;
   allocationDisplayByTaskId: Map<string, string>;
   taskIdToSeqNum: Map<string, number>;
+  customColumnNameById: Map<string, string>;
 }
 
 export interface UseColumnResizeReturn {
@@ -68,6 +69,7 @@ export function useColumnResize({
   displayWbsMap,
   allocationDisplayByTaskId,
   taskIdToSeqNum,
+  customColumnNameById,
 }: UseColumnResizeParams): UseColumnResizeReturn {
   // ── State ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ ...DEFAULT_COLUMN_WIDTHS });
@@ -146,7 +148,10 @@ export function useColumnResize({
         return;
       }
       const colId = col as TableColumnId;
-      let maxW = measureText(COLUMN_HEADER_LABELS[colId] ?? String(colId));
+      const headerLabel = colId.startsWith('custom:')
+        ? (customColumnNameById.get(colId) ?? colId)
+        : COLUMN_HEADER_LABELS[colId as BuiltInTableColumnId];
+      let maxW = measureText(headerLabel ?? String(colId));
       for (const task of visibleTasks) {
         let cellText = '';
         if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
@@ -169,6 +174,8 @@ export function useColumnResize({
             .filter((n: number | undefined): n is number => n != null)
             .sort((a: number, b: number) => a - b);
           cellText = nums.length > 0 ? nums.join(', ') : '';
+        } else if (colId.startsWith('custom:')) {
+          cellText = task.customFields?.[colId] ?? '';
         }
         const w = measureText(cellText);
         if (w > maxW) maxW = w;
@@ -178,7 +185,16 @@ export function useColumnResize({
       setColumnWidths((prev) => ({ ...prev, [col]: newWidth }));
       updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
     },
-    [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, wbsSettings?.statusConfigs, measureText, updateWbsSettings],
+    [
+      visibleTasks,
+      displayWbsMap,
+      allocationDisplayByTaskId,
+      taskIdToSeqNum,
+      customColumnNameById,
+      wbsSettings?.statusConfigs,
+      measureText,
+      updateWbsSettings,
+    ],
   );
 
   return {

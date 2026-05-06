@@ -1,5 +1,6 @@
 import { parseISO, format, isValid } from 'date-fns';
-import type { Task, ProjectAssignment as TaskAssignment } from '../types';
+import type { Task, ProjectAssignment as TaskAssignment, WorkEffortUnit } from '../types';
+import { taskStoredEffortAsManDays } from './workEffortUnits';
 import {
   addBusinessDaysEx,
   subtractBusinessDaysEx,
@@ -16,7 +17,7 @@ const MAX_ALLOCATION = 100;
 /** 투입비율 옵션 (10%, 20%, ... 100%) */
 export const ALLOCATION_OPTIONS = Array.from(
   { length: (MAX_ALLOCATION - MIN_ALLOCATION) / ALLOCATION_STEP + 1 },
-  (_, i) => MIN_ALLOCATION + i * ALLOCATION_STEP
+  (_, i) => MIN_ALLOCATION + i * ALLOCATION_STEP,
 );
 
 /**
@@ -34,10 +35,7 @@ export function getTotalAllocationRatio(assignments: TaskAssignment[] | undefine
  * - 10% 투입이면 1 MD를 하려면 1/0.1 = 10 영업일 소요.
  * - duration = ceil(workEffort / totalAllocation). totalAllocation 0이면 workEffort 그대로.
  */
-export function computeDurationBusinessDays(
-  workEffort: number,
-  assignments: TaskAssignment[] | undefined
-): number {
+export function computeDurationBusinessDays(workEffort: number, assignments: TaskAssignment[] | undefined): number {
   if (!Number.isFinite(workEffort) || workEffort <= 0) return 0;
   const ratio = getTotalAllocationRatio(assignments);
   if (ratio <= 0) return Math.ceil(workEffort);
@@ -52,7 +50,7 @@ export function computeEndDateFromEffort(
   startDate: string,
   workEffort: number,
   assignments: TaskAssignment[] | undefined,
-  holidays?: Set<string>
+  holidays?: Set<string>,
 ): string {
   const start = parseISO(startDate);
   if (!isValid(start)) return startDate;
@@ -73,7 +71,7 @@ export function computeStartDateFromEndDate(
   assignments: TaskAssignment[] | undefined,
   holidays?: Set<string>,
   originalStart?: string,
-  originalEnd?: string
+  originalEnd?: string,
 ): string {
   const end = parseISO(endDate);
   if (!isValid(end)) return endDate;
@@ -100,7 +98,7 @@ export function computeWorkEffortFromDates(
   startDate: string,
   endDate: string,
   assignments: TaskAssignment[] | undefined,
-  holidays?: Set<string>
+  holidays?: Set<string>,
 ): number {
   const start = parseISO(startDate);
   const end = parseISO(endDate);
@@ -156,7 +154,9 @@ export function getTopologicalOrder(tasks: Task[]): string[] {
  */
 export function getCriticalPathTaskIds(
   tasks: Task[],
-  projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>
+  projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>,
+  /** 프로젝트별 공수 숫자 단위(없으면 일 단위로 간주) */
+  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
 ): Set<string> {
   if (tasks.length === 0) return new Set();
   const byId = new Map<string, Task>();
@@ -198,7 +198,8 @@ export function getCriticalPathTaskIds(
     if (t.isMilestone) {
       dur = 0;
     } else if (typeof t.workEffort === 'number' && t.workEffort > 0) {
-      dur = Math.max(1, computeDurationBusinessDays(t.workEffort, assignments));
+      const md = taskStoredEffortAsManDays(t, projectEffortUnitByProjectId);
+      dur = Math.max(1, computeDurationBusinessDays(md, assignments));
     } else {
       const s = parseISO(t.startDate);
       const e = parseISO(t.endDate);
@@ -214,10 +215,7 @@ export function getCriticalPathTaskIds(
     if (!task) continue;
     const duration = durationById.get(id) ?? 1;
     const predList = preds.get(id);
-    const es =
-      !predList || predList.length === 0
-        ? dateToIndex(task.startDate)
-        : Math.max(...predList.map((p) => EF.get(p) ?? 0)) + 1;
+    const es = !predList || predList.length === 0 ? dateToIndex(task.startDate) : Math.max(...predList.map((p) => EF.get(p) ?? 0)) + 1;
     const ef = duration > 0 ? es + duration - 1 : es;
     ES.set(id, es);
     EF.set(id, ef);
@@ -230,10 +228,7 @@ export function getCriticalPathTaskIds(
     const id = order[i];
     const duration = durationById.get(id) ?? 1;
     const succList = succs.get(id);
-    const lf =
-      !succList || succList.length === 0
-        ? projectEnd
-        : Math.min(...succList.map((s) => LS.get(s) ?? projectEnd)) - 1;
+    const lf = !succList || succList.length === 0 ? projectEnd : Math.min(...succList.map((s) => LS.get(s) ?? projectEnd)) - 1;
     const ls = duration > 0 ? lf - duration + 1 : lf;
     LF.set(id, lf);
     LS.set(id, ls);
@@ -249,18 +244,13 @@ export function getCriticalPathTaskIds(
 }
 
 /** 작업별 투입비율: 프로젝트 투입인력 사용 */
-function getAssignmentsForTask(
-  task: Task,
-  projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>
-): TaskAssignment[] | undefined {
+function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>): TaskAssignment[] | undefined {
   if (projectAssignmentsByProjectId && task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
     if (pa && pa.length > 0) return pa;
   }
   return undefined;
 }
-
-
 
 /**
  * 선행관계(FS)에 따라 시작일을 일관되게 조정하고,
@@ -273,7 +263,8 @@ export function applyDependencySchedule(
   tasks: Task[],
   projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>,
   /** 이번에 delta로 옮긴 작업(34번+하위 등). 재계산에서 제외해 덮어쓰지 않음 */
-  excludeFromRecalc?: Set<string>
+  excludeFromRecalc?: Set<string>,
+  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
 ): Task[] {
   const byId = new Map<string, Task>();
   const result = tasks.map((t) => {
@@ -313,7 +304,7 @@ export function applyDependencySchedule(
       const minStart = format(addBusinessDaysEx(parseISO(maxPredEnd), 1, holidays), 'yyyy-MM-dd');
       task.startDate = minStart;
 
-      const originalTask = tasks.find(t => t.id === id);
+      const originalTask = tasks.find((t) => t.id === id);
       if (originalTask && !taskLocked.has('endDate')) {
         const s = parseISO(originalTask.startDate);
         const e = parseISO(originalTask.endDate);
@@ -331,10 +322,12 @@ export function applyDependencySchedule(
     if (locked(task).has('endDate')) continue;
     const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
     if (workEffort == null) continue;
+    const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
+    if (!(effortMd > 0)) continue;
     const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
     const start = parseISO(task.startDate);
     if (!isValid(start)) continue;
-    task.endDate = computeEndDateFromEffort(task.startDate, workEffort, assignments, holidays);
+    task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
   }
 
   // 상위 작업은 하위 작업의 시작일/종료일 범위로 맞춤

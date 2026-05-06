@@ -11,6 +11,7 @@ import { cn } from '../lib/utils';
 import { buildVisibleTasks, type TaskWithDepth } from '../lib/taskView';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { getCriticalPathTaskIds } from '../lib/schedule';
+import { buildProjectEffortUnitMap } from '../lib/workEffortUnits';
 import { useToast } from './Toast';
 import { formatRange, formatEffort } from '../lib/ganttFormat';
 import { isComposingKeyEvent } from '../lib/ime';
@@ -44,8 +45,18 @@ export function GanttChart({
   syncScrollRef,
   hotkeysEnabled = true,
 }: GanttChartProps) {
-  const { tasks, updateTask, deleteTask, wbsMap, displayWbsMap, selectedTaskIds, setSelectedTaskIds, wbsSettings, canEditCurrentProject } =
-    useWBS();
+  const {
+    tasks,
+    updateTask,
+    deleteTask,
+    wbsMap,
+    displayWbsMap,
+    selectedTaskIds,
+    setSelectedTaskIds,
+    wbsSettings,
+    canEditCurrentProject,
+    projects,
+  } = useWBS();
   const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
@@ -156,10 +167,15 @@ export function GanttChart({
 
   const [showBaseline, setShowBaseline] = useState(false);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
+  const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
+  const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
   const criticalPathSet = useMemo(
-    () => (showCriticalPath ? getCriticalPathTaskIds(tasks) : EMPTY_CRITICAL_PATH_SET),
-    [showCriticalPath, tasks],
+    () =>
+      showCriticalPath
+        ? getCriticalPathTaskIds(tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId)
+        : EMPTY_CRITICAL_PATH_SET,
+    [showCriticalPath, tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId],
   );
   const effectiveCriticalPathSet = criticalPathSet;
 
@@ -502,11 +518,7 @@ export function GanttChart({
             </div>
           </div>
           {/* 스크롤 영역 = 행만 (표와 동기화). 수평 스크롤바는 하단 별도 스크롤바로 대체 */}
-          <div
-            ref={syncScrollRef}
-            className="flex-1 min-h-0 overflow-auto bg-white gantt-body-no-hscroll"
-            style={{ scrollbarWidth: 'none' }}
-          >
+          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white">
             <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 <GanttGrid
@@ -569,7 +581,7 @@ export function GanttChart({
                 const depth = task.depth ?? 0;
                 const level = depth + 1;
                 const isCritical = effectiveCriticalPathSet.has(task.id);
-                const effortText = formatEffort(task.workEffort);
+                const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                 const rowH = effectiveRowHeights[index];
                 return (
                   <div
@@ -930,7 +942,7 @@ export function GanttChart({
                   const level = depth + 1;
                   const isCritical = effectiveCriticalPathSet.has(task.id);
                   const isDone = allLeafDoneById.get(task.id) === true;
-                  const effortText = formatEffort(task.workEffort);
+                  const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                   const rowH = effectiveRowHeights[index] ?? ROW_HEIGHT;
 
                   return (

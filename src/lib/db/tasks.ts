@@ -19,12 +19,11 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'baseline_work_effort',
   // 진척 가중치 (마이그레이션 20260317120000)
   'weight',
+  // 사용자 정의 컬럼 값(JSONB)
+  'custom_fields',
 ]);
 
-export function isTaskOptionalColumnSchemaError(
-  err: { code?: string; message?: string },
-  columnName: string
-): boolean {
+export function isTaskOptionalColumnSchemaError(err: { code?: string; message?: string }, columnName: string): boolean {
   const msg = (err.message ?? '').toLowerCase();
   const col = String(columnName ?? '').toLowerCase();
   return err.code === 'PGRST204' && (msg.includes(`'${col}'`) || msg.includes(col));
@@ -52,7 +51,7 @@ function stripIfKnownOptionalTaskColumn(row: TaskRow, columnName: string | null)
 
 export async function retryTaskRowsWithOptionalColumnFallback<T>(
   rows: TaskRow[],
-  op: (payload: TaskRow[]) => Promise<{ error: { code?: string; message?: string } | null; data?: T }>
+  op: (payload: TaskRow[]) => Promise<{ error: { code?: string; message?: string } | null; data?: T }>,
 ): Promise<{ error: { code?: string; message?: string } | null; data?: T }> {
   // PGRST204는 스키마 캐시 기준 "없는 컬럼"을 payload에 포함하면 발생.
   // 환경마다 누락 컬럼이 1개 이상일 수 있어, 알려진 optional 컬럼은 순차적으로 제거하며 재시도한다.
@@ -68,7 +67,7 @@ export async function retryTaskRowsWithOptionalColumnFallback<T>(
       return res;
     }
     stripped.add(col);
-    currentRows = currentRows.map(r => stripTaskOptionalColumns(r, [col]));
+    currentRows = currentRows.map((r) => stripTaskOptionalColumns(r, [col]));
   }
   return op(currentRows);
 }
@@ -97,8 +96,8 @@ export function orderTaskRowsParentsFirst(rows: TaskRow[]): TaskRow[] {
   }
 
   const zero: string[] = rows
-    .map(r => r.id)
-    .filter(id => (indegree.get(id) ?? 0) === 0)
+    .map((r) => r.id)
+    .filter((id) => (indegree.get(id) ?? 0) === 0)
     .sort((a, b) => (originalIndex.get(a) ?? 0) - (originalIndex.get(b) ?? 0));
 
   const outIds: string[] = [];
@@ -111,7 +110,7 @@ export function orderTaskRowsParentsFirst(rows: TaskRow[]): TaskRow[] {
       const next = (indegree.get(childId) ?? 0) - 1;
       indegree.set(childId, next);
       if (next === 0) {
-        const insertAt = queue.findIndex(x => (originalIndex.get(x) ?? 0) > (originalIndex.get(childId) ?? 0));
+        const insertAt = queue.findIndex((x) => (originalIndex.get(x) ?? 0) > (originalIndex.get(childId) ?? 0));
         if (insertAt === -1) queue.push(childId);
         else queue.splice(insertAt, 0, childId);
       }
@@ -119,7 +118,7 @@ export function orderTaskRowsParentsFirst(rows: TaskRow[]): TaskRow[] {
   }
 
   if (outIds.length !== rows.length) return rows;
-  return outIds.map(id => byId.get(id)!).filter(Boolean);
+  return outIds.map((id) => byId.get(id)!).filter(Boolean);
 }
 
 export async function fetchTasks(): Promise<Task[]> {
@@ -128,13 +127,11 @@ export async function fetchTasks(): Promise<Task[]> {
 }
 
 /** 단일 작업의 description, checklist 등 큰 필드를 개별 조회 (egress 절감) */
-export async function fetchTaskDetail(taskId: string): Promise<{ description: string | null; checklist: { id: string; text: string; completed: boolean }[] } | null> {
+export async function fetchTaskDetail(
+  taskId: string,
+): Promise<{ description: string | null; checklist: { id: string; text: string; completed: boolean }[] } | null> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('tasks')
-    .select('description, checklist')
-    .eq('id', taskId)
-    .maybeSingle();
+  const { data, error } = await supabase!.from('tasks').select('description, checklist').eq('id', taskId).maybeSingle();
   if (error || !data) return null;
   return {
     description: (data as Record<string, unknown>).description as string | null,
@@ -148,12 +145,26 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
   let offset = 0;
   while (true) {
     // egress 절감: description, checklist은 큰 텍스트 → 목록 조회에서 제외 (작업 수정 시 개별 조회)
-    const TASK_LIST_COLUMNS = 'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,created_at,updated_at';
-    const { data, error } = await supabase!
+    const TASK_LIST_COLUMNS =
+      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
+    let { data, error } = await supabase!
       .from('tasks')
       .select(TASK_LIST_COLUMNS)
       .order('sort_order', { ascending: true })
       .range(offset, offset + TASKS_PAGE_SIZE - 1);
+    if (error) {
+      const missing = getMissingColumnNameFromPgrst204(error);
+      if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
+        const safeColumns = TASK_LIST_COLUMNS.replace(',custom_fields', '');
+        const retry = await supabase!
+          .from('tasks')
+          .select(safeColumns)
+          .order('sort_order', { ascending: true })
+          .range(offset, offset + TASKS_PAGE_SIZE - 1);
+        data = retry.data;
+        error = retry.error;
+      }
+    }
     if (error) throw error;
     const page = (data ?? []) as TaskRow[];
     all.push(...page);
@@ -164,16 +175,9 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
 }
 
 /** 단일 작업 저장. 동시 수정 시 conflict: true 반환(낙관적 잠금). */
-export async function upsertTask(
-  task: Task,
-  sortOrder: number
-): Promise<{ conflict?: boolean }> {
+export async function upsertTask(task: Task, sortOrder: number): Promise<{ conflict?: boolean }> {
   requireSupabase();
-  const existing = await supabase!
-    .from('tasks')
-    .select('*')
-    .eq('id', task.id)
-    .maybeSingle();
+  const existing = await supabase!.from('tasks').select('*').eq('id', task.id).maybeSingle();
   const existingRow = (existing.data ?? null) as TaskRow | null;
   const row = toTaskRow(task, sortOrder);
   if (task.updatedAt != null && task.updatedAt !== '') {
@@ -238,7 +242,7 @@ export async function upsertTask(
 export async function upsertTasks(
   tasks: Task[],
   onBatchProgress?: (uploadedCount: number, totalRows: number) => void,
-  sortOrders?: Map<string, number>
+  sortOrders?: Map<string, number>,
 ): Promise<void> {
   if (tasks.length === 0) return;
   requireSupabase();
@@ -290,11 +294,7 @@ export async function upsertTasks(
 
 export async function deleteTaskFromDB(id: string): Promise<void> {
   requireSupabase();
-  const { data: task } = await supabase!
-    .from('tasks')
-    .select('id, project_id, name')
-    .eq('id', id)
-    .maybeSingle();
+  const { data: task } = await supabase!.from('tasks').select('id, project_id, name').eq('id', id).maybeSingle();
   const { error } = await supabase!.from('tasks').delete().eq('id', id);
   if (error) throw error;
   const row = task as { id: string; project_id: string; name: string } | null;
@@ -312,10 +312,7 @@ export async function deleteTaskFromDB(id: string): Promise<void> {
 export async function deleteTasksFromDB(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   requireSupabase();
-  const { data: tasks } = await supabase!
-    .from('tasks')
-    .select('id, project_id, name')
-    .in('id', ids);
+  const { data: tasks } = await supabase!.from('tasks').select('id, project_id, name').in('id', ids);
   const rows = (tasks ?? []) as { id: string; project_id: string; name: string }[];
   const { error } = await supabase!.from('tasks').delete().in('id', ids);
   if (error) throw error;
@@ -333,10 +330,7 @@ export async function deleteTasksFromDB(ids: string[]): Promise<void> {
 export async function deleteAllTasksFromDB(projectId: string): Promise<void> {
   requireSupabase();
   if (projectId) {
-    const { error } = await supabase!
-      .from('tasks')
-      .delete()
-      .eq('project_id', projectId);
+    const { error } = await supabase!.from('tasks').delete().eq('project_id', projectId);
     if (error) throw error;
   } else {
     const { error } = await supabase!.from('tasks').delete().not('id', 'is', null);

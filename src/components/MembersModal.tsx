@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
   Users,
@@ -23,6 +23,7 @@ import {
   updateProfileFullName,
   updateMemberRole,
   updateMemberApproved,
+  updateMemberOrgFields,
   listPendingProjectAccessRequests,
   approveProjectAccessRequest,
   rejectProjectAccessRequest,
@@ -33,6 +34,9 @@ import type { ProjectAccessRequestRow } from '../lib/supabase';
 import { format } from 'date-fns';
 import { MemberProjectAccessModal } from './MemberProjectAccessModal';
 import type { Project } from '../types';
+import { useOrganization } from '../context/OrganizationContext';
+import type { OrgNode } from '../data/organization';
+import { departmentInManagedSubtree, flattenOrgNodesWithDepth } from '../lib/orgProfileScope';
 
 interface MembersModalProps {
   isOpen: boolean;
@@ -42,6 +46,10 @@ interface MembersModalProps {
   dbIsAdmin?: boolean;
   /** 비밀번호로 관리자 모드 전환 여부 — 삭제 시 Edge Function에 비밀번호 검증용 전달 */
   adminOverride?: boolean;
+  /** 프로필에 managed_org_node_id 가 있으면 소속 subtree 회원의 역할만 변경 */
+  isOrgScopedManager?: boolean;
+  /** 로그인 사용자의 org_nodes.id (조직 책임 범위 루트) */
+  managedOrgNodeIdForViewer?: string | null;
   /** 프로젝트 권한 요청 목록에서 프로젝트명 표시용 */
   projects?: Array<Pick<Project, 'id' | 'name' | 'ownerId'>>;
   profileMap?: Record<string, string>;
@@ -55,6 +63,8 @@ export function MembersModal({
   currentUserId,
   dbIsAdmin = false,
   adminOverride = false,
+  isOrgScopedManager = false,
+  managedOrgNodeIdForViewer = null,
   projects = [],
   profileMap = {},
   onDeleted,
@@ -79,6 +89,8 @@ export function MembersModal({
     fail: { id: string; name: string; error: string }[];
   } | null>(null);
 
+  const { orgTree, orgMembers } = useOrganization();
+  const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
   const effectiveIsAdmin = dbIsAdmin || adminOverride;
   const BULK_CONFIRM_PHRASE = '전체삭제';
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -93,6 +105,72 @@ export function MembersModal({
   type SortKey = 'full_name' | 'email' | 'created_at' | 'login_count' | 'last_visited_at' | 'approved' | 'role';
   const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const departmentOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of orgMembers) {
+      const t = (m.department ?? '').trim();
+      if (t) set.add(t);
+    }
+    const walk = (n: OrgNode) => {
+      for (const d of n.departments ?? []) {
+        const t = d.trim();
+        if (t) set.add(d);
+      }
+      for (const c of n.children ?? []) walk(c);
+    };
+    walk(orgTree);
+    return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [orgTree, orgMembers]);
+
+  const flatOrgNodes = useMemo(() => flattenOrgNodesWithDepth(orgTree), [orgTree]);
+
+  const canChangeMemberRole = useCallback(
+    (m: ProfileRow) => {
+      if (m.id === currentUserId) return false;
+      if (effectiveIsAdmin) return true;
+      if (isOrgScopedManager && managedOrgNodeIdForViewer) {
+        return departmentInManagedSubtree(m.department ?? null, managedOrgNodeIdForViewer, orgTree);
+      }
+      return false;
+    },
+    [currentUserId, effectiveIsAdmin, isOrgScopedManager, managedOrgNodeIdForViewer, orgTree],
+  );
+
+  const persistMemberDepartment = useCallback(
+    async (member: ProfileRow, department: string) => {
+      if (!effectiveIsAdmin || savingOrgId === member.id) return;
+      setSavingOrgId(member.id);
+      const result = await updateMemberOrgFields(member.id, {
+        department: department.trim() || null,
+      });
+      setSavingOrgId(null);
+      if (result.success) {
+        setMembers((prev) => prev.map((x) => (x.id === member.id ? { ...x, department: department.trim() || null } : x)));
+      } else {
+        setError(result.error ?? '부서 저장에 실패했습니다.');
+      }
+    },
+    [effectiveIsAdmin, savingOrgId],
+  );
+
+  const persistMemberManagedNode = useCallback(
+    async (member: ProfileRow, nodeId: string) => {
+      if (!effectiveIsAdmin || savingOrgId === member.id) return;
+      setSavingOrgId(member.id);
+      const nid = nodeId.trim();
+      const result = await updateMemberOrgFields(member.id, {
+        managed_org_node_id: nid === '' ? null : nid,
+      });
+      setSavingOrgId(null);
+      if (result.success) {
+        setMembers((prev) => prev.map((x) => (x.id === member.id ? { ...x, managed_org_node_id: nid === '' ? null : nid } : x)));
+      } else {
+        setError(result.error ?? '조직 책임 범위 저장에 실패했습니다.');
+      }
+    },
+    [effectiveIsAdmin, savingOrgId],
+  );
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -188,8 +266,9 @@ export function MembersModal({
   useEffect(() => {
     if (!isOpen) return;
     loadMembers();
-    loadAccessRequests();
-  }, [isOpen]);
+    if (effectiveIsAdmin) loadAccessRequests();
+    else setAccessRequests([]);
+  }, [isOpen, effectiveIsAdmin]);
 
   const handleApproveRequest = async (requestId: string) => {
     setProcessingRequestId(requestId);
@@ -368,6 +447,13 @@ export function MembersModal({
 
         <div className="p-5 overflow-y-auto flex-1">
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+          {!effectiveIsAdmin && isOrgScopedManager && (
+            <p className="text-sm text-teal-900 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2.5 mb-4 leading-relaxed">
+              <strong>조직 책임자</strong>로 로그인했습니다. 같은 조직 범위(org_nodes 하위 부서) 소속 회원의{' '}
+              <strong>역할(회원·관리자)</strong>만 바꿀 수 있습니다. 회원의 <strong>부서</strong>는 시스템 관리자가 지정해야 하며, 본인의{' '}
+              <strong>관리 범위</strong>도 관리자에게 요청해 주세요.
+            </p>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-12 gap-2 text-stone-500">
               <Loader2 size={24} className="animate-spin" />
@@ -376,281 +462,363 @@ export function MembersModal({
           ) : members.length === 0 ? (
             <p className="text-stone-500 text-center py-12">등록된 회원이 없습니다.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--color-line)]">
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('full_name')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="회원명으로 정렬"
-                    >
-                      회원명
-                      {sortKey === 'full_name' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('email')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="이메일로 정렬"
-                    >
-                      이메일
-                      {sortKey === 'email' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('created_at')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="가입일로 정렬"
-                    >
-                      가입일
-                      {sortKey === 'created_at' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('login_count')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="접속횟수로 정렬"
-                    >
-                      접속횟수
-                      {sortKey === 'login_count' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('last_visited_at')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="마지막 접속으로 정렬"
-                    >
-                      마지막 접속시각
-                      {sortKey === 'last_visited_at' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('approved')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="승인 여부로 정렬"
-                    >
-                      승인
-                      {sortKey === 'approved' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트 권한</th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('role')}
-                      className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                      title="역할로 정렬"
-                    >
-                      역할
-                      {sortKey === 'role' ? (
-                        sortDir === 'asc' ? (
-                          <ArrowUp size={14} />
-                        ) : (
-                          <ArrowDown size={14} />
-                        )
-                      ) : (
-                        <ArrowUpDown size={14} className="opacity-40" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedMembers.map((m) => (
-                  <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50">
-                    <td className="py-3 px-2 text-[var(--color-ink)]">
-                      {editingId === m.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.nativeEvent.isComposing) return;
-                              if (e.key === 'Enter') saveName();
-                              if (e.key === 'Escape') cancelEdit();
-                            }}
-                            onBlur={saveName}
-                            autoFocus
-                            className="flex-1 min-w-0 px-2 py-1 text-sm border border-stone-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                            disabled={savingName}
-                          />
-                          <button
-                            onClick={saveName}
-                            disabled={savingName}
-                            className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
-                            title="저장"
-                          >
-                            <Check size={16} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 group">
-                          <span>{m.full_name || '-'}</span>
-                          <button
-                            onClick={() => startEdit(m)}
-                            className="p-1 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="이름 수정"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
-                    <td className="py-3 px-2 text-stone-500">
-                      {m.created_at ? (
-                        <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
-                          {format(new Date(m.created_at), 'yyyy-MM-dd')}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-stone-600 tabular-nums">{m.login_count != null ? m.login_count : '-'}</td>
-                    <td className="py-3 px-2 text-stone-500 whitespace-nowrap">
-                      {m.last_visited_at ? (
-                        <span title={format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm:ss')}>
-                          {format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm')}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="py-3 px-2">
-                      {m.approved ? (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">승인됨</span>
-                      ) : m.id === currentUserId ? (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">대기</span>
-                      ) : approvingId === m.id ? (
-                        <span className="text-stone-400 text-xs flex items-center gap-1">
-                          <Loader2 size={12} className="animate-spin" /> 처리 중
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => approveMember(m)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors"
-                          title="승인 시 전체 프로젝트 목록 조회 등(승인 사용자 정책)이 적용됩니다."
-                        >
-                          <UserCheck size={12} /> 승인
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-3 px-2">
+            <>
+              <datalist id="wbs-profile-dept-options">
+                {departmentOptions.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-line)]">
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
                       <button
                         type="button"
-                        onClick={() => setAccessMember(m)}
-                        className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-stone-100 text-stone-700 hover:bg-stone-200 transition-colors"
-                        title="회원별 프로젝트 권한(보기/편집) 확인 및 수정"
+                        onClick={() => toggleSort('full_name')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="회원명으로 정렬"
                       >
-                        보기/수정
+                        회원명
+                        {sortKey === 'full_name' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
                       </button>
-                    </td>
-                    <td className="py-3 px-2">
-                      {m.id === currentUserId ? (
-                        <span
-                          className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
-                          title="본인 계정의 역할은 직접 변경할 수 없습니다. (회원 화면 미리보기는 헤더의 '회원 체험' 사용)"
-                        >
-                          {m.is_admin ? '관리자' : '회원'}
-                        </span>
-                      ) : savingRoleId === m.id ? (
-                        <span className="text-stone-400 text-xs flex items-center gap-1">
-                          <Loader2 size={12} className="animate-spin" /> 변경 중
-                        </span>
-                      ) : (
-                        <select
-                          value={m.is_admin ? 'admin' : 'member'}
-                          onChange={(e) => setRole(m, e.target.value === 'admin')}
-                          className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                        >
-                          <option value="member">회원</option>
-                          <option value="admin">관리자</option>
-                        </select>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-right">
-                      {m.id !== currentUserId ? (
-                        <button
-                          onClick={() => setMemberToDelete(m)}
-                          className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                          title="회원 삭제"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      ) : (
-                        <span className="text-stone-300 text-xs">본인</span>
-                      )}
-                    </td>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('email')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="이메일로 정렬"
+                      >
+                        이메일
+                        {sortKey === 'email' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap" title="조직도와 동일한 부서 문자열">
+                      부서
+                    </th>
+                    {effectiveIsAdmin ? (
+                      <th
+                        className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap min-w-[140px]"
+                        title="팀장·사업부장에게 부여할 org_nodes 트리 루트"
+                      >
+                        조직 관리 범위
+                      </th>
+                    ) : null}
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('created_at')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="가입일로 정렬"
+                      >
+                        가입일
+                        {sortKey === 'created_at' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('login_count')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="접속횟수로 정렬"
+                      >
+                        접속횟수
+                        {sortKey === 'login_count' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('last_visited_at')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="마지막 접속으로 정렬"
+                      >
+                        마지막 접속시각
+                        {sortKey === 'last_visited_at' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('approved')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="승인 여부로 정렬"
+                      >
+                        승인
+                        {sortKey === 'approved' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트 권한</th>
+                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('role')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="역할로 정렬"
+                      >
+                        역할
+                        {sortKey === 'role' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sortedMembers.map((m) => (
+                    <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50">
+                      <td className="py-3 px-2 text-[var(--color-ink)]">
+                        {editingId === m.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.nativeEvent.isComposing) return;
+                                if (e.key === 'Enter') saveName();
+                                if (e.key === 'Escape') cancelEdit();
+                              }}
+                              onBlur={saveName}
+                              autoFocus
+                              className="flex-1 min-w-0 px-2 py-1 text-sm border border-stone-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              disabled={savingName}
+                            />
+                            <button
+                              onClick={saveName}
+                              disabled={savingName}
+                              className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
+                              title="저장"
+                            >
+                              <Check size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 group">
+                            <span>{m.full_name || '-'}</span>
+                            {effectiveIsAdmin && (
+                              <button
+                                onClick={() => startEdit(m)}
+                                className="p-1 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="이름 수정"
+                                type="button"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
+                      <td className="py-3 px-2 align-top">
+                        {effectiveIsAdmin ? (
+                          <input
+                            list="wbs-profile-dept-options"
+                            defaultValue={m.department ?? ''}
+                            key={`${m.id}:${m.department ?? ''}`}
+                            disabled={savingOrgId === m.id}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              const cur = (m.department ?? '').trim();
+                              if (v !== cur) void persistMemberDepartment(m, v);
+                            }}
+                            placeholder="부서명"
+                            title="조직도 노드의 부서명과 동일하게 입력"
+                            className="w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border border-stone-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        ) : (
+                          <span className="text-stone-600 text-xs" title={m.department ?? undefined}>
+                            {(m.department ?? '').trim() || '—'}
+                          </span>
+                        )}
+                      </td>
+                      {effectiveIsAdmin ? (
+                        <td className="py-3 px-2 align-top">
+                          <select
+                            value={m.managed_org_node_id ?? ''}
+                            disabled={savingOrgId === m.id}
+                            onChange={(e) => void persistMemberManagedNode(m, e.target.value)}
+                            className="w-full min-w-[120px] max-w-[240px] text-xs px-2 py-1 border border-stone-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            title="이 노드와 그 하위 부서 소속 회원의 역할을 해당 사용자가 바꿀 수 있습니다."
+                          >
+                            <option value="">(없음)</option>
+                            {m.managed_org_node_id && !flatOrgNodes.some((o) => o.id === m.managed_org_node_id) ? (
+                              <option value={m.managed_org_node_id}>현재: {m.managed_org_node_id}</option>
+                            ) : null}
+                            {flatOrgNodes.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      ) : null}
+                      <td className="py-3 px-2 text-stone-500">
+                        {m.created_at ? (
+                          <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
+                            {format(new Date(m.created_at), 'yyyy-MM-dd')}
+                          </span>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-stone-600 tabular-nums">{m.login_count != null ? m.login_count : '-'}</td>
+                      <td className="py-3 px-2 text-stone-500 whitespace-nowrap">
+                        {m.last_visited_at ? (
+                          <span title={format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm:ss')}>
+                            {format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm')}
+                          </span>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="py-3 px-2">
+                        {m.approved ? (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">승인됨</span>
+                        ) : m.id === currentUserId ? (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">대기</span>
+                        ) : !effectiveIsAdmin ? (
+                          <span className="text-stone-400 text-xs" title="회원 승인은 시스템 관리자만 처리합니다.">
+                            —
+                          </span>
+                        ) : approvingId === m.id ? (
+                          <span className="text-stone-400 text-xs flex items-center gap-1">
+                            <Loader2 size={12} className="animate-spin" /> 처리 중
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => approveMember(m)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors"
+                            title="승인 시 전체 프로젝트 목록 조회 등(승인 사용자 정책)이 적용됩니다."
+                          >
+                            <UserCheck size={12} /> 승인
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-3 px-2">
+                        {effectiveIsAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => setAccessMember(m)}
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-stone-100 text-stone-700 hover:bg-stone-200 transition-colors"
+                            title="회원별 프로젝트 권한(보기/편집) 확인 및 수정"
+                          >
+                            보기/수정
+                          </button>
+                        ) : (
+                          <span className="text-stone-400 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2">
+                        {m.id === currentUserId ? (
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                            title="본인 계정의 역할은 직접 변경할 수 없습니다. (회원 화면 미리보기는 헤더의 '회원 체험' 사용)"
+                          >
+                            {m.is_admin ? '관리자' : '회원'}
+                          </span>
+                        ) : !canChangeMemberRole(m) ? (
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                            title={effectiveIsAdmin ? undefined : '소속 범위 밖이거나 조직 책임자에게서만 변경 가능한 회원이 아닙니다.'}
+                          >
+                            {m.is_admin ? '관리자' : '회원'}
+                          </span>
+                        ) : savingRoleId === m.id ? (
+                          <span className="text-stone-400 text-xs flex items-center gap-1">
+                            <Loader2 size={12} className="animate-spin" /> 변경 중
+                          </span>
+                        ) : (
+                          <select
+                            value={m.is_admin ? 'admin' : 'member'}
+                            onChange={(e) => setRole(m, e.target.value === 'admin')}
+                            className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="member">회원</option>
+                            <option value="admin">관리자</option>
+                          </select>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {effectiveIsAdmin && m.id !== currentUserId ? (
+                          <button
+                            type="button"
+                            onClick={() => setMemberToDelete(m)}
+                            className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="회원 삭제"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        ) : m.id === currentUserId ? (
+                          <span className="text-stone-300 text-xs">본인</span>
+                        ) : (
+                          <span className="text-stone-400 text-xs">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
 
-          {!loading && accessRequests.length > 0 && (
+          {effectiveIsAdmin && !loading && accessRequests.length > 0 && (
             <div className="mt-8 pt-6 border-t border-[var(--color-line)]">
               <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-2 mb-3">
                 <FolderGit2 size={16} />

@@ -17,7 +17,18 @@
       "Read(//c/gmtProject/WBS_MG/**)",
       "Bash(awk 'NR>=2600 && NR<=2750 && /return|content/' \"c:\\\\gmtProject\\\\WBS_MG\\\\src\\\\components\\\\WBSTable.tsx\")",
       "Bash(npm install:*)",
-      "Bash(find /c/gmtProject/WBS_MG/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))"
+      "Bash(find /c/gmtProject/WBS_MG/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(sort -t'|' -k1 -rn)",
+      "Bash(grep -E '\"\"\\(xlsx|date-fns|@supabase|uuid|yjs|@tiptap|lucide|@dnd-kit|motion|clsx|tailwind-merge|@google\\)\"\"' package.json)",
+      "Bash(xxd vite.config.ts)",
+      "Bash(npx vitest:*)",
+      "Bash(npx eslint *)",
+      "Bash(npm test *)",
+      "Bash(git check-ignore *)",
+      "Bash(git remote *)",
+      "Bash(zip --version)",
+      "PowerShell(Add-Type -AssemblyName 'System.IO.Compression.FileSystem'; $zip = [System.IO.Compression.ZipFile]::OpenRead\\('c:\\\\gmtProject\\\\WBS_MG_v0.4.91_20260427.zip'\\); $entries = $zip.Entries; $hasNodeModules = $entries | Where-Object { $_.FullName -match '\\(^|/\\)node_modules/' } | Measure-Object | Select-Object -ExpandProperty Count; $hasGit = $entries | Where-Object { $_.FullName -match '\\(^|/\\)\\\\.git/' } | Measure-Object | Select-Object -ExpandProperty Count; \"Total entries: $\\($entries.Count\\)\"; \"node_modules entries: $hasNodeModules\"; \".git entries: $hasGit\"; \"Sample files:\"; $entries | Select-Object -First 8 | ForEach-Object { \"  $\\($_.FullName\\)\" }; $zip.Dispose\\(\\))"
     ]
   }
 }

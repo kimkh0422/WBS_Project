@@ -1,16 +1,16 @@
-import React, { useState, useMemo } from 'react';
-import { GripVertical, Flag, Bug, Lock, Edit2, Trash2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { GripVertical, Flag, Bug, Edit2, Trash2 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Task } from '../types';
+import { Task, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatDate, formatNum2, round2 } from '../lib/utils';
-import { levelRowBg as levelRowBgBase } from '../lib/levelColors';
 import { useOrganization } from '../context/OrganizationContext';
-
-/** 다크모드: 행 배경 투명 (레벨 구분은 왼쪽 테두리로) */
-const levelRowBg = (level: number) =>
-  document.documentElement.getAttribute('data-theme') === 'dark' ? 'transparent' : levelRowBgBase(level);
+import { useLevelColors } from '../context/LevelColorsContext';
+import { useWBS } from '../context/WBSContext';
+import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
+import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { useToast } from './Toast';
 import { type TableColumnId } from './wbsTableTypes';
 
 /** taskId → 표에서의 순번(1부터) */
@@ -34,9 +34,11 @@ function getTaskDetailTooltip(
   statusConfigs: Array<{ id: string; name: string; progress?: number }> | null | undefined,
   displayWbsMap: Map<string, string> | null | undefined,
   isCritical?: boolean,
+  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
 ): string {
   if (!task) return '';
   const lines: string[] = [];
+  const effortUnit = normalizeWorkEffortUnit(projectEffortUnitByProjectId?.get(task.projectId));
   const statusName = Array.isArray(statusConfigs) ? (statusConfigs.find((c) => c.id === task.status)?.name ?? task.status) : task.status;
   const assigneeText = task.assignee || '—';
   lines.push(`작업명: ${task.name ?? ''}`);
@@ -44,7 +46,13 @@ function getTaskDetailTooltip(
   if (task.isIssue) lines.push('이슈: 예');
   if (isCritical) lines.push('크리티컬 패스: 예');
   lines.push(`기간: ${formatDate(task.startDate)} ~ ${formatDate(task.endDate)}`);
-  lines.push(`공수: ${task.workEffort != null ? `${task.workEffort}일` : '—'}`);
+  lines.push(
+    `공수: ${
+      task.workEffort != null
+        ? `${formatStoredWorkEffortForDisplay(task.workEffort, effortUnit)} ${workEffortUnitSuffixKo(effortUnit)}`.trim()
+        : '—'
+    }`,
+  );
   if (task.weight != null) lines.push(`가중치: ${task.weight}`);
   lines.push(`담당: ${assigneeText}`);
   lines.push(`상태: ${statusName}`);
@@ -94,6 +102,8 @@ export interface SortableTaskRowProps {
   setFocusedCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
   /** 편집 버튼으로 켠 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 */
   tableEditMode: boolean;
+  /** 셀 클릭으로 편집을 시작할 때 편집모드를 자동으로 켜기 위한 setter */
+  setTableEditMode: (v: boolean) => void;
   allAssignees: string[];
   /** projectId → 프로젝트 등록 인원 + 해당 프로젝트 작업 담당자 목록 */
   assigneeOptionsByProjectId: Map<string, string[]>;
@@ -109,6 +119,9 @@ export interface SortableTaskRowProps {
     string,
     Array<{ userId: string; displayName: string; color: string; taskId: string; columnId: TableColumnId; ts: number }>
   >;
+  customColumnNameById: Map<string, string>;
+  /** projectId → 작업 공수 숫자의 단위 */
+  projectEffortUnitByProjectId: Map<string, WorkEffortUnit>;
 }
 
 function SortableTaskRowInner({
@@ -141,6 +154,7 @@ function SortableTaskRowInner({
   focusedCell,
   setFocusedCell,
   tableEditMode,
+  setTableEditMode,
   allAssignees,
   assigneeOptionsByProjectId,
   updateTask,
@@ -149,9 +163,46 @@ function SortableTaskRowInner({
   criticalPathSet,
   allocationDisplayText,
   otherFocusByCellKey,
+  customColumnNameById,
+  projectEffortUnitByProjectId,
 }: SortableTaskRowProps) {
+  const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const { orgMembers } = useOrganization();
+  const { levelRowBg: levelRowBgCtx } = useLevelColors();
+
+  /**
+   * 셀 클릭 시 호출: 편집모드 자동 진입 + 행 포커스/앵커 갱신 + 편집 시작.
+   * - name 셀은 인라인 편집(setInlineEditingNameId), 그 외는 setEditingCell.
+   * - 편집모드 토글 버튼과 무관하게 셀 클릭만으로 편집 가능 (Excel/Notion DB 방식).
+   */
+  const beginEdit = (columnId: TableColumnId) => {
+    setTableEditMode(true);
+    setFocusedCell({ taskId: task.id, columnId });
+    onFocusRow?.(task.id);
+    onSetRowAnchor?.(task.id);
+    if (columnId === 'name') {
+      setInlineEditingNameId(task.id);
+      setEditingCell(null);
+    } else {
+      setEditingCell({ taskId: task.id, columnId });
+      setInlineEditingNameId(null);
+    }
+  };
+  /** 편집은 시작하지 않고 포커스만 옮길 때 (status select / dependencies input의 click 등) */
+  const beginFocus = (columnId: TableColumnId) => {
+    setTableEditMode(true);
+    setFocusedCell({ taskId: task.id, columnId });
+    onFocusRow?.(task.id);
+    onSetRowAnchor?.(task.id);
+  };
+  /**
+   * 표 행의 레벨 배경색.
+   * - 다크모드: 컨텍스트가 transparent 반환 (왼쪽 테두리로 레벨 구분)
+   * - 라이트모드 + 하위 작업이 있는 요약(상위) 행: 사용자 정의(없으면 기본) 레벨 색을 칠해 계층 구분 강조
+   * - 라이트모드 + 리프(말단) 행: 투명 → 요약행이 자연스럽게 도드라지도록
+   */
+  const rowLevelBg = (lev: number, hasKids: boolean) => (hasKids ? levelRowBgCtx(lev) : 'transparent');
   const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
   const orgMemberLabelByName = useMemo(() => {
     const m = new Map<string, string>();
@@ -161,18 +212,48 @@ function SortableTaskRowInner({
     return m;
   }, [orgMembers]);
 
-  const depsDisplayValue = useMemo(() => {
+  // 의존(선행) 작업을 화면에 보이는 행과 보이지 않는(접힘/필터) 작업으로 분류.
+  // 보이지 않는 작업은 표 행 번호가 없으므로 별도 표기(WBS 코드)로 노출하며,
+  // 편집 시에도 잃어버리지 않도록 ID를 보존한다.
+  const { visibleDepNums, hiddenDepIds, hiddenDepLabels } = useMemo(() => {
     const depIds = task.dependencies ?? [];
-    const nums = depIds
-      .map((id) => taskIdToSeqNum.get(id))
-      .filter((n): n is number => n != null)
-      .sort((a, b) => a - b);
-    return nums.length > 0 ? nums.join(', ') : '';
-  }, [task.dependencies, taskIdToSeqNum]);
+    const visibleNums: number[] = [];
+    const hiddenIds: string[] = [];
+    const hiddenLabels: string[] = [];
+    for (const id of depIds) {
+      const seq = taskIdToSeqNum.get(id);
+      if (seq != null) {
+        visibleNums.push(seq);
+      } else {
+        hiddenIds.push(id);
+        const wbs = displayWbsMap?.get(id);
+        hiddenLabels.push(wbs ? `#${wbs}` : `#${id.slice(0, 6)}`);
+      }
+    }
+    visibleNums.sort((a, b) => a - b);
+    return { visibleDepNums: visibleNums, hiddenDepIds: hiddenIds, hiddenDepLabels: hiddenLabels };
+  }, [task.dependencies, taskIdToSeqNum, displayWbsMap]);
+
+  const depsDisplayValue = useMemo(() => (visibleDepNums.length > 0 ? visibleDepNums.join(', ') : ''), [visibleDepNums]);
 
   const [depsInputValue, setDepsInputValue] = useState(depsDisplayValue);
   const [depsFocused, setDepsFocused] = useState(false);
-  React.useEffect(() => {
+  const [depPickIdx, setDepPickIdx] = useState(0);
+  const { tasks } = useWBS();
+  const { push: pushToast } = useToast();
+  const projectPickCandidates = useMemo(
+    () => tasks.filter((t) => t.projectId === task.projectId && t.id !== task.id),
+    [tasks, task.projectId, task.id],
+  );
+  const depTokenTable = getActiveDependencyToken(depsInputValue ?? '');
+  const depSuggestionsList = useMemo(
+    () => filterTasksForDependencyPicker(projectPickCandidates, depTokenTable, displayWbsMap, { tableRowById: taskIdToSeqNum }, 12),
+    [projectPickCandidates, depTokenTable, displayWbsMap, taskIdToSeqNum],
+  );
+  useEffect(() => {
+    setDepPickIdx(0);
+  }, [depTokenTable, depSuggestionsList.length]);
+  useEffect(() => {
     if (!depsFocused) setDepsInputValue(depsDisplayValue);
   }, [depsDisplayValue, depsFocused]);
 
@@ -205,7 +286,7 @@ function SortableTaskRowInner({
         ? selectedBg
         : isFocused
           ? focusedBg
-          : levelRowBg(level),
+          : rowLevelBg(level, hasChildren),
     backgroundImage: isSelected || isDone || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     ...(isSelected && !isDone
       ? {
@@ -263,6 +344,8 @@ function SortableTaskRowInner({
           isDone &&
           (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-800 ring-2 ring-inset ring-amber-500/60'),
         isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-stone-500'),
+        // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
+        hasChildren && !isSelected && !isFocused && 'font-semibold',
       )}
       onClick={(e) => {
         if (e.shiftKey) {
@@ -359,26 +442,29 @@ function SortableTaskRowInner({
               )}
               style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
               onClick={(e) => {
-                // 이름 셀 클릭 시에는 레벨 접기/펼치기를 트리거하지 않고, 행 포커스/선택만 유지
-                // (트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행)
-                if (tableEditMode) {
-                  e.stopPropagation();
-                  setFocusedCell({ taskId: task.id, columnId: 'name' });
-                  setInlineEditingNameId(task.id);
-                }
+                // 셀 클릭만으로 즉시 인라인 편집 시작 (편집모드 자동 진입).
+                // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
+                // 이미 작업명 input이 떠 있으면 중복 beginEdit 방지 (버블링된 클릭 등).
+                e.stopPropagation();
+                if (isInlineEditingName) return;
+                beginEdit('name');
               }}
-              title={
-                tableEditMode
-                  ? '클릭하여 작업명 수정'
-                  : getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))
-              }
+              onDoubleClick={(e) => {
+                // 작업명이 비어 있어 안쪽 span의 클릭 영역이 없어도, 셀 전체 더블클릭으로 인라인 편집 시작.
+                // (행의 onDoubleClick=상세 모달 열기로 버블되지 않도록 stopPropagation)
+                if (isInlineEditingName) return;
+                e.stopPropagation();
+                beginEdit('name');
+              }}
+              title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id), projectEffortUnitByProjectId)}
             >
               {isInlineEditingName ? (
                 <input
                   id={`wbs-edit-${task.id}-name`}
                   autoFocus
                   defaultValue={task.name}
-                  className="w-full text-sm font-bold bg-white text-blue-600 outline-none ring-1 ring-blue-500 rounded px-1"
+                  className="w-full min-h-[28px] text-sm font-bold bg-white text-blue-600 outline-none ring-1 ring-blue-500 rounded px-1"
+                  onMouseDown={(e) => e.stopPropagation()}
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value.trim() !== task.name) {
                       updateTask(task.id, { name: e.target.value.trim() });
@@ -395,26 +481,22 @@ function SortableTaskRowInner({
                 />
               ) : (
                 <span
-                  className={cn(
-                    'font-medium text-[var(--color-ink)] flex items-center gap-1.5',
-                    tableEditMode ? 'cursor-cell' : 'cursor-default',
-                  )}
+                  className="font-medium text-[var(--color-ink)] flex items-center gap-1.5 cursor-cell"
                   onClick={(e) => {
-                    if (tableEditMode) {
-                      e.stopPropagation();
-                      setFocusedCell({ taskId: task.id, columnId: 'name' });
-                      setInlineEditingNameId(task.id);
-                    }
+                    e.stopPropagation();
+                    beginEdit('name');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setInlineEditingNameId(task.id);
+                    beginEdit('name');
                   }}
-                  title={
-                    tableEditMode
-                      ? '클릭하여 작업명 수정'
-                      : getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id))
-                  }
+                  title={getTaskDetailTooltip(
+                    task,
+                    statusConfigs,
+                    displayWbsMap,
+                    criticalPathSet?.has(task.id),
+                    projectEffortUnitByProjectId,
+                  )}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
                   {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
@@ -426,7 +508,11 @@ function SortableTaskRowInner({
                       크리티컬
                     </span>
                   )}
-                  {task.name}
+                  {task.name ? (
+                    task.name
+                  ) : (
+                    <span className="italic text-stone-400 font-normal select-none">(클릭 또는 F2로 작업명 입력)</span>
+                  )}
                 </span>
               )}
               {otherPrimary && (
@@ -442,11 +528,6 @@ function SortableTaskRowInner({
             </div>
           );
         }
-        const lockedFields = new Set(task.userLockedFields ?? []);
-        const LockBadge = ({ field }: { field: 'startDate' | 'endDate' | 'workEffort' | 'dependencies' }) =>
-          lockedFields.has(field) ? (
-            <Lock size={10} className="text-amber-600 flex-shrink-0" title="사용자 고정 (AI 업데이트 시 유지)" />
-          ) : null;
         if (colId === 'startDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           const isFocused = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
@@ -459,9 +540,11 @@ function SortableTaskRowInner({
                 isFocused && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('startDate');
+              }}
             >
-              <LockBadge field="startDate" />
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-startDate`}
@@ -484,33 +567,20 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'startDate' });
-                      setEditingCell({ taskId: task.id, columnId: 'startDate' });
-                    }
+                    beginEdit('startDate');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'startDate' });
+                    beginEdit('startDate');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'startDate' });
+                    beginEdit('startDate');
                   }}
-                  title={
-                    tableEditMode
-                      ? '클릭하여 시작일 수정'
-                      : task.startDate
-                        ? formatDate(task.startDate)
-                        : '더블클릭 또는 탭으로 포커스 후 수정'
-                  }
+                  title="클릭하여 시작일 수정"
                 >
                   {formatDate(task.startDate)}
                 </button>
@@ -538,9 +608,11 @@ function SortableTaskRowInner({
                 isFocusedEnd && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('endDate');
+              }}
             >
-              <LockBadge field="endDate" />
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-endDate`}
@@ -563,29 +635,20 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'endDate' });
-                      setEditingCell({ taskId: task.id, columnId: 'endDate' });
-                    }
+                    beginEdit('endDate');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'endDate' });
+                    beginEdit('endDate');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'endDate' });
+                    beginEdit('endDate');
                   }}
-                  title={
-                    tableEditMode ? '클릭하여 종료일 수정' : task.endDate ? formatDate(task.endDate) : '더블클릭 또는 탭으로 포커스 후 수정'
-                  }
+                  title="클릭하여 종료일 수정"
                 >
                   {formatDate(task.endDate)}
                 </button>
@@ -604,6 +667,7 @@ function SortableTaskRowInner({
         if (colId === 'workEffort') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
           const isFocusedWE = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
+          const effortStep = effortUnitForTask === 'minute' ? 1 : 0.5;
           return (
             <div
               key={colId}
@@ -613,23 +677,25 @@ function SortableTaskRowInner({
                 isFocusedWE && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('workEffort');
+              }}
               onDoubleClick={(e) => e.stopPropagation()}
             >
-              <LockBadge field="workEffort" />
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-workEffort`}
                   type="number"
                   min={0}
-                  step={0.5}
+                  step={effortStep}
                   autoFocus
                   defaultValue={task.workEffort ?? ''}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   onBlur={(e) => {
                     const v = parseFloat(e.target.value);
                     if (!isNaN(v) && v >= 0) {
-                      const rounded = Math.round(v * 10) / 10;
+                      const rounded = effortUnitForTask === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
                       if (rounded !== (task.workEffort ?? NaN)) updateTask(task.id, { workEffort: rounded });
                     }
                     setEditingCell(null);
@@ -642,35 +708,22 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'workEffort' });
-                      setEditingCell({ taskId: task.id, columnId: 'workEffort' });
-                    }
+                    beginEdit('workEffort');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'workEffort' });
+                    beginEdit('workEffort');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'workEffort' });
+                    beginEdit('workEffort');
                   }}
-                  title={
-                    tableEditMode
-                      ? '클릭하여 공수 수정'
-                      : task.workEffort != null
-                        ? `${Math.round(task.workEffort * 10) / 10}일`
-                        : '더블클릭 또는 탭으로 포커스 후 수정'
-                  }
+                  title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                 >
-                  {task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-'}
+                  {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
                 </button>
               )}
               {otherPrimary && (
@@ -695,7 +748,10 @@ function SortableTaskRowInner({
                 tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedW && 'ring-2 ring-blue-500 ring-inset',
               )}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('weight');
+              }}
               onDoubleClick={(e) => e.stopPropagation()}
             >
               {isEditing ? (
@@ -723,33 +779,20 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'weight' });
-                      setEditingCell({ taskId: task.id, columnId: 'weight' });
-                    }
+                    beginEdit('weight');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'weight' });
+                    beginEdit('weight');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'weight' });
+                    beginEdit('weight');
                   }}
-                  title={
-                    tableEditMode
-                      ? '클릭하여 가중치 수정'
-                      : task.weight != null
-                        ? `가중치 ${formatNum2(task.weight)}`
-                        : '더블클릭 또는 탭으로 포커스 후 수정'
-                  }
+                  title="클릭하여 가중치 수정"
                 >
                   {task.weight != null ? formatNum2(task.weight) : '-'}
                 </button>
@@ -773,9 +816,12 @@ function SortableTaskRowInner({
                 e.stopPropagation();
                 onContextMenu(e, task.id, 'progress');
               }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('progress');
+              }}
               onDoubleClick={(e) => e.stopPropagation()}
-              title={tableEditMode ? '클릭하여 진척률 수정 · 우클릭: 갱신 메뉴' : '더블클릭하여 수정 · 마우스 우클릭: 갱신 메뉴'}
+              title="클릭하여 진척률 수정 · 우클릭: 갱신 메뉴"
             >
               {isEditing ? (
                 <input
@@ -803,25 +849,18 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 inline-block w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'progress' });
-                      setEditingCell({ taskId: task.id, columnId: 'progress' });
-                    }
+                    beginEdit('progress');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'progress' });
+                    beginEdit('progress');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'progress' });
+                    beginEdit('progress');
                   }}
                 >
                   {typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '-'}
@@ -847,14 +886,11 @@ function SortableTaskRowInner({
               )}
               onClick={(e) => {
                 e.stopPropagation();
-                if (tableEditMode && !isEditing) {
-                  setFocusedCell({ taskId: task.id, columnId: 'assignee' });
-                  setEditingCell({ taskId: task.id, columnId: 'assignee' });
-                }
+                if (!isEditing) beginEdit('assignee');
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                setEditingCell({ taskId: task.id, columnId: 'assignee' });
+                beginEdit('assignee');
               }}
             >
               {isEditing ? (
@@ -920,8 +956,11 @@ function SortableTaskRowInner({
                 tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset',
               )}
-              onClick={(e) => e.stopPropagation()}
-              title={tableEditMode ? '클릭하여 투입율 수정' : '더블클릭하여 투입율 수정'}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('allocation');
+              }}
+              title="클릭하여 투입율 수정"
             >
               {isEditing ? (
                 <input
@@ -944,25 +983,18 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 inline-block w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'allocation' });
-                      setEditingCell({ taskId: task.id, columnId: 'allocation' });
-                    }
+                    beginEdit('allocation');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'allocation' });
+                    beginEdit('allocation');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'allocation' });
+                    beginEdit('allocation');
                   }}
                 >
                   {allocationDisplayText ?? '—'}
@@ -979,7 +1011,7 @@ function SortableTaskRowInner({
               className={cn('data-cell', isFocusedStatus && 'ring-2 ring-blue-500 ring-inset rounded')}
               onClick={(e) => {
                 e.stopPropagation();
-                if (tableEditMode) setFocusedCell({ taskId: task.id, columnId: 'status' });
+                beginFocus('status');
               }}
             >
               <select
@@ -996,6 +1028,7 @@ function SortableTaskRowInner({
                     updateTask(task.id, updates);
                   }
                 }}
+                onFocus={() => beginFocus('status')}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1023,7 +1056,10 @@ function SortableTaskRowInner({
                 tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedDel && 'ring-2 ring-blue-500 ring-inset',
               )}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('deliverables');
+              }}
             >
               {isEditing ? (
                 <input
@@ -1043,33 +1079,25 @@ function SortableTaskRowInner({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                     else if (e.key === 'Escape') setEditingCell(null);
-                    e.stopPropagation();
                   }}
                 />
               ) : (
                 <button
                   type="button"
-                  className={cn(
-                    'rounded px-1 -mx-1 block truncate w-full text-left',
-                    tableEditMode ? 'cursor-cell hover:bg-blue-50/80' : 'cursor-default hover:bg-blue-50/80',
-                  )}
+                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (tableEditMode) {
-                      setFocusedCell({ taskId: task.id, columnId: 'deliverables' });
-                      setEditingCell({ taskId: task.id, columnId: 'deliverables' });
-                    }
+                    beginEdit('deliverables');
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'deliverables' });
+                    beginEdit('deliverables');
                   }}
                   onFocus={(e) => {
-                    if (!tableEditMode) return;
                     e.stopPropagation();
-                    setEditingCell({ taskId: task.id, columnId: 'deliverables' });
+                    beginEdit('deliverables');
                   }}
-                  title={tableEditMode ? '클릭하여 산출물 수정' : (task.deliverables || '').trim() || '더블클릭 또는 탭으로 포커스 후 수정'}
+                  title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
                 >
                   {task.deliverables || '-'}
                 </button>
@@ -1084,78 +1112,262 @@ function SortableTaskRowInner({
               .split(/[\s,]+/)
               .map((s) => s.trim())
               .filter(Boolean);
+            if (
+              parts.some((p) => {
+                const n = parseInt(p, 10);
+                return !Number.isFinite(n) || n < 1;
+              })
+            ) {
+              setDepsInputValue(depsDisplayValue);
+              return;
+            }
             const taskIds: string[] = [];
-            const seen = new Set<number>();
+            const seen = new Set<string>();
+            const seenNums = new Set<number>();
             for (const p of parts) {
               const n = parseInt(p, 10);
-              if (!Number.isFinite(n) || n < 1 || seen.has(n) || n === selfSeq) continue;
-              seen.add(n);
+              if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
+              seenNums.add(n);
               const id = seqNumToTaskId.get(n);
-              if (id) taskIds.push(id);
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                taskIds.push(id);
+              }
             }
+            // 접힘/필터로 화면에 보이지 않는 기존 선행작업도 유지(편집 시 손실 방지)
+            for (const id of hiddenDepIds) {
+              if (!seen.has(id)) {
+                seen.add(id);
+                taskIds.push(id);
+              }
+            }
+            const prevDeps = task.dependencies ?? [];
+            const sameLength = prevDeps.length === taskIds.length;
+            const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
+            if (noChange) return;
             const locked = new Set(task.userLockedFields ?? []);
             locked.add('dependencies');
             updateTask(task.id, { dependencies: taskIds, userLockedFields: Array.from(locked) });
           };
+          const applyPickDependency = (pickedId: string) => {
+            if (pickedId === task.id) return;
+            const raw = depsInputValue ?? '';
+            const lastComma = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('，'));
+            const headPart = lastComma >= 0 ? raw.slice(0, lastComma) : '';
+            const parts = headPart
+              .split(/[\s,]+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+            const taskIds: string[] = [];
+            const seen = new Set<string>();
+            const seenNums = new Set<number>();
+            for (const p of parts) {
+              const n = parseInt(p, 10);
+              if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
+              seenNums.add(n);
+              const id = seqNumToTaskId.get(n);
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                taskIds.push(id);
+              }
+            }
+            if (!seen.has(pickedId)) {
+              seen.add(pickedId);
+              taskIds.push(pickedId);
+            }
+            for (const id of hiddenDepIds) {
+              if (!seen.has(id)) {
+                seen.add(id);
+                taskIds.push(id);
+              }
+            }
+            const projectTasks = tasks.filter((t) => t.projectId === task.projectId);
+            if (hasDependencyCycle(projectTasks, task.id, taskIds)) {
+              pushToast('순환 의존관계가 발견되어 반영하지 않았습니다.', { variant: 'warning' });
+              return;
+            }
+            const prevDeps = task.dependencies ?? [];
+            const sameLength = prevDeps.length === taskIds.length;
+            const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
+            if (noChange) return;
+            const locked = new Set(task.userLockedFields ?? []);
+            locked.add('dependencies');
+            updateTask(task.id, { dependencies: taskIds, userLockedFields: Array.from(locked) });
+            const visibleNums = taskIds
+              .map((tid) => taskIdToSeqNum.get(tid))
+              .filter((n): n is number => n != null)
+              .sort((a, b) => a - b);
+            setDepsInputValue(visibleNums.join(', '));
+          };
           const isFocusedDep = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
+          const depsMenuOpen = depsFocused && depSuggestionsList.length > 0;
           return (
             <div
               key={colId}
               className={cn(
-                'data-cell text-xs text-stone-600 font-mono flex items-center gap-1 min-w-0',
+                'data-cell text-xs text-stone-600 font-mono flex items-center gap-1 min-w-0 relative',
+                depsMenuOpen && 'z-20 overflow-visible',
                 isFocusedDep && 'ring-2 ring-blue-500 ring-inset rounded',
               )}
               onClick={(e) => {
                 e.stopPropagation();
-                if (tableEditMode) setFocusedCell({ taskId: task.id, columnId: 'dependencies' });
+                beginFocus('dependencies');
               }}
-              title="행 번호 입력 (예: 1, 2, 5). F2로 이 셀 포커스. 자물쇠: 사용자 고정"
+              title={
+                hiddenDepLabels.length > 0
+                  ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
+                  : '행 번호(예: 1, 2) 또는 작업명·WBS 일부 입력 후 목록에서 선택. F2로 이 셀 포커스'
+              }
             >
-              <LockBadge field="dependencies" />
-              <input
-                id={`wbs-edit-${task.id}-dependencies`}
-                data-deps-input="true"
-                type="text"
-                value={depsInputValue ?? ''}
-                onChange={(e) => {
-                  if (!tableEditMode) return;
-                  const v = e.target.value.replace(/[^\d\s,]/g, '');
-                  setDepsInputValue(v);
-                }}
-                readOnly={!tableEditMode}
-                tabIndex={tableEditMode ? 0 : -1}
-                onMouseDown={(e) => {
-                  if (!tableEditMode) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }
-                }}
-                onFocus={(e) => {
-                  if (!tableEditMode) {
-                    e.currentTarget.blur();
-                    return;
-                  }
-                  setDepsFocused(true);
-                }}
-                onBlur={() => {
-                  if (!tableEditMode) return;
-                  setDepsFocused(false);
-                  applyDependenciesInput((depsInputValue ?? '').trim());
-                }}
-                onKeyDown={(e) => {
-                  if (!tableEditMode) return;
-                  if (e.key === 'Enter') {
+              {hiddenDepLabels.length > 0 && (
+                <span
+                  className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded flex-shrink-0"
+                  title={`접힘/필터로 보이지 않는 선행작업 ${hiddenDepLabels.length}건: ${hiddenDepLabels.join(', ')}`}
+                  aria-label={`보이지 않는 선행작업 ${hiddenDepLabels.length}건`}
+                >
+                  +{hiddenDepLabels.length}
+                </span>
+              )}
+              <div className="relative min-w-0 flex-1">
+                <input
+                  id={`wbs-edit-${task.id}-dependencies`}
+                  data-deps-input="true"
+                  type="text"
+                  value={depsInputValue ?? ''}
+                  onChange={(e) => setDepsInputValue(e.target.value)}
+                  tabIndex={0}
+                  onFocus={() => {
+                    beginFocus('dependencies');
+                    setDepsFocused(true);
+                  }}
+                  onBlur={() => {
                     setDepsFocused(false);
                     applyDependenciesInput((depsInputValue ?? '').trim());
-                    e.currentTarget.blur();
-                  }
-                }}
-                placeholder=""
-                className={cn(
-                  'w-full min-w-0 bg-transparent p-1 font-mono text-inherit border border-transparent hover:border-stone-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none',
-                  !tableEditMode && 'cursor-default',
+                  }}
+                  onKeyDown={(e) => {
+                    if (depSuggestionsList.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDepPickIdx((i) => {
+                        const len = depSuggestionsList.length;
+                        if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
+                        return Math.max(0, i - 1);
+                      });
+                      return;
+                    }
+                    if (depSuggestionsList.length > 0 && e.key === 'Enter' && depPickIdx >= 0 && depPickIdx < depSuggestionsList.length) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      applyPickDependency(depSuggestionsList[depPickIdx]!.id);
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      setDepsFocused(false);
+                      applyDependenciesInput((depsInputValue ?? '').trim());
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  placeholder=""
+                  className="w-full min-w-0 bg-transparent p-1 font-mono text-inherit border border-transparent hover:border-stone-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
+                  autoComplete="off"
+                />
+                {depsMenuOpen && (
+                  <ul
+                    className="absolute left-0 right-0 top-full mt-0.5 max-h-40 overflow-auto rounded-md border border-stone-200 dark:border-stone-600 bg-white dark:bg-slate-900 shadow-lg z-50 py-0.5"
+                    role="listbox"
+                  >
+                    {depSuggestionsList.map((t, i) => {
+                      const rowNum = taskIdToSeqNum.get(t.id);
+                      return (
+                        <li key={t.id} role="option" aria-selected={i === depPickIdx}>
+                          <button
+                            type="button"
+                            className={cn(
+                              'w-full text-left px-2 py-1 text-[11px] leading-snug flex gap-1.5 items-baseline',
+                              i === depPickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-slate-800',
+                            )}
+                            onMouseDown={(ev) => ev.preventDefault()}
+                            onMouseEnter={() => setDepPickIdx(i)}
+                            onClick={() => applyPickDependency(t.id)}
+                          >
+                            {rowNum != null && <span className="text-stone-400 tabular-nums shrink-0">{rowNum}.</span>}
+                            <span className="min-w-0">
+                              {displayWbsMap.get(t.id) && (
+                                <span className="text-stone-400 tabular-nums mr-0.5">{displayWbsMap.get(t.id)}</span>
+                              )}
+                              <span className="break-words">{t.name || '이름 없음'}</span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
-              />
+              </div>
+            </div>
+          );
+        }
+        if (colId.startsWith('custom:')) {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === colId;
+          const isFocusedCustom = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === colId && !isEditing;
+          const currentValue = task.customFields?.[colId] ?? '';
+          const customLabel = customColumnNameById.get(colId) ?? colId.replace(/^custom:/, '');
+          return (
+            <div
+              key={colId}
+              className={cn(
+                'data-cell text-xs text-stone-600 min-w-0',
+                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
+                isFocusedCustom && 'ring-2 ring-blue-500 ring-inset',
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit(colId);
+              }}
+              title={customLabel}
+            >
+              {isEditing ? (
+                <input
+                  id={`wbs-edit-${task.id}-${colId}`}
+                  type="text"
+                  autoFocus
+                  defaultValue={currentValue}
+                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const nextValue = e.target.value ?? '';
+                    if (nextValue !== currentValue) {
+                      updateTask(task.id, {
+                        customFields: { ...(task.customFields ?? {}), [colId]: nextValue },
+                      });
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    else if (e.key === 'Escape') setEditingCell(null);
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    beginEdit(colId);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    beginEdit(colId);
+                  }}
+                  onFocus={(e) => {
+                    e.stopPropagation();
+                    beginEdit(colId);
+                  }}
+                  title={currentValue || `${customLabel} 입력`}
+                >
+                  {currentValue || '-'}
+                </button>
+              )}
             </div>
           );
         }
@@ -1223,6 +1435,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.assigneeOptionsByProjectId === next.assigneeOptionsByProjectId &&
     prev.statusConfigs === next.statusConfigs &&
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
+    prev.projectEffortUnitByProjectId === next.projectEffortUnitByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&
     prev.allocationDisplayText === next.allocationDisplayText &&
     prev.displayWbsMap === next.displayWbsMap &&
@@ -1238,6 +1451,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.expanded === next.task.expanded &&
     prev.task.workEffort === next.task.workEffort &&
     prev.task.deliverables === next.task.deliverables &&
+    prev.task.customFields === next.task.customFields &&
     prev.taskIdToSeqNum === next.taskIdToSeqNum &&
     prev.seqNumToTaskId === next.seqNumToTaskId &&
     prev.task.dependencies === next.task.dependencies &&
@@ -1245,7 +1459,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     (prev.task.userLockedFields ?? []).every((f, i) => (next.task.userLockedFields ?? [])[i] === f) &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
     prev.canEdit === next.canEdit &&
-    prev.dropIndicator === next.dropIndicator
+    prev.dropIndicator === next.dropIndicator &&
+    prev.customColumnNameById === next.customColumnNameById
   );
 }
 

@@ -1,6 +1,5 @@
 import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project, ProjectAssignment } from '../../types';
-import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { upsertProject, upsertTasks } from '../../lib/db';
@@ -8,6 +7,12 @@ import { computeEndDateFromEffort } from '../../lib/schedule';
 import { getHolidaysForTaskDates, differenceInBusinessDaysEx, addBusinessDaysEx } from '../../lib/calendar';
 import { applyDependencySchedule } from '../../lib/schedule';
 import { recomputeProjectRollups } from '../../lib/rollups';
+import {
+  buildProjectEffortUnitMap,
+  convertStoredEffortBetweenUnits,
+  normalizeWorkEffortUnit,
+  workEffortToManDays,
+} from '../../lib/workEffortUnits';
 
 export interface ProjectOpsDeps {
   saveHistory: () => void;
@@ -18,7 +23,6 @@ export interface ProjectOpsDeps {
   allTasksRef: MutableRefObject<Task[]>;
   currentProjectIdRef: MutableRefObject<string>;
   useLocalOnlyRef: MutableRefObject<boolean>;
-  wbsSettingsRef: MutableRefObject<WBSSettings>;
   setProjects: Dispatch<SetStateAction<Project[]>>;
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setCurrentProjectId: (id: string) => void;
@@ -36,7 +40,6 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     allTasksRef,
     currentProjectIdRef,
     useLocalOnlyRef,
-    wbsSettingsRef,
     setProjects,
     setAllTasks,
     setCurrentProjectId,
@@ -55,7 +58,13 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       reportExtras?: Partial<
         Pick<
           Project,
-          'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'
+          | 'reportCategory'
+          | 'reportAgency'
+          | 'reportBudgetThisYear'
+          | 'reportTotalPeriod'
+          | 'reportNameShort'
+          | 'reportNameFull'
+          | 'workEffortUnit'
         >
       >,
     ) => {
@@ -96,69 +105,100 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         const endChanged = project && updates.endDate !== undefined && updates.endDate !== project.endDate;
         const needsTaskClamp = startChanged || (endChanged && newEnd && (!project?.endDate || newEnd < project.endDate));
 
-        if (project && needsTaskClamp) {
+        const unitChanging =
+          !!project &&
+          updates.workEffortUnit !== undefined &&
+          normalizeWorkEffortUnit(project.workEffortUnit) !== normalizeWorkEffortUnit(updates.workEffortUnit);
+
+        if (project && (needsTaskClamp || unitChanging)) {
           saveHistory();
           setAllTasks((currentTasks) => {
-            const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(prev.map((p) => [p.id, p.assignments ?? []]));
-            const holidays = getHolidaysForTaskDates(currentTasks);
-            let shifted: Task[] = currentTasks.map((t) => {
+            const mergedProjects = prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p));
+            const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(mergedProjects.map((p) => [p.id, p.assignments ?? []]));
+            const unitMap = buildProjectEffortUnitMap(mergedProjects);
+            const effectiveProjectRow = mergedProjects.find((p) => p.id === id)!;
+            const effUnit = normalizeWorkEffortUnit(effectiveProjectRow.workEffortUnit);
+
+            let shifted = currentTasks.map((t) => {
               if (t.projectId !== id) return t;
-              let taskStart = t.startDate;
-              let taskEnd = t.endDate;
-
-              if (newStart && taskStart && taskStart < newStart) {
-                const assignments = projectAssignmentsMap.get(t.projectId);
-                const start = parseISO(taskStart);
-                const end = parseISO(taskEnd);
-                let computedEnd: string;
-                if (typeof t.workEffort === 'number' && t.workEffort > 0) {
-                  computedEnd = computeEndDateFromEffort(newStart, t.workEffort, assignments, holidays);
-                } else if (isValid(start) && isValid(end)) {
-                  const durationDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
-                  computedEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
-                } else {
-                  computedEnd = newStart;
-                }
-                taskStart = newStart;
-                taskEnd = computedEnd;
-              }
-
-              if (newEnd && taskEnd && taskEnd > newEnd) {
-                taskEnd = newEnd;
-                if (taskStart && taskStart > taskEnd) {
-                  taskStart = taskEnd;
-                }
-              }
-
-              if (taskStart !== t.startDate || taskEnd !== t.endDate) {
-                return { ...t, startDate: taskStart, endDate: taskEnd };
-              }
-              return t;
+              if (!unitChanging) return t;
+              const oldU = normalizeWorkEffortUnit(project.workEffortUnit);
+              const newU = normalizeWorkEffortUnit(updates.workEffortUnit);
+              return {
+                ...t,
+                workEffort:
+                  typeof t.workEffort === 'number' && t.workEffort > 0
+                    ? convertStoredEffortBetweenUnits(t.workEffort, oldU, newU)
+                    : t.workEffort,
+                baselineWorkEffort:
+                  typeof t.baselineWorkEffort === 'number' && t.baselineWorkEffort > 0
+                    ? convertStoredEffortBetweenUnits(t.baselineWorkEffort, oldU, newU)
+                    : t.baselineWorkEffort,
+              };
             });
 
-            if (startChanged && newStart) {
-              const projectTasksAfterClamp = shifted.filter((t) => t.projectId === id && t.startDate && t.startDate >= newStart);
-              const earliestAfter = projectTasksAfterClamp.reduce<string | null>(
-                (min, t) => (!min || (t.startDate && t.startDate < min) ? t.startDate || min : min),
-                null,
-              );
-              if (earliestAfter && earliestAfter > newStart) {
-                const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
-                if (deltaDays !== 0) {
-                  shifted = shifted.map((t) => {
-                    if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
-                    return {
-                      ...t,
-                      startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
-                      endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
-                    };
-                  });
+            if (needsTaskClamp) {
+              const holidays = getHolidaysForTaskDates(shifted);
+              shifted = shifted.map((t) => {
+                if (t.projectId !== id) return t;
+                let taskStart = t.startDate;
+                let taskEnd = t.endDate;
+
+                if (newStart && taskStart && taskStart < newStart) {
+                  const assignments = projectAssignmentsMap.get(t.projectId);
+                  const start = parseISO(taskStart);
+                  const end = parseISO(taskEnd);
+                  let computedEnd: string;
+                  if (typeof t.workEffort === 'number' && t.workEffort > 0) {
+                    const effortMd = workEffortToManDays(t.workEffort, effUnit);
+                    computedEnd = computeEndDateFromEffort(newStart, effortMd, assignments, holidays);
+                  } else if (isValid(start) && isValid(end)) {
+                    const durationDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
+                    computedEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
+                  } else {
+                    computedEnd = newStart;
+                  }
+                  taskStart = newStart;
+                  taskEnd = computedEnd;
+                }
+
+                if (newEnd && taskEnd && taskEnd > newEnd) {
+                  taskEnd = newEnd;
+                  if (taskStart && taskStart > taskEnd) {
+                    taskStart = taskEnd;
+                  }
+                }
+
+                if (taskStart !== t.startDate || taskEnd !== t.endDate) {
+                  return { ...t, startDate: taskStart, endDate: taskEnd };
+                }
+                return t;
+              });
+
+              if (startChanged && newStart) {
+                const projectTasksAfterClamp = shifted.filter((t) => t.projectId === id && t.startDate && t.startDate >= newStart);
+                const earliestAfter = projectTasksAfterClamp.reduce<string | null>(
+                  (min, t) => (!min || (t.startDate && t.startDate < min) ? t.startDate || min : min),
+                  null,
+                );
+                if (earliestAfter && earliestAfter > newStart) {
+                  const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
+                  if (deltaDays !== 0) {
+                    shifted = shifted.map((t) => {
+                      if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
+                      return {
+                        ...t,
+                        startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
+                        endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
+                      };
+                    });
+                  }
                 }
               }
             }
 
             const projectTasks = shifted.filter((t) => t.projectId === id);
-            const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsMap);
+            const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsMap, undefined, unitMap);
             const adjustedById = new Map<string, Task>(adjusted.map((t) => [t.id, t]));
             shifted = shifted.map((t) => (t.projectId === id && adjustedById.has(t.id) ? adjustedById.get(t.id)! : t));
             shifted = recomputeProjectRollups(shifted, id);
@@ -218,6 +258,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         endDate: source.endDate,
         assignments: source.assignments?.map((a) => ({ ...a })),
         minWorkEffortDays: source.minWorkEffortDays,
+        workEffortUnit: source.workEffortUnit,
         ownerId: ownerIdRef.current ?? undefined,
       };
       const taskIdMap = new Map<string, string>();

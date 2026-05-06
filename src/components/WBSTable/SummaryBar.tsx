@@ -58,7 +58,11 @@ export function SummaryBar({
         <>
           <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
           <Divider />
-          <StatChip icon={<Clock size={12} />} label="총 공수" value={`${Number(summaryStats.totalEffort ?? 0).toLocaleString()}일`} />
+          <StatChip
+            icon={<Clock size={12} />}
+            label="총 공수"
+            value={`${Number(summaryStats.effortDisplayAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${summaryStats.effortDisplayLabel}`}
+          />
           <Divider />
           <StatChip icon={<TrendingUp size={12} />} label="전체 진척율" value={`${summaryStats.avgProgress}%`} />
           <Divider />

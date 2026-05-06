@@ -219,6 +219,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     endDate?: string,
     assignments?: Project['assignments'],
     minWorkEffortDays?: number,
+    workEffortUnit?: Project['workEffortUnit'],
     reportCategory?: string,
     reportAgency?: string,
     reportBudgetThisYear?: string,
@@ -234,6 +235,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         endDate,
         assignments,
         minWorkEffortDays,
+        workEffortUnit,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -244,6 +246,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       setEditingProject(null);
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        workEffortUnit,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,

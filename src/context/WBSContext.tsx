@@ -39,7 +39,7 @@ import { supabase, isSupabaseConfigured, type TaskRow, type ProjectRow, type Set
 import { useAuth } from './AuthContext';
 import { useWbsHistory } from '../hooks/useWbsHistory';
 import { StatusConfig, WBSSettings, DEFAULT_STATUS_CONFIGS, DEFAULT_SETTINGS, parseSettings } from '../lib/wbsSettings';
-import { syncParentRollups, redistributeWeightsDown, recomputeProjectRollups, applyRollupsToTasks } from '../lib/rollups';
+import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks } from '../lib/rollups';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 
 // Extracted hooks
@@ -177,7 +177,6 @@ export function WBSProvider({
     allTasksRef,
     currentProjectIdRef,
     useLocalOnlyRef,
-    wbsSettingsRef,
     setProjects,
     setAllTasks,
     setCurrentProjectId,
@@ -1067,7 +1066,7 @@ export function WBSProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, wbsSettings.level1Prefix, wbsSettings.level2Prefix, wbsSettings.level3Prefix, wbsSettings.maxLevel]);
 
-  // ─── WBS 설정 ──────────────────────────────────────────────────────────────
+  // ─── 환경설정 (WBSSettings) ──────────────────────────────────────────────
   const updateWbsSettings = useCallback(
     (updates: Partial<WBSSettings>) => {
       const newSettings = { ...wbsSettingsRef.current, ...updates };
@@ -1153,6 +1152,7 @@ export function WBSProvider({
       addTasks: taskOps.addTasks,
       updateTask: taskOps.updateTask,
       updateTasksBulk: taskOps.updateTasksBulk,
+      linkSequentialPredecessors: taskOps.linkSequentialPredecessors,
       deleteTask: taskOps.deleteTask,
       setBaselineForTasks: taskOps.setBaselineForTasks,
       setBaselineForAllTasks: taskOps.setBaselineForAllTasks,

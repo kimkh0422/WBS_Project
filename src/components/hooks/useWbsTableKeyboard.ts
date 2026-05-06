@@ -140,6 +140,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       const inWbsTable = (target as HTMLElement).closest?.('[data-wbs-table]');
       const inQuickAdd = (target as HTMLElement).closest?.('[data-quick-add]');
 
+      /** Tab/Insert/트리 단축키와 겹치지 않도록: 표 안 실제 입력/선택 포커스 (체크박스 등 제외) */
+      const isWbsTableCellTypingTarget = (el: HTMLElement): boolean => {
+        if (!el.closest?.('[data-wbs-table]') || el.closest?.('[data-quick-add]')) return false;
+        if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+        if (el.tagName !== 'INPUT') return false;
+        const t = ((el as HTMLInputElement).type || 'text').toLowerCase();
+        return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
+      };
+
       // 새 작업 입력칸(하단/인라인)에서는 Enter가 폼 submit 되도록 전역 단축키 미동작
       if (inQuickAdd) return;
       // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작
@@ -147,6 +156,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // 셀/작업명 편집 중 Enter: 값 커밋(blur) 후
       // - 현재 행 바로 아래에 같은 레벨(형제) 새 작업을 추가하고 그 작업으로 계속 편집.
+      // - Shift+Enter: 현재 행 바로 "위"에 같은 레벨(형제) 새 작업 추가.
       // - (의존성 입력칸 등 자체 Enter 처리가 있는 input은 여기로 오기 전에 stopPropagation 되거나,
       //    아래의 target.closest 체크에서 제외되도록 설계되어 있음)
       if (e.key === 'Enter' && (editingCell || inlineEditingNameId) && inWbsTable) {
@@ -159,6 +169,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
+        const insertAbove = e.shiftKey;
 
         // 1) 먼저 blur로 현재 입력을 커밋 (onBlur에서 updateTask 수행)
         (document.activeElement as HTMLElement | null)?.blur?.();
@@ -182,11 +193,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         };
 
         window.setTimeout(() => {
-          // 현재 행 아래에 같은 레벨(형제) 새 작업 추가
+          // 현재 행 위/아래에 같은 레벨(형제) 새 작업 추가
           const base = tasks.find((t) => t.id === currentTaskId);
           const pid = base?.projectId || currentProjectId;
           const proj = projects.find((p) => p.id === pid);
           const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+          // 위에 추가: 현재 행 바로 직전의 표시 행 다음에 삽입 → 결과적으로 현재 행 위에 위치
+          const insertAfterId = insertAbove ? (currentIndex > 0 ? visibleTasks[currentIndex - 1].id : undefined) : currentTaskId;
           const newId = addTask(
             {
               name: '',
@@ -199,7 +212,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               parentId: base?.parentId ?? null,
               expanded: true,
             },
-            currentTaskId,
+            insertAfterId,
           );
           moveToTaskId(newId);
         }, 0);
@@ -220,6 +233,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             setInlineEditingNameId(null);
             setEditingCell(null);
             setLastSelectedId(nextTask.id);
+            // inline 편집 종료 후에도 F2 기준 셀이 이전 행에 남지 않도록 포커스를 현재 행으로 동기화
+            setFocusedCell({ taskId: nextTask.id, columnId: 'name' });
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
             requestAnimationFrame(() => {
               tableScrollRef.current?.focus();
@@ -230,14 +245,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
-      // number 타입 input에서는 화살표 키를 값 증감에만 사용하고 셀 이동하지 않는다
-      // (빠르게 누를 경우 blur → row 포커스 → 행 더블클릭 오작동 방지)
+      // number 타입 input에서는 ↑/↓는 값 증감(브라우저 기본)에 사용하므로 셀 이동에서 제외.
+      // ←/→는 number 입력에서는 의미가 없으므로 셀 이동에 사용한다.
       if (
         (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         (editingCell || inlineEditingNameId) &&
         target.closest('[data-wbs-table]')
       ) {
-        if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') return;
+        if (
+          target.tagName === 'INPUT' &&
+          (target as HTMLInputElement).type === 'number' &&
+          (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+        ) {
+          return;
+        }
         const currentTaskId = editingCell?.taskId ?? inlineEditingNameId!;
         const columnId: TableColumnId = editingCell?.columnId ?? 'name';
         const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
@@ -274,11 +295,77 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
+      // Tab / Shift+Tab: 셀 단위 좌우 이동 (Excel 스타일)
+      // - 편집 중(셀 편집 또는 작업명 인라인 편집): 현재 입력값 커밋(blur) 후 다음/이전 셀로 이동하여 계속 편집
+      // - 편집 모드 + 셀 포커스만 있는 상태: 포커스만 다음/이전 셀로 이동
+      // - 행 끝/시작에서는 인접 행의 처음/마지막 셀로 자동 이동(엑셀과 동일)
+      // - number 타입 input에서도 Tab은 셀 이동(arrow는 값 증감용)
+      if (
+        e.key === 'Tab' &&
+        target.closest('[data-wbs-table]') &&
+        editableColumnIds.length > 0 &&
+        (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target))
+      ) {
+        const currentTaskId = editingCell?.taskId ?? inlineEditingNameId ?? focusedCell?.taskId ?? null;
+        const currentColId: TableColumnId | null =
+          editingCell?.columnId ?? (inlineEditingNameId ? 'name' : (focusedCell?.columnId ?? null));
+        if (!currentTaskId || !currentColId) {
+          // fall through to other handlers
+        } else {
+          const rowIdx = visibleTasks.findIndex((t) => t.id === currentTaskId);
+          const colIdx = editableColumnIds.indexOf(currentColId);
+          if (rowIdx >= 0 && colIdx >= 0) {
+            e.preventDefault();
+            // editingCell/inlineEditingNameId 패턴을 쓰지 않는 셀(예: 선행작업 input, 상태 select)도
+            // 입력 중이라면 다음 셀의 입력 요소로 자동 포커스되어야 함
+            const isTypingInCell = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+            const wasEditing = !!(editingCell || inlineEditingNameId) || isTypingInCell;
+            let nextRowIdx = rowIdx;
+            let nextColIdx = colIdx + (e.shiftKey ? -1 : 1);
+            if (nextColIdx >= editableColumnIds.length) {
+              // 행 끝 → 다음 행 첫 셀
+              nextColIdx = 0;
+              nextRowIdx = Math.min(visibleTasks.length - 1, rowIdx + 1);
+            } else if (nextColIdx < 0) {
+              // 행 시작 → 이전 행 마지막 셀
+              nextColIdx = editableColumnIds.length - 1;
+              nextRowIdx = Math.max(0, rowIdx - 1);
+            }
+            const nextTask = visibleTasks[nextRowIdx];
+            const nextCol = editableColumnIds[nextColIdx];
+            if (nextTask && nextCol) {
+              // 현재 입력값 커밋
+              (document.activeElement as HTMLElement | null)?.blur?.();
+              setTimeout(() => {
+                setLastSelectedId(nextTask.id);
+                setTableEditMode(true);
+                setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
+                if (wasEditing) {
+                  if (nextCol === 'name') {
+                    setInlineEditingNameId(nextTask.id);
+                    setEditingCell(null);
+                  } else {
+                    setEditingCell({ taskId: nextTask.id, columnId: nextCol });
+                    setInlineEditingNameId(null);
+                  }
+                  requestAnimationFrame(() => {
+                    document.getElementById(`wbs-edit-${nextTask.id}-${nextCol}`)?.focus();
+                  });
+                }
+                document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+              }, 0);
+            }
+            return;
+          }
+        }
+      }
+
       // 편집 모드에서 셀 간 화살표 이동 (편집 중이 아닐 때)
       if (
         tableEditMode &&
         !editingCell &&
         !inlineEditingNameId &&
+        !isWbsTableCellTypingTarget(target) &&
         target.closest('[data-wbs-table]') &&
         focusedCell &&
         editableColumnIds.length > 0
@@ -302,22 +389,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
             }
           }
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const { taskId, columnId } = focusedCell;
-          if (columnId === 'name') {
-            setInlineEditingNameId(taskId);
-            setEditingCell(null);
-          } else {
-            setEditingCell(focusedCell);
-            setInlineEditingNameId(null);
-          }
-          document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
-          requestAnimationFrame(() => {
-            document.getElementById(`wbs-edit-${taskId}-${columnId}`)?.focus();
-          });
           return;
         }
       }
@@ -356,8 +427,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       }
 
-      // Ignore other non-shortcut keys when editing a cell or typing in an input
-      if (editingCell || inlineEditingNameId) return;
+      // 셀 입력 중이면 행 선택·트리·붙여넣기 등 표 단축키 비활성화 (선행작업 input 등은 editingCell 없음)
+      if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
       const inWbsTableFallback = (target as HTMLElement).closest?.('[data-wbs-table]');
       if (!inWbsTableFallback) {
         // 표 밖의 일반 입력/셀렉트는 기본 동작 유지 (검색창 등)
@@ -499,10 +570,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // Delete만 삭제 메뉴 오픈 (Backspace는 브라우저 뒤로가기·입력 필드와 충돌 방지)
+      // - 체크박스로 선택된 항목이 있으면 그 항목들(다중) 삭제
+      // - 체크가 없어도 현재 포커스된 행(lastSelectedId, 노란색 하이라이트)이 있으면 단일 삭제
       if (e.key === 'Delete' || e.key === 'Del') {
         e.preventDefault();
-        if (canEditCurrentProject && effectiveSelectedIds.length > 0) {
-          setDeleteConfirm({ isOpen: true, taskIds: effectiveSelectedIds });
+        if (!canEditCurrentProject) return;
+        const targetIds = effectiveSelectedIds.length > 0 ? effectiveSelectedIds : lastSelectedId ? [lastSelectedId] : [];
+        if (targetIds.length > 0) {
+          setDeleteConfirm({ isOpen: true, taskIds: targetIds });
         }
         return;
       }
@@ -530,8 +605,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           setInlineEditingNameId(null);
         }
         document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
+        // 가상 스크롤/레이아웃 직후 input이 붙는 타이밍에 맞추기 위해 한 프레임 더 미룸
         requestAnimationFrame(() => {
-          document.getElementById(`wbs-edit-${taskId}-${columnId}`)?.focus();
+          requestAnimationFrame(() => {
+            document.getElementById(`wbs-edit-${taskId}-${columnId}`)?.focus();
+          });
         });
         return;
       }
@@ -591,6 +669,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(prevTask.id);
+              if (tableEditMode) {
+                setFocusedCell({
+                  taskId: prevTask.id,
+                  columnId: focusedCell?.columnId ?? 'name',
+                });
+              }
             }
             document.getElementById(`task-row-${prevTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
@@ -612,13 +696,19 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(nextTask.id);
+              if (tableEditMode) {
+                setFocusedCell({
+                  taskId: nextTask.id,
+                  columnId: focusedCell?.columnId ?? 'name',
+                });
+              }
             }
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        // 편집 모드에서는 화살표는 셀 이동으로만 사용 (펼치기/접기 비활성화)
-        if (tableEditMode) return;
+        // 편집/입력 중에는 화살표로 접기·펼치기 하지 않음 (커서 이동 등)
+        if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
         // 트리 뷰에서만: ← 접기, → 펼치기 (자식이 있는 행에서만 동작)
         const isTreeView = !(
           filters.status !== 'all' ||
@@ -643,20 +733,29 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
         }
       } else if (e.key === 'Tab') {
-        if (tableEditMode) return; // 편집 모드에서는 들여쓰기/내어쓰기 비활성화
+        // 셀 입력 중 Tab은 위 Excel식 이동 블록에서 처리. 그 외에는 들여쓰기/내어쓰기.
+        if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
+        if (!canEditCurrentProject) return; // 편집 권한 없으면 레벨 변경 비활성화
         e.preventDefault();
+        // Tab: 레벨 한 단계 내리기(들여쓰기), Shift+Tab: 레벨 한 단계 올리기(내어쓰기)
+        // 체크 선택이 있으면 그 대상들을 일괄 처리, 없으면 포커스된 행(lastSelectedId) 단독 처리.
+        let orderedIds: string[] = [];
         if (selectedTaskIds.size > 0) {
-          // Tab: 레벨 한 단계 내리기(들여쓰기), Shift+Tab: 레벨 한 단계 올리기(내어쓰기)
-          const orderedIds = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
-          if (e.shiftKey) {
-            outdentTasks(orderedIds);
-          } else {
-            indentTasks(orderedIds);
-          }
+          orderedIds = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+        } else if (lastSelectedId) {
+          orderedIds = [lastSelectedId];
+        }
+        if (orderedIds.length === 0) return;
+        if (e.shiftKey) {
+          outdentTasks(orderedIds);
+        } else {
+          indentTasks(orderedIds);
         }
       } else if (e.key === 'Enter') {
         // Enter: 동일 레벨(형제) 작업을 현재 행 "아래"에 추가
-        if (tableEditMode) return; // 편집 모드에서는 Enter는 셀 편집 시작으로만 사용
+        // Shift+Enter: 동일 레벨(형제) 작업을 현재 행 "위"에 추가
+        // 셀 편집·입력 중에는 비활성화 (작업명 등은 상단 별도 Enter 블록에서 처리)
+        if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
         if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
         e.preventDefault();
 
@@ -676,7 +775,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
         const parentIdForNew = baseTask?.parentId ?? null; // 기준 행이 없으면 루트 작업으로 추가
 
-        const insertAfterId = baseTask?.id;
+        let insertAfterId: string | undefined;
+        if (e.shiftKey && baseTask) {
+          // 위에 추가: 기준 행 바로 직전의 표시 행 다음에 삽입 → 결과적으로 기준 행 위에 위치
+          const baseIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
+          insertAfterId = baseIndex > 0 ? visibleTasks[baseIndex - 1].id : undefined;
+        } else {
+          insertAfterId = baseTask?.id;
+        }
 
         const newId = addTask(
           {
@@ -694,7 +800,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         setLastSelectedId(newId);
         setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
-        if (tableEditMode) return; // 편집 모드에서는 새 작업 추가 비활성화
+        if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
         if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
         e.preventDefault();
 
@@ -790,9 +896,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     pushToast,
   ]);
 
-  // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지). 인라인 새 작업 추가 중이면 유지.
+  // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지).
+  // 인라인 작업명 편집·하단/인라인 새 작업 입력 중에는 유지 (tableEditMode가 꺼져 있어도 F2/Enter 후 편집 가능).
   useEffect(() => {
-    if (tableEditMode || inlineAddingTaskId) return;
+    if (tableEditMode || inlineAddingTaskId || inlineEditingNameId) return;
     const el = document.activeElement;
     if (!el || !tableScrollRef.current?.contains(el)) return;
     if ((el as HTMLElement).closest?.('[data-quick-add]')) return;
@@ -800,5 +907,5 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       el.blur();
       tableScrollRef.current?.focus();
     }
-  }, [tableEditMode, inlineAddingTaskId]);
+  }, [tableEditMode, inlineAddingTaskId, inlineEditingNameId]);
 }

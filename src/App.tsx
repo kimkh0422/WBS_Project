@@ -156,6 +156,9 @@ interface WBSAppProps {
   /** 관리자가 화면을 일반 회원처럼 체험 중인 상태 (sessionStorage 기반) */
   memberPreview: boolean;
   setMemberPreview: (v: boolean) => void;
+  /** profiles.managed_org_node_id 가 있으면 팀장·사업부장 등 소속 범위 회원 역할만 변경 */
+  isOrgScopedManager: boolean;
+  currentUserManagedOrgNodeId: string | null;
   onMembersUpdated?: () => void;
 }
 
@@ -167,6 +170,8 @@ function WBSApp({
   setAdminOverride,
   memberPreview,
   setMemberPreview,
+  isOrgScopedManager,
+  currentUserManagedOrgNodeId,
   onMembersUpdated,
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
@@ -253,6 +258,8 @@ function WBSApp({
   // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
   // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
   const effectiveIsAdmin = (isAdmin || adminOverride) && !memberPreview;
+  /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
+  const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
@@ -263,7 +270,10 @@ function WBSApp({
     () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1',
   );
   const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => localStorage.getItem('wbs-backup-banner-dismissed') === '1');
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  });
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
   // 추가로 비관리자에게는 대시보드/투입현황/마인드맵을 항상 숨긴다(관리자 전용 뷰).
   const hiddenViews = React.useMemo(() => {
@@ -676,6 +686,7 @@ function WBSApp({
     endDate?: string,
     assignments?: Project['assignments'],
     minWorkEffortDays?: number,
+    workEffortUnit?: Project['workEffortUnit'],
     reportCategory?: string,
     reportAgency?: string,
     reportBudgetThisYear?: string,
@@ -691,6 +702,7 @@ function WBSApp({
         endDate,
         assignments,
         minWorkEffortDays,
+        workEffortUnit,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -701,6 +713,7 @@ function WBSApp({
       setEditingProject(null);
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        workEffortUnit,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -1015,6 +1028,7 @@ function WBSApp({
           taskCountByProject={taskCountByProject}
           orphanAndUnassignedTaskCount={orphanAndUnassignedTaskCount}
           isAdmin={isAdmin}
+          adminOverride={adminOverride}
           myEditableProjectIds={myEditableProjectIds}
           setIsShareOpen={setIsShareOpen}
           copyProject={copyProject}
@@ -1069,6 +1083,7 @@ function WBSApp({
           }
           memberPreview={memberPreview}
           setMemberPreview={setMemberPreview}
+          canOpenMembersManagement={canOpenMembersManagement}
         />
       )}
 
@@ -1541,7 +1556,7 @@ function WBSApp({
       )}
       <main
         className={cn(
-          'min-h-0 overflow-hidden flex flex-row relative flex-1',
+          'min-h-0 overflow-hidden flex flex-row relative flex-1 pb-[72px] md:pb-0',
           isFullscreen && 'fixed inset-0 z-50 bg-[var(--color-surface)]',
         )}
       >
@@ -1574,10 +1589,13 @@ function WBSApp({
               <ErrorBoundary viewName="표+간트">
                 <div
                   ref={containerRef}
-                  className={cn('relative flex w-full list-split-view', isDraggingResizer && 'cursor-col-resize select-none')}
+                  className={cn(
+                    'relative flex w-full h-full min-h-0 list-split-view',
+                    isDraggingResizer && 'cursor-col-resize select-none',
+                  )}
                 >
                   <div
-                    className="flex-shrink-0 overflow-hidden flex flex-col min-h-0 list-table-pane"
+                    className="flex-shrink-0 overflow-hidden flex flex-col h-full min-h-0 list-table-pane"
                     style={{ width: `${wbsTableWidth}%` }}
                   >
                     <WBSTable
@@ -1616,7 +1634,7 @@ function WBSApp({
                     </span>
                   </div>
                   <div
-                    className="flex-shrink-0 overflow-hidden bg-stone-50/30 list-gantt-pane hidden md:block"
+                    className="flex-shrink-0 overflow-hidden h-full min-h-0 bg-stone-50/30 list-gantt-pane hidden md:block"
                     style={{ width: `${100 - wbsTableWidth}%` }}
                   >
                     <GanttChart
@@ -2047,6 +2065,8 @@ function WBSApp({
             currentUserId={user?.id}
             dbIsAdmin={isAdmin}
             adminOverride={adminOverride}
+            isOrgScopedManager={isOrgScopedManager}
+            managedOrgNodeIdForViewer={currentUserManagedOrgNodeId}
             projects={projectsSortedByName.map((p) => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
             profileMap={profileMap}
             onDeleted={() => {
@@ -2111,17 +2131,28 @@ function WBSApp({
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
             <div className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap">
-              <button
-                type="button"
-                onClick={() => setIsVersionHistoryOpen(true)}
-                className="hover:text-indigo-600 hover:underline transition-colors"
-                title="버전 히스토리 열기"
-              >
-                v{__APP_VERSION__} · 변경이력
-              </button>
-              <span className="text-slate-300" aria-hidden>
-                ·
-              </span>
+              {effectiveIsAdmin ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsVersionHistoryOpen(true)}
+                    className="hover:text-indigo-600 hover:underline transition-colors"
+                    title="버전 히스토리 열기"
+                  >
+                    v{__APP_VERSION__} · 변경이력
+                  </button>
+                  <span className="text-slate-300" aria-hidden>
+                    ·
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>v{__APP_VERSION__}</span>
+                  <span className="text-slate-300" aria-hidden>
+                    ·
+                  </span>
+                </>
+              )}
               <span>© 2026 GMT Corporation. All rights reserved.</span>
             </div>
           </div>
@@ -2149,10 +2180,15 @@ function AppWithProviders() {
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
+  const [isOrgScopedManager, setIsOrgScopedManager] = useState(false);
+  const [currentUserManagedOrgNodeId, setCurrentUserManagedOrgNodeId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user?.id) {
       setIsAdmin(false);
       setUserApproved(false);
+      setIsOrgScopedManager(false);
+      setCurrentUserManagedOrgNodeId(null);
       return;
     }
     getProfileStatus()
@@ -2160,6 +2196,8 @@ function AppWithProviders() {
         if (status) {
           setIsAdmin(status.isAdmin);
           setUserApproved(status.approved);
+          setIsOrgScopedManager(status.isOrgScopeManager);
+          setCurrentUserManagedOrgNodeId(status.managedOrgNodeId);
         }
       })
       .catch(() => {});
@@ -2237,6 +2275,8 @@ function AppWithProviders() {
         setAdminOverride={setAdminOverride}
         memberPreview={memberPreview}
         setMemberPreview={setMemberPreview}
+        isOrgScopedManager={isOrgScopedManager}
+        currentUserManagedOrgNodeId={currentUserManagedOrgNodeId}
         onMembersUpdated={() => {}}
       />
     </WBSProvider>

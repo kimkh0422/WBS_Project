@@ -35,6 +35,8 @@ export interface WBSSettings {
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
   projectGroups?: ProjectGroup[];
+  /** 사용자 정의 표 컬럼 정의 */
+  customColumns?: Array<{ id: string; name: string }>;
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [

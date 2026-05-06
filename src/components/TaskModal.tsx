@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
 import { X, Trash2, CornerDownRight, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
 import { useOrganization } from '../context/OrganizationContext';
+import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { randomUUID, cn, round2 } from '../lib/utils';
+import {
+  filterTasksForDependencyPicker,
+  getActiveDependencyToken,
+  hasDependencyCycle as checkDependencyCycle,
+} from '../lib/dependencyPicker';
 import { useToast } from './Toast';
 // GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -185,7 +192,8 @@ export function TaskModal({
   const currentUserName =
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
-  const taskProject = projects.find((p) => p.id === taskProjectId);
+  const taskEffortUnit = normalizeWorkEffortUnit(taskProject?.workEffortUnit);
+  const taskEffortUnitLabel = workEffortUnitSuffixKo(taskEffortUnit);
   // 권한 모델: 프로젝트를 만든 사람(소유자)과 시스템 관리자만 편집 가능.
   // editor 멤버여도 읽기 전용. DB RLS도 동일 정책으로 시행됨.
   const isOwnerOfTaskProject = !!currentUserId && taskProject?.ownerId === currentUserId;
@@ -229,6 +237,7 @@ export function TaskModal({
   const [newChecklistItem, setNewChecklistItem] = useState('');
 
   const [depsInput, setDepsInput] = useState('');
+  const [depPickIdx, setDepPickIdx] = useState(0);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isCorrectingDescription, setIsCorrectingDescription] = useState(false);
@@ -348,10 +357,12 @@ export function TaskModal({
     return ids;
   }, [initialData?.id, parentOptions]);
 
-  const depOptions = parentOptions.filter((t) => t.id !== initialData?.id);
-  const idToNum = new Map<string, number>(depOptions.map((t, i) => [t.id, i + 1] as const));
-  const numToId = new Map<number, string>(depOptions.map((t, i) => [i + 1, t.id] as const));
-  const maxDepNum: number = depOptions.length;
+  const { depOptions, idToNum, numToId, maxDepNum } = useMemo(() => {
+    const depOptions = parentOptions.filter((t) => t.id !== initialData?.id);
+    const idToNum = new Map<string, number>(depOptions.map((t, i) => [t.id, i + 1] as const));
+    const numToId = new Map<number, string>(depOptions.map((t, i) => [i + 1, t.id] as const));
+    return { depOptions, idToNum, numToId, maxDepNum: depOptions.length };
+  }, [parentOptions, initialData?.id]);
 
   /** 현재 작업의 하위 작업 목록 (WBS 순 정렬) */
   const childTasks = (
@@ -405,7 +416,7 @@ export function TaskModal({
       .filter((n): n is number => n != null)
       .sort((a, b) => a - b);
     setDepsInput(nums.join(', '));
-  }, [isOpen, formData.dependencies, parentOptions, initialData?.id]);
+  }, [isOpen, formData.dependencies, parentOptions, initialData?.id, idToNum]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -433,6 +444,15 @@ export function TaskModal({
     return () => clearTimeout(t);
   }, [formError]);
 
+  const depTokenActive = getActiveDependencyToken(depsInput);
+  const depSuggestions = useMemo(
+    () => filterTasksForDependencyPicker(depOptions, depTokenActive, displayWbsMap, { modalIndexById: idToNum }, 12),
+    [depOptions, depTokenActive, displayWbsMap, idToNum],
+  );
+  useEffect(() => {
+    setDepPickIdx(0);
+  }, [depTokenActive, depSuggestions.length]);
+
   if (!isOpen) return null;
 
   const dependencyCount = formData.dependencies?.length ?? 0;
@@ -453,26 +473,54 @@ export function TaskModal({
     return unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
   };
 
-  const hasDependencyCycle = (taskId: string, newDeps: string[]): boolean => {
-    const depsMap = new Map<string, string[]>();
-    for (const t of parentOptions) {
-      if (t.id !== taskId) depsMap.set(t.id, t.dependencies ?? []);
+  const commitDepsInputString = (raw: string) => {
+    if (readOnly) return;
+    const parts = raw
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (
+      parts.some((p) => {
+        const n = parseInt(p, 10);
+        return !Number.isFinite(n) || n < 1;
+      })
+    ) {
+      const displayNums = (formData.dependencies ?? [])
+        .map((id) => idToNum.get(id))
+        .filter((n): n is number => n != null)
+        .sort((a, b) => a - b);
+      setDepsInput(displayNums.join(', '));
+      return;
     }
-    depsMap.set(taskId, newDeps);
-    const visited = new Set<string>();
-    const stack = new Set<string>();
-    const dfs = (id: string): boolean => {
-      if (stack.has(id)) return true;
-      if (visited.has(id)) return false;
-      visited.add(id);
-      stack.add(id);
-      for (const dep of depsMap.get(id) ?? []) {
-        if (dfs(dep)) return true;
+    const nums: number[] = raw
+      .split(/[\s,]+/)
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
+    const unique: number[] = Array.from(new Set<number>(nums));
+    let ids = unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
+    if (initialData?.id) {
+      ids = ids.filter((id) => id !== initialData.id);
+      if (checkDependencyCycle(parentOptions, initialData.id, ids)) {
+        pushToast('순환 의존관계가 발견되어 제거되었습니다.', { variant: 'warning' });
+        ids = formData.dependencies ?? [];
       }
-      stack.delete(id);
-      return false;
-    };
-    return dfs(taskId);
+    }
+    setFormData((prev) => ({ ...prev, dependencies: ids }));
+    const displayNums = ids
+      .map((id) => idToNum.get(id))
+      .filter((n): n is number => n != null)
+      .sort((a, b) => a - b);
+    setDepsInput(displayNums.join(', '));
+  };
+
+  const onPickDepSuggestion = (picked: Task) => {
+    const n = idToNum.get(picked.id);
+    if (n == null) return;
+    const raw = depsInput;
+    const lastComma = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('，'));
+    const head = lastComma >= 0 ? raw.slice(0, lastComma + 1) + ' ' : '';
+    const newStr = `${head}${n}`.replace(/\s+/g, ' ').trim();
+    commitDepsInputString(newStr);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -487,9 +535,13 @@ export function TaskModal({
       return Math.min(100, Math.max(0, round2(parsed)));
     })();
     const parsedDeps = parseDepsInput();
-    let checklist = formData.checklist;
+    // 체크리스트: ① formData가 아직 커밋되지 않은 경우(추가 직후 저장) · ② 입력란에만 있고「추가」안 누른 경우까지 포함
+    let checklist = [...(formData.checklist ?? [])];
+    if (newChecklistItem.trim()) {
+      checklist = [...checklist, { id: randomUUID(), text: newChecklistItem.trim(), completed: false }];
+    }
     if (initialData?.id) {
-      checklist = filterChecklistAgainstChildren(formData.checklist, initialData.id, parentOptions, displayWbsMap);
+      checklist = filterChecklistAgainstChildren(checklist, initialData.id, parentOptions, displayWbsMap);
     }
     const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist };
     const start = toMerge.startDate || '';
@@ -949,9 +1001,10 @@ export function TaskModal({
                 value={formData.startDate?.split('T')[0]}
                 onChange={(e) => {
                   const newStart = e.target.value;
-                  const effort =
+                  const effortStored =
                     typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : (formData.workEffort ?? 1);
-                  let newEnd = computeEndDateFromEffort(newStart, effort, projectAssignments.length > 0 ? projectAssignments : undefined);
+                  const effortMd = workEffortToManDays(effortStored, taskEffortUnit);
+                  let newEnd = computeEndDateFromEffort(newStart, effortMd, projectAssignments.length > 0 ? projectAssignments : undefined);
                   if (taskProject?.endDate && newEnd > taskProject.endDate) newEnd = taskProject.endDate;
                   setFormData((prev) => ({ ...prev, startDate: newStart, endDate: newEnd }));
                 }}
@@ -1002,12 +1055,12 @@ export function TaskModal({
             <div className="col-span-full min-w-0">
               <div className="flex flex-wrap gap-x-6 gap-y-2 items-end">
                 <div>
-                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 (D)</label>
+                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 ({taskEffortUnitLabel})</label>
                   <div className="flex gap-1.5 items-center">
                     <input
                       type="number"
                       min="0"
-                      step="0.5"
+                      step={taskEffortUnit === 'minute' ? 1 : 0.5}
                       value={formData.workEffort ?? ''}
                       onChange={(e) =>
                         setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })
@@ -1096,45 +1149,70 @@ export function TaskModal({
             <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
               <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
               <label className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">
-                의존성 (번호)
+                의존성 (번호·검색)
                 {dependencyCount > 0 && (
                   <span className="ml-1 font-normal text-[var(--color-accent)] normal-case">· {dependencyCount}개</span>
                 )}
               </label>
             </div>
-            <div className="col-span-full">
+            <div className="col-span-full relative z-20">
               <input
                 type="text"
                 value={depsInput}
                 onChange={(e) => setDepsInput(e.target.value)}
-                onBlur={() => {
+                onBlur={() => commitDepsInputString(depsInput.trim())}
+                onKeyDown={(e) => {
                   if (readOnly) return;
-                  const nums: number[] = depsInput
-                    .split(/[\s,]+/)
-                    .map((s) => parseInt(s.trim(), 10))
-                    .filter((n): n is number => !Number.isNaN(n) && n >= 1 && n <= maxDepNum);
-                  const unique: number[] = Array.from(new Set<number>(nums));
-                  let ids = unique.map((n: number) => numToId.get(n)).filter((id): id is string => id != null);
-                  if (initialData?.id) {
-                    ids = ids.filter((id) => id !== initialData.id);
-                    if (hasDependencyCycle(initialData.id, ids)) {
-                      pushToast('순환 의존관계가 발견되어 제거되었습니다.', { variant: 'warning' });
-                      ids = formData.dependencies ?? [];
-                    }
+                  if (depSuggestions.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                    e.preventDefault();
+                    setDepPickIdx((i) => {
+                      const len = depSuggestions.length;
+                      if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
+                      return Math.max(0, i - 1);
+                    });
+                    return;
                   }
-                  setFormData((prev) => ({ ...prev, dependencies: ids }));
-                  const displayNums = ids
-                    .map((id) => idToNum.get(id))
-                    .filter((n): n is number => n != null)
-                    .sort((a, b) => a - b);
-                  setDepsInput(displayNums.join(', '));
+                  if (depSuggestions.length > 0 && e.key === 'Enter' && depPickIdx >= 0 && depPickIdx < depSuggestions.length) {
+                    e.preventDefault();
+                    onPickDepSuggestion(depSuggestions[depPickIdx]!);
+                  }
                 }}
-                placeholder="선행 작업 번호 (쉼표/공백 구분, 예: 1, 3, 4)"
+                placeholder="번호(1,2) 또는 작업명 일부 입력 후 목록에서 선택"
                 className="input-field py-1.5 text-sm w-full"
-                title="쉼표 또는 공백으로 구분하여 선행 작업 번호 입력"
+                title="쉼표로 구분. 번호 입력 또는 작업명·WBS 검색 후 목록에서 선택"
                 readOnly={readOnly}
                 disabled={readOnly}
+                autoComplete="off"
               />
+              {!readOnly && depSuggestions.length > 0 && (
+                <ul
+                  className="absolute left-0 right-0 top-full mt-0.5 max-h-44 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-lg z-50 py-1"
+                  role="listbox"
+                >
+                  {depSuggestions.map((t, i) => (
+                    <li key={t.id} role="option" aria-selected={i === depPickIdx}>
+                      <button
+                        type="button"
+                        className={cn(
+                          'w-full text-left px-2.5 py-1.5 text-sm flex gap-2 items-baseline',
+                          i === depPickIdx ? 'bg-[var(--color-accent-soft)]' : 'hover:bg-stone-100 dark:hover:bg-stone-800',
+                        )}
+                        onMouseDown={(ev) => ev.preventDefault()}
+                        onMouseEnter={() => setDepPickIdx(i)}
+                        onClick={() => onPickDepSuggestion(t)}
+                      >
+                        <span className="tabular-nums text-[var(--color-ink-muted)] shrink-0">{idToNum.get(t.id)}.</span>
+                        <span className="min-w-0">
+                          {displayWbsMap.get(t.id) && (
+                            <span className="text-[var(--color-ink-muted)] tabular-nums mr-1">{displayWbsMap.get(t.id)}</span>
+                          )}
+                          <span className="break-words">{t.name || '(이름 없음)'}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {/* 설명(좌) · 체크리스트·산출물(우) - 2열로 화면 넓게 사용 */}
@@ -1256,12 +1334,14 @@ export function TaskModal({
                             type="text"
                             value={item.text}
                             onChange={(e) => {
-                              const c = [...(formData.checklist || [])];
-                              const i = c.findIndex((x) => x.id === item.id);
-                              if (i >= 0) {
-                                c[i] = { ...c[i], text: e.target.value };
-                                setFormData({ ...formData, checklist: c });
-                              }
+                              const text = e.target.value;
+                              setFormData((prev) => {
+                                const c = [...(prev.checklist || [])];
+                                const i = c.findIndex((x) => x.id === item.id);
+                                if (i < 0) return prev;
+                                c[i] = { ...c[i], text };
+                                return { ...prev, checklist: c };
+                              });
                             }}
                             readOnly={readOnly}
                             disabled={readOnly}

@@ -34,6 +34,7 @@ import {
   Star,
   Eye,
   EyeOff,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
@@ -68,6 +69,8 @@ export interface AppHeaderProps {
   /** 프로젝트 목록에 없는 소속 작업 수(합계 불일치 시 안내) */
   orphanAndUnassignedTaskCount?: number;
   isAdmin: boolean;
+  /** DB profiles.is_admin 외에 비밀번호 관리자 모드 진입 여부(화면 전환 가능 대상) */
+  adminOverride?: boolean;
   /** undefined: 로딩 전에는 프로젝트별 메뉴 표시(기존 동작) */
   myEditableProjectIds: string[] | undefined;
   setIsShareOpen: (v: boolean) => void;
@@ -121,6 +124,8 @@ export interface AppHeaderProps {
   /** 관리자가 회원 화면을 체험 중인 상태 — 모든 관리자 전용 UI를 숨김 */
   memberPreview?: boolean;
   setMemberPreview?: (v: boolean) => void;
+  /** 시스템 관리자가 아니어도 true이면 회원 관리 메뉴 표시 (조직 책임자) */
+  canOpenMembersManagement?: boolean;
 }
 
 export function AppHeader({
@@ -148,6 +153,7 @@ export function AppHeader({
   taskCountByProject,
   orphanAndUnassignedTaskCount = 0,
   isAdmin,
+  adminOverride = false,
   myEditableProjectIds,
   setIsShareOpen,
   copyProject,
@@ -193,7 +199,11 @@ export function AppHeader({
   headerRightSlot,
   memberPreview = false,
   setMemberPreview,
+  canOpenMembersManagement,
 }: AppHeaderProps) {
+  /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
+  const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
+  const allowMembersManagement = canOpenMembersManagement ?? effectiveIsAdmin;
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -390,14 +400,18 @@ export function AppHeader({
         <div className="-mx-4 md:-mx-6 -mt-3 mb-3 px-4 md:px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-amber-900">
           <div className="flex items-center gap-2 text-sm font-medium min-w-0">
             <Eye size={14} className="shrink-0" />
-            <span className="truncate">회원 화면 체험 중</span>
+            <span className="truncate">
+              {isAdmin
+                ? '관리자 지정 계정: 지금은 일반 사용자 화면입니다. 관리자 전용 메뉴·권한이 숨겨져 있습니다.'
+                : '관리자 모드: 지금은 일반 사용자 화면입니다. 관리자 전용 메뉴·권한이 숨겨져 있습니다.'}
+            </span>
           </div>
           <button
             type="button"
             onClick={() => setMemberPreview(false)}
             className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
           >
-            <EyeOff size={12} /> 관리자로 돌아가기
+            <EyeOff size={12} /> 관리자 화면으로 전환
           </button>
         </div>
       )}
@@ -435,20 +449,22 @@ export function AppHeader({
           <div>
             <div className="flex items-baseline gap-2">
               <h1 className="text-xl font-bold tracking-tight leading-none">{wbsSettings.appTitle}</h1>
-              <button
-                onClick={() => {
-                  setIsVersionHistoryOpen(true);
-                  if (tipOnce) tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
-                }}
-                className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
-                title={`버전 정보 (수정일: ${formatCommitDate(appCommitDate)})`}
-              >
-                <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
-                <span>v{appVersion}</span>
-                <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
-                  · 수정일 {formatCommitDateDateOnly(appCommitDate)}
-                </span>
-              </button>
+              {effectiveIsAdmin && (
+                <button
+                  onClick={() => {
+                    setIsVersionHistoryOpen(true);
+                    if (tipOnce) tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
+                  }}
+                  className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
+                  title={`버전 정보 (수정일: ${formatCommitDate(appCommitDate)})`}
+                >
+                  <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
+                  <span>v{appVersion}</span>
+                  <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
+                    · 수정일 {formatCommitDateDateOnly(appCommitDate)}
+                  </span>
+                </button>
+              )}
             </div>
 
             <div className="relative mt-1 group">
@@ -710,19 +726,21 @@ export function AppHeader({
                                       <Trash2 size={12} />
                                     </button>
                                   )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setAuditLogProjectId(project.id);
-                                      setIsAuditLogOpen(true);
-                                      setIsProjectDropdownOpen(false);
-                                    }}
-                                    className="text-stone-400 hover:text-amber-600 p-1 rounded"
-                                    title="변경 이력"
-                                    aria-label="변경 이력"
-                                  >
-                                    <History size={12} />
-                                  </button>
+                                  {isProjectOwner(project) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAuditLogProjectId(project.id);
+                                        setIsAuditLogOpen(true);
+                                        setIsProjectDropdownOpen(false);
+                                      }}
+                                      className="text-stone-400 hover:text-amber-600 p-1 rounded"
+                                      title="변경 이력"
+                                      aria-label="변경 이력"
+                                    >
+                                      <History size={12} />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -783,7 +801,7 @@ export function AppHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
+        <div className="hidden md:flex flex-wrap gap-1.5 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible pb-1 -mb-1 md:pb-0 md:mb-0">
           {/* 툴바: 되돌리기 / 다시실행 */}
           <div className="flex items-center gap-0.5 mr-1">
             <button
@@ -806,8 +824,8 @@ export function AppHeader({
             </button>
           </div>
           <div className="toolbar-divider hidden md:block" />
-          {/* 모바일: 가로 스크롤 탭 바 (아이콘+텍스트), 데스크톱: 기존 pill 영역 */}
-          <div className="flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
+          {/* 뷰 탭 바(데스크톱 전용): 모바일은 하단 고정 탭바 사용 */}
+          <div className="hidden md:flex bg-slate-100/70 p-1 rounded-xl border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
             {!hiddenViews.has('dashboard') && (
               <NavButton
                 active={view === 'dashboard'}
@@ -972,7 +990,7 @@ export function AppHeader({
                     onClick={() => {
                       setIsMoreMenuOpen(false);
                       setIsSettingsModalOpen(true);
-                      tipOnce?.('menu.settings', '설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 바꿀 수 있어요.');
+                      tipOnce?.('menu.settings', '환경설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 바꿀 수 있어요.');
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
                   >
@@ -992,9 +1010,11 @@ export function AppHeader({
 
                   <div className="h-px bg-slate-100 my-1 mx-2" />
 
-                  {effectiveIsAdmin && (
+                  {allowMembersManagement && (
                     <>
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">관리자 기능</div>
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+                        {effectiveIsAdmin ? '관리자 기능' : '조직 관리'}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -1005,7 +1025,7 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
-                      {setMemberPreview && (
+                      {canSwitchAdminMemberView && !memberPreview && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1013,9 +1033,9 @@ export function AppHeader({
                             setMemberPreview(true);
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
-                          title="관리자 전용 메뉴/대시보드/회원 관리 등이 일시적으로 숨겨져 일반 회원처럼 화면이 보입니다. 헤더의 '관리자로 돌아가기' 버튼으로 언제든 복귀."
+                          title="일반 사용자와 동일한 메뉴·권한만 보입니다. 관리자(지정) 계정은 헤더 안내 또는 계정 메뉴에서 언제든 관리자 화면으로 돌아갈 수 있습니다."
                         >
-                          <Eye size={14} /> 회원 화면 체험 시작
+                          <ArrowLeftRight size={14} /> 일반 사용자 화면으로 전환
                         </button>
                       )}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
@@ -1060,14 +1080,47 @@ export function AppHeader({
                 type="button"
                 onClick={() => setIsUserMenuOpen((o) => !o)}
                 className="flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 max-w-[140px] sm:max-w-[180px]"
-                title="계정"
+                title={memberPreview && canSwitchAdminMemberView ? '계정: 일반 사용자 화면 모드(관리자 전환은 메뉴 내 버튼)' : '계정'}
               >
                 <User size={14} className="shrink-0 text-slate-500" />
                 <span className="truncate">{currentUserDisplay || user?.email || '계정'}</span>
+                {memberPreview && canSwitchAdminMemberView && (
+                  <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500" title="일반 사용자 화면 모드" aria-hidden />
+                )}
                 <ChevronDown size={12} className={cn('shrink-0 opacity-50', isUserMenuOpen && 'rotate-180')} />
               </button>
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 py-1 min-w-[180px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
+                <div className="absolute right-0 top-full mt-1 py-1 min-w-[200px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
+                  {canSwitchAdminMemberView && (
+                    <>
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">사용자·관리자</div>
+                      {memberPreview ? (
+                        <button
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-amber-900 hover:bg-amber-50 flex items-center gap-2"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            setMemberPreview(false);
+                          }}
+                        >
+                          <EyeOff size={14} /> 관리자 화면으로 전환
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            setMemberPreview(true);
+                          }}
+                          title="관리자 전용 대시보드·설정·권한이 숨겨진 일반 사용자 화면과 동일하게 표시됩니다."
+                        >
+                          <ArrowLeftRight size={14} /> 일반 사용자 화면으로 전환
+                        </button>
+                      )}
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                    </>
+                  )}
                   {/* 테마 선택 영역은 일시적으로 숨김 (라이트 모드 고정) */}
                   <button
                     type="button"
@@ -1094,6 +1147,39 @@ export function AppHeader({
           </button>
         </div>
       </div>
+      {/* 모바일 하단 고정 탭바: 대시보드 / 표 / 간트 / 칸반 4개만 표시 */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-2 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1">
+        <div className="grid grid-cols-4 gap-1">
+          <NavButton
+            active={view === 'dashboard'}
+            onClick={() => navigateWithTip('dashboard')}
+            icon={<LayoutDashboard size={14} />}
+            label="대시보드"
+            title="대시보드"
+          />
+          <NavButton
+            active={view === 'table'}
+            onClick={() => navigateWithTip('table')}
+            icon={<CheckSquare size={14} />}
+            label="표"
+            title="표"
+          />
+          <NavButton
+            active={view === 'gantt'}
+            onClick={() => navigateWithTip('gantt')}
+            icon={<Target size={14} />}
+            label="간트"
+            title="간트"
+          />
+          <NavButton
+            active={view === 'kanban'}
+            onClick={() => navigateWithTip('kanban')}
+            icon={<MapIcon size={14} />}
+            label="칸반"
+            title="칸반"
+          />
+        </div>
+      </nav>
     </header>
   );
 }
