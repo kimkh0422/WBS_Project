@@ -161,7 +161,7 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
           .select(safeColumns)
           .order('sort_order', { ascending: true })
           .range(offset, offset + TASKS_PAGE_SIZE - 1);
-        data = retry.data;
+        data = retry.data as unknown as typeof data;
         error = retry.error;
       }
     }

@@ -289,8 +289,8 @@ export function WBSTable({
     const cols = wbsSettings?.tableColumns;
     const incoming = Array.isArray(cols) && cols.length > 0 ? cols : DEFAULT_TABLE_COLUMNS;
 
-    const allow = new Set(DEFAULT_TABLE_COLUMNS.map((c) => c.id));
-    for (const id of customColumnNameById.keys()) allow.add(id);
+    const allow = new Set<TableColumnId>(DEFAULT_TABLE_COLUMNS.map((c) => c.id));
+    for (const id of customColumnNameById.keys()) allow.add(id as TableColumnId);
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c: { id: string; visible: boolean }) => c && typeof c.id === 'string')

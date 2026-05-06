@@ -177,9 +177,10 @@ export function useProjectOps(deps: ProjectOpsDeps) {
 
               if (startChanged && newStart) {
                 const projectTasksAfterClamp = shifted.filter((t) => t.projectId === id && t.startDate && t.startDate >= newStart);
-                const earliestAfter = projectTasksAfterClamp.reduce<string | null>(
-                  (min, t) => (!min || (t.startDate && t.startDate < min) ? t.startDate || min : min),
-                  null,
+                const earliestAfter: string | null = projectTasksAfterClamp.reduce(
+                  (min: string | null, t: { startDate?: string | null }) =>
+                    !min || (t.startDate && t.startDate < min) ? t.startDate || min : min,
+                  null as string | null,
                 );
                 if (earliestAfter && earliestAfter > newStart) {
                   const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));

@@ -186,6 +186,7 @@ export function TaskModal({
   const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, isAdmin } = useWBS();
   const { orgMembers } = useOrganization();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
+  const taskProject = projects.find((p) => p.id === taskProjectId);
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';

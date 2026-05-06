@@ -652,7 +652,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const projs = projectsRef.current;
         const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projs.map((p) => [p.id, p.assignments ?? []]));
         const unitMap = buildProjectEffortUnitMap(projs);
-        const taskById = new Map(prev.map((t) => [t.id, t]));
+        const taskById = new Map<string, Task>(prev.map((t) => [t.id, t] as const));
 
         const resolved: Task[] = [];
         for (const id of orderedTaskIds) {

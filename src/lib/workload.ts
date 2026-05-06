@@ -275,6 +275,13 @@ export function fixOverloadByIncreasingAllocation(tasks: Task[], projects: Proje
   const unitByProjectId = buildProjectEffortUnitMap(projects);
 
   const byId = new Map<string, Task>();
+  const result = tasks.map((t) => {
+    const copy = { ...t };
+    byId.set(copy.id, copy);
+    return copy;
+  });
+
+  const taskIdsToFix = new Set<string>();
   for (const o of overloads) {
     o.taskIds.forEach((id) => taskIdsToFix.add(id));
   }
