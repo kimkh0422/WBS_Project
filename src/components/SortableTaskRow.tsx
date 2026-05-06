@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { GripVertical, Flag, Bug, Edit2, Trash2 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -1220,6 +1221,22 @@ function SortableTaskRowInner({
           const isEditingDep = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
           // input의 onFocus가 배치/타이밍 이슈로 안 잡힐 수 있어 editingCell/focusedCell도 보강 조건으로 사용
           const depsMenuOpen = (depsFocused || isEditingDep || isFocusedDep) && depSuggestionsList.length > 0;
+          // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
+          // 막기 위해 Portal로 body에 렌더링하고 input의 위치를 추적해 따라가게 한다.
+          const renderDepsDropdown = depsMenuOpen
+            ? createPortal(
+                <DepsPortalDropdown
+                  inputId={`wbs-edit-${task.id}-dependencies`}
+                  items={depSuggestionsList}
+                  pickIdx={depPickIdx}
+                  setPickIdx={setDepPickIdx}
+                  onPick={(id) => applyPickDependency(id)}
+                  taskIdToSeqNum={taskIdToSeqNum}
+                  displayWbsMap={displayWbsMap}
+                />,
+                document.body,
+              )
+            : null;
           return (
             <div
               key={colId}
@@ -1292,38 +1309,7 @@ function SortableTaskRowInner({
                   className="w-full min-w-0 bg-transparent p-1 font-mono text-inherit border border-transparent hover:border-stone-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
                   autoComplete="off"
                 />
-                {depsMenuOpen && (
-                  <ul
-                    className="absolute left-0 right-0 top-full mt-0.5 max-h-40 overflow-auto rounded-md border border-stone-200 dark:border-stone-600 bg-white dark:bg-slate-900 shadow-lg z-50 py-0.5"
-                    role="listbox"
-                  >
-                    {depSuggestionsList.map((t, i) => {
-                      const rowNum = taskIdToSeqNum.get(t.id);
-                      return (
-                        <li key={t.id} role="option" aria-selected={i === depPickIdx}>
-                          <button
-                            type="button"
-                            className={cn(
-                              'w-full text-left px-2 py-1 text-[11px] leading-snug flex gap-1.5 items-baseline',
-                              i === depPickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-slate-800',
-                            )}
-                            onMouseDown={(ev) => ev.preventDefault()}
-                            onMouseEnter={() => setDepPickIdx(i)}
-                            onClick={() => applyPickDependency(t.id)}
-                          >
-                            {rowNum != null && <span className="text-stone-400 tabular-nums shrink-0">{rowNum}.</span>}
-                            <span className="min-w-0">
-                              {displayWbsMap.get(t.id) && (
-                                <span className="text-stone-400 tabular-nums mr-0.5">{displayWbsMap.get(t.id)}</span>
-                              )}
-                              <span className="break-words">{t.name || '이름 없음'}</span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                {renderDepsDropdown}
               </div>
             </div>
           );
@@ -1482,6 +1468,94 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById
+  );
+}
+
+/**
+ * 표 셀 안의 overflow:hidden / overflow:auto 컨테이너에 갇혀 잘리는 것을 막기 위해
+ * Portal로 body에 렌더링되는 선행작업 드롭다운. 입력창 위치를 매 프레임 추적해 따라간다.
+ */
+function DepsPortalDropdown({
+  inputId,
+  items,
+  pickIdx,
+  setPickIdx,
+  onPick,
+  taskIdToSeqNum,
+  displayWbsMap,
+}: {
+  inputId: string;
+  items: Task[];
+  pickIdx: number;
+  setPickIdx: (i: number) => void;
+  onPick: (id: string) => void;
+  taskIdToSeqNum: Map<string, number>;
+  displayWbsMap: Map<string, string>;
+}) {
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const update = () => {
+      if (cancelled) return;
+      const el = document.getElementById(inputId);
+      if (!el) {
+        setRect(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      setRect({ left: r.left, top: r.bottom, width: Math.max(220, r.width) });
+    };
+    update();
+    // 입력창 위치는 스크롤·리사이즈로 변할 수 있으므로 추적
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [inputId]);
+
+  if (!rect) return null;
+  return (
+    <ul
+      role="listbox"
+      style={{
+        position: 'fixed',
+        left: rect.left,
+        top: rect.top + 2,
+        width: rect.width,
+        maxHeight: 220,
+        overflowY: 'auto',
+        zIndex: 9999,
+      }}
+      className="rounded-md border border-stone-200 dark:border-stone-600 bg-white dark:bg-slate-900 shadow-lg py-0.5"
+    >
+      {items.map((t, i) => {
+        const rowNum = taskIdToSeqNum.get(t.id);
+        return (
+          <li key={t.id} role="option" aria-selected={i === pickIdx}>
+            <button
+              type="button"
+              className={cn(
+                'w-full text-left px-2 py-1 text-[12px] leading-snug flex gap-1.5 items-baseline',
+                i === pickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-slate-800',
+              )}
+              onMouseDown={(ev) => ev.preventDefault()}
+              onMouseEnter={() => setPickIdx(i)}
+              onClick={() => onPick(t.id)}
+            >
+              {rowNum != null && <span className="text-stone-400 tabular-nums shrink-0">{rowNum}.</span>}
+              <span className="min-w-0">
+                {displayWbsMap.get(t.id) && <span className="text-stone-400 tabular-nums mr-0.5">{displayWbsMap.get(t.id)}</span>}
+                <span className="break-words">{t.name || '이름 없음'}</span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
