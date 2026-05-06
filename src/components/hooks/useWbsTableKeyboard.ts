@@ -244,9 +244,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // 셀/작업명 편집 중 화살표: 인접 셀(행/열)로 이동 후 계속 편집
+      // 셀/작업명 편집 중 화살표: 현재 입력 커밋(blur) 후 인접 셀로 포커스만 이동.
+      // 셀 단위 편집 패턴 — 새 셀에서 다시 편집하려면 F2(또는 같은 셀 클릭) 필요.
+      // (계속 입력하며 옆 칸으로 넘어가고 싶을 때는 Tab/Shift+Tab 사용 — 그 핸들러는 그대로 유지됨)
       // number 타입 input에서는 ↑/↓는 값 증감(브라우저 기본)에 사용하므로 셀 이동에서 제외.
-      // ←/→는 number 입력에서는 의미가 없으므로 셀 이동에 사용한다.
       if (
         (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         (editingCell || inlineEditingNameId) &&
@@ -275,19 +276,18 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const nextCol = editableColumnIds[nextColIdx];
           if (nextTask && nextCol) {
             e.preventDefault();
+            // 현재 입력 커밋(blur)하면 onBlur 핸들러가 값을 저장
             (document.activeElement as HTMLElement)?.blur?.();
             setTimeout(() => {
               setLastSelectedId(nextTask.id);
-              if (nextCol === 'name') {
-                setInlineEditingNameId(nextTask.id);
-                setEditingCell(null);
-              } else {
-                setEditingCell({ taskId: nextTask.id, columnId: nextCol });
-                setInlineEditingNameId(null);
-              }
+              setTableEditMode(true);
+              setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
+              // 편집 모드는 끄고 포커스만 — F2를 눌러야 다음 셀의 편집이 시작됨
+              setEditingCell(null);
+              setInlineEditingNameId(null);
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
               requestAnimationFrame(() => {
-                document.getElementById(`wbs-edit-${nextTask.id}-${nextCol}`)?.focus();
+                tableScrollRef.current?.focus();
               });
             }, 0);
           }
