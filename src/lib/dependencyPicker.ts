@@ -15,7 +15,9 @@ export function filterTasksForDependencyPicker(
   maxResults = 12,
 ): Task[] {
   const q = token.trim().toLowerCase();
-  if (!q) return [];
+  // 토큰 없음(F2/포커스 직후, 또는 쉼표만 입력한 직후): 전체 후보를 maxResults까지 노출.
+  // 사용자는 빈 입력 상태에서도 목록을 보고 곧바로 선택 가능.
+  if (!q) return candidates.slice(0, maxResults);
 
   const matches = (t: Task): boolean => {
     const name = (t.name || '').toLowerCase();

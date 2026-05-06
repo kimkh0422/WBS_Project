@@ -239,6 +239,7 @@ export function TaskModal({
 
   const [depsInput, setDepsInput] = useState('');
   const [depPickIdx, setDepPickIdx] = useState(0);
+  const [depsFocused, setDepsFocused] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isCorrectingDescription, setIsCorrectingDescription] = useState(false);
@@ -1161,7 +1162,11 @@ export function TaskModal({
                 type="text"
                 value={depsInput}
                 onChange={(e) => setDepsInput(e.target.value)}
-                onBlur={() => commitDepsInputString(depsInput.trim())}
+                onFocus={() => setDepsFocused(true)}
+                onBlur={() => {
+                  setDepsFocused(false);
+                  commitDepsInputString(depsInput.trim());
+                }}
                 onKeyDown={(e) => {
                   if (readOnly) return;
                   if (depSuggestions.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
@@ -1185,7 +1190,7 @@ export function TaskModal({
                 disabled={readOnly}
                 autoComplete="off"
               />
-              {!readOnly && depSuggestions.length > 0 && (
+              {!readOnly && depsFocused && depSuggestions.length > 0 && (
                 <ul
                   className="absolute left-0 right-0 top-full mt-0.5 max-h-44 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-lg z-50 py-1"
                   role="listbox"
