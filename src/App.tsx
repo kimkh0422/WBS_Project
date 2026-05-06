@@ -153,10 +153,22 @@ interface WBSAppProps {
   /** 관리자 비밀번호로 임시 진입한 상태인지 (sessionStorage 기반, AppWithProviders가 보유) */
   adminOverride: boolean;
   setAdminOverride: (v: boolean) => void;
+  /** 관리자가 화면을 일반 회원처럼 체험 중인 상태 (sessionStorage 기반) */
+  memberPreview: boolean;
+  setMemberPreview: (v: boolean) => void;
   onMembersUpdated?: () => void;
 }
 
-function WBSApp({ isAdmin, myEditableProjectIds, userApproved, adminOverride, setAdminOverride, onMembersUpdated }: WBSAppProps) {
+function WBSApp({
+  isAdmin,
+  myEditableProjectIds,
+  userApproved,
+  adminOverride,
+  setAdminOverride,
+  memberPreview,
+  setMemberPreview,
+  onMembersUpdated,
+}: WBSAppProps) {
   const { user, signOut } = useAuth();
 
   // URL 기반 뷰 라우팅 — /table, /gantt, /list 등. 뒤로가기/앞으로가기/딥링크 지원
@@ -238,7 +250,9 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, adminOverride, se
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
-  const effectiveIsAdmin = isAdmin || adminOverride;
+  // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
+  // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
+  const effectiveIsAdmin = (isAdmin || adminOverride) && !memberPreview;
   const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
@@ -1053,6 +1067,8 @@ function WBSApp({ isAdmin, myEditableProjectIds, userApproved, adminOverride, se
               onSelectTask={navigateToTask}
             />
           }
+          memberPreview={memberPreview}
+          setMemberPreview={setMemberPreview}
         />
       )}
 
@@ -2122,7 +2138,14 @@ function AppWithProviders() {
   const [userApproved, setUserApproved] = useState(false);
   /** 관리자 비밀번호로 임시 관리자 모드에 진입한 상태 (sessionStorage 기반) */
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
-  const effectiveIsAdminGlobal = isAdmin || adminOverride;
+  /** 관리자가 회원 화면을 체험 중인 상태 (sessionStorage 기반). 켜져 있으면 관리자라도 화면상 비관리자처럼 동작. */
+  const [memberPreview, setMemberPreviewState] = useState(() => sessionStorage.getItem('wbs-member-preview') === 'true');
+  const setMemberPreview = useCallback((v: boolean) => {
+    setMemberPreviewState(v);
+    if (v) sessionStorage.setItem('wbs-member-preview', 'true');
+    else sessionStorage.removeItem('wbs-member-preview');
+  }, []);
+  const effectiveIsAdminGlobal = (isAdmin || adminOverride) && !memberPreview;
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
@@ -2212,6 +2235,8 @@ function AppWithProviders() {
         userApproved={userApproved}
         adminOverride={adminOverride}
         setAdminOverride={setAdminOverride}
+        memberPreview={memberPreview}
+        setMemberPreview={setMemberPreview}
         onMembersUpdated={() => {}}
       />
     </WBSProvider>

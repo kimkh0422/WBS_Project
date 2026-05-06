@@ -612,6 +612,7 @@ export function MembersModal({
                       {m.id === currentUserId ? (
                         <span
                           className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                          title="본인 계정의 역할은 직접 변경할 수 없습니다. (회원 화면 미리보기는 헤더의 '회원 체험' 사용)"
                         >
                           {m.is_admin ? '관리자' : '회원'}
                         </span>

@@ -32,6 +32,8 @@ import {
   Moon,
   Monitor,
   Star,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { WbsFilterBar } from './FilterBar';
@@ -116,6 +118,9 @@ export interface AppHeaderProps {
   onFavoriteProjectsChange?: (ids: string[]) => void;
   /** 알림 벨 등 헤더 우측에 추가할 슬롯 */
   headerRightSlot?: React.ReactNode;
+  /** 관리자가 회원 화면을 체험 중인 상태 — 모든 관리자 전용 UI를 숨김 */
+  memberPreview?: boolean;
+  setMemberPreview?: (v: boolean) => void;
 }
 
 export function AppHeader({
@@ -186,6 +191,8 @@ export function AppHeader({
   onThemeModeChange,
   onFavoriteProjectsChange,
   headerRightSlot,
+  memberPreview = false,
+  setMemberPreview,
 }: AppHeaderProps) {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -378,6 +385,22 @@ export function AppHeader({
       )}
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}
     >
+      {/* 회원 화면 체험 모드 안내 — 관리자가 비관리자 시점으로 미리보는 중. 항상 노출되어 복귀 가능. */}
+      {memberPreview && setMemberPreview && (
+        <div className="-mx-4 md:-mx-6 -mt-3 mb-3 px-4 md:px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-amber-900">
+          <div className="flex items-center gap-2 text-sm font-medium min-w-0">
+            <Eye size={14} className="shrink-0" />
+            <span className="truncate">회원 화면 체험 중</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMemberPreview(false)}
+            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+          >
+            <EyeOff size={12} /> 관리자로 돌아가기
+          </button>
+        </div>
+      )}
       {/* 모바일 접힌 상태: 최소 바 */}
       <div className={cn('flex md:hidden items-center justify-between gap-2', !isHeaderCollapsed && 'hidden')}>
         <div className="flex items-center gap-2 min-w-0">
@@ -982,6 +1005,19 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
+                      {setMemberPreview && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            setMemberPreview(true);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
+                          title="관리자 전용 메뉴/대시보드/회원 관리 등이 일시적으로 숨겨져 일반 회원처럼 화면이 보입니다. 헤더의 '관리자로 돌아가기' 버튼으로 언제든 복귀."
+                        >
+                          <Eye size={14} /> 회원 화면 체험 시작
+                        </button>
+                      )}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>
                   )}
