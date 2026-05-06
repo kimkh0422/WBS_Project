@@ -46,14 +46,17 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     return () => window.removeEventListener('keydown', handleUndo);
   }, [undo]);
 
-  // Ctrl+Y / Cmd+Y: Redo
+  // Ctrl+Y / Cmd+Y / Ctrl+Shift+Z / Cmd+Shift+Z: Redo
   useEffect(() => {
     const handleRedo = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 'y') return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const isCtrlY = k === 'y' && !e.shiftKey;
+      const isCtrlShiftZ = k === 'z' && e.shiftKey;
+      if (!isCtrlY && !isCtrlShiftZ) return;
       e.preventDefault();
       redo();
     };
@@ -78,38 +81,8 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     return () => window.removeEventListener('keydown', handleExpandLevelHotkey);
   }, [expandToLevel, setTreeExpandLevel]);
 
-  // Alt+1~7: View switch (Ctrl+Shift 조합 미사용)
-  useEffect(() => {
-    const VIEW_SHORTCUTS: Record<string, string> = {
-      Digit1: 'dashboard',
-      Digit2: 'allocation',
-      Digit3: 'list',
-      Digit4: 'table',
-      Digit5: 'gantt',
-      Digit6: 'kanban',
-      Digit7: 'mindmap',
-      Numpad1: 'dashboard',
-      Numpad2: 'allocation',
-      Numpad3: 'list',
-      Numpad4: 'table',
-      Numpad5: 'gantt',
-      Numpad6: 'kanban',
-      Numpad7: 'mindmap',
-    };
-    const handleViewShortcut = (e: KeyboardEvent) => {
-      if (isComposingKeyEvent(e)) return;
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-      const nextView = VIEW_SHORTCUTS[e.code];
-      if (!nextView) return;
-      if (hiddenViews.has(nextView)) return;
-      e.preventDefault();
-      navigateWithTip(nextView);
-    };
-    window.addEventListener('keydown', handleViewShortcut);
-    return () => window.removeEventListener('keydown', handleViewShortcut);
-  }, [navigateWithTip, hiddenViews]);
+  // (제거됨) Alt+1~7 뷰 전환 단축키 — 사용자 요청으로 비활성화.
+  // 뷰 전환은 헤더 탭 또는 네비게이션 메뉴를 통해 수행.
 
   // ?: Toggle shortcuts sidebar
   useEffect(() => {
@@ -142,38 +115,16 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     return () => window.removeEventListener('keydown', handleAdminHotkey);
   }, [setIsAdminPasswordModalOpen]);
 
-  // Ctrl+S: Save to DB
+  // Ctrl+S: 즉시 서버 반영 기능 제거 (사용자 요청). 자동 저장만 사용.
+  // 단, 브라우저의 '페이지 저장' 다이얼로그가 뜨지 않도록 preventDefault만 수행.
   useEffect(() => {
     const handleSaveHotkey = (e: KeyboardEvent) => {
-      if (isComposingKeyEvent(e)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.shiftKey || e.altKey) return;
       if (e.key.toLowerCase() !== 's') return;
-      if (!isSupabaseConfigured) return;
-
       e.preventDefault();
-      e.stopPropagation();
-
-      const run = async () => {
-        const el = document.activeElement as HTMLElement | null;
-        const inTable = el && /^INPUT|TEXTAREA|SELECT$/i.test(el.tagName) && el.closest?.('[data-wbs-table]');
-        if (inTable) {
-          el.blur();
-          await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-        }
-        setIsDbPushInProgress(true);
-        try {
-          await pushChangesToDbRef.current('all');
-        } finally {
-          setIsDbPushInProgress(false);
-        }
-      };
-      void run().catch((err: unknown) => {
-        setIsDbPushInProgress(false);
-        pushToast(err instanceof Error ? err.message : '서버 반영 실패', { variant: 'error' });
-      });
     };
     window.addEventListener('keydown', handleSaveHotkey, true);
     return () => window.removeEventListener('keydown', handleSaveHotkey, true);
-  }, [pushChangesToDbRef, setIsDbPushInProgress, pushToast]);
+  }, []);
 }
