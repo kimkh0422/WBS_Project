@@ -144,9 +144,10 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
   const all: TaskRow[] = [];
   let offset = 0;
   while (true) {
-    // egress 절감: description, checklist은 큰 텍스트 → 목록 조회에서 제외 (작업 수정 시 개별 조회)
+    // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
+    // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
     const TASK_LIST_COLUMNS =
-      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
+      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
     let { data, error } = await supabase!
       .from('tasks')
       .select(TASK_LIST_COLUMNS)
