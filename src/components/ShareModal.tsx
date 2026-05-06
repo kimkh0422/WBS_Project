@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Link2, Users, Loader2, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Copy, Check, Link2, Users, Loader2, UserPlus, Building2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchProjectMembers, createProjectInvite, removeProjectMember, upsertProjectMember, setProjectMemberRole } from '../lib/db';
 import { ProjectMemberRow } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useOrganization } from '../context/OrganizationContext';
+import type { OrgNode } from '../data/organization';
 
 export interface ShareModalProfile {
   id: string;
@@ -49,8 +51,49 @@ export function ShareModal({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addSearch, setAddSearch] = useState('');
+  /** 'all' = 조직 필터 없음. 그 외에는 OrgNode.id */
+  const [orgFilterId, setOrgFilterId] = useState<string>('all');
 
   const canManage = (isOwner ?? false) || (isAdmin ?? false);
+
+  const { orgTree, orgMembers } = useOrganization();
+
+  /** 조직 트리를 들여쓰기된 평면 옵션 목록으로 변환 (드롭다운용) */
+  const orgOptions = useMemo(() => {
+    const list: { id: string; label: string; depth: number }[] = [];
+    const walk = (node: OrgNode, depth: number) => {
+      list.push({ id: node.id, label: node.name, depth });
+      for (const child of node.children ?? []) walk(child, depth + 1);
+    };
+    walk(orgTree, 0);
+    return list;
+  }, [orgTree]);
+
+  /** 선택된 조직(자식 부서 포함)에 속한 인원 이름 집합. null이면 전체 표시. */
+  const namesInSelectedOrg = useMemo<Set<string> | null>(() => {
+    if (orgFilterId === 'all') return null;
+    const findNode = (node: OrgNode, id: string): OrgNode | null => {
+      if (node.id === id) return node;
+      for (const child of node.children ?? []) {
+        const r = findNode(child, id);
+        if (r) return r;
+      }
+      return null;
+    };
+    const node = findNode(orgTree, orgFilterId);
+    if (!node) return new Set();
+    const departments = new Set<string>();
+    const collectDepts = (n: OrgNode) => {
+      for (const d of n.departments ?? []) departments.add(d);
+      for (const c of n.children ?? []) collectDepts(c);
+    };
+    collectDepts(node);
+    const names = new Set<string>();
+    for (const m of orgMembers) {
+      if (departments.has(m.department)) names.add(m.name);
+    }
+    return names;
+  }, [orgFilterId, orgTree, orgMembers]);
 
   useEffect(() => {
     if (!isOpen || !projectId) return;
@@ -149,6 +192,11 @@ export function ShareModal({
   const memberUserIds = new Set(members.map((m) => m.user_id));
   const addableProfiles = profiles.filter((p) => !memberUserIds.has(p.id) && p.id !== ownerId);
   const filteredAddableProfiles = addableProfiles.filter((p) => {
+    // 조직 필터: 프로필 표시명(또는 full_name)이 선택된 조직 인원에 속해야 함
+    if (namesInSelectedOrg) {
+      const name = profileMap[p.id] ?? p.full_name ?? '';
+      if (!namesInSelectedOrg.has(name)) return false;
+    }
     const q = addSearch.trim().toLowerCase();
     if (!q) return true;
     const label = (profileMap[p.id] ?? p.full_name ?? p.email ?? p.id).toLowerCase();
@@ -309,6 +357,22 @@ export function ShareModal({
                         : '전체 선택'}
                     </button>
                   </div>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Building2 size={12} className="text-stone-400 shrink-0" />
+                    <select
+                      value={orgFilterId}
+                      onChange={(e) => setOrgFilterId(e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                      title="조직(부서)을 선택하면 해당 조직(하위 부서 포함) 인원만 목록에 표시됩니다."
+                    >
+                      <option value="all">전체 조직</option>
+                      {orgOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {`${'  '.repeat(o.depth)}${o.label}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <input
                     type="text"
                     value={addSearch}
@@ -318,7 +382,9 @@ export function ShareModal({
                   />
                   <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stone-200 bg-stone-50 p-2">
                     {filteredAddableProfiles.length === 0 ? (
-                      <div className="text-xs text-stone-400 py-4 text-center">선택 가능한 사용자가 없습니다.</div>
+                      <div className="text-xs text-stone-400 py-4 text-center">
+                        {orgFilterId !== 'all' ? '선택한 조직의 가입 사용자가 없습니다.' : '선택 가능한 사용자가 없습니다.'}
+                      </div>
                     ) : (
                       <ul className="space-y-1">
                         {filteredAddableProfiles.map((p) => {
