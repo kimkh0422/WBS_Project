@@ -392,12 +392,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 편집 모드에서 셀 간 화살표 이동 (편집 중이 아닐 때)
+      // 셀 포커스 모드(편집 중 아님)에서 화살표로 셀 이동.
+      // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
+      // 빠진 경우에도 ←/→가 동작하도록 한다. (focusedCell이 있고 편집 중이 아니면 표 사용자
+      // 의도가 명확함 — 실제 입력 요소 안이라면 isWbsTableCellTypingTarget 체크로 분리됨)
       if (
         tableEditMode &&
         !editingCell &&
         !inlineEditingNameId &&
         !isWbsTableCellTypingTarget(target) &&
-        target.closest('[data-wbs-table]') &&
         focusedCell &&
         editableColumnIds.length > 0
       ) {
@@ -418,6 +421,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
               setLastSelectedId(nextTask.id);
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+              // 다음 키 입력도 안정적으로 받도록 표 컨테이너로 포커스 복원
+              tableScrollRef.current?.focus();
             }
           }
           return;
@@ -466,16 +471,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
       }
 
-      // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통)
-      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
-        e.preventDefault();
-        handleSetRowHeight(Math.min(64, rowHeight + 2));
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
-        e.preventDefault();
-        handleSetRowHeight(Math.max(15, rowHeight - 2));
-        return;
+      // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통) — e.code로 레이아웃 차이 완화
+      if (e.ctrlKey || e.metaKey) {
+        const isInc = e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+' || e.key === '=';
+        const isDec = e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-' || e.key === '_';
+        if (isInc) {
+          e.preventDefault();
+          handleSetRowHeight(Math.min(64, rowHeight + 2));
+          return;
+        }
+        if (isDec) {
+          e.preventDefault();
+          handleSetRowHeight(Math.max(15, rowHeight - 2));
+          return;
+        }
       }
 
       // Allow paste even when no row is selected (e.g. focus on empty space)
