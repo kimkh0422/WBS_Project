@@ -300,8 +300,23 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           let nextColIdx = colIdx;
           if (e.key === 'ArrowDown') nextRowIdx = Math.min(visibleTasks.length - 1, currentIndex + 1);
           else if (e.key === 'ArrowUp') nextRowIdx = Math.max(0, currentIndex - 1);
-          else if (e.key === 'ArrowLeft') nextColIdx = Math.max(0, colIdx - 1);
-          else if (e.key === 'ArrowRight') nextColIdx = Math.min(editableColumnIds.length - 1, colIdx + 1);
+          else if (e.key === 'ArrowLeft') {
+            // 첫 컬럼에서 ← : 이전 행 마지막 컬럼으로 wrap (Excel 패턴)
+            if (colIdx === 0) {
+              nextColIdx = editableColumnIds.length - 1;
+              nextRowIdx = Math.max(0, currentIndex - 1);
+            } else {
+              nextColIdx = colIdx - 1;
+            }
+          } else if (e.key === 'ArrowRight') {
+            // 마지막 컬럼에서 → : 다음 행 첫 컬럼으로 wrap (Excel 패턴) — 선행작업처럼 마지막 컬럼에서도 이동 가능
+            if (colIdx === editableColumnIds.length - 1) {
+              nextColIdx = 0;
+              nextRowIdx = Math.min(visibleTasks.length - 1, currentIndex + 1);
+            } else {
+              nextColIdx = colIdx + 1;
+            }
+          }
 
           const nextTask = visibleTasks[nextRowIdx];
           const nextCol = editableColumnIds[nextColIdx];
@@ -417,8 +432,21 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             let nextColIdx = colIdx;
             if (e.key === 'ArrowUp') nextRowIdx = Math.max(0, rowIdx - 1);
             else if (e.key === 'ArrowDown') nextRowIdx = Math.min(visibleTasks.length - 1, rowIdx + 1);
-            else if (e.key === 'ArrowLeft') nextColIdx = Math.max(0, colIdx - 1);
-            else if (e.key === 'ArrowRight') nextColIdx = Math.min(editableColumnIds.length - 1, colIdx + 1);
+            else if (e.key === 'ArrowLeft') {
+              if (colIdx === 0) {
+                nextColIdx = editableColumnIds.length - 1;
+                nextRowIdx = Math.max(0, rowIdx - 1);
+              } else {
+                nextColIdx = colIdx - 1;
+              }
+            } else if (e.key === 'ArrowRight') {
+              if (colIdx === editableColumnIds.length - 1) {
+                nextColIdx = 0;
+                nextRowIdx = Math.min(visibleTasks.length - 1, rowIdx + 1);
+              } else {
+                nextColIdx = colIdx + 1;
+              }
+            }
             const nextTask = visibleTasks[nextRowIdx];
             const nextCol = editableColumnIds[nextColIdx];
             if (nextTask && nextCol) {

@@ -1217,7 +1217,9 @@ function SortableTaskRowInner({
             setDepsInputValue(visibleNums.join(', '));
           };
           const isFocusedDep = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
-          const depsMenuOpen = depsFocused && depSuggestionsList.length > 0;
+          const isEditingDep = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
+          // input의 onFocus가 배치/타이밍 이슈로 안 잡힐 수 있어 editingCell/focusedCell도 보강 조건으로 사용
+          const depsMenuOpen = (depsFocused || isEditingDep || isFocusedDep) && depSuggestionsList.length > 0;
           return (
             <div
               key={colId}
