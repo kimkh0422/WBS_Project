@@ -669,12 +669,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(prevTask.id);
-              if (tableEditMode) {
-                setFocusedCell({
-                  taskId: prevTask.id,
-                  columnId: focusedCell?.columnId ?? 'name',
-                });
-              }
+              // 키보드 이동 시 항상 셀 포커스 동기화 → ←/→가 트리 펼치기로 빠지지 않고 셀 이동으로 일관 동작
+              setTableEditMode(true);
+              setFocusedCell({
+                taskId: prevTask.id,
+                columnId: focusedCell?.columnId ?? 'name',
+              });
             }
             document.getElementById(`task-row-${prevTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
@@ -696,12 +696,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(nextTask.id);
-              if (tableEditMode) {
-                setFocusedCell({
-                  taskId: nextTask.id,
-                  columnId: focusedCell?.columnId ?? 'name',
-                });
-              }
+              // 키보드 이동 시 항상 셀 포커스 동기화 → ←/→가 트리 펼치기로 빠지지 않고 셀 이동으로 일관 동작
+              setTableEditMode(true);
+              setFocusedCell({
+                taskId: nextTask.id,
+                columnId: focusedCell?.columnId ?? 'name',
+              });
             }
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
           }
@@ -709,6 +709,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         // 편집/입력 중에는 화살표로 접기·펼치기 하지 않음 (커서 이동 등)
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
+        // 셀 포커스가 있으면 ←/→는 셀 이동으로 동작해야 하므로 트리 펼치기 차단.
+        // (셀 이동은 위쪽 363행 블록에서 이미 처리되지만, 그 블록에 안 잡히는 엣지 케이스 방어)
+        if (focusedCell) return;
         // 트리 뷰에서만: ← 접기, → 펼치기 (자식이 있는 행에서만 동작)
         const isTreeView = !(
           filters.status !== 'all' ||
