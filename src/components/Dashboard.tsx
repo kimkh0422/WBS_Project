@@ -69,11 +69,23 @@ function computeWeightedProgress(items: Task[]): number {
 export function Dashboard({
   onNavigate,
   registeredMemberDisplayNames,
+  accessibleProjectIds,
 }: {
   onNavigate?: (view: string, filters: Record<string, string>) => void;
   registeredMemberDisplayNames?: Set<string>;
+  /** undefined: 전체(관리자). Set이면 그 ID 집합에 속한 프로젝트만 노출 (본인 참여 프로젝트). */
+  accessibleProjectIds?: Set<string>;
 }) {
-  const { projects, allTasks, wbsSettings } = useWBS();
+  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings } = useWBS();
+  // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
+  const projects = useMemo(
+    () => (accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects),
+    [allProjects, accessibleProjectIds],
+  );
+  const allTasks = useMemo(
+    () => (accessibleProjectIds ? allTasksRaw.filter((t) => accessibleProjectIds.has(t.projectId)) : allTasksRaw),
+    [allTasksRaw, accessibleProjectIds],
+  );
   const { orgTree, orgMembers } = useOrganization();
 
   // 조직 트리의 최상위 자식(사업부/본부) 목록

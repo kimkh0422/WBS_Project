@@ -1683,7 +1683,17 @@ function WBSApp({
               </ErrorBoundary>
             ) : view === 'dashboard' ? (
               <ErrorBoundary viewName="대시보드">
-                <Dashboard onNavigate={handleDashboardNavigate} registeredMemberDisplayNames={registeredMemberDisplayNames} />
+                <Dashboard
+                  onNavigate={handleDashboardNavigate}
+                  registeredMemberDisplayNames={registeredMemberDisplayNames}
+                  // 비관리자(또는 회원 체험 모드)는 본인이 참여한 프로젝트만 표시.
+                  // 관리자는 undefined → 전체 표시.
+                  accessibleProjectIds={
+                    effectiveIsAdmin
+                      ? undefined
+                      : new Set([...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id), ...myMemberProjectIds])
+                  }
+                />
               </ErrorBoundary>
             ) : view === 'projects' ? (
               <ErrorBoundary viewName="프로젝트 관리">
