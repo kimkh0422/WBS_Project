@@ -1088,7 +1088,7 @@ function WBSApp({
       )}
 
       {!isFullscreen && !isLocalSaveBannerDismissed && (
-        <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
+        <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 hidden md:flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
           <span>
             로그인 시 데이터는 <strong>서버(DB)</strong>를 기준으로 하며, 변경 후 잠시 뒤 <strong>자동 반영</strong>됩니다. 이 기기에도
             백업으로 로컬에 저장됩니다. 같은 프로젝트를 연 사람은 실시간으로 갱신됩니다.
@@ -1105,9 +1105,9 @@ function WBSApp({
           </button>
         </div>
       )}
-      {/* 백업 안내 배너 */}
+      {/* 백업 안내 배너 — 모바일에서는 화면 공간 절약을 위해 숨김 */}
       {!isFullscreen && !isBackupBannerDismissed && (
-        <div className="bg-amber-50/80 border-b border-amber-200/60 px-4 py-2.5 flex flex-wrap items-center justify-center gap-2 text-amber-800 text-xs">
+        <div className="bg-amber-50/80 border-b border-amber-200/60 px-4 py-2.5 hidden md:flex flex-wrap items-center justify-center gap-2 text-amber-800 text-xs">
           <AlertTriangle size={14} className="shrink-0 text-amber-500" />
           <span>
             정기적으로 <strong>내보내기</strong>로 백업을 하시기 바랍니다.
