@@ -17,16 +17,20 @@ export interface AuditLogEntry {
   changes: unknown;
 }
 
-/** 프로젝트별 변경 이력 조회 (최신순). 테이블 없으면 빈 배열 반환. */
-export async function fetchAuditLog(projectId: string, limit = 100): Promise<AuditLogEntry[]> {
+/**
+ * 변경 이력 조회 (최신순). 테이블 없거나 RLS로 차단되면 빈 배열 반환.
+ * @param projectId null이면 전체 프로젝트(권한 있는 범위) — 관리자는 모든 이력, 일반 사용자는 본인 소유·멤버 프로젝트만.
+ */
+export async function fetchAuditLog(projectId: string | null, limit = 100): Promise<AuditLogEntry[]> {
   if (!isSupabaseConfigured || !supabase) return [];
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('wbs_audit_log')
       .select('id, project_id, entity_type, entity_id, entity_name, action, user_id, user_display, created_at, changes')
-      .eq('project_id', projectId)
       .order('created_at', { ascending: false })
       .limit(limit);
+    if (projectId) query = query.eq('project_id', projectId);
+    const { data, error } = await query;
     if (error) return [];
     return (data ?? []) as AuditLogEntry[];
   } catch {
@@ -37,7 +41,9 @@ export async function fetchAuditLog(projectId: string, limit = 100): Promise<Aud
 export async function getCurrentUserForAudit(): Promise<{ userId: string | null; userDisplay: string }> {
   if (!supabase) return { userId: null, userDisplay: '로컬' };
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     const user = session?.user;
     if (!user) return { userId: null, userDisplay: '로컬' };
     const email = user.email ?? user.id;
@@ -81,11 +87,22 @@ export async function insertAuditLog(payload: {
 export function diffTaskFields(
   oldRow: TaskRow | null,
   newTask: Task,
-  newRow: TaskRow
+  newRow: TaskRow,
 ): Array<{ field: string; old_value: unknown; new_value: unknown }> | undefined {
   if (!oldRow) return undefined;
   const changes: Array<{ field: string; old_value: unknown; new_value: unknown }> = [];
-  const fields: (keyof TaskRow)[] = ['name', 'start_date', 'end_date', 'progress', 'assignee', 'status', 'work_effort', 'description', 'is_milestone', 'is_issue'];
+  const fields: (keyof TaskRow)[] = [
+    'name',
+    'start_date',
+    'end_date',
+    'progress',
+    'assignee',
+    'status',
+    'work_effort',
+    'description',
+    'is_milestone',
+    'is_issue',
+  ];
   for (const key of fields) {
     const o = oldRow[key];
     const n = newRow[key];
@@ -98,7 +115,7 @@ export function diffTaskFields(
 
 export function diffProjectFields(
   oldRow: ProjectRow | null,
-  newRow: ProjectRow
+  newRow: ProjectRow,
 ): Array<{ field: string; old_value: unknown; new_value: unknown }> | undefined {
   if (!oldRow) return undefined;
   const changes: Array<{ field: string; old_value: unknown; new_value: unknown }> = [];

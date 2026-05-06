@@ -79,7 +79,7 @@ export interface AppHeaderProps {
   setIsProjectModalOpen: (v: boolean) => void;
   setProjectToDelete: (p: Project | null) => void;
   setIsDeleteProjectConfirmOpen: (v: boolean) => void;
-  setAuditLogProjectId: (id: string) => void;
+  setAuditLogProjectId: (id: string | null) => void;
   setIsAuditLogOpen: (v: boolean) => void;
   setView: (v: string) => void;
   undo: () => void;
@@ -726,7 +726,7 @@ export function AppHeader({
                                       <Trash2 size={12} />
                                     </button>
                                   )}
-                                  {isProjectOwner(project) && (
+                                  {(isProjectOwner(project) || effectiveIsAdmin) && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -1025,6 +1025,20 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
+                      {effectiveIsAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            setAuditLogProjectId(null);
+                            setIsAuditLogOpen(true);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2"
+                          title="모든 프로젝트의 생성·수정·삭제 이력을 한 화면에서 조회"
+                        >
+                          <History size={14} /> 전체 변경 이력
+                        </button>
+                      )}
                       {canSwitchAdminMemberView && !memberPreview && (
                         <button
                           type="button"

@@ -2044,9 +2044,11 @@ function WBSApp({
         )}
         {isAuditLogOpen &&
           (() => {
-            const pid = auditLogProjectId ?? (currentProjectId !== 'all' ? currentProjectId : null);
+            // pid가 null이면 '전체 변경 이력' 모드(관리자가 admin 메뉴에서 진입). 그 외에는 특정 프로젝트.
+            const pid = auditLogProjectId;
             const proj = pid ? projects.find((p) => p.id === pid) : null;
-            return pid ? (
+            const projectNameMap = Object.fromEntries(projects.map((p) => [p.id, p.name]));
+            return (
               <AuditLogModal
                 isOpen={true}
                 onClose={() => {
@@ -2055,8 +2057,9 @@ function WBSApp({
                 }}
                 projectId={pid}
                 projectName={proj?.name}
+                projectNameMap={projectNameMap}
               />
-            ) : null;
+            );
           })()}
         {isMembersModalOpen && (
           <MembersModal
