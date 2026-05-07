@@ -621,9 +621,14 @@ function WBSApp({
   const selectProject = useCallback(
     (projectId: string) => {
       setCurrentProjectId(projectId);
-      setView('list'); // 프로젝트 선택 시 기본 "전체" 보기로 전환
+      // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
+      // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
+      const taskViews: ViewType[] = ['list', 'table', 'gantt', 'kanban', 'mindmap'];
+      if (!taskViews.includes(view)) {
+        setView('list');
+      }
     },
-    [setCurrentProjectId],
+    [setCurrentProjectId, setView, view],
   );
 
   // Filter on/off (when on, filter bar and filters apply)
