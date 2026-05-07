@@ -6,9 +6,23 @@ import type { StatusConfig } from './wbsSettings';
  * 부모 작업의 시작일/종료일/진척률을 자식 기준으로 롤업.
  * @param forceProgress true: 자식 변경 전파 시 progressLocked 무시하고 항상 롤업
  *                      false(기본): DB 싱크/전체 재계산 시 progressLocked 존중
+ * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID. 본인이면 갱신을 건너뛰되,
+ *                        조상 롤업 재귀는 계속 진행한다(상위 영향은 따로 반영).
  */
-export function syncParentRollups(allTasks: Task[], parentId: string | null, doneStatusIds?: Set<string>, forceProgress = false): Task[] {
+export function syncParentRollups(
+  allTasks: Task[],
+  parentId: string | null,
+  doneStatusIds?: Set<string>,
+  forceProgress = false,
+  excludeParentIds?: Set<string>,
+): Task[] {
   if (!parentId) return allTasks;
+  // 사용자가 막 편집한 부모는 자식 min/max로 덮어쓰지 않는다. 조상은 계속 롤업.
+  if (excludeParentIds?.has(parentId)) {
+    const parent = allTasks.find((t) => t.id === parentId);
+    if (!parent) return allTasks;
+    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds);
+  }
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
 
@@ -69,7 +83,7 @@ export function syncParentRollups(allTasks: Task[], parentId: string | null, don
       )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress);
+  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds);
 }
 
 /**
@@ -353,9 +367,10 @@ export function recomputeProjectRollups(
   const parentIds = Array.from(hasChildren).sort((a, b) => getDepth(b) - getDepth(a));
   let next = allTasks;
   for (const pid of parentIds) {
-    // 사용자가 직접 편집한 부모는 자식 min/max로 덮어쓰지 않음
+    // 사용자가 직접 편집한 부모는 자식 min/max로 덮어쓰지 않음.
+    // syncParentRollups에도 excludeParentIds를 전달해 자식 쪽에서의 재귀 롤업도 막는다.
     if (excludeParentIds?.has(pid)) continue;
-    next = syncParentRollups(next, pid, doneStatusIds);
+    next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds);
   }
   return next;
 }
