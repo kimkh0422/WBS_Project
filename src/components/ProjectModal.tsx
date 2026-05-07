@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, UserPlus, Calendar } from 'lucide-react';
 import { Project, ProjectAssignment } from '../types';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
 import { cn } from '../lib/utils';
 import { WORK_EFFORT_UNIT_OPTIONS, normalizeWorkEffortUnit } from '../lib/workEffortUnits';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 
 /** "YYYY-MM-DD ~ YYYY-MM-DD" 또는 "YY.MM ~ YY.MM" 형식 파싱 → [start, end] (YYYY-MM-DD) */
 function parseReportTotalPeriod(value: string): [string, string] {
@@ -55,6 +57,7 @@ interface ProjectModalProps {
 }
 
 export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [] }: ProjectModalProps) {
+  const { orgMembers } = useOrganization();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -73,6 +76,23 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
 
   /** 월별 설정 펼친 인원 인덱스 (한 번에 하나만) */
   const [monthlyExpandedIndex, setMonthlyExpandedIndex] = useState<number | null>(null);
+
+  /** 담당자 입력 DOM 참조 — Enter로 다음 행 자동 추가/포커스 */
+  const assigneeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  /** 담당자 추가 직후 포커스 잡을 인덱스 (effect로 처리) */
+  const [pendingAssigneeFocusIndex, setPendingAssigneeFocusIndex] = useState<number | null>(null);
+
+  /** 담당자 자동완성 후보: 조직 회원 + 다른 프로젝트 등록 인원 + 현재 입력 값들 */
+  const assigneeCandidates = useMemo(
+    () =>
+      buildAssigneeCandidates({
+        orgMembers,
+        projects: allProjects,
+        extra: assignments.map((a) => a.assignee).filter(Boolean),
+      }),
+    [orgMembers, allProjects, assignments],
+  );
+  const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
 
   /** 프로젝트 기간 기준 월 목록 (YYYY-MM). 기간 없으면 현재월 포함 12개월 */
   const projectMonths = useMemo(() => {
@@ -156,6 +176,14 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
     return () => clearTimeout(t);
   }, [formError]);
 
+  // 담당자 행 추가 직후 새 입력으로 포커스
+  useEffect(() => {
+    if (pendingAssigneeFocusIndex === null) return;
+    const el = assigneeInputRefs.current[pendingAssigneeFocusIndex];
+    if (el) el.focus();
+    setPendingAssigneeFocusIndex(null);
+  }, [pendingAssigneeFocusIndex, assignments.length]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -191,6 +219,13 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
   };
 
   const addAssignment = () => setAssignments((prev) => [...prev, { assignee: '', allocationPercent: 100 }]);
+  /** 담당자 추가 후 새로 생긴 행의 입력으로 포커스 이동 */
+  const addAssignmentAndFocus = () => {
+    setAssignments((prev) => {
+      setPendingAssigneeFocusIndex(prev.length);
+      return [...prev, { assignee: '', allocationPercent: 100 }];
+    });
+  };
   const removeAssignment = (index: number) => setAssignments((prev) => prev.filter((_, i) => i !== index));
   const updateAssignment = (index: number, field: 'assignee' | 'allocationPercent', value: string | number) => {
     setAssignments((prev) => {
@@ -440,11 +475,27 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                   <div key={i} className="border border-stone-100 rounded-lg p-2.5 space-y-2">
                     <div className="flex items-center gap-2">
                       <input
+                        ref={(el) => {
+                          assigneeInputRefs.current[i] = el;
+                        }}
                         type="text"
+                        list="project-modal-assignees"
                         value={a.assignee}
                         onChange={(e) => updateAssignment(i, 'assignee', e.target.value)}
+                        onKeyDown={(e) => {
+                          // Enter: 다음 인원 입력으로 이동(없으면 새 행 추가). 한글 조합 중에는 무시.
+                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            if (i < assignments.length - 1) {
+                              assigneeInputRefs.current[i + 1]?.focus();
+                            } else {
+                              addAssignmentAndFocus();
+                            }
+                          }
+                        }}
                         className="input-field flex-1 py-2 text-sm"
-                        placeholder="담당자 이름"
+                        placeholder="담당자 이름 (조직 회원에서 검색 또는 직접 입력)"
+                        title="조직 회원 목록에서 선택하거나 직접 입력. Enter로 다음 인원 추가."
                       />
                       <select
                         value={a.allocationPercent}
@@ -509,6 +560,13 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
               >
                 <Plus size={12} /> 인원 추가
               </button>
+              {/* 모든 인원 입력이 공유하는 자동완성 후보 */}
+              <datalist id="project-modal-assignees">
+                {assigneeCandidates.map((name) => {
+                  const label = orgMemberLabelByName.get(name);
+                  return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                })}
+              </datalist>
             </div>
           </section>
         </form>

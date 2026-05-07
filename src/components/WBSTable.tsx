@@ -45,6 +45,8 @@ import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 import { useAuth } from '../context/AuthContext';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
@@ -124,8 +126,12 @@ export function WBSTable({
 
   const { push: pushToast, tipOnce } = useToast();
   const { user } = useAuth();
+  const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
   const currentUserDisplayName = String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+  /** 다중 선택 일괄 수정 바의 담당자 후보 (조직 회원 + 모든 프로젝트 등록 인원 + 작업 담당자 통합) */
+  const bulkAssigneeCandidates = useMemo(() => buildAssigneeCandidates({ orgMembers, projects, tasks }), [orgMembers, projects, tasks]);
+  const bulkAssigneeLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
 
   const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
@@ -195,7 +201,7 @@ export function WBSTable({
   });
 
   const quickAddNameInlineRef = useRef<HTMLInputElement>(null);
-  const quickAddNameBottomRef = useRef<HTMLInputElement>(null);
+  const quickAddNameTopRef = useRef<HTMLInputElement>(null);
   const [insertTargetId, setInsertTargetId] = useState<string | null>(null);
   const [inlineAddingTaskId, setInlineAddingTaskId] = useState<string | null>(null);
 
@@ -692,7 +698,7 @@ export function WBSTable({
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEditCurrentProject) return; // 편집 권한 없으면 빠른 추가 비활성화
-    const name = quickAddNameBottomRef.current?.value ?? '';
+    const name = quickAddNameTopRef.current?.value ?? '';
     if (!name.trim()) return;
 
     const proj = projects.find((p) => p.id === currentProjectId);
@@ -707,10 +713,10 @@ export function WBSTable({
       status: 'todo',
       parentId: null,
     });
-    if (quickAddNameBottomRef.current) {
-      quickAddNameBottomRef.current.value = '';
+    if (quickAddNameTopRef.current) {
+      quickAddNameTopRef.current.value = '';
       // input에서 포커스 빼야 ↑/↓ 단축키가 동작 (useWbsTableKeyboard의 inQuickAdd 가드)
-      quickAddNameBottomRef.current.blur();
+      quickAddNameTopRef.current.blur();
     }
     if (newId) {
       // 포커스 행 지정 → 노란색 강조 + ↑/↓로 즉시 이동 가능. 체크박스는 자동 체크 X.
@@ -1070,6 +1076,47 @@ export function WBSTable({
                 </div>
               )}
 
+              {/* 새 작업 추가 행: 스크롤 영역 최상단에 sticky 고정.
+                  작업이 많아 스크롤되어도 항상 화면에 보이고, 헤더 바로 아래에 위치해
+                  진입 즉시 입력을 시작할 수 있게 한다. v0.4.144~ 하단→상단 이동. */}
+              {canEditCurrentProject && (
+                <div
+                  className="data-row flex-shrink-0 sticky z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm"
+                  style={{ ...gridStyle, top: isSplitView ? 0 : 'var(--row-height, 36px)' }}
+                >
+                  <div className="data-cell"></div>
+                  <div className="data-cell"></div>
+                  <div className="data-cell"></div>
+                  <div className="data-cell justify-center text-blue-500">
+                    <Plus size={14} />
+                  </div>
+                  {visibleColumnIds.map((colId) => {
+                    if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                    return (
+                      <div key={colId} className="data-cell p-0">
+                        <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                          <input
+                            data-quick-add
+                            ref={quickAddNameTopRef}
+                            type="text"
+                            defaultValue=""
+                            placeholder="+ 새 작업 추가 (Enter 키 입력)..."
+                            className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                          />
+                          <button
+                            type="submit"
+                            className="text-[10px] font-bold text-white bg-blue-500 uppercase px-4 hover:bg-blue-600 transition-colors"
+                          >
+                            추가
+                          </button>
+                        </form>
+                      </div>
+                    );
+                  })}
+                  <div className="data-cell"></div>
+                </div>
+              )}
+
               {/* Rows */}
               <DndContext
                 sensors={sensors}
@@ -1258,42 +1305,6 @@ export function WBSTable({
             <ExcelGrid tasks={visibleTasks} displayWbsMap={displayWbsMap} onTaskChange={updateTask} />
           </div>
         )}
-        {/* 새 작업 추가 행: 스크롤 밖 하단에 항상 고정 (split·non-split 공통).
-            작업이 많은 프로젝트에서 새로고침 후에도 메뉴가 묻히지 않도록 표 영역 바깥에 배치. */}
-        {!excelView && canEditCurrentProject && (
-          <div className="data-row flex-shrink-0 bg-slate-50 border-t border-slate-200/60 shadow-inner" style={gridStyle}>
-            <div className="data-cell"></div>
-            <div className="data-cell"></div>
-            <div className="data-cell"></div>
-            <div className="data-cell justify-center text-stone-400">
-              <Plus size={14} />
-            </div>
-            {visibleColumnIds.map((colId) => {
-              if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-              return (
-                <div key={colId} className="data-cell p-0">
-                  <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                    <input
-                      data-quick-add
-                      ref={quickAddNameBottomRef}
-                      type="text"
-                      defaultValue=""
-                      placeholder="새 작업 추가 (Enter 키 입력)..."
-                      className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-medium placeholder:text-slate-400 h-full px-3"
-                    />
-                    <button
-                      type="submit"
-                      className="text-[10px] font-bold text-indigo-600 uppercase px-4 hover:bg-indigo-50 transition-colors"
-                    >
-                      추가
-                    </button>
-                  </form>
-                </div>
-              );
-            })}
-            <div className="data-cell"></div>
-          </div>
-        )}
       </div>
 
       {/* Bulk Action Bar - 다중선택(2개 이상)일 경우에만 표시 */}
@@ -1350,16 +1361,18 @@ export function WBSTable({
                     list="all-assignees"
                     value={bulkAssignee}
                     onChange={(e) => setBulkAssignee(e.target.value)}
-                    placeholder="담당자 일괄 지정..."
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-40"
+                    placeholder="조직 회원에서 검색 또는 직접 입력"
+                    title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
+                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') executeBulkAssignee();
                     }}
                   />
                   <datalist id="all-assignees">
-                    {allAssignees.map((name) => (
-                      <option key={name} value={name} />
-                    ))}
+                    {bulkAssigneeCandidates.map((name) => {
+                      const label = bulkAssigneeLabelByName.get(name);
+                      return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                    })}
                   </datalist>
                 </div>
               </div>

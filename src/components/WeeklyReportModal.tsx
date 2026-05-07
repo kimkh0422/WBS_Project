@@ -5,6 +5,8 @@ import { format, startOfWeek, endOfWeek, addDays, differenceInCalendarDays, pars
 import { Task, Project } from '../types';
 import { TaskModal } from './TaskModal';
 import { useWBS } from '../context/WBSContext';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 import { cn, formatNum2 } from '../lib/utils';
 
 interface WeeklyReportModalProps {
@@ -57,6 +59,10 @@ function isInRange(date: Date | null, from: Date, to: Date): boolean {
 
 export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentProjectId, currentUserDisplay }: WeeklyReportModalProps) {
   const { updateTask, addTask } = useWBS();
+  const { orgMembers } = useOrganization();
+  /** 담당자 자동완성 후보: 조직 회원 + 모든 프로젝트 등록 인원 + 작업의 기존 담당자 */
+  const issueAssigneeCandidates = useMemo(() => buildAssigneeCandidates({ orgMembers, projects, tasks }), [orgMembers, projects, tasks]);
+  const issueOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const [baseStartStr, setBaseStartStr] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [baseEndStr, setBaseEndStr] = useState(() => format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [scope, setScope] = useState<Scope>('me');
@@ -903,11 +909,19 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                           <label className="text-[10px] text-slate-500 font-medium">담당자</label>
                           <input
                             type="text"
-                            placeholder="담당자"
+                            list="weekly-report-issue-assignees"
+                            placeholder="조직 회원에서 검색 또는 직접 입력"
                             value={newIssueDraft.assignee}
                             onChange={(e) => setNewIssueDraft((d) => ({ ...d, assignee: e.target.value }))}
                             className="px-2 py-1 rounded border border-slate-200 text-xs"
+                            title="조직 회원 목록에서 선택하거나 직접 입력하세요."
                           />
+                          <datalist id="weekly-report-issue-assignees">
+                            {issueAssigneeCandidates.map((name) => {
+                              const label = issueOrgLabelByName.get(name);
+                              return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                            })}
+                          </datalist>
                         </div>
                         <div className="col-span-2 flex flex-col gap-0.5">
                           <label className="text-[10px] text-slate-500 font-medium">이슈명 *</label>
