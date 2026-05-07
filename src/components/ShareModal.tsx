@@ -247,8 +247,17 @@ export function ShareModal({
         setError(r.error || '사전 등록 실패');
         return;
       }
-      const list = await fetchPendingProjectInvitations(projectId);
-      setPendingInvitations(list);
+      // INSERT 성공 → 즉시 로컬에 추가 (재조회가 RLS로 빈 배열을 돌려줘도 카드가 보이도록).
+      // 이후 fetch로 정합화 시도. 성공·결과 있으면 서버 결과로 교체, 빈 배열이면 낙관적 추가 유지.
+      if (r.row) {
+        setPendingInvitations((prev) => (prev.some((p) => p.id === r.row!.id) ? prev : [r.row!, ...prev]));
+      }
+      try {
+        const list = await fetchPendingProjectInvitations(projectId);
+        if (list.length > 0) setPendingInvitations(list);
+      } catch {
+        /* fetch 실패는 무시 — 낙관적 추가가 이미 반영됨 */
+      }
       setPendingName('');
       setPendingEmail('');
     } finally {

@@ -245,12 +245,14 @@ export async function fetchPendingProjectInvitations(projectId: string): Promise
   return (data ?? []) as PendingProjectInvitationRow[];
 }
 
-/** 사전 초대 추가. email 또는 full_name 중 적어도 하나는 필수. */
+/** 사전 초대 추가. email 또는 full_name 중 적어도 하나는 필수.
+ * 성공 시 INSERT 직후 .select()로 추가된 행을 함께 반환한다.
+ * SELECT RLS가 미적용/오류 상태에서도 클라이언트가 즉시 UI에 반영하기 위함. */
 export async function addPendingProjectInvitation(
   projectId: string,
   identifier: { email?: string | null; full_name?: string | null },
   role: 'editor' | 'viewer',
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; row?: PendingProjectInvitationRow }> {
   requireSupabase();
   const email = identifier.email?.trim() || null;
   const fullName = identifier.full_name?.trim() || null;
@@ -258,15 +260,17 @@ export async function addPendingProjectInvitation(
     return { success: false, error: '이름 또는 이메일이 필요합니다.' };
   }
   try {
-    const { error } = await supabase!
+    const { data, error } = await supabase!
       .from('pending_project_invitations')
-      .insert({ project_id: projectId, email, full_name: fullName, role });
+      .insert({ project_id: projectId, email, full_name: fullName, role })
+      .select()
+      .single();
     if (error) {
       // 23505 = unique_violation (같은 프로젝트에 같은 이메일/이름 중복)
       if (error.code === '23505') return { success: false, error: '이미 사전 등록된 사용자입니다.' };
       return { success: false, error: error.message };
     }
-    return { success: true };
+    return { success: true, row: data as PendingProjectInvitationRow };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : '사전 등록에 실패했습니다.' };
   }
