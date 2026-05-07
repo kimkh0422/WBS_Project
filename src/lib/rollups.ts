@@ -317,8 +317,14 @@ export function redistributeWeightsDown(tasks: Task[], parentId: string, parentW
   return nextTasks;
 }
 
-/** 특정 프로젝트의 모든 부모 작업을 자식 기준으로 롤업 재계산 */
-export function recomputeProjectRollups(allTasks: Task[], projectId: string, doneStatusIds?: Set<string>): Task[] {
+/** 특정 프로젝트의 모든 부모 작업을 자식 기준으로 롤업 재계산.
+ * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID들. 이 ID들은 롤업을 건너뛴다(자식 min/max로 덮어쓰지 않음). */
+export function recomputeProjectRollups(
+  allTasks: Task[],
+  projectId: string,
+  doneStatusIds?: Set<string>,
+  excludeParentIds?: Set<string>,
+): Task[] {
   if (!projectId || projectId === 'all') return allTasks;
   const projectTasks = allTasks.filter((t) => t.projectId === projectId);
   if (projectTasks.length === 0) return allTasks;
@@ -347,6 +353,8 @@ export function recomputeProjectRollups(allTasks: Task[], projectId: string, don
   const parentIds = Array.from(hasChildren).sort((a, b) => getDepth(b) - getDepth(a));
   let next = allTasks;
   for (const pid of parentIds) {
+    // 사용자가 직접 편집한 부모는 자식 min/max로 덮어쓰지 않음
+    if (excludeParentIds?.has(pid)) continue;
     next = syncParentRollups(next, pid, doneStatusIds);
   }
   return next;

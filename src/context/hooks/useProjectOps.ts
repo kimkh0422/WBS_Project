@@ -97,123 +97,133 @@ export function useProjectOps(deps: ProjectOpsDeps) {
   const updateProject = useCallback(
     (id: string, updates: Partial<Project>) => {
       bumpDirty();
-      setProjects((prev) => {
-        const project = prev.find((p) => p.id === id);
-        const newStart = updates.startDate ?? project?.startDate;
-        const newEnd = updates.endDate ?? project?.endDate;
-        const startChanged = project && updates.startDate !== undefined && updates.startDate !== project.startDate;
-        const endChanged = project && updates.endDate !== undefined && updates.endDate !== project.endDate;
-        const needsTaskClamp = startChanged || (endChanged && newEnd && (!project?.endDate || newEnd < project.endDate));
+      // 1) 변경 영향 사전 계산 — projectsRef는 즉시 동기화되어 있으므로 안전하게 읽는다.
+      const prevProjects = projectsRef.current;
+      const project = prevProjects.find((p) => p.id === id);
+      if (!project) {
+        // 프로젝트가 없으면 (이론적으로 발생 안 함) 단순 머지만 수행하고 종료
+        setProjects((prev) => prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p)));
+        return;
+      }
 
-        const unitChanging =
-          !!project &&
-          updates.workEffortUnit !== undefined &&
-          normalizeWorkEffortUnit(project.workEffortUnit) !== normalizeWorkEffortUnit(updates.workEffortUnit);
+      const newStart = updates.startDate ?? project.startDate;
+      const newEnd = updates.endDate ?? project.endDate;
+      const startChanged = updates.startDate !== undefined && updates.startDate !== project.startDate;
+      const endChanged = updates.endDate !== undefined && updates.endDate !== project.endDate;
+      // 시작일은 어떤 방향이든 변경 시 작업 클램프(앞 또는 뒤로 이동) 필요.
+      // 종료일은 "줄어드는" 경우에만 작업 클램프 필요(늘어나면 작업이 범위 안이라 손댈 게 없음).
+      const needsTaskClamp = startChanged || (endChanged && !!newEnd && (!project.endDate || newEnd < project.endDate));
+      const unitChanging =
+        updates.workEffortUnit !== undefined &&
+        normalizeWorkEffortUnit(project.workEffortUnit) !== normalizeWorkEffortUnit(updates.workEffortUnit);
 
-        if (project && (needsTaskClamp || unitChanging)) {
-          saveHistory();
-          setAllTasks((currentTasks) => {
-            const mergedProjects = prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p));
-            const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(mergedProjects.map((p) => [p.id, p.assignments ?? []]));
-            const unitMap = buildProjectEffortUnitMap(mergedProjects);
-            const effectiveProjectRow = mergedProjects.find((p) => p.id === id)!;
-            const effUnit = normalizeWorkEffortUnit(effectiveProjectRow.workEffortUnit);
+      // 2) 프로젝트 자체 상태는 항상 먼저 갱신 (작업 클램프 여부와 무관하게)
+      setProjects((prev) => prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p)));
 
-            let shifted = currentTasks.map((t) => {
+      // 3) 작업 클램프·단위 변환이 필요한 경우만 작업 상태도 함께 갱신
+      if (needsTaskClamp || unitChanging) {
+        saveHistory();
+        const mergedProjects = prevProjects.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p));
+        const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(mergedProjects.map((p) => [p.id, p.assignments ?? []]));
+        const unitMap = buildProjectEffortUnitMap(mergedProjects);
+        const effUnit = normalizeWorkEffortUnit(({ ...project, ...updates } as Project).workEffortUnit);
+
+        setAllTasks((currentTasks) => {
+          let shifted = currentTasks.map((t) => {
+            if (t.projectId !== id) return t;
+            if (!unitChanging) return t;
+            const oldU = normalizeWorkEffortUnit(project.workEffortUnit);
+            const newU = normalizeWorkEffortUnit(updates.workEffortUnit);
+            return {
+              ...t,
+              workEffort:
+                typeof t.workEffort === 'number' && t.workEffort > 0
+                  ? convertStoredEffortBetweenUnits(t.workEffort, oldU, newU)
+                  : t.workEffort,
+              baselineWorkEffort:
+                typeof t.baselineWorkEffort === 'number' && t.baselineWorkEffort > 0
+                  ? convertStoredEffortBetweenUnits(t.baselineWorkEffort, oldU, newU)
+                  : t.baselineWorkEffort,
+            };
+          });
+
+          if (needsTaskClamp) {
+            const holidays = getHolidaysForTaskDates(shifted);
+            shifted = shifted.map((t) => {
               if (t.projectId !== id) return t;
-              if (!unitChanging) return t;
-              const oldU = normalizeWorkEffortUnit(project.workEffortUnit);
-              const newU = normalizeWorkEffortUnit(updates.workEffortUnit);
-              return {
-                ...t,
-                workEffort:
-                  typeof t.workEffort === 'number' && t.workEffort > 0
-                    ? convertStoredEffortBetweenUnits(t.workEffort, oldU, newU)
-                    : t.workEffort,
-                baselineWorkEffort:
-                  typeof t.baselineWorkEffort === 'number' && t.baselineWorkEffort > 0
-                    ? convertStoredEffortBetweenUnits(t.baselineWorkEffort, oldU, newU)
-                    : t.baselineWorkEffort,
-              };
+              let taskStart = t.startDate;
+              let taskEnd = t.endDate;
+
+              if (newStart && taskStart && taskStart < newStart) {
+                const assignments = projectAssignmentsMap.get(t.projectId);
+                const start = parseISO(taskStart);
+                const end = parseISO(taskEnd);
+                let computedEnd: string;
+                if (typeof t.workEffort === 'number' && t.workEffort > 0) {
+                  const effortMd = workEffortToManDays(t.workEffort, effUnit);
+                  computedEnd = computeEndDateFromEffort(newStart, effortMd, assignments, holidays);
+                } else if (isValid(start) && isValid(end)) {
+                  const durationDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
+                  computedEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
+                } else {
+                  computedEnd = newStart;
+                }
+                taskStart = newStart;
+                taskEnd = computedEnd;
+              }
+
+              if (newEnd && taskEnd && taskEnd > newEnd) {
+                taskEnd = newEnd;
+                if (taskStart && taskStart > taskEnd) {
+                  taskStart = taskEnd;
+                }
+              }
+
+              if (taskStart !== t.startDate || taskEnd !== t.endDate) {
+                return { ...t, startDate: taskStart, endDate: taskEnd };
+              }
+              return t;
             });
 
-            if (needsTaskClamp) {
-              const holidays = getHolidaysForTaskDates(shifted);
-              shifted = shifted.map((t) => {
-                if (t.projectId !== id) return t;
-                let taskStart = t.startDate;
-                let taskEnd = t.endDate;
-
-                if (newStart && taskStart && taskStart < newStart) {
-                  const assignments = projectAssignmentsMap.get(t.projectId);
-                  const start = parseISO(taskStart);
-                  const end = parseISO(taskEnd);
-                  let computedEnd: string;
-                  if (typeof t.workEffort === 'number' && t.workEffort > 0) {
-                    const effortMd = workEffortToManDays(t.workEffort, effUnit);
-                    computedEnd = computeEndDateFromEffort(newStart, effortMd, assignments, holidays);
-                  } else if (isValid(start) && isValid(end)) {
-                    const durationDays = Math.max(1, differenceInBusinessDaysEx(start, end, holidays));
-                    computedEnd = format(addBusinessDaysEx(parseISO(newStart), durationDays - 1, holidays), 'yyyy-MM-dd');
-                  } else {
-                    computedEnd = newStart;
-                  }
-                  taskStart = newStart;
-                  taskEnd = computedEnd;
-                }
-
-                if (newEnd && taskEnd && taskEnd > newEnd) {
-                  taskEnd = newEnd;
-                  if (taskStart && taskStart > taskEnd) {
-                    taskStart = taskEnd;
-                  }
-                }
-
-                if (taskStart !== t.startDate || taskEnd !== t.endDate) {
-                  return { ...t, startDate: taskStart, endDate: taskEnd };
-                }
-                return t;
-              });
-
-              if (startChanged && newStart) {
-                const projectTasksAfterClamp = shifted.filter((t) => t.projectId === id && t.startDate && t.startDate >= newStart);
-                const earliestAfter: string | null = projectTasksAfterClamp.reduce(
-                  (min: string | null, t: { startDate?: string | null }) =>
-                    !min || (t.startDate && t.startDate < min) ? t.startDate || min : min,
-                  null as string | null,
-                );
-                if (earliestAfter && earliestAfter > newStart) {
-                  const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
-                  if (deltaDays !== 0) {
-                    shifted = shifted.map((t) => {
-                      if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
-                      return {
-                        ...t,
-                        startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
-                        endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
-                      };
-                    });
-                  }
+            if (startChanged && newStart) {
+              const projectTasksAfterClamp = shifted.filter((t) => t.projectId === id && t.startDate && t.startDate >= newStart);
+              const earliestAfter: string | null = projectTasksAfterClamp.reduce(
+                (min: string | null, t: { startDate?: string | null }) =>
+                  !min || (t.startDate && t.startDate < min) ? t.startDate || min : min,
+                null as string | null,
+              );
+              if (earliestAfter && earliestAfter > newStart) {
+                const deltaDays = differenceInDays(parseISO(newStart), parseISO(earliestAfter));
+                if (deltaDays !== 0) {
+                  shifted = shifted.map((t) => {
+                    if (t.projectId !== id || !t.startDate || t.startDate < newStart) return t;
+                    return {
+                      ...t,
+                      startDate: format(addDays(parseISO(t.startDate), deltaDays), 'yyyy-MM-dd'),
+                      endDate: format(addDays(parseISO(t.endDate), deltaDays), 'yyyy-MM-dd'),
+                    };
+                  });
                 }
               }
             }
+          }
 
-            const projectTasks = shifted.filter((t) => t.projectId === id);
-            const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsMap, undefined, unitMap);
-            const adjustedById = new Map<string, Task>(adjusted.map((t) => [t.id, t]));
-            shifted = shifted.map((t) => (t.projectId === id && adjustedById.has(t.id) ? adjustedById.get(t.id)! : t));
-            shifted = recomputeProjectRollups(shifted, id);
-            if (!useLocalOnlyRef.current) upsertTasks(shifted).catch((err) => handleDbError(err, '날짜 이동 저장에 실패했습니다.'));
-            return shifted;
-          });
-        }
-        return prev.map((p) => (p.id === id ? { ...p, ...updates } : p));
-      });
-      const updated = projectsRef.current.find((p) => p.id === id);
-      if (updated && !useLocalOnlyRef.current)
-        upsertProject({ ...updated, ...updates }).catch((err) => handleDbError(err, '프로젝트 수정 저장에 실패했습니다.'));
+          const projectTasks = shifted.filter((t) => t.projectId === id);
+          const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsMap, undefined, unitMap);
+          const adjustedById = new Map<string, Task>(adjusted.map((t) => [t.id, t]));
+          shifted = shifted.map((t) => (t.projectId === id && adjustedById.has(t.id) ? adjustedById.get(t.id)! : t));
+          shifted = recomputeProjectRollups(shifted, id);
+          if (!useLocalOnlyRef.current) upsertTasks(shifted).catch((err) => handleDbError(err, '날짜 이동 저장에 실패했습니다.'));
+          return shifted;
+        });
+      }
+
+      // 4) DB에 프로젝트 변경 반영 — 로컬 모드 아닐 때
+      if (!useLocalOnlyRef.current) {
+        upsertProject({ ...project, ...updates } as Project).catch((err) => handleDbError(err, '프로젝트 수정 저장에 실패했습니다.'));
+      }
     },
-    [bumpDirty, saveHistory, handleDbError, projectsRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId],
+    [bumpDirty, saveHistory, handleDbError, projectsRef, useLocalOnlyRef, setProjects, setAllTasks],
   );
 
   const deleteProject = useCallback(

@@ -350,6 +350,10 @@ export function applyDependencySchedule(
   const lockedRollup = (t: Task) => new Set(t.userLockedFields ?? []);
   for (let i = allIdsByDepth.length - 1; i >= 0; i--) {
     const id = allIdsByDepth[i];
+    // 사용자가 직접 편집한 부모 작업(excludeFromRecalc)은 자식 min/max로 덮어쓰지 않는다.
+    // 잠금 필드와 별개로, "이번에 변경된 작업 자신"을 보호하기 위한 가드.
+    // 잠금이 즉시 적용되지 못한 케이스(상태 업데이트 타이밍, 외부 호출 경로)를 모두 막는다.
+    if (excludeFromRecalc?.has(id)) continue;
     const task = byId.get(id)!;
     const taskLocked = lockedRollup(task);
     const children = byParent.get(id) ?? [];

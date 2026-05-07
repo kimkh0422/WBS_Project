@@ -459,8 +459,11 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
         // 일정 필드 변경 시 의존 작업/연쇄 작업이 다른 가지에 있을 수 있어
         // 해당 가지의 상위 작업 기간 롤업이 누락되지 않도록 프로젝트 단위로 최종 정합화한다.
+        // 단, 사용자가 직접 편집한 부모 작업(자식이 있는 경우)은 자식 min/max로 덮어쓰지 않도록 제외.
         if (hasScheduleChange && task.projectId) {
-          result = recomputeProjectRollups(result, task.projectId, doneStatusIds);
+          const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
+          const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
+          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup);
         }
 
         return result;
