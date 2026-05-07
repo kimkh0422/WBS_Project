@@ -59,15 +59,20 @@ export function syncParentRollups(
   }
 
   const lockedFields = new Set(parent.userLockedFields ?? []);
-  // 부모의 시작/종료일은 자식의 합집합으로 항상 동기화한다(일관성 보장).
-  // userLockedFields의 startDate/endDate는 applyDependencySchedule에서 자동 재스케줄링을
-  // 막는 용도이므로, "부모는 자식을 모두 포함해야 한다"는 롤업 일관성에는 적용하지 않는다.
-  // forceProgress=true(자식 변경 전파): 잠금 무시하고 항상 롤업
+  // 부모 일정 잠금 정책:
+  //  - 사용자가 부모의 시작/종료일을 직접 편집하면 updateTask가 userLockedFields에 'startDate'/'endDate'를
+  //    추가한다. 이 잠금은 "사용자의 명시적 의도"이므로 자식 min/max로 덮어쓰지 않고 그대로 유지한다.
+  //  - 잠금이 없으면 자식의 min/max로 동기화 (기본 일관성 정책).
+  // forceProgress=true(자식 변경 전파): 잠금 무시하고 항상 progress 롤업
   // forceProgress=false(DB싱크/전체 재계산): progressLocked 존중하여 수동 편집값 유지
+  const startLocked = lockedFields.has('startDate');
+  const endLocked = lockedFields.has('endDate');
+  const newStart = startLocked ? parent.startDate : minStart;
+  const newEnd = endLocked ? parent.endDate : maxEnd;
   const progressLocked = !forceProgress && lockedFields.has('progress');
   const shouldUpdate =
-    parent.startDate !== minStart ||
-    parent.endDate !== maxEnd ||
+    parent.startDate !== newStart ||
+    parent.endDate !== newEnd ||
     (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
@@ -75,8 +80,8 @@ export function syncParentRollups(
         t.id === parentId
           ? {
               ...t,
-              startDate: minStart,
-              endDate: maxEnd,
+              startDate: newStart,
+              endDate: newEnd,
               ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
             }
           : t,

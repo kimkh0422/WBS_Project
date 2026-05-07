@@ -89,8 +89,19 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
         : forAggregate.length > 0
           ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
           : 0;
-    const startDate = source.reduce((min, t) => (t.startDate < min ? t.startDate : min), source[0].startDate);
-    const endDate = source.reduce((max, t) => (t.endDate > max ? t.endDate : max), source[0].endDate);
+
+    // 기간 표시: 단일 프로젝트 뷰에서는 그 프로젝트의 startDate/endDate를 우선 표시한다.
+    // 프로젝트 일정이 비어 있거나 다중 프로젝트가 섞여 있으면 작업의 min/max 합산으로 폴백.
+    const projectIdsInView = Array.from(new Set(source.map((t) => t.projectId).filter(Boolean)));
+    const taskMinStart = source.reduce((min, t) => (t.startDate < min ? t.startDate : min), source[0].startDate);
+    const taskMaxEnd = source.reduce((max, t) => (t.endDate > max ? t.endDate : max), source[0].endDate);
+    let startDate = taskMinStart;
+    let endDate = taskMaxEnd;
+    if (projectIdsInView.length === 1) {
+      const proj = projectById.get(projectIdsInView[0]!);
+      if (proj?.startDate) startDate = proj.startDate;
+      if (proj?.endDate) endDate = proj.endDate;
+    }
 
     return {
       totalEffort,
