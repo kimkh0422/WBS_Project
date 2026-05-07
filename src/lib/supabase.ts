@@ -102,6 +102,18 @@ export interface ProjectInviteRow {
   created_at?: string;
 }
 
+/** 프로젝트 사전 초대 — 아직 가입하지 않은 사람을 미리 멤버로 등록.
+ * 가입 후 ensure_profile RPC가 자동으로 project_members에 옮긴다. */
+export interface PendingProjectInvitationRow {
+  id: string;
+  project_id: string;
+  email: string | null;
+  full_name: string | null;
+  role: 'editor' | 'viewer';
+  invited_at?: string;
+  invited_by?: string | null;
+}
+
 /** 프로젝트 권한 요청 (승인 사용자가 보기/편집 권한 요청) */
 export interface ProjectAccessRequestRow {
   id: string;

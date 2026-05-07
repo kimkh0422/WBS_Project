@@ -1,13 +1,10 @@
 import { supabase } from '../supabase';
-import type { ProjectMemberRow, ProjectAccessRequestRow } from '../supabase';
+import type { ProjectMemberRow, ProjectAccessRequestRow, PendingProjectInvitationRow } from '../supabase';
 import { requireSupabase } from './client';
 
 export async function fetchProjectMembers(projectId: string): Promise<ProjectMemberRow[]> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('project_members')
-    .select('*')
-    .eq('project_id', projectId);
+  const { data, error } = await supabase!.from('project_members').select('*').eq('project_id', projectId);
   if (error) throw error;
   return (data ?? []) as ProjectMemberRow[];
 }
@@ -17,21 +14,17 @@ export async function fetchProjectMembershipsByUser(userId: string): Promise<Pro
   requireSupabase();
   const uid = String(userId ?? '').trim();
   if (!uid) return [];
-  const { data, error } = await supabase!
-    .from('project_members')
-    .select('*')
-    .eq('user_id', uid);
+  const { data, error } = await supabase!.from('project_members').select('*').eq('user_id', uid);
   if (error) throw error;
   return (data ?? []) as ProjectMemberRow[];
 }
 
-export async function createProjectInvite(projectId: string, role: 'editor' | 'viewer' = 'editor'): Promise<{ token: string; url: string } | null> {
+export async function createProjectInvite(
+  projectId: string,
+  role: 'editor' | 'viewer' = 'editor',
+): Promise<{ token: string; url: string } | null> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('project_invites')
-    .insert({ project_id: projectId, role })
-    .select('token')
-    .single();
+  const { data, error } = await supabase!.from('project_invites').insert({ project_id: projectId, role }).select('token').single();
   if (error) throw error;
   const token = data?.token as string;
   const url = `${window.location.origin}${window.location.pathname}?invite=${token}`;
@@ -52,11 +45,7 @@ export async function acceptInvite(token: string): Promise<{ success: boolean; p
 
 export async function removeProjectMember(projectId: string, userId: string): Promise<void> {
   requireSupabase();
-  const { error } = await supabase!
-    .from('project_members')
-    .delete()
-    .eq('project_id', projectId)
-    .eq('user_id', userId);
+  const { error } = await supabase!.from('project_members').delete().eq('project_id', projectId).eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -64,16 +53,13 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
 export async function upsertProjectMember(
   projectId: string,
   userId: string,
-  role: 'editor' | 'viewer'
+  role: 'editor' | 'viewer',
 ): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
     const { error } = await supabase!
       .from('project_members')
-      .upsert(
-        { project_id: projectId, user_id: userId, role },
-        { onConflict: 'project_id,user_id' }
-      );
+      .upsert({ project_id: projectId, user_id: userId, role }, { onConflict: 'project_id,user_id' });
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch (e) {
@@ -85,15 +71,11 @@ export async function upsertProjectMember(
 export async function setProjectMemberRole(
   projectId: string,
   userId: string,
-  role: 'editor' | 'viewer'
+  role: 'editor' | 'viewer',
 ): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
-    const { error } = await supabase!
-      .from('project_members')
-      .update({ role })
-      .eq('project_id', projectId)
-      .eq('user_id', userId);
+    const { error } = await supabase!.from('project_members').update({ role }).eq('project_id', projectId).eq('user_id', userId);
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch (e) {
@@ -106,11 +88,13 @@ export async function setProjectMemberRole(
 /** 프로젝트에 대한 보기/편집 권한 요청 생성. 승인된 사용자만 가능. */
 export async function createProjectAccessRequest(
   projectId: string,
-  requestedRole: 'viewer' | 'editor'
+  requestedRole: 'viewer' | 'editor',
 ): Promise<{ success: boolean; error?: string; requestId?: string }> {
   requireSupabase();
   try {
-    const { data: { user } } = await supabase!.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser();
     if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
     const { data, error } = await supabase!
       .from('project_access_requests')
@@ -150,10 +134,7 @@ export async function rerequestProjectAccess(requestId: string): Promise<{ succe
 /** 내 권한 요청 목록 (본인 요청만 RLS로 조회 가능). */
 export async function listMyProjectAccessRequests(): Promise<ProjectAccessRequestRow[]> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('project_access_requests')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase!.from('project_access_requests').select('*').order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as ProjectAccessRequestRow[];
 }
@@ -181,13 +162,15 @@ export async function approveProjectAccessRequest(requestId: string): Promise<{ 
       .eq('status', 'pending')
       .single();
     if (fetchError || !row) return { success: false, error: fetchError?.message ?? '요청을 찾을 수 없거나 이미 처리되었습니다.' };
-    const { data: { user } } = await supabase!.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser();
     if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
 
     const upsertResult = await upsertProjectMember(
       (row as { project_id: string; user_id: string; requested_role: 'viewer' | 'editor' }).project_id,
       (row as { user_id: string }).user_id,
-      (row as { requested_role: 'viewer' | 'editor' }).requested_role
+      (row as { requested_role: 'viewer' | 'editor' }).requested_role,
     );
     if (!upsertResult.success) return { success: false, error: upsertResult.error };
 
@@ -206,7 +189,9 @@ export async function approveProjectAccessRequest(requestId: string): Promise<{ 
 export async function rejectProjectAccessRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
-    const { data: { user } } = await supabase!.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser();
     if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
     const { error } = await supabase!
       .from('project_access_requests')
@@ -223,11 +208,7 @@ export async function rejectProjectAccessRequest(requestId: string): Promise<{ s
 /** 특정 프로젝트에 대한 내 권한 요청 1건 조회 (있으면 1건). */
 export async function getMyProjectAccessRequest(projectId: string): Promise<ProjectAccessRequestRow | null> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('project_access_requests')
-    .select('*')
-    .eq('project_id', projectId)
-    .maybeSingle();
+  const { data, error } = await supabase!.from('project_access_requests').select('*').eq('project_id', projectId).maybeSingle();
   if (error) throw error;
   return data as ProjectAccessRequestRow | null;
 }
@@ -235,11 +216,9 @@ export async function getMyProjectAccessRequest(projectId: string): Promise<Proj
 /** 내가 멤버(또는 소유자)인 프로젝트 ID 목록. 권한 요청 UI에서 "접근 권한 없음" 판단용. */
 export async function getMyProjectMemberProjectIds(): Promise<string[]> {
   requireSupabase();
-  const { data, error } = await supabase!
-    .from('project_members')
-    .select('project_id');
+  const { data, error } = await supabase!.from('project_members').select('project_id');
   if (error) return [];
-  return ((data ?? []) as { project_id: string }[]).map(r => r.project_id);
+  return ((data ?? []) as { project_id: string }[]).map((r) => r.project_id);
 }
 
 /** 편집 가능한 프로젝트 ID 목록 (소유자 또는 editor 권한이 부여된 프로젝트). 승인 사용자는 모든 프로젝트를 보지만 편집은 이 목록만. */
@@ -248,4 +227,59 @@ export async function getMyEditableProjectIds(): Promise<string[]> {
   const { data, error } = await supabase!.rpc('get_user_editable_project_ids');
   if (error) return [];
   return Array.isArray(data) ? (data as string[]) : [];
+}
+
+// ─── 사전 초대 (미가입자) ────────────────────────────────────────────────────
+// 흐름: ShareModal에서 미가입자(이름/이메일)를 등록 → pending_project_invitations에 저장
+// → 그 사람이 회원가입하면 ensure_profile RPC가 자동으로 project_members에 옮김.
+
+/** 특정 프로젝트의 사전 초대 목록 조회. 관리자/소유자만 표시 가능 (RLS). */
+export async function fetchPendingProjectInvitations(projectId: string): Promise<PendingProjectInvitationRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('pending_project_invitations')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('invited_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as PendingProjectInvitationRow[];
+}
+
+/** 사전 초대 추가. email 또는 full_name 중 적어도 하나는 필수. */
+export async function addPendingProjectInvitation(
+  projectId: string,
+  identifier: { email?: string | null; full_name?: string | null },
+  role: 'editor' | 'viewer',
+): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  const email = identifier.email?.trim() || null;
+  const fullName = identifier.full_name?.trim() || null;
+  if (!email && !fullName) {
+    return { success: false, error: '이름 또는 이메일이 필요합니다.' };
+  }
+  try {
+    const { error } = await supabase!
+      .from('pending_project_invitations')
+      .insert({ project_id: projectId, email, full_name: fullName, role });
+    if (error) {
+      // 23505 = unique_violation (같은 프로젝트에 같은 이메일/이름 중복)
+      if (error.code === '23505') return { success: false, error: '이미 사전 등록된 사용자입니다.' };
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '사전 등록에 실패했습니다.' };
+  }
+}
+
+/** 사전 초대 제거 (관리자/소유자만 가능 — RLS). */
+export async function removePendingProjectInvitation(invitationId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { error } = await supabase!.from('pending_project_invitations').delete().eq('id', invitationId);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '사전 등록 제거에 실패했습니다.' };
+  }
 }

@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Copy, Check, Link2, Users, Loader2, UserPlus, Building2 } from 'lucide-react';
+import { X, Copy, Check, Link2, Users, Loader2, UserPlus, Building2, UserCheck, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { fetchProjectMembers, createProjectInvite, removeProjectMember, upsertProjectMember, setProjectMemberRole } from '../lib/db';
-import { ProjectMemberRow } from '../lib/supabase';
+import {
+  fetchProjectMembers,
+  createProjectInvite,
+  removeProjectMember,
+  upsertProjectMember,
+  setProjectMemberRole,
+  fetchPendingProjectInvitations,
+  addPendingProjectInvitation,
+  removePendingProjectInvitation,
+} from '../lib/db';
+import { ProjectMemberRow, PendingProjectInvitationRow } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
+import { buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 
 export interface ShareModalProfile {
   id: string;
@@ -54,9 +64,17 @@ export function ShareModal({
   /** 'all' = 조직 필터 없음. 그 외에는 OrgNode.id */
   const [orgFilterId, setOrgFilterId] = useState<string>('all');
 
+  // ─── 사전 초대(미가입자) 관련 상태 ─────────────────────────────────────
+  const [pendingInvitations, setPendingInvitations] = useState<PendingProjectInvitationRow[]>([]);
+  const [pendingName, setPendingName] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingRole, setPendingRole] = useState<'editor' | 'viewer'>('editor');
+  const [pendingSubmitting, setPendingSubmitting] = useState(false);
+
   const canManage = (isOwner ?? false) || (isAdmin ?? false);
 
   const { orgTree, orgMembers } = useOrganization();
+  const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
 
   /** 조직 트리를 들여쓰기된 평면 옵션 목록으로 변환 (드롭다운용) */
   const orgOptions = useMemo(() => {
@@ -99,14 +117,22 @@ export function ShareModal({
     if (!isOpen || !projectId) return;
     setLoading(true);
     setError(null);
-    fetchProjectMembers(projectId)
-      .then(setMembers)
+    Promise.all([
+      fetchProjectMembers(projectId).catch(() => [] as ProjectMemberRow[]),
+      // 사전 초대는 관리자/소유자에게만 RLS로 보이므로 실패 시 빈 배열
+      canManage ? fetchPendingProjectInvitations(projectId).catch(() => [] as PendingProjectInvitationRow[]) : Promise.resolve([]),
+    ])
+      .then(([m, p]) => {
+        setMembers(m);
+        setPendingInvitations(p);
+      })
       .catch((err) => {
-        setError(err.message);
+        setError(err instanceof Error ? err.message : '멤버 목록 로딩 실패');
         setMembers([]);
+        setPendingInvitations([]);
       })
       .finally(() => setLoading(false));
-  }, [isOpen, projectId]);
+  }, [isOpen, projectId, canManage]);
 
   const handleCreateInvite = async () => {
     if (!projectId || !canManage) return;
@@ -164,6 +190,81 @@ export function ShareModal({
     } else {
       setError(result.error || '역할 변경 실패');
     }
+  };
+
+  /** 입력된 이름/이메일을 가입한 profiles에서 매칭 시도. 둘 다 비어 있으면 null. */
+  const resolveProfileByNameOrEmail = (name: string, email: string): { id: string; label: string } | null => {
+    const nameNorm = name.trim();
+    const emailNorm = email.trim().toLowerCase();
+    if (!nameNorm && !emailNorm) return null;
+    // 이메일 우선 매칭 (더 정확)
+    if (emailNorm) {
+      const byEmail = profiles.find((p) => (p.email ?? '').trim().toLowerCase() === emailNorm);
+      if (byEmail) return { id: byEmail.id, label: profileMap[byEmail.id] ?? byEmail.full_name ?? byEmail.email ?? byEmail.id };
+    }
+    if (nameNorm) {
+      const byName = profiles.find((p) => {
+        const candidate = (profileMap[p.id] ?? p.full_name ?? '').trim();
+        return candidate === nameNorm;
+      });
+      if (byName) return { id: byName.id, label: profileMap[byName.id] ?? byName.full_name ?? byName.email ?? byName.id };
+    }
+    return null;
+  };
+
+  /** 미가입자 사전 등록 (이름/이메일 + 역할). 매칭되는 가입자가 있으면 즉시 project_members에 추가. */
+  const handleAddPendingInvitation = async () => {
+    if (!projectId || !canManage) return;
+    const name = pendingName.trim();
+    const email = pendingEmail.trim();
+    if (!name && !email) {
+      setError('이름 또는 이메일을 입력하세요.');
+      return;
+    }
+    setPendingSubmitting(true);
+    setError(null);
+    try {
+      // 이미 가입한 사용자라면 사전 초대를 거치지 않고 바로 멤버로 추가
+      const existing = resolveProfileByNameOrEmail(name, email);
+      if (existing) {
+        if (memberUserIds.has(existing.id)) {
+          setError(`${existing.label} 님은 이미 멤버입니다.`);
+        } else {
+          const r = await upsertProjectMember(projectId, existing.id, pendingRole);
+          if (!r.success) setError(r.error || '멤버 추가 실패');
+          else {
+            const list = await fetchProjectMembers(projectId);
+            setMembers(list);
+            setPendingName('');
+            setPendingEmail('');
+          }
+        }
+        return;
+      }
+      // 미가입 → 사전 초대 INSERT
+      const r = await addPendingProjectInvitation(projectId, { full_name: name || null, email: email || null }, pendingRole);
+      if (!r.success) {
+        setError(r.error || '사전 등록 실패');
+        return;
+      }
+      const list = await fetchPendingProjectInvitations(projectId);
+      setPendingInvitations(list);
+      setPendingName('');
+      setPendingEmail('');
+    } finally {
+      setPendingSubmitting(false);
+    }
+  };
+
+  const handleRemovePendingInvitation = async (invitationId: string) => {
+    if (!projectId || !canManage) return;
+    setError(null);
+    const r = await removePendingProjectInvitation(invitationId);
+    if (!r.success) {
+      setError(r.error || '사전 등록 제거 실패');
+      return;
+    }
+    setPendingInvitations((prev) => prev.filter((p) => p.id !== invitationId));
   };
 
   const handleAddMembersBulk = async () => {
@@ -337,10 +438,106 @@ export function ShareModal({
             </ul>
           )}
 
+          {/* 사전 초대(미가입자) — 가입 시 자동 권한 부여 예정 */}
+          {canManage && pendingInvitations.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Clock size={11} /> 가입 대기 (가입 시 자동 부여)
+              </p>
+              <ul className="space-y-1.5">
+                {pendingInvitations.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-lg bg-amber-50 border border-amber-100"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-sm font-medium text-stone-700 truncate">{p.full_name || p.email || '(이름 미지정)'}</span>
+                      {p.full_name && p.email && <span className="text-[10px] text-stone-500 truncate">({p.email})</span>}
+                      <span className="text-[10px] text-amber-700 px-1.5 py-0.5 rounded bg-amber-100 shrink-0">미가입</span>
+                      <span className="text-[11px] text-stone-500 px-1.5 py-0.5 rounded bg-stone-200 shrink-0">
+                        {p.role === 'editor' ? '편집' : '보기'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleRemovePendingInvitation(p.id)}
+                      className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded shrink-0"
+                    >
+                      제거
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 미가입자 사전 등록 — 조직 회원 이름 자동완성 + 이메일(선택) */}
+          {canManage && (
+            <div className="mt-4 pt-4 border-t border-stone-200">
+              <h4 className="text-xs font-semibold text-stone-600 mb-2 flex items-center gap-1.5">
+                <UserCheck size={12} /> 이름·이메일로 권한 부여 (미가입자 가능)
+              </h4>
+              <p className="text-[11px] text-stone-400 mb-2">
+                조직 회원 목록에서 이름을 선택하거나 직접 입력하세요. 가입한 사람은 즉시 멤버로 추가, 아직 가입 전인 사람은 가입 완료 시
+                자동으로 권한이 부여됩니다.
+              </p>
+              <div className="flex items-end gap-2 flex-wrap">
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-[11px] text-stone-500 font-medium mb-1">이름</label>
+                  <input
+                    type="text"
+                    list="share-modal-org-members"
+                    value={pendingName}
+                    onChange={(e) => setPendingName(e.target.value)}
+                    placeholder="조직 회원에서 검색 또는 직접 입력"
+                    className="w-full px-3 py-2 text-sm border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                  />
+                  <datalist id="share-modal-org-members">
+                    {orgMembers.map((m) => {
+                      const label = orgMemberLabelByName.get(m.name);
+                      return label ? <option key={m.name} value={m.name} label={label} /> : <option key={m.name} value={m.name} />;
+                    })}
+                  </datalist>
+                </div>
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-[11px] text-stone-500 font-medium mb-1">이메일 (선택)</label>
+                  <input
+                    type="email"
+                    value={pendingEmail}
+                    onChange={(e) => setPendingEmail(e.target.value)}
+                    placeholder="가입 시 매칭(권장)"
+                    className="w-full px-3 py-2 text-sm border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                    title="이메일을 알면 가입 매칭 정확도가 더 높습니다."
+                  />
+                </div>
+                <select
+                  value={pendingRole}
+                  onChange={(e) => setPendingRole(e.target.value as 'editor' | 'viewer')}
+                  className="px-3 py-2 text-sm border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+                  title="부여할 권한"
+                >
+                  <option value="viewer">보기</option>
+                  <option value="editor">편집</option>
+                </select>
+                <button
+                  onClick={handleAddPendingInvitation}
+                  disabled={pendingSubmitting || (!pendingName.trim() && !pendingEmail.trim())}
+                  className={cn(
+                    'px-4 py-2 rounded-lg font-medium text-sm transition-colors shrink-0',
+                    !pendingSubmitting && (pendingName.trim() || pendingEmail.trim())
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-stone-100 text-stone-400 cursor-not-allowed',
+                  )}
+                >
+                  {pendingSubmitting ? <Loader2 size={14} className="animate-spin inline" /> : '추가'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {canManage && addableProfiles.length > 0 && (
             <div className="mt-4 pt-4 border-t border-stone-200">
               <h4 className="text-xs font-semibold text-stone-600 mb-2 flex items-center gap-1.5">
-                <UserPlus size={12} /> 사용자 권한 부여
+                <UserPlus size={12} /> 가입 회원 일괄 추가
               </h4>
               <div className="flex items-end gap-2 flex-wrap">
                 <div className="flex-1 min-w-[220px]">
