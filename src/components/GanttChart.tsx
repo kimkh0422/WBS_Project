@@ -33,6 +33,8 @@ interface GanttChartProps {
   onRowHeightChange?: (height: number) => void;
   syncScrollRef?: React.RefObject<HTMLDivElement>;
   hotkeysEnabled?: boolean;
+  /** split 뷰에서 표의 sticky [+ 새 작업 추가] 행 높이만큼 간트 상단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
+  topSpacerHeight?: number;
 }
 
 export function GanttChart({
@@ -44,6 +46,7 @@ export function GanttChart({
   onRowHeightChange,
   syncScrollRef,
   hotkeysEnabled = true,
+  topSpacerHeight = 0,
 }: GanttChartProps) {
   const {
     tasks,
@@ -167,6 +170,7 @@ export function GanttChart({
 
   const [showBaseline, setShowBaseline] = useState(false);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
+
   const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
@@ -336,20 +340,16 @@ export function GanttChart({
 
   const isSplitView = !!syncScrollRef;
 
-  // Split view: 날짜 헤더 ↔ 본문 ↔ 하단 스크롤바 수평 동기화
+  // Split view: 날짜 헤더(상단 가로 스크롤) ↔ 본문 ↔ 하단 스크롤바 수평 동기화.
+  // 상단·하단 어디서 스크롤해도 셋이 같이 움직이도록 유지.
   // NOTE: Rules of Hooks - early return 이전에 위치해야 함
   useEffect(() => {
     if (!isSplitView) return;
     const mainEl = syncScrollRef?.current;
     if (!mainEl) return;
-    let fromMain = false;
-    const fromBottom = false;
     const onMainScroll = () => {
-      if (fromBottom) return;
-      fromMain = true;
       if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
       if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = mainEl.scrollLeft;
-      fromMain = false;
     };
     mainEl.addEventListener('scroll', onMainScroll, { passive: true });
     return () => mainEl.removeEventListener('scroll', onMainScroll);
@@ -366,6 +366,19 @@ export function GanttChart({
     };
     bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
     return () => bottomEl.removeEventListener('scroll', onBottomScroll);
+  }, [isSplitView, syncScrollRef]);
+
+  useEffect(() => {
+    if (!isSplitView) return;
+    const headerEl = headerScrollRef.current;
+    const mainEl = syncScrollRef?.current;
+    if (!headerEl || !mainEl) return;
+    const onHeaderScroll = () => {
+      mainEl.scrollLeft = headerEl.scrollLeft;
+      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = headerEl.scrollLeft;
+    };
+    headerEl.addEventListener('scroll', onHeaderScroll, { passive: true });
+    return () => headerEl.removeEventListener('scroll', onHeaderScroll);
   }, [isSplitView, syncScrollRef]);
 
   const tappedBarPopoverEl =
@@ -505,10 +518,11 @@ export function GanttChart({
               베이스라인
             </button>
           </div>
-          {/* 헤더 고정 (스크롤 밖) - 수평 스크롤은 본문과 동기화 */}
+          {/* 헤더 고정 (스크롤 밖) - 표의 split 헤더처럼 상단 수평 스크롤바 노출하여 본문·하단과 동기화.
+              표는 헤더에 위쪽 스크롤바, 본문에 아래 스크롤바를 두는 구조 — 간트도 같은 패턴으로 정렬. */}
           <div
             ref={headerScrollRef}
-            className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-hidden"
+            className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-auto overflow-y-hidden"
           >
             <div className="relative flex-shrink-0" style={{ width: totalWidth, height: 60 }}>
               <div className="flex h-7 border-b border-stone-200" style={{ width: totalWidth }}>
@@ -519,8 +533,18 @@ export function GanttChart({
               </div>
             </div>
           </div>
-          {/* 스크롤 영역 = 행만 (표와 동기화). 수평 스크롤바는 하단 별도 스크롤바로 대체 */}
-          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-auto bg-white">
+          {/* 스크롤 영역 = 행만 (표와 세로 스크롤 동기화). 수평 스크롤은 상단 헤더·하단 별도 바에서 처리(여기는 숨김). */}
+          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white">
+            {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
+                sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
+                실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
+            {topSpacerHeight > 0 && (
+              <div
+                className="sticky top-0 z-20 border-b border-blue-200/70 bg-blue-50/70 backdrop-blur-sm"
+                style={{ height: topSpacerHeight, width: totalWidth }}
+                aria-hidden
+              />
+            )}
             <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 <GanttGrid

@@ -1604,6 +1604,7 @@ function WBSApp({
                     style={{ width: `${wbsTableWidth}%` }}
                   >
                     <WBSTable
+                      fillHeight
                       filters={effectiveFilters}
                       sortConfig={sortConfig}
                       syncScrollRef={wbsScrollRef}
@@ -1650,6 +1651,9 @@ function WBSApp({
                       rowHeights={rowHeights}
                       onRowHeightChange={setSharedRowHeight}
                       syncScrollRef={ganttScrollRef}
+                      // 표 상단의 sticky [+ 새 작업 추가] 행과 첫 작업 막대를 일직선에 두기 위한 spacer.
+                      // 편집 권한이 없으면 표에 그 행이 미렌더이므로 0.
+                      topSpacerHeight={canEditCurrentProject ? sharedRowHeight : 0}
                     />
                   </div>
                 </div>
