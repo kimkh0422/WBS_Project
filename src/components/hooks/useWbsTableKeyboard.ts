@@ -596,6 +596,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // F2: 선택 셀(편집 모드 포커스) 또는 현재 행·작업명을 즉시 인라인 편집 (엑셀과 동일)
       if (e.key === 'F2') {
         e.preventDefault();
+        // 편집 권한 없으면 F2도 동작 안 함 (보기 권한 사용자나 'all' 뷰에서 편집 차단)
+        if (!canEditCurrentProject) return;
         const taskId = tableEditMode && focusedCell ? focusedCell.taskId : lastSelectedId || visibleTasks[0]?.id;
         if (!taskId || editableColumnIds.length === 0) return;
         const columnId =

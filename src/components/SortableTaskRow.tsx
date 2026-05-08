@@ -179,7 +179,7 @@ function SortableTaskRowInner({
    * - F2를 누르면 항상 현재 포커스된 셀(없으면 name)을 편집할 수 있음 (모든 컬럼 동일).
    */
   const beginEdit = (columnId: TableColumnId) => {
-    // 1단계: 다른 행에서 처음 클릭 → 포커스만
+    // 1단계: 다른 행에서 처음 클릭 → 포커스만 (권한 무관 — 행 선택은 보기 권한도 가능)
     if (!isFocused) {
       setTableEditMode(true);
       setFocusedCell({ taskId: task.id, columnId });
@@ -187,7 +187,13 @@ function SortableTaskRowInner({
       onSetRowAnchor?.(task.id);
       return;
     }
-    // 2단계: 이미 선택된 행의 셀 클릭 → 편집 시작
+    // 2단계: 같은 셀 재클릭 → 편집 시작.
+    // 편집 권한 없으면 진입 차단 (보기 권한 사용자 / 'all' 뷰 / 비-소유·비-멤버 프로젝트)
+    if (!canEdit) {
+      // 포커스만 유지하고 편집은 시작하지 않음
+      setFocusedCell({ taskId: task.id, columnId });
+      return;
+    }
     setTableEditMode(true);
     setFocusedCell({ taskId: task.id, columnId });
     onFocusRow?.(task.id);

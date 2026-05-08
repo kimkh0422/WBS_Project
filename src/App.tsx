@@ -2226,9 +2226,28 @@ function AppWithProviders() {
       setMyEditableProjectIds(undefined);
       return;
     }
-    getMyEditableProjectIds()
-      .then(setMyEditableProjectIds)
-      .catch(() => setMyEditableProjectIds(undefined));
+    let cancelled = false;
+    const refresh = () => {
+      getMyEditableProjectIds()
+        .then((ids) => {
+          if (!cancelled) setMyEditableProjectIds(ids);
+        })
+        .catch(() => {
+          if (!cancelled) setMyEditableProjectIds(undefined);
+        });
+    };
+    refresh();
+    // 다른 세션·다른 사용자에 의해 권한이 변경됐을 가능성 — 탭 복귀·창 포커스 시 재조회
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [user?.id]);
 
   // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 (대시보드 여부와 무관)

@@ -1115,13 +1115,17 @@ export function WBSProvider({
   }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
-  // 권한 모델: 프로젝트를 만든 사람(소유자)과 시스템 관리자만 편집 가능.
-  // editor 멤버여도 편집 불가 (보기만 가능). DB RLS도 owner 기준으로 동일하게 시행됨.
+  // 권한 모델: 다음 중 하나면 편집 가능 — (1) 시스템 관리자, (2) 프로젝트 소유자,
+  // (3) editor 권한으로 공유받은 멤버. RPC `get_user_editable_project_ids()`가
+  // owner + editor 멤버 프로젝트 ID 목록을 반환하며, DB RLS도 동일 기준으로 시행됨.
   const currentProjectObj = projects.find((p) => p.id === currentProjectId);
   const canEditCurrentProject = (() => {
     if (!currentProjectId || currentProjectId === 'all') return false;
-    if (isAdmin) return true; // 시스템 관리자
-    return currentProjectObj?.ownerId === ownerId; // 본인이 만든 프로젝트만
+    if (isAdmin) return true;
+    if (currentProjectObj?.ownerId === ownerId) return true;
+    // editor 권한으로 공유받은 프로젝트
+    if (editableProjectIds?.includes(currentProjectId)) return true;
+    return false;
   })();
 
   // ─── Context Value ─────────────────────────────────────────────────────────
