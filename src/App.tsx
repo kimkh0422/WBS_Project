@@ -1698,6 +1698,27 @@ function WBSApp({
                       ? undefined
                       : new Set([...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id), ...myMemberProjectIds])
                   }
+                  // "내가 포함된 프로젝트" — owner이거나, 멤버이거나, 작업 담당자(이름 매칭)인 프로젝트.
+                  // 사용자 표시 이름은 currentUserDisplay 기준. 비로그인 시 undefined.
+                  myInvolvedProjectIds={
+                    user?.id
+                      ? (() => {
+                          const ids = new Set<string>();
+                          for (const p of projects) {
+                            if (p.ownerId === user.id) ids.add(p.id);
+                          }
+                          for (const id of myMemberProjectIds) ids.add(id);
+                          const myName = (currentUserDisplay || '').trim();
+                          if (myName) {
+                            for (const t of allTasks) {
+                              if (t.assignee && t.assignee.trim() === myName) ids.add(t.projectId);
+                            }
+                          }
+                          return ids;
+                        })()
+                      : undefined
+                  }
+                  currentUserDisplay={currentUserDisplay}
                 />
               </ErrorBoundary>
             ) : view === 'projects' ? (

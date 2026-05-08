@@ -1,13 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getVisitorStats } from '../lib/db';
-import { Briefcase, Clock, LayoutGrid, Users, Flag, CalendarDays, Loader2, Bug, Building2 } from 'lucide-react';
+import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User } from 'lucide-react';
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
-import { startOfWeek, endOfWeek, format } from 'date-fns';
-import { ko } from 'date-fns/locale';
 import type { Task, Project } from '../types';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import { useOrganization } from '../context/OrganizationContext';
@@ -18,14 +16,6 @@ interface ProjectStats {
   statusCounts: Record<string, number>;
   progress: number;
   assigneeCount: number;
-}
-
-interface AssigneeStat {
-  name: string;
-  total: number;
-  statusCounts: Record<string, number>;
-  workEffort: number;
-  projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number; allocationPercent?: number }>;
 }
 
 /** 주어진 task 목록에서 깊이(depth)를 메모이제이션하여 반환하는 getter 생성 */
@@ -70,11 +60,17 @@ export function Dashboard({
   onNavigate,
   registeredMemberDisplayNames,
   accessibleProjectIds,
+  myInvolvedProjectIds,
+  currentUserDisplay,
 }: {
   onNavigate?: (view: string, filters: Record<string, string>) => void;
   registeredMemberDisplayNames?: Set<string>;
   /** undefined: 전체(관리자). Set이면 그 ID 집합에 속한 프로젝트만 노출 (본인 참여 프로젝트). */
   accessibleProjectIds?: Set<string>;
+  /** "내가 포함된 프로젝트" 빠른 필터 대상 ID. owner/멤버/작업 담당자 매칭. undefined면 토글 비활성. */
+  myInvolvedProjectIds?: Set<string>;
+  /** 현재 사용자 표시 이름. 부서 매칭("내가 포함된 부서") 등에 사용. */
+  currentUserDisplay?: string;
 }) {
   const { projects: allProjects, allTasks: allTasksRaw, wbsSettings } = useWBS();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
@@ -162,6 +158,85 @@ export function Dashboard({
   // 작업(WBS) 0개인 프로젝트는 대시보드에서 숨김
   const visibleProjectStats = useMemo(() => projectStats.filter((p) => (p?.stats?.total ?? 0) > 0), [projectStats]);
 
+  // ─── 대시보드 표시 프로젝트 사용자 선택 (localStorage 저장) ──────────────
+  // null = 모든 프로젝트 표시 (기본). Set = 명시적으로 선택된 프로젝트만 표시.
+  const DASHBOARD_VISIBLE_KEY = 'wbs-dashboard-visible-project-ids';
+  const [dashboardVisibleIds, setDashboardVisibleIds] = useState<Set<string> | null>(() => {
+    try {
+      const raw = localStorage.getItem(DASHBOARD_VISIBLE_KEY);
+      if (!raw) return null;
+      const arr = JSON.parse(raw) as unknown;
+      return Array.isArray(arr) ? new Set<string>(arr.filter((x): x is string => typeof x === 'string')) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const projectPickerRef = useRef<HTMLDivElement>(null);
+
+  // 선택 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!isProjectPickerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (projectPickerRef.current && !projectPickerRef.current.contains(e.target as Node)) {
+        setIsProjectPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [isProjectPickerOpen]);
+
+  const persistDashboardVisible = (next: Set<string> | null) => {
+    if (next === null) {
+      localStorage.removeItem(DASHBOARD_VISIBLE_KEY);
+    } else {
+      localStorage.setItem(DASHBOARD_VISIBLE_KEY, JSON.stringify(Array.from(next)));
+    }
+    setDashboardVisibleIds(next);
+  };
+  const toggleDashboardProject = (id: string) => {
+    // 현재 null(=모두 표시)이면 모든 프로젝트 ID로 채운 뒤 클릭한 것 토글
+    const base: Set<string> = dashboardVisibleIds ?? new Set<string>(visibleProjectStats.map((p) => p.id as string));
+    const next = new Set<string>(base);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    persistDashboardVisible(next);
+  };
+  const showAllDashboardProjects = () => persistDashboardVisible(null);
+
+  // ─── 빠른 필터: 내가 포함된 프로젝트만 ──────────────────────────────────
+  const MY_ONLY_KEY = 'wbs-dashboard-my-only';
+  const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(MY_ONLY_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleShowMyOnly = () => {
+    setShowMyOnly((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(MY_ONLY_KEY, '1');
+        else localStorage.removeItem(MY_ONLY_KEY);
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // 사용자 선택 + "내 프로젝트만" 토글 적용한 최종 표시 목록.
+  // 우선순위: showMyOnly가 켜져 있으면 그것만 적용 (사용자 체크 선택은 무시).
+  // 아니면 사용자 체크 선택이 있으면 그것 적용. 둘 다 없으면 전체.
+  const displayProjectStats = useMemo(() => {
+    if (showMyOnly && myInvolvedProjectIds) {
+      return visibleProjectStats.filter((p) => myInvolvedProjectIds.has(p.id));
+    }
+    if (!dashboardVisibleIds) return visibleProjectStats;
+    return visibleProjectStats.filter((p) => dashboardVisibleIds.has(p.id));
+  }, [visibleProjectStats, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
+
   // Total summary (전체 진척율: 1레벨 가중평균 우선, 폴백으로 리프 평균)
   const summary = useMemo(() => {
     const doneStatus = wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id || 'done';
@@ -227,104 +302,6 @@ export function Dashboard({
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [allTasks, projectMap]);
 
-  // 금주 일정: 이번 주(월~일)와 기간이 겹치는 작업 (최하위 WBS만 표시)
-  const { weekStartStr, weekEndStr, weekLabel, thisWeekTasks } = useMemo(() => {
-    const now = new Date();
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-    const weekEndStr = format(weekEnd, 'yyyy-MM-dd');
-    const weekLabel = `${format(weekStart, 'M/d', { locale: ko })} ~ ${format(weekEnd, 'M/d', { locale: ko })}`;
-    const tasks = allTasks
-      .filter((t) => !parentIdSet.has(t.id))
-      .filter((t) => {
-        const start = t.startDate || '';
-        const end = t.endDate || '';
-        return start <= weekEndStr && end >= weekStartStr;
-      })
-      .map((t) => ({
-        ...t,
-        projectName: projectMap.get(t.projectId)?.name ?? '-',
-      }))
-      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
-    return { weekStartStr, weekEndStr, weekLabel, thisWeekTasks: tasks };
-  }, [allTasks, parentIdSet, projectMap]);
-
-  // Calculate stats by assignee (with project breakdown for M/D + allocation %)
-  const assigneeStats = useMemo(() => {
-    const statsMap: Record<
-      string,
-      {
-        total: number;
-        statusCounts: Record<string, number>;
-        workEffort: number;
-        projectBreakdown: Array<{ projectId: string; projectName: string; workEffort: number; allocationPercent?: number }>;
-      }
-    > = {};
-
-    // Project assignments(투입 %) by assignee → projectId → percent
-    const allocationPctByAssignee = (() => {
-      const m = new Map<string, Map<string, number>>();
-      for (const p of projects) {
-        const assigns = p.assignments ?? [];
-        for (const a of assigns) {
-          const name = (a.assignee || '').trim() || '미지정';
-          const pct = Number(a.allocationPercent ?? 0);
-          if (!Number.isFinite(pct) || pct <= 0) continue;
-          if (!m.has(name)) m.set(name, new Map());
-          const pm = m.get(name)!;
-          pm.set(p.id, (pm.get(p.id) ?? 0) + pct);
-        }
-      }
-      return m;
-    })();
-
-    allTasks.forEach((task) => {
-      const assignee = task.assignee || '미지정';
-      if (!statsMap[assignee]) {
-        const initialStatusCounts: Record<string, number> = {};
-        wbsSettings.statusConfigs.forEach((c) => (initialStatusCounts[c.id] = 0));
-        statsMap[assignee] = {
-          total: 0,
-          statusCounts: initialStatusCounts,
-          workEffort: 0,
-          projectBreakdown: [],
-        };
-      }
-      const s = statsMap[assignee];
-      s.total += 1;
-      if (s.statusCounts[task.status] !== undefined) {
-        s.statusCounts[task.status]++;
-      }
-      const effort = task.workEffort || 0;
-      s.workEffort += effort;
-      if (effort > 0 && task.projectId) {
-        const proj = projects.find((p) => p.id === task.projectId);
-        const name = proj?.name ?? task.projectId;
-        const existing = s.projectBreakdown.find((b) => b.projectId === task.projectId);
-        if (existing) existing.workEffort += effort;
-        else s.projectBreakdown.push({ projectId: task.projectId, projectName: name, workEffort: effort });
-      }
-    });
-
-    const entries = Object.entries(statsMap).map(([name, stats]) => {
-      const pctMap = allocationPctByAssignee.get(name);
-      const projectBreakdown = stats.projectBreakdown
-        .map((b) => ({
-          ...b,
-          allocationPercent: pctMap?.get(b.projectId),
-        }))
-        .sort((a, b) => b.workEffort - a.workEffort);
-      return { name, ...stats, projectBreakdown };
-    });
-    // 등록된 회원만 표시: registeredMemberDisplayNames가 있으면 해당 집합에 있는 담당자만, 없으면 기존처럼 전체 표시
-    const filtered =
-      registeredMemberDisplayNames && registeredMemberDisplayNames.size > 0
-        ? entries.filter(({ name }) => name !== '미지정' && registeredMemberDisplayNames.has(name))
-        : entries;
-    return filtered.sort((a, b) => b.total - a.total);
-  }, [allTasks, projects, wbsSettings.statusConfigs, registeredMemberDisplayNames]);
-
   // 이슈 작업 목록 (상위 50건, 종료일 빠른 순)
   const issueTasks = useMemo(() => {
     return allTasks
@@ -359,6 +336,83 @@ export function Dashboard({
     // 작업이 있는 사업부 우선 + 인원만 있는 사업부도 보여주기
     return stats.sort((a, b) => b.total - a.total || b.assigneeCount - a.assigneeCount);
   }, [topLevelDivisions, allTasks, memberToDivisionId, wbsSettings.statusConfigs]);
+
+  // ─── 사업부 표시 필터 (사용자 선택 + 내가 포함된 부서 토글) ─────────────
+  const DIVISION_VISIBLE_KEY = 'wbs-dashboard-visible-division-ids';
+  const DIVISION_MY_ONLY_KEY = 'wbs-dashboard-division-my-only';
+  const [divisionVisibleIds, setDivisionVisibleIds] = useState<Set<string> | null>(() => {
+    try {
+      const raw = localStorage.getItem(DIVISION_VISIBLE_KEY);
+      if (!raw) return null;
+      const arr = JSON.parse(raw) as unknown;
+      return Array.isArray(arr) ? new Set<string>(arr.filter((x): x is string => typeof x === 'string')) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [showMyDivisionOnly, setShowMyDivisionOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DIVISION_MY_ONLY_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [isDivisionPickerOpen, setIsDivisionPickerOpen] = useState(false);
+  const divisionPickerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isDivisionPickerOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (divisionPickerRef.current && !divisionPickerRef.current.contains(e.target as Node)) {
+        setIsDivisionPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [isDivisionPickerOpen]);
+
+  const persistDivisionVisible = (next: Set<string> | null) => {
+    if (next === null) localStorage.removeItem(DIVISION_VISIBLE_KEY);
+    else localStorage.setItem(DIVISION_VISIBLE_KEY, JSON.stringify(Array.from(next)));
+    setDivisionVisibleIds(next);
+  };
+  const toggleDivision = (id: string) => {
+    const base: Set<string> = divisionVisibleIds ?? new Set<string>(divisionStats.map((d) => d.id));
+    const next = new Set<string>(base);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    persistDivisionVisible(next);
+  };
+  const showAllDivisions = () => persistDivisionVisible(null);
+  const toggleShowMyDivisionOnly = () => {
+    setShowMyDivisionOnly((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(DIVISION_MY_ONLY_KEY, '1');
+        else localStorage.removeItem(DIVISION_MY_ONLY_KEY);
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // 현재 사용자가 속한 부서 ID (organizationMembers의 이름 매칭)
+  const myDivisionId = useMemo(() => {
+    const name = (currentUserDisplay || '').trim();
+    if (!name) return undefined;
+    return memberToDivisionId.get(name);
+  }, [currentUserDisplay, memberToDivisionId]);
+
+  // 사용자 선택 + "내 부서만" 토글 적용한 최종 표시 부서 목록.
+  // 우선순위: showMyDivisionOnly가 켜져 있으면 그것만 적용. 아니면 사용자 체크 선택.
+  const displayDivisionStats = useMemo(() => {
+    if (showMyDivisionOnly) {
+      if (!myDivisionId) return [];
+      return divisionStats.filter((d) => d.id === myDivisionId);
+    }
+    if (!divisionVisibleIds) return divisionStats;
+    return divisionStats.filter((d) => divisionVisibleIds.has(d.id));
+  }, [divisionStats, divisionVisibleIds, showMyDivisionOnly, myDivisionId]);
 
   // Visitor tracking: DB 기반 (Supabase)
   const { user } = useAuth();
@@ -463,260 +517,7 @@ export function Dashboard({
           </div>
         </section>
 
-        {/* Milestones */}
-        {milestones.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-              <Flag className="text-amber-500" size={24} />
-              마일스톤
-            </h2>
-            <div className="card-elevated overflow-hidden">
-              <ul className="divide-y divide-slate-100">
-                {milestones.map((task) => (
-                  <li
-                    key={task.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' });
-                      }
-                    }}
-                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
-                  >
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
-                      <Flag size={18} className="text-amber-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {task.projectName} · {task.startDate}
-                      </div>
-                    </div>
-                    {(() => {
-                      const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                      const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                      return (
-                        <span
-                          className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-stone-700')}
-                          style={colorProps.style}
-                        >
-                          {sc?.name ?? task.status}
-                        </span>
-                      );
-                    })()}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-        )}
-
-        {/* 금주 일정 */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <CalendarDays className="text-sky-500" size={24} />
-            금주 일정
-            <span className="text-sm font-normal text-slate-500">({weekLabel})</span>
-          </h2>
-          <div className="card-elevated overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-sky-50 to-indigo-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-sm text-slate-600">
-                이번 주에 진행 중이거나 예정인 작업 <strong className="text-[var(--color-ink)]">{thisWeekTasks.length}</strong>건
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })
-                  }
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-100 text-sky-700 border border-sky-200 hover:bg-sky-200 transition-colors"
-                >
-                  표·간트에서 보기
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onNavigate?.('gantt', { projectId: 'all', status: 'all', assignee: '', startDate: weekStartStr, endDate: weekEndStr })
-                  }
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-200 transition-colors"
-                >
-                  간트에서 보기
-                </button>
-              </div>
-            </div>
-            {thisWeekTasks.length === 0 ? (
-              <div className="px-6 py-8 text-center text-slate-500 text-sm">이번 주에 해당하는 일정이 없습니다.</div>
-            ) : (
-              <ul className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                {thisWeekTasks.map((task) => (
-                  <li
-                    key={task.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() =>
-                      onNavigate?.('list', {
-                        projectId: task.projectId,
-                        status: 'all',
-                        assignee: '',
-                        startDate: weekStartStr,
-                        endDate: weekEndStr,
-                      })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onNavigate?.('list', {
-                          projectId: task.projectId,
-                          status: 'all',
-                          assignee: '',
-                          startDate: weekStartStr,
-                          endDate: weekEndStr,
-                        });
-                      }
-                    }}
-                    className="flex items-center gap-4 px-6 py-3 hover:bg-slate-50/80 cursor-pointer transition-colors"
-                  >
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center">
-                      <CalendarDays size={14} className="text-sky-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {task.projectName} · {task.startDate} ~ {task.endDate}
-                        {task.isMilestone && <span className="ml-2 text-amber-600">마일스톤</span>}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">담당: {task.assignee || '미배정'}</div>
-                    </div>
-                    {(() => {
-                      const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                      const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                      return (
-                        <span
-                          className={cn(
-                            'text-xs font-medium px-2.5 py-1 rounded-full border shrink-0',
-                            colorProps.className,
-                            'text-stone-700',
-                          )}
-                          style={colorProps.style}
-                        >
-                          {sc?.name ?? task.status}
-                        </span>
-                      );
-                    })()}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        {/* Project List */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <Briefcase className="text-[var(--color-accent)]" size={24} />
-            프로젝트별 상태
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {/* Overall portfolio card */}
-            {projects.length > 0 && (
-              <ProjectCard
-                key="__all-projects"
-                project={{
-                  id: '__all-projects',
-                  name: '전체 프로젝트',
-                  description: '전체 포트폴리오 기준 합산 현황',
-                  startDate: summary.earliestStartDate ?? undefined,
-                  stats: {
-                    total: summary.totalTasks,
-                    statusCounts: summary.statusCounts,
-                    progress: summary.avgProgress,
-                    assigneeCount: summary.assigneeCount,
-                  },
-                }}
-                onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
-                wbsSettings={wbsSettings}
-              />
-            )}
-
-            {visibleProjectStats.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                onClick={() => onNavigate?.('list', { projectId: project.id, status: 'all', assignee: '' })}
-                wbsSettings={wbsSettings}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* Assignee Workload */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <Users className="text-purple-500" size={24} />
-            인원별 투입 현황
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {assigneeStats.map((stat) => (
-              <AssigneeCard
-                key={stat.name}
-                stat={stat}
-                onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: stat.name === '미지정' ? '' : stat.name })}
-                wbsSettings={wbsSettings}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* 사업부·부서별 현황 */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <Building2 className="text-sky-500" size={24} />
-            사업부·부서별 현황
-          </h2>
-          {divisionStats.length === 0 ? (
-            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-              조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {divisionStats.map((d) => (
-                <div key={d.id} className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-baseline justify-between mb-2">
-                    <h3 className="font-semibold text-stone-800 truncate" title={d.name}>
-                      {d.name}
-                    </h3>
-                    <span className="text-xs text-stone-400 shrink-0 ml-2">{d.assigneeCount}명</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
-                    <div>
-                      <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
-                      <div className="text-[10px] text-stone-400">전체</div>
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-emerald-600 tabular-nums">{d.doneCount}</div>
-                      <div className="text-[10px] text-stone-400">완료</div>
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-rose-600 tabular-nums">{d.issueCount}</div>
-                      <div className="text-[10px] text-stone-400">이슈</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
-                    </div>
-                    <span className="text-[11px] font-semibold text-stone-600 tabular-nums w-10 text-right">{d.progress}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* 이슈 작업 목록 */}
+        {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
         <section>
           <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
             <Bug className="text-rose-500" size={24} />
@@ -768,6 +569,361 @@ export function Dashboard({
               </table>
             </div>
           )}
+        </section>
+
+        {/* 사업부·부서별 현황 */}
+        <section>
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+            <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2">
+              <Building2 className="text-sky-500" size={24} />
+              사업부·부서별 현황
+              <span className="text-sm font-normal text-stone-500 ml-1">
+                ({displayDivisionStats.length}
+                {(divisionVisibleIds || showMyDivisionOnly) && divisionStats.length !== displayDivisionStats.length
+                  ? ` / ${divisionStats.length}`
+                  : ''}
+                개)
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 내 부서만 토글 */}
+              {currentUserDisplay && (
+                <button
+                  type="button"
+                  onClick={toggleShowMyDivisionOnly}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors',
+                    showMyDivisionOnly
+                      ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                  )}
+                  title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
+                  aria-pressed={showMyDivisionOnly}
+                  disabled={!myDivisionId}
+                >
+                  <User size={13} />
+                  내가 포함된 부서만
+                  {showMyDivisionOnly && <Check size={12} strokeWidth={3} />}
+                </button>
+              )}
+              {/* 필터 (부서 표시) */}
+              <div className="relative" ref={divisionPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsDivisionPickerOpen((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+                  title="대시보드에 표시할 부서 선택"
+                >
+                  <Settings2 size={13} />
+                  필터
+                  {divisionVisibleIds && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">
+                      {divisionVisibleIds.size}
+                    </span>
+                  )}
+                </button>
+                {isDivisionPickerOpen && (
+                  <div className="absolute right-0 mt-2 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-30 p-2">
+                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
+                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => persistDivisionVisible(new Set(divisionStats.map((d) => d.id)))}
+                          className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
+                          title="모든 부서 선택"
+                        >
+                          모두 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => persistDivisionVisible(new Set())}
+                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                          title="모든 부서 해제"
+                        >
+                          모두 해제
+                        </button>
+                      </div>
+                    </div>
+                    {divisionStats.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {divisionStats.map((d) => {
+                          const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
+                          return (
+                            <li key={d.id}>
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center justify-center w-4 h-4 rounded border',
+                                    checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
+                                  )}
+                                >
+                                  {checked && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
+                                <span className="text-sm text-stone-700 truncate" title={d.name}>
+                                  {d.name}
+                                </span>
+                                <span className="ml-auto text-[10px] text-stone-400 shrink-0">{d.assigneeCount}명</span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                      <button
+                        type="button"
+                        onClick={showAllDivisions}
+                        className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
+                        title="필터 해제 (기본 상태로)"
+                      >
+                        필터 초기화 (기본)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          {displayDivisionStats.length === 0 ? (
+            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+              {divisionStats.length === 0
+                ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
+                : showMyDivisionOnly
+                  ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
+                  : '[필터]에서 표시할 부서를 선택하세요. (또는 필터 초기화)'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {displayDivisionStats.map((d) => (
+                <div key={d.id} className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="font-semibold text-stone-800 truncate" title={d.name}>
+                      {d.name}
+                    </h3>
+                    <span className="text-xs text-stone-400 shrink-0 ml-2">{d.assigneeCount}명</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                    <div>
+                      <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
+                      <div className="text-[10px] text-stone-400">전체</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-emerald-600 tabular-nums">{d.doneCount}</div>
+                      <div className="text-[10px] text-stone-400">완료</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold text-rose-600 tabular-nums">{d.issueCount}</div>
+                      <div className="text-[10px] text-stone-400">이슈</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
+                    </div>
+                    <span className="text-[11px] font-semibold text-stone-600 tabular-nums w-10 text-right">{d.progress}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Milestones */}
+        {milestones.length > 0 && (
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+              <Flag className="text-amber-500" size={24} />
+              마일스톤
+            </h2>
+            <div className="card-elevated overflow-hidden">
+              <ul className="divide-y divide-slate-100">
+                {milestones.map((task) => (
+                  <li
+                    key={task.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' });
+                      }
+                    }}
+                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                  >
+                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
+                      <Flag size={18} className="text-amber-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {task.projectName} · {task.startDate}
+                      </div>
+                    </div>
+                    {(() => {
+                      const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
+                      const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
+                      return (
+                        <span
+                          className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-stone-700')}
+                          style={colorProps.style}
+                        >
+                          {sc?.name ?? task.status}
+                        </span>
+                      );
+                    })()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
+
+        {/* Project List */}
+        <section>
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+            <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2">
+              <Briefcase className="text-[var(--color-accent)]" size={24} />
+              프로젝트별 상태
+              <span className="text-sm font-normal text-stone-500 ml-1">
+                ({displayProjectStats.length}
+                {(dashboardVisibleIds || showMyOnly) && visibleProjectStats.length !== displayProjectStats.length
+                  ? ` / ${visibleProjectStats.length}`
+                  : ''}
+                개)
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* 내가 포함된 프로젝트만 토글 */}
+              {myInvolvedProjectIds && (
+                <button
+                  type="button"
+                  onClick={toggleShowMyOnly}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors',
+                    showMyOnly
+                      ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                  )}
+                  title="소유자·멤버·작업 담당자(이름 매칭) 중 하나라도 해당하면 포함"
+                  aria-pressed={showMyOnly}
+                >
+                  <User size={13} />
+                  내가 포함된 프로젝트만
+                  {showMyOnly && <Check size={12} strokeWidth={3} />}
+                </button>
+              )}
+              {/* 필터 (프로젝트 표시) */}
+              <div className="relative" ref={projectPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsProjectPickerOpen((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+                  title="대시보드에 표시할 프로젝트 선택"
+                >
+                  <Settings2 size={13} />
+                  필터
+                  {dashboardVisibleIds && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">
+                      {dashboardVisibleIds.size}
+                    </span>
+                  )}
+                </button>
+                {isProjectPickerOpen && (
+                  <div className="absolute right-0 mt-2 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-30 p-2">
+                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
+                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 프로젝트</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardVisible(new Set(visibleProjectStats.map((p) => p.id as string)))}
+                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium"
+                          title="모든 프로젝트 선택"
+                        >
+                          모두 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardVisible(new Set())}
+                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                          title="모든 프로젝트 해제"
+                        >
+                          모두 해제
+                        </button>
+                      </div>
+                    </div>
+                    {visibleProjectStats.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 프로젝트가 없습니다.</p>
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {visibleProjectStats.map((p) => {
+                          const checked = dashboardVisibleIds === null ? true : dashboardVisibleIds.has(p.id);
+                          return (
+                            <li key={p.id}>
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center justify-center w-4 h-4 rounded border',
+                                    checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-stone-300 bg-white',
+                                  )}
+                                >
+                                  {checked && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleDashboardProject(p.id)}
+                                  className="sr-only"
+                                />
+                                <span className="text-sm text-stone-700 truncate" title={p.name}>
+                                  {p.name}
+                                </span>
+                                <span className="ml-auto text-[10px] text-stone-400 shrink-0">{p.stats?.total ?? 0}건</span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                      <button
+                        type="button"
+                        onClick={showAllDashboardProjects}
+                        className="w-full text-[11px] text-stone-500 hover:text-indigo-700 font-medium py-1"
+                        title="필터 해제 (기본 상태로)"
+                      >
+                        필터 초기화 (기본)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {displayProjectStats.length === 0 ? (
+              <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                {visibleProjectStats.length === 0
+                  ? '작업이 있는 프로젝트가 없습니다.'
+                  : showMyOnly
+                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                    : '[필터]에서 표시할 프로젝트를 선택하세요. (또는 필터 초기화)'}
+              </div>
+            ) : (
+              displayProjectStats.map((project) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onClick={() => onNavigate?.('list', { projectId: project.id, status: 'all', assignee: '' })}
+                  wbsSettings={wbsSettings}
+                />
+              ))
+            )}
+          </div>
         </section>
 
         {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
@@ -890,119 +1046,6 @@ function ProjectCard({
             <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">팀원 {s.assigneeCount}</span>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function AssigneeCard({
-  stat,
-  onClick,
-  wbsSettings,
-}: {
-  stat: AssigneeStat;
-  onClick?: () => void;
-  key?: React.Key;
-  wbsSettings: WBSSettings;
-}) {
-  const total = stat.total || 1;
-
-  return (
-    <div
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
-      className={cn('card p-5 group', onClick && 'cursor-pointer hover:border-indigo-200')}
-    >
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-[var(--color-ink)] font-bold text-lg">
-            {stat.name.substring(0, 1)}
-          </div>
-          <div className="overflow-hidden">
-            <div className="font-bold text-[var(--color-ink)] truncate">{stat.name}</div>
-            <div className="text-[10px] text-slate-500 font-medium">총 {stat.total}개 작업</div>
-          </div>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-xs font-bold text-[var(--color-accent)]">{stat.workEffort} M/D</div>
-          <div className="text-[10px] text-slate-500 font-medium tracking-tight">투입 공수</div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
-          {wbsSettings.statusConfigs.map((config) => {
-            const count = stat.statusCounts[config.id] || 0;
-            const pct = (count / total) * 100;
-            if (pct === 0) return null;
-
-            let color = 'bg-slate-300';
-            if (config.id === 'done') color = 'bg-emerald-400';
-            if (config.id === 'in-progress') color = 'bg-indigo-400';
-            if (config.id === 'blocked') color = 'bg-red-400';
-
-            return (
-              <div
-                key={config.id}
-                className={cn('h-full', color)}
-                style={{ width: `${pct}%` }}
-                title={`${config.name}: ${Math.round(pct)}%`}
-              />
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-500 px-0.5">
-          {wbsSettings.statusConfigs.map((config) => {
-            const count = stat.statusCounts[config.id] || 0;
-            const pct = (count / total) * 100;
-            if (pct === 0) return null;
-
-            let dotColor = 'bg-slate-300';
-            if (config.id === 'done') dotColor = 'bg-emerald-400';
-            if (config.id === 'in-progress') dotColor = 'bg-indigo-400';
-            if (config.id === 'blocked') dotColor = 'bg-red-400';
-
-            return (
-              <div key={config.id} className="flex items-center gap-1">
-                <div className={cn('w-1.5 h-1.5 rounded-full', dotColor)} />
-                <span>{Math.round(pct)}%</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {stat.projectBreakdown && stat.projectBreakdown.length > 0 && (
-          <div className="pt-3 border-t border-slate-100">
-            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">프로젝트별 투입 공수</div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
-              {stat.projectBreakdown.map((b) => (
-                <span
-                  key={b.projectId}
-                  className="truncate max-w-[160px]"
-                  title={`${b.projectName}: ${b.workEffort} M/D${typeof b.allocationPercent === 'number' ? ` · 투입 ${b.allocationPercent}%` : ''}`}
-                >
-                  <span className="font-medium text-[var(--color-ink)]">{b.projectName}</span>
-                  <span className="text-[var(--color-accent)] font-bold ml-1">{b.workEffort} M/D</span>
-                  {typeof b.allocationPercent === 'number' && (
-                    <span className="text-emerald-600 font-bold ml-1">{b.allocationPercent}%</span>
-                  )}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
