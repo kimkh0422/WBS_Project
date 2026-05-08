@@ -10,6 +10,7 @@ import {
   Upload,
   Settings2,
   Keyboard,
+  ShieldCheck,
   Trash2,
   RotateCcw,
   Users,
@@ -107,6 +108,7 @@ export interface AppHeaderProps {
   setIsSettingsModalOpen: (v: boolean) => void;
   isShortcutsVisible: boolean;
   setIsShortcutsVisible: (v: boolean) => void;
+  setIsPermissionGuideOpen: (v: boolean) => void;
   setIsMembersModalOpen: (v: boolean) => void;
   setIsResetConfirmOpen: (v: boolean) => void;
   setIsDeleteChoiceOpen: (v: boolean) => void;
@@ -188,6 +190,7 @@ export function AppHeader({
   setIsSettingsModalOpen,
   isShortcutsVisible,
   setIsShortcutsVisible,
+  setIsPermissionGuideOpen,
   setIsMembersModalOpen,
   setIsResetConfirmOpen,
   setIsDeleteChoiceOpen,
@@ -1006,6 +1009,17 @@ export function AppHeader({
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
                   >
                     <Keyboard size={14} /> 단축키
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      setIsPermissionGuideOpen(true);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    title="역할별로 어떤 기능을 쓸 수 있는지 한눈에 확인합니다."
+                  >
+                    <ShieldCheck size={14} /> 권한 안내
                   </button>
 
                   <div className="h-px bg-slate-100 my-1 mx-2" />

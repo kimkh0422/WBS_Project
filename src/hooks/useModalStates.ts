@@ -11,6 +11,7 @@ export function useModalStates() {
   const [isAIBusy, setIsAIBusy] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
+  const [isPermissionGuideOpen, setIsPermissionGuideOpen] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
@@ -90,6 +91,8 @@ export function useModalStates() {
     setIsSettingsModalOpen,
     isShortcutsVisible,
     setIsShortcutsVisible,
+    isPermissionGuideOpen,
+    setIsPermissionGuideOpen,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
     isExportModalOpen,

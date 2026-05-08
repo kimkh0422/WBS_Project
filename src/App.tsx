@@ -80,6 +80,7 @@ import {
 } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
+import { PermissionGuideModal } from './components/PermissionGuideModal';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
@@ -205,6 +206,8 @@ function WBSApp({
     setIsSettingsModalOpen,
     isShortcutsVisible,
     setIsShortcutsVisible,
+    isPermissionGuideOpen,
+    setIsPermissionGuideOpen,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
     isExportModalOpen,
@@ -1068,6 +1071,7 @@ function WBSApp({
           setIsSettingsModalOpen={setIsSettingsModalOpen}
           isShortcutsVisible={isShortcutsVisible}
           setIsShortcutsVisible={setIsShortcutsVisible}
+          setIsPermissionGuideOpen={setIsPermissionGuideOpen}
           setIsMembersModalOpen={setIsMembersModalOpen}
           setIsResetConfirmOpen={setIsResetConfirmOpen}
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
@@ -1759,6 +1763,7 @@ function WBSApp({
             )}
           </div>
           {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
+          <PermissionGuideModal isOpen={isPermissionGuideOpen} onClose={() => setIsPermissionGuideOpen(false)} />
         </Suspense>
       </main>
 
