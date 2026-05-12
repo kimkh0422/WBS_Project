@@ -556,7 +556,7 @@ export function Dashboard({
                             <span className="truncate">{t.name || '(이름 없음)'}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-stone-600 truncate">{proj?.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
                         <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
                         <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
                         <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
@@ -879,7 +879,7 @@ export function Dashboard({
                                   onChange={() => toggleDashboardProject(p.id)}
                                   className="sr-only"
                                 />
-                                <span className="text-sm text-stone-700 truncate" title={p.name}>
+                                <span className="text-sm text-stone-700 break-words" title={p.name}>
                                   {p.name}
                                 </span>
                                 <span className="ml-auto text-[10px] text-stone-400 shrink-0">{p.stats?.total ?? 0}건</span>
@@ -1004,7 +1004,7 @@ function ProjectCard({
     >
       <div className="p-6 border-b border-slate-100 bg-gradient-to-br from-white to-slate-50/30">
         <h3
-          className="text-[17px] font-bold text-[var(--color-ink)] mb-1.5 truncate group-hover:text-indigo-600 transition-colors"
+          className="text-[17px] font-bold text-[var(--color-ink)] mb-1.5 break-words group-hover:text-indigo-600 transition-colors"
           title={project.name}
         >
           {project.name}

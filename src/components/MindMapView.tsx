@@ -945,7 +945,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
       {/* 툴바 */}
       <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-200/80 bg-white/90 backdrop-blur-sm flex-wrap">
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-slate-800 truncate">
+          <h2 className="text-sm font-bold text-slate-800 break-words">
             {layoutMode === 'tree' ? '트리' : '알마인드'} — {projectLabel}
           </h2>
           <p className="text-[10px] text-slate-400">↑ 부모 ↓ 자식 ←→ 형제 · Tab 자식 · Space 접기 · Enter 편집 · Del 삭제</p>

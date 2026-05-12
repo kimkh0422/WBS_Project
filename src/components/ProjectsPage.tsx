@@ -36,6 +36,24 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
   const [groupByOwner, setGroupByOwner] = useState(false);
+  const [isOwnerSummaryCollapsed, setIsOwnerSummaryCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wbs-projects-owner-summary-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleOwnerSummary = () => {
+    setIsOwnerSummaryCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('wbs-projects-owner-summary-collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
   const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
     try {
       return localStorage.getItem('wbs-projects-my-only') === '1';
@@ -193,6 +211,39 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     }
     return map;
   }, [sortedProjects, sortedGroups]);
+
+  /** 요약 패널용: `showMyOnly` 등 화면 필터와 무관하게 전체 프로젝트를 dedupe만 한 목록 */
+  const allProjectsDeduped = useMemo(() => {
+    const seen = new Set<string>();
+    return projects.filter((p) => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [projects]);
+
+  /** 요약 패널용 소유자 그룹: 본인 우선 → 개수 내림차순 → 이름순. '__none__'(소유자 미지정)은 항상 끝. */
+  const ownerSummary = useMemo(() => {
+    const map = new Map<string, Project[]>();
+    for (const p of allProjectsDeduped) {
+      const k = p.ownerId ?? '__none__';
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
+    }
+    const entries = [...map.entries()] as [string, Project[]][];
+    entries.sort(([ka, la], [kb, lb]) => {
+      if (user?.id && ka === user.id) return -1;
+      if (user?.id && kb === user.id) return 1;
+      if (ka === '__none__') return 1;
+      if (kb === '__none__') return -1;
+      if (la.length !== lb.length) return lb.length - la.length;
+      return ownerLabel(ka).localeCompare(ownerLabel(kb), 'ko');
+    });
+    return entries;
+  }, [allProjectsDeduped, user?.id, profileMap]);
 
   const projectsGroupedByOwner = useMemo(() => {
     const map = new Map<string, Project[]>();
@@ -352,7 +403,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-[var(--color-ink)] truncate">{project.name}</span>
+              <span className="font-semibold text-[var(--color-ink)] break-words">{project.name}</span>
               {(taskCountByProject[project.id] ?? 0) > 0 && (
                 <span className="text-xs text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개 작업)</span>
               )}
@@ -489,6 +540,64 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             </button>
           </div>
         </div>
+
+        {/* 회원별 프로젝트 현황 요약 — 누가 어떤 프로젝트를 몇 개 만들었는지 한눈에 확인 */}
+        {allProjectsDeduped.length > 0 && (
+          <div className="mb-4 bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={toggleOwnerSummary}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors"
+              aria-expanded={!isOwnerSummaryCollapsed}
+              title="회원별 프로젝트 현황 펼치기/접기"
+            >
+              {isOwnerSummaryCollapsed ? (
+                <ChevronRight size={16} className="text-stone-400 shrink-0" />
+              ) : (
+                <ChevronDown size={16} className="text-stone-400 shrink-0" />
+              )}
+              <span className="text-sm font-semibold text-stone-800">회원별 프로젝트 현황</span>
+              <span className="text-xs text-stone-400 tabular-nums">
+                총 {ownerSummary.length}명 · {allProjectsDeduped.length}개
+              </span>
+            </button>
+            {!isOwnerSummaryCollapsed && (
+              <div className="border-t border-stone-100 divide-y divide-stone-100 max-h-[320px] overflow-y-auto">
+                {ownerSummary.map(([ownerKey, list]) => {
+                  const isMe = !!user?.id && ownerKey === user.id;
+                  const labelText = ownerLabel(ownerKey === '__none__' ? undefined : ownerKey);
+                  return (
+                    <div key={ownerKey} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2">
+                      <div
+                        className={cn(
+                          'flex items-baseline gap-1.5 min-w-[120px] max-w-[200px] shrink-0',
+                          isMe ? 'text-indigo-700' : 'text-stone-700',
+                        )}
+                        title={labelText}
+                      >
+                        <span className={cn('truncate text-sm', isMe ? 'font-semibold' : 'font-medium')}>{labelText}</span>
+                        <span className="text-xs text-stone-400 tabular-nums">({list.length})</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 min-w-0">
+                        {list.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => handleNavigateToWork(p.id)}
+                            className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-stone-700 transition-colors text-left break-words"
+                            title={`${p.name} — 작업 보기`}
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {uniqueProjects.length > 0 && uniqueProjects.length < 2 && (
           <div className="flex items-center gap-2 mb-4">

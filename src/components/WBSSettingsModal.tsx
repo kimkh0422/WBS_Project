@@ -941,9 +941,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             editable ? 'bg-white border-stone-100' : 'bg-stone-50 border-stone-200'
                           }`}
                         >
-                          <div className="flex-1 truncate">
-                            <label className="text-xs font-bold text-stone-600 truncate block flex items-center gap-1.5" title={p.name}>
-                              <span className="truncate">{p.name}</span>
+                          <div className="flex-1 min-w-0">
+                            <label className="text-xs font-bold text-stone-600 break-words block flex items-center gap-1.5" title={p.name}>
+                              <span className="break-words">{p.name}</span>
                               {!editable && (
                                 <span
                                   className="inline-flex items-center gap-0.5 text-[9px] font-medium text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded shrink-0"

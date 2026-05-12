@@ -17,11 +17,7 @@ interface ExportModalProps {
   wbsMap: Map<string, string>;
   wbsSettings: WBSSettings;
   currentProjectId?: string;
-  onExport: (params: {
-    scope: ExportScope;
-    formats: ExportFormat[];
-    projectIds: string[];
-  }) => void;
+  onExport: (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => void;
 }
 
 export function ExportModal({
@@ -41,7 +37,7 @@ export function ExportModal({
   useEffect(() => {
     if (!isOpen) return;
     // 현재 프로젝트가 있으면 기본은 "프로젝트 선택"
-    if (currentProjectId && projects.some(p => p.id === currentProjectId)) {
+    if (currentProjectId && projects.some((p) => p.id === currentProjectId)) {
       setScope('selected');
     } else {
       setScope('all');
@@ -52,42 +48,41 @@ export function ExportModal({
   useEffect(() => {
     if (!isOpen) return;
     if (scope === 'all') {
-      onSelectedProjectIdsChange(projects.map(p => p.id));
+      onSelectedProjectIdsChange(projects.map((p) => p.id));
     } else {
       // 프로젝트 선택: 현재 프로젝트가 있으면 그대로, 없으면 빈 배열
-      const currentValid = currentProjectId && projects.some(p => p.id === currentProjectId);
+      const currentValid = currentProjectId && projects.some((p) => p.id === currentProjectId);
       onSelectedProjectIdsChange(currentValid ? [currentProjectId] : []);
     }
   }, [isOpen, scope]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleProject = (id: string) => {
     if (selectedProjectIds.includes(id)) {
-      onSelectedProjectIdsChange(selectedProjectIds.filter(x => x !== id));
+      onSelectedProjectIdsChange(selectedProjectIds.filter((x) => x !== id));
     } else {
       onSelectedProjectIdsChange([...selectedProjectIds, id]);
     }
   };
 
   const selectAllProjects = () => {
-    onSelectedProjectIdsChange(projects.map(p => p.id));
+    onSelectedProjectIdsChange(projects.map((p) => p.id));
   };
 
   const taskCountByProject = React.useMemo(() => {
     const m: Record<string, number> = {};
-    projects.forEach(p => { m[p.id] = 0; });
-    allTasks.forEach(t => {
+    projects.forEach((p) => {
+      m[p.id] = 0;
+    });
+    allTasks.forEach((t) => {
       if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
     });
     return m;
   }, [projects, allTasks]);
 
-  const canExport =
-    (scope === 'all' || selectedProjectIds.length > 0) && selectedFormats.length > 0;
+  const canExport = (scope === 'all' || selectedProjectIds.length > 0) && selectedFormats.length > 0;
 
   const toggleFormat = (format: ExportFormat) => {
-    setSelectedFormats(prev =>
-      prev.includes(format) ? prev.filter(f => f !== format) : [...prev, format]
-    );
+    setSelectedFormats((prev) => (prev.includes(format) ? prev.filter((f) => f !== format) : [...prev, format]));
   };
 
   const selectAllFormats = () => {
@@ -96,7 +91,7 @@ export function ExportModal({
 
   const handleExport = () => {
     if (!canExport) return;
-    const projectIds = scope === 'all' ? projects.map(p => p.id) : selectedProjectIds;
+    const projectIds = scope === 'all' ? projects.map((p) => p.id) : selectedProjectIds;
     onExport({ scope, formats: selectedFormats, projectIds });
     onClose();
   };
@@ -125,10 +120,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => setScope('all')}
                 className={cn(
-                  "flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all",
+                  'flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all',
                   scope === 'all'
-                    ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 전체
@@ -137,10 +132,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => setScope('selected')}
                 className={cn(
-                  "flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all",
+                  'flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all',
                   scope === 'selected'
-                    ? "bg-blue-50 text-blue-700 border-blue-200"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 프로젝트 선택
@@ -153,11 +148,7 @@ export function ExportModal({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-xs font-semibold text-slate-600">선택할 프로젝트</label>
-                <button
-                  type="button"
-                  onClick={selectAllProjects}
-                  className="text-xs text-[var(--color-accent)] hover:underline"
-                >
+                <button type="button" onClick={selectAllProjects} className="text-xs text-[var(--color-accent)] hover:underline">
                   전체 선택
                 </button>
               </div>
@@ -165,12 +156,12 @@ export function ExportModal({
                 {projects.length === 0 ? (
                   <p className="text-xs text-slate-500 py-2 text-center">프로젝트가 없습니다.</p>
                 ) : (
-                  projects.map(p => (
+                  projects.map((p) => (
                     <label
                       key={p.id}
                       className={cn(
-                        "flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-white transition-colors",
-                        selectedProjectIds.includes(p.id) && "bg-blue-50"
+                        'flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-white transition-colors',
+                        selectedProjectIds.includes(p.id) && 'bg-blue-50',
                       )}
                     >
                       <input
@@ -179,10 +170,8 @@ export function ExportModal({
                         onChange={() => toggleProject(p.id)}
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-slate-700 flex-1 truncate">{p.name}</span>
-                      <span className="text-xs text-slate-400 tabular-nums">
-                        {taskCountByProject[p.id] ?? 0}개
-                      </span>
+                      <span className="text-sm text-slate-700 flex-1 break-words">{p.name}</span>
+                      <span className="text-xs text-slate-400 tabular-nums">{taskCountByProject[p.id] ?? 0}개</span>
                     </label>
                   ))
                 )}
@@ -194,11 +183,7 @@ export function ExportModal({
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-semibold text-slate-600">파일 형식</label>
-              <button
-                type="button"
-                onClick={selectAllFormats}
-                className="text-xs text-[var(--color-accent)] hover:underline"
-              >
+              <button type="button" onClick={selectAllFormats} className="text-xs text-[var(--color-accent)] hover:underline">
                 전체 선택
               </button>
             </div>
@@ -207,10 +192,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => toggleFormat('excel')}
                 className={cn(
-                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  'flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all',
                   selectedFormats.includes('excel')
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <FileSpreadsheet size={18} />
@@ -220,10 +205,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => toggleFormat('json')}
                 className={cn(
-                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  'flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all',
                   selectedFormats.includes('json')
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <FileJson size={18} />
@@ -233,10 +218,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => toggleFormat('markdown')}
                 className={cn(
-                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  'flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all',
                   selectedFormats.includes('markdown')
-                    ? "bg-slate-100 text-slate-800 border-slate-300"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-slate-100 text-slate-800 border-slate-300'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <FileText size={18} />
@@ -246,10 +231,10 @@ export function ExportModal({
                 type="button"
                 onClick={() => toggleFormat('csv')}
                 className={cn(
-                  "flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all",
+                  'flex-1 min-w-0 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-all',
                   selectedFormats.includes('csv')
-                    ? "bg-cyan-50 text-cyan-700 border-cyan-200"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <Table size={18} />
@@ -257,16 +242,11 @@ export function ExportModal({
               </button>
             </div>
             <p className="mt-1.5 text-xs text-slate-500">
-              {selectedFormats.length === 1 && selectedFormats[0] === 'excel' &&
-                '엑셀에서 편집 후 다시 가져올 수 있습니다.'}
-              {selectedFormats.length === 1 && selectedFormats[0] === 'json' &&
-                '프로젝트·작업·설정을 백업 형식으로 저장합니다.'}
-              {selectedFormats.length === 1 && selectedFormats[0] === 'markdown' &&
-                '문서·위키에 붙여넣기 좋은 마크다운 형식입니다.'}
-              {selectedFormats.length === 1 && selectedFormats[0] === 'csv' &&
-                '범용 CSV 형식으로 Excel·스프레드시트에서 열 수 있습니다.'}
-              {selectedFormats.length > 1 &&
-                '선택한 모든 형식으로 내보내기가 진행됩니다.'}
+              {selectedFormats.length === 1 && selectedFormats[0] === 'excel' && '엑셀에서 편집 후 다시 가져올 수 있습니다.'}
+              {selectedFormats.length === 1 && selectedFormats[0] === 'json' && '프로젝트·작업·설정을 백업 형식으로 저장합니다.'}
+              {selectedFormats.length === 1 && selectedFormats[0] === 'markdown' && '문서·위키에 붙여넣기 좋은 마크다운 형식입니다.'}
+              {selectedFormats.length === 1 && selectedFormats[0] === 'csv' && '범용 CSV 형식으로 Excel·스프레드시트에서 열 수 있습니다.'}
+              {selectedFormats.length > 1 && '선택한 모든 형식으로 내보내기가 진행됩니다.'}
             </p>
           </div>
         </div>

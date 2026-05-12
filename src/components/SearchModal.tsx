@@ -193,8 +193,8 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
                     {item.wbs && <span className="text-[10px] font-mono text-[var(--color-ink-muted)] shrink-0">{item.wbs}</span>}
                     <span className="text-sm font-medium text-[var(--color-ink)] truncate">{item.title}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)] truncate">
-                    <span className="truncate">{item.subtitle}</span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+                    <span className="break-words">{item.subtitle}</span>
                     {item.status && (
                       <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-line-soft)]">
                         {item.status}

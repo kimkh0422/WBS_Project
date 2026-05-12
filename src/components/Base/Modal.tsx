@@ -123,7 +123,7 @@ export function BaseModal({
               {headerStart}
               {title &&
                 (typeof title === 'string' ? (
-                  <h2 id={resolvedTitleId} className="text-lg font-bold text-[var(--color-ink)] truncate">
+                  <h2 id={resolvedTitleId} className="text-lg font-bold text-[var(--color-ink)] break-words">
                     {title}
                   </h2>
                 ) : (

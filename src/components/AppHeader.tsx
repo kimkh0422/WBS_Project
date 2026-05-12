@@ -483,7 +483,7 @@ export function AppHeader({
                 <div className="flex flex-col items-start">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">프로젝트</span>
                   <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
-                    <span className="max-w-[140px] sm:max-w-[200px] truncate">
+                    <span className="break-words text-left">
                       {currentProjectId === 'all'
                         ? `전체 프로젝트${allTasks.length > 0 ? ` (${allTasks.length}개)` : ''}`
                         : currentProject?.name || '프로젝트 선택'}
@@ -663,8 +663,8 @@ export function AppHeader({
                                 >
                                   <Star size={12} className={favoriteIds.has(project.id) ? 'fill-amber-500' : ''} />
                                 </button>
-                                <div className="truncate flex-1 min-w-0">
-                                  <span className="truncate">
+                                <div className="flex-1 min-w-0 break-words">
+                                  <span>
                                     {project.name}
                                     <span className="text-[10px] text-stone-400 ml-1.5">({ownerLabel})</span>
                                   </span>

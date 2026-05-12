@@ -67,7 +67,7 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
             {isAllMode ? (
               <span className="text-sm text-amber-700 font-medium">— 전체 프로젝트</span>
             ) : projectName ? (
-              <span className="text-sm text-stone-500 truncate max-w-[200px]" title={projectName}>
+              <span className="text-sm text-stone-500 break-words" title={projectName}>
                 — {projectName}
               </span>
             ) : null}
@@ -120,7 +120,7 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
                       </td>
                       <td className="py-2 px-2 text-stone-700">{entry.user_display ?? '—'}</td>
                       {isAllMode && (
-                        <td className="py-2 px-2 text-stone-700 max-w-[160px] truncate" title={projectLabel}>
+                        <td className="py-2 px-2 text-stone-700 break-words" title={projectLabel}>
                           {projectLabel}
                         </td>
                       )}

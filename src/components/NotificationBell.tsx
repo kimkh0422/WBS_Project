@@ -51,25 +51,35 @@ export function NotificationBell({
     try {
       const saved = localStorage.getItem(DISMISSED_KEY);
       if (saved) return new Set(JSON.parse(saved) as string[]);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return new Set();
   });
 
   const dismiss = (id: string) => {
-    setDismissedIds(prev => {
+    setDismissedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
-      try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      try {
+        localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   };
 
   const dismissAll = () => {
-    const ids = notifications.map(n => n.id);
-    setDismissedIds(prev => {
+    const ids = notifications.map((n) => n.id);
+    setDismissedIds((prev) => {
       const next = new Set(prev);
-      ids.forEach(id => next.add(id));
-      try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      ids.forEach((id) => next.add(id));
+      try {
+        localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
       return next;
     });
   };
@@ -92,7 +102,7 @@ export function NotificationBell({
       // 종료일 없으면 제외
       if (!t.endDate) continue;
       // 리프 작업만 (자식이 있는 부모 작업 제외)
-      const hasChildren = allTasks.some(other => other.parentId === t.id);
+      const hasChildren = allTasks.some((other) => other.parentId === t.id);
       if (hasChildren) continue;
 
       const endDate = new Date(t.endDate);
@@ -136,17 +146,19 @@ export function NotificationBell({
     return items;
   }, [allTasks, currentUserDisplay, doneStatusIds, projectNameMap]);
 
-  const activeNotifications = notifications.filter(n => !dismissedIds.has(n.id));
+  const activeNotifications = notifications.filter((n) => !dismissedIds.has(n.id));
   const count = activeNotifications.length;
 
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen(prev => !prev)}
+        onClick={() => setIsOpen((prev) => !prev)}
         className={cn(
-          "relative p-2 rounded-lg transition-colors",
-          isOpen ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]" : "text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:bg-[var(--color-line-soft)]"
+          'relative p-2 rounded-lg transition-colors',
+          isOpen
+            ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+            : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:bg-[var(--color-line-soft)]',
         )}
         title={count > 0 ? `기한 알림 ${count}건` : '기한 알림 없음'}
         aria-label={`기한 알림 ${count}건`}
@@ -183,7 +195,7 @@ export function NotificationBell({
                 <p className="text-sm text-[var(--color-ink-muted)]">긴급한 알림이 없습니다</p>
               </div>
             ) : (
-              activeNotifications.map(item => (
+              activeNotifications.map((item) => (
                 <div
                   key={item.id}
                   className="px-4 py-2.5 flex items-start gap-3 hover:bg-[var(--color-line-soft)] transition-colors cursor-pointer group"
@@ -192,25 +204,27 @@ export function NotificationBell({
                     setIsOpen(false);
                   }}
                 >
-                  <div className={cn(
-                    "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
-                    item.type === 'overdue' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
-                  )}>
+                  <div
+                    className={cn(
+                      'w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
+                      item.type === 'overdue' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600',
+                    )}
+                  >
                     {item.type === 'overdue' ? <AlertTriangle size={12} /> : <Clock size={12} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-[var(--color-ink)] truncate">{item.taskName}</div>
-                    <div className="text-[11px] text-[var(--color-ink-muted)] truncate">{item.projectName}</div>
-                    <div className={cn(
-                      "text-[10px] font-bold mt-0.5",
-                      item.type === 'overdue' ? "text-red-500" : "text-amber-600"
-                    )}>
+                    <div className="text-[11px] text-[var(--color-ink-muted)] break-words">{item.projectName}</div>
+                    <div className={cn('text-[10px] font-bold mt-0.5', item.type === 'overdue' ? 'text-red-500' : 'text-amber-600')}>
                       {item.daysInfo} · 마감 {item.endDate}
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); dismiss(item.id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dismiss(item.id);
+                    }}
                     className="p-1 rounded text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     title="확인 (숨기기)"
                   >

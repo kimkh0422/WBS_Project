@@ -269,10 +269,6 @@ function WBSApp({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
-  const [isLocalSaveBannerDismissed, setIsLocalSaveBannerDismissed] = useState(
-    () => localStorage.getItem('wbs-local-save-banner-dismissed') === '1',
-  );
-  const [isBackupBannerDismissed, setIsBackupBannerDismissed] = useState(() => localStorage.getItem('wbs-backup-banner-dismissed') === '1');
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(max-width: 767px)').matches;
@@ -1096,50 +1092,6 @@ function WBSApp({
         />
       )}
 
-      {!isFullscreen && !isLocalSaveBannerDismissed && (
-        <div className="bg-sky-50/80 border-b border-sky-200/60 px-4 py-2.5 hidden md:flex flex-wrap items-center justify-center gap-2 text-sky-800 text-xs">
-          <span>
-            로그인 시 데이터는 <strong>서버(DB)</strong>를 기준으로 하며, 변경 후 잠시 뒤 <strong>자동 반영</strong>됩니다. 이 기기에도
-            백업으로 로컬에 저장됩니다. 같은 프로젝트를 연 사람은 실시간으로 갱신됩니다.
-          </span>
-          <button
-            onClick={() => {
-              setIsLocalSaveBannerDismissed(true);
-              localStorage.setItem('wbs-local-save-banner-dismissed', '1');
-            }}
-            className="ml-1 p-1 rounded-md hover:bg-sky-200/50 text-sky-500 hover:text-sky-800 transition-colors"
-            title="닫기 (이 기기에서 다시 표시 안 함)"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-      {/* 백업 안내 배너 — 모바일에서는 화면 공간 절약을 위해 숨김 */}
-      {!isFullscreen && !isBackupBannerDismissed && (
-        <div className="bg-amber-50/80 border-b border-amber-200/60 px-4 py-2.5 hidden md:flex flex-wrap items-center justify-center gap-2 text-amber-800 text-xs">
-          <AlertTriangle size={14} className="shrink-0 text-amber-500" />
-          <span>
-            정기적으로 <strong>내보내기</strong>로 백업을 하시기 바랍니다.
-          </span>
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            className="ml-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-200/60 hover:bg-amber-300 text-amber-900 transition-colors"
-          >
-            내보내기
-          </button>
-          <button
-            onClick={() => {
-              setIsBackupBannerDismissed(true);
-              localStorage.setItem('wbs-backup-banner-dismissed', '1');
-            }}
-            className="ml-1 p-1 rounded-md hover:bg-amber-200/60 text-amber-500 hover:text-amber-800 transition-colors"
-            title="닫기 (이 기기에서 다시 표시 안 함)"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
       {/* Filter bar: filterOn일 때 항상 표시 (모바일에서도 헤더 접힘과 무관) */}
       {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && (
         <div
@@ -1157,10 +1109,10 @@ function WBSApp({
             <button
               type="button"
               onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] max-w-[260px] text-left"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] text-left"
               title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
             >
-              <span className="truncate flex-1">
+              <span className="flex-1 break-words">
                 {filters.projectIds === 'all'
                   ? '전체'
                   : filters.projectIds.length === 1
@@ -1248,7 +1200,7 @@ function WBSApp({
                               }}
                               className="rounded border-slate-300 text-indigo-600"
                             />
-                            <span className="truncate">{p.name}</span>
+                            <span className="break-words">{p.name}</span>
                           </label>
                         );
                       })}

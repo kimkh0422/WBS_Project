@@ -43,7 +43,7 @@ export function WbsFilterBar({
   allAssignees,
   setFilterOn,
   hasActiveFilters,
-  setCurrentProjectId
+  setCurrentProjectId,
 }: FilterBarProps) {
   const [isProjectFilterDropdownOpen, setIsProjectFilterDropdownOpen] = React.useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -72,8 +72,8 @@ export function WbsFilterBar({
   return (
     <div
       className={cn(
-        "bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40",
-        isHeaderCollapsed && "hidden md:flex"
+        'bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40',
+        isHeaderCollapsed && 'hidden md:flex',
       )}
       style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
     >
@@ -82,18 +82,20 @@ export function WbsFilterBar({
         ref={projectFilterDropdownRef}
         className="relative inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200"
       >
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">프로젝트</span>
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">
+          프로젝트
+        </span>
         <button
           type="button"
           onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] max-w-[260px] text-left"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] text-left"
           title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
         >
-          <span className="truncate flex-1">
+          <span className="flex-1 break-words">
             {filters.projectIds === 'all'
               ? '전체'
               : filters.projectIds.length === 1
-                ? uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개'
+                ? (uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개')
                 : `${filters.projectIds.length}개 프로젝트`}
           </span>
           <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
@@ -113,11 +115,10 @@ export function WbsFilterBar({
             {(() => {
               const allIds = projectsSortedByName.map((x) => x.id);
               const q = projectSearch.trim().toLowerCase();
-              const filteredProjects = q
-                ? projectsSortedByName.filter((p) => p.name.toLowerCase().includes(q))
-                : projectsSortedByName;
+              const filteredProjects = q ? projectsSortedByName.filter((p) => p.name.toLowerCase().includes(q)) : projectsSortedByName;
               const isAll = filters.projectIds === 'all';
-              const isPartial = Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
+              const isPartial =
+                Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
               return (
                 <>
                   <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
@@ -185,7 +186,7 @@ export function WbsFilterBar({
                           }}
                           className="rounded border-slate-300 text-indigo-600"
                         />
-                        <span className="truncate">{p.name}</span>
+                        <span className="break-words">{p.name}</span>
                       </label>
                     );
                   })}
@@ -202,12 +203,12 @@ export function WbsFilterBar({
         <input
           type="text"
           value={filters.searchText ?? ''}
-          onChange={e => setFilters(f => ({ ...f, searchText: e.target.value }))}
+          onChange={(e) => setFilters((f) => ({ ...f, searchText: e.target.value }))}
           placeholder="작업 검색..."
           className="bg-transparent text-xs text-stone-700 placeholder-stone-400 outline-none w-28 sm:w-36"
         />
         {filters.searchText && (
-          <button onClick={() => setFilters(f => ({ ...f, searchText: '' }))} className="text-stone-400 hover:text-stone-600">
+          <button onClick={() => setFilters((f) => ({ ...f, searchText: '' }))} className="text-stone-400 hover:text-stone-600">
             <X size={10} />
           </button>
         )}
@@ -215,25 +216,67 @@ export function WbsFilterBar({
 
       {/* 상태 */}
       <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-50/60 border border-indigo-100">
-        <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">상태</span>
+        <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">
+          상태
+        </span>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={() => setFilters(f => ({ ...f, status: 'all' }))} className={cn("filter-chip", filters.status === 'all' ? "filter-chip-active" : "filter-chip-inactive")} title="모든 상태의 작업 표시">전체</button>
+          <button
+            onClick={() => setFilters((f) => ({ ...f, status: 'all' }))}
+            className={cn('filter-chip', filters.status === 'all' ? 'filter-chip-active' : 'filter-chip-inactive')}
+            title="모든 상태의 작업 표시"
+          >
+            전체
+          </button>
           {wbsSettings.statusConfigs.map((config: StatusConfig) => (
-            <button key={config.id} onClick={() => setFilters(f => ({ ...f, status: config.id }))} className={cn("filter-chip", filters.status === config.id ? "filter-chip-active" : "filter-chip-inactive")} title={`${config.name} 상태인 작업만 표시`}>{config.name}</button>
+            <button
+              key={config.id}
+              onClick={() => setFilters((f) => ({ ...f, status: config.id }))}
+              className={cn('filter-chip', filters.status === config.id ? 'filter-chip-active' : 'filter-chip-inactive')}
+              title={`${config.name} 상태인 작업만 표시`}
+            >
+              {config.name}
+            </button>
           ))}
         </div>
       </div>
 
       {/* 담당자 */}
       <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-emerald-50/70 border border-emerald-100">
-        <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">담당자</span>
+        <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">
+          담당자
+        </span>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={() => setFilters(f => ({ ...f, assignee: '' }))} className={cn("filter-chip", !filters.assignee ? "filter-chip-active" : "filter-chip-inactive")} title="모든 담당자의 작업 표시">전체</button>
+          <button
+            onClick={() => setFilters((f) => ({ ...f, assignee: '' }))}
+            className={cn('filter-chip', !filters.assignee ? 'filter-chip-active' : 'filter-chip-inactive')}
+            title="모든 담당자의 작업 표시"
+          >
+            전체
+          </button>
           {user?.id && profileMap[user.id] && (
-            <button onClick={() => { setFilterOn(true); setFilters(f => ({ ...f, assignee: profileMap[user.id] })); }} className={cn("filter-chip flex items-center gap-1", filters.assignee === profileMap[user.id] ? "filter-chip-active" : "filter-chip-inactive")} title="내가 담당자인 작업만 표시"><User size={10} className="opacity-80" /> 내 업무만</button>
+            <button
+              onClick={() => {
+                setFilterOn(true);
+                setFilters((f) => ({ ...f, assignee: profileMap[user.id] }));
+              }}
+              className={cn(
+                'filter-chip flex items-center gap-1',
+                filters.assignee === profileMap[user.id] ? 'filter-chip-active' : 'filter-chip-inactive',
+              )}
+              title="내가 담당자인 작업만 표시"
+            >
+              <User size={10} className="opacity-80" /> 내 업무만
+            </button>
           )}
-          {allAssignees.map(a => (
-            <button key={a} onClick={() => setFilters(f => ({ ...f, assignee: a }))} className={cn("filter-chip", filters.assignee === a ? "filter-chip-active" : "filter-chip-inactive")} title={`${a} 담당 작업만 표시`}>{a}</button>
+          {allAssignees.map((a) => (
+            <button
+              key={a}
+              onClick={() => setFilters((f) => ({ ...f, assignee: a }))}
+              className={cn('filter-chip', filters.assignee === a ? 'filter-chip-active' : 'filter-chip-inactive')}
+              title={`${a} 담당 작업만 표시`}
+            >
+              {a}
+            </button>
           ))}
         </div>
       </div>
@@ -246,15 +289,15 @@ export function WbsFilterBar({
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 milestoneOnly: false,
                 issueOnly: false,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              !filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              !filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="마일스톤/이슈 구분 없이 모든 작업 표시"
           >
@@ -262,15 +305,15 @@ export function WbsFilterBar({
           </button>
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 milestoneOnly: true,
                 issueOnly: false,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              filters.milestoneOnly && !filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="마일스톤으로 지정된 이정표 작업만 표시"
           >
@@ -278,15 +321,15 @@ export function WbsFilterBar({
           </button>
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 milestoneOnly: false,
                 issueOnly: true,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              !filters.milestoneOnly && filters.issueOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              !filters.milestoneOnly && filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="이슈로 지정된 작업만 표시"
           >
@@ -297,15 +340,31 @@ export function WbsFilterBar({
 
       {/* 기간 */}
       <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-violet-50 border border-violet-100">
-        <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">기간</span>
+        <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">
+          기간
+        </span>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={() => setFilters(f => ({ ...f, startDate: '', endDate: '' }))} className={cn("filter-chip", !filters.startDate && !filters.endDate ? "filter-chip-active" : "filter-chip-inactive")} title="기간 제한 없이 모든 작업 표시">전체</button>
+          <button
+            onClick={() => setFilters((f) => ({ ...f, startDate: '', endDate: '' }))}
+            className={cn('filter-chip', !filters.startDate && !filters.endDate ? 'filter-chip-active' : 'filter-chip-inactive')}
+            title="기간 제한 없이 모든 작업 표시"
+          >
+            전체
+          </button>
           <button
             onClick={() => {
               const today = format(new Date(), 'yyyy-MM-dd');
-              setFilters(f => ({ ...f, startDate: today, endDate: today }));
+              setFilters((f) => ({ ...f, startDate: today, endDate: today }));
             }}
-            className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === filters.endDate && filters.startDate === format(new Date(), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+            className={cn(
+              'filter-chip',
+              filters.startDate &&
+                filters.endDate &&
+                filters.startDate === filters.endDate &&
+                filters.startDate === format(new Date(), 'yyyy-MM-dd')
+                ? 'filter-chip-active'
+                : 'filter-chip-inactive',
+            )}
             title="오늘과 기간이 겹치는 작업만 표시"
           >
             금일
@@ -315,9 +374,17 @@ export function WbsFilterBar({
               const now = new Date();
               const weekStart = startOfWeek(now, { weekStartsOn: 1 });
               const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-              setFilters(f => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
+              setFilters((f) => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
             }}
-            className={cn("filter-chip", filters.startDate && filters.endDate && filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') && filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') ? "filter-chip-active" : "filter-chip-inactive")}
+            className={cn(
+              'filter-chip',
+              filters.startDate &&
+                filters.endDate &&
+                filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') &&
+                filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+                ? 'filter-chip-active'
+                : 'filter-chip-inactive',
+            )}
             title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
           >
             금주
@@ -328,20 +395,20 @@ export function WbsFilterBar({
               const nextWeekBase = addDays(now, 7);
               const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
               const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-              setFilters(f => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
+              setFilters((f) => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
             }}
             className={cn(
-              "filter-chip",
+              'filter-chip',
               (() => {
-                if (!filters.startDate || !filters.endDate) return "filter-chip-inactive";
+                if (!filters.startDate || !filters.endDate) return 'filter-chip-inactive';
                 const now = new Date();
                 const nextWeekBase = addDays(now, 7);
                 const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
                 const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
                 const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
                 const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
-                return startMatch && endMatch ? "filter-chip-active" : "filter-chip-inactive";
-              })()
+                return startMatch && endMatch ? 'filter-chip-active' : 'filter-chip-inactive';
+              })(),
             )}
             title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
           >
@@ -352,21 +419,24 @@ export function WbsFilterBar({
 
       {/* 금주 완료/기한 지남 */}
       <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100">
-        <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider" title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다.">
+        <span
+          className="text-[10px] font-bold text-teal-700 uppercase tracking-wider"
+          title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다."
+        >
           기한/완료
         </span>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 pastDueOnly: false,
                 completedThisWeekOnly: false,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              !filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              !filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="기한/완료 조건 없이 모든 작업 표시"
           >
@@ -374,15 +444,15 @@ export function WbsFilterBar({
           </button>
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 completedThisWeekOnly: true,
                 pastDueOnly: false,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              filters.completedThisWeekOnly && !filters.pastDueOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              filters.completedThisWeekOnly && !filters.pastDueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="이번 주(월~일)에 완료된 항목만 표시 (상태: 완료, 종료일: 이번 주)"
           >
@@ -390,15 +460,15 @@ export function WbsFilterBar({
           </button>
           <button
             onClick={() =>
-              setFilters(f => ({
+              setFilters((f) => ({
                 ...f,
                 pastDueOnly: true,
                 completedThisWeekOnly: false,
               }))
             }
             className={cn(
-              "filter-chip flex items-center gap-1",
-              filters.pastDueOnly && !filters.completedThisWeekOnly ? "filter-chip-active" : "filter-chip-inactive"
+              'filter-chip flex items-center gap-1',
+              filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
             )}
             title="기한이 지난 미완료 작업만 표시"
           >
@@ -410,7 +480,7 @@ export function WbsFilterBar({
         <button
           onClick={() => {
             setCurrentProjectId('all');
-            setFilters(f => ({
+            setFilters((f) => ({
               ...f,
               projectIds: 'all',
               status: 'all',
