@@ -477,7 +477,8 @@ export function WBSTable({
     return { taskIdToSeqNum, seqNumToTaskId };
   }, [visibleTasks]);
 
-  /** 담당자별로 투입율을 한 번만 표기: 행 순서대로 이미 표시한 담당자 집합을 유지하고, 해당 행에 표시할 텍스트만 반환 */
+  /** 담당자별로 투입율을 한 번만 표기: 행 순서대로 이미 표시한 담당자 집합을 유지하고, 해당 행에 표시할 텍스트만 반환.
+   * 작업 담당자가 프로젝트 투입인원에 등록되지 않은 경우에도 기본 100%로 표기(편집 input의 fallback과 일치). */
   const allocationDisplayByTaskId = useMemo(() => {
     const map = new Map<string, string>();
     const shown = new Set<string>();
@@ -491,7 +492,15 @@ export function WBSTable({
         shown.add(key);
         return true;
       });
-      const text = toShow.length ? toShow.map((a) => `${a.allocationPercent}%`).join(', ') : '—';
+      let text: string;
+      if (toShow.length) {
+        text = toShow.map((a) => `${a.allocationPercent}%`).join(', ');
+      } else if (currentAssignee && relevant.length === 0 && !shown.has(currentAssignee)) {
+        shown.add(currentAssignee);
+        text = '100%';
+      } else {
+        text = '—';
+      }
       map.set(task.id, text);
     }
     return map;
