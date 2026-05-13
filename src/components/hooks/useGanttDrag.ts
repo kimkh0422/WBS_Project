@@ -12,6 +12,8 @@ interface UseGanttDragOptions {
   tasks: Task[];
   selectedTaskIds: string[];
   setSelectedTaskIds: (ids: string[]) => void;
+  /** 단순 click 시 체크박스(selectedTaskIds)는 건드리지 않고 단일 활성 행만 갱신한다. Ctrl/Shift 클릭은 기존대로 체크 토글. */
+  setActiveTaskId: (id: string | null) => void;
   updateTask: (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => void;
   pushToast: (msg: string, options?: { variant?: 'info' | 'success' | 'warning' | 'error'; durationMs?: number }) => void;
   dayWidth: number;
@@ -35,6 +37,7 @@ export function useGanttDrag({
   tasks,
   selectedTaskIds,
   setSelectedTaskIds,
+  setActiveTaskId,
   updateTask,
   pushToast,
   dayWidth,
@@ -57,8 +60,8 @@ export function useGanttDrag({
   const pushToastRef = useRef(pushToast);
   pushToastRef.current = pushToast;
 
-  const selectionRef = useRef({ selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask });
-  selectionRef.current = { selectedTaskIds, visibleTasks, setSelectedTaskIds, updateTask };
+  const selectionRef = useRef({ selectedTaskIds, visibleTasks, setSelectedTaskIds, setActiveTaskId, updateTask });
+  selectionRef.current = { selectedTaskIds, visibleTasks, setSelectedTaskIds, setActiveTaskId, updateTask };
 
   const handleBarMouseDown = useCallback(
     (e: React.MouseEvent, task: Task) => {
@@ -275,17 +278,18 @@ export function useGanttDrag({
           }
         } else if (drag.type === 'move') {
           // 클릭(드래그 없음): 선택 처리
-          const { selectedTaskIds: sel, visibleTasks: vis, setSelectedTaskIds: setSel } = selectionRef.current;
+          const { selectedTaskIds: sel, visibleTasks: vis, setSelectedTaskIds: setSel, setActiveTaskId: setActive } = selectionRef.current;
           const taskId = drag.clickTaskId;
           const multi = drag.ctrlKey;
           const range = drag.shiftKey;
           const current = new Set<string>(sel);
-          let next: string[];
           // 표에서만 선택한 뒤 간트에서 Shift 구간 선택 시 앵커 ref가 비어 있을 수 있음 → 현재 선택의 마지막 항목으로 보강
           const anchorId = anchorTaskIdRef.current ?? (sel.length > 0 ? sel[sel.length - 1]! : null);
           if (range && anchorId) {
+            // Shift+클릭: 체크박스 범위 추가 (체크박스 동작은 명시적 modifier에서만)
             const idx = vis.findIndex((t) => t.id === taskId);
             const anchorIdx = vis.findIndex((t) => t.id === anchorId);
+            let next: string[];
             if (idx !== -1 && anchorIdx !== -1) {
               const start = Math.min(idx, anchorIdx);
               const end = Math.max(idx, anchorIdx);
@@ -293,16 +297,21 @@ export function useGanttDrag({
             } else {
               next = [...current, taskId];
             }
+            setSel(next);
+            setActive(taskId);
           } else if (multi) {
+            // Ctrl/Cmd+클릭: 체크박스 토글 (체크박스 동작은 명시적 modifier에서만)
             const nextSet = new Set<string>(current);
             if (nextSet.has(taskId)) nextSet.delete(taskId);
             else nextSet.add(taskId);
-            next = [...nextSet];
+            setSel([...nextSet]);
+            setActive(taskId);
           } else {
-            next = [taskId];
+            // 단순 클릭: 체크박스(selectedTaskIds)는 건드리지 않고 단일 활성 행만 갱신
+            // → 표↔간트 보라색 강조는 동기화되지만 체크박스는 그대로 (스페이스/Ctrl/Shift로만 토글)
             anchorTaskIdRef.current = taskId;
+            setActive(taskId);
           }
-          setSel(next);
         }
         dragStateRef.current = null;
         setDragPreview(null);

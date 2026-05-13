@@ -78,8 +78,9 @@ export interface SortableTaskRowProps {
   displayWbsMap: Map<string, string>;
   taskIdToSeqNum: TaskIdToSeqNum;
   seqNumToTaskId: SeqNumToTaskId;
+  /** 체크박스 체크 상태 = 보라색 강조. 명시적 다중 선택(스페이스/Ctrl/Shift)만 토글한다. */
   isSelected: boolean;
-  /** 키보드 포커스 행 (상하 이동 시 체크와 무관하게 표시) */
+  /** 단일 활성 행 (클릭/화살표/표↔간트 동기화) = 노란색(amber) 강조. 체크박스와는 별개. */
   isFocused: boolean;
   hasChildren: boolean;
   isTreeView: boolean;
@@ -253,7 +254,7 @@ function SortableTaskRowInner({
   const [depsInputValue, setDepsInputValue] = useState(depsDisplayValue);
   const [depsFocused, setDepsFocused] = useState(false);
   const [depPickIdx, setDepPickIdx] = useState(0);
-  const { tasks } = useWBS();
+  const { tasks, projects, updateProject } = useWBS();
   const { push: pushToast } = useToast();
   const projectPickCandidates = useMemo(
     () => tasks.filter((t) => t.projectId === task.projectId && t.id !== task.id),
@@ -963,6 +964,19 @@ function SortableTaskRowInner({
           const primaryPercent = fromProject?.allocationPercent ?? 100;
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
           const isFocusedAlloc = focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
+          const persistAllocation = (rawStr: string) => {
+            if (!task.projectId || !assignee) return;
+            const raw = parseFloat(rawStr);
+            if (!Number.isFinite(raw)) return;
+            const pct = Math.min(100, Math.max(0, Math.round(raw * 10) / 10));
+            const proj = projects.find((p) => p.id === task.projectId);
+            if (!proj) return;
+            const list = [...(proj.assignments ?? [])];
+            const ix = list.findIndex((a) => (a.assignee || '').trim() === assignee);
+            if (ix >= 0) list[ix] = { ...list[ix]!, allocationPercent: pct };
+            else list.push({ assignee, allocationPercent: pct });
+            updateProject(task.projectId, { assignments: list });
+          };
           return (
             <div
               key={colId}
@@ -979,11 +993,12 @@ function SortableTaskRowInner({
                   type="number"
                   min={0}
                   max={100}
-                  step={10}
+                  step={0.1}
                   autoFocus
                   defaultValue={primaryPercent}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  onBlur={() => {
+                  onBlur={(e) => {
+                    persistAllocation((e.target as HTMLInputElement).value);
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {

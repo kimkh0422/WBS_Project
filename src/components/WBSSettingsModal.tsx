@@ -89,6 +89,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [maxLevel, setMaxLevel] = useState(wbsSettings.maxLevel);
   const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
   const [linkStatusAndProgress, setLinkStatusAndProgress] = useState(wbsSettings.linkStatusAndProgress !== false);
+  const [linkEffortToSchedule, setLinkEffortToSchedule] = useState(wbsSettings.linkEffortToSchedule === true);
   // 상태별 진척도(%)를 바꾼 뒤 "적용하기"를 누르면, 대부분은 기존 작업에도 바로 반영되길 기대한다.
   // 기본값을 current로 두어 "현재 프로젝트"에 자동 반영되도록 한다. (원치 않으면 '변경하지 않음' 선택)
   const [statusApplyMode, setStatusApplyMode] = useState<'none' | 'current' | 'all'>('current');
@@ -191,6 +192,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       setMaxLevel(wbsSettings.maxLevel);
       setStatusConfigs(wbsSettings.statusConfigs);
       setLinkStatusAndProgress(wbsSettings.linkStatusAndProgress !== false);
+      setLinkEffortToSchedule(wbsSettings.linkEffortToSchedule === true);
       setStatusApplyMode('current');
       setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
       setCustomColumns(wbsSettings.customColumns || []);
@@ -249,6 +251,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         maxLevel: Number(maxLevel),
         statusConfigs: statusConfigs,
         linkStatusAndProgress,
+        linkEffortToSchedule,
         tableColumns: normalizedTableColumns,
         customColumns: cleanedCustomColumns,
       });
@@ -698,6 +701,17 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             onChange={(e) => setLinkStatusAndProgress(e.target.checked)}
                           />
                           <span className="font-semibold text-stone-600">상태별 진척도 사용 (상태 변경 시 진척률 자동 설정)</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 text-blue-600 border-stone-300 focus:ring-blue-500"
+                            checked={linkEffortToSchedule}
+                            onChange={(e) => setLinkEffortToSchedule(e.target.checked)}
+                          />
+                          <span className="font-semibold text-stone-600">
+                            일정 자동 연동 (시작·종료·공수 편집 시 공수·투입률로 나머지 일정 필드 보정)
+                          </span>
                         </label>
                         {linkStatusAndProgress && (
                           <div className="flex flex-wrap items-center gap-3">

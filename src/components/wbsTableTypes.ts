@@ -20,7 +20,7 @@ export interface WBSTableProps {
   filters: FilterState;
   sortConfig: SortConfig;
   onSort: (key: keyof Task | 'wbs') => void;
-  syncScrollRef?: React.RefObject<HTMLDivElement>;
+  syncScrollRef?: React.Ref<HTMLDivElement>;
   /** 표·간트 공통 줄간격(px). 전달 시 부모와 동기화(양쪽 슬라이더 모두 적용) */
   rowHeight?: number;
   onRowHeightChange?: (h: number) => void;

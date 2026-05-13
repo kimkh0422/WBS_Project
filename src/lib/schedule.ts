@@ -252,6 +252,26 @@ function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId?: Map<s
   return undefined;
 }
 
+function minIsoDate(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
+}
+
+function maxIsoDate(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+export type ApplyDependencyScheduleOptions = {
+  /**
+   * false: 공수·투입률로 종료일을 일괄 재계산하지 않음(시작/종료/공수 독립).
+   * 기본 true(옵션 생략 시): 기존처럼 workEffort 기준으로 endDate를 맞춤.
+   */
+  linkEffortToSchedule?: boolean;
+};
+
 /**
  * 선행관계(FS)에 따라 시작일을 일관되게 조정하고,
  * 투입공수(workEffort)와 투입비율(assignments)로 완료일을 계상.
@@ -265,7 +285,9 @@ export function applyDependencySchedule(
   /** 이번에 delta로 옮긴 작업(34번+하위 등). 재계산에서 제외해 덮어쓰지 않음 */
   excludeFromRecalc?: Set<string>,
   projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
+  options?: ApplyDependencyScheduleOptions,
 ): Task[] {
+  const linkEffortToSchedule = options?.linkEffortToSchedule !== false;
   const byId = new Map<string, Task>();
   const result = tasks.map((t) => {
     const copy = { ...t };
@@ -316,21 +338,23 @@ export function applyDependencySchedule(
     }
   }
 
-  // 투입공수·투입비율로 완료일 계상 (endDate 고정 작업은 제외)
-  for (const task of result) {
-    if (excludeFromRecalc?.has(task.id)) continue;
-    if (locked(task).has('endDate')) continue;
-    const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
-    if (workEffort == null) continue;
-    const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
-    if (!(effortMd > 0)) continue;
-    const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
-    const start = parseISO(task.startDate);
-    if (!isValid(start)) continue;
-    task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
+  // 투입공수·투입비율로 완료일 계상 (linkEffortToSchedule=false면 생략 — 시작/종료/공수 독립)
+  if (linkEffortToSchedule) {
+    for (const task of result) {
+      if (excludeFromRecalc?.has(task.id)) continue;
+      if (locked(task).has('endDate')) continue;
+      const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
+      if (workEffort == null) continue;
+      const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
+      if (!(effortMd > 0)) continue;
+      const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
+      const start = parseISO(task.startDate);
+      if (!isValid(start)) continue;
+      task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
+    }
   }
 
-  // 상위 작업은 하위 작업의 시작일/종료일 범위로 맞춤
+  // 상위 작업: 하위 기간이 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장)
   const byParent = new Map<string | null, Task[]>();
   result.forEach((t) => {
     const pid = t.parentId ?? null;
@@ -347,7 +371,6 @@ export function applyDependencySchedule(
     return ids;
   };
   const allIdsByDepth = depthOrder(null);
-  const lockedRollup = (t: Task) => new Set(t.userLockedFields ?? []);
   for (let i = allIdsByDepth.length - 1; i >= 0; i--) {
     const id = allIdsByDepth[i];
     // 사용자가 직접 편집한 부모 작업(excludeFromRecalc)은 자식 min/max로 덮어쓰지 않는다.
@@ -355,13 +378,21 @@ export function applyDependencySchedule(
     // 잠금이 즉시 적용되지 못한 케이스(상태 업데이트 타이밍, 외부 호출 경로)를 모두 막는다.
     if (excludeFromRecalc?.has(id)) continue;
     const task = byId.get(id)!;
-    const taskLocked = lockedRollup(task);
     const children = byParent.get(id) ?? [];
     if (children.length === 0) continue;
-    const starts = children.map((c) => c.startDate).filter(Boolean);
-    const ends = children.map((c) => c.endDate).filter(Boolean);
-    if (starts.length > 0 && !taskLocked.has('startDate')) task.startDate = starts.reduce((a, b) => (a < b ? a : b));
-    if (ends.length > 0 && !taskLocked.has('endDate')) task.endDate = ends.reduce((a, b) => (a > b ? a : b));
+    const starts = children.map((c) => c.startDate).filter(Boolean) as string[];
+    const ends = children.map((c) => c.endDate).filter(Boolean) as string[];
+    if (starts.length > 0) {
+      const minC = starts.reduce((a, b) => (a < b ? a : b));
+      task.startDate = minIsoDate(task.startDate, minC) ?? minC;
+    }
+    if (ends.length > 0) {
+      const maxC = ends.reduce((a, b) => (a > b ? a : b));
+      task.endDate = maxIsoDate(task.endDate, maxC) ?? maxC;
+    }
+    if (task.startDate && task.endDate && task.startDate > task.endDate) {
+      task.endDate = task.startDate;
+    }
   }
 
   return result;

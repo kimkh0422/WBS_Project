@@ -2,6 +2,18 @@ import { Task } from '../types';
 import { round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 
+function minIsoDate(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
+}
+
+function maxIsoDate(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
 /**
  * 부모 작업의 시작일/종료일/진척률을 자식 기준으로 롤업.
  * @param forceProgress true: 자식 변경 전파 시 progressLocked 무시하고 항상 롤업
@@ -26,15 +38,16 @@ export function syncParentRollups(
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
 
-  let minStart = children[0].startDate;
-  let maxEnd = children[0].endDate;
+  const starts = children.map((c) => c.startDate).filter(Boolean) as string[];
+  const ends = children.map((c) => c.endDate).filter(Boolean) as string[];
+  const minStart = starts.length > 0 ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
+  const maxEnd = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
+
   let totalWeight = 0;
   let weightedProgressSum = 0;
   let simpleProgressSum = 0;
 
   for (const child of children) {
-    if (child.startDate && child.startDate < minStart) minStart = child.startDate;
-    if (child.endDate && child.endDate > maxEnd) maxEnd = child.endDate;
     // 공수(workEffort)는 부모에서 사용자가 직접 입력한 값을 유지하므로 롤업하지 않는다.
     // 대신 진행률 가중 평균 계산에 필요한 weight fallback으로만 effort를 사용한다.
     const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
@@ -59,20 +72,22 @@ export function syncParentRollups(
   }
 
   const lockedFields = new Set(parent.userLockedFields ?? []);
-  // 부모 일정 잠금 정책:
-  //  - 사용자가 부모의 시작/종료일을 직접 편집하면 updateTask가 userLockedFields에 'startDate'/'endDate'를
-  //    추가한다. 이 잠금은 "사용자의 명시적 의도"이므로 자식 min/max로 덮어쓰지 않고 그대로 유지한다.
-  //  - 잠금이 없으면 자식의 min/max로 동기화 (기본 일관성 정책).
-  // forceProgress=true(자식 변경 전파): 잠금 무시하고 항상 progress 롤업
-  // forceProgress=false(DB싱크/전체 재계산): progressLocked 존중하여 수동 편집값 유지
-  const startLocked = lockedFields.has('startDate');
-  const endLocked = lockedFields.has('endDate');
-  const newStart = startLocked ? parent.startDate : minStart;
-  const newEnd = endLocked ? parent.endDate : maxEnd;
+  // 부모 일정: 하위가 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장). 하위가 짧아져도 상위는 자동으로 줄이지 않음.
+  let alignedStart = parent.startDate;
+  let alignedEnd = parent.endDate;
+  if (minStart !== undefined) {
+    alignedStart = minIsoDate(parent.startDate, minStart) ?? minStart;
+  }
+  if (maxEnd !== undefined) {
+    alignedEnd = maxIsoDate(parent.endDate, maxEnd) ?? maxEnd;
+  }
+  if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
+    alignedEnd = alignedStart;
+  }
   const progressLocked = !forceProgress && lockedFields.has('progress');
   const shouldUpdate =
-    parent.startDate !== newStart ||
-    parent.endDate !== newEnd ||
+    parent.startDate !== alignedStart ||
+    parent.endDate !== alignedEnd ||
     (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
 
   const updatedTasks = shouldUpdate
@@ -80,8 +95,8 @@ export function syncParentRollups(
         t.id === parentId
           ? {
               ...t,
-              startDate: newStart,
-              endDate: newEnd,
+              startDate: alignedStart,
+              endDate: alignedEnd,
               ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
             }
           : t,
@@ -104,6 +119,15 @@ export function deriveParentStatusFromChildren(childStatuses: string[], statusCo
   if (!Array.isArray(statusConfigs) || statusConfigs.length === 0) return null;
 
   const configById = new Map<string, StatusConfig>(statusConfigs.map((c) => [c.id, c]));
+  // 자식이 모두 같은 단계면 부모도 그 단계로 맞춘다.
+  // (예: '검토자 완료'만 있는데 progress preset이 100이 아니거나, 완료형 상태가 여러 개일 때
+  //  첫 번째 progress=100 상태로 잘못 붙거나 in-progress로 떨어지는 문제 방지)
+  const uniqueChild = new Set(childStatuses);
+  if (uniqueChild.size === 1) {
+    const onlyId = [...uniqueChild][0]!;
+    if (onlyId && configById.has(onlyId)) return onlyId;
+  }
+
   const doneStatus = statusConfigs.find((c) => c.progress === 100);
   const todoStatus = statusConfigs.find((c) => c.progress === 0);
   // 중간 상태: 0 < progress < 100 중 가장 작은 progress 우선

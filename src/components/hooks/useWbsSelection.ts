@@ -20,15 +20,17 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
   /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
   const rangeAnchorRef = useRef<string | null>(null);
 
-  // 외부(검색/알림 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set 동기화
+  // 외부(검색/알림/간트 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set 동기화.
+  // 빈 배열([])도 반영 — 간트에서 선택 해제했을 때 표가 그대로 남는 버그 방지.
   useEffect(() => {
-    if (!sharedSelectedTaskIds || sharedSelectedTaskIds.length === 0) return;
+    if (!sharedSelectedTaskIds) return;
     const shared = new Set(sharedSelectedTaskIds);
     setSelectedTaskIds((prev) => {
       if (prev.size === shared.size && [...shared].every((id) => prev.has(id))) return prev;
       return shared;
     });
     if (sharedSelectedTaskIds.length === 1) setLastSelectedId(sharedSelectedTaskIds[0]);
+    else if (sharedSelectedTaskIds.length === 0) setLastSelectedId(null);
   }, [sharedSelectedTaskIds]);
 
   const setSelection = useCallback(

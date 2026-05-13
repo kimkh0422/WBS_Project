@@ -22,6 +22,11 @@ export interface WBSSettings {
   statusConfigs: StatusConfig[];
   /** true: 상태별 진척도를 사용해 상태 ↔ 진척률을 연동. false: 상태는 표시만, 진척률은 수동 입력 기준 */
   linkStatusAndProgress?: boolean;
+  /**
+   * true: 시작일·종료일·공수 중 하나를 바꿀 때 나머지 일정 필드를 공수·투입률 기준으로 자동 보정(기존 동작).
+   * false(기본): 시작일·종료일·공수는 각각 독립 저장. 간트/선행 재계산 시에도 공수로 종료일을 덮어쓰지 않음.
+   */
+  linkEffortToSchedule?: boolean;
   tableColumns?: { id: string; visible: boolean }[];
   /** 크리티컬 패스 표시 여부 (간트·표에서 강조) */
   showCriticalPath?: boolean;
@@ -54,6 +59,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: true,
+  linkEffortToSchedule: false,
   tableColumns: [
     { id: 'wbsId', visible: true },
     { id: 'name', visible: true },
@@ -121,6 +127,7 @@ export function parseSettings(raw: unknown): WBSSettings {
       showCriticalPath: parsed.showCriticalPath === true,
       wrapTextInCells: parsed.wrapTextInCells === true,
       linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
+      linkEffortToSchedule: parsed.linkEffortToSchedule === true,
     };
 
     // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)

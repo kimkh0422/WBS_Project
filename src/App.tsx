@@ -254,6 +254,10 @@ function WBSApp({
     setErrorAlert,
   } = modals;
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
+  useEffect(() => {
+    setIsProjectDropdownOpen(false);
+  }, [view]);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
@@ -863,8 +867,10 @@ function WBSApp({
       setCurrentProjectId(dashPid);
     }
 
-    // 대시보드에서 들어온 경우에는 필터를 항상 켜서 바로 반영
-    setFilterOn(true);
+    // 대시보드 진입 시 필터를 자동으로 켜지 않는다(사용자 요청).
+    // 필터 값(상태/담당자 등)은 setFilters로 스테이트에는 들어가 있지만,
+    // 필터 토글이 꺼져 있으면 effectiveFilters가 무시하므로 화면에는 반영되지 않는다.
+    // 사용자가 필요하면 필터 토글을 직접 켜서 미리 채워진 조건을 적용할 수 있다.
   };
 
   /** 헤더 프로젝트가 바뀔 때만 필터 동기화 (필터에서 다중 선택한 뒤 헤더는 그대로일 때는 유지) */
@@ -2069,6 +2075,11 @@ function WBSApp({
             managedOrgNodeIdForViewer={currentUserManagedOrgNodeId}
             projects={projectsSortedByName.map((p) => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
             profileMap={profileMap}
+            onNavigateToProject={(projectId) => {
+              setCurrentProjectId(projectId);
+              setView('list');
+              setIsMembersModalOpen(false);
+            }}
             onDeleted={() => {
               pushToast('회원이 삭제되었습니다.', { variant: 'success' });
               onMembersUpdated?.();

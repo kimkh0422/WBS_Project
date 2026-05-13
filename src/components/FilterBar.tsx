@@ -65,6 +65,11 @@ export function WbsFilterBar({
     return () => document.removeEventListener('mousedown', close);
   }, [isProjectFilterDropdownOpen]);
 
+  /** 표/간트 등 상단 뷰 탭 전환 시 필터 바의 프로젝트 다중 선택 팝업 닫기 */
+  useEffect(() => {
+    setIsProjectFilterDropdownOpen(false);
+  }, [view]);
+
   if (!filterOn || isFullscreen || view === 'projects' || view === 'allocation') {
     return null;
   }

@@ -118,6 +118,8 @@ export function WBSTable({
     displayWbsMap,
     selectedTaskIds: sharedSelectedTaskIds,
     setSelectedTaskIds: setSharedSelectedTaskIds,
+    activeTaskId,
+    setActiveTaskId,
     refreshProjectSchedule,
     canEditCurrentProject,
     reorderTask,
@@ -418,12 +420,12 @@ export function WBSTable({
   const lastHeightsRef = useRef<number[]>([]);
   const visibleTaskIdsKey = useMemo(() => visibleTasks.map((t) => t.id).join(','), [visibleTasks]);
   useEffect(() => {
-    if (!wrapTextInCells || !syncScrollRef?.current || !onRowHeightsChange) {
+    if (!wrapTextInCells || !tableScrollRef.current || !onRowHeightsChange) {
       if (onRowHeightsChange && !wrapTextInCells) onRowHeightsChange([]);
       return;
     }
     const measure = () => {
-      const scrollEl = syncScrollRef.current;
+      const scrollEl = tableScrollRef.current;
       if (!scrollEl) return;
       const rows = scrollEl.querySelectorAll<HTMLElement>('[id^="task-row-"]');
       const heights = [...rows].map((el) => el.offsetHeight);
@@ -442,7 +444,7 @@ export function WBSTable({
       requestAnimationFrame(measure); // 한 프레임 더 대기 (줄바꿈 레이아웃 완료)
     });
     const observer = new ResizeObserver(measure);
-    observer.observe(syncScrollRef.current);
+    observer.observe(tableScrollRef.current);
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
@@ -562,6 +564,16 @@ export function WBSTable({
     setSharedSelectedTaskIds: setSharedSelectedTaskIds,
     tableScrollRef,
   });
+
+  // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
+  // 표↔간트 시각 강조를 일치시키기 위함이지만, 체크박스 상태(selectedTaskIds)는 건드리지 않는다
+  // — 체크박스는 스페이스/Ctrl·Shift 클릭 등 명시적 조작으로만 토글되도록 유지.
+  useEffect(() => {
+    if (!lastSelectedId) return;
+    if (activeTaskId === lastSelectedId) return;
+    setActiveTaskId(lastSelectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastSelectedId]);
 
   const {
     bulkStatus,
@@ -1162,7 +1174,7 @@ export function WBSTable({
                             taskIdToSeqNum={taskIdToSeqNum}
                             seqNumToTaskId={seqNumToTaskId}
                             isSelected={selectedTaskIds.has(task.id)}
-                            isFocused={lastSelectedId === task.id}
+                            isFocused={lastSelectedId === task.id || activeTaskId === task.id}
                             hasChildren={hasChildrenSet.has(task.id)}
                             isTreeView={isTreeView}
                             onSelect={handleSelect}

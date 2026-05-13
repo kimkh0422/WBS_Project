@@ -31,7 +31,7 @@ interface GanttChartProps {
   /** 표에서 측정한 행별 높이 (줄바꿈 켜짐 시 표·간트 동기화) */
   rowHeights?: number[];
   onRowHeightChange?: (height: number) => void;
-  syncScrollRef?: React.RefObject<HTMLDivElement>;
+  syncScrollRef?: React.Ref<HTMLDivElement>;
   hotkeysEnabled?: boolean;
   /** split 뷰에서 표의 sticky [+ 새 작업 추가] 행 높이만큼 간트 상단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
   topSpacerHeight?: number;
@@ -56,6 +56,8 @@ export function GanttChart({
     displayWbsMap,
     selectedTaskIds,
     setSelectedTaskIds,
+    activeTaskId,
+    setActiveTaskId,
     wbsSettings,
     canEditCurrentProject,
     projects,
@@ -148,6 +150,17 @@ export function GanttChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
+  /** 본문(세로 스크롤) element — 표↔간트 동기화의 한쪽 끝. 외부 syncScrollRef와 함께 set한다(callback ref 호환). */
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const setMainScrollEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      mainScrollRef.current = el;
+      const outer = syncScrollRef;
+      if (typeof outer === 'function') outer(el);
+      else if (outer) (outer as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [syncScrollRef],
+  );
 
   // visibleTasks 로직을 WBSTable과 동일하게 맞춰 표·간트 행 정렬이 일치하도록 함
   const visibleTasks = useMemo(
@@ -268,7 +281,7 @@ export function GanttChart({
 
   const ganttVirtualizer = useVirtualizer({
     count: visibleTasks.length,
-    getScrollElement: () => syncScrollRef?.current ?? null,
+    getScrollElement: () => mainScrollRef.current ?? null,
     estimateSize: (i) => effectiveRowHeights[i] ?? ROW_HEIGHT,
     overscan: 10,
   });
@@ -289,6 +302,7 @@ export function GanttChart({
     tasks,
     selectedTaskIds,
     setSelectedTaskIds,
+    setActiveTaskId,
     updateTask,
     pushToast,
     dayWidth,
@@ -345,7 +359,7 @@ export function GanttChart({
   // NOTE: Rules of Hooks - early return 이전에 위치해야 함
   useEffect(() => {
     if (!isSplitView) return;
-    const mainEl = syncScrollRef?.current;
+    const mainEl = mainScrollRef.current;
     if (!mainEl) return;
     const onMainScroll = () => {
       if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
@@ -358,7 +372,7 @@ export function GanttChart({
   useEffect(() => {
     if (!isSplitView) return;
     const bottomEl = bottomScrollRef.current;
-    const mainEl = syncScrollRef?.current;
+    const mainEl = mainScrollRef.current;
     if (!bottomEl || !mainEl) return;
     const onBottomScroll = () => {
       mainEl.scrollLeft = bottomEl.scrollLeft;
@@ -371,7 +385,7 @@ export function GanttChart({
   useEffect(() => {
     if (!isSplitView) return;
     const headerEl = headerScrollRef.current;
-    const mainEl = syncScrollRef?.current;
+    const mainEl = mainScrollRef.current;
     if (!headerEl || !mainEl) return;
     const onHeaderScroll = () => {
       mainEl.scrollLeft = headerEl.scrollLeft;
@@ -534,7 +548,7 @@ export function GanttChart({
             </div>
           </div>
           {/* 스크롤 영역 = 행만 (표와 세로 스크롤 동기화). 수평 스크롤은 상단 헤더·하단 별도 바에서 처리(여기는 숨김). */}
-          <div ref={syncScrollRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white">
+          <div ref={setMainScrollEl} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white">
             {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
                 sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
                 실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
@@ -592,7 +606,10 @@ export function GanttChart({
                 const index = virtualRow.index;
                 const task = visibleTasks[index];
                 if (!task) return null;
+                // 보라색 강조: 체크박스 체크된 행만. 노란색(amber) 강조: 단일 활성 행(activeTaskId).
+                // 둘 다 해당하면 보라색 우선(체크박스가 더 명시적 의도).
                 const isSelected = selectedSet.has(task.id);
+                const isActive = !isSelected && activeTaskId === task.id;
                 const preview = dragPreview?.get(task.id);
                 const isBeingDragged = !!preview;
                 const isDone = allLeafDoneById.get(task.id) === true;
@@ -616,7 +633,8 @@ export function GanttChart({
                       'absolute left-0 right-0 group box-border border-b border-slate-100/80 transition-colors z-[1]',
                       isSelected &&
                         'z-[2] bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
-                      !isSelected && 'hover:bg-[var(--color-line-soft)]',
+                      isActive && 'z-[2] bg-amber-50/80 font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70',
+                      !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
                     )}
                     style={{ width: totalWidth, height: rowH, top: virtualRow.start }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
@@ -956,7 +974,9 @@ export function GanttChart({
 
                 {/* Task Bars */}
                 {visibleTasks.map((task, index) => {
+                  // 보라색=체크박스, 노란색=단일 활성 (체크박스 우선)
                   const isSelected = selectedSet.has(task.id);
+                  const isActive = !isSelected && activeTaskId === task.id;
                   const preview = dragPreview?.get(task.id);
                   const isBeingDragged = !!preview;
                   const effectiveStartDate = preview?.startDate ?? task.startDate;
@@ -985,7 +1005,8 @@ export function GanttChart({
                         'relative group box-border border-b border-slate-100/80 transition-colors',
                         isSelected &&
                           'bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
-                        !isSelected && 'hover:bg-[var(--color-line-soft)]',
+                        isActive && 'bg-amber-50/80 font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70',
+                        !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
                       )}
                       style={{ width: totalWidth, height: rowH }}
                       onContextMenu={(e) => handleContextMenu(e, task.id)}

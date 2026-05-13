@@ -95,6 +95,8 @@ export function WBSProvider({
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string>('');
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  /** 표↔간트 시각 강조 동기화용 단일 활성 행. 체크박스(selectedTaskIds)와는 별개로 관리한다. */
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(DEFAULT_SETTINGS);
   const [treeExpandLevel, setTreeExpandLevel] = useState<number>(() => Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
@@ -197,6 +199,7 @@ export function WBSProvider({
     setAllTasks,
     setProjects,
     recordDeletedTaskIds,
+    bumpDirty,
   });
 
   const taskMovement = useTaskMovement({
@@ -1178,6 +1181,8 @@ export function WBSProvider({
       setCurrentProjectId,
       selectedTaskIds,
       setSelectedTaskIds,
+      activeTaskId,
+      setActiveTaskId,
       wbsSettings,
       updateWbsSettings,
       syncProgressFromStatusConfigs,
@@ -1242,6 +1247,8 @@ export function WBSProvider({
       setCurrentProjectId,
       selectedTaskIds,
       setSelectedTaskIds,
+      activeTaskId,
+      setActiveTaskId,
       wbsSettings,
       updateWbsSettings,
       syncProgressFromStatusConfigs,

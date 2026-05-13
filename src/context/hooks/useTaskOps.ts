@@ -3,7 +3,7 @@ import { Task, Project, ProjectAssignment } from '../../types';
 import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
-import { upsertTasks } from '../../lib/db';
+import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
 import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../../lib/schedule';
 import { getHolidaysForTaskDates } from '../../lib/calendar';
@@ -47,6 +47,8 @@ export interface TaskOpsDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setProjects: Dispatch<SetStateAction<Project[]>>;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
+  /** 작업 일정이 프로젝트 범위 밖으로 변경되어 프로젝트가 자동 확장될 때 dirty 플래그를 올린다. */
+  bumpDirty: () => void;
 }
 
 export function useTaskOps(deps: TaskOpsDeps) {
@@ -61,6 +63,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     setAllTasks,
     setProjects,
     recordDeletedTaskIds,
+    bumpDirty,
   } = deps;
 
   const clampTaskToProjectRange = useCallback((t: Task, proj?: Project): Task => {
@@ -146,6 +149,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
     (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => {
       const skipCascade = options?.skipCascade ?? false;
       saveHistory();
+      // setAllTasks 업데이터에서 프로젝트 자동 확장이 필요한지 결정한 뒤, 외부에서 setProjects/upsertProject로 반영한다.
+      let projectExpansionToApply: { project: Project; expansion: { startDate?: string; endDate?: string } } | null = null;
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
         const projs = projectsRef.current;
@@ -181,8 +186,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const holidays = getHolidaysForTaskDates(prev);
         const effortProject = projs.find((p) => p.id === task.projectId);
         const effortUnit = normalizeWorkEffortUnit(effortProject?.workEffortUnit);
+        const linkEffortToSchedule = wSettings.linkEffortToSchedule === true;
+        const scheduleOpts = { linkEffortToSchedule } as const;
 
-        if (hasScheduleChange) {
+        if (hasScheduleChange && linkEffortToSchedule) {
           const newStart = updates.startDate ?? task.startDate;
           const newEnd = updates.endDate ?? task.endDate;
           const workEffort = updates.workEffort !== undefined ? updates.workEffort : task.workEffort;
@@ -239,7 +246,33 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
         let updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
         const project = projs.find((p) => p.id === task.projectId);
-        updatedTask = clampTaskToProjectRange(updatedTask, project);
+
+        // 사용자가 명시적으로 작업 일정을 프로젝트 범위 밖으로 변경하면, 클램프하지 않고 프로젝트 범위를 자동 확장한다.
+        // (그렇지 않으면 사용자의 변경이 클램프에 의해 무효화되어, 화면에서는 "날짜가 변경되지 않는" 것처럼 보인다.)
+        // 상위 작업 일정은 syncParentRollups가 자식 min/max로 자동 확장하므로, 여기서는 프로젝트 경계만 처리.
+        const explicitStartChange = hasDateChange && Object.prototype.hasOwnProperty.call(updates, 'startDate');
+        const explicitEndChange =
+          hasDateChange &&
+          (Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
+            // linkEffortToSchedule 모드에서 startDate 변경에 따라 endDate가 자동 계산된 경우도 포함.
+            (explicitStartChange && resolvedUpdates.endDate != null));
+        const expansion: { startDate?: string; endDate?: string } = {};
+        if (project) {
+          if (explicitStartChange && updatedTask.startDate && project.startDate && updatedTask.startDate < project.startDate) {
+            expansion.startDate = updatedTask.startDate;
+          }
+          if (explicitEndChange && updatedTask.endDate && project.endDate && updatedTask.endDate > project.endDate) {
+            expansion.endDate = updatedTask.endDate;
+          }
+        }
+        const willExpandProject = expansion.startDate !== undefined || expansion.endDate !== undefined;
+        const effectiveProject = willExpandProject ? ({ ...project!, ...expansion } as Project) : project;
+        updatedTask = clampTaskToProjectRange(updatedTask, effectiveProject);
+
+        // 프로젝트 범위 확장은 setAllTasks 외부에서 setProjects/upsertProject로 별도 적용해야 한다.
+        if (willExpandProject && project) {
+          projectExpansionToApply = { project, expansion };
+        }
         let nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
 
         // 상태 변경 시 모든 하위 작업에 캐스케이드
@@ -393,6 +426,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
             projectAssignmentsMap,
             excludeFromRecalc,
             projectEffortUnitByProjectId,
+            scheduleOpts,
           );
           const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
 
@@ -468,8 +502,29 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
         return result;
       });
+
+      // 작업 일정이 프로젝트 범위 밖으로 변경된 경우, 프로젝트 시작/종료일을 자동 확장하여 저장한다.
+      if (projectExpansionToApply) {
+        const { project, expansion } = projectExpansionToApply;
+        const expandedProject: Project = { ...project, ...expansion };
+        setProjects((prev) => prev.map((p) => (p.id === project.id ? expandedProject : p)));
+        bumpDirty();
+        if (!useLocalOnlyRef.current) {
+          upsertProject(expandedProject).catch((err) => handleDbError(err, '프로젝트 일정 자동 확장 저장에 실패했습니다.'));
+        }
+      }
     },
-    [saveHistory, wbsSettingsRef, projectsRef, setAllTasks, clampTaskToProjectRange],
+    [
+      saveHistory,
+      wbsSettingsRef,
+      projectsRef,
+      setAllTasks,
+      setProjects,
+      clampTaskToProjectRange,
+      bumpDirty,
+      handleDbError,
+      useLocalOnlyRef,
+    ],
   );
 
   const updateTasksBulk = useCallback(
@@ -598,18 +653,25 @@ export function useTaskOps(deps: TaskOpsDeps) {
         projectsRef.current.map((p) => [p.id, p.assignments ?? []]),
       );
       const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projectsRef.current);
+      const scheduleOpts = { linkEffortToSchedule: wbsSettingsRef.current.linkEffortToSchedule === true } as const;
       let result = prev;
       for (const effectiveProjectId of projectIds) {
         const projectTasks = result.filter((t) => t.projectId === effectiveProjectId);
         if (projectTasks.length === 0) continue;
-        const adjusted = applyDependencySchedule(projectTasks, projectAssignmentsByProjectId, undefined, projectEffortUnitByProjectId);
+        const adjusted = applyDependencySchedule(
+          projectTasks,
+          projectAssignmentsByProjectId,
+          undefined,
+          projectEffortUnitByProjectId,
+          scheduleOpts,
+        );
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         result = result.map((t) => (t.projectId === effectiveProjectId ? (adjustedById.get(t.id) ?? t) : t));
         result = recomputeProjectRollups(result, effectiveProjectId);
       }
       return result;
     });
-  }, [saveHistory, currentProjectIdRef, projectsRef, setAllTasks]);
+  }, [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks]);
 
   const fixOverload = useCallback(
     (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => {
@@ -687,7 +749,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
         });
 
         const projectTaskList = nextTasks.filter((t) => t.projectId === projectId);
-        const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap);
+        const scheduleOpts = { linkEffortToSchedule: wSettings.linkEffortToSchedule === true } as const;
+        const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap, scheduleOpts);
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         nextTasks = nextTasks.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
 

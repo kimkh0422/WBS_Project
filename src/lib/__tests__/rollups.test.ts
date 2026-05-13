@@ -142,6 +142,26 @@ describe('deriveParentStatusFromChildren', () => {
   it('빈 배열이면 null 반환', () => {
     expect(deriveParentStatusFromChildren([], DEFAULT_STATUS_CONFIGS)).toBeNull();
   });
+
+  it('완료형(preset=100)이 여러 개여도 자식이 모두 같은 완료 단계면 그 id를 쓴다', () => {
+    const configs = [
+      { id: 'todo', name: '할 일', progress: 0 },
+      { id: 'in-progress', name: '진행 중', progress: 50 },
+      { id: 'author-done', name: '작성자 완료', progress: 100 },
+      { id: 'reviewer-done', name: '검토자 완료', progress: 100 },
+    ];
+    expect(deriveParentStatusFromChildren(['reviewer-done', 'reviewer-done'], configs)).toBe('reviewer-done');
+  });
+
+  it('preset이 100이 아닌 동일 단계여도 자식이 모두 같으면 그 상태를 부모에 반영', () => {
+    const configs = [
+      { id: 'todo', name: '할 일', progress: 0 },
+      { id: 'in-progress', name: '진행 중', progress: 50 },
+      { id: 'review', name: '검토', progress: 90 },
+      { id: 'done', name: '완료', progress: 100 },
+    ];
+    expect(deriveParentStatusFromChildren(['review', 'review'], configs)).toBe('review');
+  });
 });
 
 describe('rescaleSiblingsToSum100', () => {

@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { getVisitorStats } from '../lib/db';
-import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User } from 'lucide-react';
+import { getVisitorStats, getDailyVisitors, type DailyVisitorRow } from '../lib/db';
+import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User, X } from 'lucide-react';
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import type { Task, Project } from '../types';
@@ -418,6 +418,18 @@ export function Dashboard({
   const { user } = useAuth();
   const [visitorStats, setVisitorStats] = React.useState({ daily: 0, total: 0 });
   const [loadingVisitorStats, setLoadingVisitorStats] = React.useState(false);
+  const [dailyVisitorsOpen, setDailyVisitorsOpen] = React.useState(false);
+  const [dailyVisitorsLoading, setDailyVisitorsLoading] = React.useState(false);
+  const [dailyVisitorsList, setDailyVisitorsList] = React.useState<DailyVisitorRow[]>([]);
+
+  React.useEffect(() => {
+    if (!dailyVisitorsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDailyVisitorsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dailyVisitorsOpen]);
 
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase || !user) {
@@ -505,8 +517,20 @@ export function Dashboard({
             <SummaryCard
               title="금일 접속자"
               value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.daily}
-              subtitle=""
+              subtitle="클릭하여 명단"
               highlight="text-blue-600"
+              onClick={async () => {
+                setDailyVisitorsOpen(true);
+                setDailyVisitorsLoading(true);
+                try {
+                  const rows = await getDailyVisitors();
+                  setDailyVisitorsList(rows);
+                } catch {
+                  setDailyVisitorsList([]);
+                } finally {
+                  setDailyVisitorsLoading(false);
+                }
+              }}
             />
             <SummaryCard
               title="누적 접속자"
@@ -928,6 +952,67 @@ export function Dashboard({
 
         {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
       </div>
+
+      {dailyVisitorsOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/45"
+          onClick={() => setDailyVisitorsOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[min(70vh,480px)] overflow-hidden flex flex-col border border-stone-200"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="daily-visitors-dialog-title"
+          >
+            <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2 shrink-0">
+              <h3 id="daily-visitors-dialog-title" className="text-sm font-bold text-stone-800">
+                금일 접속자 ({visitorStats.daily}명 기준 세션)
+              </h3>
+              <button
+                type="button"
+                className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+                onClick={() => setDailyVisitorsOpen(false)}
+                aria-label="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 text-sm">
+              {dailyVisitorsLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-stone-500">
+                  <Loader2 size={18} className="animate-spin" />
+                  불러오는 중…
+                </div>
+              ) : dailyVisitorsList.length === 0 ? (
+                <p className="text-stone-500 text-center py-6">
+                  표시할 접속 기록이 없거나, DB에 <code className="text-xs bg-stone-100 px-1 rounded">get_daily_visitors</code> 함수가 아직
+                  배포되지 않았을 수 있습니다.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {dailyVisitorsList.map((row) => (
+                    <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-stone-100 last:border-0">
+                      <span className="font-medium text-stone-800 break-words min-w-0">{row.displayName}</span>
+                      <span className="text-xs text-stone-500 tabular-nums shrink-0 whitespace-nowrap">
+                        {row.visitedAt
+                          ? (() => {
+                              const d = new Date(row.visitedAt);
+                              return Number.isNaN(d.getTime())
+                                ? row.visitedAt
+                                : d.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                            })()
+                          : '—'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

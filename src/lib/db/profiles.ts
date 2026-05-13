@@ -167,6 +167,46 @@ export async function getVisitorStats(): Promise<{ daily: number; total: number 
   }
 }
 
+/** 금일 접속한 사용자 목록(대시보드). RPC `get_daily_visitors` 미배포 시 빈 배열. */
+export type DailyVisitorRow = {
+  userId: string;
+  displayName: string;
+  visitedAt: string;
+};
+
+export async function getDailyVisitors(): Promise<DailyVisitorRow[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  if (isRpcDisabled('get_daily_visitors')) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_daily_visitors');
+    if (error) {
+      if (isRpcNotFoundError(error)) disableRpc('get_daily_visitors');
+      return [];
+    }
+    const raw = data as unknown;
+    let arr: unknown[] = [];
+    if (Array.isArray(raw)) arr = raw;
+    else if (typeof raw === 'string') {
+      try {
+        const p = JSON.parse(raw) as unknown;
+        if (Array.isArray(p)) arr = p;
+      } catch {
+        /* ignore */
+      }
+    }
+    return arr.map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        userId: String(r.user_id ?? ''),
+        displayName: String(r.display_name ?? ''),
+        visitedAt: String(r.visited_at ?? ''),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** 회원명(full_name) 업데이트 - 본인 또는 관리자만 가능. profiles 없으면 success: false. */
 export async function updateProfileFullName(userId: string, fullName: string): Promise<{ success: boolean; error?: string }> {
   requireSupabase();

@@ -56,6 +56,9 @@ export interface WBSContextType {
   setCurrentProjectId: (id: string) => void;
   selectedTaskIds: string[];
   setSelectedTaskIds: (ids: string[]) => void;
+  /** 표↔간트 시각 강조 동기화용 단일 활성 행. 체크박스(selectedTaskIds)와는 별도. */
+  activeTaskId: string | null;
+  setActiveTaskId: (id: string | null) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
   /** 상태 명칭·진척도 설정을 기준으로 작업 진척도를 일괄 동기화 */

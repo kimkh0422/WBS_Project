@@ -183,7 +183,7 @@ export function TaskModal({
   defaultStartDate,
   defaultEndDate,
 }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, isAdmin } = useWBS();
+  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, isAdmin, updateProject } = useWBS();
   const { orgMembers } = useOrganization();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
   const taskProject = projects.find((p) => p.id === taskProjectId);
@@ -582,6 +582,20 @@ export function TaskModal({
     } else {
       onSave(toSave as Partial<Task>);
     }
+    const projectId = initialData?.projectId ?? currentProjectId;
+    const assigneeName = (formData.assignee ?? '').trim();
+    const ap = formData.allocationPercent;
+    if (initialData?.id && projectId && assigneeName && typeof ap === 'number' && Number.isFinite(ap)) {
+      const pct = Math.min(100, Math.max(0, round1(ap)));
+      const proj = projects.find((p) => p.id === projectId);
+      if (proj) {
+        const list = [...(proj.assignments ?? [])];
+        const ix = list.findIndex((a) => (a.assignee || '').trim() === assigneeName);
+        if (ix >= 0) list[ix] = { ...list[ix]!, allocationPercent: pct };
+        else list.push({ assignee: assigneeName, allocationPercent: pct });
+        updateProject(projectId, { assignments: list });
+      }
+    }
     onClose();
   };
 
@@ -954,13 +968,15 @@ export function TaskModal({
                   type="number"
                   min={0}
                   max={100}
-                  step={10}
+                  step={0.1}
                   value={formData.allocationPercent ?? 100}
-                  onChange={(e) => setFormData({ ...formData, allocationPercent: parseInt(e.target.value, 10) || 0 })}
-                  className="input-field py-1 text-[11px] w-14"
+                  onChange={(e) =>
+                    setFormData({ ...formData, allocationPercent: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })
+                  }
+                  className="input-field py-1 text-[11px] w-16"
                   readOnly={readOnly}
                   disabled={readOnly}
-                  title="담당자 1명 기준 투입 비율 (0~100%)"
+                  title="담당자 1명 기준 투입 비율 (0~100%, 소수 입력 가능)"
                 />
               </div>
             </div>
