@@ -334,35 +334,37 @@ function SortableTaskRowInner({
           ? focusedBg
           : rowLevelBg(level, hasChildren),
     backgroundImage: isSelected || isDone || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
+    // 좌측 색상 strip은 box-shadow inset으로 그린다. border-left는 grid container의 컨텐츠 영역을 우측으로 밀어
+    // 헤더와 본문 컬럼 정렬을 어긋나게 하므로 사용하지 않음.
     ...(isSelected && !isDone
       ? {
-          borderLeft: '5px solid rgb(147 51 234)',
           boxShadow: dark
-            ? 'inset 0 0 0 2px rgba(168, 85, 247, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4)'
-            : 'inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
+            ? 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4)'
+            : 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
         }
       : {}),
     ...(isSelected && isDone
       ? {
-          borderLeft: '5px solid rgb(147 51 234)',
-          boxShadow: dark ? 'inset 0 0 0 3px rgba(168, 85, 247, 0.5)' : 'inset 0 0 0 3px rgba(168, 85, 247, 0.8)',
+          boxShadow: dark
+            ? 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 3px rgba(168, 85, 247, 0.5)'
+            : 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 3px rgba(168, 85, 247, 0.8)',
         }
       : {}),
     ...(isFocused && !isSelected && !isDone
       ? {
-          borderLeft: '4px solid rgb(217 119 6)',
           boxShadow: dark
-            ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3)'
-            : 'inset 0 0 0 2px rgba(245, 158, 11, 0.45), 0 1px 3px rgba(217, 119, 6, 0.25)',
+            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3)'
+            : 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.45), 0 1px 3px rgba(217, 119, 6, 0.25)',
         }
       : {}),
     ...(isFocused && !isSelected && isDone
       ? {
-          borderLeft: '4px solid rgb(217 119 6)',
-          boxShadow: dark ? 'inset 0 0 0 2px rgba(245, 158, 11, 0.3)' : 'inset 0 0 0 2px rgba(245, 158, 11, 0.5)',
+          boxShadow: dark
+            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.3)'
+            : 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.5)',
         }
       : {}),
-    ...(isDone && !isSelected && !isFocused ? { borderLeft: '3px solid rgb(34 197 94)' } : {}),
+    ...(isDone && !isSelected && !isFocused ? { boxShadow: 'inset 3px 0 0 0 rgb(34 197 94)' } : {}),
     zIndex: isDragging ? 10 : isSelected || isFocused ? 2 : 1,
     position: isDragging ? 'relative' : undefined,
     ...gridStyle,
@@ -375,20 +377,10 @@ function SortableTaskRowInner({
       id={`task-row-${task.id}`}
       className={cn(
         'data-row group cursor-pointer outline-none transition-colors relative',
-        isSelected &&
-          !isDone &&
-          (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80'),
-        isSelected &&
-          isDone &&
-          (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900 ring-4 ring-inset ring-purple-500/80'),
-        isFocused &&
-          !isSelected &&
-          !isDone &&
-          (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70'),
-        isFocused &&
-          !isSelected &&
-          isDone &&
-          (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-800 ring-2 ring-inset ring-amber-500/60'),
+        // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
+        // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
+        isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
+        isFocused && !isSelected && (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-900'),
         isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-stone-500'),
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',

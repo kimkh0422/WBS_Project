@@ -501,16 +501,24 @@ export function WBSTable({
   }, [visibleTasks, projectAssignmentsByProjectId]);
 
   // Column resize — extracted to useColumnResize hook (placed after allocationDisplayByTaskId/taskIdToSeqNum)
-  const { columnWidths, resizingCol, setResizingCol, measureText, measureRef, handleColumnHeaderDoubleClick, startColumnResize } =
-    useColumnResize({
-      wbsSettings,
-      updateWbsSettings,
-      visibleTasks,
-      displayWbsMap,
-      allocationDisplayByTaskId,
-      taskIdToSeqNum,
-      customColumnNameById,
-    });
+  const {
+    columnWidths,
+    resizingCol,
+    setResizingCol,
+    measureText,
+    measureRef,
+    handleColumnHeaderDoubleClick,
+    autoFitAllColumns,
+    startColumnResize,
+  } = useColumnResize({
+    wbsSettings,
+    updateWbsSettings,
+    visibleTasks,
+    displayWbsMap,
+    allocationDisplayByTaskId,
+    taskIdToSeqNum,
+    customColumnNameById,
+  });
 
   const gridStyle = useMemo(() => {
     const parts: string[] = [];
@@ -831,10 +839,12 @@ export function WBSTable({
   const isSplitView = !!syncScrollRef;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
 
-  /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그 */
+  /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그.
+   * stripe를 grip의 우측(border-r)에 그려야 visible stripe 위치 = grid cell 우측 끝 = 본문 셀의 우측 경계와 정확히 정렬된다.
+   * 좌측(border-l)에 두면 stripe가 grid cell 끝에서 grip 너비(12px)만큼 안쪽에 그려져 본문과 어긋나 보임. */
   const resizeGrip = (col: keyof typeof columnWidths) => (
     <div
-      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-l-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-r-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
       title="컬럼 너비 조절 (드래그)"
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -895,6 +905,7 @@ export function WBSTable({
         setExcelView={setExcelView}
         rowHeight={rowHeight}
         handleSetRowHeight={handleSetRowHeight}
+        onAutoFitColumns={() => autoFitAllColumns(visibleColumnIds)}
         onOpenMdEditor={() => {
           const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
           const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));

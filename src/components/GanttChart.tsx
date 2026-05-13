@@ -500,8 +500,9 @@ export function GanttChart({
               </span>
             </div>
 
-            {/* 줄간격 조절 - 너비 간격(줌)과 동일한 형태로 우측에 배치 */}
-            {onRowHeightChange && (
+            {/* 줄간격 조절 - 너비 간격(줌)과 동일한 형태로 우측에 배치.
+                split 뷰(표+간트)에서는 표 SummaryBar에 동일 슬라이더가 있으므로 간트 쪽은 숨긴다(이중 노출 방지) */}
+            {!isSplitView && onRowHeightChange && (
               <>
                 <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
                 <div className="flex items-center gap-2">
@@ -832,8 +833,8 @@ export function GanttChart({
             </span>
           </div>
 
-          {/* 줄간격 조절 */}
-          {onRowHeightChange && (
+          {/* 줄간격 조절 (split 뷰에서는 표 SummaryBar에 통합되어 있으므로 숨김) */}
+          {!isSplitView && onRowHeightChange && (
             <>
               <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
               <div className="flex items-center gap-2">

@@ -58,6 +58,7 @@ export interface UseColumnResizeReturn {
   measureText: (text: string) => number;
   measureRef: RefObject<HTMLDivElement | null>;
   handleColumnHeaderDoubleClick: (col: string) => void;
+  autoFitAllColumns: (visibleColumnIds: string[]) => void;
   startColumnResize: (columnId: string, startX: number) => void;
 }
 
@@ -138,15 +139,11 @@ export function useColumnResize({
     return Math.ceil(el.getBoundingClientRect().width) + 1;
   }, []);
 
-  // ── Double-click auto-fit ──
-  const handleColumnHeaderDoubleClick = useCallback(
-    (col: string) => {
+  // ── Auto-fit 한 컬럼의 너비 계산 (헤더+모든 보이는 셀의 최댓값 + 패딩) ──
+  const computeAutoFitWidth = useCallback(
+    (col: string): number => {
       const fixedCols: string[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
-      if (fixedCols.includes(col)) {
-        setColumnWidths((prev) => ({ ...prev, [col]: DEFAULT_COLUMN_WIDTHS[col] }));
-        updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: DEFAULT_COLUMN_WIDTHS[col] } });
-        return;
-      }
+      if (fixedCols.includes(col)) return DEFAULT_COLUMN_WIDTHS[col] ?? 60;
       const colId = col as TableColumnId;
       const headerLabel = colId.startsWith('custom:')
         ? (customColumnNameById.get(colId) ?? colId)
@@ -181,20 +178,32 @@ export function useColumnResize({
         if (w > maxW) maxW = w;
       }
       const padding = 24;
-      const newWidth = Math.max(30, Math.min(800, maxW + padding));
+      return Math.max(30, Math.min(800, maxW + padding));
+    },
+    [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, customColumnNameById, wbsSettings?.statusConfigs, measureText],
+  );
+
+  // ── Double-click auto-fit (단일 컬럼) ──
+  const handleColumnHeaderDoubleClick = useCallback(
+    (col: string) => {
+      const newWidth = computeAutoFitWidth(col);
       setColumnWidths((prev) => ({ ...prev, [col]: newWidth }));
       updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
     },
-    [
-      visibleTasks,
-      displayWbsMap,
-      allocationDisplayByTaskId,
-      taskIdToSeqNum,
-      customColumnNameById,
-      wbsSettings?.statusConfigs,
-      measureText,
-      updateWbsSettings,
-    ],
+    [computeAutoFitWidth, updateWbsSettings],
+  );
+
+  // ── 일괄 auto-fit: 보이는 모든 컬럼 너비를 현재 데이터에 맞게 한 번에 조정 ──
+  const autoFitAllColumns = useCallback(
+    (visibleColumnIds: string[]) => {
+      const next: Record<string, number> = { ...columnWidthsRef.current };
+      for (const col of visibleColumnIds) {
+        next[col] = computeAutoFitWidth(col);
+      }
+      setColumnWidths(next);
+      updateWbsSettings({ columnWidths: next });
+    },
+    [computeAutoFitWidth, updateWbsSettings],
   );
 
   return {
@@ -204,6 +213,7 @@ export function useColumnResize({
     measureText,
     measureRef,
     handleColumnHeaderDoubleClick,
+    autoFitAllColumns,
     startColumnResize,
   };
 }

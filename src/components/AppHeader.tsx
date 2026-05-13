@@ -209,6 +209,8 @@ export function AppHeader({
   const allowMembersManagement = canOpenMembersManagement ?? effectiveIsAdmin;
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  /** 프로젝트 드롭다운 영역. 이 범위 밖을 누르면 드롭다운을 닫는다(헤더의 ...·다른 버튼 클릭에도 대응). */
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
@@ -380,15 +382,20 @@ export function AppHeader({
   };
 
   useEffect(() => {
-    if (!isMoreMenuOpen && !isUserMenuOpen) return;
+    if (!isMoreMenuOpen && !isUserMenuOpen && !isProjectDropdownOpen) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (isMoreMenuOpen && moreMenuRef.current && !moreMenuRef.current.contains(t)) setIsMoreMenuOpen(false);
       if (isUserMenuOpen && userMenuRef.current && !userMenuRef.current.contains(t)) setIsUserMenuOpen(false);
+      // 프로젝트 드롭다운: 드롭다운 영역(트리거 버튼+팝업) 밖을 누르면 닫는다.
+      // z-50 인 헤더 버튼들(... 더보기, 사용자 메뉴 등)은 z-40 배경 오버레이를 통과하므로 별도 처리가 필요.
+      if (isProjectDropdownOpen && projectDropdownRef.current && !projectDropdownRef.current.contains(t)) {
+        setIsProjectDropdownOpen(false);
+      }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [isMoreMenuOpen, isUserMenuOpen, setIsMoreMenuOpen]);
+  }, [isMoreMenuOpen, isUserMenuOpen, isProjectDropdownOpen, setIsMoreMenuOpen, setIsProjectDropdownOpen]);
 
   return (
     <header
@@ -470,7 +477,7 @@ export function AppHeader({
               )}
             </div>
 
-            <div className="relative mt-1 group">
+            <div className="relative mt-1 group" ref={projectDropdownRef}>
               <button
                 data-tourid="tour-project"
                 onClick={() => {

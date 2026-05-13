@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2 } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 
@@ -26,6 +26,8 @@ interface SummaryBarProps {
   setExcelView: React.Dispatch<React.SetStateAction<boolean>>;
   rowHeight: number;
   handleSetRowHeight: (h: number) => void;
+  /** 모든 보이는 컬럼 너비를 현재 데이터/헤더 텍스트 길이에 맞춰 일괄 자동 조정 */
+  onAutoFitColumns: () => void;
   onOpenMdEditor: () => void;
 }
 
@@ -42,6 +44,7 @@ export function SummaryBar({
   setExcelView,
   rowHeight,
   handleSetRowHeight,
+  onAutoFitColumns,
   onOpenMdEditor,
 }: SummaryBarProps) {
   return (
@@ -108,6 +111,15 @@ export function SummaryBar({
             >
               <Pencil size={14} strokeWidth={2} aria-hidden />
             </button>
+            <button
+              type="button"
+              onClick={onAutoFitColumns}
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정 (헤더 더블클릭은 단일 컬럼만 적용)"
+            >
+              <Maximize2 size={12} strokeWidth={2} aria-hidden />
+              자동 맞춤
+            </button>
             {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
@@ -140,6 +152,15 @@ export function SummaryBar({
             title="스프레드시트 편집 모드 (F2)"
           >
             <Pencil size={14} strokeWidth={2} aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={onAutoFitColumns}
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정 (헤더 더블클릭은 단일 컬럼만 적용)"
+          >
+            <Maximize2 size={12} strokeWidth={2} aria-hidden />
+            자동 맞춤
           </button>
           {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
           <div className="w-px h-5 bg-stone-200 shrink-0" />
