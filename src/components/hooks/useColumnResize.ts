@@ -142,8 +142,22 @@ export function useColumnResize({
   // ── Auto-fit 한 컬럼의 너비 계산 (헤더+모든 보이는 셀의 최댓값 + 패딩) ──
   const computeAutoFitWidth = useCallback(
     (col: string): number => {
-      const fixedCols: string[] = ['grip', 'checkbox', 'seq', 'expand', 'actions'];
+      // grip/checkbox/expand/actions: 아이콘·체크박스라 텍스트 측정 의미 없음 → 디폴트로 리셋
+      const fixedCols: string[] = ['grip', 'checkbox', 'expand', 'actions'];
       if (fixedCols.includes(col)) return DEFAULT_COLUMN_WIDTHS[col] ?? 60;
+      // 번호(seq) 컬럼: 보이는 작업 중 가장 큰 시퀀스 번호 자릿수에 맞춰 측정
+      if (col === 'seq') {
+        let maxNum = 0;
+        for (const task of visibleTasks) {
+          const n = taskIdToSeqNum.get(task.id);
+          if (n != null && n > maxNum) maxNum = n;
+        }
+        const dataText = maxNum > 0 ? String(maxNum) : '0';
+        const headerW = measureText('#');
+        const dataW = measureText(dataText);
+        const padding = 24;
+        return Math.max(30, Math.min(800, Math.max(headerW, dataW) + padding));
+      }
       const colId = col as TableColumnId;
       const headerLabel = colId.startsWith('custom:')
         ? (customColumnNameById.get(colId) ?? colId)
@@ -194,10 +208,13 @@ export function useColumnResize({
   );
 
   // ── 일괄 auto-fit: 보이는 모든 컬럼 너비를 현재 데이터에 맞게 한 번에 조정 ──
+  // 호출부에서 넘어오는 visibleColumnIds는 데이터 컬럼만 포함하므로,
+  // 좌측 보조 컬럼(grip/checkbox/seq/expand)과 우측 actions도 같이 리셋/측정한다.
   const autoFitAllColumns = useCallback(
     (visibleColumnIds: string[]) => {
       const next: Record<string, number> = { ...columnWidthsRef.current };
-      for (const col of visibleColumnIds) {
+      const allCols = Array.from(new Set(['grip', 'checkbox', 'seq', 'expand', ...visibleColumnIds, 'actions']));
+      for (const col of allCols) {
         next[col] = computeAutoFitWidth(col);
       }
       setColumnWidths(next);

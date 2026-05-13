@@ -1127,14 +1127,8 @@ export function WBSTable({
                             type="text"
                             defaultValue=""
                             placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                            className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                            className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
                           />
-                          <button
-                            type="submit"
-                            className="text-[10px] font-bold text-white bg-blue-500 uppercase px-4 hover:bg-blue-600 transition-colors"
-                          >
-                            추가
-                          </button>
                         </form>
                       </div>
                     );
