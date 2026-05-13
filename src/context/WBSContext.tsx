@@ -23,6 +23,8 @@ import {
   collectTasksNeedingUpload,
   settingsNeedDbUpload,
   serverTaskRowMatchesLocalTask,
+  mergeProjectsDelta,
+  mergeTasksDelta,
   deleteProjectFromDB,
   deleteTasksFromDB,
   restoreBackupToDB,
@@ -572,19 +574,54 @@ export function WBSProvider({
   }, [useLocalOnly, user?.id, currentProjectId]);
 
   // ─── 서버 풀 ──────────────────────────────────────────────────────────────
+  // 변경분만 적용(delta): 서버와 동일한 객체는 reference를 그대로 유지하여 큰 리렌더를 방지.
+  // 5분 폴링·탭 복귀 풀에서 데이터가 안 바뀌었으면 setProjects/setAllTasks/setWbsSettings 자체를 호출하지 않는다.
   serverPullFromDbRef.current = async () => {
     if (useLocalOnly || !isSupabaseConfigured || !supabase || !user?.id) return;
     if (hasLocalChangesSinceSyncRef.current) return;
     try {
-      const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
+      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
-      setProjects(dbProjects);
-      const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
-      setAllTasks(preserveLocalExpanded(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings.statusConfigs)));
-      if (dbSettings) {
-        setWbsSettings((prev) => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+
+      // Projects: 변경분만 교체. 순서/개수/내용 모두 같으면 setProjects 호출하지 않음.
+      const prevProjects = projectsRef.current;
+      const { merged: mergedProjects, replacedFromServer: pReplaced } = mergeProjectsDelta(prevProjects, dbProjects);
+      const projectsOrderChanged =
+        prevProjects.length !== mergedProjects.length || prevProjects.some((p, i) => p.id !== mergedProjects[i]?.id);
+      if (pReplaced > 0 || projectsOrderChanged) {
+        setProjects(mergedProjects);
       }
+
+      // Tasks: 변경분만 교체. 동일하면 setAllTasks 스킵.
+      const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+      const prevTasks = allTasksRef.current;
+      const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
+      const rows = Array.isArray(dbTaskRows) ? dbTaskRows : [];
+      const { merged: mergedTasks, replacedFromServer: tReplaced } = mergeTasksDelta(prevTasks, rows, serverPidSet);
+      const tasksOrderChanged = prevTasks.length !== mergedTasks.length || prevTasks.some((t, i) => t.id !== mergedTasks[i]?.id);
+      if (tReplaced > 0 || tasksOrderChanged) {
+        setAllTasks(preserveLocalExpanded(applyRollupsToTasks(mergedTasks, effectiveSettings.statusConfigs)));
+      }
+
+      // Settings: 들어온 부분 키만 비교. 값이 다 같으면 setWbsSettings 스킵.
+      if (dbSettings) {
+        const partial = dbSettings as Partial<WBSSettings>;
+        let settingsChanged = false;
+        for (const k of Object.keys(partial) as Array<keyof WBSSettings>) {
+          const a = (wbsSettings as Record<string, unknown>)[k as string];
+          const b = (partial as Record<string, unknown>)[k as string];
+          if (a === b) continue;
+          if (JSON.stringify(a) !== JSON.stringify(b)) {
+            settingsChanged = true;
+            break;
+          }
+        }
+        if (settingsChanged) {
+          setWbsSettings((prev) => ({ ...prev, ...partial }));
+        }
+      }
+
       if (dbProjects.length > 0) {
         const saved = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
         const valid = dbProjects.find((p) => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
