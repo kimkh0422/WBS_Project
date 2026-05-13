@@ -576,6 +576,16 @@ export function WBSTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastSelectedId]);
 
+  // 역방향: 간트에서 activeTaskId가 바뀐 경우(키보드/클릭), 표의 lastSelectedId도 같이 옮겨
+  // "표에 노란 표시 두 개" 현상과 표 키보드 핸들러가 옛 lastSelectedId 기준으로 이동하는 회귀를 막는다.
+  // 두 동기화 effect는 서로 이미 같으면 set을 생략하므로 무한 루프가 발생하지 않는다.
+  useEffect(() => {
+    if (!activeTaskId) return;
+    if (activeTaskId === lastSelectedId) return;
+    setLastSelectedId(activeTaskId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTaskId]);
+
   const {
     bulkStatus,
     setBulkStatus,

@@ -311,6 +311,54 @@ export function GanttChart({
     setSidebarWidth,
   });
 
+  // useCallback closure가 stale activeTaskId를 잡는 것을 막기 위해 ref로 최신값 접근.
+  // (간트 클릭 → setActiveTaskId → 다음 render 전에 사용자가 ↓을 누르면 closure는 옛 값을 보고
+  //  엉뚱한 다음 행으로 계산하던 회귀가 있었음)
+  const activeTaskIdRef = useRef(activeTaskId);
+  useEffect(() => {
+    activeTaskIdRef.current = activeTaskId;
+  }, [activeTaskId]);
+  const visibleTasksRef = useRef(visibleTasks);
+  useEffect(() => {
+    visibleTasksRef.current = visibleTasks;
+  }, [visibleTasks]);
+
+  // ↑/↓ 키로 활성 행 이동. 간트 스크롤 영역에 포커스가 있을 때 동작하며, 표의 lastSelectedId↔activeTaskId
+  // 동기화 effect 덕분에 activeTaskId만 set해도 표 쪽 강조가 같이 따라온다.
+  const handleArrowKey = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!hotkeysEnabled) return;
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tgt = e.target as HTMLElement | null;
+      const tag = tgt?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tgt?.isContentEditable) return;
+      const tasks = visibleTasksRef.current;
+      if (tasks.length === 0) return;
+      e.preventDefault();
+      // 같은 keydown이 window 레벨의 표 키보드 핸들러(useWbsTableKeyboard)까지 bubble되어
+      // lastSelectedId 기반으로 또 한 번 이동하던 회귀를 차단.
+      e.nativeEvent.stopPropagation();
+      const currentActive = activeTaskIdRef.current;
+      const currentIdx = currentActive ? tasks.findIndex((t) => t.id === currentActive) : -1;
+      const nextIdx =
+        currentIdx < 0
+          ? e.key === 'ArrowDown'
+            ? 0
+            : tasks.length - 1
+          : e.key === 'ArrowDown'
+            ? Math.min(tasks.length - 1, currentIdx + 1)
+            : Math.max(0, currentIdx - 1);
+      const next = tasks[nextIdx];
+      if (!next) return;
+      setActiveTaskId(next.id);
+      // split 뷰에서는 표 행이 존재하므로 그쪽으로 스크롤 → useScrollSync로 간트가 따라온다.
+      // gantt-only 뷰는 표 행이 없어 no-op이며, 활성 행이 화면 밖이어도 setActiveTaskId 자체는 동작한다.
+      document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
+    },
+    [hotkeysEnabled, setActiveTaskId],
+  );
+
   const dependencyPaths = useMemo(() => {
     if (visibleTasks.length === 0 || dates.length === 0) return [];
     const rowTops = effectiveRowHeights.reduce<number[]>((acc, _, i) => {
@@ -549,7 +597,15 @@ export function GanttChart({
             </div>
           </div>
           {/* 스크롤 영역 = 행만 (표와 세로 스크롤 동기화). 수평 스크롤은 상단 헤더·하단 별도 바에서 처리(여기는 숨김). */}
-          <div ref={setMainScrollEl} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-40">
+          <div
+            ref={setMainScrollEl}
+            tabIndex={0}
+            onKeyDown={handleArrowKey}
+            // 간트 안 어디를 클릭해도 키보드 이동이 동작하도록 컨테이너 자체로 포커스를 가져온다.
+            // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록해야 막히지 않는다.
+            onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-40 outline-none focus:ring-0"
+          >
             {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
                 sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
                 실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
@@ -856,7 +912,15 @@ export function GanttChart({
         </div>
 
         {/* 스크롤 영역 */}
-        <div ref={containerRef} className="flex-1 min-h-0 overflow-auto bg-white pb-40">
+        <div
+          ref={containerRef}
+          tabIndex={0}
+          onKeyDown={handleArrowKey}
+          // bar/sidebar 어디를 클릭해도 키보드 이동이 동작하도록 컨테이너 자체로 포커스를 가져온다.
+          // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록.
+          onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
+          className="flex-1 min-h-0 overflow-auto bg-white pb-40 outline-none focus:ring-0"
+        >
           <div className="min-w-max flex flex-col">
             {/* Header Row */}
             <div className="flex sticky top-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">

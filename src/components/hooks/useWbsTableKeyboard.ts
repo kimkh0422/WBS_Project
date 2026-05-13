@@ -631,6 +631,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
+      // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
+      // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
+        return;
+      }
+
       // If nothing is selected yet, allow arrow keys to move focus (체크는 변경하지 않음)
       if (!lastSelectedId) {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

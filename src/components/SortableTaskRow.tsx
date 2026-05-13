@@ -171,39 +171,28 @@ function SortableTaskRowInner({
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
 
   /**
-   * 셀 클릭 시 호출: 2단계 동작 (Excel 패턴).
-   * - 1단계: 아직 포커스되지 않은 행의 셀을 클릭 → 행/셀 포커스만.
-   * - 2단계: 이미 포커스된 행의 셀을 클릭 → 인라인 편집 시작.
+   * 단일 클릭 진입점: 행/셀 포커스만 옮긴다. 편집 진입은 더블클릭(beginEditNow)이나 F2/Enter로만.
+   * (Excel 패턴의 2단계 진입은 사용자가 의도치 않게 편집 모드로 들어가는 경우가 잦아 제거)
    */
   const beginEdit = (columnId: TableColumnId) => {
-    const syncRowCellFocus = () => {
-      setFocusedCell({ taskId: task.id, columnId });
-      onFocusRow?.(task.id);
-      onSetRowAnchor?.(task.id);
-    };
+    setFocusedCell({ taskId: task.id, columnId });
+    onFocusRow?.(task.id);
+    onSetRowAnchor?.(task.id);
+  };
 
-    const startFieldEdit = () => {
-      if (columnId === 'name') {
-        setInlineEditingNameId(task.id);
-        setEditingCell(null);
-      } else {
-        setEditingCell({ taskId: task.id, columnId });
-        setInlineEditingNameId(null);
-      }
-    };
-
-    // 1단계: 다른 행에서 처음 클릭 → 포커스만 (권한 무관 — 행 선택은 보기 권한도 가능)
-    if (!isFocused) {
-      syncRowCellFocus();
-      return;
+  /** 더블클릭/F2용: 권한이 있으면 즉시 인라인 편집 진입. 권한 없으면 포커스만. */
+  const beginEditNow = (columnId: TableColumnId) => {
+    setFocusedCell({ taskId: task.id, columnId });
+    onFocusRow?.(task.id);
+    onSetRowAnchor?.(task.id);
+    if (!canEdit) return;
+    if (columnId === 'name') {
+      setInlineEditingNameId(task.id);
+      setEditingCell(null);
+    } else {
+      setEditingCell({ taskId: task.id, columnId });
+      setInlineEditingNameId(null);
     }
-    // 2단계: 같은 행에서 클릭 → 편집 시작
-    if (!canEdit) {
-      setFocusedCell({ taskId: task.id, columnId });
-      return;
-    }
-    syncRowCellFocus();
-    startFieldEdit();
   };
   /** 편집은 시작하지 않고 포커스만 옮길 때 (status select / dependencies input의 click 등) */
   const beginFocus = (columnId: TableColumnId) => {
@@ -493,7 +482,7 @@ function SortableTaskRowInner({
                 // (행의 onDoubleClick=상세 모달 열기로 버블되지 않도록 stopPropagation)
                 if (isInlineEditingName) return;
                 e.stopPropagation();
-                beginEdit('name');
+                beginEditNow('name');
               }}
               title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id), projectEffortUnitByProjectId)}
             >
@@ -527,7 +516,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('name');
+                    beginEditNow('name');
                   }}
                   title={getTaskDetailTooltip(
                     task,
@@ -612,7 +601,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('startDate');
+                    beginEditNow('startDate');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -679,7 +668,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('endDate');
+                    beginEditNow('endDate');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -719,7 +708,7 @@ function SortableTaskRowInner({
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                if (!isEditing) beginEdit('workEffort');
+                if (!isEditing) beginEditNow('workEffort');
               }}
             >
               {isEditing ? (
@@ -754,7 +743,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('workEffort');
+                    beginEditNow('workEffort');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -792,7 +781,7 @@ function SortableTaskRowInner({
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                if (!isEditing) beginEdit('weight');
+                if (!isEditing) beginEditNow('weight');
               }}
             >
               {isEditing ? (
@@ -827,7 +816,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('weight');
+                    beginEditNow('weight');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -859,7 +848,7 @@ function SortableTaskRowInner({
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                if (!isEditing) beginEdit('progress');
+                if (!isEditing) beginEditNow('progress');
               }}
               title="클릭하여 진척률 수정 · 우클릭: 갱신 메뉴"
             >
@@ -896,7 +885,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('progress');
+                    beginEditNow('progress');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -929,7 +918,7 @@ function SortableTaskRowInner({
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                beginEdit('assignee');
+                beginEditNow('assignee');
               }}
             >
               {isEditing ? (
@@ -1040,7 +1029,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('allocation');
+                    beginEditNow('allocation');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -1137,7 +1126,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit('deliverables');
+                    beginEditNow('deliverables');
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
@@ -1393,7 +1382,7 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEdit(colId);
+                    beginEditNow(colId);
                   }}
                   onFocus={(e) => {
                     e.stopPropagation();
