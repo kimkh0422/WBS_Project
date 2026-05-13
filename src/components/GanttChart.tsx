@@ -549,7 +549,7 @@ export function GanttChart({
             </div>
           </div>
           {/* 스크롤 영역 = 행만 (표와 세로 스크롤 동기화). 수평 스크롤은 상단 헤더·하단 별도 바에서 처리(여기는 숨김). */}
-          <div ref={setMainScrollEl} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white">
+          <div ref={setMainScrollEl} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-40">
             {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
                 sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
                 실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
@@ -856,7 +856,7 @@ export function GanttChart({
         </div>
 
         {/* 스크롤 영역 */}
-        <div ref={containerRef} className="flex-1 min-h-0 overflow-auto bg-white">
+        <div ref={containerRef} className="flex-1 min-h-0 overflow-auto bg-white pb-40">
           <div className="min-w-max flex flex-col">
             {/* Header Row */}
             <div className="flex sticky top-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)]">

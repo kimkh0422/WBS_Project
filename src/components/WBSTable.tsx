@@ -1018,6 +1018,8 @@ export function WBSTable({
               !tableEditMode && 'wbs-view-mode',
               fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
               wrapTextInCells && 'wrap-text-in-cells',
+              // 표 하단에 항상 여백을 둬서 마지막 행이 일괄 수정 바나 화면 끝에 붙어 보이지 않게 한다.
+              'pb-40',
             )}
             onScroll={(e) => {
               const target = e.currentTarget;
