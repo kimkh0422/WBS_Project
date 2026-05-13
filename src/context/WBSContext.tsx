@@ -126,6 +126,8 @@ export function WBSProvider({
   useLocalOnlyRef.current = useLocalOnly;
   const onConcurrentConflictRef = useRef(onConcurrentConflict);
   onConcurrentConflictRef.current = onConcurrentConflict;
+  const handleDbErrorRef = useRef(handleDbError);
+  handleDbErrorRef.current = handleDbError;
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
   const allTasksRef = useRef<Task[]>([]);
   const lastConflictRef = useRef<number>(0);
@@ -230,8 +232,11 @@ export function WBSProvider({
   // ─── 초기 데이터 로딩 (Supabase) ────────────────────────────────────────────
 
   useEffect(() => {
+    // 이미 한 번 로드된 적이 있으면(=화면에 표시 중인 데이터가 있으면) 스켈레톤을 띄우지 않고
+    // 백그라운드 갱신으로 처리한다. 포커스 복귀로 effect가 재실행되더라도 사용자에게 깜빡임이 보이지 않게.
+    const isInitialLoad = projectsRef.current.length === 0 && allTasksRef.current.length === 0;
     const loadData = async () => {
-      setIsLoading(true);
+      if (isInitialLoad) setIsLoading(true);
       const skipDbUntilSync = (() => {
         try {
           return localStorage.getItem(WBS_INIT_BLANK_SESSION_KEY) === '1';
@@ -327,7 +332,7 @@ export function WBSProvider({
               setTreeExpandLevel(Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
             }
           } catch (e) {
-            handleDbError(e, 'DB에서 불러오지 못했습니다. 이 기기에 저장된 데이터를 표시합니다.');
+            handleDbErrorRef.current(e, 'DB에서 불러오지 못했습니다. 이 기기에 저장된 데이터를 표시합니다.');
             await loadFromLocalOnly();
           }
         } else {
@@ -378,11 +383,11 @@ export function WBSProvider({
           setCurrentProjectId(p.id);
         }
       } finally {
-        setIsLoading(false);
+        if (isInitialLoad) setIsLoading(false);
       }
     };
     loadData();
-  }, [useLocalOnly, user?.id, handleDbError]);
+  }, [useLocalOnly, user?.id]);
 
   // ─── 로컬 저장 (IndexedDB/localStorage) ────────────────────────────────────
   useEffect(() => {

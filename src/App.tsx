@@ -2187,6 +2187,20 @@ function AppWithProviders() {
     if (v) sessionStorage.setItem('wbs-member-preview', 'true');
     else sessionStorage.removeItem('wbs-member-preview');
   }, []);
+  // WBSProvider 콜백은 useCallback으로 안정화 — 인라인 함수면 매 렌더마다 새 참조가 되어
+  // Provider 내부의 데이터 로딩 effect가 재실행되고 스켈레톤이 깜빡임.
+  const handleConcurrentConflict = useCallback(() => {
+    pushToast('다른 사용자가 동시에 수정했습니다. DB 동기화 버튼을 눌러 최신 데이터를 가져오세요.', {
+      variant: 'warning',
+      durationMs: 8000,
+    });
+  }, [pushToast]);
+  const handleProviderDbError = useCallback(
+    (msg: string) => {
+      pushToast(msg, { variant: 'error', id: `db-error:${msg}` });
+    },
+    [pushToast],
+  );
   const effectiveIsAdminGlobal = (isAdmin || adminOverride) && !memberPreview;
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
@@ -2281,19 +2295,8 @@ function AppWithProviders() {
   return (
     <WBSProvider
       useLocalOnly={false}
-      onConcurrentConflict={() =>
-        pushToast('다른 사용자가 동시에 수정했습니다. DB 동기화 버튼을 눌러 최신 데이터를 가져오세요.', {
-          variant: 'warning',
-          durationMs: 8000,
-        })
-      }
-      onDbError={(msg) =>
-        pushToast(msg, {
-          variant: 'error',
-          // React StrictMode(DEV)에서 effect가 2번 실행되거나, 동일한 DB 오류가 연속 발생할 때 토스트 중복을 방지
-          id: `db-error:${msg}`,
-        })
-      }
+      onConcurrentConflict={handleConcurrentConflict}
+      onDbError={handleProviderDbError}
       editableProjectIds={myEditableProjectIds}
       isAdmin={effectiveIsAdminGlobal}
     >
