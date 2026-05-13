@@ -553,7 +553,7 @@ export function WBSTable({
   const {
     selectedTaskIds,
     lastSelectedId,
-    setLastSelectedId,
+    setLastSelectedId: setLastSelectedIdRaw,
     setAnchorTaskId,
     rangeAnchorRef,
     setSelection,
@@ -565,6 +565,16 @@ export function WBSTable({
     setSharedSelectedTaskIds: setSharedSelectedTaskIds,
     tableScrollRef,
   });
+  // setLastSelectedId 호출 시 activeTaskId도 같은 사이클에서 함께 set한다.
+  // (양방향 동기화 effect만으로는 키보드 repeat 같은 빠른 연속 호출에서 race로 두 state가 어긋나
+  //  노란색 두 개가 동시에 보이는 회귀가 발생했음)
+  const setLastSelectedId = useCallback(
+    (id: string | null) => {
+      setLastSelectedIdRaw(id);
+      setActiveTaskId(id);
+    },
+    [setLastSelectedIdRaw, setActiveTaskId],
+  );
 
   // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
   // 표↔간트 시각 강조를 일치시키기 위함이지만, 체크박스 상태(selectedTaskIds)는 건드리지 않는다
