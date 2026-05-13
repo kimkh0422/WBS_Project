@@ -228,6 +228,8 @@ export function TaskModal({
   // 진행률 입력: type=number + 즉시 숫자변환은 일부 브라우저/IME에서 "80" 같은 입력이 막히는 케이스가 있어
   // 입력 중에는 문자열로 유지하고(중간 상태 허용), blur/저장 시점에만 숫자 변환/검증한다.
   const [progressInput, setProgressInput] = useState<string>('0');
+  /** 투입율: number 즉시 반영은 빈 칸·소수 입력이 막히는 경우가 있어 진행률과 동일하게 문자열로 유지 */
+  const [allocationPercentInput, setAllocationPercentInput] = useState<string>('100');
   const [progressTouched, setProgressTouched] = useState(false);
   const progressTouchedRef = useRef(false);
   const markProgressTouched = () => {
@@ -305,6 +307,7 @@ export function TaskModal({
       const allocationPercent = projectMatch?.allocationPercent ?? 100;
       const checklist = filterChecklistAgainstChildren(rest.checklist, initialData.id, parentOptionsRef.current, displayWbsMapRef.current);
       setFormData({ ...rest, checklist, allocationPercent });
+      setAllocationPercentInput(String(allocationPercent));
       setProgressInput(typeof rest.progress === 'number' && Number.isFinite(rest.progress) ? String(rest.progress) : '');
       progressTouchedRef.current = false;
       setProgressTouched(false);
@@ -332,6 +335,7 @@ export function TaskModal({
         baselineEndDate: undefined,
         baselineWorkEffort: undefined,
       });
+      setAllocationPercentInput(String(projectMatch?.allocationPercent ?? 100));
       setProgressInput('0');
       progressTouchedRef.current = false;
       setProgressTouched(false);
@@ -536,6 +540,12 @@ export function TaskModal({
       if (!Number.isFinite(parsed)) return 0;
       return Math.min(100, Math.max(0, round2(parsed)));
     })();
+    const parsedAllocation = (() => {
+      const raw = allocationPercentInput.trim();
+      const parsed = raw === '' ? 100 : parseFloat(raw);
+      if (!Number.isFinite(parsed)) return formData.allocationPercent ?? 100;
+      return Math.min(100, Math.max(0, round1(parsed)));
+    })();
     const parsedDeps = parseDepsInput();
     // 체크리스트: ① formData가 아직 커밋되지 않은 경우(추가 직후 저장) · ② 입력란에만 있고「추가」안 누른 경우까지 포함
     let checklist = [...(formData.checklist ?? [])];
@@ -545,7 +555,7 @@ export function TaskModal({
     if (initialData?.id) {
       checklist = filterChecklistAgainstChildren(checklist, initialData.id, parentOptions, displayWbsMap);
     }
-    const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist };
+    const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist, allocationPercent: parsedAllocation };
     const start = toMerge.startDate || '';
     const end = toMerge.endDate || start;
     if (start && end && start > end) {
@@ -584,15 +594,13 @@ export function TaskModal({
     }
     const projectId = initialData?.projectId ?? currentProjectId;
     const assigneeName = (formData.assignee ?? '').trim();
-    const ap = formData.allocationPercent;
+    const ap = parsedAllocation;
     if (initialData?.id && projectId && assigneeName && typeof ap === 'number' && Number.isFinite(ap)) {
       const pct = Math.min(100, Math.max(0, round1(ap)));
       const proj = projects.find((p) => p.id === projectId);
       if (proj) {
-        const list = [...(proj.assignments ?? [])];
-        const ix = list.findIndex((a) => (a.assignee || '').trim() === assigneeName);
-        if (ix >= 0) list[ix] = { ...list[ix]!, allocationPercent: pct };
-        else list.push({ assignee: assigneeName, allocationPercent: pct });
+        const list = [...(proj.assignments ?? [])].filter((a) => (a.assignee || '').trim() !== assigneeName);
+        list.push({ assignee: assigneeName, allocationPercent: pct });
         updateProject(projectId, { assignments: list });
       }
     }
@@ -948,7 +956,13 @@ export function TaskModal({
                 type="text"
                 list="task-modal-assignees"
                 value={formData.assignee || ''}
-                onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const match = projectAssignments.find((a) => (a.assignee || '').trim() === v.trim());
+                  const allocationPercent = match?.allocationPercent ?? 100;
+                  setFormData({ ...formData, assignee: v, allocationPercent });
+                  setAllocationPercentInput(String(allocationPercent));
+                }}
                 placeholder="선택 또는 입력"
                 className="input-field py-1.5 text-sm"
                 title={assigneeTitle}
@@ -965,14 +979,23 @@ export function TaskModal({
               <div className="mt-0.5 flex items-center gap-2">
                 <label className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율 %</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={formData.allocationPercent ?? 100}
-                  onChange={(e) =>
-                    setFormData({ ...formData, allocationPercent: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })
-                  }
+                  type="text"
+                  inputMode="decimal"
+                  value={allocationPercentInput}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === '' || /^\d*([.]\d*)?$/.test(next)) {
+                      setAllocationPercentInput(next);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (readOnly) return;
+                    const raw = allocationPercentInput.trim();
+                    const parsed = raw === '' ? 100 : parseFloat(raw);
+                    const safe = !Number.isFinite(parsed) ? 100 : Math.min(100, Math.max(0, round1(parsed)));
+                    setAllocationPercentInput(String(safe));
+                    setFormData((prev) => ({ ...prev, allocationPercent: safe }));
+                  }}
                   className="input-field py-1 text-[11px] w-16"
                   readOnly={readOnly}
                   disabled={readOnly}

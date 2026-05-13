@@ -478,31 +478,24 @@ export function WBSTable({
     return { taskIdToSeqNum, seqNumToTaskId };
   }, [visibleTasks]);
 
-  /** 담당자별로 투입율을 한 번만 표기: 행 순서대로 이미 표시한 담당자 집합을 유지하고, 해당 행에 표시할 텍스트만 반환.
-   * 작업 담당자가 프로젝트 투입인원에 등록되지 않은 경우에도 기본 100%로 표기(편집 input의 fallback과 일치). */
+  /** 작업 행의 담당자에 해당하는 프로젝트 투입율만 표시(행마다 독립). 과거에는 행 간 shown 집합으로 두 번째 행부터 "—"만 나와 편집해도 안 바뀐 것처럼 보이는 문제가 있었음. */
   const allocationDisplayByTaskId = useMemo(() => {
     const map = new Map<string, string>();
-    const shown = new Set<string>();
     for (const task of visibleTasks) {
-      const assignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
-      const currentAssignee = (task.assignee || '').trim();
-      const relevant = currentAssignee ? assignments.filter((a) => (a.assignee || '').trim() === currentAssignee) : assignments;
-      const toShow = relevant.filter((a) => {
-        const key = (a.assignee || '').trim() || '(미지정)';
-        if (shown.has(key)) return false;
-        shown.add(key);
-        return true;
-      });
-      let text: string;
-      if (toShow.length) {
-        text = toShow.map((a) => `${a.allocationPercent}%`).join(', ');
-      } else if (currentAssignee && relevant.length === 0 && !shown.has(currentAssignee)) {
-        shown.add(currentAssignee);
-        text = '100%';
-      } else {
-        text = '—';
+      const rawAssignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
+      const pctByAssignee = new Map<string, number>();
+      for (const a of rawAssignments) {
+        const name = (a.assignee || '').trim();
+        if (!name) continue;
+        pctByAssignee.set(name, Number(a.allocationPercent) || 0);
       }
-      map.set(task.id, text);
+      const current = (task.assignee || '').trim();
+      if (!current) {
+        map.set(task.id, '—');
+        continue;
+      }
+      const pct = pctByAssignee.has(current) ? pctByAssignee.get(current)! : 100;
+      map.set(task.id, `${pct}%`);
     }
     return map;
   }, [visibleTasks, projectAssignmentsByProjectId]);

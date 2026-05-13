@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { GripVertical, Flag, Bug, Edit2, Trash2 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
@@ -226,6 +226,37 @@ function SortableTaskRowInner({
     }
     return m;
   }, [orgMembers]);
+
+  /** 프로젝트 assignments에서 담당자명(트림) 기준으로 비율 합침 — 동일 이름 중복 시 마지막 값, 표시·편집 기본값과 일치 */
+  const projectAllocPctByTrimmedName = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!task.projectId) return m;
+    const raw = projectAssignmentsByProjectId.get(task.projectId) ?? [];
+    for (const a of raw) {
+      const name = (a.assignee || '').trim();
+      if (!name) continue;
+      m.set(name, Number(a.allocationPercent) || 0);
+    }
+    return m;
+  }, [task.projectId, projectAssignmentsByProjectId]);
+
+  /** 투입율 인라인: 숫자 input의 즉시 클램프/빈값 처리로 입력이 막히는 것을 방지 — 편집 세션당 문자열 유지 */
+  const assigneeTrimForAlloc = (task.assignee || '').trim();
+  const primaryPercentForAlloc = assigneeTrimForAlloc ? (projectAllocPctByTrimmedName.get(assigneeTrimForAlloc) ?? 100) : 100;
+  const isAllocEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
+  const [allocationEditStr, setAllocationEditStr] = useState('');
+  const allocEditSessionRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!isAllocEditing) {
+      allocEditSessionRef.current = null;
+      return;
+    }
+    const sessionKey = `${task.id}:allocation`;
+    if (allocEditSessionRef.current !== sessionKey) {
+      allocEditSessionRef.current = sessionKey;
+      setAllocationEditStr(String(primaryPercentForAlloc));
+    }
+  }, [isAllocEditing, task.id, primaryPercentForAlloc]);
 
   // 의존(선행) 작업을 화면에 보이는 행과 보이지 않는(접힘/필터) 작업으로 분류.
   // 보이지 않는 작업은 표 행 번호가 없으므로 별도 표기(WBS 코드)로 노출하며,
@@ -958,23 +989,22 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'allocation') {
-          const assignee = (task.assignee || '').trim();
-          const projectList = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
-          const fromProject = projectList.find((a) => (a.assignee || '').trim() === assignee);
-          const primaryPercent = fromProject?.allocationPercent ?? 100;
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
+          const isEditing = isAllocEditing;
           const isFocusedAlloc = focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
           const persistAllocation = (rawStr: string) => {
-            if (!task.projectId || !assignee) return;
-            const raw = parseFloat(rawStr);
+            if (!task.projectId) return;
+            if (!assigneeTrimForAlloc) {
+              pushToast('투입율을 저장하려면 먼저 담당자를 지정해 주세요.', { variant: 'warning' });
+              return;
+            }
+            const trimmed = rawStr.trim();
+            const raw = trimmed === '' ? 100 : parseFloat(trimmed);
             if (!Number.isFinite(raw)) return;
             const pct = Math.min(100, Math.max(0, Math.round(raw * 10) / 10));
             const proj = projects.find((p) => p.id === task.projectId);
             if (!proj) return;
-            const list = [...(proj.assignments ?? [])];
-            const ix = list.findIndex((a) => (a.assignee || '').trim() === assignee);
-            if (ix >= 0) list[ix] = { ...list[ix]!, allocationPercent: pct };
-            else list.push({ assignee, allocationPercent: pct });
+            const list = [...(proj.assignments ?? [])].filter((a) => (a.assignee || '').trim() !== assigneeTrimForAlloc);
+            list.push({ assignee: assigneeTrimForAlloc, allocationPercent: pct });
             updateProject(task.projectId, { assignments: list });
           };
           return (
@@ -990,15 +1020,17 @@ function SortableTaskRowInner({
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-allocation`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
+                  type="text"
+                  inputMode="decimal"
                   autoFocus
-                  defaultValue={primaryPercent}
+                  value={allocationEditStr}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === '' || /^\d*([.]\d*)?$/.test(next)) setAllocationEditStr(next);
+                  }}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  onBlur={(e) => {
-                    persistAllocation((e.target as HTMLInputElement).value);
+                  onBlur={() => {
+                    persistAllocation(allocationEditStr);
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {

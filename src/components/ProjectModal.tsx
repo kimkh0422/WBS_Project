@@ -63,6 +63,8 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [assignments, setAssignments] = useState<ProjectAssignment[]>([]);
+  /** 투입비율 입력란: 저장 전까지 문자열로 두어 빈 칸·소수 입력이 막히지 않게 함 */
+  const [allocPctInputs, setAllocPctInputs] = useState<string[]>([]);
   const [minWorkEffortDays, setMinWorkEffortDays] = useState<string>('');
   const [workEffortUnit, setWorkEffortUnit] = useState<Project['workEffortUnit']>('day');
   const [reportCategory, setReportCategory] = useState('');
@@ -116,7 +118,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
         setDescription(project.description || '');
         setStartDate(project.startDate || '');
         setEndDate(project.endDate || '');
-        setAssignments(project.assignments?.length ? [...project.assignments] : []);
+        const list = project.assignments?.length ? [...project.assignments] : [];
+        setAssignments(list);
+        setAllocPctInputs(list.map((a) => String(Number(a.allocationPercent ?? 100))));
         setMinWorkEffortDays(project.minWorkEffortDays != null ? String(project.minWorkEffortDays) : '');
         setWorkEffortUnit(normalizeWorkEffortUnit(project.workEffortUnit));
         setReportCategory(project.reportCategory || '');
@@ -135,6 +139,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
         setStartDate('');
         setEndDate('');
         setAssignments([]);
+        setAllocPctInputs([]);
         setMinWorkEffortDays('');
         setWorkEffortUnit('day');
         setReportCategory('');
@@ -200,12 +205,18 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       return;
     }
     const totalPeriodStr = formatReportTotalPeriod(reportPeriodStart, reportPeriodEnd);
+    const finalAssignments = assignments.map((a, i) => {
+      const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
+      const parsed = raw === '' ? 100 : parseFloat(raw);
+      const pct = !Number.isFinite(parsed) ? Number(a.allocationPercent ?? 100) : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+      return { ...a, allocationPercent: pct };
+    });
     onSave(
       name,
       description,
       startDate || undefined,
       endDate || undefined,
-      assignments.length > 0 ? assignments : undefined,
+      finalAssignments.length > 0 ? finalAssignments : undefined,
       parsedMin,
       normalizeWorkEffortUnit(workEffortUnit),
       reportCategory || undefined,
@@ -218,15 +229,22 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
     onClose();
   };
 
-  const addAssignment = () => setAssignments((prev) => [...prev, { assignee: '', allocationPercent: 100 }]);
+  const addAssignment = () => {
+    setAssignments((prev) => [...prev, { assignee: '', allocationPercent: 100 }]);
+    setAllocPctInputs((prev) => [...prev, '100']);
+  };
   /** 담당자 추가 후 새로 생긴 행의 입력으로 포커스 이동 */
   const addAssignmentAndFocus = () => {
     setAssignments((prev) => {
       setPendingAssigneeFocusIndex(prev.length);
       return [...prev, { assignee: '', allocationPercent: 100 }];
     });
+    setAllocPctInputs((prev) => [...prev, '100']);
   };
-  const removeAssignment = (index: number) => setAssignments((prev) => prev.filter((_, i) => i !== index));
+  const removeAssignment = (index: number) => {
+    setAssignments((prev) => prev.filter((_, i) => i !== index));
+    setAllocPctInputs((prev) => prev.filter((_, i) => i !== index));
+  };
   const updateAssignment = (index: number, field: 'assignee' | 'allocationPercent', value: string | number) => {
     setAssignments((prev) => {
       const next = [...prev];
@@ -497,18 +515,39 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                         placeholder="담당자 이름 (조직 회원에서 검색 또는 직접 입력)"
                         title="조직 회원 목록에서 선택하거나 직접 입력. Enter로 다음 인원 추가."
                       />
-                      <select
-                        value={a.allocationPercent}
-                        onChange={(e) => updateAssignment(i, 'allocationPercent', Number(e.target.value))}
-                        className="input-field w-24 py-2 text-sm"
-                        title="기본 투입비율 (월별 미설정 시 적용)"
-                      >
-                        {ALLOCATION_OPTIONS.map((pct) => (
-                          <option key={pct} value={pct}>
-                            {pct}%
-                          </option>
-                        ))}
-                      </select>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="input-field w-20 py-2 text-sm"
+                        value={allocPctInputs[i] ?? String(Number(a.allocationPercent ?? 100))}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next !== '' && !/^\d*([.]\d*)?$/.test(next)) return;
+                          setAllocPctInputs((prev) => {
+                            const nextArr = [...prev];
+                            while (nextArr.length < assignments.length) {
+                              nextArr.push(String(Number(assignments[nextArr.length]?.allocationPercent ?? 100)));
+                            }
+                            nextArr[i] = next;
+                            return nextArr;
+                          });
+                        }}
+                        onBlur={() => {
+                          const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
+                          const parsed = raw === '' ? 100 : parseFloat(raw);
+                          const safe = !Number.isFinite(parsed)
+                            ? Number(a.allocationPercent ?? 100)
+                            : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+                          updateAssignment(i, 'allocationPercent', safe);
+                          setAllocPctInputs((prev) => {
+                            const nextArr = [...prev];
+                            while (nextArr.length < assignments.length) nextArr.push('100');
+                            nextArr[i] = String(safe);
+                            return nextArr;
+                          });
+                        }}
+                        title="기본 투입비율 (0~100%, 소수 가능. 월별 미설정 시 적용)"
+                      />
                       <button
                         type="button"
                         onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
@@ -530,14 +569,17 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                         <div className="flex flex-wrap gap-2">
                           {projectMonths.map((ym) => {
                             const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
+                            const displayNum = typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100;
+                            const inPreset = ALLOCATION_OPTIONS.some((o) => o === displayNum);
                             return (
                               <div key={ym} className="flex items-center gap-1">
                                 <span className="text-[10px] text-stone-500 w-12">{ym}</span>
                                 <select
-                                  value={displayVal}
+                                  value={displayNum}
                                   onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
                                   className="input-field py-1.5 text-xs w-16"
                                 >
+                                  {!inPreset && <option value={displayNum}>{displayNum}%</option>}
                                   {ALLOCATION_OPTIONS.map((pct) => (
                                     <option key={pct} value={pct}>
                                       {pct}%
