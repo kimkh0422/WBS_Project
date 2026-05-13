@@ -246,12 +246,12 @@ export function GanttChart({
     setContextMenu({ x: e.clientX, y: e.clientY, taskId });
   };
 
-  const handleBarClickForPopover = useCallback((e: React.MouseEvent, task: Task) => {
+  const handleBarClickForPopover = useCallback((_e: React.MouseEvent, _task: Task) => {
+    // 막대 클릭 시 뜨던 정보 팝오버는 비활성. suppress ref만 reset해 드래그 직후 click 처리가 어긋나지 않게 유지.
     if (suppressBarPopoverClickRef.current) {
       suppressBarPopoverClickRef.current = false;
       return;
     }
-    setTappedBar({ taskId: task.id, x: e.clientX, y: e.clientY });
   }, []);
 
   useEffect(() => {
