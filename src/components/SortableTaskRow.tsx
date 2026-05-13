@@ -1043,44 +1043,76 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'status') {
-          const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status';
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'status';
+          const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status' && !isEditing;
+          const currentStatusName = statusConfigs.find((c) => c.id === task.status)?.name ?? task.status ?? '—';
           return (
             <div
               key={colId}
               className={cn('data-cell', isFocusedStatus && 'ring-2 ring-blue-500 ring-inset rounded')}
               onClick={(e) => {
                 e.stopPropagation();
-                beginFocus('status');
+                if (!isEditing) beginEdit('status');
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEditNow('status');
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onContextMenu(e, task.id, 'status');
               }}
             >
-              <select
-                id={`wbs-edit-${task.id}-status`}
-                value={task.status}
-                onChange={(e) => {
-                  const newStatus = e.target.value;
-                  if (newStatus !== task.status) {
-                    const config = statusConfigs.find((c) => c.id === newStatus);
-                    const updates: Partial<Task> = { status: newStatus };
-                    if (config && config.progress !== undefined) {
-                      updates.progress = config.progress;
+              {isEditing ? (
+                <select
+                  id={`wbs-edit-${task.id}-status`}
+                  value={task.status}
+                  autoFocus
+                  onChange={(e) => {
+                    const newStatus = e.target.value;
+                    if (newStatus !== task.status) {
+                      const config = statusConfigs.find((c) => c.id === newStatus);
+                      const updates: Partial<Task> = { status: newStatus };
+                      if (config && config.progress !== undefined) {
+                        updates.progress = config.progress;
+                      }
+                      updateTask(task.id, updates);
                     }
-                    updateTask(task.id, updates);
-                  }
-                }}
-                onFocus={() => beginFocus('status')}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onContextMenu(e, task.id, 'status');
-                }}
-                className="w-full bg-transparent p-1 focus:bg-white focus:ring-1 focus:ring-blue-500 rounded border border-transparent hover:border-stone-200 cursor-pointer transition-colors appearance-none text-xs"
-              >
-                {statusConfigs.map((config) => (
-                  <option key={config.id} value={config.id}>
-                    {config.name}
-                  </option>
-                ))}
-              </select>
+                    setEditingCell(null);
+                  }}
+                  onBlur={() => setEditingCell(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' || e.key === 'Enter') {
+                      setEditingCell(null);
+                      (e.target as HTMLSelectElement).blur();
+                    }
+                  }}
+                  className="w-full bg-white p-1 ring-1 ring-blue-500 rounded border border-transparent appearance-none text-xs"
+                >
+                  {statusConfigs.map((config) => (
+                    <option key={config.id} value={config.id}>
+                      {config.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <button
+                  type="button"
+                  className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-blue-50/80 truncate"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    beginEdit('status');
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    beginEditNow('status');
+                  }}
+                  title="더블클릭 또는 F2로 상태 수정"
+                >
+                  {currentStatusName}
+                </button>
+              )}
             </div>
           );
         }
@@ -1234,9 +1266,15 @@ function SortableTaskRowInner({
               .sort((a, b) => a - b);
             setDepsInputValue(visibleNums.join(', '));
           };
-          const isFocusedDep = focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
-          // 드롭다운은 input이 실제 포커스됐을 때만 열림. Enter로 편집 종료 시 setDepsFocused(false)로 자동 닫힘.
-          const depsMenuOpen = depsFocused && depSuggestionsList.length > 0;
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
+          const isFocusedDep = focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies' && !isEditing;
+          // 드롭다운은 편집 중이고 input이 실제 포커스됐을 때만 열림.
+          const depsMenuOpen = isEditing && depsFocused && depSuggestionsList.length > 0;
+          const visibleDepNums = (task.dependencies ?? [])
+            .map((tid) => taskIdToSeqNum.get(tid))
+            .filter((n): n is number => n != null)
+            .sort((a, b) => a - b);
+          const depsDisplayText = visibleDepNums.length > 0 ? visibleDepNums.join(', ') : '-';
           // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
           // 막기 위해 Portal로 body에 렌더링하고 input의 위치를 추적해 따라가게 한다.
           const renderDepsDropdown = depsMenuOpen
@@ -1263,14 +1301,16 @@ function SortableTaskRowInner({
               )}
               onClick={(e) => {
                 e.stopPropagation();
-                beginFocus('dependencies');
-                // 셀의 빈 영역을 클릭해도 input이 직접 포커스되어 드롭다운이 자동으로 펼쳐지도록 보정
-                document.getElementById(`wbs-edit-${task.id}-dependencies`)?.focus();
+                if (!isEditing) beginEdit('dependencies');
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEditNow('dependencies');
               }}
               title={
                 hiddenDepLabels.length > 0
                   ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
-                  : '행 번호(예: 1, 2) 또는 작업명·WBS 일부 입력 후 목록에서 선택. F2로 이 셀 포커스'
+                  : '더블클릭 또는 F2로 선행작업 수정'
               }
             >
               {hiddenDepLabels.length > 0 && (
@@ -1282,57 +1322,77 @@ function SortableTaskRowInner({
                   +{hiddenDepLabels.length}
                 </span>
               )}
-              <div className="relative min-w-0 flex-1">
-                <input
-                  id={`wbs-edit-${task.id}-dependencies`}
-                  data-deps-input="true"
-                  type="text"
-                  value={depsInputValue ?? ''}
-                  onChange={(e) => setDepsInputValue(e.target.value)}
-                  tabIndex={0}
-                  onFocus={() => {
-                    beginFocus('dependencies');
-                    setDepsFocused(true);
-                  }}
-                  onBlur={() => {
-                    setDepsFocused(false);
-                    applyDependenciesInput((depsInputValue ?? '').trim());
-                  }}
-                  onKeyDown={(e) => {
-                    if (depSuggestionsList.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setDepPickIdx((i) => {
-                        const len = depSuggestionsList.length;
-                        if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
-                        return Math.max(0, i - 1);
-                      });
-                      return;
-                    }
-                    if (depSuggestionsList.length > 0 && e.key === 'Enter' && depPickIdx >= 0 && depPickIdx < depSuggestionsList.length) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      applyPickDependency(depSuggestionsList[depPickIdx]!.id);
-                      // Enter로 픽한 후에는 편집 모드를 종료해 다른 셀처럼 화살표로 자유롭게 이동 가능.
-                      // (드롭다운에서 마우스 클릭으로 픽한 경우는 그대로 유지 — 연속 선택 가능)
-                      setDepsFocused(false);
-                      setEditingCell(null);
-                      e.currentTarget.blur();
-                      return;
-                    }
-                    if (e.key === 'Enter') {
+              {isEditing ? (
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    id={`wbs-edit-${task.id}-dependencies`}
+                    data-deps-input="true"
+                    type="text"
+                    autoFocus
+                    value={depsInputValue ?? ''}
+                    onChange={(e) => setDepsInputValue(e.target.value)}
+                    tabIndex={0}
+                    onFocus={() => {
+                      beginFocus('dependencies');
+                      setDepsFocused(true);
+                    }}
+                    onBlur={() => {
                       setDepsFocused(false);
                       applyDependenciesInput((depsInputValue ?? '').trim());
                       setEditingCell(null);
-                      e.currentTarget.blur();
-                    }
+                    }}
+                    onKeyDown={(e) => {
+                      if (depSuggestionsList.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDepPickIdx((i) => {
+                          const len = depSuggestionsList.length;
+                          if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
+                          return Math.max(0, i - 1);
+                        });
+                        return;
+                      }
+                      if (depSuggestionsList.length > 0 && e.key === 'Enter' && depPickIdx >= 0 && depPickIdx < depSuggestionsList.length) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        applyPickDependency(depSuggestionsList[depPickIdx]!.id);
+                        // Enter로 픽한 후에는 편집 모드를 종료해 다른 셀처럼 화살표로 자유롭게 이동 가능.
+                        // (드롭다운에서 마우스 클릭으로 픽한 경우는 그대로 유지 — 연속 선택 가능)
+                        setDepsFocused(false);
+                        setEditingCell(null);
+                        e.currentTarget.blur();
+                        return;
+                      }
+                      if (e.key === 'Enter') {
+                        setDepsFocused(false);
+                        applyDependenciesInput((depsInputValue ?? '').trim());
+                        setEditingCell(null);
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    placeholder="번호 또는 이름…"
+                    className="w-full min-w-0 bg-white p-1 font-mono text-inherit border border-blue-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
+                    autoComplete="off"
+                  />
+                  {renderDepsDropdown}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80 font-mono"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    beginEdit('dependencies');
                   }}
-                  placeholder="번호 또는 이름…"
-                  className="w-full min-w-0 bg-transparent p-1 font-mono text-inherit border border-transparent hover:border-stone-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
-                  autoComplete="off"
-                />
-                {renderDepsDropdown}
-              </div>
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    beginEditNow('dependencies');
+                  }}
+                  title="더블클릭 또는 F2로 선행작업 수정"
+                >
+                  {depsDisplayText}
+                </button>
+              )}
             </div>
           );
         }
