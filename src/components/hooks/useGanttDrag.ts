@@ -281,9 +281,11 @@ export function useGanttDrag({
           const range = drag.shiftKey;
           const current = new Set<string>(sel);
           let next: string[];
-          if (range && anchorTaskIdRef.current) {
+          // 표에서만 선택한 뒤 간트에서 Shift 구간 선택 시 앵커 ref가 비어 있을 수 있음 → 현재 선택의 마지막 항목으로 보강
+          const anchorId = anchorTaskIdRef.current ?? (sel.length > 0 ? sel[sel.length - 1]! : null);
+          if (range && anchorId) {
             const idx = vis.findIndex((t) => t.id === taskId);
-            const anchorIdx = vis.findIndex((t) => t.id === anchorTaskIdRef.current);
+            const anchorIdx = vis.findIndex((t) => t.id === anchorId);
             if (idx !== -1 && anchorIdx !== -1) {
               const start = Math.min(idx, anchorIdx);
               const end = Math.max(idx, anchorIdx);

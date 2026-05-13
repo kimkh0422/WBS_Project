@@ -244,7 +244,6 @@ export function WBSTable({
     currentProjectId,
     currentUserId,
     currentUserDisplayName,
-    tableEditMode,
     editingCell,
     focusedCell,
   });
@@ -997,7 +996,9 @@ export function WBSTable({
             tabIndex={0}
             data-wbs-table
             className={cn(
-              'overflow-auto relative bg-[var(--color-bg)] outline-none focus:ring-0',
+              // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
+              isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
+              'relative bg-[var(--color-bg)] outline-none focus:ring-0',
               !tableEditMode && 'wbs-view-mode',
               fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
               wrapTextInCells && 'wrap-text-in-cells',
@@ -1184,7 +1185,6 @@ export function WBSTable({
                             focusedCell={focusedCell}
                             setFocusedCell={setFocusedCell}
                             tableEditMode={tableEditMode}
-                            setTableEditMode={setTableEditMode}
                             allAssignees={allAssignees}
                             assigneeOptionsByProjectId={assigneeOptionsByProjectId}
                             updateTask={updateTask}

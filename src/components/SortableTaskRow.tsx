@@ -101,10 +101,8 @@ export interface SortableTaskRowProps {
   setEditingCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   setFocusedCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
-  /** 편집 버튼으로 켠 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 */
+  /** 요약 바 등에서 켜는 엑셀형 편집 모드(표 컨테이너 wbs-view-mode·Esc 순서용). 셀 시각 격자와 무관 */
   tableEditMode: boolean;
-  /** 셀 클릭으로 편집을 시작할 때 편집모드를 자동으로 켜기 위한 setter */
-  setTableEditMode: (v: boolean) => void;
   allAssignees: string[];
   /** projectId → 프로젝트 등록 인원 + 해당 프로젝트 작업 담당자 목록 */
   assigneeOptionsByProjectId: Map<string, string[]>;
@@ -155,7 +153,6 @@ function SortableTaskRowInner({
   focusedCell,
   setFocusedCell,
   tableEditMode,
-  setTableEditMode,
   allAssignees,
   assigneeOptionsByProjectId,
   updateTask,
@@ -174,41 +171,41 @@ function SortableTaskRowInner({
 
   /**
    * 셀 클릭 시 호출: 2단계 동작 (Excel 패턴).
-   * - 1단계: 아직 포커스되지 않은 행의 셀을 클릭 → 행/셀 포커스만 잡고 편집은 시작하지 않음.
-   * - 2단계: 이미 포커스된 행의 셀(같거나 다른 셀)을 클릭 → 편집 모드 진입.
-   * - F2를 누르면 항상 현재 포커스된 셀(없으면 name)을 편집할 수 있음 (모든 컬럼 동일).
+   * - 1단계: 아직 포커스되지 않은 행의 셀을 클릭 → 행/셀 포커스만.
+   * - 2단계: 이미 포커스된 행의 셀을 클릭 → 인라인 편집 시작.
    */
   const beginEdit = (columnId: TableColumnId) => {
-    // 1단계: 다른 행에서 처음 클릭 → 포커스만 (권한 무관 — 행 선택은 보기 권한도 가능)
-    if (!isFocused) {
-      setTableEditMode(true);
+    const syncRowCellFocus = () => {
       setFocusedCell({ taskId: task.id, columnId });
       onFocusRow?.(task.id);
       onSetRowAnchor?.(task.id);
+    };
+
+    const startFieldEdit = () => {
+      if (columnId === 'name') {
+        setInlineEditingNameId(task.id);
+        setEditingCell(null);
+      } else {
+        setEditingCell({ taskId: task.id, columnId });
+        setInlineEditingNameId(null);
+      }
+    };
+
+    // 1단계: 다른 행에서 처음 클릭 → 포커스만 (권한 무관 — 행 선택은 보기 권한도 가능)
+    if (!isFocused) {
+      syncRowCellFocus();
       return;
     }
-    // 2단계: 같은 셀 재클릭 → 편집 시작.
-    // 편집 권한 없으면 진입 차단 (보기 권한 사용자 / 'all' 뷰 / 비-소유·비-멤버 프로젝트)
+    // 2단계: 같은 행에서 클릭 → 편집 시작
     if (!canEdit) {
-      // 포커스만 유지하고 편집은 시작하지 않음
       setFocusedCell({ taskId: task.id, columnId });
       return;
     }
-    setTableEditMode(true);
-    setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id);
-    onSetRowAnchor?.(task.id);
-    if (columnId === 'name') {
-      setInlineEditingNameId(task.id);
-      setEditingCell(null);
-    } else {
-      setEditingCell({ taskId: task.id, columnId });
-      setInlineEditingNameId(null);
-    }
+    syncRowCellFocus();
+    startFieldEdit();
   };
   /** 편집은 시작하지 않고 포커스만 옮길 때 (status select / dependencies input의 click 등) */
   const beginFocus = (columnId: TableColumnId) => {
-    setTableEditMode(true);
     setFocusedCell({ taskId: task.id, columnId });
     onFocusRow?.(task.id);
     onSetRowAnchor?.(task.id);
@@ -364,17 +361,21 @@ function SortableTaskRowInner({
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
       )}
-      onClick={(e) => {
+      onClickCapture={(e) => {
         if (e.shiftKey) {
           onSelect(task.id, false, true);
           if (onFocusRow) onFocusRow(task.id);
+          e.stopPropagation();
           return;
         }
         if (e.ctrlKey || e.metaKey) {
           onSelect(task.id, true, false);
           if (onFocusRow) onFocusRow(task.id);
-          return;
+          e.stopPropagation();
         }
+      }}
+      onClick={(e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
         if (onFocusRow) onFocusRow(task.id);
         onSetRowAnchor?.(task.id);
       }}
@@ -398,13 +399,8 @@ function SortableTaskRowInner({
           checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
-            if (e.shiftKey) {
-              onSelect(task.id, false, true);
-            } else if (e.ctrlKey || e.metaKey) {
-              onSelect(task.id, true, false);
-            } else {
-              onSelect(task.id, true, false);
-            }
+            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+            onSelect(task.id, true, false);
           }}
           onChange={() => {
             // onClick에서 제어하므로 onChange는 비워 둔다.
@@ -447,7 +443,6 @@ function SortableTaskRowInner({
                 onFocusRow?.(task.id);
                 onSetRowAnchor?.(task.id);
                 setFocusedCell({ taskId: task.id, columnId: firstEditable });
-                setTableEditMode(true);
               }}
             >
               {wbsId}
@@ -455,18 +450,14 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'name') {
-          const isFocused = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
+          const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell relative',
-                tableEditMode && !isInlineEditingName && 'ring-1 ring-dashed ring-slate-300 rounded',
-                isFocused && 'ring-2 ring-blue-500 ring-inset',
-              )}
+              className={cn('data-cell relative', isFocused && 'ring-2 ring-blue-500 ring-inset')}
               style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
               onClick={(e) => {
-                // 셀 클릭만으로 즉시 인라인 편집 시작 (편집모드 자동 진입).
+                // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
                 // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
                 // 이미 작업명 input이 떠 있으면 중복 beginEdit 방지 (버블링된 클릭 등).
                 e.stopPropagation();
@@ -535,7 +526,7 @@ function SortableTaskRowInner({
                   {task.name ? (
                     task.name
                   ) : (
-                    <span className="italic text-stone-400 font-normal select-none">(클릭 또는 F2로 작업명 입력)</span>
+                    <span className="italic text-stone-400 font-normal select-none">(더블클릭 또는 F2로 작업명 입력)</span>
                   )}
                 </span>
               )}
@@ -554,13 +545,12 @@ function SortableTaskRowInner({
         }
         if (colId === 'startDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
-          const isFocused = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
+          const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
           return (
             <div
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocused && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
@@ -622,13 +612,12 @@ function SortableTaskRowInner({
         }
         if (colId === 'endDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
-          const isFocusedEnd = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
+          const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
           return (
             <div
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedEnd && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
@@ -690,14 +679,13 @@ function SortableTaskRowInner({
         }
         if (colId === 'workEffort') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
-          const isFocusedWE = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
+          const isFocusedWE = focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
           const effortStep = effortUnitForTask === 'minute' ? 1 : 0.5;
           return (
             <div
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedWE && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
@@ -705,7 +693,10 @@ function SortableTaskRowInner({
                 e.stopPropagation();
                 if (!isEditing) beginEdit('workEffort');
               }}
-              onDoubleClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('workEffort');
+              }}
             >
               {isEditing ? (
                 <input
@@ -763,20 +754,22 @@ function SortableTaskRowInner({
         }
         if (colId === 'weight') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'weight';
-          const isFocusedW = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'weight' && !isEditing;
+          const isFocusedW = focusedCell?.taskId === task.id && focusedCell?.columnId === 'weight' && !isEditing;
           return (
             <div
               key={colId}
               className={cn(
                 'data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedW && 'ring-2 ring-blue-500 ring-inset',
               )}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('weight');
               }}
-              onDoubleClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('weight');
+              }}
             >
               {isEditing ? (
                 <input
@@ -826,15 +819,11 @@ function SortableTaskRowInner({
         }
         if (colId === 'progress') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'progress';
-          const isFocusedProg = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'progress' && !isEditing;
+          const isFocusedProg = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progress' && !isEditing;
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell font-mono text-xs text-stone-600 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
-                isFocusedProg && 'ring-2 ring-blue-500 ring-inset',
-              )}
+              className={cn('data-cell font-mono text-xs text-stone-600 min-w-0', isFocusedProg && 'ring-2 ring-blue-500 ring-inset')}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -844,7 +833,10 @@ function SortableTaskRowInner({
                 e.stopPropagation();
                 if (!isEditing) beginEdit('progress');
               }}
-              onDoubleClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('progress');
+              }}
               title="클릭하여 진척률 수정 · 우클릭: 갱신 메뉴"
             >
               {isEditing ? (
@@ -899,13 +891,12 @@ function SortableTaskRowInner({
             (a, b) => a.localeCompare(b, 'ko'),
           );
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
-          const isFocusedAssignee = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
+          const isFocusedAssignee = focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
           return (
             <div
               key={colId}
               className={cn(
                 'data-cell text-xs text-stone-600 relative overflow-visible group/assignee',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
                 isFocusedAssignee && 'ring-2 ring-blue-500 ring-inset',
               )}
               onClick={(e) => {
@@ -971,15 +962,11 @@ function SortableTaskRowInner({
           const fromProject = projectList.find((a) => (a.assignee || '').trim() === assignee);
           const primaryPercent = fromProject?.allocationPercent ?? 100;
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation';
-          const isFocusedAlloc = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
+          const isFocusedAlloc = focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell font-mono text-xs text-stone-600 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
-                isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset',
-              )}
+              className={cn('data-cell font-mono text-xs text-stone-600 min-w-0', isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('allocation');
@@ -1028,7 +1015,7 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'status') {
-          const isFocusedStatus = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'status';
+          const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status';
           return (
             <div
               key={colId}
@@ -1071,15 +1058,11 @@ function SortableTaskRowInner({
         }
         if (colId === 'deliverables') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'deliverables';
-          const isFocusedDel = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'deliverables' && !isEditing;
+          const isFocusedDel = focusedCell?.taskId === task.id && focusedCell?.columnId === 'deliverables' && !isEditing;
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell text-xs text-stone-600 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
-                isFocusedDel && 'ring-2 ring-blue-500 ring-inset',
-              )}
+              className={cn('data-cell text-xs text-stone-600 min-w-0', isFocusedDel && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('deliverables');
@@ -1223,7 +1206,7 @@ function SortableTaskRowInner({
               .sort((a, b) => a - b);
             setDepsInputValue(visibleNums.join(', '));
           };
-          const isFocusedDep = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
+          const isFocusedDep = focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies';
           // 드롭다운은 input이 실제 포커스됐을 때만 열림. Enter로 편집 종료 시 setDepsFocused(false)로 자동 닫힘.
           const depsMenuOpen = depsFocused && depSuggestionsList.length > 0;
           // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
@@ -1327,17 +1310,13 @@ function SortableTaskRowInner({
         }
         if (colId.startsWith('custom:')) {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === colId;
-          const isFocusedCustom = tableEditMode && focusedCell?.taskId === task.id && focusedCell?.columnId === colId && !isEditing;
+          const isFocusedCustom = focusedCell?.taskId === task.id && focusedCell?.columnId === colId && !isEditing;
           const currentValue = task.customFields?.[colId] ?? '';
           const customLabel = customColumnNameById.get(colId) ?? colId.replace(/^custom:/, '');
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell text-xs text-stone-600 min-w-0',
-                tableEditMode && !isEditing && 'ring-1 ring-dashed ring-slate-300 rounded',
-                isFocusedCustom && 'ring-2 ring-blue-500 ring-inset',
-              )}
+              className={cn('data-cell text-xs text-stone-600 min-w-0', isFocusedCustom && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit(colId);

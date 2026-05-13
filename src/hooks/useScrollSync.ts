@@ -32,23 +32,43 @@ export function useScrollSync(view: string) {
       isSyncingScroll.current = true;
       const top = (e.target as HTMLDivElement).scrollTop;
       gantt.scrollTop = top;
-      requestAnimationFrame(() => { isSyncingScroll.current = false; });
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
     };
     const syncFromGantt = (e: Event) => {
       if (isSyncingScroll.current) return;
       isSyncingScroll.current = true;
       const top = (e.target as HTMLDivElement).scrollTop;
       wbs.scrollTop = top;
-      requestAnimationFrame(() => { isSyncingScroll.current = false; });
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
     };
 
     wbs.addEventListener('scroll', syncFromWbs, { passive: true });
     gantt.addEventListener('scroll', syncFromGantt, { passive: true });
     gantt.scrollTop = wbs.scrollTop;
 
+    // 스크롤바 유무·패널 리사이즈 후에도 동일 scrollTop 유지 (미세 어긋남 방지)
+    const onResizeSync = () => {
+      if (isSyncingScroll.current) return;
+      isSyncingScroll.current = true;
+      gantt.scrollTop = wbs.scrollTop;
+      requestAnimationFrame(() => {
+        isSyncingScroll.current = false;
+      });
+    };
+    const roWbs = new ResizeObserver(onResizeSync);
+    const roGantt = new ResizeObserver(onResizeSync);
+    roWbs.observe(wbs);
+    roGantt.observe(gantt);
+
     return () => {
       wbs.removeEventListener('scroll', syncFromWbs);
       gantt.removeEventListener('scroll', syncFromGantt);
+      roWbs.disconnect();
+      roGantt.disconnect();
     };
   }, [view, scrollSyncRetry]);
 

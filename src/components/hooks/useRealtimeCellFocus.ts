@@ -16,7 +16,6 @@ interface UseRealtimeCellFocusParams {
   currentProjectId: string;
   currentUserId: string;
   currentUserDisplayName: string;
-  tableEditMode: boolean;
   editingCell: { taskId: string; columnId: TableColumnId } | null;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
 }
@@ -25,7 +24,6 @@ export function useRealtimeCellFocus({
   currentProjectId,
   currentUserId,
   currentUserDisplayName,
-  tableEditMode,
   editingCell,
   focusedCell,
 }: UseRealtimeCellFocusParams) {
@@ -64,7 +62,7 @@ export function useRealtimeCellFocus({
 
     const prune = (list: OtherCellFocus[]) => {
       const now = Date.now();
-      return list.filter(x => now - x.ts < 15000); // 15s stale prune
+      return list.filter((x) => now - x.ts < 15000); // 15s stale prune
     };
 
     channel.on('broadcast', { event: 'cell_focus' }, (payload) => {
@@ -78,9 +76,9 @@ export function useRealtimeCellFocus({
         if (!taskId || !columnId) return;
         const displayName = String(p?.displayName ?? '').trim() || '(이름 없음)';
         const color = String(p?.color ?? '').trim() || colorForUser(uid);
-        setOtherCellFocus(prev => {
+        setOtherCellFocus((prev) => {
           const next = prune(prev);
-          const without = next.filter(x => x.userId !== uid);
+          const without = next.filter((x) => x.userId !== uid);
           return [...without, { userId: uid, displayName, color, taskId, columnId, ts: Date.now() }];
         });
       });
@@ -92,7 +90,7 @@ export function useRealtimeCellFocus({
         const p = raw;
         const uid = String(p?.userId ?? '').trim();
         if (!uid || uid === currentUserId) return;
-        setOtherCellFocus(prev => prev.filter(x => x.userId !== uid));
+        setOtherCellFocus((prev) => prev.filter((x) => x.userId !== uid));
       });
     });
 
@@ -109,11 +107,10 @@ export function useRealtimeCellFocus({
     };
   }, [currentProjectId, currentUserId, colorForUser]);
 
-  // 내 포커스 전송 (focusedCell 우선, editingCell도 포함)
+  // 내 포커스 전송 (focusedCell 우선, editingCell도 포함; 격자 모드와 무관)
   useEffect(() => {
     const channel = focusChannelRef.current;
     if (!channel) return;
-    if (!tableEditMode) return;
     if (!currentUserId) return;
     const cell = editingCell ?? focusedCell;
     const send = (event: 'cell_focus' | 'cell_blur', payload: Record<string, string>) => {
@@ -137,7 +134,7 @@ export function useRealtimeCellFocus({
       });
     }, 120);
     return () => window.clearTimeout(t);
-  }, [tableEditMode, editingCell, focusedCell, currentUserId, currentUserDisplayName, colorForUser]);
+  }, [editingCell, focusedCell, currentUserId, currentUserDisplayName, colorForUser]);
 
   return { otherCellFocus, otherFocusByCellKey, colorForUser };
 }

@@ -102,9 +102,25 @@ export function MembersModal({
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [accessMember, setAccessMember] = useState<ProfileRow | null>(null);
 
-  type SortKey = 'full_name' | 'email' | 'created_at' | 'login_count' | 'last_visited_at' | 'approved' | 'role';
+  type SortKey = 'full_name' | 'email' | 'created_at' | 'login_count' | 'last_visited_at' | 'approved' | 'role' | 'project_count';
   const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  /** 회원별 본인이 만든 프로젝트(소유자) 목록·갯수. `projects` prop은 RLS로 조회 가능한 범위만 포함. */
+  const projectsByOwner = useMemo(() => {
+    const map = new Map<string, Array<Pick<Project, 'id' | 'name'>>>();
+    for (const p of projects) {
+      const k = p.ownerId;
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push({ id: p.id, name: p.name });
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    }
+    return map;
+  }, [projects]);
+  const getProjectCountForMember = useCallback((memberId: string) => projectsByOwner.get(memberId)?.length ?? 0, [projectsByOwner]);
 
   const departmentOptions = useMemo(() => {
     const set = new Set<string>();
@@ -213,6 +229,10 @@ export function MembersModal({
           va = a.is_admin ? 1 : 0;
           vb = b.is_admin ? 1 : 0;
           break;
+        case 'project_count':
+          va = getProjectCountForMember(a.id);
+          vb = getProjectCountForMember(b.id);
+          break;
         default:
           return 0;
       }
@@ -224,7 +244,7 @@ export function MembersModal({
       return n;
     });
     return arr;
-  }, [members, sortKey, sortDir]);
+  }, [members, sortKey, sortDir, getProjectCountForMember]);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -596,6 +616,28 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
+                    <th
+                      className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap"
+                      title="해당 회원이 만든(소유한) 프로젝트 개수"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleSort('project_count')}
+                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        title="프로젝트 수로 정렬"
+                      >
+                        프로젝트 수
+                        {sortKey === 'project_count' ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp size={14} />
+                          ) : (
+                            <ArrowDown size={14} />
+                          )
+                        ) : (
+                          <ArrowUpDown size={14} className="opacity-40" />
+                        )}
+                      </button>
+                    </th>
                     <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트 권한</th>
                     <th className="text-left py-3 px-2 font-semibold text-stone-600">
                       <button
@@ -750,6 +792,27 @@ export function MembersModal({
                             <UserCheck size={12} /> 승인
                           </button>
                         )}
+                      </td>
+                      <td className="py-3 px-2 text-stone-700 tabular-nums">
+                        {(() => {
+                          const owned = projectsByOwner.get(m.id) ?? [];
+                          const count = owned.length;
+                          if (count === 0) return <span className="text-stone-300">0</span>;
+                          const tooltip =
+                            owned
+                              .slice(0, 30)
+                              .map((p, i) => `${i + 1}. ${p.name}`)
+                              .join('\n') + (owned.length > 30 ? `\n…외 ${owned.length - 30}개` : '');
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs font-medium cursor-help"
+                              title={tooltip}
+                            >
+                              <FolderGit2 size={12} />
+                              {count}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-2">
                         {effectiveIsAdmin ? (

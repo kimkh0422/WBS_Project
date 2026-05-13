@@ -301,14 +301,15 @@ export function ShareModal({
 
   const memberUserIds = new Set(members.map((m) => m.user_id));
   const addableProfiles = profiles.filter((p) => !memberUserIds.has(p.id) && p.id !== ownerId);
+  /** 검색 중에는 조직 드롭다운 범위를 쓰지 않고, 조직도 전체(가입 회원)에서 이름·이메일로 찾는다. */
+  const addSearchActive = addSearch.trim().length > 0;
   const filteredAddableProfiles = addableProfiles.filter((p) => {
-    // 조직 필터: 프로필 표시명(또는 full_name)이 선택된 조직 인원에 속해야 함
-    if (namesInSelectedOrg) {
+    if (!addSearchActive && namesInSelectedOrg) {
       const name = profileMap[p.id] ?? p.full_name ?? '';
       if (!namesInSelectedOrg.has(name)) return false;
     }
+    if (!addSearchActive) return true;
     const q = addSearch.trim().toLowerCase();
-    if (!q) return true;
     const label = (profileMap[p.id] ?? p.full_name ?? p.email ?? p.id).toLowerCase();
     return label.includes(q);
   });
@@ -569,7 +570,7 @@ export function ShareModal({
                       value={orgFilterId}
                       onChange={(e) => setOrgFilterId(e.target.value)}
                       className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-[var(--color-line)] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
-                      title="조직(부서)을 선택하면 해당 조직(하위 부서 포함) 인원만 목록에 표시됩니다."
+                      title="조직(부서)을 선택하면 검색어가 없을 때만 해당 조직(하위 부서 포함) 인원으로 목록을 제한합니다. 이름·이메일 검색 시에는 전체 조직(가입 회원)에서 찾습니다."
                     >
                       <option value="all">전체 조직</option>
                       {orgOptions.map((o) => (
@@ -589,7 +590,11 @@ export function ShareModal({
                   <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-stone-200 bg-stone-50 p-2">
                     {filteredAddableProfiles.length === 0 ? (
                       <div className="text-xs text-stone-400 py-4 text-center">
-                        {orgFilterId !== 'all' ? '선택한 조직의 가입 사용자가 없습니다.' : '선택 가능한 사용자가 없습니다.'}
+                        {addSearchActive
+                          ? '검색과 일치하는 가입 사용자가 없습니다.'
+                          : orgFilterId !== 'all'
+                            ? '선택한 조직의 가입 사용자가 없습니다.'
+                            : '선택 가능한 사용자가 없습니다.'}
                       </div>
                     ) : (
                       <ul className="space-y-1">

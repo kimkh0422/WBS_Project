@@ -165,7 +165,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         setTimeout(() => {
           setEditingCell(null);
           setInlineEditingNameId(null);
-          setTableEditMode(true);
           if (e.shiftKey) {
             // Shift+Enter: 다음 행 같은 컬럼으로 포커스 이동 (편집은 시작 안 함, F2로 편집)
             const idx = visibleTasks.findIndex((t) => t.id === currentTaskId);
@@ -208,7 +207,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         // 2) 새 작업으로 이동
         const moveToTaskId = (nextId: string) => {
           setLastSelectedId(nextId);
-          setTableEditMode(true);
           setFocusedCell({ taskId: nextId, columnId });
           if (columnId === 'name') {
             setInlineEditingNameId(nextId);
@@ -322,7 +320,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               (document.activeElement as HTMLElement | null)?.blur?.();
               setTimeout(() => {
                 setLastSelectedId(nextTask.id);
-                setTableEditMode(true);
                 setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
                 if (wasEditing) {
                   if (nextCol === 'name') {
@@ -344,18 +341,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       }
 
-      // 편집 모드에서 셀 간 화살표 이동 (편집 중이 아닐 때)
-      // 셀 포커스 모드(편집 중 아님)에서 화살표로 셀 이동.
+      // 셀 간 화살표 이동 (편집 중이 아닐 때, F2/격자 모드 없이도 동작)
+      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주해 ←/→/↑/↓로 셀 이동.
       // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
-      // 빠진 경우에도 ←/→가 동작하도록 한다. (focusedCell이 있고 편집 중이 아니면 표 사용자
-      // 의도가 명확함 — 실제 입력 요소 안이라면 isWbsTableCellTypingTarget 체크로 분리됨)
+      // 빠진 경우에도 ←/→가 동작하도록 한다.
       // Alt(작업 순서 변경)·Shift(트리 펼치기)·Ctrl(범위 선택) 조합은 다른 핸들러로 패스.
+      const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
+        ? 'name'
+        : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
+      const effectiveArrowCell = focusedCell ?? (lastSelectedId ? { taskId: lastSelectedId, columnId: defaultNavColumn } : null);
       if (
-        tableEditMode &&
         !editingCell &&
         !inlineEditingNameId &&
         !isWbsTableCellTypingTarget(target) &&
-        focusedCell &&
+        effectiveArrowCell &&
         editableColumnIds.length > 0 &&
         !e.altKey &&
         !e.shiftKey &&
@@ -363,8 +362,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         !e.metaKey
       ) {
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          const rowIdx = visibleTasks.findIndex((t) => t.id === focusedCell.taskId);
-          const colIdx = editableColumnIds.indexOf(focusedCell.columnId);
+          const rowIdx = visibleTasks.findIndex((t) => t.id === effectiveArrowCell.taskId);
+          let colIdx = editableColumnIds.indexOf(effectiveArrowCell.columnId);
+          if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumn));
           if (rowIdx >= 0 && colIdx >= 0) {
             let nextRowIdx = rowIdx;
             let nextColIdx = colIdx;
@@ -394,9 +394,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
               // 다음 키 입력도 안정적으로 받도록 표 컨테이너로 포커스 복원
               tableScrollRef.current?.focus();
+              return;
             }
           }
-          return;
         }
       }
 
@@ -411,6 +411,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
         if (inlineEditingNameId) {
           setInlineEditingNameId(null);
+          e.preventDefault();
+          return;
+        }
+        if (focusedCell) {
+          setFocusedCell(null);
           e.preventDefault();
           return;
         }
@@ -593,20 +598,19 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // F2: 선택 셀(편집 모드 포커스) 또는 현재 행·작업명을 즉시 인라인 편집 (엑셀과 동일)
+      // F2: 포커스 셀 또는 현재 행·작업명을 즉시 인라인 편집 (격자 UI는 쓰지 않음)
       if (e.key === 'F2') {
         e.preventDefault();
         // 편집 권한 없으면 F2도 동작 안 함 (보기 권한 사용자나 'all' 뷰에서 편집 차단)
         if (!canEditCurrentProject) return;
-        const taskId = tableEditMode && focusedCell ? focusedCell.taskId : lastSelectedId || visibleTasks[0]?.id;
+        const taskId = lastSelectedId || focusedCell?.taskId || visibleTasks[0]?.id;
         if (!taskId || editableColumnIds.length === 0) return;
         const columnId =
-          tableEditMode && focusedCell && focusedCell.taskId === taskId && editableColumnIds.includes(focusedCell.columnId)
+          focusedCell && focusedCell.taskId === taskId && editableColumnIds.includes(focusedCell.columnId)
             ? focusedCell.columnId
             : editableColumnIds.includes('name')
               ? 'name'
               : editableColumnIds[0]!;
-        setTableEditMode(true);
         setFocusedCell({ taskId, columnId });
         setLastSelectedId(taskId);
         // 체크박스 선택은 유지 (편집만으로 행이 자동 체크되지 않음)
@@ -682,8 +686,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(prevTask.id);
-              // 키보드 이동 시 항상 셀 포커스 동기화 → ←/→가 트리 펼치기로 빠지지 않고 셀 이동으로 일관 동작
-              setTableEditMode(true);
+              // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
               setFocusedCell({
                 taskId: prevTask.id,
                 columnId: focusedCell?.columnId ?? 'name',
@@ -709,8 +712,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(nextTask.id);
-              // 키보드 이동 시 항상 셀 포커스 동기화 → ←/→가 트리 펼치기로 빠지지 않고 셀 이동으로 일관 동작
-              setTableEditMode(true);
+              // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
               setFocusedCell({
                 taskId: nextTask.id,
                 columnId: focusedCell?.columnId ?? 'name',

@@ -28,7 +28,12 @@
       "Bash(git check-ignore *)",
       "Bash(git remote *)",
       "Bash(zip --version)",
-      "PowerShell(Add-Type -AssemblyName 'System.IO.Compression.FileSystem'; $zip = [System.IO.Compression.ZipFile]::OpenRead\\('c:\\\\gmtProject\\\\WBS_MG_v0.4.91_20260427.zip'\\); $entries = $zip.Entries; $hasNodeModules = $entries | Where-Object { $_.FullName -match '\\(^|/\\)node_modules/' } | Measure-Object | Select-Object -ExpandProperty Count; $hasGit = $entries | Where-Object { $_.FullName -match '\\(^|/\\)\\\\.git/' } | Measure-Object | Select-Object -ExpandProperty Count; \"Total entries: $\\($entries.Count\\)\"; \"node_modules entries: $hasNodeModules\"; \".git entries: $hasGit\"; \"Sample files:\"; $entries | Select-Object -First 8 | ForEach-Object { \"  $\\($_.FullName\\)\" }; $zip.Dispose\\(\\))"
+      "PowerShell(Add-Type -AssemblyName 'System.IO.Compression.FileSystem'; $zip = [System.IO.Compression.ZipFile]::OpenRead\\('c:\\\\gmtProject\\\\WBS_MG_v0.4.91_20260427.zip'\\); $entries = $zip.Entries; $hasNodeModules = $entries | Where-Object { $_.FullName -match '\\(^|/\\)node_modules/' } | Measure-Object | Select-Object -ExpandProperty Count; $hasGit = $entries | Where-Object { $_.FullName -match '\\(^|/\\)\\\\.git/' } | Measure-Object | Select-Object -ExpandProperty Count; \"Total entries: $\\($entries.Count\\)\"; \"node_modules entries: $hasNodeModules\"; \".git entries: $hasGit\"; \"Sample files:\"; $entries | Select-Object -First 8 | ForEach-Object { \"  $\\($_.FullName\\)\" }; $zip.Dispose\\(\\))",
+      "Bash(findstr /n \"Dashboard\" src\\\\App.tsx)",
+      "Bash(python -c \"import docx; print\\('python-docx version:', docx.__version__\\)\")",
+      "Bash(python scripts/build-user-manual.py)",
+      "Bash(python -c \"import pptx; print\\('python-pptx version:', pptx.__version__\\)\")",
+      "Bash(python scripts/build-company-intro-pptx.py)"
     ]
   }
 }

@@ -540,8 +540,8 @@ export function GanttChart({
                 실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
             {topSpacerHeight > 0 && (
               <div
-                className="sticky top-0 z-20 border-b border-blue-200/70 bg-blue-50/70 backdrop-blur-sm"
-                style={{ height: topSpacerHeight, width: totalWidth }}
+                className="sticky top-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm"
+                style={{ height: topSpacerHeight, width: totalWidth, boxSizing: 'border-box' }}
                 aria-hidden
               />
             )}
@@ -612,9 +612,18 @@ export function GanttChart({
                 return (
                   <div
                     key={task.id}
-                    className={cn('absolute left-0 right-0 group transition-colors', isSelected ? 'bg-blue-50/50' : 'hover:bg-stone-50')}
+                    className={cn(
+                      'absolute left-0 right-0 group box-border border-b border-slate-100/80 transition-colors z-[1]',
+                      isSelected &&
+                        'z-[2] bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
+                      !isSelected && 'hover:bg-[var(--color-line-soft)]',
+                    )}
                     style={{ width: totalWidth, height: rowH, top: virtualRow.start }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
+                    onMouseDown={(e) => {
+                      if (e.button !== 0) return;
+                      handleBarMouseDown(e, task);
+                    }}
                   >
                     <div
                       onDoubleClick={() => setEditingTask(task)}
@@ -624,7 +633,6 @@ export function GanttChart({
                         'absolute top-0 rounded shadow-sm overflow-hidden transition-all border',
                         isDone && 'gantt-completed',
                         isCritical && 'ring-2 ring-red-500 border-red-600',
-                        isSelected && !isBeingDragged && !isCritical ? 'ring-2 ring-blue-300/80' : '',
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110',
                       )}
                       style={{
@@ -696,7 +704,6 @@ export function GanttChart({
                         {task.name}
                       </span>
                     )}
-                    {isSelected && <div className="absolute inset-0 pointer-events-none ring-1 ring-blue-300/70" />}
                   </div>
                 );
               })}
@@ -974,9 +981,18 @@ export function GanttChart({
                   return (
                     <div
                       key={task.id}
-                      className={cn('relative group transition-colors', isSelected ? 'bg-blue-50/50' : 'hover:bg-stone-50')}
+                      className={cn(
+                        'relative group box-border border-b border-slate-100/80 transition-colors',
+                        isSelected &&
+                          'bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
+                        !isSelected && 'hover:bg-[var(--color-line-soft)]',
+                      )}
                       style={{ width: totalWidth, height: rowH }}
                       onContextMenu={(e) => handleContextMenu(e, task.id)}
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return;
+                        handleBarMouseDown(e, task);
+                      }}
                     >
                       {/* 마일스톤: 다이아몬드 / 일반 작업: 바 */}
                       <div
@@ -990,7 +1006,6 @@ export function GanttChart({
                             ? 'rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm'
                             : 'rounded shadow-sm border',
                           !isMilestone && isCritical && 'ring-2 ring-red-500 border-red-600',
-                          isSelected && !isBeingDragged && !isCritical ? 'ring-2 ring-blue-300/80' : '',
                           isBeingDragged
                             ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50'
                             : !isMilestone && 'cursor-grab hover:brightness-110',
@@ -1051,7 +1066,6 @@ export function GanttChart({
                           {task.name}
                         </span>
                       )}
-                      {isSelected && <div className="absolute inset-0 pointer-events-none ring-1 ring-blue-300/70" />}
                     </div>
                   );
                 })}
