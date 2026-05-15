@@ -130,6 +130,8 @@ export function WBSProvider({
   handleDbErrorRef.current = handleDbError;
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
   const allTasksRef = useRef<Task[]>([]);
+  const deletedTaskIdsByProjectRef = useRef<Record<string, string[]>>({});
+  deletedTaskIdsByProjectRef.current = deletedTaskIdsByProject;
   const lastConflictRef = useRef<number>(0);
   const CONFLICT_DEBOUNCE_MS = 2000;
   const initNewProjectPromiseRef = useRef<Promise<Project | null> | null>(null);
@@ -292,22 +294,36 @@ export function WBSProvider({
             // 로컬에 저장된 설정을 기본값으로 읽어둠 (favoriteProjectIds 등 DB에 없는 필드 보존)
             const localSettingsRaw = await loadJsonWithIdbFallback<unknown>('wbs-settings');
             const localSettings = parseSettings(localSettingsRaw);
+            // 새로고침 시 아직 DB에 반영 안 된 삭제 목록을 IDB에서 읽어 복원 방지
+            const [savedDeleted, savedDeletedProjIds] = await Promise.all([
+              loadJsonWithIdbFallback<Record<string, string[]>>('wbs-deleted-task-ids'),
+              loadJsonWithIdbFallback<string[]>('wbs-deleted-project-ids'),
+            ]);
+            const pendingDeletedTasks = savedDeleted && typeof savedDeleted === 'object' ? (savedDeleted as Record<string, string[]>) : {};
+            const pendingDeletedProjIdSet = new Set(Array.isArray(savedDeletedProjIds) ? savedDeletedProjIds : []);
+            const pendingDeletedTaskIdSet = new Set(Object.values(pendingDeletedTasks).flat());
 
             const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
-            setDeletedTaskIdsByProject({});
-            setDeletedProjectIds([]);
+            setDeletedTaskIdsByProject(pendingDeletedTasks);
+            setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');
+            const filteredDbProjects = dbProjects.filter((p) => !pendingDeletedProjIdSet.has(p.id));
             if (dbProjects.length > 0) {
-              setProjects(dbProjects);
+              setProjects(filteredDbProjects);
               const effectiveSettings = { ...localSettings, ...(dbSettings ?? {}) } as WBSSettings;
-              setAllTasks(applyRollupsToTasks(Array.isArray(dbTasks) ? dbTasks : [], effectiveSettings.statusConfigs));
+              setAllTasks(
+                applyRollupsToTasks(
+                  (Array.isArray(dbTasks) ? dbTasks : []).filter((t) => !pendingDeletedTaskIdSet.has(t.id)),
+                  effectiveSettings.statusConfigs,
+                ),
+              );
               if (dbSettings) {
                 setWbsSettings((prev) => ({ ...localSettings, ...prev, ...(dbSettings as Partial<WBSSettings>) }));
               } else {
                 setWbsSettings(localSettings);
               }
               const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
-              const validId = dbProjects.find((p) => p.id === savedCurrent)?.id ?? dbProjects[0]?.id ?? '';
+              const validId = filteredDbProjects.find((p) => p.id === savedCurrent)?.id ?? filteredDbProjects[0]?.id ?? '';
               if (validId) setCurrentProjectId(validId);
               const ml =
                 dbSettings && typeof (dbSettings as Partial<WBSSettings>).maxLevel === 'number'
@@ -607,9 +623,12 @@ export function WBSProvider({
       const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
       const rows = Array.isArray(dbTaskRows) ? dbTaskRows : [];
       const { merged: mergedTasks, replacedFromServer: tReplaced } = mergeTasksDelta(prevTasks, rows, serverPidSet);
-      const tasksOrderChanged = prevTasks.length !== mergedTasks.length || prevTasks.some((t, i) => t.id !== mergedTasks[i]?.id);
+      // 아직 DB에 반영 안 된 삭제 목록을 풀 결과에서도 제외 (미완료 삭제가 풀로 되살아나지 않도록)
+      const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
+      const finalMergedTasks = pendingDelIdSet.size > 0 ? mergedTasks.filter((t) => !pendingDelIdSet.has(t.id)) : mergedTasks;
+      const tasksOrderChanged = prevTasks.length !== finalMergedTasks.length || prevTasks.some((t, i) => t.id !== finalMergedTasks[i]?.id);
       if (tReplaced > 0 || tasksOrderChanged) {
-        setAllTasks(preserveLocalExpanded(applyRollupsToTasks(mergedTasks, effectiveSettings.statusConfigs)));
+        setAllTasks(preserveLocalExpanded(applyRollupsToTasks(finalMergedTasks, effectiveSettings.statusConfigs)));
       }
 
       // Settings: 들어온 부분 키만 비교. 값이 다 같으면 setWbsSettings 스킵.
