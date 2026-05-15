@@ -584,12 +584,10 @@ function WBSApp({
     redo,
     expandToLevel,
     setTreeExpandLevel,
-    navigateWithTip,
-    hiddenViews,
     setIsShortcutsVisible,
-    setIsAdminPasswordModalOpen,
-    pushChangesToDbRef,
-    setIsDbPushInProgress,
+    canToggleAdminMemberView: (isAdmin || adminOverride) && !!user?.id,
+    memberPreview,
+    setMemberPreview,
     pushToast,
   });
 
@@ -1095,6 +1093,7 @@ function WBSApp({
           memberPreview={memberPreview}
           setMemberPreview={setMemberPreview}
           canOpenMembersManagement={canOpenMembersManagement}
+          setIsAdminPasswordModalOpen={setIsAdminPasswordModalOpen}
         />
       )}
 

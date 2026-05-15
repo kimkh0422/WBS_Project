@@ -15,6 +15,11 @@ export function ShortcutsSidebar({ onClose }: { onClose?: () => void }) {
         { label: '레벨 펼치기', keys: ['Ctrl', 'Alt', '1~9'], hint: '1~9 레벨로 트리 펼치기' },
         { label: '줄높이 높이기 / 낮추기', keys: ['Ctrl', '+ / -'] },
         { label: '단축키 사이드바 토글', keys: ['Shift', '?'] },
+        {
+          label: '관리자 ↔ 일반 사용자 화면',
+          keys: ['Shift', 'F12'],
+          hint: 'DB 관리자이거나 비밀번호 관리자 모드일 때만 동작합니다.',
+        },
       ],
     },
     {

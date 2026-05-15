@@ -33,7 +33,6 @@ import {
   Moon,
   Monitor,
   Star,
-  Eye,
   EyeOff,
   ArrowLeftRight,
 } from 'lucide-react';
@@ -128,6 +127,8 @@ export interface AppHeaderProps {
   setMemberPreview?: (v: boolean) => void;
   /** 시스템 관리자가 아니어도 true이면 회원 관리 메뉴 표시 (조직 책임자) */
   canOpenMembersManagement?: boolean;
+  /** DB 관리자가 아닌 운영자용: 비밀번호로 관리자 모드(adminOverride) 진입 */
+  setIsAdminPasswordModalOpen?: (v: boolean) => void;
 }
 
 export function AppHeader({
@@ -203,6 +204,7 @@ export function AppHeader({
   memberPreview = false,
   setMemberPreview,
   canOpenMembersManagement,
+  setIsAdminPasswordModalOpen,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
   const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
@@ -405,26 +407,6 @@ export function AppHeader({
       )}
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}
     >
-      {/* 회원 화면 체험 모드 안내 — 관리자가 비관리자 시점으로 미리보는 중. 항상 노출되어 복귀 가능. */}
-      {memberPreview && setMemberPreview && (
-        <div className="-mx-4 md:-mx-6 -mt-3 mb-3 px-4 md:px-6 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-amber-900">
-          <div className="flex items-center gap-2 text-sm font-medium min-w-0">
-            <Eye size={14} className="shrink-0" />
-            <span className="truncate">
-              {isAdmin
-                ? '관리자 지정 계정: 지금은 일반 사용자 화면입니다. 관리자 전용 메뉴·권한이 숨겨져 있습니다.'
-                : '관리자 모드: 지금은 일반 사용자 화면입니다. 관리자 전용 메뉴·권한이 숨겨져 있습니다.'}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setMemberPreview(false)}
-            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-          >
-            <EyeOff size={12} /> 관리자 화면으로 전환
-          </button>
-        </div>
-      )}
       {/* 모바일 접힌 상태: 최소 바 */}
       <div className={cn('flex md:hidden items-center justify-between gap-2', !isHeaderCollapsed && 'hidden')}>
         <div className="flex items-center gap-2 min-w-0">
@@ -1068,7 +1050,7 @@ export function AppHeader({
                             setMemberPreview(true);
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
-                          title="일반 사용자와 동일한 메뉴·권한만 보입니다. 관리자(지정) 계정은 헤더 안내 또는 계정 메뉴에서 언제든 관리자 화면으로 돌아갈 수 있습니다."
+                          title="일반 사용자와 동일한 메뉴·권한만 보입니다. 계정 메뉴 또는 Shift+F12로 관리자 화면으로 돌아갈 수 있습니다."
                         >
                           <ArrowLeftRight size={14} /> 일반 사용자 화면으로 전환
                         </button>
@@ -1115,7 +1097,13 @@ export function AppHeader({
                 type="button"
                 onClick={() => setIsUserMenuOpen((o) => !o)}
                 className="flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 max-w-[140px] sm:max-w-[180px]"
-                title={memberPreview && canSwitchAdminMemberView ? '계정: 일반 사용자 화면 모드(관리자 전환은 메뉴 내 버튼)' : '계정'}
+                title={
+                  memberPreview && canSwitchAdminMemberView
+                    ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 메뉴에서 관리자 화면으로 전환)'
+                    : canSwitchAdminMemberView
+                      ? '계정 (Shift+F12: 일반 사용자 화면으로 전환)'
+                      : '계정'
+                }
               >
                 <User size={14} className="shrink-0 text-slate-500" />
                 <span className="truncate">{currentUserDisplay || user?.email || '계정'}</span>
@@ -1137,6 +1125,7 @@ export function AppHeader({
                             setIsUserMenuOpen(false);
                             setMemberPreview(false);
                           }}
+                          title="Shift+F12로도 전환할 수 있습니다."
                         >
                           <EyeOff size={14} /> 관리자 화면으로 전환
                         </button>
@@ -1148,11 +1137,27 @@ export function AppHeader({
                             setIsUserMenuOpen(false);
                             setMemberPreview(true);
                           }}
-                          title="관리자 전용 대시보드·설정·권한이 숨겨진 일반 사용자 화면과 동일하게 표시됩니다."
+                          title="관리자 전용 대시보드·설정·권한이 숨겨진 일반 사용자 화면과 동일하게 표시됩니다. 단축키: Shift+F12"
                         >
                           <ArrowLeftRight size={14} /> 일반 사용자 화면으로 전환
                         </button>
                       )}
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                    </>
+                  )}
+                  {user?.id && !isAdmin && !adminOverride && setIsAdminPasswordModalOpen && (
+                    <>
+                      <button
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          setIsAdminPasswordModalOpen(true);
+                        }}
+                        title="DB에 관리자로 등록되지 않은 경우, 앱 비밀번호로 관리자 기능을 켤 수 있습니다."
+                      >
+                        <ShieldCheck size={14} /> 관리자 비밀번호로 전환…
+                      </button>
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                     </>
                   )}

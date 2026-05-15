@@ -1,5 +1,4 @@
-import React, { useEffect, useCallback, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { isComposingKeyEvent } from '../lib/ime';
 
 interface KeyboardShortcutsDeps {
@@ -7,12 +6,11 @@ interface KeyboardShortcutsDeps {
   redo: () => void;
   expandToLevel: (level: number) => void;
   setTreeExpandLevel: (level: number) => void;
-  navigateWithTip: (view: string) => void;
-  hiddenViews: Set<string>;
   setIsShortcutsVisible: Dispatch<SetStateAction<boolean>>;
-  setIsAdminPasswordModalOpen: (open: boolean) => void;
-  pushChangesToDbRef: MutableRefObject<(scope: 'current' | 'all') => Promise<unknown>>;
-  setIsDbPushInProgress: (v: boolean) => void;
+  /** DB 관리자 또는 비밀번호 관리자 모드일 때만 일반 사용자 화면(memberPreview) 토글 가능 */
+  canToggleAdminMemberView: boolean;
+  memberPreview: boolean;
+  setMemberPreview: (v: boolean) => void;
   pushToast: (message: string, opts?: Record<string, unknown>) => void;
 }
 
@@ -22,12 +20,10 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     redo,
     expandToLevel,
     setTreeExpandLevel,
-    navigateWithTip,
-    hiddenViews,
     setIsShortcutsVisible,
-    setIsAdminPasswordModalOpen,
-    pushChangesToDbRef,
-    setIsDbPushInProgress,
+    canToggleAdminMemberView,
+    memberPreview,
+    setMemberPreview,
     pushToast,
   } = deps;
 
@@ -100,20 +96,25 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     return () => window.removeEventListener('keydown', handleShortcutsToggle);
   }, [setIsShortcutsVisible]);
 
-  // Shift+F12: Admin mode
+  // Shift+F12: 관리자 전용 UI ↔ 일반 사용자 화면(memberPreview) 토글
   useEffect(() => {
-    const handleAdminHotkey = (e: KeyboardEvent) => {
+    const handleAdminMemberViewHotkey = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
+      const isF12 = e.key === 'F12' || e.code === 'F12';
+      if (!e.shiftKey || !isF12) return;
+      if (!canToggleAdminMemberView) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-      if (e.shiftKey && e.key === 'F12') {
-        e.preventDefault();
-        setIsAdminPasswordModalOpen(true);
-      }
+      e.preventDefault();
+      const next = !memberPreview;
+      setMemberPreview(next);
+      pushToast(next ? '일반 사용자 화면으로 전환했습니다. (Shift+F12로 관리자 화면 복귀)' : '관리자 화면으로 전환했습니다.', {
+        variant: 'success',
+      });
     };
-    window.addEventListener('keydown', handleAdminHotkey);
-    return () => window.removeEventListener('keydown', handleAdminHotkey);
-  }, [setIsAdminPasswordModalOpen]);
+    window.addEventListener('keydown', handleAdminMemberViewHotkey);
+    return () => window.removeEventListener('keydown', handleAdminMemberViewHotkey);
+  }, [canToggleAdminMemberView, memberPreview, setMemberPreview, pushToast]);
 
   // Ctrl+S: 즉시 서버 반영 기능 제거 (사용자 요청). 자동 저장만 사용.
   // 단, 브라우저의 '페이지 저장' 다이얼로그가 뜨지 않도록 preventDefault만 수행.
