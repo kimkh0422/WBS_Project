@@ -625,7 +625,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         // 가상 스크롤/레이아웃 직후 input이 붙는 타이밍에 맞추기 위해 한 프레임 더 미룸
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            document.getElementById(`wbs-edit-${taskId}-${columnId}`)?.focus();
+            const el = document.getElementById(`wbs-edit-${taskId}-${columnId}`);
+            el?.focus();
+            if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+              el.select();
+            }
           });
         });
         return;

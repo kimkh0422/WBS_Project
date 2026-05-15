@@ -596,6 +596,18 @@ export function WBSTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTaskId]);
 
+  // wbs-edit-* 편집 input에 포커스가 잡힐 때 기존 텍스트를 전체 선택 → F2/더블클릭 직후 바로 덮어쓰기 가능
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if ((target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && target.id.startsWith('wbs-edit-')) {
+        target.select();
+      }
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, []);
+
   const {
     bulkStatus,
     setBulkStatus,
