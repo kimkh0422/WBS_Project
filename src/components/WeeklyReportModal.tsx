@@ -346,6 +346,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
         const overdue = end && isBefore(end, today) && (typeof t.progress === 'number' ? t.progress : 0) < 100;
         const tags: string[] = [];
         if (t.isIssue) tags.push('이슈');
+        if (t.isActionItem) tags.push('액션');
         if (t.status === 'blocked') tags.push('지연됨');
         if (overdue) tags.push('기한 초과');
         const note = tags.join(', ');

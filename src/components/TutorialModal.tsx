@@ -274,17 +274,9 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
     ],
   },
   {
-    id: 'ai-report',
-    title: '11. AI 분석·주간보고·기타',
+    id: 'weekly-report-misc',
+    title: '11. 주간보고·기타',
     content: [
-      { type: 'subtitle', text: 'AI 분석' },
-      {
-        type: 'list',
-        items: [
-          '⋮ → AI 분석을 선택하면 Gemini를 이용해 WBS 초안 생성·재분석·의존성 추론 등을 할 수 있습니다. (API 키 설정이 필요할 수 있습니다.)',
-          '의존성·시작일·종료일·공수 등 특정 필드를 고정해 두면 AI가 해당 필드를 덮어쓰지 않습니다.',
-        ],
-      },
       { type: 'subtitle', text: '주간보고' },
       {
         type: 'paragraph',

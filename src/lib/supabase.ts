@@ -147,6 +147,7 @@ export interface TaskRow {
   sort_order: number;
   is_milestone?: boolean;
   is_issue?: boolean;
+  is_action_item?: boolean;
   baseline_start_date?: string | null;
   baseline_end_date?: string | null;
   baseline_work_effort?: number | null;

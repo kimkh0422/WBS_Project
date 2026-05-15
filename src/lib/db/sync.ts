@@ -32,6 +32,7 @@ function taskContentFingerprint(row: TaskRow): string {
     deliverables: row.deliverables,
     is_milestone: row.is_milestone ?? false,
     is_issue: row.is_issue ?? false,
+    is_action_item: row.is_action_item ?? false,
     baseline_start_date: row.baseline_start_date ?? null,
     baseline_end_date: row.baseline_end_date ?? null,
     baseline_work_effort: row.baseline_work_effort ?? null,

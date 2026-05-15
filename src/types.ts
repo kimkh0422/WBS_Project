@@ -74,13 +74,15 @@ export interface Task {
   isMilestone?: boolean;
   /** 이슈 여부. true면 이슈 작업으로 강조 표시 */
   isIssue?: boolean;
+  /** 액션 항목 여부. true면 대시보드 액션 목록에 표시·완료 체크 대상 */
+  isActionItem?: boolean;
   /** 베이스라인 시작일. 설정 시 해당 작업의 기준 일정으로 사용 */
   baselineStartDate?: string;
   /** 베이스라인 종료일 */
   baselineEndDate?: string;
   /** 베이스라인 공수(프로젝트 공수 단위와 동일) */
   baselineWorkEffort?: number;
-  /** 사용자가 수동 수정한 항목. AI 업데이트 시 이 필드들은 덮어쓰지 않음. progress 잠금 시 상위 작업 진척률은 하위 롤업으로 덮어쓰지 않음 */
+  /** 사용자가 수동 수정한 항목. 자동 병합·동기화 시 이 필드들은 덮어쓰지 않음. progress 잠금 시 상위 작업 진척률은 하위 롤업으로 덮어쓰지 않음 */
   userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort' | 'progress')[];
   /** 사용자 정의 컬럼 값 저장소. 키: custom column id, 값: 문자열 */
   customFields?: Record<string, string>;

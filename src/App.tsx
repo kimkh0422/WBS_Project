@@ -65,7 +65,6 @@ import {
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useScrollSync } from './hooks/useScrollSync';
 import { useResizablePane } from './hooks/useResizablePane';
-import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { clearAllLocalData } from './lib/persist';
@@ -104,7 +103,6 @@ const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then((
 const AllocationOverviewPage = React.lazy(() =>
   import('./components/AllocationOverviewPage').then((m) => ({ default: m.AllocationOverviewPage })),
 );
-const AIAnalysisModal = React.lazy(() => import('./components/AIAnalysisModal').then((m) => ({ default: m.AIAnalysisModal })));
 const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
 const VersionManager = React.lazy(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
 const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
@@ -198,10 +196,6 @@ function WBSApp({
     setIsModalOpen,
     isProjectModalOpen,
     setIsProjectModalOpen,
-    isAIModalOpen,
-    setIsAIModalOpen,
-    isAIBusy,
-    setIsAIBusy,
     isSettingsModalOpen,
     setIsSettingsModalOpen,
     isShortcutsVisible,
@@ -300,7 +294,6 @@ function WBSApp({
 
   const {
     addTask,
-    addTasks,
     tasks,
     allTasks,
     importTasks,
@@ -375,7 +368,6 @@ function WBSApp({
     }, 100);
     return () => window.clearTimeout(id);
   }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
-  const prevAIBusyRef = useRef(false);
   const initialDbSyncDoneRef = useRef(false);
 
   // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동
@@ -551,14 +543,6 @@ function WBSApp({
     // 이전에 저장된 다크 선호가 있어도 라이트로 강제. 토글 UI가 다시 켜질 때
     // 사용자가 새로 선택하도록 기존 저장값은 그대로 둔다(영구 삭제 X).
   }, []);
-
-  useEffect(() => {
-    const prev = prevAIBusyRef.current;
-    if (prev && !isAIBusy) {
-      pushToast('AI 분석이 완료되었습니다. AI 버튼을 눌러 결과를 확인하세요.', { variant: 'success', id: 'ai-done' });
-    }
-    prevAIBusyRef.current = isAIBusy;
-  }, [isAIBusy, pushToast]);
 
   const navigateWithTip = useCallback(
     (nextView: typeof view) => {
@@ -1061,8 +1045,6 @@ function WBSApp({
           signOut={signOut}
           isMoreMenuOpen={isMoreMenuOpen}
           setIsMoreMenuOpen={setIsMoreMenuOpen}
-          isAIBusy={isAIBusy}
-          setIsAIModalOpen={setIsAIModalOpen}
           setIsWeeklyReportOpen={setIsWeeklyReportOpen}
           setIsOrganizationOpen={setIsOrganizationOpen}
           userApproved={userApproved}
@@ -1768,46 +1750,6 @@ function WBSApp({
               setIsSettingsModalOpen(false);
               setIsResetConfirmOpen(true);
             }}
-          />
-        )}
-        {isAIModalOpen && effectiveIsAdmin && (
-          <AIAnalysisModal
-            isOpen
-            onClose={() => setIsAIModalOpen(false)}
-            onBusyChange={setIsAIBusy}
-            onImport={(newTasks, replace) => {
-              if (replace) {
-                const { overloads } = computeWorkloadOverloads(newTasks, projects);
-                const toImport = overloads.length > 0 ? fixOverloadByExtending(newTasks, projects, overloads) : newTasks;
-                importTasks(toImport);
-              } else {
-                const effectiveProjectId = currentProjectId === 'all' ? projects[0]?.id || '' : currentProjectId || projects[0]?.id || '';
-                if (effectiveProjectId) {
-                  addTasks(newTasks);
-                } else {
-                  importTasks(newTasks, '__new__', newTasks[0]?.name || 'AI 생성 프로젝트');
-                }
-              }
-              // AI에서 도출된 담당자를 해당 프로젝트 투입 인원 현황에 자동 추가
-              const projectId = newTasks[0]?.projectId;
-              if (projectId && newTasks.length > 0 && projects.some((p) => p.id === projectId)) {
-                const currentAssignments = projects.find((p) => p.id === projectId)?.assignments ?? [];
-                const existingNames = new Set(currentAssignments.map((a) => (a.assignee || '').trim()).filter(Boolean));
-                const assigneesFromTasks = new Set<string>();
-                newTasks.forEach((t) => {
-                  const a = (t.assignee || '').trim();
-                  if (a) assigneesFromTasks.add(a);
-                });
-                const toAdd = [...assigneesFromTasks].filter((name) => !existingNames.has(name));
-                if (toAdd.length > 0) {
-                  const merged = [...currentAssignments, ...toAdd.map((assignee) => ({ assignee, allocationPercent: 100 }))];
-                  updateProject(projectId, { assignments: merged });
-                }
-              }
-            }}
-            currentProjectId={currentProjectId}
-            existingTasks={tasks}
-            projects={projectsSortedByName}
           />
         )}
         {isVersionHistoryOpen && <VersionManager isOpen onClose={() => setIsVersionHistoryOpen(false)} currentVersion={__APP_VERSION__} />}

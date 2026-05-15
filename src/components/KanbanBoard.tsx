@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -25,6 +25,55 @@ import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock,
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { saveJsonWithIdbFallback, loadJsonWithIdbFallback, type PersistKey } from '../lib/persist';
+
+/** 설명에 포함된 마크다운 이미지 `![](url)` 중 첫 URL (칸반 썸네일용) */
+function extractFirstMarkdownImageUrl(description: string | undefined): string | null {
+  if (!description) return null;
+  const m = description.match(/!\[[^\]]*\]\(([^)\s]+)\)/);
+  const url = m?.[1];
+  if (!url || (!url.startsWith('data:') && !url.startsWith('http://') && !url.startsWith('https://'))) return null;
+  return url;
+}
+
+/** 클립보드 이미지가 너무 크면 폭을 줄여 data URL 용량을 낮춘다. */
+function downscaleDataUrlIfNeeded(dataUrl: string, maxWidth = 1280): Promise<string> {
+  return new Promise((resolve) => {
+    if (!dataUrl.startsWith('data:image')) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth <= maxWidth) {
+        resolve(dataUrl);
+        return;
+      }
+      const w = maxWidth;
+      const h = Math.round((img.naturalHeight * maxWidth) / img.naturalWidth);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      try {
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function defaultScreenshotCardTitle(): string {
+  const d = new Date();
+  return `스크린샷 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 // Column configuration
 const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
@@ -81,6 +130,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
   const [isRenaming, setIsRenaming] = useState(false);
   const lvStyle = getLevelStyle(level);
   const [newName, setNewName] = useState(task.name);
+  const coverUrl = !isOverlay ? extractFirstMarkdownImageUrl(task.description) : null;
 
   // Skip hooks if we are in an overlay to avoid conflicting state
   const sortable = useSortable({
@@ -138,6 +188,16 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
         if (!isRenaming) onClick?.(task);
       }}
     >
+      {coverUrl && (
+        <div className="mb-2 -mt-0.5 rounded-md overflow-hidden border border-stone-100 bg-stone-50">
+          <img
+            src={coverUrl}
+            alt=""
+            className="w-full max-h-[7.5rem] object-cover object-center block pointer-events-none"
+            loading="lazy"
+          />
+        </div>
+      )}
       <div className="flex justify-between items-start mb-2 gap-2">
         <div
           className="flex-1 min-w-0"
@@ -216,6 +276,14 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
                 ISSUE
               </span>
             )}
+            {task.isActionItem && (
+              <span
+                className="text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider bg-teal-50 text-teal-700 border border-teal-200"
+                title="액션 항목"
+              >
+                ACTION
+              </span>
+            )}
             {wbsId && <span className="text-[9px] font-mono text-stone-400">{wbsId}</span>}
           </div>
         )}
@@ -255,6 +323,8 @@ interface KanbanColumnProps {
   canEdit?: boolean;
   onTaskClick: (task: Task) => void;
   onAddTask: (status: TaskStatus, name: string) => void;
+  /** 클립보드 이미지 붙여넣기 시 카드 생성 (트렐로 스타일) */
+  onPasteCardImage?: (status: TaskStatus, dataUrl: string, titleOrEmpty: string) => void;
   onDeleteTask: (taskId: string) => void;
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
   taskLevels: Map<string, number>;
@@ -269,6 +339,7 @@ function KanbanColumn({
   canEdit = true,
   onTaskClick,
   onAddTask,
+  onPasteCardImage,
   onDeleteTask,
   onUpdateTask,
   taskLevels,
@@ -345,6 +416,35 @@ function KanbanColumn({
     }
   };
 
+  /** 캡처 단계에서 이미지 붙여넣기를 가로채 카드로 추가 (자식 textarea 포함). */
+  const handlePasteCapture = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    if (!canEdit || !onPasteCardImage) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    let file: File | null = null;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item?.type?.startsWith('image/')) {
+        file = item.getAsFile();
+        break;
+      }
+    }
+    if (!file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      if (!dataUrl) return;
+      const title = newCardTitle.trim();
+      onPasteCardImage(column.id as TaskStatus, dataUrl, title);
+      setNewCardTitle('');
+      setIsAdding(true);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    };
+    reader.readAsDataURL(file);
+  };
+
   const colorProps = getStatusColorProps(column.color);
 
   return (
@@ -386,8 +486,14 @@ function KanbanColumn({
 
       <div
         ref={setNodeRef}
+        tabIndex={-1}
+        title="빈 영역을 클릭한 뒤 스크린샷(Ctrl+V)을 붙여넣으면 이 단계 맨 아래에 카드가 추가됩니다."
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) (e.currentTarget as HTMLDivElement).focus();
+        }}
+        onPasteCapture={handlePasteCapture}
         className={cn(
-          'flex-1 rounded-xl p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent transition-colors',
+          'flex-1 rounded-xl p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent transition-colors outline-none',
           !colorProps.style && 'border border-transparent',
           colorProps.className,
         )}
@@ -416,7 +522,7 @@ function KanbanColumn({
               value={newCardTitle}
               onChange={(e) => setNewCardTitle(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="카드 제목을 입력하세요..."
+              placeholder="제목 입력 또는 이미지 붙여넣기 (Ctrl+V)…"
               className="w-full text-sm resize-none outline-none text-stone-800 placeholder:text-stone-400 min-h-[60px]"
               rows={3}
             />
@@ -783,19 +889,63 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     setIsModalOpen(true);
   };
 
-  const handleAddTask = (status: TaskStatus, name: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    addTask({
-      name,
-      status,
-      startDate: filters.startDate || today,
-      endDate: filters.endDate || today,
-      progress: 0,
-      workEffort: 0.5,
-      assignee: filters.assignee || '',
-      parentId: null,
-    });
-  };
+  /** 새 카드는 항상 컬럼 순서 배열의 맨 뒤에 두어 화면에서도 맨 아래에 보이게 한다. */
+  const appendTaskIdToColumnOrder = useCallback(
+    (status: string, taskId: string) => {
+      setKanbanOrder((prev) => {
+        const cur = prev[status] ?? [];
+        const deduped = cur.filter((id) => id !== taskId);
+        const updated = { ...prev, [status]: [...deduped, taskId] };
+        saveKanbanOrder(effectiveProjectId || 'all', updated);
+        return updated;
+      });
+    },
+    [effectiveProjectId],
+  );
+
+  const handleAddTask = useCallback(
+    (status: TaskStatus, name: string) => {
+      const today = new Date().toISOString().split('T')[0];
+      const newId = addTask({
+        name,
+        status,
+        startDate: filters.startDate || today,
+        endDate: filters.endDate || today,
+        progress: 0,
+        workEffort: 0.5,
+        assignee: filters.assignee || '',
+        parentId: null,
+      });
+      appendTaskIdToColumnOrder(status, newId);
+    },
+    [addTask, appendTaskIdToColumnOrder, filters.assignee, filters.endDate, filters.startDate],
+  );
+
+  const handlePasteCardImage = useCallback(
+    async (status: TaskStatus, dataUrl: string, titleOrEmpty: string) => {
+      let url = dataUrl;
+      try {
+        url = await downscaleDataUrlIfNeeded(dataUrl);
+      } catch {
+        // 원본 유지
+      }
+      const today = new Date().toISOString().split('T')[0];
+      const name = titleOrEmpty.trim() || defaultScreenshotCardTitle();
+      const newId = addTask({
+        name,
+        status,
+        startDate: filters.startDate || today,
+        endDate: filters.endDate || today,
+        progress: 0,
+        workEffort: 0.5,
+        assignee: filters.assignee || '',
+        parentId: null,
+        description: `![image](${url})`,
+      });
+      appendTaskIdToColumnOrder(status, newId);
+    },
+    [addTask, appendTaskIdToColumnOrder, filters.assignee, filters.endDate, filters.startDate],
+  );
 
   const handleSaveTask = (taskData: Partial<Task>) => {
     if (editingTask) {
@@ -840,6 +990,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
               canEdit={canEditCurrentProject}
               onTaskClick={handleTaskClick}
               onAddTask={handleAddTask}
+              onPasteCardImage={canEditCurrentProject ? handlePasteCardImage : undefined}
               onDeleteTask={handleDeleteClick}
               onUpdateTask={updateTask}
               taskLevels={taskLevels}

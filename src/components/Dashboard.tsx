@@ -3,7 +3,7 @@ import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getVisitorStats, getDailyVisitors, type DailyVisitorRow } from '../lib/db';
-import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User, X } from 'lucide-react';
+import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User, X, ListChecks } from 'lucide-react';
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import type { Task, Project } from '../types';
@@ -72,7 +72,7 @@ export function Dashboard({
   /** 현재 사용자 표시 이름. 부서 매칭("내가 포함된 부서") 등에 사용. */
   currentUserDisplay?: string;
 }) {
-  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings } = useWBS();
+  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask } = useWBS();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
   const projects = useMemo(
     () => (accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects),
@@ -308,6 +308,23 @@ export function Dashboard({
       .filter((t) => t.isIssue)
       .sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''))
       .slice(0, 50);
+  }, [allTasks]);
+
+  const doneStatusIds = useMemo(
+    () => new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id)),
+    [wbsSettings.statusConfigs],
+  );
+  const doneStatusId = useMemo(() => wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id ?? 'done', [wbsSettings.statusConfigs]);
+  const todoStatusId = useMemo(() => wbsSettings.statusConfigs.find((c) => c.id === 'todo')?.id ?? 'todo', [wbsSettings.statusConfigs]);
+
+  const isActionTaskCompleted = (t: Task) =>
+    doneStatusIds.has(t.status) || (typeof t.progress === 'number' && Number.isFinite(t.progress) && t.progress >= 100);
+
+  const actionTasks = useMemo(() => {
+    return allTasks
+      .filter((t) => t.isActionItem)
+      .sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''))
+      .slice(0, 80);
   }, [allTasks]);
 
   // 사업부/본부별 작업 현황 집계 (담당자 이름이 그 division의 멤버에 매핑되는 작업들)
@@ -578,6 +595,81 @@ export function Dashboard({
                           <div className="flex items-center gap-1.5">
                             <Bug size={12} className="text-rose-500 shrink-0" />
                             <span className="truncate">{t.name || '(이름 없음)'}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
+                        <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                        <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                          {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
+        <section>
+          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+            <ListChecks className="text-teal-600" size={24} />
+            액션 항목
+            <span className="text-sm font-medium text-stone-400">{actionTasks.length}건</span>
+          </h2>
+          {actionTasks.length === 0 ? (
+            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+              작업 편집에서「액션 항목」을 켠 작업이 여기에 표시됩니다.
+            </div>
+          ) : (
+            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 border-b border-stone-200">
+                  <tr className="text-xs text-stone-500">
+                    <th className="text-center font-medium px-2 py-2 w-14">완료</th>
+                    <th className="text-left font-medium px-3 py-2">작업명</th>
+                    <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
+                    <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
+                    <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
+                    <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actionTasks.map((t) => {
+                    const proj = projectMap.get(t.projectId);
+                    const done = isActionTaskCompleted(t);
+                    return (
+                      <tr
+                        key={t.id}
+                        className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
+                        onClick={() => onNavigate?.('list', { projectId: t.projectId, status: 'all', assignee: '' })}
+                        title="작업 보기로 이동"
+                      >
+                        <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              const checked = e.target.checked;
+                              if (checked) {
+                                updateTask(t.id, { status: doneStatusId, progress: 100 });
+                              } else {
+                                updateTask(t.id, { status: todoStatusId, progress: 0 });
+                              }
+                            }}
+                            className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                            title={done ? '완료 해제' : '완료 표시'}
+                            aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-stone-800">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                            <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
+                            {done && <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>

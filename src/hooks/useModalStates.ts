@@ -7,8 +7,6 @@ import type { ExportScope, ExportFormat } from '../components/ExportModal';
 export function useModalStates() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
-  const [isAIBusy, setIsAIBusy] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
   const [isPermissionGuideOpen, setIsPermissionGuideOpen] = useState(false);
@@ -83,10 +81,6 @@ export function useModalStates() {
     setIsModalOpen,
     isProjectModalOpen,
     setIsProjectModalOpen,
-    isAIModalOpen,
-    setIsAIModalOpen,
-    isAIBusy,
-    setIsAIBusy,
     isSettingsModalOpen,
     setIsSettingsModalOpen,
     isShortcutsVisible,

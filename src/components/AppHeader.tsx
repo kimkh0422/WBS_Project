@@ -96,8 +96,6 @@ export interface AppHeaderProps {
   signOut: () => void;
   isMoreMenuOpen: boolean;
   setIsMoreMenuOpen: (v: boolean) => void;
-  isAIBusy: boolean;
-  setIsAIModalOpen: (v: boolean) => void;
   setIsWeeklyReportOpen: (v: boolean) => void;
   setIsOrganizationOpen: (v: boolean) => void;
   /** 승인된 사용자 여부. 조직 현황 메뉴 노출 조건. */
@@ -181,8 +179,6 @@ export function AppHeader({
   signOut,
   isMoreMenuOpen,
   setIsMoreMenuOpen,
-  isAIBusy,
-  setIsAIModalOpen,
   setIsWeeklyReportOpen,
   setIsOrganizationOpen,
   userApproved,
@@ -922,7 +918,6 @@ export function AppHeader({
               aria-label="추가 옵션"
             >
               <MoreHorizontal size={18} />
-              {isAIBusy && <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" aria-hidden />}
             </button>
             {isMoreMenuOpen && (
               <>
@@ -947,7 +942,6 @@ export function AppHeader({
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                     </>
                   )}
-                  {/* AI 분석·주간보고: 관리자에게도 숨김 처리 */}
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
                   <button
                     type="button"

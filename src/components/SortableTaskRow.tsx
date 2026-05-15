@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Flag, Bug, Edit2, Trash2 } from 'lucide-react';
+import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type WorkEffortUnit } from '../types';
@@ -45,6 +45,7 @@ function getTaskDetailTooltip(
   lines.push(`작업명: ${task.name ?? ''}`);
   if (task.isMilestone) lines.push('유형: 마일스톤');
   if (task.isIssue) lines.push('이슈: 예');
+  if (task.isActionItem) lines.push('액션 항목: 예');
   if (isCritical) lines.push('크리티컬 패스: 예');
   lines.push(`기간: ${formatDate(task.startDate)} ~ ${formatDate(task.endDate)}`);
   lines.push(
@@ -528,6 +529,7 @@ function SortableTaskRowInner({
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
                   {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
+                  {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
                   {criticalPathSet?.has(task.id) && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0"
@@ -587,8 +589,18 @@ function SortableTaskRowInner({
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
+                    if (e.key === 'Enter') {
+                      // window 레벨 keydown 핸들러(useWbsTableKeyboard)와의 race로
+                      // onBlur가 실행되기 전에 input이 unmount되는 경우가 있어 직접 커밋한다.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.nativeEvent.stopPropagation();
+                      const v = (e.target as HTMLInputElement).value;
+                      if (v && v !== (task.startDate?.slice(0, 10) ?? '')) {
+                        updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
+                      }
+                      setEditingCell(null);
+                    } else if (e.key === 'Escape') setEditingCell(null);
                   }}
                 />
               ) : (
@@ -654,8 +666,16 @@ function SortableTaskRowInner({
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.nativeEvent.stopPropagation();
+                      const v = (e.target as HTMLInputElement).value;
+                      if (v && v !== (task.endDate?.slice(0, 10) ?? '')) {
+                        updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
+                      }
+                      setEditingCell(null);
+                    } else if (e.key === 'Escape') setEditingCell(null);
                   }}
                 />
               ) : (
@@ -1540,6 +1560,9 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.taskIdToSeqNum === next.taskIdToSeqNum &&
     prev.seqNumToTaskId === next.seqNumToTaskId &&
     prev.task.dependencies === next.task.dependencies &&
+    prev.task.isMilestone === next.task.isMilestone &&
+    prev.task.isIssue === next.task.isIssue &&
+    prev.task.isActionItem === next.task.isActionItem &&
     (prev.task.userLockedFields?.length ?? 0) === (next.task.userLockedFields?.length ?? 0) &&
     (prev.task.userLockedFields ?? []).every((f, i) => (next.task.userLockedFields ?? [])[i] === f) &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&

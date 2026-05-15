@@ -13,6 +13,7 @@ export const TASKS_UPSERT_BATCH_SIZE = 50;
 
 export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'is_issue',
+  'is_action_item',
   'is_milestone',
   'baseline_start_date',
   'baseline_end_date',
@@ -147,7 +148,7 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
     // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
     // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
     const TASK_LIST_COLUMNS =
-      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
+      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
     let { data, error } = await supabase!
       .from('tasks')
       .select(TASK_LIST_COLUMNS)

@@ -10,7 +10,7 @@ export type ToastOptions = {
   id?: string;
   /** 0–100, 동기화 등 장시간 작업 시 진행 막대 */
   progress?: number | null;
-  /** 세부 진행 단계 문구 (예: "AI에 요청 전송 중...") */
+  /** 세부 진행 단계 문구 (예: "서버에 반영 중...") */
   detail?: string | null;
 };
 
@@ -51,7 +51,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const timeoutsRef = useRef<Map<string, number>>(new Map());
 
   const dismiss = useCallback((id: string) => {
-    setItems(prev => prev.filter(t => t.id !== id));
+    setItems((prev) => prev.filter((t) => t.id !== id));
     const t = timeoutsRef.current.get(id);
     if (t) {
       window.clearTimeout(t);
@@ -59,37 +59,43 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const push = useCallback((message: string, options?: ToastOptions) => {
-    const variant: ToastVariant = options?.variant ?? 'info';
-    const durationMs = options?.durationMs ?? 3500;
-    const id = options?.id ?? randomUUID();
+  const push = useCallback(
+    (message: string, options?: ToastOptions) => {
+      const variant: ToastVariant = options?.variant ?? 'info';
+      const durationMs = options?.durationMs ?? 3500;
+      const id = options?.id ?? randomUUID();
 
-    const progress = options?.progress != null && options.progress >= 0 ? Math.min(100, options.progress) : null;
-    const detail = options?.detail ?? null;
+      const progress = options?.progress != null && options.progress >= 0 ? Math.min(100, options.progress) : null;
+      const detail = options?.detail ?? null;
 
-    setItems(prev => {
-      // De-dupe by id
-      const next = prev.filter(t => t.id !== id);
-      return [{ id, message, variant, durationMs, createdAt: Date.now(), progress, detail }, ...next].slice(0, 4);
-    });
+      setItems((prev) => {
+        // De-dupe by id
+        const next = prev.filter((t) => t.id !== id);
+        return [{ id, message, variant, durationMs, createdAt: Date.now(), progress, detail }, ...next].slice(0, 4);
+      });
 
-    const existing = timeoutsRef.current.get(id);
-    if (existing) window.clearTimeout(existing);
+      const existing = timeoutsRef.current.get(id);
+      if (existing) window.clearTimeout(existing);
 
-    const timeoutId = window.setTimeout(() => dismiss(id), durationMs);
-    timeoutsRef.current.set(id, timeoutId);
-  }, [dismiss]);
+      const timeoutId = window.setTimeout(() => dismiss(id), durationMs);
+      timeoutsRef.current.set(id, timeoutId);
+    },
+    [dismiss],
+  );
 
-  const tipOnce = useCallback((key: string, message: string, options?: Omit<ToastOptions, 'id'>) => {
-    const storageKey = `wbs.toast.tipSeen.${key}`;
-    try {
-      if (window.localStorage.getItem(storageKey) === '1') return;
-      window.localStorage.setItem(storageKey, '1');
-    } catch {
-      // ignore storage errors; still show tip
-    }
-    push(message, options);
-  }, [push]);
+  const tipOnce = useCallback(
+    (key: string, message: string, options?: Omit<ToastOptions, 'id'>) => {
+      const storageKey = `wbs.toast.tipSeen.${key}`;
+      try {
+        if (window.localStorage.getItem(storageKey) === '1') return;
+        window.localStorage.setItem(storageKey, '1');
+      } catch {
+        // ignore storage errors; still show tip
+      }
+      push(message, options);
+    },
+    [push],
+  );
 
   const api = useMemo<ToastApi>(() => ({ push, dismiss, tipOnce }), [push, dismiss, tipOnce]);
 
@@ -100,10 +106,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {items.map((t) => (
           <div
             key={t.id}
-            className={cn(
-              "pointer-events-auto border rounded-xl shadow-lg backdrop-blur bg-white/85 overflow-hidden",
-              ringFor(t.variant)
-            )}
+            className={cn('pointer-events-auto border rounded-xl shadow-lg backdrop-blur bg-white/85 overflow-hidden', ringFor(t.variant))}
             role={t.variant === 'error' || t.variant === 'warning' ? 'alert' : 'status'}
             aria-live={t.variant === 'error' || t.variant === 'warning' ? 'assertive' : 'polite'}
           >
@@ -113,11 +116,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 <div className="text-sm sm:text-[12px] font-semibold text-slate-800 leading-snug whitespace-pre-wrap break-keep">
                   {t.message}
                 </div>
-                {t.detail && (
-                  <div className="text-xs text-slate-500 mt-1 leading-snug">
-                    {t.detail}
-                  </div>
-                )}
+                {t.detail && <div className="text-xs text-slate-500 mt-1 leading-snug">{t.detail}</div>}
                 {t.progress != null && (
                   <div className="mt-2 h-1.5 rounded-full bg-slate-200/90 overflow-hidden" aria-hidden>
                     <div
@@ -149,4 +148,3 @@ export function useToast() {
   if (!ctx) throw new Error('useToast must be used within ToastProvider');
   return ctx;
 }
-

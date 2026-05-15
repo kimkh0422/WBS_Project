@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Info, Flag, Bug, Sparkles, Loader2 } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
@@ -14,7 +14,6 @@ import {
   hasDependencyCycle as checkDependencyCycle,
 } from '../lib/dependencyPicker';
 import { useToast } from './Toast';
-// GoogleGenAI — dynamic import로 메인 번들에서 제외 (AI 기능 사용 시에만 로드)
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import * as Y from 'yjs';
@@ -41,47 +40,6 @@ interface TaskModalProps {
   defaultStartDate?: string;
   /** 기한 필터(금일/금주 등)가 켜져 있을 때 새 작업의 기본 종료일 */
   defaultEndDate?: string;
-}
-
-const GEMINI_API_KEY_STORAGE = 'gemini-api-key';
-const DESCRIPTION_CORRECTION_PROMPT = `다음 작업 설명을 (1) 교정하고 (2) 설명 내용을 바탕으로 실행 가능한 체크리스트 항목을 도출하세요.
-
-규칙:
-- description: 의미는 유지하고 맞춤법·띄어쓰기·문장 부호·문단만 정리. 마크다운은 유지.
-- checklist: 3~12개, 짧은 한 줄 항목(동사형 또는 명사구), 중복·너무 세분화된 항목은 제외.
-
-반드시 아래 형식의 JSON만 출력하세요. 앞뒤 설명·코드펜스(\`\`\`) 금지.
-{"description":"교정된 설명 전체","checklist":["항목1","항목2",...]}`;
-
-function parseDescriptionCorrectionJson(raw: string): { description: string; checklist: string[] } | null {
-  const trimmed = raw.trim();
-  const block = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = (block?.[1] ?? trimmed).trim();
-  const brace = candidate.indexOf('{');
-  const end = candidate.lastIndexOf('}');
-  if (brace < 0 || end <= brace) return null;
-  try {
-    const obj = JSON.parse(candidate.slice(brace, end + 1)) as unknown;
-    if (!obj || typeof obj !== 'object') return null;
-    const o = obj as Record<string, unknown>;
-    if (typeof o.description !== 'string') return null;
-    const list = Array.isArray(o.checklist)
-      ? o.checklist
-          .filter((x): x is string => typeof x === 'string')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : [];
-    const seen = new Set<string>();
-    const deduped = list.filter((t) => {
-      const k = t.toLowerCase();
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-    return { description: o.description.trim(), checklist: deduped };
-  } catch {
-    return null;
-  }
 }
 
 function tiptapDocFromPlainText(text: string) {
@@ -220,6 +178,7 @@ export function TaskModal({
     deliverables: '',
     isMilestone: false,
     isIssue: false,
+    isActionItem: false,
     baselineStartDate: undefined,
     baselineEndDate: undefined,
     baselineWorkEffort: undefined,
@@ -244,7 +203,6 @@ export function TaskModal({
   const [depsFocused, setDepsFocused] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [isCorrectingDescription, setIsCorrectingDescription] = useState(false);
 
   // ─── CRDT: Y.Doc 생성 후 자식에서만 useEditor 호출 (null 전달 크래시 방지) ─
   const [descCollab, setDescCollab] = useState<{ doc: Y.Doc; provider: SupabaseYjsProvider } | null>(null);
@@ -331,6 +289,7 @@ export function TaskModal({
         deliverables: '',
         isMilestone: false,
         isIssue: false,
+        isActionItem: false,
         baselineStartDate: undefined,
         baselineEndDate: undefined,
         baselineWorkEffort: undefined,
@@ -638,71 +597,6 @@ export function TaskModal({
       onClose();
     }
     setIsDeleteConfirmOpen(false);
-  };
-
-  const handleCorrectDescriptionWithAI = async () => {
-    const apiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE)?.trim();
-    if (!apiKey) {
-      pushToast('API 키를 먼저 설정해 주세요. (상단 AI 분석 메뉴에서 설정)', { variant: 'warning' });
-      return;
-    }
-    const desc = (formData.description ?? '').trim();
-    if (!desc) {
-      pushToast('설명란에 교정할 내용을 입력해 주세요.', { variant: 'warning' });
-      return;
-    }
-    setIsCorrectingDescription(true);
-    try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
-      const result = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [{ role: 'user', parts: [{ text: `${DESCRIPTION_CORRECTION_PROMPT}\n\n---\n\n${desc}` }] }],
-      });
-      const text = result.text?.trim();
-      if (!text) {
-        pushToast('AI 응답이 비어 있습니다.', { variant: 'warning' });
-        return;
-      }
-      const parsed = parseDescriptionCorrectionJson(text);
-      if (parsed) {
-        let addedCount = 0;
-        setFormData((prev) => {
-          const childTitleKeys = new Set<string>();
-          if (initialData?.id) {
-            parentOptions
-              .filter((t) => t.parentId === initialData.id)
-              .forEach((c) => {
-                const wbs = displayWbsMap.get(c.id);
-                childTitleKeys.add((wbs ? `${wbs} ${c.name}` : c.name).trim().toLowerCase());
-                childTitleKeys.add(c.name.trim().toLowerCase());
-              });
-          }
-          const existingTexts = new Set((prev.checklist ?? []).map((i) => i.text.trim().toLowerCase()));
-          const newItems = parsed.checklist
-            .filter((t) => !existingTexts.has(t.toLowerCase()) && !childTitleKeys.has(t.trim().toLowerCase()))
-            .map((t) => ({ id: randomUUID(), text: t, completed: false }));
-          addedCount = newItems.length;
-          return {
-            ...prev,
-            description: parsed.description,
-            checklist: [...(prev.checklist || []), ...newItems],
-          };
-        });
-        pushToast(
-          addedCount > 0
-            ? `설명을 교정했고 체크리스트 ${addedCount}개를 추가했습니다.`
-            : '설명을 교정했습니다. (추가할 새 체크리스트 항목 없음)',
-        );
-      } else {
-        setFormData((prev) => ({ ...prev, description: text }));
-        pushToast('설명만 반영했습니다. (JSON 형식이 아니어 체크리스트는 건너뜀)', { variant: 'warning' });
-      }
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : '교정 중 오류가 발생했습니다.', { variant: 'error' });
-    } finally {
-      setIsCorrectingDescription(false);
-    }
   };
 
   const handleAddChecklist = () => {
@@ -1184,6 +1078,18 @@ export function TaskModal({
                 <span>이슈</span>
                 <span className="text-[10px] text-[var(--color-ink-muted)]">(강조 표시)</span>
               </label>
+              <label className={cn('flex items-center gap-2 select-none text-xs text-[var(--color-ink)]', !readOnly && 'cursor-pointer')}>
+                <input
+                  type="checkbox"
+                  checked={!!formData.isActionItem}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, isActionItem: e.target.checked }))}
+                  className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30"
+                  disabled={readOnly}
+                />
+                <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                <span>액션 항목</span>
+                <span className="text-[10px] text-[var(--color-ink-muted)]">(대시보드 목록·완료 체크)</span>
+              </label>
             </div>
 
             {/* 의존성 - 한 줄 */}
@@ -1270,20 +1176,8 @@ export function TaskModal({
             <div className="col-span-full grid grid-cols-1 md:grid-cols-2 gap-4 min-h-0">
               {/* 좌: 설명 */}
               <div className="min-w-0 flex flex-col min-h-0">
-                <div className="flex items-center justify-between gap-2 mb-0.5">
+                <div className="mb-0.5">
                   <label className="text-[11px] font-medium text-[var(--color-ink)]">설명</label>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      onClick={handleCorrectDescriptionWithAI}
-                      disabled={isCorrectingDescription || !(formData.description ?? '').trim()}
-                      className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="설명 교정 + 설명 기반 체크리스트 항목을 우측 목록에 추가"
-                    >
-                      {isCorrectingDescription ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                      AI로 교정
-                    </button>
-                  )}
                 </div>
                 <div className="relative min-h-[7rem] max-h-48">
                   {descCollab ? (

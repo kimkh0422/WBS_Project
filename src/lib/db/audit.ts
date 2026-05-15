@@ -102,6 +102,7 @@ export function diffTaskFields(
     'description',
     'is_milestone',
     'is_issue',
+    'is_action_item',
   ];
   for (const key of fields) {
     const o = oldRow[key];
