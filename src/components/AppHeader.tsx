@@ -1042,19 +1042,7 @@ export function AppHeader({
                           <History size={14} /> 전체 변경 이력
                         </button>
                       )}
-                      {canSwitchAdminMemberView && !memberPreview && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsMoreMenuOpen(false);
-                            setMemberPreview(true);
-                          }}
-                          className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
-                          title="일반 사용자와 동일한 메뉴·권한만 보입니다. 계정 메뉴 또는 Shift+F12로 관리자 화면으로 돌아갈 수 있습니다."
-                        >
-                          <ArrowLeftRight size={14} /> 일반 사용자 화면으로 전환
-                        </button>
-                      )}
+                      {/* 일반 사용자 화면 전환은 Shift+F12·계정 메뉴에서만 (더보기 메뉴 중복 제거) */}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>
                   )}
@@ -1099,9 +1087,9 @@ export function AppHeader({
                 className="flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 max-w-[140px] sm:max-w-[180px]"
                 title={
                   memberPreview && canSwitchAdminMemberView
-                    ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 메뉴에서 관리자 화면으로 전환)'
+                    ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 아래 메뉴에서 관리자 화면으로 전환)'
                     : canSwitchAdminMemberView
-                      ? '계정 (Shift+F12: 일반 사용자 화면으로 전환)'
+                      ? '계정 (Shift+F12 또는 아래 메뉴에서 일반 사용자 화면으로 전환)'
                       : '계정'
                 }
               >
