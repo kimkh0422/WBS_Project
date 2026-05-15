@@ -889,18 +889,26 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     setIsModalOpen(true);
   };
 
-  /** 새 카드는 항상 컬럼 순서 배열의 맨 뒤에 두어 화면에서도 맨 아래에 보이게 한다. */
+  /** 새 카드는 항상 컬럼 순서 배열의 맨 뒤에 두어 화면에서도 맨 아래에 보이게 한다.
+   *  단, 정렬 로직이 "order에 있는 id를 앞쪽, 없는 id를 뒤쪽"으로 두므로, 기존 카드 일부가
+   *  아직 order에 없으면 새 카드만 order에 들어가 새 카드가 위로 올라가는 회귀가 발생한다.
+   *  이를 막기 위해 같은 컬럼의 기존 카드들을 현재 표시 순서대로 모두 order에 보충한 뒤
+   *  새 id를 맨 뒤에 push한다. */
   const appendTaskIdToColumnOrder = useCallback(
     (status: string, taskId: string) => {
       setKanbanOrder((prev) => {
-        const cur = prev[status] ?? [];
-        const deduped = cur.filter((id) => id !== taskId);
-        const updated = { ...prev, [status]: [...deduped, taskId] };
+        const cur = (prev[status] ?? []).filter((id) => id !== taskId);
+        const knownIds = new Set(cur);
+        const tasksInStatus = filteredTasks
+          .filter((t) => t.status === status && t.id !== taskId && !knownIds.has(t.id))
+          .sort((a, b) => (taskLevels.get(a.id) ?? 1) - (taskLevels.get(b.id) ?? 1))
+          .map((t) => t.id);
+        const updated = { ...prev, [status]: [...cur, ...tasksInStatus, taskId] };
         saveKanbanOrder(effectiveProjectId || 'all', updated);
         return updated;
       });
     },
-    [effectiveProjectId],
+    [effectiveProjectId, filteredTasks, taskLevels],
   );
 
   const handleAddTask = useCallback(
