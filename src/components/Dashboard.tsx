@@ -37,7 +37,7 @@ function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
   return get;
 }
 
-/** progress × weight 가중평균 진척율 계산 */
+/** progress × weight 가중평균(Σw는 임의, Σ(pw)/Σw). 결과 0~100% 클램프 */
 function computeWeightedProgress(items: Task[]): number {
   let totalWeight = 0;
   let acc = 0;
@@ -52,8 +52,12 @@ function computeWeightedProgress(items: Task[]): number {
     totalWeight += w;
     acc += p * w;
   }
-  if (totalWeight > 0) return Math.round(acc / totalWeight);
-  if (items.length > 0) return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+  if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
+  if (items.length > 0)
+    return Math.min(
+      100,
+      Math.max(0, Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
+    );
   return 0;
 }
 
@@ -144,7 +148,7 @@ export function Dashboard({
 
       const assignees = Array.from(new Set(pTasks.map((t) => t.assignee).filter(Boolean)));
 
-      // 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균 우선. (weight 없으면 공수로 대체)
+      // 전체 진척율: 1레벨 (progress×weight) 가중평균. 가중치 합이 100이 아니어도 Σ(pw)/Σw.
       // 1레벨이 없으면 폴백으로 리프(단말) 단순 평균.
       const taskById = new Map<string, Task>(pTasks.map((t) => [t.id, t]));
       const getDepth = buildDepthGetter(taskById);
@@ -157,7 +161,7 @@ export function Dashboard({
         level1.length > 0
           ? computeWeightedProgress(level1)
           : forAggregate.length > 0
-            ? Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)
+            ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)))
             : 0;
 
       return {
@@ -270,7 +274,7 @@ export function Dashboard({
       level1.length > 0
         ? computeWeightedProgress(level1)
         : forAggregate.length > 0
-          ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
+          ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
           : 0;
 
     // Global status counts across all projects

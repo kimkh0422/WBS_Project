@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { Task, TaskStatus } from '../../types';
+import type { Project, Task, TaskStatus } from '../../types';
 import type { WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
 
@@ -11,9 +11,12 @@ interface UseWbsBulkEditOptions {
   wbsSettings: WBSSettings;
   updateTask: (id: string, updates: Partial<Task>) => void;
   updateTasksBulk: (ids: string[], updates: Partial<Task>) => void;
+  projects: Project[];
+  updateProject: (id: string, updates: Partial<Project>) => void;
   linkSequentialPredecessors: (orderedTaskIds: string[]) => void;
   setSelection: (next: Set<string>) => void;
   setLastSelectedId: (id: string | null) => void;
+  pushToast: (msg: string, opts?: { variant?: 'success' | 'warning' | 'error' }) => void;
 }
 
 export function useWbsBulkEdit({
@@ -21,8 +24,11 @@ export function useWbsBulkEdit({
   tasks,
   visibleTasks,
   wbsSettings,
+  pushToast,
   updateTask,
   updateTasksBulk,
+  projects,
+  updateProject,
   linkSequentialPredecessors,
   setSelection,
   setLastSelectedId,
@@ -34,6 +40,7 @@ export function useWbsBulkEdit({
   const [bulkWeight, setBulkWeight] = useState('');
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
+  const [bulkAllocation, setBulkAllocation] = useState('');
 
   const resetBulkFields = useCallback(() => {
     setBulkStatus('');
@@ -43,6 +50,7 @@ export function useWbsBulkEdit({
     setBulkWeight('');
     setBulkStartDate('');
     setBulkEndDate('');
+    setBulkAllocation('');
   }, []);
 
   const executeBulkEdit = useCallback(() => {
@@ -67,7 +75,8 @@ export function useWbsBulkEdit({
     }
     if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
     if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();
-    if (Object.keys(updates).length === 0) return;
+    const hasAllocation = bulkAllocation !== '';
+    if (Object.keys(updates).length === 0 && !hasAllocation) return;
     const ids = Array.from(selectedTaskIds);
     // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
     const hasScheduleField =
@@ -75,11 +84,60 @@ export function useWbsBulkEdit({
       Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
       Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
       Object.prototype.hasOwnProperty.call(updates, 'dependencies');
-    if (hasScheduleField) {
-      ids.forEach((id) => updateTask(id, updates));
-    } else {
-      updateTasksBulk(ids, updates);
+    if (Object.keys(updates).length > 0) {
+      if (hasScheduleField) {
+        ids.forEach((id) => updateTask(id, updates));
+      } else {
+        updateTasksBulk(ids, updates);
+      }
     }
+
+    // 투입율(assignment allocationPercent) 일괄 수정:
+    // 프로젝트별로 변경할 담당자를 모아서 한 번에 updateProject 호출.
+    // (루프 안에서 호출하면 같은 프로젝트에 여러 담당자가 있을 때 이전 변경이 덮어써짐)
+    if (hasAllocation) {
+      const rawVal = parseFloat(bulkAllocation);
+      if (!Number.isNaN(rawVal) && Number.isFinite(rawVal)) {
+        const pct = Math.min(100, Math.max(0, Math.round(rawVal * 10) / 10));
+        const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+        const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
+        // 프로젝트별 변경 담당자 집합 수집
+        const assigneesByProjectId = new Map<string, Set<string>>();
+        let skippedNoAssignee = 0;
+        for (const id of ids) {
+          const t = taskById.get(id);
+          if (!t?.projectId) continue;
+          const assignee = (t.assignee || '').trim();
+          if (!assignee) {
+            skippedNoAssignee++;
+            continue;
+          }
+          if (!projectById.has(t.projectId)) continue;
+          const set = assigneesByProjectId.get(t.projectId) ?? new Set<string>();
+          set.add(assignee);
+          assigneesByProjectId.set(t.projectId, set);
+        }
+        // 프로젝트별로 한 번에 assignments 갱신
+        for (const [projectId, assignees] of assigneesByProjectId) {
+          const proj = projectById.get(projectId)!;
+          const existing = proj.assignments ?? [];
+          const nextAssignments = existing.filter((a) => !assignees.has((a.assignee || '').trim()));
+          for (const assignee of assignees) {
+            nextAssignments.push({ assignee, allocationPercent: pct });
+          }
+          updateProject(projectId, { assignments: nextAssignments });
+        }
+        if (assigneesByProjectId.size === 0) {
+          pushToast(
+            skippedNoAssignee > 0
+              ? '담당자가 지정된 작업이 없어 투입율을 변경할 수 없습니다. 먼저 담당자를 지정해 주세요.'
+              : '투입율을 적용할 수 있는 작업이 없습니다.',
+            { variant: 'warning' },
+          );
+        }
+      }
+    }
+
     resetBulkFields();
   }, [
     bulkStatus,
@@ -89,10 +147,15 @@ export function useWbsBulkEdit({
     bulkWeight,
     bulkStartDate,
     bulkEndDate,
+    bulkAllocation,
     wbsSettings,
     selectedTaskIds,
     updateTask,
     updateTasksBulk,
+    tasks,
+    projects,
+    updateProject,
+    pushToast,
     resetBulkFields,
   ]);
 
@@ -189,6 +252,8 @@ export function useWbsBulkEdit({
     setBulkStartDate,
     bulkEndDate,
     setBulkEndDate,
+    bulkAllocation,
+    setBulkAllocation,
     resetBulkFields,
     executeBulkEdit,
     executeBulkWorkEffort,

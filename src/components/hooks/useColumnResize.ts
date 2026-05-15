@@ -42,7 +42,13 @@ const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
 
 // ── Hook params ────────────────────────────────────────────────────
 export interface UseColumnResizeParams {
-  wbsSettings: { columnWidths?: Record<string, number>; statusConfigs?: Array<{ id: string; name?: string }> } | undefined;
+  wbsSettings:
+    | {
+        columnWidths?: Record<string, number>;
+        statusConfigs?: Array<{ id: string; name?: string }>;
+        prependDisplayWbsToTaskName?: boolean;
+      }
+    | undefined;
   updateWbsSettings: (updates: Record<string, unknown>) => void;
   visibleTasks: Task[];
   displayWbsMap: Map<string, string> | undefined;
@@ -166,8 +172,12 @@ export function useColumnResize({
       for (const task of visibleTasks) {
         let cellText = '';
         if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
-        else if (colId === 'name') cellText = (displayWbsMap?.get(task.id) ? `${displayWbsMap.get(task.id)} ` : '') + (task.name ?? '');
-        else if (colId === 'startDate') cellText = formatDate(task.startDate);
+        else if (colId === 'name') {
+          const dw = (displayWbsMap?.get(task.id) ?? '').trim();
+          const prepend = wbsSettings?.prependDisplayWbsToTaskName === true;
+          const nm = (task.name ?? '').trim();
+          cellText = prepend && dw ? (nm ? `${dw} ${nm}` : dw) : (task.name ?? '');
+        } else if (colId === 'startDate') cellText = formatDate(task.startDate);
         else if (colId === 'endDate') cellText = formatDate(task.endDate);
         else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
         else if (colId === 'weight') cellText = task.weight != null ? formatNum1(task.weight) : '-';
@@ -194,7 +204,16 @@ export function useColumnResize({
       const padding = 24;
       return Math.max(30, Math.min(800, maxW + padding));
     },
-    [visibleTasks, displayWbsMap, allocationDisplayByTaskId, taskIdToSeqNum, customColumnNameById, wbsSettings?.statusConfigs, measureText],
+    [
+      visibleTasks,
+      displayWbsMap,
+      allocationDisplayByTaskId,
+      taskIdToSeqNum,
+      customColumnNameById,
+      wbsSettings?.statusConfigs,
+      wbsSettings?.prependDisplayWbsToTaskName,
+      measureText,
+    ],
   );
 
   // ── Double-click auto-fit (단일 컬럼) ──

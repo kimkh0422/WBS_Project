@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { WBSTable } from './components/WBSTable';
+import { TableGanttSplit } from './components/TableGanttSplit';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
 import { TaskModal } from './components/TaskModal';
@@ -176,8 +177,18 @@ function WBSApp({
   const { user, signOut } = useAuth();
 
   // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
-  type ViewType = 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
-  const VALID_VIEWS = new Set<string>(['table', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation', 'guide']);
+  type ViewType = 'table' | 'tablegantt' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
+  const VALID_VIEWS = new Set<string>([
+    'table',
+    'tablegantt',
+    'gantt',
+    'kanban',
+    'mindmap',
+    'dashboard',
+    'projects',
+    'allocation',
+    'guide',
+  ]);
   const location = useLocation();
   const navigate = useNavigate();
   const view: ViewType = useMemo(() => {
@@ -188,6 +199,7 @@ function WBSApp({
   useEffect(() => {
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
     if (path === 'list') navigate('/table', { replace: true });
+    if (path === 'tablekanban') navigate('/tablegantt', { replace: true });
   }, [location.pathname, navigate]);
   const setView = useCallback(
     (v: ViewType) => {
@@ -553,6 +565,7 @@ function WBSApp({
       if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
       if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
       if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
+      if (nextView === 'tablegantt') tipOnce('nav.tablegantt', '표+간트: 작업표와 간트 차트를 한 화면에서 함께 봅니다.');
       if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
       if (nextView === 'guide') tipOnce('nav.guide', '주요 사용 방법과 역할별 권한 안내를 확인할 수 있어요.');
     },
@@ -605,7 +618,7 @@ function WBSApp({
       setCurrentProjectId(projectId);
       // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
       // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
-      const taskViews: ViewType[] = ['table', 'gantt', 'kanban', 'mindmap'];
+      const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
       if (!taskViews.includes(view)) {
         setView('table');
       }
@@ -1567,7 +1580,7 @@ function WBSApp({
             currentProject.ownerId !== user?.id &&
             !myMemberProjectIds.includes(currentProjectId) &&
             !userApproved &&
-            (view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
+            (view === 'table' || view === 'tablegantt' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
               <ProjectAccessRequestBanner
                 projectId={currentProjectId}
                 projectName={currentProject.name}
@@ -1577,6 +1590,28 @@ function WBSApp({
                     .catch(() => {})
                 }
               />
+            ) : view === 'tablegantt' ? (
+              <ErrorBoundary viewName="표+간트">
+                <TableGanttSplit
+                  filters={effectiveFilters}
+                  sortConfig={sortConfig}
+                  onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                  onResetFilters={resetWbsFilters}
+                  scrollToTaskId={scrollToTaskId}
+                  sharedRowHeight={sharedRowHeight}
+                  onRowHeightChange={setSharedRowHeight}
+                  onSort={(key) => {
+                    setSortConfig((current) => {
+                      if (key === 'wbs' && current?.key === 'wbs') return null;
+                      if (current?.key === key) {
+                        if (current.direction === 'asc') return { key, direction: 'desc' };
+                        return null;
+                      }
+                      return { key, direction: 'asc' };
+                    });
+                  }}
+                />
+              </ErrorBoundary>
             ) : view === 'table' ? (
               <ErrorBoundary viewName="표">
                 <div className="h-full overflow-hidden">

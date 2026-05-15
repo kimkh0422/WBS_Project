@@ -31,6 +31,7 @@ export interface WbsTableKeyboardDeps {
   projects: Project[];
   canEditCurrentProject: boolean;
   inlineAddingTaskId: string | null;
+  setInlineAddingTaskId: (id: string | null) => void;
 
   // State setters
   setLastSelectedId: (id: string | null) => void;
@@ -92,6 +93,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     projects,
     canEditCurrentProject,
     inlineAddingTaskId,
+    setInlineAddingTaskId,
     setLastSelectedId,
     setTableEditMode,
     setFocusedCell,
@@ -400,43 +402,34 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       }
 
-      // Esc: 편집/선택 해제는 포커스 위치와 무관하게 우선 처리
-      // (입력 중/셀 편집 중에도 Esc로 빠져나오고, 최종적으로 선택도 해제 가능)
+      // Esc: 편집·포커스·편집 모드·인라인 추가·선택을 한 번에 해제 (여러 상태가 겹쳐 있어도 1회로 정리)
       if (e.key === 'Escape') {
-        // 편집 중지 (셀 편집 → 작업명 편집 → 테이블 편집 모드 순으로 해제)
-        if (editingCell) {
-          setEditingCell(null);
-          e.preventDefault();
-          return;
-        }
-        if (inlineEditingNameId) {
-          setInlineEditingNameId(null);
-          e.preventDefault();
-          return;
-        }
-        if (focusedCell) {
-          setFocusedCell(null);
-          e.preventDefault();
-          return;
-        }
-        if (tableEditMode) {
-          setTableEditMode(false);
-          setFocusedCell(null);
-          (document.activeElement as HTMLElement)?.blur();
-          tableScrollRef.current?.focus();
-          e.preventDefault();
-          return;
-        }
-        // 선택 모두 취소
+        const hadOverlay =
+          editingCell != null ||
+          inlineEditingNameId != null ||
+          focusedCell != null ||
+          tableEditMode ||
+          inlineAddingTaskId != null ||
+          selectedTaskIds.size > 0;
+
+        if (!hadOverlay) return;
+
+        if (editingCell) setEditingCell(null);
+        if (inlineEditingNameId) setInlineEditingNameId(null);
+        if (focusedCell) setFocusedCell(null);
+        if (tableEditMode) setTableEditMode(false);
+        if (inlineAddingTaskId) setInlineAddingTaskId(null);
         if (selectedTaskIds.size > 0) {
           setSelection(new Set());
           setBulkStatus('');
           setBulkAssignee('');
           setBulkWorkEffort('');
           setBulkProgress('');
-          e.preventDefault();
-          return;
         }
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        tableScrollRef.current?.focus();
+        e.preventDefault();
+        return;
       }
 
       // 셀 입력 중이면 행 선택·트리·붙여넣기 등 표 단축키 비활성화 (선행작업 input 등은 editingCell 없음)
@@ -919,6 +912,18 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     handleSelectAll,
     toggleExpand,
     pushToast,
+    inlineAddingTaskId,
+    setInlineAddingTaskId,
+    setEditingCell,
+    setFocusedCell,
+    setInlineEditingNameId,
+    setTableEditMode,
+    setSelection,
+    setBulkStatus,
+    setBulkAssignee,
+    setBulkWorkEffort,
+    setBulkProgress,
+    tableScrollRef,
   ]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지).

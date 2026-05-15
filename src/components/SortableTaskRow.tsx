@@ -123,6 +123,8 @@ export interface SortableTaskRowProps {
   customColumnNameById: Map<string, string>;
   /** projectId → 작업 공수 숫자의 단위 */
   projectEffortUnitByProjectId: Map<string, WorkEffortUnit>;
+  /** true면 작업명 컬럼에 표시용 WBS 접두(예: P1)를 붙여 표시 */
+  prependDisplayWbsToTaskName?: boolean;
 }
 
 function SortableTaskRowInner({
@@ -165,6 +167,7 @@ function SortableTaskRowInner({
   otherFocusByCellKey,
   customColumnNameById,
   projectEffortUnitByProjectId,
+  prependDisplayWbsToTaskName = false,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
@@ -375,18 +378,19 @@ function SortableTaskRowInner({
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
       )}
-      onClickCapture={(e) => {
+      // Shift/Ctrl/Meta 구간·다중 선택: click은 일부 컨트롤(날짜 등)에서 합성되지 않을 수 있어 pointerdown 캡처에서 처리한다.
+      onPointerDownCapture={(e) => {
+        if (e.button !== 0) return;
+        if (!e.shiftKey && !e.ctrlKey && !e.metaKey) return;
         if (e.shiftKey) {
           onSelect(task.id, false, true);
-          if (onFocusRow) onFocusRow(task.id);
-          e.stopPropagation();
-          return;
-        }
-        if (e.ctrlKey || e.metaKey) {
+          onFocusRow?.(task.id);
+        } else {
           onSelect(task.id, true, false);
-          if (onFocusRow) onFocusRow(task.id);
-          e.stopPropagation();
+          onFocusRow?.(task.id);
         }
+        e.preventDefault();
+        e.stopPropagation();
       }}
       onClick={(e) => {
         if (e.shiftKey || e.ctrlKey || e.metaKey) return;
@@ -465,6 +469,10 @@ function SortableTaskRowInner({
         }
         if (colId === 'name') {
           const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
+          const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
+          const rawName = (task.name ?? '').trim();
+          const tableNameLabel =
+            prependDisplayWbsToTaskName && displayWbsPrefix ? (rawName ? `${displayWbsPrefix} ${rawName}` : displayWbsPrefix) : rawName;
           return (
             <div
               key={colId}
@@ -538,8 +546,8 @@ function SortableTaskRowInner({
                       크리티컬
                     </span>
                   )}
-                  {task.name ? (
-                    task.name
+                  {tableNameLabel ? (
+                    tableNameLabel
                   ) : (
                     <span className="italic text-stone-400 font-normal select-none">(더블클릭 또는 F2로 작업명 입력)</span>
                   )}
@@ -842,7 +850,7 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     beginEdit('weight');
                   }}
-                  title="클릭하여 가중치 수정"
+                  title="클릭하여 가중치 수정(형제 합 100 불필요, 상대 중요도)"
                 >
                   {task.weight != null ? formatNum1(task.weight) : '-'}
                 </button>
@@ -1333,15 +1341,6 @@ function SortableTaskRowInner({
                   : '더블클릭 또는 F2로 선행작업 수정'
               }
             >
-              {hiddenDepLabels.length > 0 && (
-                <span
-                  className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded flex-shrink-0"
-                  title={`접힘/필터로 보이지 않는 선행작업 ${hiddenDepLabels.length}건: ${hiddenDepLabels.join(', ')}`}
-                  aria-label={`보이지 않는 선행작업 ${hiddenDepLabels.length}건`}
-                >
-                  +{hiddenDepLabels.length}
-                </span>
-              )}
               {isEditing ? (
                 <div className="relative min-w-0 flex-1">
                   <input
@@ -1568,7 +1567,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
-    prev.customColumnNameById === next.customColumnNameById
+    prev.customColumnNameById === next.customColumnNameById &&
+    prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName
   );
 }
 

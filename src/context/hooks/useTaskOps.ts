@@ -8,7 +8,7 @@ import { round1, round2 } from '../../lib/utils';
 import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../../lib/schedule';
 import { getHolidaysForTaskDates } from '../../lib/calendar';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
-import { syncParentRollups, rescaleSiblingsToSum100, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
+import { syncParentRollups, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
 import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortToManDays } from '../../lib/workEffortUnits';
 
 /** rootIds와 그 모든 하위 작업 id (같은 트리: parentId 체인). */
@@ -95,17 +95,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
             nextTasks = arr;
           } else nextTasks = [...prev, task];
         } else nextTasks = [...prev, task];
-        // 새 작업의 기본 가중치 = 100/n. 기존 형제 가중치는 비율 유지하여 100-100/n 으로 비례 재분배.
-        // 가중치를 명시해서 추가한 경우(예: 임포트, 복사)에는 그 값을 유지하고 형제만 비례 재조정.
-        const groupSiblings = nextTasks.filter((t) => t.projectId === task.projectId && (t.parentId ?? null) === (task.parentId ?? null));
-        const groupCount = groupSiblings.length;
+        // 가중치: 형제 값은 건드리지 않음. 명시된 경우만 반올림해 저장(합 100 제약 없음).
         const hasExplicitWeight = typeof task.weight === 'number' && Number.isFinite(task.weight);
-        if (groupCount > 0 && task.projectId) {
-          if (!hasExplicitWeight) {
-            const defaultWeight = round2(100 / groupCount);
-            nextTasks = nextTasks.map((t) => (t.id === task.id ? { ...t, weight: defaultWeight } : t));
-          }
-          nextTasks = rescaleSiblingsToSum100(nextTasks, task.projectId, task.parentId ?? null, task.id);
+        if (hasExplicitWeight && task.projectId) {
+          nextTasks = nextTasks.map((t) => (t.id === task.id ? { ...t, weight: round1(task.weight as number) } : t));
         }
         const result = syncParentRollups(
           nextTasks,
@@ -130,14 +123,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const project = projs.find((p) => p.id === effectiveProjectId);
       const tasksWithProject = newTasks.map((t) => clampTaskToProjectRange({ ...t, projectId: effectiveProjectId }, project));
       setAllTasks((prev) => {
-        let next = [...prev, ...tasksWithProject];
-
-        // 다건 추가 시에도 "해당 레벨(형제) 가중치 합=100" 규칙을 보장.
-        // 새로 추가된 작업의 parentId 그룹별로 1회씩 정규화한다.
-        const touchedParentIds = new Set<string | null>(tasksWithProject.map((t) => t.parentId ?? null));
-        for (const pid of touchedParentIds) {
-          next = rescaleSiblingsToSum100(next, effectiveProjectId, pid);
-        }
+        const next = [...prev, ...tasksWithProject];
 
         return recomputeProjectRollups(next, effectiveProjectId);
       });
@@ -310,17 +296,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        // 가중치 변경 시 같은 레벨 형제들을 (100 - 새 가중치)에 맞춰 비율 유지하며 재분배.
-        // 부모-자식 간에는 가중치가 독립적이므로 하위 레벨로 전파하지 않는다.
-        if (
-          Object.prototype.hasOwnProperty.call(updates, 'weight') &&
-          typeof resolvedUpdates.weight === 'number' &&
-          Number.isFinite(resolvedUpdates.weight) &&
-          updatedTask.projectId
-        ) {
-          nextTasks = rescaleSiblingsToSum100(nextTasks, updatedTask.projectId, updatedTask.parentId ?? null, id);
-        }
-
         // 담당자가 실제로 바뀐 경우에만 모든 하위 작업에 같은 담당자 자동 등록 (모달 저장 등 불필요한 전파 방지)
         if (Object.prototype.hasOwnProperty.call(updates, 'assignee') && typeof resolvedUpdates.assignee === 'string') {
           const newAssignee = resolvedUpdates.assignee;
@@ -457,14 +432,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
         if (parentIdChanged) {
-          // 이동 전 부모 그룹: 옮겨간 작업을 제외하고 합 100으로 재정규화
-          if (task.projectId) {
-            result = rescaleSiblingsToSum100(result, task.projectId, task.parentId ?? null);
-          }
-          // 이동 후 부모 그룹: 옮겨간 작업의 가중치는 유지하고 나머지 형제 재분배
-          if (updatedTask.projectId) {
-            result = rescaleSiblingsToSum100(result, updatedTask.projectId, updatedTask.parentId ?? null, id);
-          }
           if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds);
           if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds);
         }
@@ -541,7 +508,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       setAllTasks((prev) => {
         const idSet = hasAssignee ? collectDescendantTaskIds(originalIdSet, prev) : originalIdSet;
         const assigneePatch: Partial<Task> = hasAssignee ? { assignee: updates.assignee as string } : {};
-        let next = prev.map((t) => {
+        const next = prev.map((t) => {
           if (!idSet.has(t.id)) return t;
           const patch = originalIdSet.has(t.id) ? updates : assigneePatch;
           if (Object.keys(patch).length === 0) return t;
@@ -558,23 +525,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
             userLockedFields: localLockFields.size > 0 ? Array.from(localLockFields) : undefined,
           };
         });
-
-        // 일괄 가중치 수정 후에도 레벨별 합계가 100이 되도록 자동 보정.
-        if (Object.prototype.hasOwnProperty.call(updates, 'weight')) {
-          const touchedGroups = new Set<string>();
-          const groupKeys: Array<{ projectId: string; parentId: string | null }> = [];
-          for (const t of next) {
-            if (!originalIdSet.has(t.id) || !t.projectId) continue;
-            const parentId = t.parentId ?? null;
-            const key = `${t.projectId}::${parentId ?? '__root__'}`;
-            if (touchedGroups.has(key)) continue;
-            touchedGroups.add(key);
-            groupKeys.push({ projectId: t.projectId, parentId });
-          }
-          for (const g of groupKeys) {
-            next = rescaleSiblingsToSum100(next, g.projectId, g.parentId);
-          }
-        }
 
         return next;
       });
@@ -775,11 +725,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         };
         const idsToDelete = [id, ...getAllDescendantIds(id, prev)];
         if (taskToDelete.projectId) recordDeletedTaskIds(taskToDelete.projectId, idsToDelete);
-        let next = prev.filter((t) => !new Set(idsToDelete).has(t.id));
-        // 삭제된 작업의 같은 레벨 형제들의 가중치 합이 다시 100이 되도록 비율 유지하며 재정규화
-        if (taskToDelete.projectId) {
-          next = rescaleSiblingsToSum100(next, taskToDelete.projectId, taskToDelete.parentId ?? null);
-        }
+        const next = prev.filter((t) => !new Set(idsToDelete).has(t.id));
         return syncParentRollups(next, taskToDelete.parentId);
       });
     },

@@ -16,8 +16,8 @@ export interface SummaryStats {
 }
 
 /**
- * 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균을 우선 사용.
- * (weight 없으면 공수로 대체) 1레벨이 없으면 폴백으로 단말(리프) 단순 평균.
+ * 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균(Σw가 100이 아니어도 동일)을 우선 사용.
+ * (weight 없으면 공수로 대체) 1레벨이 없으면 폴백으로 단말(리프) 단순 평균. 결과는 0~100%로 클램프.
  */
 export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []): SummaryStats | null {
   return useMemo(() => {
@@ -78,16 +78,19 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
         totalWeight += w;
         acc += p * w;
       }
-      if (totalWeight > 0) return Math.round(acc / totalWeight);
+      if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
       if (items.length > 0)
-        return Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length);
+        return Math.min(
+          100,
+          Math.max(0, Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
+        );
       return 0;
     };
     const avgProgress =
       level1.length > 0
         ? computeWeighted(level1)
         : forAggregate.length > 0
-          ? Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)
+          ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
           : 0;
 
     // 기간 표시: 단일 프로젝트 뷰에서는 그 프로젝트의 startDate/endDate를 우선 표시한다.

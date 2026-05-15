@@ -42,6 +42,11 @@ export interface WBSSettings {
   projectGroups?: ProjectGroup[];
   /** 사용자 정의 표 컬럼 정의 */
   customColumns?: Array<{ id: string; name: string }>;
+  /**
+   * true: 작업표에서 작업명 컬럼에 표시용 WBS ID를 접두로 붙임(예: "P1 요구사항 정의").
+   * WBS ID 컬럼 표기는 그대로이며, 저장되는 작업명(task.name)은 바뀌지 않음.
+   */
+  prependDisplayWbsToTaskName?: boolean;
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
@@ -128,6 +133,7 @@ export function parseSettings(raw: unknown): WBSSettings {
       wrapTextInCells: parsed.wrapTextInCells === true,
       linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
       linkEffortToSchedule: parsed.linkEffortToSchedule === true,
+      prependDisplayWbsToTaskName: parsed.prependDisplayWbsToTaskName === true,
     };
 
     // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)

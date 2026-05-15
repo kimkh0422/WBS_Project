@@ -66,9 +66,10 @@ export function syncParentRollups(
   if (doneStatusIds && parent.status && doneStatusIds.has(parent.status)) {
     parentProgress = 100;
   } else if (totalWeight > 0) {
-    parentProgress = Math.round(weightedProgressSum / totalWeight);
+    // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
+    parentProgress = Math.min(100, Math.max(0, Math.round(weightedProgressSum / totalWeight)));
   } else if (children.length > 0) {
-    parentProgress = Math.round(simpleProgressSum / children.length);
+    parentProgress = Math.min(100, Math.max(0, Math.round(simpleProgressSum / children.length)));
   }
 
   const lockedFields = new Set(parent.userLockedFields ?? []);
@@ -236,14 +237,12 @@ export function distributeProgressDown(allTasks: Task[], parentId: string, targe
 }
 
 /**
- * 같은 레벨(같은 parentId·projectId) 형제들의 가중치 합을 100으로 정규화한다.
+ * (레거시) 같은 레벨 형제 가중치 합을 100으로 정규화한다.
+ * 앱 로직에서는 더 이상 호출하지 않으며, 마이그레이션·테스트용으로만 유지한다.
  * - `preserveTaskId`가 주어지면: 해당 작업의 가중치는 사용자가 입력한 값으로 고정하고
  *   나머지 형제들에게 (100 - preservedWeight)를 기존 비율대로 비례 분배한다.
  * - `preserveTaskId`가 없으면: 모든 형제들의 가중치를 비율을 유지하면서 합 100으로 재조정한다.
  * - 기존 합이 0이거나 모두 미지정이면 균등 분배(100/n).
- *
- * 신규 작업 추가, 작업 삭제, 사용자가 가중치를 직접 편집한 직후 호출하여
- * "해당 레벨 합 = 100" 규칙을 자동으로 유지한다.
  */
 export function rescaleSiblingsToSum100(
   tasks: Task[],
@@ -313,8 +312,7 @@ export function rescaleSiblingsToSum100(
 
 /**
  * 상위 작업 가중치 변경 시, 해당 노드의 모든 하위 레벨을 비율 유지하여 재귀적으로 재분배.
- * @deprecated 가중치는 이제 각 레벨별로 독립적으로 합 100을 유지한다(rescaleSiblingsToSum100 사용).
- *   부모 가중치 변경이 자식 가중치에 영향을 주지 않으므로 이 함수는 더 이상 사용하지 않는다.
+ * @deprecated 앱에서는 형제 가중치를 `rescaleSiblingsToSum100`으로 묶지 않으며, 이 함수도 사용하지 않는다.
  */
 export function redistributeWeightsDown(tasks: Task[], parentId: string, parentWeight: number): Task[] {
   const children = tasks.filter((t) => t.parentId === parentId);

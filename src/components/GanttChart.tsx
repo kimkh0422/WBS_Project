@@ -608,10 +608,10 @@ export function GanttChart({
             {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
                 sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
                 실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
-            {topSpacerHeight > 0 && (
+            {canEditCurrentProject && topSpacerHeight > 0 && (
               <div
-                className="sticky top-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm"
-                style={{ height: topSpacerHeight, width: totalWidth, boxSizing: 'border-box' }}
+                className="sticky top-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm box-border"
+                style={{ height: topSpacerHeight, width: totalWidth }}
                 aria-hidden
               />
             )}

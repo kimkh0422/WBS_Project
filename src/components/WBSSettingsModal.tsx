@@ -83,6 +83,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
   const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath === true);
   const [wrapTextInCells, setWrapTextInCells] = useState(wbsSettings.wrapTextInCells === true);
+  const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
   const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
   const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
@@ -186,6 +187,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       setAppTitle(wbsSettings.appTitle);
       setShowCriticalPath(wbsSettings.showCriticalPath === true);
       setWrapTextInCells(wbsSettings.wrapTextInCells === true);
+      setPrependDisplayWbsToTaskName(wbsSettings.prependDisplayWbsToTaskName === true);
       setLevel1(wbsSettings.level1Prefix);
       setLevel2(wbsSettings.level2Prefix);
       setLevel3(wbsSettings.level3Prefix);
@@ -245,6 +247,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         appTitle: appTitle.trim(),
         showCriticalPath,
         wrapTextInCells,
+        prependDisplayWbsToTaskName,
         level1Prefix: level1.trim(),
         level2Prefix: level2.trim(),
         level3Prefix: level3.trim(),
@@ -490,6 +493,23 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       작업 레벨이 표시 레벨을 초과할 경우 ID가 숨겨집니다.
                     </p>
                   </div>
+
+                  <div className="flex items-center gap-3 pt-1">
+                    <input
+                      type="checkbox"
+                      id="prependDisplayWbsToTaskName"
+                      checked={prependDisplayWbsToTaskName}
+                      onChange={(e) => setPrependDisplayWbsToTaskName(e.target.checked)}
+                      className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <label htmlFor="prependDisplayWbsToTaskName" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
+                      작업명 컬럼에 WBS ID 접두 표시
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-stone-400 leading-relaxed">
+                    WBS ID 컬럼은 그대로 두고, 작업명 컬럼에만 &quot;P1 요구사항 정의&quot;처럼 표시용 번호를 붙입니다. 실제 저장되는
+                    작업명은 바뀌지 않습니다.
+                  </p>
                 </div>
 
                 {/* 레벨별 색상 */}

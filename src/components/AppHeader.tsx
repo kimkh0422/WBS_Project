@@ -28,6 +28,7 @@ import {
   Edit,
   LayoutDashboard,
   CheckSquare,
+  Columns2,
   Target,
   MoreHorizontal,
   Sun,
@@ -223,34 +224,42 @@ export function AppHeader({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
-  const [showByGroup, setShowByGroup] = useState<boolean>(() => {
+  /** 프로젝트 목록 보기 모드 — 한 번에 하나만(다시 누르면 전체). */
+  type ProjectListMode = 'all' | 'my' | 'group' | 'favorites';
+  const PROJECT_LIST_MODE_KEY = 'wbs-header-projects-list-mode';
+  const [listMode, setListMode] = useState<ProjectListMode>(() => {
     try {
-      return localStorage.getItem('wbs-header-projects-by-group') === '1';
+      const saved = localStorage.getItem(PROJECT_LIST_MODE_KEY);
+      if (saved === 'my' || saved === 'group' || saved === 'favorites' || saved === 'all') return saved;
+      if (localStorage.getItem('wbs-header-projects-my-only') === '1') return 'my';
+      if (
+        localStorage.getItem('wbs-header-projects-group-assigned-only') === '1' ||
+        localStorage.getItem('wbs-header-projects-group-layout') === '1' ||
+        localStorage.getItem('wbs-header-projects-by-group') === '1'
+      ) {
+        return 'group';
+      }
+      return 'all';
     } catch {
-      return false;
+      return 'all';
     }
   });
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
 
   // 관심 프로젝트 (즐겨찾기) — wbsSettings(DB) 동기화
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // "내 프로젝트만" 보기 토글 (localStorage에 사용자별 저장)
-  const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
+  const persistListMode = (mode: ProjectListMode) => {
+    setListMode(mode);
     try {
-      return localStorage.getItem('wbs-header-projects-my-only') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const persistShowMyOnly = (v: boolean) => {
-    setShowMyOnly(v);
-    try {
-      localStorage.setItem('wbs-header-projects-my-only', v ? '1' : '0');
+      localStorage.setItem(PROJECT_LIST_MODE_KEY, mode);
     } catch {
       /* ignore */
     }
+  };
+
+  const toggleListMode = (target: Exclude<ProjectListMode, 'all'>) => {
+    persistListMode(listMode === target ? 'all' : target);
   };
 
   const toggleFavorite = (projectId: string) => {
@@ -270,15 +279,11 @@ export function AppHeader({
   };
 
   const displayProjects = useMemo(() => {
-    let list = projectsSortedByName;
-    if (showMyOnly && user?.id) {
-      list = list.filter((p) => p.ownerId === user.id);
-    }
-    if (showFavoritesOnly && favoriteIds.size > 0) {
-      list = list.filter((p) => favoriteIds.has(p.id));
-    }
-    return list;
-  }, [projectsSortedByName, showFavoritesOnly, favoriteIds, showMyOnly, user?.id]);
+    const base = projectsSortedByName;
+    if (listMode === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
+    if (listMode === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
+    return base;
+  }, [projectsSortedByName, listMode, favoriteIds, user?.id]);
 
   /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
   const ownerGroups = useMemo(() => {
@@ -339,22 +344,13 @@ export function AppHeader({
 
   // 드롭다운 열릴 때 모든 그룹 자동 펼침 + 현재 프로젝트 소속 그룹 펼침 보장
   useEffect(() => {
-    if (isProjectDropdownOpen && showByGroup) {
+    if (isProjectDropdownOpen && listMode === 'group') {
       const next = new Set<string>();
       sortedProjectGroups.forEach((g) => next.add(g.id));
       next.add('__none__');
       setExpandedGroupKeys(next);
     }
-  }, [isProjectDropdownOpen, showByGroup, sortedProjectGroups]);
-
-  const persistShowByGroup = (v: boolean) => {
-    setShowByGroup(v);
-    try {
-      localStorage.setItem('wbs-header-projects-by-group', v ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-  };
+  }, [isProjectDropdownOpen, listMode, sortedProjectGroups]);
 
   const ownerGroupLabel = (ownerKey: string) => {
     if (ownerKey === '__none__') return '소유자 미지정';
@@ -531,7 +527,7 @@ export function AppHeader({
                     <div className="p-1">
                       <div
                         className="px-3 py-2 flex items-center justify-between gap-2"
-                        title="선택한 프로젝트의 작업만 표시합니다. 전체를 선택하면 모든 프로젝트를 한눈에 볼 수 있어요."
+                        title="내 프로젝트만·그룹별·관심만은 한 번에 하나만 적용됩니다. 켜진 버튼을 다시 누르면 전체 목록으로 돌아갑니다."
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
@@ -540,15 +536,15 @@ export function AppHeader({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                persistShowMyOnly(!showMyOnly);
+                                toggleListMode('my');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                showMyOnly
+                                listMode === 'my'
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                                   : 'text-stone-400 hover:text-emerald-600 border border-transparent hover:border-stone-200',
                               )}
-                              title={showMyOnly ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
+                              title={listMode === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
                             >
                               <User size={10} />내 프로젝트만
                             </button>
@@ -558,15 +554,15 @@ export function AppHeader({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                persistShowByGroup(!showByGroup);
+                                toggleListMode('group');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                showByGroup
+                                listMode === 'group'
                                   ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
                                   : 'text-stone-400 hover:text-indigo-600 border border-transparent hover:border-stone-200',
                               )}
-                              title={showByGroup ? '평탄 목록으로 보기' : '그룹별로 묶어 보기'}
+                              title={listMode === 'group' ? '전체 프로젝트 보기' : '그룹별로 묶어 보기'}
                             >
                               <FolderOpen size={10} />
                               그룹별
@@ -577,18 +573,18 @@ export function AppHeader({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setShowFavoritesOnly((prev) => !prev);
+                                toggleListMode('favorites');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                showFavoritesOnly
+                                listMode === 'favorites'
                                   ? 'bg-amber-100 text-amber-700 border border-amber-200'
                                   : 'text-stone-400 hover:text-amber-600 border border-transparent hover:border-stone-200',
                               )}
-                              title={showFavoritesOnly ? '전체 프로젝트 보기' : '관심 프로젝트만 보기'}
+                              title={listMode === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
                             >
-                              <Star size={10} className={showFavoritesOnly ? 'fill-amber-500' : ''} />
-                              {showFavoritesOnly ? `관심 ${favoriteIds.size}개` : '관심만'}
+                              <Star size={10} className={listMode === 'favorites' ? 'fill-amber-500' : ''} />
+                              {listMode === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
                             </button>
                           )}
                           <span className="text-[10px] text-stone-400 shrink-0">{displayProjects.length}개</span>
@@ -748,7 +744,7 @@ export function AppHeader({
                             );
                           };
 
-                          if (showByGroup && sortedProjectGroups.length > 0) {
+                          if (listMode === 'group' && sortedProjectGroups.length > 0) {
                             return [...sortedProjectGroups, { id: '__none__', name: '그룹 미지정' }].map((g) => {
                               const list = projectsByGroup.get(g.id) ?? [];
                               if (g.id === '__none__' && list.length === 0) return null;
@@ -857,6 +853,14 @@ export function AppHeader({
               label="표만"
               title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다."
               tourId="tour-nav-table"
+            />
+            <NavButton
+              active={view === 'tablegantt'}
+              onClick={() => navigateWithTip('tablegantt')}
+              icon={<Columns2 size={14} />}
+              label="표+간트"
+              title="작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)"
+              tourId="tour-nav-tablegantt"
             />
             <NavButton
               active={view === 'gantt'}
@@ -1214,9 +1218,9 @@ export function AppHeader({
           </button>
         </div>
       </div>
-      {/* 모바일 하단 고정 탭바: 대시보드 / 표 / 간트 / 칸반 4개만 표시 */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-2 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
-        <div className="grid grid-cols-4 gap-1">
+      {/* 모바일 하단 고정 탭바: 대시보드 / 표 / 표+간트 / 간트 / 칸반 */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
+        <div className="grid grid-cols-5 gap-0.5">
           <NavButton
             active={view === 'dashboard'}
             onClick={() => navigateWithTip('dashboard')}
@@ -1230,6 +1234,13 @@ export function AppHeader({
             icon={<CheckSquare size={14} />}
             label="표"
             title="표"
+          />
+          <NavButton
+            active={view === 'tablegantt'}
+            onClick={() => navigateWithTip('tablegantt')}
+            icon={<Columns2 size={14} />}
+            label="표+간"
+            title="표와 간트 함께 보기"
           />
           <NavButton
             active={view === 'gantt'}

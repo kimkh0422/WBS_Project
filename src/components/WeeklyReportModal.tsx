@@ -258,7 +258,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
         totalWeight += w;
         acc += p * w;
       }
-      const avg = totalWeight > 0 ? Math.round(acc / totalWeight) : 0;
+      const avg = totalWeight > 0 ? Math.min(100, Math.max(0, Math.round(acc / totalWeight))) : 0;
       return { avgProgress: avg, totalEffort: totalWeight };
     };
 

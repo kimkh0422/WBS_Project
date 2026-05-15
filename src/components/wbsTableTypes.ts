@@ -26,6 +26,8 @@ export interface WBSTableProps {
   onRowHeightChange?: (h: number) => void;
   /** 줄바꿈 켜짐 시 측정된 행 높이 배열을 전달 (표·간트 동기화용) */
   onRowHeightsChange?: (heights: number[]) => void;
+  /** split 뷰: 간트와 동일한 행 높이(가상 스크롤·총 높이 정렬) */
+  syncRowHeights?: number[];
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */

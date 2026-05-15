@@ -63,7 +63,7 @@ export interface Task {
   dependencies?: string[]; // Array of predecessor task IDs
   /** 프로젝트 `workEffortUnit` 기준 저장값 (표시·편집). 스케줄링 시 MD로 환산 */
   workEffort?: number;
-  /** 진척 가중치. 지정 시 상위 작업·요약 진척률에 이 값을 우선 사용 (없으면 공수 기준) */
+  /** 진척 가중치(상대 중요도). 지정 시 상위·요약 진척률 가중평균에 사용(없으면 공수). 형제 합이 100일 필요 없음 */
   weight?: number;
   description?: string;
   checklist?: { id: string; text: string; completed: boolean }[];

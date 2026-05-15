@@ -162,7 +162,7 @@ export interface TaskRow {
   baseline_start_date?: string | null;
   baseline_end_date?: string | null;
   baseline_work_effort?: number | null;
-  /** 진척 가중치 (상위 입력 시 하위 비율 재분배, DB 반영용) */
+  /** 진척 가중치(상대 중요도, 형제 합 제약 없음). 상위 진척률 롤업 시 가중평균에 사용 */
   weight?: number | null;
   /** 사용자 정의 컬럼 값 (key: custom column id, value: text) */
   custom_fields?: Record<string, string> | null;

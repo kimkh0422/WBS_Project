@@ -2,7 +2,16 @@ import React, { useMemo } from 'react';
 import { Keyboard, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X } from 'lucide-react';
 
 /** App.tsx `view`와 동일 — 단축키 안내 분기용 */
-export type ShortcutsContextView = 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
+export type ShortcutsContextView =
+  | 'table'
+  | 'tablegantt'
+  | 'gantt'
+  | 'kanban'
+  | 'mindmap'
+  | 'dashboard'
+  | 'projects'
+  | 'allocation'
+  | 'guide';
 
 type KeyToken = string | React.ReactNode;
 type Shortcut = { label: string; keys: KeyToken[]; hint?: string };
@@ -17,7 +26,7 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
     ];
 
     const rowHeightItem: Shortcut = { label: '줄높이 ±', keys: ['Ctrl', '+ / -'] };
-    const showRowHeight = view === 'table' || view === 'gantt';
+    const showRowHeight = view === 'table' || view === 'tablegantt' || view === 'gantt';
 
     const wbsTableSection: Section = {
       title: '표 (WBS)',
@@ -86,7 +95,7 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
       },
     ];
 
-    if (view === 'table') {
+    if (view === 'table' || view === 'tablegantt') {
       out.push(wbsTableSection);
     }
     if (view === 'gantt') {
@@ -151,7 +160,9 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
             </div>
             <div className="px-2">
               {section.items.map((shortcut) => (
-                <ShortcutRow key={shortcut.label} shortcut={shortcut} />
+                <React.Fragment key={shortcut.label}>
+                  <ShortcutRow shortcut={shortcut} />
+                </React.Fragment>
               ))}
             </div>
           </div>

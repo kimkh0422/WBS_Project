@@ -89,6 +89,7 @@ export function WBSTable({
   rowHeight: propRowHeight,
   onRowHeightChange,
   onRowHeightsChange,
+  syncRowHeights,
   hotkeysEnabled = true,
   onOpenColumnSettings,
   fillHeight = false,
@@ -124,6 +125,7 @@ export function WBSTable({
     canEditCurrentProject,
     reorderTask,
     linkSequentialPredecessors,
+    updateProject,
   } = useWBS();
 
   const { push: pushToast, tipOnce } = useToast();
@@ -364,10 +366,16 @@ export function WBSTable({
     [dndActiveIndex],
   );
 
+  const isSplitViewForVirtualizer = !!syncScrollRef;
   const rowVirtualizer = useVirtualizer({
     count: visibleTasks.length,
     getScrollElement: () => tableScrollRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: (index) => {
+      if (isSplitViewForVirtualizer && syncRowHeights && syncRowHeights.length === visibleTasks.length) {
+        return syncRowHeights[index] ?? rowHeight;
+      }
+      return rowHeight;
+    },
     overscan: 5,
     rangeExtractor: virtualRangeExtractor,
   });
@@ -623,6 +631,8 @@ export function WBSTable({
     setBulkStartDate,
     bulkEndDate,
     setBulkEndDate,
+    bulkAllocation,
+    setBulkAllocation,
     resetBulkFields,
     executeBulkEdit,
     executeBulkAssignee,
@@ -635,9 +645,12 @@ export function WBSTable({
     wbsSettings,
     updateTask,
     updateTasksBulk,
+    projects,
+    updateProject,
     linkSequentialPredecessors,
     setSelection,
     setLastSelectedId,
+    pushToast,
   });
 
   // Keyboard Shortcuts — extracted to useWbsTableKeyboard
@@ -664,6 +677,7 @@ export function WBSTable({
     projects,
     canEditCurrentProject,
     inlineAddingTaskId,
+    setInlineAddingTaskId,
     setLastSelectedId,
     setTableEditMode,
     setFocusedCell,
@@ -1066,83 +1080,116 @@ export function WBSTable({
             }}
           >
             <div className="min-w-fit w-full bg-white relative">
-              {/* Non-split: 헤더는 스크롤 안에 (기존 동작) */}
+              {/* Non-split: 컬럼 헤더 + 상단 새 작업 추가를 한 덩어로 sticky — 개별 sticky+z충돌로 헤더와 겹침 방지 */}
               {!isSplitView && (
-                <div className="data-header" style={gridStyle}>
-                  <div
-                    className="col-header justify-center relative"
-                    title="드래그 · 더블클릭: 너비 초기화"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleColumnHeaderDoubleClick('grip');
-                    }}
-                    onContextMenu={(e) => handleHeaderContextMenu(e)}
-                  >
-                    {resizeGrip('grip')}
+                <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                  <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
+                    <div
+                      className="col-header justify-center relative"
+                      title="드래그 · 더블클릭: 너비 초기화"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColumnHeaderDoubleClick('grip');
+                      }}
+                      onContextMenu={(e) => handleHeaderContextMenu(e)}
+                    >
+                      {resizeGrip('grip')}
+                    </div>
+                    <div
+                      className="col-header justify-center relative"
+                      title="전체 선택 · 더블클릭: 너비 초기화"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColumnHeaderDoubleClick('checkbox');
+                      }}
+                      onContextMenu={(e) => handleHeaderContextMenu(e)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                        checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
+                        onChange={handleSelectAll}
+                      />
+                      {resizeGrip('checkbox')}
+                    </div>
+                    <div
+                      className="col-header justify-center relative"
+                      title="순번 · 더블클릭: 너비 초기화"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColumnHeaderDoubleClick('seq');
+                      }}
+                      onContextMenu={(e) => handleHeaderContextMenu(e)}
+                    >
+                      #{resizeGrip('seq')}
+                    </div>
+                    <div
+                      className="col-header justify-center relative"
+                      title="펼침 · 더블클릭: 너비 초기화"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColumnHeaderDoubleClick('expand');
+                      }}
+                      onContextMenu={(e) => handleHeaderContextMenu(e)}
+                    >
+                      <span className="text-stone-300">▾</span>
+                      {resizeGrip('expand')}
+                    </div>
+                    {visibleColumnIds.map(renderHeaderCell)}
+                    <div
+                      className="col-header justify-end relative"
+                      title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleColumnHeaderDoubleClick('actions');
+                      }}
+                      onContextMenu={(e) => handleHeaderContextMenu(e)}
+                    >
+                      관리
+                      {resizeGrip('actions')}
+                    </div>
                   </div>
-                  <div
-                    className="col-header justify-center relative"
-                    title="전체 선택 · 더블클릭: 너비 초기화"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleColumnHeaderDoubleClick('checkbox');
-                    }}
-                    onContextMenu={(e) => handleHeaderContextMenu(e)}
-                  >
-                    <input
-                      type="checkbox"
-                      className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
-                      checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
-                      onChange={handleSelectAll}
-                    />
-                    {resizeGrip('checkbox')}
-                  </div>
-                  <div
-                    className="col-header justify-center relative"
-                    title="순번 · 더블클릭: 너비 초기화"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleColumnHeaderDoubleClick('seq');
-                    }}
-                    onContextMenu={(e) => handleHeaderContextMenu(e)}
-                  >
-                    #{resizeGrip('seq')}
-                  </div>
-                  <div
-                    className="col-header justify-center relative"
-                    title="펼침 · 더블클릭: 너비 초기화"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleColumnHeaderDoubleClick('expand');
-                    }}
-                    onContextMenu={(e) => handleHeaderContextMenu(e)}
-                  >
-                    <span className="text-stone-300">▾</span>
-                    {resizeGrip('expand')}
-                  </div>
-                  {visibleColumnIds.map(renderHeaderCell)}
-                  <div
-                    className="col-header justify-end relative"
-                    title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      handleColumnHeaderDoubleClick('actions');
-                    }}
-                    onContextMenu={(e) => handleHeaderContextMenu(e)}
-                  >
-                    관리
-                    {resizeGrip('actions')}
-                  </div>
+                  {canEditCurrentProject && (
+                    <div className="data-row flex-shrink-0 bg-blue-50/70 border-y border-blue-200/70 backdrop-blur-sm" style={gridStyle}>
+                      <div className="data-cell"></div>
+                      <div className="data-cell"></div>
+                      <div className="data-cell"></div>
+                      <div className="data-cell justify-center text-blue-500">
+                        <Plus size={14} />
+                      </div>
+                      {visibleColumnIds.map((colId) => {
+                        if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                        return (
+                          <div key={colId} className="data-cell p-0">
+                            <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                              <input
+                                data-quick-add
+                                ref={quickAddNameTopRef}
+                                type="text"
+                                defaultValue=""
+                                placeholder="+ 새 작업 추가 (Enter 키 입력)..."
+                                className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                              />
+                            </form>
+                          </div>
+                        );
+                      })}
+                      <div className="data-cell"></div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* 새 작업 추가 행: 스크롤 영역 최상단에 sticky 고정.
-                  작업이 많아 스크롤되어도 항상 화면에 보이고, 헤더 바로 아래에 위치해
-                  진입 즉시 입력을 시작할 수 있게 한다. v0.4.144~ 하단→상단 이동. */}
-              {canEditCurrentProject && (
+              {/* Split view: 헤더는 스크롤 밖 — 본문 안에는 상단 빠른 추가만 sticky */}
+              {isSplitView && canEditCurrentProject && (
                 <div
-                  className="data-row flex-shrink-0 sticky z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm"
-                  style={{ ...gridStyle, top: isSplitView ? 0 : 'var(--row-height, 36px)' }}
+                  className="data-row flex-shrink-0 sticky top-0 z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm box-border"
+                  style={{
+                    ...gridStyle,
+                    height: rowHeight,
+                    minHeight: rowHeight,
+                    maxHeight: rowHeight,
+                  }}
                 >
                   <div className="data-cell"></div>
                   <div className="data-cell"></div>
@@ -1239,6 +1286,7 @@ export function WBSTable({
                             otherFocusByCellKey={otherFocusByCellKey}
                             customColumnNameById={customColumnNameById}
                             projectEffortUnitByProjectId={projectEffortUnitByProjectId}
+                            prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
                           />
                           {inlineAddingTaskId === task.id && (
                             <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -1503,7 +1551,23 @@ export function WBSTable({
               />
             </div>
 
-            {/* 적용 버튼 - 상태, 담당자, 공수, 진척율, 가중치, 시작일, 완료일 등 입력된 모든 항목 일괄 적용 */}
+            {/* 투입율(%) — 0~100 */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">투입율(%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={bulkAllocation}
+                onChange={(e) => setBulkAllocation(e.target.value)}
+                placeholder="0~100"
+                title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
+                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+              />
+            </div>
+
+            {/* 적용 버튼 - 상태, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
             <button
               onClick={executeBulkEdit}
               disabled={
@@ -1513,7 +1577,8 @@ export function WBSTable({
                 (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
                 (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
                 !bulkStartDate.trim() &&
-                !bulkEndDate.trim()
+                !bulkEndDate.trim() &&
+                (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
               }
               className="self-end text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
               title="입력한 항목 모두 적용"
