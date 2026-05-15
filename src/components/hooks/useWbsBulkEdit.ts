@@ -13,7 +13,7 @@ interface UseWbsBulkEditOptions {
   updateTasksBulk: (ids: string[], updates: Partial<Task>) => void;
   projects: Project[];
   updateProject: (id: string, updates: Partial<Project>) => void;
-  linkSequentialPredecessors: (orderedTaskIds: string[]) => void;
+  linkSequentialPredecessors: (orderedTaskIds: string[], options?: { bulkWorkEffort?: number; bulkAllocationPercent?: number }) => void;
   setSelection: (next: Set<string>) => void;
   setLastSelectedId: (id: string | null) => void;
   pushToast: (msg: string, opts?: { variant?: 'success' | 'warning' | 'error' }) => void;
@@ -232,10 +232,31 @@ export function useWbsBulkEdit({
   const executeBulkLinkSequentialPredecessors = useCallback(() => {
     const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
     if (ordered.length < 2) return;
-    linkSequentialPredecessors(ordered);
+
+    const options: { bulkWorkEffort?: number; bulkAllocationPercent?: number } = {};
+    if (bulkWorkEffort !== '') {
+      const val = parseFloat(bulkWorkEffort);
+      if (!isNaN(val) && val >= 0) options.bulkWorkEffort = Math.round(val * 10) / 10;
+    }
+    if (bulkAllocation !== '') {
+      const val = parseFloat(bulkAllocation);
+      if (!isNaN(val) && Number.isFinite(val)) options.bulkAllocationPercent = Math.min(100, Math.max(0, Math.round(val * 10) / 10));
+    }
+
+    linkSequentialPredecessors(ordered, Object.keys(options).length > 0 ? options : undefined);
+    resetBulkFields();
     setSelection(new Set());
     setLastSelectedId(null);
-  }, [visibleTasks, selectedTaskIds, linkSequentialPredecessors, setSelection, setLastSelectedId]);
+  }, [
+    visibleTasks,
+    selectedTaskIds,
+    bulkWorkEffort,
+    bulkAllocation,
+    linkSequentialPredecessors,
+    resetBulkFields,
+    setSelection,
+    setLastSelectedId,
+  ]);
 
   return {
     bulkStatus,

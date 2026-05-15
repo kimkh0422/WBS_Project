@@ -33,8 +33,8 @@ interface GanttChartProps {
   onRowHeightChange?: (height: number) => void;
   syncScrollRef?: React.Ref<HTMLDivElement>;
   hotkeysEnabled?: boolean;
-  /** split 뷰에서 표의 sticky [+ 새 작업 추가] 행 높이만큼 간트 상단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
-  topSpacerHeight?: number;
+  /** split 뷰에서 표의 sticky [+ 새 작업 추가] 행 높이만큼 간트 하단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
+  bottomSpacerHeight?: number;
 }
 
 export function GanttChart({
@@ -46,7 +46,7 @@ export function GanttChart({
   onRowHeightChange,
   syncScrollRef,
   hotkeysEnabled = true,
-  topSpacerHeight = 0,
+  bottomSpacerHeight = 0,
 }: GanttChartProps) {
   const {
     tasks,
@@ -605,16 +605,6 @@ export function GanttChart({
             onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
             className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-40 outline-none focus:ring-0"
           >
-            {/* 상단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응.
-                sticky로 두어 스크롤해도 항상 viewport 상단에 머무르며 표의 sticky 행과 시각 정렬.
-                실제 데이터 행은 spacer 아래에서 시작되어 표의 첫 행과 같은 y에 위치한다. */}
-            {canEditCurrentProject && topSpacerHeight > 0 && (
-              <div
-                className="sticky top-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm box-border"
-                style={{ height: topSpacerHeight, width: totalWidth }}
-                aria-hidden
-              />
-            )}
             <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 <GanttGrid
@@ -782,6 +772,14 @@ export function GanttChart({
                 );
               })}
             </div>
+            {/* 하단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응 */}
+            {canEditCurrentProject && bottomSpacerHeight > 0 && (
+              <div
+                className="sticky bottom-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm box-border"
+                style={{ height: bottomSpacerHeight, width: totalWidth }}
+                aria-hidden
+              />
+            )}
           </div>
           {/* 하단 수평 스크롤바 */}
           <div

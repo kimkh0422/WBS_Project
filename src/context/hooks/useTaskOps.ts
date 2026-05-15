@@ -659,12 +659,57 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
   /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). */
   const linkSequentialPredecessors = useCallback(
-    (orderedTaskIds: string[]) => {
+    (
+      orderedTaskIds: string[],
+      options?: {
+        /** 일괄 바 공수를 체인 작업에 먼저 반영 */
+        bulkWorkEffort?: number;
+        /** 일괄 바 투입율(%)을 담당자별 프로젝트 투입에 반영 */
+        bulkAllocationPercent?: number;
+      },
+    ) => {
       if (orderedTaskIds.length < 2) return;
       saveHistory();
+
+      let projs = projectsRef.current;
+      const bulkEffort = options?.bulkWorkEffort;
+      const bulkAlloc = options?.bulkAllocationPercent;
+      if (bulkAlloc != null && Number.isFinite(bulkAlloc)) {
+        const pct = Math.min(100, Math.max(0, Math.round(bulkAlloc * 10) / 10));
+        const taskById = new Map(allTasksRef.current.map((t) => [t.id, t]));
+        const assigneesByProjectId = new Map<string, Set<string>>();
+        for (const id of orderedTaskIds) {
+          const t = taskById.get(id);
+          if (!t?.projectId) continue;
+          const assignee = (t.assignee || '').trim();
+          if (!assignee) continue;
+          const set = assigneesByProjectId.get(t.projectId) ?? new Set<string>();
+          set.add(assignee);
+          assigneesByProjectId.set(t.projectId, set);
+        }
+        if (assigneesByProjectId.size > 0) {
+          projs = projs.map((p) => {
+            const assignees = assigneesByProjectId.get(p.id);
+            if (!assignees) return p;
+            const existing = p.assignments ?? [];
+            const nextAssignments = existing.filter((a) => !assignees.has((a.assignee || '').trim()));
+            for (const assignee of assignees) {
+              nextAssignments.push({ assignee, allocationPercent: pct });
+            }
+            return { ...p, assignments: nextAssignments };
+          });
+          setProjects(projs);
+          if (!useLocalOnlyRef.current) {
+            for (const [projectId] of assigneesByProjectId) {
+              const updated = projs.find((p) => p.id === projectId);
+              if (updated) upsertProject(updated).catch((err) => handleDbError(err, '투입율 저장에 실패했습니다.'));
+            }
+          }
+        }
+      }
+
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
-        const projs = projectsRef.current;
         const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projs.map((p) => [p.id, p.assignments ?? []]));
         const unitMap = buildProjectEffortUnitMap(projs);
         const taskById = new Map<string, Task>(prev.map((t) => [t.id, t] as const));
@@ -685,22 +730,39 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const indexInChain = new Map<string, number>();
         sameProject.forEach((t, i) => indexInChain.set(t.id, i));
 
+        const applyBulkEffort =
+          bulkEffort != null && Number.isFinite(bulkEffort) && bulkEffort >= 0 ? Math.round(bulkEffort * 10) / 10 : undefined;
+
         let nextTasks = prev.map((t) => {
           const idx = indexInChain.get(t.id);
-          if (idx == null || idx === 0) return t;
-          const prevInChain = sameProject[idx - 1]!.id;
+          if (idx == null) return t;
+
           const lockFields = new Set(t.userLockedFields ?? []);
+          lockFields.delete('startDate');
+          lockFields.delete('endDate');
           lockFields.add('dependencies');
-          return {
-            ...t,
-            dependencies: [prevInChain],
-            userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined,
-          };
+
+          let updated: Task = { ...t, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
+
+          if (applyBulkEffort != null) {
+            updated = { ...updated, workEffort: applyBulkEffort };
+            lockFields.add('workEffort');
+            updated.userLockedFields = Array.from(lockFields);
+          }
+
+          if (idx > 0) {
+            const prevInChain = sameProject[idx - 1]!.id;
+            updated = { ...updated, dependencies: [prevInChain] };
+          }
+
+          return updated;
         });
 
         const projectTaskList = nextTasks.filter((t) => t.projectId === projectId);
-        const scheduleOpts = { linkEffortToSchedule: wSettings.linkEffortToSchedule === true } as const;
-        const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap, scheduleOpts);
+        // 선행 순차 연결은 공수·투입율 기준 일정 재산정이 핵심이므로 linkEffortToSchedule 설정과 무관하게 적용
+        const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap, {
+          linkEffortToSchedule: true,
+        });
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         nextTasks = nextTasks.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
 
@@ -710,7 +772,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         return recomputeProjectRollups(nextTasks, projectId, doneStatusIds);
       });
     },
-    [saveHistory, wbsSettingsRef, projectsRef, setAllTasks],
+    [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError],
   );
 
   const deleteTask = useCallback(

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WBSTable } from './WBSTable';
 import { GanttChart } from './GanttChart';
-import { useScrollSync } from '../hooks/useScrollSync';
+import { mirrorScrollTop, useScrollSync } from '../hooks/useScrollSync';
 import type { FilterState, SortConfig, Task } from '../types';
 
 const SPLIT_TABLE_WIDTH_KEY = 'wbs.split.wbsTableWidth';
@@ -58,15 +58,14 @@ export function TableGanttSplit({
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
 
-  useScrollSync(tableScrollRef, ganttScrollRef, true);
+  useScrollSync(tableScrollRef, ganttScrollRef, true, containerRef);
 
   // 줄바꿈 등으로 행 높이가 갱신되면 스크롤 위치를 다시 맞춤
   useEffect(() => {
     const table = tableScrollRef.current;
     const gantt = ganttScrollRef.current;
     if (!table || !gantt) return;
-    const cap = Math.min(Math.max(0, table.scrollHeight - table.clientHeight), Math.max(0, gantt.scrollHeight - gantt.clientHeight));
-    gantt.scrollTop = Math.min(table.scrollTop, cap);
+    mirrorScrollTop(table, gantt);
   }, [rowHeights]);
 
   const applySplitWidthPct = useCallback((pct: number) => {
@@ -171,7 +170,7 @@ export function TableGanttSplit({
           rowHeight={sharedRowHeight}
           rowHeights={rowHeights}
           onRowHeightChange={onRowHeightChange}
-          topSpacerHeight={sharedRowHeight}
+          bottomSpacerHeight={sharedRowHeight}
         />
       </div>
     </div>

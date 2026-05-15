@@ -243,11 +243,21 @@ export function getCriticalPathTaskIds(
   return critical;
 }
 
-/** 작업별 투입비율: 프로젝트 투입인력 사용 */
+/** 작업별 투입비율: 담당자가 있으면 해당 인원의 프로젝트 투입율만 사용 */
 function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>): TaskAssignment[] | undefined {
+  const assignee = (task.assignee || '').trim();
   if (projectAssignmentsByProjectId && task.projectId) {
     const pa = projectAssignmentsByProjectId.get(task.projectId);
-    if (pa && pa.length > 0) return pa;
+    if (pa && pa.length > 0) {
+      if (assignee) {
+        const match = pa.find((a) => (a.assignee || '').trim() === assignee);
+        return [{ assignee, allocationPercent: match?.allocationPercent ?? 100 }];
+      }
+      return pa;
+    }
+  }
+  if (assignee) {
+    return [{ assignee, allocationPercent: 100 }];
   }
   return undefined;
 }
@@ -304,53 +314,53 @@ export function applyDependencySchedule(
   const holidays = getHolidaysForTaskDates(result);
   const locked = (t: Task) => new Set(t.userLockedFields ?? []);
 
-  // 선행관계(dependencies)가 지정된 작업만 일정 제약에 연쇄 반응.
+  // 위상 순서대로: 선행 종료일(이미 공수 반영된 값) → 시작일 이동 → 종료일 산정
   for (const id of order) {
     const task = byId.get(id)!;
     if (excludeFromRecalc?.has(id)) continue;
 
     const taskLocked = locked(task);
-    if (taskLocked.has('startDate')) continue;
-
     const predIds = deps.get(id);
-    if (!predIds || predIds.length === 0) continue;
+    let startShifted = false;
 
-    let maxPredEnd = '';
-    for (const predId of predIds) {
-      const pred = byId.get(predId);
-      if (!pred?.endDate) continue;
-      if (!maxPredEnd || pred.endDate > maxPredEnd) maxPredEnd = pred.endDate;
+    if (!taskLocked.has('startDate') && predIds && predIds.length > 0) {
+      let maxPredEnd = '';
+      for (const predId of predIds) {
+        const pred = byId.get(predId);
+        if (!pred?.endDate) continue;
+        if (!maxPredEnd || pred.endDate > maxPredEnd) maxPredEnd = pred.endDate;
+      }
+      if (maxPredEnd) {
+        task.startDate = format(addBusinessDaysEx(parseISO(maxPredEnd), 1, holidays), 'yyyy-MM-dd');
+        startShifted = true;
+      }
     }
 
-    if (maxPredEnd) {
-      const minStart = format(addBusinessDaysEx(parseISO(maxPredEnd), 1, holidays), 'yyyy-MM-dd');
-      task.startDate = minStart;
+    if (taskLocked.has('endDate')) continue;
 
+    const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
+    if (linkEffortToSchedule && workEffort != null) {
+      const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
+      if (effortMd > 0) {
+        const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
+        const start = parseISO(task.startDate);
+        if (isValid(start)) {
+          task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
+        }
+        continue;
+      }
+    }
+
+    if (startShifted) {
       const originalTask = tasks.find((t) => t.id === id);
-      if (originalTask && !taskLocked.has('endDate')) {
+      if (originalTask) {
         const s = parseISO(originalTask.startDate);
         const e = parseISO(originalTask.endDate);
         if (isValid(s) && isValid(e)) {
           const durationDays = Math.max(1, differenceInBusinessDaysEx(s, e, holidays));
-          task.endDate = format(addBusinessDaysEx(parseISO(minStart), durationDays - 1, holidays), 'yyyy-MM-dd');
+          task.endDate = format(addBusinessDaysEx(parseISO(task.startDate), durationDays - 1, holidays), 'yyyy-MM-dd');
         }
       }
-    }
-  }
-
-  // 투입공수·투입비율로 완료일 계상 (linkEffortToSchedule=false면 생략 — 시작/종료/공수 독립)
-  if (linkEffortToSchedule) {
-    for (const task of result) {
-      if (excludeFromRecalc?.has(task.id)) continue;
-      if (locked(task).has('endDate')) continue;
-      const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
-      if (workEffort == null) continue;
-      const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
-      if (!(effortMd > 0)) continue;
-      const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
-      const start = parseISO(task.startDate);
-      if (!isValid(start)) continue;
-      task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
     }
   }
 

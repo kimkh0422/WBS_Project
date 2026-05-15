@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   X,
   Users,
@@ -43,6 +43,7 @@ import type { Project } from '../types';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
 import { departmentInManagedSubtree, flattenOrgNodesWithDepth } from '../lib/orgProfileScope';
+import { buildOrgDepartmentByNameMap, lookupOrgDepartment, resolveMemberDepartment } from '../lib/orgDepartmentLookup';
 import { cn } from '../lib/utils';
 
 interface MembersModalProps {
@@ -100,6 +101,9 @@ export function MembersModal({
   } | null>(null);
 
   const { orgTree, orgMembers } = useOrganization();
+  const orgDeptByName = useMemo(() => buildOrgDepartmentByNameMap(orgMembers), [orgMembers]);
+  const membersRef = useRef(members);
+  membersRef.current = members;
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
   const effectiveIsAdmin = dbIsAdmin || adminOverride;
   const BULK_CONFIRM_PHRASE = '전체삭제';
@@ -242,6 +246,28 @@ export function MembersModal({
     [effectiveIsAdmin, savingOrgId],
   );
 
+  /** 부서가 비어 있는 회원만 조직현황(조직도 인원)과 이름 매칭해 DB에 저장 */
+  const autoLinkDepartmentsFromOrg = useCallback(
+    async (profileList: ProfileRow[]): Promise<ProfileRow[]> => {
+      if (!effectiveIsAdmin || orgDeptByName.size === 0) return profileList;
+      let next = profileList;
+      for (const m of profileList) {
+        if ((m.department ?? '').trim()) continue;
+        const suggested = lookupOrgDepartment(m.full_name, orgDeptByName);
+        if (!suggested) continue;
+        const result = await updateMemberOrgFields(m.id, { department: suggested });
+        if (result.success) {
+          if (next === profileList) next = [...profileList];
+          next = next.map((x) => (x.id === m.id ? { ...x, department: suggested } : x));
+        } else {
+          setError(result.error ?? '조직현황 부서 연동에 실패했습니다.');
+        }
+      }
+      return next;
+    },
+    [effectiveIsAdmin, orgDeptByName],
+  );
+
   const persistMemberManagedNode = useCallback(
     async (member: ProfileRow, nodeId: string) => {
       if (!effectiveIsAdmin || savingOrgId === member.id) return;
@@ -331,13 +357,13 @@ export function MembersModal({
       } catch (e) {
         setError(e instanceof Error ? e.message : '접속 통계를 불러오지 못했습니다.');
       }
-      setMembers(
-        list.map((p) => ({
-          ...p,
-          login_count: stats[p.id]?.login_count ?? 0,
-          last_visited_at: stats[p.id]?.last_visited_at ?? null,
-        })),
-      );
+      const withStats = list.map((p) => ({
+        ...p,
+        login_count: stats[p.id]?.login_count ?? 0,
+        last_visited_at: stats[p.id]?.last_visited_at ?? null,
+      }));
+      const linked = await autoLinkDepartmentsFromOrg(withStats);
+      setMembers(linked);
     } catch (err) {
       setError(err instanceof Error ? err.message : '회원 목록을 불러오지 못했습니다.');
       setMembers([]);
@@ -375,6 +401,26 @@ export function MembersModal({
       setAdminAccessRequests([]);
     }
   }, [isOpen, effectiveIsAdmin]);
+
+  /** 조직현황 DB 로드가 회원 목록보다 늦을 때 빈 부서만 재연동 */
+  useEffect(() => {
+    if (!isOpen || !effectiveIsAdmin || loading || orgDeptByName.size === 0 || membersRef.current.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const linked = await autoLinkDepartmentsFromOrg(membersRef.current);
+      if (cancelled) return;
+      setMembers((prev) => {
+        const changed = linked.some((m) => {
+          const p = prev.find((x) => x.id === m.id);
+          return p && m.department !== p.department;
+        });
+        return changed ? linked : prev;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, effectiveIsAdmin, loading, orgDeptByName, autoLinkDepartmentsFromOrg]);
 
   const handleApproveRequest = async (requestId: string) => {
     setProcessingRequestId(requestId);
@@ -709,7 +755,10 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap" title="조직도와 동일한 부서 문자열">
+                    <th
+                      className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap"
+                      title="조직현황(조직도) 인원과 회원명으로 자동 연동. 필요 시 직접 수정"
+                    >
                       부서
                     </th>
                     {effectiveIsAdmin ? (
@@ -889,23 +938,42 @@ export function MembersModal({
                       <td className="py-3 px-2 text-[var(--color-ink)]">{m.email || '(이메일 없음)'}</td>
                       <td className="py-3 px-2 align-top">
                         {effectiveIsAdmin ? (
-                          <input
-                            list="wbs-profile-dept-options"
-                            defaultValue={m.department ?? ''}
-                            key={`${m.id}:${m.department ?? ''}`}
-                            disabled={savingOrgId === m.id}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
-                              const cur = (m.department ?? '').trim();
-                              if (v !== cur) void persistMemberDepartment(m, v);
-                            }}
-                            placeholder="부서명"
-                            title="조직도 노드의 부서명과 동일하게 입력"
-                            className="w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border border-stone-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
+                          (() => {
+                            const savedDept = (m.department ?? '').trim();
+                            const orgSuggested = lookupOrgDepartment(m.full_name, orgDeptByName);
+                            const displayDept = resolveMemberDepartment(m.department, m.full_name, orgDeptByName);
+                            const fromOrgOnly = !savedDept && !!orgSuggested;
+                            return (
+                              <input
+                                list="wbs-profile-dept-options"
+                                defaultValue={displayDept}
+                                key={`${m.id}:${displayDept}`}
+                                disabled={savingOrgId === m.id}
+                                onBlur={(e) => {
+                                  const v = e.target.value.trim();
+                                  if (v !== savedDept) void persistMemberDepartment(m, v);
+                                }}
+                                placeholder={orgSuggested ? orgSuggested : '부서명'}
+                                title={
+                                  fromOrgOnly
+                                    ? `조직현황에서 자동 연동: ${orgSuggested}. 클릭해 수정할 수 있습니다.`
+                                    : orgSuggested && savedDept !== orgSuggested
+                                      ? `저장된 부서: ${savedDept}. 조직현황: ${orgSuggested}`
+                                      : '조직현황과 동일한 부서명을 권장합니다. 필요 시 직접 수정'
+                                }
+                                className={cn(
+                                  'w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500',
+                                  fromOrgOnly ? 'border-teal-200 bg-teal-50/50' : 'border-stone-200',
+                                )}
+                              />
+                            );
+                          })()
                         ) : (
-                          <span className="text-stone-600 text-xs" title={m.department ?? undefined}>
-                            {(m.department ?? '').trim() || '—'}
+                          <span
+                            className="text-stone-600 text-xs"
+                            title={resolveMemberDepartment(m.department, m.full_name, orgDeptByName) || undefined}
+                          >
+                            {resolveMemberDepartment(m.department, m.full_name, orgDeptByName) || '—'}
                           </span>
                         )}
                       </td>

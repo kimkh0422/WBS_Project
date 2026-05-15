@@ -6,6 +6,7 @@ import {
   computeStartDateFromEndDate,
   computeWorkEffortFromDates,
   getTopologicalOrder,
+  applyDependencySchedule,
 } from '../schedule';
 
 const noHolidays = new Set<string>();
@@ -19,10 +20,12 @@ describe('getTotalAllocationRatio', () => {
     expect(getTotalAllocationRatio([{ assignee: 'A', allocationPercent: 50 }])).toBe(0.5);
   });
   it('100% 초과 시 1로 제한', () => {
-    expect(getTotalAllocationRatio([
-      { assignee: 'A', allocationPercent: 80 },
-      { assignee: 'B', allocationPercent: 80 },
-    ])).toBe(1);
+    expect(
+      getTotalAllocationRatio([
+        { assignee: 'A', allocationPercent: 80 },
+        { assignee: 'B', allocationPercent: 80 },
+      ]),
+    ).toBe(1);
   });
 });
 
@@ -87,12 +90,82 @@ describe('computeWorkEffortFromDates', () => {
   });
 });
 
+describe('applyDependencySchedule', () => {
+  const baseTask = {
+    projectId: 'p1',
+    parentId: null as string | null,
+    progress: 0,
+    assignee: 'Alice',
+    status: 'todo',
+  };
+
+  it('FS 체인에서 공수·100% 투입율로 시작·종료일 연쇄 산정', () => {
+    const tasks = [
+      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 5 },
+      { ...baseTask, id: 't2', name: 'T2', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 3, dependencies: ['t1'] },
+    ];
+    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
+    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: true });
+    expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-03');
+    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
+    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
+  });
+
+  it('담당자 투입율만 반영해 기간 산정 (다른 인원 투입율 합산 제외)', () => {
+    const tasks = [{ ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 5 }];
+    const assignments = new Map([
+      [
+        'p1',
+        [
+          { assignee: 'Alice', allocationPercent: 50 },
+          { assignee: 'Bob', allocationPercent: 50 },
+        ],
+      ],
+    ]);
+    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: true });
+    // 5MD / 50% = 10영업일 → 2026-03-30(월) + 9영업일 = 2026-04-10
+    expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-10');
+  });
+});
+
 describe('getTopologicalOrder', () => {
   it('의존성 순서대로 정렬', () => {
     const tasks = [
-      { id: 'a', projectId: 'p1', parentId: null, name: 'A', startDate: '2026-03-30', endDate: '2026-04-03', progress: 0, assignee: '', status: 'todo', dependencies: ['b'] },
-      { id: 'b', projectId: 'p1', parentId: null, name: 'B', startDate: '2026-03-30', endDate: '2026-04-03', progress: 0, assignee: '', status: 'todo' },
-      { id: 'c', projectId: 'p1', parentId: null, name: 'C', startDate: '2026-03-30', endDate: '2026-04-03', progress: 0, assignee: '', status: 'todo', dependencies: ['a'] },
+      {
+        id: 'a',
+        projectId: 'p1',
+        parentId: null,
+        name: 'A',
+        startDate: '2026-03-30',
+        endDate: '2026-04-03',
+        progress: 0,
+        assignee: '',
+        status: 'todo',
+        dependencies: ['b'],
+      },
+      {
+        id: 'b',
+        projectId: 'p1',
+        parentId: null,
+        name: 'B',
+        startDate: '2026-03-30',
+        endDate: '2026-04-03',
+        progress: 0,
+        assignee: '',
+        status: 'todo',
+      },
+      {
+        id: 'c',
+        projectId: 'p1',
+        parentId: null,
+        name: 'C',
+        startDate: '2026-03-30',
+        endDate: '2026-04-03',
+        progress: 0,
+        assignee: '',
+        status: 'todo',
+        dependencies: ['a'],
+      },
     ];
     const order = getTopologicalOrder(tasks);
     const idxB = order.indexOf('b');

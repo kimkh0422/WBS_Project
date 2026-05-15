@@ -205,7 +205,7 @@ export function WBSTable({
   });
 
   const quickAddNameInlineRef = useRef<HTMLInputElement>(null);
-  const quickAddNameTopRef = useRef<HTMLInputElement>(null);
+  const quickAddNameBottomRef = useRef<HTMLInputElement>(null);
   const [insertTargetId, setInsertTargetId] = useState<string | null>(null);
   const [inlineAddingTaskId, setInlineAddingTaskId] = useState<string | null>(null);
 
@@ -765,7 +765,7 @@ export function WBSTable({
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEditCurrentProject) return; // 편집 권한 없으면 빠른 추가 비활성화
-    const name = quickAddNameTopRef.current?.value ?? '';
+    const name = quickAddNameBottomRef.current?.value ?? '';
     if (!name.trim()) return;
 
     const proj = projects.find((p) => p.id === currentProjectId);
@@ -780,10 +780,10 @@ export function WBSTable({
       status: 'todo',
       parentId: null,
     });
-    if (quickAddNameTopRef.current) {
-      quickAddNameTopRef.current.value = '';
+    if (quickAddNameBottomRef.current) {
+      quickAddNameBottomRef.current.value = '';
       // input에서 포커스 빼야 ↑/↓ 단축키가 동작 (useWbsTableKeyboard의 inQuickAdd 가드)
-      quickAddNameTopRef.current.blur();
+      quickAddNameBottomRef.current.blur();
     }
     if (newId) {
       // 포커스 행 지정 → 노란색 강조 + ↑/↓로 즉시 이동 가능. 체크박스는 자동 체크 X.
@@ -1080,7 +1080,7 @@ export function WBSTable({
             }}
           >
             <div className="min-w-fit w-full bg-white relative">
-              {/* Non-split: 컬럼 헤더 + 상단 새 작업 추가를 한 덩어로 sticky — 개별 sticky+z충돌로 헤더와 겹침 방지 */}
+              {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 하단 */}
               {!isSplitView && (
                 <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
                   <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
@@ -1149,72 +1149,6 @@ export function WBSTable({
                       {resizeGrip('actions')}
                     </div>
                   </div>
-                  {canEditCurrentProject && (
-                    <div className="data-row flex-shrink-0 bg-blue-50/70 border-y border-blue-200/70 backdrop-blur-sm" style={gridStyle}>
-                      <div className="data-cell"></div>
-                      <div className="data-cell"></div>
-                      <div className="data-cell"></div>
-                      <div className="data-cell justify-center text-blue-500">
-                        <Plus size={14} />
-                      </div>
-                      {visibleColumnIds.map((colId) => {
-                        if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-                        return (
-                          <div key={colId} className="data-cell p-0">
-                            <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                              <input
-                                data-quick-add
-                                ref={quickAddNameTopRef}
-                                type="text"
-                                defaultValue=""
-                                placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                                className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
-                              />
-                            </form>
-                          </div>
-                        );
-                      })}
-                      <div className="data-cell"></div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Split view: 헤더는 스크롤 밖 — 본문 안에는 상단 빠른 추가만 sticky */}
-              {isSplitView && canEditCurrentProject && (
-                <div
-                  className="data-row flex-shrink-0 sticky top-0 z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm box-border"
-                  style={{
-                    ...gridStyle,
-                    height: rowHeight,
-                    minHeight: rowHeight,
-                    maxHeight: rowHeight,
-                  }}
-                >
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell justify-center text-blue-500">
-                    <Plus size={14} />
-                  </div>
-                  {visibleColumnIds.map((colId) => {
-                    if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-                    return (
-                      <div key={colId} className="data-cell p-0">
-                        <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                          <input
-                            data-quick-add
-                            ref={quickAddNameTopRef}
-                            type="text"
-                            defaultValue=""
-                            placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                            className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
-                          />
-                        </form>
-                      </div>
-                    );
-                  })}
-                  <div className="data-cell"></div>
                 </div>
               )}
 
@@ -1384,6 +1318,41 @@ export function WBSTable({
                   );
                 })()}
               </DndContext>
+
+              {canEditCurrentProject && (
+                <div
+                  className="data-row flex-shrink-0 sticky bottom-0 z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm box-border"
+                  style={{
+                    ...gridStyle,
+                    ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
+                  }}
+                >
+                  <div className="data-cell"></div>
+                  <div className="data-cell"></div>
+                  <div className="data-cell"></div>
+                  <div className="data-cell justify-center text-blue-500">
+                    <Plus size={14} />
+                  </div>
+                  {visibleColumnIds.map((colId) => {
+                    if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                    return (
+                      <div key={colId} className="data-cell p-0">
+                        <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                          <input
+                            data-quick-add
+                            ref={quickAddNameBottomRef}
+                            type="text"
+                            defaultValue=""
+                            placeholder="+ 새 작업 추가 (Enter 키 입력)..."
+                            className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                          />
+                        </form>
+                      </div>
+                    );
+                  })}
+                  <div className="data-cell"></div>
+                </div>
+              )}
 
               {visibleTasks.length === 0 && tasks.length === 0 && (
                 <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
