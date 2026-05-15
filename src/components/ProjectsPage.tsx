@@ -621,7 +621,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     </h2>
                     {!collapsed &&
                       (list.length > 0 ? (
-                        <div className="space-y-2 pl-1">{list.map((p) => renderProjectCard(p))}</div>
+                        <div className="space-y-2 pl-6 border-l border-stone-100 ml-2">{list.map((p) => renderProjectCard(p))}</div>
                       ) : (
                         <div className="text-xs text-stone-400 px-2 py-3">소속된 프로젝트가 없습니다.</div>
                       ))}

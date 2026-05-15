@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -100,6 +101,22 @@ export function Dashboard({
     topLevelDivisions.forEach((division) => collect(division, division.id));
     return m;
   }, [topLevelDivisions, orgMembers]);
+
+  /** 프로젝트 그룹명(부서명) 문자열 → 최상위 사업부/본부 ID. 조직 노드의 departments·aliases와 동일한 문자열이면 매칭 */
+  const departmentNameToDivisionId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const division of topLevelDivisions) {
+      const walk = (node: OrgNode) => {
+        for (const d of node.departments ?? []) {
+          const key = d.trim();
+          if (key.length > 0 && !m.has(key)) m.set(key, division.id);
+        }
+        for (const child of node.children ?? []) walk(child);
+      };
+      walk(division);
+    }
+    return m;
+  }, [topLevelDivisions]);
 
   // 공유 파생 데이터 — 여러 useMemo에서 재사용
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -330,6 +347,17 @@ export function Dashboard({
   // 사업부/본부별 작업 현황 집계 (담당자 이름이 그 division의 멤버에 매핑되는 작업들)
   const divisionStats = useMemo(() => {
     const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
+    const groupNameById = new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const));
+    const projectCountByDivision = new Map<string, number>();
+    for (const division of topLevelDivisions) projectCountByDivision.set(division.id, 0);
+    for (const p of projects) {
+      const gname = p.groupId ? groupNameById.get(p.groupId) : undefined;
+      if (!gname) continue;
+      const divId = departmentNameToDivisionId.get(gname);
+      if (!divId) continue;
+      projectCountByDivision.set(divId, (projectCountByDivision.get(divId) ?? 0) + 1);
+    }
+
     const stats = topLevelDivisions.map((division) => {
       const tasks = allTasks.filter((t) => {
         const a = (t.assignee || '').trim();
@@ -348,11 +376,20 @@ export function Dashboard({
         issueCount,
         progress,
         assigneeCount: assigneeSet.size,
+        projectCount: projectCountByDivision.get(division.id) ?? 0,
       };
     });
     // 작업이 있는 사업부 우선 + 인원만 있는 사업부도 보여주기
     return stats.sort((a, b) => b.total - a.total || b.assigneeCount - a.assigneeCount);
-  }, [topLevelDivisions, allTasks, memberToDivisionId, wbsSettings.statusConfigs]);
+  }, [
+    topLevelDivisions,
+    allTasks,
+    memberToDivisionId,
+    wbsSettings.statusConfigs,
+    wbsSettings.projectGroups,
+    projects,
+    departmentNameToDivisionId,
+  ]);
 
   // ─── 사업부 표시 필터 (사용자 선택 + 내가 포함된 부서 토글) ─────────────
   const DIVISION_VISIBLE_KEY = 'wbs-dashboard-visible-division-ids';
@@ -483,214 +520,450 @@ export function Dashboard({
     run();
   }, [user?.id]);
 
-  return (
-    <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-6 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        {/* Header Summary */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <LayoutGrid className="text-slate-500" size={24} />
-            전체 현황 요약
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <SummaryCard
-              title="총 프로젝트"
-              value={summary.totalProjects}
-              subtitle=""
-              onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
-            />
-            <SummaryCard
-              title="총 작업 수"
-              value={summary.totalTasks}
-              subtitle=""
-              onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
-            />
-            <SummaryCard
-              title="진행 중 작업"
-              value={summary.totalInProgress}
-              subtitle=""
-              onClick={() => {
-                const inProgressStatus = wbsSettings.statusConfigs.find((c) => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
-                onNavigate?.('kanban', { projectId: 'all', status: inProgressStatus, assignee: '' });
-              }}
-            />
-            <SummaryCard
-              title="완료된 작업"
-              value={summary.totalDone}
-              subtitle=""
-              onClick={() => {
-                const doneStatus = wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id || 'done';
-                onNavigate?.('list', { projectId: 'all', status: doneStatus, assignee: '' });
-              }}
-            />
-            <SummaryCard title="평균 진척율" value={`${summary.avgProgress}%`} subtitle="" highlight="text-emerald-600" />
-            <SummaryCard
-              title="마일스톤"
-              value={summary.totalMilestones}
-              subtitle=""
-              highlight="text-amber-600"
-              onClick={() => onNavigate?.('list', { projectId: 'all', status: 'all', assignee: '' })}
-            />
-            <SummaryCard
-              title="금일 접속자"
-              value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.daily}
-              subtitle="클릭하여 명단"
-              highlight="text-blue-600"
-              onClick={async () => {
-                setDailyVisitorsOpen(true);
-                setDailyVisitorsLoading(true);
-                try {
-                  const rows = await getDailyVisitors();
-                  setDailyVisitorsList(rows);
-                } catch {
-                  setDailyVisitorsList([]);
-                } finally {
-                  setDailyVisitorsLoading(false);
-                }
-              }}
-            />
-            <SummaryCard
-              title="누적 접속자"
-              value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.total}
-              subtitle=""
-              highlight="text-purple-600"
-            />
+  const dashboardFiltersActive = showMyOnly || showMyDivisionOnly || dashboardVisibleIds !== null || divisionVisibleIds !== null;
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('wbs-dashboard-filters-active', { detail: { active: dashboardFiltersActive } }));
+  }, [dashboardFiltersActive]);
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(new CustomEvent('wbs-dashboard-filters-active', { detail: { active: false } }));
+    };
+  }, []);
+
+  /** 렌더 시점에는 형제인 #dashboard-filter-toolbar-host 가 아직 DOM에 없을 수 있어, 커밋 직후에 포털 대상을 잡는다. */
+  const [dashboardToolbarHost, setDashboardToolbarHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setDashboardToolbarHost(document.getElementById('dashboard-filter-toolbar-host'));
+    return () => setDashboardToolbarHost(null);
+  }, []);
+
+  const dashboardFiltersToolbar =
+    dashboardToolbarHost &&
+    createPortal(
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 w-full">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0">대시보드 표시</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50/80 border border-sky-100/80 px-2 py-1.5">
+          <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider shrink-0" title="사업부·부서별 카드">
+            사업부
+          </span>
+          {currentUserDisplay && (
+            <button
+              type="button"
+              onClick={toggleShowMyDivisionOnly}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
+                showMyDivisionOnly
+                  ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+              )}
+              title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
+              aria-pressed={showMyDivisionOnly}
+              disabled={!myDivisionId}
+            >
+              <User size={12} />
+              내가 포함된 부서만
+              {showMyDivisionOnly && <Check size={11} strokeWidth={3} />}
+            </button>
+          )}
+          <div className="relative" ref={divisionPickerRef}>
+            <button
+              type="button"
+              onClick={() => setIsDivisionPickerOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+              title="대시보드에 표시할 부서 선택"
+            >
+              <Settings2 size={12} />
+              필터
+              {divisionVisibleIds && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">
+                  {divisionVisibleIds.size}
+                </span>
+              )}
+            </button>
+            {isDivisionPickerOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
+                <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
+                  <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => persistDivisionVisible(new Set(divisionStats.map((d) => d.id)))}
+                      className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
+                      title="모든 부서 선택"
+                    >
+                      모두 선택
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persistDivisionVisible(new Set())}
+                      className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                      title="모든 부서 해제"
+                    >
+                      모두 해제
+                    </button>
+                  </div>
+                </div>
+                {divisionStats.length === 0 ? (
+                  <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {divisionStats.map((d) => {
+                      const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
+                      return (
+                        <li key={d.id}>
+                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                            <span
+                              className={cn(
+                                'inline-flex items-center justify-center w-4 h-4 rounded border',
+                                checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
+                              )}
+                            >
+                              {checked && <Check size={11} strokeWidth={3} />}
+                            </span>
+                            <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
+                            <span className="text-sm text-stone-700 truncate" title={d.name}>
+                              {d.name}
+                            </span>
+                            <span className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums">
+                              {d.assigneeCount}명 · 프로젝트 {d.projectCount}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={showAllDivisions}
+                    className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
+                    title="필터 해제 (기본 상태로)"
+                  >
+                    필터 초기화 (기본)
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        </section>
+        </div>
 
-        {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <Bug className="text-rose-500" size={24} />
-            이슈 작업
-            <span className="text-sm font-medium text-stone-400">{issueTasks.length}건</span>
-          </h2>
-          {issueTasks.length === 0 ? (
-            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-              등록된 이슈 작업이 없습니다.
-            </div>
-          ) : (
-            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-stone-50 border-b border-stone-200">
-                  <tr className="text-xs text-stone-500">
-                    <th className="text-left font-medium px-3 py-2">작업명</th>
-                    <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                    <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                    <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                    <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {issueTasks.map((t) => {
-                    const proj = projectMap.get(t.projectId);
-                    return (
-                      <tr
-                        key={t.id}
-                        className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                        onClick={() => onNavigate?.('list', { projectId: t.projectId, status: 'all', assignee: '' })}
-                        title="작업 보기로 이동"
-                      >
-                        <td className="px-3 py-2 text-stone-800">
-                          <div className="flex items-center gap-1.5">
-                            <Bug size={12} className="text-rose-500 shrink-0" />
-                            <span className="truncate">{t.name || '(이름 없음)'}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
-                        <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
-                        <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                        <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                          {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50/70 border border-indigo-100/80 px-2 py-1.5">
+          <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider shrink-0" title="프로젝트별 카드">
+            프로젝트
+          </span>
+          {myInvolvedProjectIds && (
+            <button
+              type="button"
+              onClick={toggleShowMyOnly}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
+                showMyOnly
+                  ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+              )}
+              title="소유자·멤버·작업 담당자(이름 매칭) 중 하나라도 해당하면 포함"
+              aria-pressed={showMyOnly}
+            >
+              <User size={12} />
+              내가 포함된 프로젝트만
+              {showMyOnly && <Check size={11} strokeWidth={3} />}
+            </button>
           )}
-        </section>
+          <div className="relative" ref={projectPickerRef}>
+            <button
+              type="button"
+              onClick={() => setIsProjectPickerOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+              title="대시보드에 표시할 프로젝트 선택"
+            >
+              <Settings2 size={12} />
+              필터
+              {dashboardVisibleIds && (
+                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">
+                  {dashboardVisibleIds.size}
+                </span>
+              )}
+            </button>
+            {isProjectPickerOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
+                <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
+                  <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 프로젝트</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardVisible(new Set(visibleProjectStats.map((p) => p.id as string)))}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium"
+                      title="모든 프로젝트 선택"
+                    >
+                      모두 선택
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardVisible(new Set())}
+                      className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                      title="모든 프로젝트 해제"
+                    >
+                      모두 해제
+                    </button>
+                  </div>
+                </div>
+                {visibleProjectStats.length === 0 ? (
+                  <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 프로젝트가 없습니다.</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {visibleProjectStats.map((p) => {
+                      const checked = dashboardVisibleIds === null ? true : dashboardVisibleIds.has(p.id);
+                      return (
+                        <li key={p.id}>
+                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                            <span
+                              className={cn(
+                                'inline-flex items-center justify-center w-4 h-4 rounded border',
+                                checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-stone-300 bg-white',
+                              )}
+                            >
+                              {checked && <Check size={11} strokeWidth={3} />}
+                            </span>
+                            <input type="checkbox" checked={checked} onChange={() => toggleDashboardProject(p.id)} className="sr-only" />
+                            <span className="text-sm text-stone-700 break-words" title={p.name}>
+                              {p.name}
+                            </span>
+                            <span className="ml-auto text-[10px] text-stone-400 shrink-0">{p.stats?.total ?? 0}건</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={showAllDashboardProjects}
+                    className="w-full text-[11px] text-stone-500 hover:text-indigo-700 font-medium py-1"
+                    title="필터 해제 (기본 상태로)"
+                  >
+                    필터 초기화 (기본)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      dashboardToolbarHost,
+    );
 
-        {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
-        <section>
-          <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-            <ListChecks className="text-teal-600" size={24} />
-            액션 항목
-            <span className="text-sm font-medium text-stone-400">{actionTasks.length}건</span>
-          </h2>
-          {actionTasks.length === 0 ? (
-            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-              작업 편집에서「액션 항목」을 켠 작업이 여기에 표시됩니다.
+  return (
+    <>
+      {dashboardFiltersToolbar}
+      <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-6 md:p-8">
+        <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header Summary */}
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+              <LayoutGrid className="text-slate-500" size={24} />
+              전체 현황 요약
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <SummaryCard
+                title="총 프로젝트"
+                value={summary.totalProjects}
+                subtitle=""
+                onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
+              />
+              <SummaryCard
+                title="총 작업 수"
+                value={summary.totalTasks}
+                subtitle=""
+                onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
+              />
+              <SummaryCard
+                title="진행 중 작업"
+                value={summary.totalInProgress}
+                subtitle=""
+                onClick={() => {
+                  const inProgressStatus = wbsSettings.statusConfigs.find((c) => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
+                  onNavigate?.('kanban', { projectId: 'all', status: inProgressStatus, assignee: '' });
+                }}
+              />
+              <SummaryCard
+                title="완료된 작업"
+                value={summary.totalDone}
+                subtitle=""
+                onClick={() => {
+                  const doneStatus = wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id || 'done';
+                  onNavigate?.('table', { projectId: 'all', status: doneStatus, assignee: '' });
+                }}
+              />
+              <SummaryCard title="평균 진척율" value={`${summary.avgProgress}%`} subtitle="" highlight="text-emerald-600" />
+              <SummaryCard
+                title="마일스톤"
+                value={summary.totalMilestones}
+                subtitle=""
+                highlight="text-amber-600"
+                onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
+              />
+              <SummaryCard
+                title="금일 접속자"
+                value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.daily}
+                subtitle="클릭하여 명단"
+                highlight="text-blue-600"
+                onClick={async () => {
+                  setDailyVisitorsOpen(true);
+                  setDailyVisitorsLoading(true);
+                  try {
+                    const rows = await getDailyVisitors();
+                    setDailyVisitorsList(rows);
+                  } catch {
+                    setDailyVisitorsList([]);
+                  } finally {
+                    setDailyVisitorsLoading(false);
+                  }
+                }}
+              />
+              <SummaryCard
+                title="누적 접속자"
+                value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.total}
+                subtitle=""
+                highlight="text-purple-600"
+              />
             </div>
-          ) : (
-            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-stone-50 border-b border-stone-200">
-                  <tr className="text-xs text-stone-500">
-                    <th className="text-center font-medium px-2 py-2 w-14">완료</th>
-                    <th className="text-left font-medium px-3 py-2">작업명</th>
-                    <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                    <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                    <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                    <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actionTasks.map((t) => {
-                    const proj = projectMap.get(t.projectId);
-                    const done = isActionTaskCompleted(t);
-                    return (
-                      <tr
-                        key={t.id}
-                        className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
-                        onClick={() => onNavigate?.('list', { projectId: t.projectId, status: 'all', assignee: '' })}
-                        title="작업 보기로 이동"
-                      >
-                        <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={done}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              const checked = e.target.checked;
-                              if (checked) {
-                                updateTask(t.id, { status: doneStatusId, progress: 100 });
-                              } else {
-                                updateTask(t.id, { status: todoStatusId, progress: 0 });
-                              }
-                            }}
-                            className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
-                            title={done ? '완료 해제' : '완료 표시'}
-                            aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-stone-800">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
-                            <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
-                            {done && <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
-                        <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
-                        <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                        <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                          {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          </section>
 
-        {/* 사업부·부서별 현황 */}
-        <section>
-          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-            <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2">
+          {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+              <Bug className="text-rose-500" size={24} />
+              이슈 작업
+              <span className="text-sm font-medium text-stone-400">{issueTasks.length}건</span>
+            </h2>
+            {issueTasks.length === 0 ? (
+              <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                등록된 이슈 작업이 없습니다.
+              </div>
+            ) : (
+              <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-stone-50 border-b border-stone-200">
+                    <tr className="text-xs text-stone-500">
+                      <th className="text-left font-medium px-3 py-2">작업명</th>
+                      <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
+                      <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
+                      <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
+                      <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issueTasks.map((t) => {
+                      const proj = projectMap.get(t.projectId);
+                      return (
+                        <tr
+                          key={t.id}
+                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          onClick={() => onNavigate?.('table', { projectId: t.projectId, status: 'all', assignee: '' })}
+                          title="작업 보기로 이동"
+                        >
+                          <td className="px-3 py-2 text-stone-800">
+                            <div className="flex items-center gap-1.5">
+                              <Bug size={12} className="text-rose-500 shrink-0" />
+                              <span className="truncate">{t.name || '(이름 없음)'}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
+                          <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
+                          <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                            {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+              <ListChecks className="text-teal-600" size={24} />
+              액션 항목
+              <span className="text-sm font-medium text-stone-400">{actionTasks.length}건</span>
+            </h2>
+            {actionTasks.length === 0 ? (
+              <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                작업 편집에서「액션 항목」을 켠 작업이 여기에 표시됩니다.
+              </div>
+            ) : (
+              <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-stone-50 border-b border-stone-200">
+                    <tr className="text-xs text-stone-500">
+                      <th className="text-center font-medium px-2 py-2 w-14">완료</th>
+                      <th className="text-left font-medium px-3 py-2">작업명</th>
+                      <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
+                      <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
+                      <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
+                      <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actionTasks.map((t) => {
+                      const proj = projectMap.get(t.projectId);
+                      const done = isActionTaskCompleted(t);
+                      return (
+                        <tr
+                          key={t.id}
+                          className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
+                          onClick={() => onNavigate?.('table', { projectId: t.projectId, status: 'all', assignee: '' })}
+                          title="작업 보기로 이동"
+                        >
+                          <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={done}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const checked = e.target.checked;
+                                if (checked) {
+                                  updateTask(t.id, { status: doneStatusId, progress: 100 });
+                                } else {
+                                  updateTask(t.id, { status: todoStatusId, progress: 0 });
+                                }
+                              }}
+                              className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                              title={done ? '완료 해제' : '완료 표시'}
+                              aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-stone-800">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                              <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
+                              {done && <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-stone-600 break-words">{proj?.name ?? '—'}</td>
+                          <td className="px-3 py-2 text-stone-600 truncate">{t.assignee || '—'}</td>
+                          <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                          <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                            {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* 사업부·부서별 현황 */}
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2 flex-wrap">
               <Building2 className="text-sky-500" size={24} />
               사업부·부서별 현황
               <span className="text-sm font-normal text-stone-500 ml-1">
@@ -701,208 +974,110 @@ export function Dashboard({
                 개)
               </span>
             </h2>
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* 내 부서만 토글 */}
-              {currentUserDisplay && (
-                <button
-                  type="button"
-                  onClick={toggleShowMyDivisionOnly}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors',
-                    showMyDivisionOnly
-                      ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
-                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
-                  )}
-                  title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
-                  aria-pressed={showMyDivisionOnly}
-                  disabled={!myDivisionId}
-                >
-                  <User size={13} />
-                  내가 포함된 부서만
-                  {showMyDivisionOnly && <Check size={12} strokeWidth={3} />}
-                </button>
-              )}
-              {/* 필터 (부서 표시) */}
-              <div className="relative" ref={divisionPickerRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsDivisionPickerOpen((v) => !v)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
-                  title="대시보드에 표시할 부서 선택"
-                >
-                  <Settings2 size={13} />
-                  필터
-                  {divisionVisibleIds && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">
-                      {divisionVisibleIds.size}
-                    </span>
-                  )}
-                </button>
-                {isDivisionPickerOpen && (
-                  <div className="absolute right-0 mt-2 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-30 p-2">
-                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
-                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => persistDivisionVisible(new Set(divisionStats.map((d) => d.id)))}
-                          className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
-                          title="모든 부서 선택"
-                        >
-                          모두 선택
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => persistDivisionVisible(new Set())}
-                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
-                          title="모든 부서 해제"
-                        >
-                          모두 해제
-                        </button>
-                      </div>
-                    </div>
-                    {divisionStats.length === 0 ? (
-                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
-                    ) : (
-                      <ul className="space-y-0.5">
-                        {divisionStats.map((d) => {
-                          const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
-                          return (
-                            <li key={d.id}>
-                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
-                                <span
-                                  className={cn(
-                                    'inline-flex items-center justify-center w-4 h-4 rounded border',
-                                    checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
-                                  )}
-                                >
-                                  {checked && <Check size={11} strokeWidth={3} />}
-                                </span>
-                                <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
-                                <span className="text-sm text-stone-700 truncate" title={d.name}>
-                                  {d.name}
-                                </span>
-                                <span className="ml-auto text-[10px] text-stone-400 shrink-0">{d.assigneeCount}명</span>
-                              </label>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
-                      <button
-                        type="button"
-                        onClick={showAllDivisions}
-                        className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
-                        title="필터 해제 (기본 상태로)"
-                      >
-                        필터 초기화 (기본)
-                      </button>
-                    </div>
-                  </div>
-                )}
+            {displayDivisionStats.length === 0 ? (
+              <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                {divisionStats.length === 0
+                  ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
+                  : showMyDivisionOnly
+                    ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
+                    : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
               </div>
-            </div>
-          </div>
-          {displayDivisionStats.length === 0 ? (
-            <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-              {divisionStats.length === 0
-                ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
-                : showMyDivisionOnly
-                  ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
-                  : '[필터]에서 표시할 부서를 선택하세요. (또는 필터 초기화)'}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-              {displayDivisionStats.map((d) => (
-                <div key={d.id} className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-baseline justify-between mb-2">
-                    <h3 className="font-semibold text-stone-800 truncate" title={d.name}>
-                      {d.name}
-                    </h3>
-                    <span className="text-xs text-stone-400 shrink-0 ml-2">{d.assigneeCount}명</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center mb-3">
-                    <div>
-                      <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
-                      <div className="text-[10px] text-stone-400">전체</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {displayDivisionStats.map((d) => (
+                  <div key={d.id} className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h3 className="font-semibold text-stone-800 truncate" title={d.name}>
+                        {d.name}
+                      </h3>
+                      <span className="text-xs text-stone-400 shrink-0 ml-2 tabular-nums">
+                        {d.assigneeCount}명 · 프로젝트 {d.projectCount}개
+                      </span>
                     </div>
-                    <div>
-                      <div className="text-lg font-bold text-emerald-600 tabular-nums">{d.doneCount}</div>
-                      <div className="text-[10px] text-stone-400">완료</div>
-                    </div>
-                    <div>
-                      <div className="text-lg font-bold text-rose-600 tabular-nums">{d.issueCount}</div>
-                      <div className="text-[10px] text-stone-400">이슈</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
-                    </div>
-                    <span className="text-[11px] font-semibold text-stone-600 tabular-nums w-10 text-right">{d.progress}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Milestones */}
-        {milestones.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
-              <Flag className="text-amber-500" size={24} />
-              마일스톤
-            </h2>
-            <div className="card-elevated overflow-hidden">
-              <ul className="divide-y divide-slate-100">
-                {milestones.map((task) => (
-                  <li
-                    key={task.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onNavigate?.('list', { projectId: task.projectId, status: 'all', assignee: '' });
-                      }
-                    }}
-                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
-                  >
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
-                      <Flag size={18} className="text-amber-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {task.projectName} · {task.startDate}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mb-3">
+                      <div>
+                        <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
+                        <div className="text-[10px] text-stone-400">전체</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-emerald-600 tabular-nums">{d.doneCount}</div>
+                        <div className="text-[10px] text-stone-400">완료</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-rose-600 tabular-nums">{d.issueCount}</div>
+                        <div className="text-[10px] text-stone-400">이슈</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold text-sky-600 tabular-nums">{d.projectCount}</div>
+                        <div className="text-[10px] text-stone-400">프로젝트</div>
                       </div>
                     </div>
-                    {(() => {
-                      const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                      const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                      return (
-                        <span
-                          className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-stone-700')}
-                          style={colorProps.style}
-                        >
-                          {sc?.name ?? task.status}
-                        </span>
-                      );
-                    })()}
-                  </li>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
+                      </div>
+                      <span className="text-[11px] font-semibold text-stone-600 tabular-nums w-10 text-right">{d.progress}%</span>
+                    </div>
+                  </div>
                 ))}
-              </ul>
-            </div>
+              </div>
+            )}
           </section>
-        )}
 
-        {/* Project List */}
-        <section>
-          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-            <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2">
+          {/* Milestones */}
+          {milestones.length > 0 && (
+            <section>
+              <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2">
+                <Flag className="text-amber-500" size={24} />
+                마일스톤
+              </h2>
+              <div className="card-elevated overflow-hidden">
+                <ul className="divide-y divide-slate-100">
+                  {milestones.map((task) => (
+                    <li
+                      key={task.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onNavigate?.('table', { projectId: task.projectId, status: 'all', assignee: '' })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onNavigate?.('table', { projectId: task.projectId, status: 'all', assignee: '' });
+                        }
+                      }}
+                      className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                    >
+                      <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
+                        <Flag size={18} className="text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {task.projectName} · {task.startDate}
+                        </div>
+                      </div>
+                      {(() => {
+                        const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
+                        const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
+                        return (
+                          <span
+                            className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-stone-700')}
+                            style={colorProps.style}
+                          >
+                            {sc?.name ?? task.status}
+                          </span>
+                        );
+                      })()}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          )}
+
+          {/* Project List */}
+          <section>
+            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2 flex-wrap">
               <Briefcase className="text-[var(--color-accent)]" size={24} />
               프로젝트별 상태
               <span className="text-sm font-normal text-stone-500 ml-1">
@@ -913,199 +1088,93 @@ export function Dashboard({
                 개)
               </span>
             </h2>
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* 내가 포함된 프로젝트만 토글 */}
-              {myInvolvedProjectIds && (
-                <button
-                  type="button"
-                  onClick={toggleShowMyOnly}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors',
-                    showMyOnly
-                      ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
-                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
-                  )}
-                  title="소유자·멤버·작업 담당자(이름 매칭) 중 하나라도 해당하면 포함"
-                  aria-pressed={showMyOnly}
-                >
-                  <User size={13} />
-                  내가 포함된 프로젝트만
-                  {showMyOnly && <Check size={12} strokeWidth={3} />}
-                </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {displayProjectStats.length === 0 ? (
+                <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                  {visibleProjectStats.length === 0
+                    ? '작업이 있는 프로젝트가 없습니다.'
+                    : showMyOnly
+                      ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                      : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
+                </div>
+              ) : (
+                displayProjectStats.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    onClick={() => onNavigate?.('table', { projectId: project.id, status: 'all', assignee: '' })}
+                    wbsSettings={wbsSettings}
+                  />
+                ))
               )}
-              {/* 필터 (프로젝트 표시) */}
-              <div className="relative" ref={projectPickerRef}>
+            </div>
+          </section>
+
+          {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
+        </div>
+
+        {dailyVisitorsOpen && (
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/45"
+            onClick={() => setDailyVisitorsOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[min(70vh,480px)] overflow-hidden flex flex-col border border-stone-200"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="daily-visitors-dialog-title"
+            >
+              <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2 shrink-0">
+                <h3 id="daily-visitors-dialog-title" className="text-sm font-bold text-stone-800">
+                  금일 접속자 ({visitorStats.daily}명 기준 세션)
+                </h3>
                 <button
                   type="button"
-                  onClick={() => setIsProjectPickerOpen((v) => !v)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
-                  title="대시보드에 표시할 프로젝트 선택"
+                  className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-800"
+                  onClick={() => setDailyVisitorsOpen(false)}
+                  aria-label="닫기"
                 >
-                  <Settings2 size={13} />
-                  필터
-                  {dashboardVisibleIds && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">
-                      {dashboardVisibleIds.size}
-                    </span>
-                  )}
+                  <X size={18} />
                 </button>
-                {isProjectPickerOpen && (
-                  <div className="absolute right-0 mt-2 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-30 p-2">
-                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
-                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 프로젝트</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => persistDashboardVisible(new Set(visibleProjectStats.map((p) => p.id as string)))}
-                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium"
-                          title="모든 프로젝트 선택"
-                        >
-                          모두 선택
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => persistDashboardVisible(new Set())}
-                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
-                          title="모든 프로젝트 해제"
-                        >
-                          모두 해제
-                        </button>
-                      </div>
-                    </div>
-                    {visibleProjectStats.length === 0 ? (
-                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 프로젝트가 없습니다.</p>
-                    ) : (
-                      <ul className="space-y-0.5">
-                        {visibleProjectStats.map((p) => {
-                          const checked = dashboardVisibleIds === null ? true : dashboardVisibleIds.has(p.id);
-                          return (
-                            <li key={p.id}>
-                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
-                                <span
-                                  className={cn(
-                                    'inline-flex items-center justify-center w-4 h-4 rounded border',
-                                    checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-stone-300 bg-white',
-                                  )}
-                                >
-                                  {checked && <Check size={11} strokeWidth={3} />}
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleDashboardProject(p.id)}
-                                  className="sr-only"
-                                />
-                                <span className="text-sm text-stone-700 break-words" title={p.name}>
-                                  {p.name}
-                                </span>
-                                <span className="ml-auto text-[10px] text-stone-400 shrink-0">{p.stats?.total ?? 0}건</span>
-                              </label>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
-                      <button
-                        type="button"
-                        onClick={showAllDashboardProjects}
-                        className="w-full text-[11px] text-stone-500 hover:text-indigo-700 font-medium py-1"
-                        title="필터 해제 (기본 상태로)"
-                      >
-                        필터 초기화 (기본)
-                      </button>
-                    </div>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1 text-sm">
+                {dailyVisitorsLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-8 text-stone-500">
+                    <Loader2 size={18} className="animate-spin" />
+                    불러오는 중…
                   </div>
+                ) : dailyVisitorsList.length === 0 ? (
+                  <p className="text-stone-500 text-center py-6">
+                    표시할 접속 기록이 없거나, DB에 <code className="text-xs bg-stone-100 px-1 rounded">get_daily_visitors</code> 함수가
+                    아직 배포되지 않았을 수 있습니다.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {dailyVisitorsList.map((row) => (
+                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-stone-100 last:border-0">
+                        <span className="font-medium text-stone-800 break-words min-w-0">{row.displayName}</span>
+                        <span className="text-xs text-stone-500 tabular-nums shrink-0 whitespace-nowrap">
+                          {row.visitedAt
+                            ? (() => {
+                                const d = new Date(row.visitedAt);
+                                return Number.isNaN(d.getTime())
+                                  ? row.visitedAt
+                                  : d.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                              })()
+                            : '—'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {displayProjectStats.length === 0 ? (
-              <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                {visibleProjectStats.length === 0
-                  ? '작업이 있는 프로젝트가 없습니다.'
-                  : showMyOnly
-                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
-                    : '[필터]에서 표시할 프로젝트를 선택하세요. (또는 필터 초기화)'}
-              </div>
-            ) : (
-              displayProjectStats.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onClick={() => onNavigate?.('list', { projectId: project.id, status: 'all', assignee: '' })}
-                  wbsSettings={wbsSettings}
-                />
-              ))
-            )}
-          </div>
-        </section>
-
-        {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
+        )}
       </div>
-
-      {dailyVisitorsOpen && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/45"
-          onClick={() => setDailyVisitorsOpen(false)}
-          role="presentation"
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[min(70vh,480px)] overflow-hidden flex flex-col border border-stone-200"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="daily-visitors-dialog-title"
-          >
-            <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-2 shrink-0">
-              <h3 id="daily-visitors-dialog-title" className="text-sm font-bold text-stone-800">
-                금일 접속자 ({visitorStats.daily}명 기준 세션)
-              </h3>
-              <button
-                type="button"
-                className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-800"
-                onClick={() => setDailyVisitorsOpen(false)}
-                aria-label="닫기"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1 text-sm">
-              {dailyVisitorsLoading ? (
-                <div className="flex items-center justify-center gap-2 py-8 text-stone-500">
-                  <Loader2 size={18} className="animate-spin" />
-                  불러오는 중…
-                </div>
-              ) : dailyVisitorsList.length === 0 ? (
-                <p className="text-stone-500 text-center py-6">
-                  표시할 접속 기록이 없거나, DB에 <code className="text-xs bg-stone-100 px-1 rounded">get_daily_visitors</code> 함수가 아직
-                  배포되지 않았을 수 있습니다.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {dailyVisitorsList.map((row) => (
-                    <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-stone-100 last:border-0">
-                      <span className="font-medium text-stone-800 break-words min-w-0">{row.displayName}</span>
-                      <span className="text-xs text-stone-500 tabular-nums shrink-0 whitespace-nowrap">
-                        {row.visitedAt
-                          ? (() => {
-                              const d = new Date(row.visitedAt);
-                              return Number.isNaN(d.getTime())
-                                ? row.visitedAt
-                                : d.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-                            })()
-                          : '—'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 

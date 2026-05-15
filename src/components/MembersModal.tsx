@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowDown,
   FolderGit2,
+  Shield,
   ThumbsUp,
   ThumbsDown,
   AlertTriangle,
@@ -27,12 +28,15 @@ import {
   updateMemberApproved,
   updateMemberOrgFields,
   listPendingProjectAccessRequests,
+  listPendingAdminAccessRequests,
   approveProjectAccessRequest,
+  approveAdminAccessRequest,
   rejectProjectAccessRequest,
+  rejectAdminAccessRequest,
 } from '../lib/db';
 import { WBS_ADMIN_PASSWORD } from '../constants/adminBypass';
 import { ProfileRow } from '../lib/supabase';
-import type { ProjectAccessRequestRow } from '../lib/supabase';
+import type { ProjectAccessRequestRow, AdminAccessRequestRow } from '../lib/supabase';
 import { format } from 'date-fns';
 import { MemberProjectAccessModal } from './MemberProjectAccessModal';
 import type { Project } from '../types';
@@ -105,11 +109,15 @@ export function MembersModal({
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [accessRequests, setAccessRequests] = useState<ProjectAccessRequestRow[]>([]);
+  const [adminAccessRequests, setAdminAccessRequests] = useState<AdminAccessRequestRow[]>([]);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+  const [processingAdminRequestId, setProcessingAdminRequestId] = useState<string | null>(null);
   const [accessMember, setAccessMember] = useState<ProfileRow | null>(null);
+  /** 회원 표에서「프로젝트 수」클릭 시 소유 프로젝트 목록 표시 */
+  const [expandedOwnedProjectsMemberId, setExpandedOwnedProjectsMemberId] = useState<string | null>(null);
 
   type SortKey = 'full_name' | 'email' | 'created_at' | 'login_count' | 'last_visited_at' | 'approved' | 'role' | 'project_count';
-  const [sortKey, setSortKey] = useState<SortKey>('created_at');
+  const [sortKey, setSortKey] = useState<SortKey>('last_visited_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   /** 회원별 본인이 만든 프로젝트(소유자) 목록·갯수. `projects` prop은 RLS로 조회 가능한 범위만 포함. */
@@ -347,11 +355,25 @@ export function MembersModal({
     }
   };
 
+  const loadAdminAccessRequests = async () => {
+    try {
+      const list = await listPendingAdminAccessRequests();
+      setAdminAccessRequests(list);
+    } catch {
+      setAdminAccessRequests([]);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     loadMembers();
-    if (effectiveIsAdmin) loadAccessRequests();
-    else setAccessRequests([]);
+    if (effectiveIsAdmin) {
+      void loadAccessRequests();
+      void loadAdminAccessRequests();
+    } else {
+      setAccessRequests([]);
+      setAdminAccessRequests([]);
+    }
   }, [isOpen, effectiveIsAdmin]);
 
   const handleApproveRequest = async (requestId: string) => {
@@ -373,6 +395,31 @@ export function MembersModal({
     setProcessingRequestId(null);
     if (result.success) {
       setAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } else {
+      setError(result.error ?? '거절에 실패했습니다.');
+    }
+  };
+
+  const handleApproveAdminRequest = async (requestId: string, targetUserId: string) => {
+    setProcessingAdminRequestId(requestId);
+    setError(null);
+    const result = await approveAdminAccessRequest(requestId);
+    setProcessingAdminRequestId(null);
+    if (result.success) {
+      setAdminAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setMembers((prev) => prev.map((m) => (m.id === targetUserId ? { ...m, is_admin: true } : m)));
+    } else {
+      setError(result.error ?? '승인에 실패했습니다.');
+    }
+  };
+
+  const handleRejectAdminRequest = async (requestId: string) => {
+    setProcessingAdminRequestId(requestId);
+    setError(null);
+    const result = await rejectAdminAccessRequest(requestId);
+    setProcessingAdminRequestId(null);
+    if (result.success) {
+      setAdminAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
     } else {
       setError(result.error ?? '거절에 실패했습니다.');
     }
@@ -546,9 +593,6 @@ export function MembersModal({
                   <ChevronDown size={16} className="text-stone-400 shrink-0" />
                 )}
                 <span className="text-sm font-semibold text-stone-800">회원별 프로젝트 현황</span>
-                <span className="text-xs text-stone-500">
-                  소유자별로 어떤 프로젝트를 두는지 확인합니다. 프로젝트명을 누르면 작업 화면으로 이동합니다.
-                </span>
                 <span className="text-xs text-stone-400 tabular-nums ml-auto">
                   {adminOwnerProjectSummary.length}명 · {adminOwnerProjectSummary.reduce((n, [, list]) => n + list.length, 0)}개
                 </span>
@@ -754,13 +798,13 @@ export function MembersModal({
                     </th>
                     <th
                       className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap"
-                      title="해당 회원이 만든(소유한) 프로젝트 개수"
+                      title="해당 회원이 만든(소유한) 프로젝트 개수. 숫자를 누르면 프로젝트 이름을 펼칩니다."
                     >
                       <button
                         type="button"
                         onClick={() => toggleSort('project_count')}
                         className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
-                        title="프로젝트 수로 정렬"
+                        title="프로젝트 수로 정렬 (셀의 숫자는 클릭하여 목록 표시)"
                       >
                         프로젝트 수
                         {sortKey === 'project_count' ? (
@@ -929,24 +973,60 @@ export function MembersModal({
                           </button>
                         )}
                       </td>
-                      <td className="py-3 px-2 text-stone-700 tabular-nums">
+                      <td className="py-3 px-2 text-stone-700 align-top">
                         {(() => {
                           const owned = projectsByOwner.get(m.id) ?? [];
                           const count = owned.length;
-                          if (count === 0) return <span className="text-stone-300">0</span>;
-                          const tooltip =
-                            owned
-                              .slice(0, 30)
-                              .map((p, i) => `${i + 1}. ${p.name}`)
-                              .join('\n') + (owned.length > 30 ? `\n…외 ${owned.length - 30}개` : '');
+                          if (count === 0) {
+                            return <span className="tabular-nums text-stone-300">0</span>;
+                          }
+                          const isOpen = expandedOwnedProjectsMemberId === m.id;
                           return (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs font-medium cursor-help"
-                              title={tooltip}
-                            >
-                              <FolderGit2 size={12} />
-                              {count}
-                            </span>
+                            <div className="flex flex-col gap-1.5 min-w-0 max-w-[280px]">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedOwnedProjectsMemberId((prev) => (prev === m.id ? null : m.id))}
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium tabular-nums w-fit text-left transition-colors',
+                                  isOpen
+                                    ? 'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-200'
+                                    : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
+                                )}
+                                title={isOpen ? '목록 접기' : '소유 프로젝트 목록 펼치기'}
+                                aria-expanded={isOpen}
+                              >
+                                <FolderGit2 size={12} className="shrink-0" />
+                                {count}
+                              </button>
+                              {isOpen ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {owned.map((p) =>
+                                    onNavigateToProject ? (
+                                      <button
+                                        key={p.id}
+                                        type="button"
+                                        onClick={() => {
+                                          onNavigateToProject(p.id);
+                                          onClose();
+                                        }}
+                                        className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-stone-700 transition-colors text-left break-words max-w-full"
+                                        title={`${p.name} — 작업 화면으로 이동`}
+                                      >
+                                        {p.name}
+                                      </button>
+                                    ) : (
+                                      <span
+                                        key={p.id}
+                                        className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 text-stone-700 break-words max-w-full"
+                                        title={p.name}
+                                      >
+                                        {p.name}
+                                      </span>
+                                    ),
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
                           );
                         })()}
                       </td>
@@ -1015,6 +1095,73 @@ export function MembersModal({
                 </tbody>
               </table>
             </>
+          )}
+
+          {dbIsAdmin && !loading && adminAccessRequests.length > 0 && (
+            <div className="mt-8 pt-6 border-t border-[var(--color-line)]">
+              <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-2 mb-3">
+                <Shield size={16} />
+                시스템 관리자 권한 요청 (대기 중)
+              </h3>
+              <p className="text-xs text-stone-500 mb-3">
+                회원이 DB 시스템 관리자(<span className="font-mono">is_admin</span>) 권한을 요청한 목록입니다. 승인 시 해당 회원이
+                대시보드·전역 설정 등 관리자 기능을 사용할 수 있습니다.
+              </p>
+              <table className="w-full text-sm border border-stone-200 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-stone-50 border-b border-stone-200">
+                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청자</th>
+                    <th className="text-left py-2 px-3 font-semibold text-stone-600">사유</th>
+                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청일</th>
+                    <th className="text-right py-2 px-3 font-semibold text-stone-600 w-32">처리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminAccessRequests.map((req) => {
+                    const requester = members.find((m) => m.id === req.user_id);
+                    const requesterName = requester ? requester.full_name || requester.email || req.user_id : req.user_id;
+                    const isProcessing = processingAdminRequestId === req.id;
+                    return (
+                      <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                        <td className="py-2 px-3 text-[var(--color-ink)]">{requesterName}</td>
+                        <td className="py-2 px-3 text-stone-600 max-w-[220px]">
+                          <span className="line-clamp-2 break-words" title={req.message ?? undefined}>
+                            {req.message?.trim() ? req.message : '—'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-stone-500 whitespace-nowrap">
+                          {req.created_at ? format(new Date(req.created_at), 'yyyy-MM-dd HH:mm') : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleApproveAdminRequest(req.id, req.user_id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-50 transition-colors"
+                              title="승인"
+                            >
+                              {isProcessing ? <Loader2 size={12} className="animate-spin" /> : <ThumbsUp size={12} />}
+                              승인
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleRejectAdminRequest(req.id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50 transition-colors"
+                              title="거절"
+                            >
+                              <ThumbsDown size={12} />
+                              거절
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {effectiveIsAdmin && !loading && accessRequests.length > 0 && (

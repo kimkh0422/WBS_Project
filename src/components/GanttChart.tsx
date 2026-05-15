@@ -352,8 +352,7 @@ export function GanttChart({
       const next = tasks[nextIdx];
       if (!next) return;
       setActiveTaskId(next.id);
-      // split 뷰에서는 표 행이 존재하므로 그쪽으로 스크롤 → useScrollSync로 간트가 따라온다.
-      // gantt-only 뷰는 표 행이 없어 no-op이며, 활성 행이 화면 밖이어도 setActiveTaskId 자체는 동작한다.
+      // 표에 `task-row-${id}`가 있으면 그쪽으로 스크롤(간트만 뷰에서는 해당 요소가 없으면 no-op).
       document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
     },
     [hotkeysEnabled, setActiveTaskId],

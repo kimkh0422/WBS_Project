@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import type { ProjectMemberRow, ProjectAccessRequestRow, PendingProjectInvitationRow } from '../supabase';
+import type { ProjectMemberRow, ProjectAccessRequestRow, AdminAccessRequestRow, PendingProjectInvitationRow } from '../supabase';
 import { requireSupabase } from './client';
 
 export async function fetchProjectMembers(projectId: string): Promise<ProjectMemberRow[]> {
@@ -211,6 +211,90 @@ export async function getMyProjectAccessRequest(projectId: string): Promise<Proj
   const { data, error } = await supabase!.from('project_access_requests').select('*').eq('project_id', projectId).maybeSingle();
   if (error) throw error;
   return data as ProjectAccessRequestRow | null;
+}
+
+// ─── 시스템 관리자(is_admin) 권한 요청 ─────────────────────────────────────────
+
+const ADMIN_REQ_MSG_MAX = 500;
+
+/** 비관리자: 시스템 관리자 권한 요청 등록. 동시에 대기 중인 요청이 있으면 DB 유니크 제약으로 실패할 수 있음. */
+export async function createAdminAccessRequest(message?: string | null): Promise<{ success: boolean; error?: string; requestId?: string }> {
+  requireSupabase();
+  try {
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser();
+    if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
+    const trimmed = (message ?? '').trim();
+    const msg = trimmed.length > ADMIN_REQ_MSG_MAX ? trimmed.slice(0, ADMIN_REQ_MSG_MAX) : trimmed || null;
+    const { data, error } = await supabase!
+      .from('admin_access_requests')
+      .insert({ user_id: user.id, message: msg, status: 'pending' })
+      .select('id')
+      .single();
+    if (error) {
+      if (error.code === '23505') return { success: false, error: '이미 대기 중인 관리자 권한 요청이 있습니다.' };
+      return { success: false, error: error.message };
+    }
+    return { success: true, requestId: (data as { id: string })?.id };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '요청에 실패했습니다.' };
+  }
+}
+
+/** 내 대기 중인 시스템 관리자 권한 요청 1건 */
+export async function getMyPendingAdminAccessRequest(): Promise<AdminAccessRequestRow | null> {
+  requireSupabase();
+  const {
+    data: { user },
+  } = await supabase!.auth.getUser();
+  if (!user?.id) return null;
+  const { data, error } = await supabase!
+    .from('admin_access_requests')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('status', 'pending')
+    .maybeSingle();
+  if (error) throw error;
+  return data as AdminAccessRequestRow | null;
+}
+
+/** 시스템 관리자: 대기 중인 관리자 권한 요청 목록 */
+export async function listPendingAdminAccessRequests(): Promise<AdminAccessRequestRow[]> {
+  requireSupabase();
+  const { data, error } = await supabase!
+    .from('admin_access_requests')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AdminAccessRequestRow[];
+}
+
+export async function approveAdminAccessRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { data, error } = await supabase!.rpc('approve_admin_access_request', { p_request_id: requestId });
+    if (error) return { success: false, error: error.message };
+    const row = data as { success?: boolean; error?: string } | null;
+    if (row?.success === false) return { success: false, error: row.error ?? '승인에 실패했습니다.' };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '승인에 실패했습니다.' };
+  }
+}
+
+export async function rejectAdminAccessRequest(requestId: string): Promise<{ success: boolean; error?: string }> {
+  requireSupabase();
+  try {
+    const { data, error } = await supabase!.rpc('reject_admin_access_request', { p_request_id: requestId });
+    if (error) return { success: false, error: error.message };
+    const row = data as { success?: boolean; error?: string } | null;
+    if (row?.success === false) return { success: false, error: row.error ?? '거절에 실패했습니다.' };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '거절에 실패했습니다.' };
+  }
 }
 
 /** 내가 멤버(또는 소유자)인 프로젝트 ID 목록. 권한 요청 UI에서 "접근 권한 없음" 판단용. */

@@ -37,7 +37,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
       },
       {
         type: 'paragraph',
-        text: '가운데 네비게이션 탭으로 대시보드, 투입현황, 표+간트, 표만, 간트만, 칸반, 마인드맵, 프로젝트 화면을 전환합니다. 오른쪽에는 필터, 더보기(⋮), 새 작업 버튼이 있습니다.',
+        text: '가운데 네비게이션 탭으로 대시보드, 투입현황, 표만, 간트만, 칸반, 마인드맵, 프로젝트 화면을 전환합니다. 오른쪽에는 필터, 더보기(⋮), 새 작업 버튼이 있습니다.',
       },
     ],
   },
@@ -114,11 +114,6 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
     id: 'views',
     title: '4. 화면(뷰)별 주요 기능',
     content: [
-      { type: 'subtitle', text: '표+간트' },
-      {
-        type: 'paragraph',
-        text: '왼쪽에 WBS 표, 오른쪽에 간트 차트가 나란히 표시됩니다. 표에서 작업을 편집하고 간트에서 일정·선후관계·크리티컬 패스를 동시에 확인할 수 있습니다. 가운데 세로 구분선을 드래그해 표/간트 비율을 조절할 수 있습니다.',
-      },
       { type: 'subtitle', text: '표만·간트만' },
       {
         type: 'paragraph',

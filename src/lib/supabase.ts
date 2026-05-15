@@ -126,6 +126,17 @@ export interface ProjectAccessRequestRow {
   reviewed_by?: string | null;
 }
 
+/** 시스템 관리자(DB is_admin) 권한 요청 */
+export interface AdminAccessRequestRow {
+  id: string;
+  user_id: string;
+  message: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at?: string;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+}
+
 export interface TaskRow {
   id: string;
   project_id: string;

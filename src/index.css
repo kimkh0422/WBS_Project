@@ -473,13 +473,13 @@
 
   /* Divider */
   .toolbar-divider {
-    @apply h-5 w-px bg-slate-200/80 mx-1;
+    @apply h-4 w-px bg-slate-200/80 mx-1;
   }
 
   /* Pill Navigation (active tab) */
   .nav-pill {
-    @apply px-3 py-1.5 rounded-lg transition-all text-xs font-medium flex items-center gap-1.5 shrink-0;
-    @apply min-h-[36px] md:min-h-0;
+    @apply px-2.5 py-1 rounded-lg transition-all text-xs font-medium flex items-center gap-1 shrink-0;
+    @apply min-h-[32px] md:min-h-0;
   }
 
   .nav-pill-active {

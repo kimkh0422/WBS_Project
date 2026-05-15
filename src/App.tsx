@@ -63,8 +63,7 @@ import {
   type LastExportPrefs,
 } from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
-import { useScrollSync } from './hooks/useScrollSync';
-import { useResizablePane } from './hooks/useResizablePane';
+import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { clearAllLocalData } from './lib/persist';
@@ -79,7 +78,6 @@ import {
 } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
-import { PermissionGuideModal } from './components/PermissionGuideModal';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
@@ -90,6 +88,7 @@ import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
 import { ProjectAccessRequestBanner } from './components/ProjectAccessRequestBanner';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
+import { AdminAccessRequestModal } from './components/AdminAccessRequestModal';
 import type { ExportScope, ExportFormat } from './components/ExportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
@@ -109,6 +108,7 @@ const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
 const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
 const OrganizationModal = React.lazy(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
+const UserGuidePage = React.lazy(() => import('./components/UserGuidePage').then((m) => ({ default: m.UserGuidePage })));
 
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -175,15 +175,20 @@ function WBSApp({
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
 
-  // URL 기반 뷰 라우팅 — /table, /gantt, /list 등. 뒤로가기/앞으로가기/딥링크 지원
-  type ViewType = 'list' | 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation';
-  const VALID_VIEWS = new Set<string>(['list', 'table', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation']);
+  // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
+  type ViewType = 'table' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
+  const VALID_VIEWS = new Set<string>(['table', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation', 'guide']);
   const location = useLocation();
   const navigate = useNavigate();
   const view: ViewType = useMemo(() => {
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
     return VALID_VIEWS.has(path) ? (path as ViewType) : 'table';
   }, [location.pathname]);
+
+  useEffect(() => {
+    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    if (path === 'list') navigate('/table', { replace: true });
+  }, [location.pathname, navigate]);
   const setView = useCallback(
     (v: ViewType) => {
       navigate(`/${v}`, { replace: false });
@@ -200,8 +205,6 @@ function WBSApp({
     setIsSettingsModalOpen,
     isShortcutsVisible,
     setIsShortcutsVisible,
-    isPermissionGuideOpen,
-    setIsPermissionGuideOpen,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
     isExportModalOpen,
@@ -226,6 +229,8 @@ function WBSApp({
     setIsMembersModalOpen,
     isAdminPasswordModalOpen,
     setIsAdminPasswordModalOpen,
+    isAdminAccessRequestModalOpen,
+    setIsAdminAccessRequestModalOpen,
     isResetConfirmOpen,
     setIsResetConfirmOpen,
     isWeeklyReportOpen,
@@ -520,11 +525,6 @@ function WBSApp({
   }, [isLoading, setCurrentProjectId, pushToast]);
 
   const [sharedRowHeight, setSharedRowHeight] = useState(20);
-  const [rowHeights, setRowHeights] = useState<number[]>([]);
-
-  // Extracted hooks: scroll sync & resizable pane
-  const { wbsScrollRef, ganttScrollRef } = useScrollSync(view);
-  const { containerRef, wbsTableWidth, isDraggingResizer, startResizing } = useResizablePane();
 
   useEffect(() => {
     document.title = wbsSettings.appTitle;
@@ -550,17 +550,14 @@ function WBSApp({
       if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
       if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
       if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
-      if (nextView === 'list')
-        tipOnce('nav.all', '표+간트: 표와 간트를 동시에 보며 관리합니다. 가운데 바를 드래그해 폭 조절이 가능합니다.');
       if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
       if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
       if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
       if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
+      if (nextView === 'guide') tipOnce('nav.guide', '주요 사용 방법과 역할별 권한 안내를 확인할 수 있어요.');
     },
     [tipOnce, setView, view],
   );
-
-  // startResizing, resize, stopResizing — provided by useResizablePane()
 
   // Keyboard shortcuts — extracted to useAppKeyboardShortcuts
   useAppKeyboardShortcuts({
@@ -608,9 +605,9 @@ function WBSApp({
       setCurrentProjectId(projectId);
       // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
       // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
-      const taskViews: ViewType[] = ['list', 'table', 'gantt', 'kanban', 'mindmap'];
+      const taskViews: ViewType[] = ['table', 'gantt', 'kanban', 'mindmap'];
       if (!taskViews.includes(view)) {
-        setView('list');
+        setView('table');
       }
     },
     [setCurrentProjectId, setView, view],
@@ -630,6 +627,38 @@ function WBSApp({
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [isProjectFilterDropdownOpen]);
+
+  const [dashboardFiltersActive, setDashboardFiltersActive] = useState(false);
+  /** 대시보드 부서·프로젝트 표시 도구줄: 기본 숨김, 헤더 필터 버튼으로만 표시 */
+  const [showDashboardFilterToolbar, setShowDashboardFilterToolbar] = useState(false);
+  useEffect(() => {
+    if (view !== 'dashboard') {
+      setDashboardFiltersActive(false);
+      setShowDashboardFilterToolbar(false);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const h = (e: Event) => {
+      const ev = e as CustomEvent<{ active?: boolean }>;
+      if (ev.detail && typeof ev.detail.active === 'boolean') setDashboardFiltersActive(ev.detail.active);
+    };
+    window.addEventListener('wbs-dashboard-filters-active', h as EventListener);
+    return () => window.removeEventListener('wbs-dashboard-filters-active', h as EventListener);
+  }, []);
+
+  const onDashboardFilterToolbarClick = useCallback(() => {
+    setShowDashboardFilterToolbar((wasOpen) => {
+      const next = !wasOpen;
+      if (next) {
+        tipOnce('menu.filter.dashboard', '상단 도구줄에서 부서·프로젝트 표시 범위를 조정할 수 있어요.');
+        setTimeout(() => {
+          document.getElementById('dashboard-filter-toolbar-host')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 0);
+      }
+      return next;
+    });
+  }, [tipOnce]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
@@ -1040,6 +1069,10 @@ function WBSApp({
           navigateWithTip={navigateWithTip}
           filterOn={filterOn}
           setFilterOn={setFilterOn}
+          dashboardFilterBarMode={view === 'dashboard'}
+          dashboardFiltersActive={dashboardFiltersActive}
+          showDashboardFilterToolbar={showDashboardFilterToolbar}
+          onDashboardFilterToolbarClick={onDashboardFilterToolbarClick}
           tipOnce={tipOnce}
           currentUserDisplay={currentUserDisplay}
           signOut={signOut}
@@ -1053,7 +1086,6 @@ function WBSApp({
           setIsSettingsModalOpen={setIsSettingsModalOpen}
           isShortcutsVisible={isShortcutsVisible}
           setIsShortcutsVisible={setIsShortcutsVisible}
-          setIsPermissionGuideOpen={setIsPermissionGuideOpen}
           setIsMembersModalOpen={setIsMembersModalOpen}
           setIsResetConfirmOpen={setIsResetConfirmOpen}
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
@@ -1076,11 +1108,23 @@ function WBSApp({
           setMemberPreview={setMemberPreview}
           canOpenMembersManagement={canOpenMembersManagement}
           setIsAdminPasswordModalOpen={setIsAdminPasswordModalOpen}
+          setIsAdminAccessRequestModalOpen={isSupabaseConfigured ? setIsAdminAccessRequestModalOpen : undefined}
+        />
+      )}
+
+      {!isFullscreen && view === 'dashboard' && (
+        <div
+          id="dashboard-filter-toolbar-host"
+          className={cn(
+            'bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-center gap-2 shrink-0 z-40 min-h-[48px]',
+            !showDashboardFilterToolbar && 'hidden',
+          )}
+          style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
         />
       )}
 
       {/* Filter bar: filterOn일 때 항상 표시 (모바일에서도 헤더 접힘과 무관) */}
-      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && (
+      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && view !== 'dashboard' && view !== 'guide' && (
         <div
           className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40"
           style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
@@ -1523,7 +1567,7 @@ function WBSApp({
             currentProject.ownerId !== user?.id &&
             !myMemberProjectIds.includes(currentProjectId) &&
             !userApproved &&
-            (view === 'list' || view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
+            (view === 'table' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
               <ProjectAccessRequestBanner
                 projectId={currentProjectId}
                 projectName={currentProject.name}
@@ -1533,74 +1577,6 @@ function WBSApp({
                     .catch(() => {})
                 }
               />
-            ) : view === 'list' ? (
-              <ErrorBoundary viewName="표+간트">
-                <div
-                  ref={containerRef}
-                  className={cn(
-                    'relative flex w-full h-full min-h-0 list-split-view',
-                    isDraggingResizer && 'cursor-col-resize select-none',
-                  )}
-                >
-                  <div
-                    className="flex-shrink-0 overflow-hidden flex flex-col h-full min-h-0 list-table-pane"
-                    style={{ width: `${wbsTableWidth}%` }}
-                  >
-                    <WBSTable
-                      fillHeight
-                      filters={effectiveFilters}
-                      sortConfig={sortConfig}
-                      syncScrollRef={wbsScrollRef}
-                      rowHeight={sharedRowHeight}
-                      onRowHeightChange={setSharedRowHeight}
-                      onRowHeightsChange={setRowHeights}
-                      onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                      onResetFilters={resetWbsFilters}
-                      scrollToTaskId={scrollToTaskId}
-                      onSort={(key) => {
-                        setSortConfig((current) => {
-                          if (key === 'wbs' && current?.key === 'wbs') return null;
-                          if (current?.key === key) {
-                            if (current.direction === 'asc') return { key, direction: 'desc' };
-                            return null;
-                          }
-                          return { key, direction: 'asc' };
-                        });
-                      }}
-                    />
-                  </div>
-                  <div
-                    className="absolute top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-10 list-resizer hidden md:flex items-center justify-center group"
-                    style={{ left: `${wbsTableWidth}%` }}
-                    onMouseDown={startResizing}
-                    title="드래그하여 패널 너비 조절"
-                  >
-                    {/* 전체 높이 구분선 */}
-                    <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-300 group-hover:bg-indigo-400 group-active:bg-indigo-500 transition-colors duration-150 pointer-events-none" />
-                    {/* 중앙 드래그 핸들 (호버 시만 표시) */}
-                    <span className="relative z-10 flex flex-col items-center justify-center gap-0.5 h-10 w-4 rounded bg-white border border-indigo-400 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
-                      <span className="w-0.5 h-3.5 rounded-full bg-indigo-400" />
-                    </span>
-                  </div>
-                  <div
-                    className="flex-shrink-0 overflow-hidden h-full min-h-0 bg-stone-50/30 list-gantt-pane hidden md:block"
-                    style={{ width: `${100 - wbsTableWidth}%` }}
-                  >
-                    <GanttChart
-                      filters={effectiveFilters}
-                      sortConfig={sortConfig}
-                      hideSidebar={true}
-                      rowHeight={sharedRowHeight}
-                      rowHeights={rowHeights}
-                      onRowHeightChange={setSharedRowHeight}
-                      syncScrollRef={ganttScrollRef}
-                      // 표 상단의 sticky [+ 새 작업 추가] 행과 첫 작업 막대를 일직선에 두기 위한 spacer.
-                      // 편집 권한이 없으면 표에 그 행이 미렌더이므로 0.
-                      topSpacerHeight={canEditCurrentProject ? sharedRowHeight : 0}
-                    />
-                  </div>
-                </div>
-              </ErrorBoundary>
             ) : view === 'table' ? (
               <ErrorBoundary viewName="표">
                 <div className="h-full overflow-hidden">
@@ -1673,9 +1649,13 @@ function WBSApp({
                 <ProjectsPage
                   onNavigateToWork={(projectId) => {
                     if (projectId) setCurrentProjectId(projectId);
-                    setView('list');
+                    setView('table');
                   }}
                 />
+              </ErrorBoundary>
+            ) : view === 'guide' ? (
+              <ErrorBoundary viewName="사용 안내">
+                <UserGuidePage />
               </ErrorBoundary>
             ) : view === 'allocation' ? (
               <ErrorBoundary viewName="투입현황">
@@ -1687,7 +1667,7 @@ function WBSApp({
                   }}
                   onNavigateToWork={(projectId) => {
                     setCurrentProjectId(projectId);
-                    setView('list');
+                    setView('table');
                   }}
                 />
               </ErrorBoundary>
@@ -1701,8 +1681,7 @@ function WBSApp({
               </ErrorBoundary>
             )}
           </div>
-          {isShortcutsVisible && <ShortcutsSidebar onClose={() => setIsShortcutsVisible(false)} />}
-          <PermissionGuideModal isOpen={isPermissionGuideOpen} onClose={() => setIsPermissionGuideOpen(false)} />
+          {isShortcutsVisible && <ShortcutsSidebar view={view} onClose={() => setIsShortcutsVisible(false)} />}
         </Suspense>
       </main>
 
@@ -2018,7 +1997,7 @@ function WBSApp({
             profileMap={profileMap}
             onNavigateToProject={(projectId) => {
               setCurrentProjectId(projectId);
-              setView('list');
+              setView('table');
               setIsMembersModalOpen(false);
             }}
             onDeleted={() => {
@@ -2028,6 +2007,15 @@ function WBSApp({
             onApproved={() => {
               pushToast('회원을 승인했습니다. (전체 프로젝트 목록 조회 등 권한에 반영됩니다.)', { variant: 'success' });
               onMembersUpdated?.();
+            }}
+          />
+        )}
+        {isSupabaseConfigured && isAdminAccessRequestModalOpen && (
+          <AdminAccessRequestModal
+            isOpen
+            onClose={() => setIsAdminAccessRequestModalOpen(false)}
+            onSubmitted={() => {
+              pushToast('시스템 관리자 권한 요청을 보냈습니다. 관리자 승인을 기다려 주세요.', { variant: 'success' });
             }}
           />
         )}

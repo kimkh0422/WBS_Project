@@ -9,7 +9,6 @@ export function useModalStates() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
-  const [isPermissionGuideOpen, setIsPermissionGuideOpen] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
@@ -21,6 +20,7 @@ export function useModalStates() {
   const [auditLogProjectId, setAuditLogProjectId] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
+  const [isAdminAccessRequestModalOpen, setIsAdminAccessRequestModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
   const [isOrganizationOpen, setIsOrganizationOpen] = useState(false);
@@ -85,8 +85,6 @@ export function useModalStates() {
     setIsSettingsModalOpen,
     isShortcutsVisible,
     setIsShortcutsVisible,
-    isPermissionGuideOpen,
-    setIsPermissionGuideOpen,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
     isExportModalOpen,
@@ -109,6 +107,8 @@ export function useModalStates() {
     setIsMembersModalOpen,
     isAdminPasswordModalOpen,
     setIsAdminPasswordModalOpen,
+    isAdminAccessRequestModalOpen,
+    setIsAdminAccessRequestModalOpen,
     isResetConfirmOpen,
     setIsResetConfirmOpen,
     isWeeklyReportOpen,
