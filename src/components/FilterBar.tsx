@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
 import { ChevronDown, Flag, User, Bug, Clock, X, Search } from 'lucide-react';
 import { FilterState, Project } from '../types';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
@@ -191,7 +192,7 @@ export function WbsFilterBar({
                           }}
                           className="rounded border-slate-300 text-indigo-600"
                         />
-                        <span className="break-words">{p.name}</span>
+                        <ProjectNameLabel project={p} name={p.name} />
                       </label>
                     );
                   })}

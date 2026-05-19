@@ -1,11 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
-import { Briefcase, Users, Edit, ChevronRight, UserCheck } from 'lucide-react';
+import { useOrganization } from '../context/OrganizationContext';
+import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Project, ProjectAssignment } from '../types';
+import {
+  applyPersonProjectAllocation,
+  computePersonAllocations,
+  computePersonProjectWorkEffort,
+  computeProjectAllocations,
+  executePersonProjectAdd,
+  type PersonProjectAddPayload,
+} from '../lib/personAllocations';
+import { EditableAllocationBadge } from './EditableAllocationBadge';
+import { AddPersonProjectAllocation } from './AddPersonProjectAllocation';
+import { AddPersonAllocationControl } from './AddPersonAllocationControl';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import { Project } from '../types';
+import { ProjectNameLabel } from './ProjectNameLabel';
+import { formatProjectDisplayName } from '../lib/projectKind';
 
 interface AllocationOverviewPageProps {
-  /** 등록 회원 표시명 집합. 있으면 "회원만 표시" 토글이 노출되고, 켜면 이 집합에 있는 담당자만 표시 */
+  /** 등록 회원 표시명 집합. 인원 추가 자동완성 후보에 포함 */
   registeredMemberDisplayNames?: Set<string>;
   onEditProject?: (project: Project) => void;
   onNavigateToWork?: (projectId: string) => void;
@@ -13,115 +28,51 @@ interface AllocationOverviewPageProps {
 
 type ViewMode = 'by-project' | 'by-person';
 
-function normalizeProjectAssignments(
-  assignments: ProjectAssignment[]
-): Array<{ assignee: string; allocationPercent: number; monthlyAllocations?: Record<string, number> }> {
-  const map = new Map<string, { allocationPercent: number; monthlyAllocations?: Record<string, number> }>();
-  for (const a of assignments) {
-    const name = (a.assignee || '').trim() || '(미지정)';
-    const pct = Number(a.allocationPercent || 0);
-    if (!Number.isFinite(pct) || pct <= 0) continue;
-    if (!map.has(name)) map.set(name, { allocationPercent: 0, monthlyAllocations: undefined });
-    const cur = map.get(name)!;
-    cur.allocationPercent += pct;
-    if (a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && !cur.monthlyAllocations) {
-      cur.monthlyAllocations = a.monthlyAllocations;
-    }
-  }
-  return Array.from(map.entries())
-    .map(([assignee, v]) => ({ assignee, allocationPercent: v.allocationPercent, monthlyAllocations: v.monthlyAllocations }))
-    .sort((a, b) => b.allocationPercent - a.allocationPercent);
-}
-
 export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
-  const { projects, allTasks, renameAssignee } = useWBS();
+  const { projects, allTasks, renameAssignee, updateProject, addProject } = useWBS();
+  const { orgMembers } = useOrganization();
   const [viewMode, setViewMode] = useState<ViewMode>('by-project');
-  const [membersOnly, setMembersOnly] = useState(false);
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
 
-  // 프로젝트별 투입 현황 (assignments가 있는 프로젝트만, 또는 전체)
-  const projectAllocations = useMemo(() => {
-    return projects
-      .filter(p => p.assignments && p.assignments.length > 0)
-      .map(p => {
-        const assignments = normalizeProjectAssignments(p.assignments!);
-        return {
-          project: p,
-          assignments,
-          totalPercent: assignments.reduce((s, a) => s + (a.allocationPercent || 0), 0),
-        };
-      });
-  }, [projects]);
-
-  // 인원별·프로젝트별 실제 투입 공수(M/D): 작업 공수 합계
-  const personProjectWorkEffort = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    allTasks.forEach(task => {
-      const person = (task.assignee || '').trim() || '(미지정)';
-      const effort = Number(task.workEffort) || 0;
-      if (effort <= 0) return;
-      if (!map.has(person)) map.set(person, new Map());
-      const projMap = map.get(person)!;
-      projMap.set(task.projectId, (projMap.get(task.projectId) ?? 0) + effort);
-    });
-    return map;
-  }, [allTasks]);
-
-  // 인원별 투입 현황: 담당자 → [{ project, allocationPercent }]
-  const personAllocations = useMemo(() => {
-    const personToProjectPct = new Map<string, Map<string, { project: Project; allocationPercent: number }>>();
-
-    projectAllocations.forEach(({ project, assignments }) => {
-      assignments.forEach(a => {
-        const person = (a.assignee || '').trim() || '(미지정)';
-        const pct = Number(a.allocationPercent || 0);
-        if (!Number.isFinite(pct) || pct <= 0) return;
-
-        if (!personToProjectPct.has(person)) personToProjectPct.set(person, new Map());
-        const projMap = personToProjectPct.get(person)!;
-        const existing = projMap.get(project.id);
-        projMap.set(project.id, {
-          project,
-          allocationPercent: (existing?.allocationPercent ?? 0) + pct,
-        });
-      });
-    });
-
-    return Array.from(personToProjectPct.entries())
-      .map(([person, projMap]) => {
-        const items = Array.from(projMap.values()).sort((a, b) => b.allocationPercent - a.allocationPercent);
-        const totalPercent = items.reduce((s, i) => s + i.allocationPercent, 0);
-        return { person, items, totalPercent };
-      })
-      .sort((a, b) => b.totalPercent - a.totalPercent);
-  }, [projectAllocations]);
-
-  // 회원만 표시 시: 등록 회원(profiles)에 있는 담당자만 필터
-  const memberSet = registeredMemberDisplayNames;
-  const displayProjectAllocations = useMemo(() => {
-    if (!membersOnly || !memberSet?.size) return projectAllocations;
-    return projectAllocations
-      .map(({ project, assignments, totalPercent }) => {
-        const filtered = assignments.filter(a => memberSet.has(a.assignee));
-        const total = filtered.reduce((s, a) => s + (a.allocationPercent || 0), 0);
-        return { project, assignments: filtered, totalPercent: total };
-      })
-      .filter(({ assignments }) => assignments.length > 0);
-  }, [projectAllocations, membersOnly, memberSet]);
-
-  const displayPersonAllocations = useMemo(() => {
-    if (!membersOnly || !memberSet?.size) return personAllocations;
-    return personAllocations.filter(p => memberSet.has(p.person));
-  }, [personAllocations, membersOnly, memberSet]);
+  const projectAllocations = useMemo(() => computeProjectAllocations(projects), [projects]);
+  const personProjectWorkEffort = useMemo(() => computePersonProjectWorkEffort(allTasks), [allTasks]);
+  const personAllocations = useMemo(() => computePersonAllocations(projectAllocations), [projectAllocations]);
 
   // 투입 정보가 없는 프로젝트
   const projectsWithoutAllocation = useMemo(() => {
-    return projects.filter(p => !p.assignments || p.assignments.length === 0);
+    return projects.filter((p) => !p.assignments || p.assignments.length === 0);
   }, [projects]);
 
   const hasAnyAllocation = projectAllocations.length > 0;
-  const showMembersOnlyToggle = Boolean(registeredMemberDisplayNames?.size);
+
+  const handleUpdatePersonAllocation = (projectId: string, person: string, percent: number) => {
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+    const nextAssignments = applyPersonProjectAllocation(project.assignments, person, percent);
+    updateProject(projectId, {
+      assignments: nextAssignments.length > 0 ? nextAssignments : undefined,
+    });
+  };
+
+  const handleAddPersonProject = (person: string, payload: PersonProjectAddPayload, percent: number) => {
+    executePersonProjectAdd(payload, person, percent, {
+      updateAllocation: (projectId) => handleUpdatePersonAllocation(projectId, person, percent),
+      createProject: (name, assignments) => addProject(name, undefined, undefined, undefined, assignments),
+    });
+  };
+
+  const allocationAssigneeCandidates = useMemo(
+    () =>
+      buildAssigneeCandidates({
+        orgMembers,
+        projects,
+        extra: registeredMemberDisplayNames ? [...registeredMemberDisplayNames] : undefined,
+      }),
+    [orgMembers, projects, registeredMemberDisplayNames],
+  );
+  const allocationOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
+  const allocationPositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
 
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
@@ -133,7 +84,8 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
               프로젝트 투입 현황
             </h1>
             <p className="text-sm text-stone-500 mt-0.5">
-              프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다.
+              프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다. 인원별 보기에서는 「인원 추가」로 새 담당자를
+              등록하고, 「프로젝트」에서 기존 프로젝트를 선택하거나 신규 프로젝트명을 입력해 투입을 추가할 수 있습니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -141,10 +93,10 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
               <button
                 onClick={() => setViewMode('by-project')}
                 className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
+                  'px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5',
                   viewMode === 'by-project'
-                    ? "bg-teal-600 text-white border-teal-600"
-                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                    ? 'bg-teal-600 text-white border-teal-600'
+                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50',
                 )}
               >
                 <Briefcase size={14} /> 프로젝트별
@@ -152,52 +104,47 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
               <button
                 onClick={() => setViewMode('by-person')}
                 className={cn(
-                  "px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5",
+                  'px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5',
                   viewMode === 'by-person'
-                    ? "bg-teal-600 text-white border-teal-600"
-                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                    ? 'bg-teal-600 text-white border-teal-600'
+                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50',
                 )}
               >
                 <Users size={14} /> 인원별
               </button>
             </div>
-            {showMembersOnlyToggle && (
-              <label className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-stone-600 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer transition-colors">
-                <input
-                  type="checkbox"
-                  checked={membersOnly}
-                  onChange={(e) => setMembersOnly(e.target.checked)}
-                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
-                />
-                <UserCheck size={14} className="text-teal-600 shrink-0" />
-                <span>회원만 표시</span>
-              </label>
+            {viewMode === 'by-person' && (
+              <AddPersonAllocationControl
+                availableProjects={projects}
+                assigneeCandidates={allocationAssigneeCandidates}
+                orgMemberLabelByName={allocationOrgLabelByName}
+                onAdd={handleAddPersonProject}
+              />
             )}
           </div>
         </div>
 
         {!hasAnyAllocation ? (
-          <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-            <Users className="mx-auto text-stone-300 mb-4" size={48} />
+          <div className="bg-white rounded-xl border border-stone-200 p-12 text-center space-y-4">
+            <Users className="mx-auto text-stone-300" size={48} />
             <p className="text-stone-600 font-medium">등록된 투입 정보가 없습니다.</p>
-            <p className="text-sm text-stone-400 mt-1">
-              프로젝트 편집에서 투입인원과 투입비율을 설정해 주세요.
-            </p>
+            <p className="text-sm text-stone-400">아래에서 인원·프로젝트·투입율을 바로 추가하거나, 프로젝트 편집에서 설정할 수 있습니다.</p>
+            <AddPersonAllocationControl
+              availableProjects={projects}
+              assigneeCandidates={allocationAssigneeCandidates}
+              orgMemberLabelByName={allocationOrgLabelByName}
+              onAdd={handleAddPersonProject}
+              className="mx-auto"
+            />
             {onEditProject && projects.length > 0 && (
-              <button
-                onClick={() => onEditProject(projects[0])}
-                className="btn-primary mt-4 flex items-center gap-2 mx-auto"
-              >
+              <button onClick={() => onEditProject(projects[0])} className="btn-secondary mt-2 flex items-center gap-2 mx-auto text-sm">
                 <Edit size={14} /> 프로젝트 편집
               </button>
             )}
           </div>
         ) : viewMode === 'by-project' ? (
           <div className="space-y-4">
-            {membersOnly && displayProjectAllocations.length === 0 && projectAllocations.length > 0 && (
-              <p className="text-sm text-stone-500 text-center py-4">등록 회원에 해당하는 투입이 없습니다.</p>
-            )}
-            {displayProjectAllocations.map(({ project, assignments, totalPercent }) => (
+            {projectAllocations.map(({ project, assignments, totalPercent }) => (
               <div
                 key={project.id}
                 className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
@@ -205,10 +152,8 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                 <div className="flex items-center gap-4 p-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-[var(--color-ink)]">{project.name}</span>
-                      <span className="text-xs text-stone-400">
-                        총 {totalPercent}% 투입
-                      </span>
+                      <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
+                      <span className="text-xs text-stone-400">총 {totalPercent}% 투입</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -239,16 +184,22 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                         key={`${project.id}:${a.assignee}`}
                         className="inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
                       >
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-[var(--color-ink)]">{a.assignee || '(미지정)'}</span>
-                          <span className="text-teal-600 font-bold">{a.allocationPercent}%</span>
-                        </div>
+                        <EditableAllocationBadge
+                          projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationPositionByName)}
+                          allocationPercent={a.allocationPercent}
+                          disabled={((a.assignee || '').trim() || '(미지정)') === '(미지정)'}
+                          onSave={(percent) => handleUpdatePersonAllocation(project.id, (a.assignee || '').trim() || '(미지정)', percent)}
+                          onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                          className="bg-teal-50 border-teal-100 text-sm"
+                        />
                         {a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && (
                           <div className="text-[10px] text-stone-500 flex flex-wrap gap-x-2 gap-y-0">
                             {Object.entries(a.monthlyAllocations)
                               .sort(([k1], [k2]) => k1.localeCompare(k2))
                               .map(([ym, pct]) => (
-                                <span key={ym}>{ym} {pct}%</span>
+                                <span key={ym}>
+                                  {ym} {pct}%
+                                </span>
                               ))}
                           </div>
                         )}
@@ -263,17 +214,16 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
               <div className="mt-6 pt-6 border-t border-stone-200">
                 <h3 className="text-sm font-semibold text-stone-500 mb-3">투입 정보 미설정 프로젝트</h3>
                 <div className="space-y-2">
-                  {projectsWithoutAllocation.map(p => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between px-4 py-2 rounded-lg bg-stone-50 border border-stone-100"
-                    >
-                      <span className="text-sm text-stone-600">{p.name}</span>
+                  {projectsWithoutAllocation.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between px-4 py-2 rounded-lg bg-stone-50 border border-stone-100">
+                      <ProjectNameLabel
+                        project={p}
+                        name={p.name}
+                        className="text-sm text-stone-600"
+                        nameClassName="text-sm text-stone-600"
+                      />
                       {onEditProject && (
-                        <button
-                          onClick={() => onEditProject(p)}
-                          className="text-xs text-teal-600 hover:text-teal-700 font-medium"
-                        >
+                        <button onClick={() => onEditProject(p)} className="text-xs text-teal-600 hover:text-teal-700 font-medium">
                           투입 설정
                         </button>
                       )}
@@ -285,10 +235,19 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
           </div>
         ) : (
           <div className="space-y-4">
-            {membersOnly && displayPersonAllocations.length === 0 && personAllocations.length > 0 && (
-              <p className="text-sm text-stone-500 text-center py-4">등록 회원에 해당하는 투입이 없습니다.</p>
+            {personAllocations.length === 0 && projects.length > 0 && (
+              <div className="bg-white rounded-xl border border-stone-200 p-8 text-center space-y-4">
+                <p className="text-sm text-stone-500">투입 인원이 없습니다. 인원을 추가해 주세요.</p>
+                <AddPersonAllocationControl
+                  availableProjects={projects}
+                  assigneeCandidates={allocationAssigneeCandidates}
+                  orgMemberLabelByName={allocationOrgLabelByName}
+                  onAdd={handleAddPersonProject}
+                  className="mx-auto"
+                />
+              </div>
             )}
-            {displayPersonAllocations.map(({ person, items, totalPercent }) => (
+            {personAllocations.map(({ person, items, totalPercent }) => (
               <div
                 key={person}
                 className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
@@ -332,7 +291,9 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <div className="font-semibold text-[var(--color-ink)]">{person}</div>
+                        <div className="font-semibold text-[var(--color-ink)]">
+                          {formatAssigneeDisplay(person, allocationPositionByName)}
+                        </div>
                         {person !== '(미지정)' && (
                           <button
                             onClick={() => {
@@ -350,7 +311,10 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                     <div className="text-xs text-stone-500">
                       {items.length}개 프로젝트 · 총 {totalPercent}% 투입
                       {(() => {
-                        const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce((s: number, v: number) => s + v, 0);
+                        const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce(
+                          (s: number, v: number) => s + v,
+                          0,
+                        );
                         return totalMd > 0 ? ` · 총 ${totalMd} M/D` : null;
                       })()}
                     </div>
@@ -361,25 +325,25 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                     {items.map(({ project, allocationPercent }) => {
                       const workEffortMd = personProjectWorkEffort.get(person)?.get(project.id) ?? 0;
                       return (
-                        <button
+                        <EditableAllocationBadge
                           key={`${person}:${project.id}`}
-                          onClick={() => onNavigateToWork?.(project.id)}
-                          className={cn(
-                            "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm transition-colors",
-                            onNavigateToWork
-                              ? "bg-stone-50 border-stone-100 hover:bg-teal-50 hover:border-teal-100 cursor-pointer"
-                              : "bg-stone-50 border-stone-100"
-                          )}
-                          title={`${project.name}: 투입 ${allocationPercent}%, 공수 ${workEffortMd} M/D`}
-                        >
-                          <span className="text-stone-700">{project.name}</span>
-                          <span className="text-teal-600 font-bold">{allocationPercent}%</span>
-                          {workEffortMd > 0 && (
-                            <span className="text-stone-500 text-xs font-medium">{workEffortMd} M/D</span>
-                          )}
-                        </button>
+                          projectName={formatProjectDisplayName(project.name, project.projectKind)}
+                          allocationPercent={allocationPercent}
+                          workEffortMd={workEffortMd > 0 ? workEffortMd : undefined}
+                          disabled={person === '(미지정)'}
+                          onSave={(percent) => handleUpdatePersonAllocation(project.id, person, percent)}
+                          onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                          className="text-sm px-3 py-1.5 rounded-lg"
+                        />
                       );
                     })}
+                    <AddPersonProjectAllocation
+                      person={person}
+                      assignedProjectIds={new Set(items.map((i) => i.project.id))}
+                      availableProjects={projects}
+                      disabled={person === '(미지정)'}
+                      onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}
+                    />
                   </div>
                 </div>
               </div>

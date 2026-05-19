@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { SearchModal } from './components/SearchModal';
 import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
+import { ProjectNameLabel } from './components/ProjectNameLabel';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import {
   List,
@@ -66,6 +67,8 @@ import {
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
+import { useOrganization } from './context/OrganizationContext';
+import { buildOrgMemberPositionMap, formatAssigneeDisplay } from './lib/assigneeOptions';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { clearAllLocalData } from './lib/persist';
 import {
@@ -175,6 +178,8 @@ function WBSApp({
   onMembersUpdated,
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
+  const { orgMembers } = useOrganization();
+  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
 
   // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
   type ViewType = 'table' | 'tablegantt' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
@@ -227,6 +232,10 @@ function WBSApp({
     setIsDeleteProjectConfirmOpen,
     projectToDelete,
     setProjectToDelete,
+    isCopyProjectConfirmOpen,
+    setIsCopyProjectConfirmOpen,
+    projectToCopy,
+    setProjectToCopy,
     isDeleteAllProjectsConfirmOpen,
     setIsDeleteAllProjectsConfirmOpen,
     editingProject,
@@ -719,6 +728,7 @@ function WBSApp({
     assignments?: Project['assignments'],
     minWorkEffortDays?: number,
     workEffortUnit?: Project['workEffortUnit'],
+    projectKind?: Project['projectKind'],
     reportCategory?: string,
     reportAgency?: string,
     reportBudgetThisYear?: string,
@@ -735,6 +745,7 @@ function WBSApp({
         assignments,
         minWorkEffortDays,
         workEffortUnit,
+        projectKind,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -746,6 +757,7 @@ function WBSApp({
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
         workEffortUnit,
+        projectKind,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -777,6 +789,15 @@ function WBSApp({
       setProjectToDelete(null);
     }
     setIsDeleteProjectConfirmOpen(false);
+  };
+
+  const handleCopyProject = () => {
+    if (projectToCopy) {
+      copyProject(projectToCopy.id);
+      setProjectToCopy(null);
+    }
+    setIsCopyProjectConfirmOpen(false);
+    setIsProjectDropdownOpen(false);
   };
 
   // File import/export — extracted to useFileImportExport hook
@@ -1043,7 +1064,6 @@ function WBSApp({
           setIsHeaderCollapsed={setIsHeaderCollapsed}
           requestRefresh={requestRefresh}
           logo={logo}
-          setIsVersionHistoryOpen={setIsVersionHistoryOpen}
           appVersion={__APP_VERSION__}
           formatCommitDate={formatCommitDate}
           formatCommitDateDateOnly={formatCommitDateDateOnly}
@@ -1065,13 +1085,12 @@ function WBSApp({
           adminOverride={adminOverride}
           myEditableProjectIds={myEditableProjectIds}
           setIsShareOpen={setIsShareOpen}
-          copyProject={copyProject}
           setEditingProject={setEditingProject}
           setIsProjectModalOpen={setIsProjectModalOpen}
           setProjectToDelete={setProjectToDelete}
           setIsDeleteProjectConfirmOpen={setIsDeleteProjectConfirmOpen}
-          setAuditLogProjectId={setAuditLogProjectId}
-          setIsAuditLogOpen={setIsAuditLogOpen}
+          setProjectToCopy={setProjectToCopy}
+          setIsCopyProjectConfirmOpen={setIsCopyProjectConfirmOpen}
           setView={setView}
           undo={undo}
           canUndo={canUndo}
@@ -1314,9 +1333,9 @@ function WBSApp({
                   key={a}
                   onClick={() => setFilters((f) => ({ ...f, assignee: a }))}
                   className={cn('filter-chip', filters.assignee === a ? 'filter-chip-active' : 'filter-chip-inactive')}
-                  title={`${a} 담당 작업만 표시`}
+                  title={`${formatAssigneeDisplay(a, assigneePositionByName)} 담당 작업만 표시`}
                 >
-                  {a}
+                  {formatAssigneeDisplay(a, assigneePositionByName)}
                 </button>
               ))}
             </div>
@@ -1677,6 +1696,8 @@ function WBSApp({
                       : undefined
                   }
                   currentUserDisplay={currentUserDisplay}
+                  profileMap={profileMap}
+                  currentUserId={user?.id}
                 />
               </ErrorBoundary>
             ) : view === 'projects' ? (
@@ -1859,7 +1880,9 @@ function WBSApp({
                               }}
                               className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
                             >
-                              <span className="block font-semibold">{project.name}</span>
+                              <span className="block font-semibold">
+                                <ProjectNameLabel project={project} name={project.name} />
+                              </span>
                               <span className="block text-xs text-red-600 mt-0.5">
                                 프로젝트와 소속된 모든 작업을 삭제합니다.
                                 {effectiveIsAdmin && project.ownerId && (
@@ -1933,9 +1956,26 @@ function WBSApp({
           }}
           onConfirm={handleDeleteProject}
           title="프로젝트 삭제"
-          message={`'${projectToDelete?.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까?`}
-          confirmLabel="프로젝트 삭제"
+          message={`'${projectToDelete?.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`}
+          confirmLabel="삭제"
           isDanger={true}
+        />
+        <ConfirmDialog
+          isOpen={isCopyProjectConfirmOpen}
+          onClose={() => {
+            setIsCopyProjectConfirmOpen(false);
+            setProjectToCopy(null);
+          }}
+          onConfirm={handleCopyProject}
+          title="프로젝트 복사"
+          message={
+            projectToCopy
+              ? `'${projectToCopy.name}' 프로젝트를 복사하여 내 프로젝트로 새 복사본을 만드시겠습니까?${
+                  (taskCountByProject[projectToCopy.id] ?? 0) > 0 ? ` (작업 ${taskCountByProject[projectToCopy.id]}개 포함)` : ''
+                }`
+              : ''
+          }
+          confirmLabel="복사"
         />
         <ConfirmDialog
           isOpen={isResetConfirmOpen}
@@ -2106,28 +2146,10 @@ function WBSApp({
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
             <div className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap">
-              {effectiveIsAdmin ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setIsVersionHistoryOpen(true)}
-                    className="hover:text-indigo-600 hover:underline transition-colors"
-                    title="버전 히스토리 열기"
-                  >
-                    v{__APP_VERSION__} · 변경이력
-                  </button>
-                  <span className="text-slate-300" aria-hidden>
-                    ·
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span>v{__APP_VERSION__}</span>
-                  <span className="text-slate-300" aria-hidden>
-                    ·
-                  </span>
-                </>
-              )}
+              <span>v{__APP_VERSION__}</span>
+              <span className="text-slate-300" aria-hidden>
+                ·
+              </span>
               <span>© 2026 GMT Corporation. All rights reserved.</span>
             </div>
           </div>

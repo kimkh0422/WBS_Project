@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, UserPlus, Calendar } from 'lucide-react';
-import { Project, ProjectAssignment } from '../types';
+import { Project, ProjectAssignment, type ProjectKind } from '../types';
+import { DEFAULT_PROJECT_KIND, PROJECT_KINDS } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
 import { cn } from '../lib/utils';
@@ -44,6 +45,7 @@ interface ProjectModalProps {
     assignments?: ProjectAssignment[],
     minWorkEffortDays?: number,
     workEffortUnit?: Project['workEffortUnit'],
+    projectKind?: ProjectKind,
     reportCategory?: string,
     reportAgency?: string,
     reportBudgetThisYear?: string,
@@ -59,6 +61,7 @@ interface ProjectModalProps {
 export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [] }: ProjectModalProps) {
   const { orgMembers } = useOrganization();
   const [name, setName] = useState('');
+  const [projectKind, setProjectKind] = useState<ProjectKind>(DEFAULT_PROJECT_KIND);
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -115,6 +118,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
     if (isOpen) {
       if (project) {
         setName(project.name);
+        setProjectKind(project.projectKind ?? DEFAULT_PROJECT_KIND);
         setDescription(project.description || '');
         setStartDate(project.startDate || '');
         setEndDate(project.endDate || '');
@@ -135,6 +139,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
         setReportNameFull(project.reportNameFull || '');
       } else {
         setName('');
+        setProjectKind(DEFAULT_PROJECT_KIND);
         setDescription('');
         setStartDate('');
         setEndDate('');
@@ -205,12 +210,30 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       return;
     }
     const totalPeriodStr = formatReportTotalPeriod(reportPeriodStart, reportPeriodEnd);
-    const finalAssignments = assignments.map((a, i) => {
-      const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
-      const parsed = raw === '' ? 100 : parseFloat(raw);
-      const pct = !Number.isFinite(parsed) ? Number(a.allocationPercent ?? 100) : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
-      return { ...a, allocationPercent: pct };
-    });
+    for (let i = 0; i < assignments.length; i++) {
+      const assignee = assignments[i].assignee.trim();
+      const raw = (allocPctInputs[i] ?? '').trim();
+      if (!assignee && raw !== '') {
+        setFormError('담당자를 입력하지 않은 행에 투입비율이 있습니다. 담당자를 입력하거나 해당 행을 삭제해 주세요.');
+        return;
+      }
+      if (assignee && raw === '') {
+        setFormError(`「${assignee}」 담당자의 투입비율(%)을 입력해 주세요.`);
+        return;
+      }
+    }
+    const finalAssignments = assignments
+      .map((a, i) => {
+        const assignee = a.assignee.trim();
+        if (!assignee) return null;
+        const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
+        const parsed = parseFloat(raw);
+        const pct = !Number.isFinite(parsed)
+          ? Number(a.allocationPercent ?? 100)
+          : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+        return { ...a, assignee, allocationPercent: pct };
+      })
+      .filter((a): a is ProjectAssignment => a != null);
     onSave(
       name,
       description,
@@ -219,6 +242,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       finalAssignments.length > 0 ? finalAssignments : undefined,
       parsedMin,
       normalizeWorkEffortUnit(workEffortUnit),
+      projectKind,
       reportCategory || undefined,
       reportAgency || undefined,
       reportBudgetThisYear || undefined,
@@ -230,16 +254,16 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
   };
 
   const addAssignment = () => {
-    setAssignments((prev) => [...prev, { assignee: '', allocationPercent: 100 }]);
-    setAllocPctInputs((prev) => [...prev, '100']);
+    setAssignments((prev) => [...prev, { assignee: '', allocationPercent: 0 }]);
+    setAllocPctInputs((prev) => [...prev, '']);
   };
   /** 담당자 추가 후 새로 생긴 행의 입력으로 포커스 이동 */
   const addAssignmentAndFocus = () => {
     setAssignments((prev) => {
       setPendingAssigneeFocusIndex(prev.length);
-      return [...prev, { assignee: '', allocationPercent: 100 }];
+      return [...prev, { assignee: '', allocationPercent: 0 }];
     });
-    setAllocPctInputs((prev) => [...prev, '100']);
+    setAllocPctInputs((prev) => [...prev, '']);
   };
   const removeAssignment = (index: number) => {
     setAssignments((prev) => prev.filter((_, i) => i !== index));
@@ -252,6 +276,14 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       next[index] = { ...next[index], [field]: value };
       return next;
     });
+    if (field === 'assignee' && typeof value === 'string' && !value.trim()) {
+      setAllocPctInputs((prev) => {
+        const nextArr = [...prev];
+        while (nextArr.length < assignments.length) nextArr.push('');
+        nextArr[index] = '';
+        return nextArr;
+      });
+    }
   };
   const updateMonthlyAllocation = (index: number, yearMonth: string, percent: number) => {
     setAssignments((prev) => {
@@ -289,19 +321,38 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
               <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-500 text-white text-[10px]">필수</span>
               필수 입력
             </h3>
-            <div>
-              <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                프로젝트 이름 <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="input-field w-full max-w-xl"
-                placeholder="프로젝트 이름을 입력하세요..."
-                autoFocus
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-3 items-end">
+              <div>
+                <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                  항목 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={projectKind}
+                  onChange={(e) => setProjectKind(e.target.value as ProjectKind)}
+                  className="input-field w-full"
+                  required
+                >
+                  {PROJECT_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
+                  프로젝트 이름 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="프로젝트 이름을 입력하세요..."
+                  autoFocus
+                />
+              </div>
             </div>
           </section>
 
@@ -499,7 +550,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                         type="text"
                         list="project-modal-assignees"
                         value={a.assignee}
-                        onChange={(e) => updateAssignment(i, 'assignee', e.target.value)}
+                        onChange={(e) => {
+                          updateAssignment(i, 'assignee', e.target.value);
+                        }}
                         onKeyDown={(e) => {
                           // Enter: 다음 인원 입력으로 이동(없으면 새 행 추가). 한글 조합 중에는 무시.
                           if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -518,35 +571,53 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                       <input
                         type="text"
                         inputMode="decimal"
-                        className="input-field w-20 py-2 text-sm"
-                        value={allocPctInputs[i] ?? String(Number(a.allocationPercent ?? 100))}
+                        disabled={!a.assignee.trim()}
+                        className={cn('input-field w-20 py-2 text-sm', !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-stone-50')}
+                        value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
+                        placeholder="%"
                         onChange={(e) => {
+                          if (!a.assignee.trim()) return;
                           const next = e.target.value;
                           if (next !== '' && !/^\d*([.]\d*)?$/.test(next)) return;
                           setAllocPctInputs((prev) => {
                             const nextArr = [...prev];
                             while (nextArr.length < assignments.length) {
-                              nextArr.push(String(Number(assignments[nextArr.length]?.allocationPercent ?? 100)));
+                              const row = assignments[nextArr.length];
+                              nextArr.push(row?.assignee.trim() ? String(Number(row.allocationPercent ?? 100)) : '');
                             }
                             nextArr[i] = next;
                             return nextArr;
                           });
                         }}
                         onBlur={() => {
+                          if (!a.assignee.trim()) {
+                            setAllocPctInputs((prev) => {
+                              const nextArr = [...prev];
+                              while (nextArr.length < assignments.length) nextArr.push('');
+                              nextArr[i] = '';
+                              return nextArr;
+                            });
+                            return;
+                          }
                           const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
-                          const parsed = raw === '' ? 100 : parseFloat(raw);
+                          if (raw === '') return;
+                          const parsed = parseFloat(raw);
                           const safe = !Number.isFinite(parsed)
                             ? Number(a.allocationPercent ?? 100)
                             : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
                           updateAssignment(i, 'allocationPercent', safe);
                           setAllocPctInputs((prev) => {
                             const nextArr = [...prev];
-                            while (nextArr.length < assignments.length) nextArr.push('100');
+                            while (nextArr.length < assignments.length) nextArr.push('');
                             nextArr[i] = String(safe);
                             return nextArr;
                           });
                         }}
-                        title="기본 투입비율 (0~100%, 소수 가능. 월별 미설정 시 적용)"
+                        title={
+                          a.assignee.trim()
+                            ? '기본 투입비율 (0~100%, 소수 가능. 월별 미설정 시 적용)'
+                            : '담당자를 먼저 입력한 뒤 투입비율을 입력하세요'
+                        }
                       />
                       <button
                         type="button"

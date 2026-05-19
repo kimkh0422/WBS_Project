@@ -37,6 +37,28 @@ export function buildAssigneeCandidates(opts: {
 }
 
 /**
+ * 이름 → 직위(직급) 맵. 화면 표시용.
+ */
+export function buildOrgMemberPositionMap(orgMembers: OrgMember[] | undefined): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const member of orgMembers ?? []) {
+    if (!member?.name) continue;
+    if (m.has(member.name)) continue;
+    const pos = (member.position || '').trim();
+    if (pos) m.set(member.name, pos);
+  }
+  return m;
+}
+
+/** 담당자 이름과 직급을 함께 표시 (예: "홍길동 과장"). 저장값은 이름만 유지한다. */
+export function formatAssigneeDisplay(name: string | undefined | null, positionByName?: Map<string, string>): string {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return '';
+  const pos = positionByName?.get(trimmed);
+  return pos ? `${trimmed} ${pos}` : trimmed;
+}
+
+/**
  * 이름 → "부서 · 직위" 라벨 맵.
  * datalist `<option label>` 또는 hover 표시에 사용한다.
  */

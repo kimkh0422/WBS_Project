@@ -20,6 +20,8 @@ import { useGanttViewport } from './hooks/useGanttViewport';
 import { useGanttDrag } from './hooks/useGanttDrag';
 import { GanttTopHeader, GanttBottomHeader } from './Gantt/GanttHeader';
 import { GanttGrid } from './Gantt/GanttGrid';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -62,6 +64,8 @@ export function GanttChart({
     canEditCurrentProject,
     projects,
   } = useWBS();
+  const { orgMembers } = useOrganization();
+  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
   const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
@@ -706,7 +710,7 @@ export function GanttChart({
                         backgroundColor: levelGanttBarFill(level),
                         borderColor: isCritical ? '#dc2626' : levelBarBg(level),
                       }}
-                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${task.assignee}` : ''}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneePositionByName)}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (

@@ -6,7 +6,7 @@ import { Task, Project } from '../types';
 import { TaskModal } from './TaskModal';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 import { cn, formatNum2 } from '../lib/utils';
 
 interface WeeklyReportModalProps {
@@ -63,6 +63,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
   /** 담당자 자동완성 후보: 조직 회원 + 모든 프로젝트 등록 인원 + 작업의 기존 담당자 */
   const issueAssigneeCandidates = useMemo(() => buildAssigneeCandidates({ orgMembers, projects, tasks }), [orgMembers, projects, tasks]);
   const issueOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
+  const issueAssigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
   const [baseStartStr, setBaseStartStr] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [baseEndStr, setBaseEndStr] = useState(() => format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [scope, setScope] = useState<Scope>('me');
@@ -847,7 +848,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top whitespace-nowrap text-slate-700">
                                 <div contentEditable suppressContentEditableWarning>
-                                  {row.assignee || '-'}
+                                  {formatAssigneeDisplay(row.assignee, issueAssigneePositionByName) || '-'}
                                 </div>
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">

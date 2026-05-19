@@ -25,6 +25,8 @@ import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock,
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { saveJsonWithIdbFallback, loadJsonWithIdbFallback, type PersistKey } from '../lib/persist';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 /** 설명에 포함된 마크다운 이미지 `![](url)` 중 첫 URL (칸반 썸네일용) */
 function extractFirstMarkdownImageUrl(description: string | undefined): string | null {
@@ -127,6 +129,8 @@ function getLevelStyle(level: number) {
 }
 
 function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, onClick, onDelete, onUpdate, level = 1 }: KanbanCardProps) {
+  const { orgMembers } = useOrganization();
+  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
   const [isRenaming, setIsRenaming] = useState(false);
   const lvStyle = getLevelStyle(level);
   const [newName, setNewName] = useState(task.name);
@@ -289,7 +293,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
         )}
         <div className="flex items-center gap-2 text-xs text-stone-500">
           <User size={12} />
-          <span className="truncate max-w-[100px]">{task.assignee || '미배정'}</span>
+          <span className="truncate max-w-[140px]">{formatAssigneeDisplay(task.assignee, assigneePositionByName) || '미배정'}</span>
         </div>
 
         <div className="flex items-center justify-between">

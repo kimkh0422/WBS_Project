@@ -8,6 +8,9 @@ export type SortConfig = {
   direction: 'asc' | 'desc';
 } | null;
 
+/** 프로젝트 항목 구분 */
+export type ProjectKind = '연구' | '사업' | '기타';
+
 /** 프로젝트별 투입인원·투입비율. 작업의 기간/공수 계산에 사용 */
 export interface ProjectAssignment {
   assignee: string;
@@ -20,6 +23,8 @@ export interface ProjectAssignment {
 export interface Project {
   id: string;
   name: string;
+  /** 항목 구분: 연구 / 사업 / 기타 */
+  projectKind?: ProjectKind;
   description?: string;
   startDate?: string; // ISO string (YYYY-MM-DD)
   endDate?: string; // ISO string (YYYY-MM-DD). WBS 작업은 이 기간 범위를 벗어날 수 없음

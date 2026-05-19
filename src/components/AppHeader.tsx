@@ -38,6 +38,8 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
+import { ProjectNameLabel } from './ProjectNameLabel';
+import { getProjectKindBadgeClass, groupProjectsByKind } from '../lib/projectKind';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -50,7 +52,6 @@ export interface AppHeaderProps {
   setIsHeaderCollapsed: (v: boolean) => void;
   requestRefresh: () => void;
   logo: string;
-  setIsVersionHistoryOpen: (v: boolean) => void;
   appVersion: string;
   formatCommitDate: (d: string) => string;
   formatCommitDateDateOnly: (d: string) => string;
@@ -75,13 +76,12 @@ export interface AppHeaderProps {
   /** undefined: 로딩 전에는 프로젝트별 메뉴 표시(기존 동작) */
   myEditableProjectIds: string[] | undefined;
   setIsShareOpen: (v: boolean) => void;
-  copyProject: (id: string) => void;
   setEditingProject: (p: Project | null) => void;
   setIsProjectModalOpen: (v: boolean) => void;
   setProjectToDelete: (p: Project | null) => void;
   setIsDeleteProjectConfirmOpen: (v: boolean) => void;
-  setAuditLogProjectId: (id: string | null) => void;
-  setIsAuditLogOpen: (v: boolean) => void;
+  setProjectToCopy: (p: Project | null) => void;
+  setIsCopyProjectConfirmOpen: (v: boolean) => void;
   setView: (v: string) => void;
   undo: () => void;
   canUndo: boolean;
@@ -143,7 +143,6 @@ export function AppHeader({
   setIsHeaderCollapsed,
   requestRefresh,
   logo,
-  setIsVersionHistoryOpen,
   appVersion,
   formatCommitDate,
   formatCommitDateDateOnly,
@@ -165,13 +164,12 @@ export function AppHeader({
   adminOverride = false,
   myEditableProjectIds,
   setIsShareOpen,
-  copyProject,
   setEditingProject,
   setIsProjectModalOpen,
   setProjectToDelete,
   setIsDeleteProjectConfirmOpen,
-  setAuditLogProjectId,
-  setIsAuditLogOpen,
+  setProjectToCopy,
+  setIsCopyProjectConfirmOpen,
   setView,
   undo,
   canUndo,
@@ -284,6 +282,8 @@ export function AppHeader({
     if (listMode === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
     return base;
   }, [projectsSortedByName, listMode, favoriteIds, user?.id]);
+
+  const projectsByKind = useMemo(() => groupProjectsByKind(displayProjects), [displayProjects]);
 
   /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
   const ownerGroups = useMemo(() => {
@@ -413,7 +413,13 @@ export function AppHeader({
       {/* 모바일 접힌 상태: 최소 바 */}
       <div className={cn('flex md:hidden items-center justify-between gap-2', !isHeaderCollapsed && 'hidden')}>
         <div className="flex items-center gap-2 min-w-0">
-          <button type="button" onClick={requestRefresh} className="shrink-0">
+          <button
+            type="button"
+            onClick={() => navigateWithTip('dashboard')}
+            className="shrink-0"
+            title="대시보드(홈)으로 이동"
+            aria-label="대시보드(홈)으로 이동"
+          >
             <img src={logo} alt="GMT Logo" className="w-11 h-11 object-contain dark-logo" />
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
@@ -439,8 +445,17 @@ export function AppHeader({
         <div className="flex items-center gap-2.5 md:gap-3">
           <div
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity shrink-0"
-            onClick={requestRefresh}
-            title="새로고침: 페이지를 다시 불러와 최신 데이터를 확인합니다."
+            role="button"
+            tabIndex={0}
+            onClick={() => navigateWithTip('dashboard')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                navigateWithTip('dashboard');
+              }
+            }}
+            title="대시보드(홈)으로 이동"
+            aria-label="대시보드(홈)으로 이동"
           >
             <img src={logo} alt="GMT Logo" className="w-12 h-12 md:w-[52px] md:h-[52px] object-contain dark-logo" />
           </div>
@@ -448,20 +463,16 @@ export function AppHeader({
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <h1 className="text-lg font-bold tracking-tight leading-tight">{wbsSettings.appTitle}</h1>
               {effectiveIsAdmin && (
-                <button
-                  onClick={() => {
-                    setIsVersionHistoryOpen(true);
-                    if (tipOnce) tipOnce('menu.version', '버전 정보를 클릭하면 변경 이력(버전 히스토리)을 확인할 수 있어요.');
-                  }}
-                  className="text-[10px] font-mono text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 group"
-                  title={`버전 정보 (수정일: ${formatCommitDate(appCommitDate)})`}
+                <span
+                  className="text-[10px] font-mono text-slate-400 px-2 py-0.5 flex items-center gap-1.5"
+                  title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
                 >
-                  <Tag size={10} className="text-slate-300 group-hover:text-indigo-400" />
+                  <Tag size={10} className="text-slate-300" />
                   <span>v{appVersion}</span>
-                  <span className="hidden 2xl:inline text-[10px] text-slate-300 group-hover:text-indigo-300 font-medium">
+                  <span className="hidden 2xl:inline text-[10px] text-slate-300 font-medium">
                     · 수정일 {formatCommitDateDateOnly(appCommitDate)}
                   </span>
-                </button>
+                </span>
               )}
             </div>
 
@@ -478,10 +489,14 @@ export function AppHeader({
                 <div className="flex flex-col items-start min-w-0">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">프로젝트</span>
                   <div className="flex items-center gap-1.5 text-[13px] font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-tight">
-                    <span className="break-words text-left">
-                      {currentProjectId === 'all'
-                        ? `전체 프로젝트${allTasks.length > 0 ? ` (${allTasks.length}개)` : ''}`
-                        : currentProject?.name || '프로젝트 선택'}
+                    <span className="break-words text-left inline-flex flex-wrap items-center gap-1">
+                      {currentProjectId === 'all' ? (
+                        `전체 프로젝트${allTasks.length > 0 ? ` (${allTasks.length}개)` : ''}`
+                      ) : currentProject ? (
+                        <ProjectNameLabel project={currentProject} name={currentProject.name} />
+                      ) : (
+                        '프로젝트 선택'
+                      )}
                       {currentProjectId !== 'all' && currentProject && (taskCountByProject[currentProjectId] ?? 0) > 0 && (
                         <span className="text-stone-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
                       )}
@@ -659,9 +674,9 @@ export function AppHeader({
                                   <Star size={12} className={favoriteIds.has(project.id) ? 'fill-amber-500' : ''} />
                                 </button>
                                 <div className="flex-1 min-w-0 break-words">
-                                  <span>
-                                    {project.name}
-                                    <span className="text-[10px] text-stone-400 ml-1.5">({ownerLabel})</span>
+                                  <span className="inline-flex flex-wrap items-center gap-1">
+                                    <ProjectNameLabel project={project} name={project.name} />
+                                    <span className="text-[10px] text-stone-400">({ownerLabel})</span>
                                   </span>
                                   {(taskCountByProject[project.id] ?? 0) > 0 && (
                                     <span className="text-[10px] text-stone-400 ml-1">· {taskCountByProject[project.id]}개</span>
@@ -685,7 +700,8 @@ export function AppHeader({
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      copyProject(project.id);
+                                      setProjectToCopy(project);
+                                      setIsCopyProjectConfirmOpen(true);
                                       setIsProjectDropdownOpen(false);
                                     }}
                                     className="text-stone-400 hover:text-blue-600 p-1 rounded"
@@ -724,21 +740,6 @@ export function AppHeader({
                                       <Trash2 size={12} />
                                     </button>
                                   )}
-                                  {(isProjectOwner(project) || effectiveIsAdmin) && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setAuditLogProjectId(project.id);
-                                        setIsAuditLogOpen(true);
-                                        setIsProjectDropdownOpen(false);
-                                      }}
-                                      className="text-stone-400 hover:text-amber-600 p-1 rounded"
-                                      title="변경 이력"
-                                      aria-label="변경 이력"
-                                    >
-                                      <History size={12} />
-                                    </button>
-                                  )}
                                 </div>
                               </div>
                             );
@@ -768,7 +769,20 @@ export function AppHeader({
                               );
                             });
                           }
-                          return displayProjects.map((p) => renderProjectRow(p));
+                          return projectsByKind.map(({ kind, projects: list }) => (
+                            <section key={kind} className="mb-2 last:mb-0">
+                              <div
+                                className={cn(
+                                  'sticky top-0 z-[1] flex items-center gap-2 px-2 py-1.5 mb-0.5 rounded-md border',
+                                  getProjectKindBadgeClass(kind),
+                                )}
+                              >
+                                <span className="text-xs font-bold">{kind}</span>
+                                <span className="text-[10px] font-medium opacity-80 tabular-nums">({list.length}개)</span>
+                              </div>
+                              {list.map((p) => renderProjectRow(p))}
+                            </section>
+                          ));
                         })()}
                       </div>
                       <div className="border-t border-[var(--color-line)] my-1"></div>
@@ -1069,20 +1083,6 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
-                      {effectiveIsAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsMoreMenuOpen(false);
-                            setAuditLogProjectId(null);
-                            setIsAuditLogOpen(true);
-                          }}
-                          className="w-full text-left px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2"
-                          title="모든 프로젝트의 생성·수정·삭제 이력을 한 화면에서 조회"
-                        >
-                          <History size={14} /> 전체 변경 이력
-                        </button>
-                      )}
                       {/* 일반 사용자 화면 진입은 Shift+F12만 (계정 메뉴에서는 미리보기 중일 때만 관리자 화면으로 복귀) */}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>

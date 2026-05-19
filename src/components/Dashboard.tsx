@@ -12,6 +12,8 @@ import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
 
+import { DashboardPersonAllocationSection } from './DashboardPersonAllocationSection';
+
 interface ProjectStats {
   total: number;
   statusCounts: Record<string, number>;
@@ -257,6 +259,15 @@ export function Dashboard({
     if (!dashboardVisibleIds) return visibleProjectStats;
     return visibleProjectStats.filter((p) => dashboardVisibleIds.has(p.id));
   }, [visibleProjectStats, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
+  const displayProjectsForAllocation = useMemo(() => {
+    const ids = new Set(displayProjectStats.map((p) => p.id));
+    return projects.filter((p) => ids.has(p.id));
+  }, [projects, displayProjectStats]);
+
+  const displayTasksForAllocation = useMemo(() => {
+    const ids = new Set(displayProjectsForAllocation.map((p) => p.id));
+    return allTasks.filter((t) => ids.has(t.projectId));
+  }, [allTasks, displayProjectsForAllocation]);
 
   // Total summary (전체 진척율: 1레벨 가중평균 우선, 폴백으로 리프 평균)
   const summary = useMemo(() => {
@@ -1028,6 +1039,14 @@ export function Dashboard({
             )}
           </section>
 
+          <DashboardPersonAllocationSection
+            projects={displayProjectsForAllocation}
+            allTasks={displayTasksForAllocation}
+            registeredMemberDisplayNames={registeredMemberDisplayNames}
+            showFilterHint={dashboardFiltersActive}
+            onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
+          />
+
           {/* Milestones */}
           {milestones.length > 0 && (
             <section>
@@ -1230,7 +1249,6 @@ function ProjectCard({
 }: {
   project: Project & { stats: ProjectStats };
   onClick?: () => void;
-  key?: React.Key;
   wbsSettings: WBSSettings;
 }) {
   const s = project.stats;
@@ -1301,10 +1319,9 @@ function ProjectCard({
   );
 }
 
-function StatBadge({ label, count, color, key }: { label: string; count: number; color: string; key?: React.Key }) {
+function StatBadge({ label, count, color }: { label: string; count: number; color: string }) {
   return (
     <div
-      key={key}
       className={`flex flex-col items-center justify-center p-2.5 rounded-xl transition-transform group-hover:scale-105 duration-300 ${color}`}
     >
       <span className="text-[10px] font-bold uppercase tracking-widest mb-1 opacity-80">{label}</span>

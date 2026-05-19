@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useWBS } from '../context/WBSContext';
+import { ProjectNameLabel } from './ProjectNameLabel';
 import { useAuth } from '../context/AuthContext';
 import { ProjectModal } from './ProjectModal';
 import { ShareModal } from './ShareModal';
@@ -9,6 +10,7 @@ import { useToast } from './Toast';
 import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, ChevronDown, Loader2, FolderOpen, FolderCog } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Project } from '../types';
+import { getProjectKindBadgeClass, groupProjectsByKind } from '../lib/projectKind';
 import type { ProjectGroup } from '../lib/wbsSettings';
 import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
 
@@ -31,8 +33,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [shareProjectId, setShareProjectId] = useState<string | null>(null);
   const [shareProjectName, setShareProjectName] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [projectToCopy, setProjectToCopy] = useState<Project | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isCopyConfirmOpen, setIsCopyConfirmOpen] = useState(false);
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
   const [groupByOwner, setGroupByOwner] = useState(false);
@@ -194,6 +198,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return map;
   }, [sortedProjects, sortedGroups]);
 
+  const projectsByKind = useMemo(() => groupProjectsByKind(sortedProjects), [sortedProjects]);
+
   const projectsGroupedByOwner = useMemo(() => {
     const map = new Map<string, Project[]>();
     for (const p of sortedProjects) {
@@ -220,6 +226,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     assignments?: Project['assignments'],
     minWorkEffortDays?: number,
     workEffortUnit?: Project['workEffortUnit'],
+    projectKind?: Project['projectKind'],
     reportCategory?: string,
     reportAgency?: string,
     reportBudgetThisYear?: string,
@@ -236,6 +243,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         assignments,
         minWorkEffortDays,
         workEffortUnit,
+        projectKind,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -247,6 +255,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
         workEffortUnit,
+        projectKind,
         reportCategory,
         reportAgency,
         reportBudgetThisYear,
@@ -264,6 +273,15 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       setProjectToDelete(null);
     }
     setIsDeleteConfirmOpen(false);
+  };
+
+  const handleCopyProject = () => {
+    if (projectToCopy) {
+      copyProject(projectToCopy.id);
+      onNavigateToWork?.();
+      setProjectToCopy(null);
+    }
+    setIsCopyConfirmOpen(false);
   };
 
   const handleBulkDelete = () => {
@@ -352,7 +370,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-[var(--color-ink)] break-words">{project.name}</span>
+              <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
               {(taskCountByProject[project.id] ?? 0) > 0 && (
                 <span className="text-xs text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개 작업)</span>
               )}
@@ -415,8 +433,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             )}
             <button
               onClick={() => {
-                copyProject(project.id);
-                onNavigateToWork?.();
+                setProjectToCopy(project);
+                setIsCopyConfirmOpen(true);
               }}
               className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
               title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
@@ -630,7 +648,22 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               })}
             </div>
           ) : (
-            <div className="space-y-2">{sortedProjects.map((p) => renderProjectCard(p))}</div>
+            <div className="space-y-8">
+              {projectsByKind.map(({ kind, projects: list }) => (
+                <section key={kind}>
+                  <h2
+                    className={cn(
+                      'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border mb-3',
+                      getProjectKindBadgeClass(kind),
+                    )}
+                  >
+                    {kind}
+                    <span className="text-xs font-medium opacity-80 tabular-nums">프로젝트 {list.length}개</span>
+                  </h2>
+                  <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -667,9 +700,28 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         }}
         onConfirm={handleDeleteProject}
         title="프로젝트 삭제"
-        message={projectToDelete ? `'${projectToDelete.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까?` : ''}
+        message={
+          projectToDelete ? `'${projectToDelete.name}' 프로젝트와 소속된 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.` : ''
+        }
         confirmLabel="삭제"
         isDanger={true}
+      />
+      <ConfirmDialog
+        isOpen={isCopyConfirmOpen}
+        onClose={() => {
+          setIsCopyConfirmOpen(false);
+          setProjectToCopy(null);
+        }}
+        onConfirm={handleCopyProject}
+        title="프로젝트 복사"
+        message={
+          projectToCopy
+            ? `'${projectToCopy.name}' 프로젝트를 복사하여 내 프로젝트로 새 복사본을 만드시겠습니까?${
+                (taskCountByProject[projectToCopy.id] ?? 0) > 0 ? ` (작업 ${taskCountByProject[projectToCopy.id]}개 포함)` : ''
+              }`
+            : ''
+        }
+        confirmLabel="복사"
       />
       <ConfirmDialog
         isOpen={isBulkDeleteConfirmOpen}

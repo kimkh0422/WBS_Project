@@ -13,6 +13,8 @@ export function useModalStates() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isCopyProjectConfirmOpen, setIsCopyProjectConfirmOpen] = useState(false);
+  const [projectToCopy, setProjectToCopy] = useState<Project | null>(null);
   const [isDeleteAllProjectsConfirmOpen, setIsDeleteAllProjectsConfirmOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -93,6 +95,10 @@ export function useModalStates() {
     setIsDeleteProjectConfirmOpen,
     projectToDelete,
     setProjectToDelete,
+    isCopyProjectConfirmOpen,
+    setIsCopyProjectConfirmOpen,
+    projectToCopy,
+    setProjectToCopy,
     isDeleteAllProjectsConfirmOpen,
     setIsDeleteAllProjectsConfirmOpen,
     editingProject,

@@ -278,6 +278,8 @@ export function WBSTable({
 
   // Column resize hook + gridStyle — moved below allocationDisplayByTaskId/taskIdToSeqNum
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  /** 하단 [+ 새 작업 추가] 행 — 본문 가로 스크롤과 동기화 */
+  const quickAddFooterScrollRef = useRef<HTMLDivElement | null>(null);
   /** 스플릿 뷰에서 헤더 가로 스크롤 동기화용 */
   const headerScrollRef = useRef<HTMLDivElement | null>(null);
   const isSyncingScrollRef = useRef(false);
@@ -1049,325 +1051,346 @@ export function WBSTable({
           </div>
         )}
         {!excelView && (
-          <div
-            ref={(el) => {
-              if (typeof syncScrollRef === 'function') syncScrollRef(el);
-              else if (syncScrollRef) (syncScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-              tableScrollRef.current = el;
-            }}
-            tabIndex={0}
-            data-wbs-table
-            className={cn(
-              // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
-              isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
-              'relative bg-[var(--color-bg)] outline-none focus:ring-0',
-              !tableEditMode && 'wbs-view-mode',
-              fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
-              wrapTextInCells && 'wrap-text-in-cells',
-              // 표 하단에 항상 여백을 둬서 마지막 행이 일괄 수정 바나 화면 끝에 붙어 보이지 않게 한다.
-              'pb-40',
-            )}
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              const header = headerScrollRef.current;
-              if (isSplitView && header && !isSyncingScrollRef.current) {
-                isSyncingScrollRef.current = true;
-                header.scrollLeft = target.scrollLeft;
-                requestAnimationFrame(() => {
-                  isSyncingScrollRef.current = false;
-                });
-              }
-            }}
-          >
-            <div className="min-w-fit w-full bg-white relative">
-              {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 하단 */}
-              {!isSplitView && (
-                <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-                  <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
-                    <div
-                      className="col-header justify-center relative"
-                      title="드래그 · 더블클릭: 너비 초기화"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleColumnHeaderDoubleClick('grip');
-                      }}
-                      onContextMenu={(e) => handleHeaderContextMenu(e)}
-                    >
-                      {resizeGrip('grip')}
-                    </div>
-                    <div
-                      className="col-header justify-center relative"
-                      title="전체 선택 · 더블클릭: 너비 초기화"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleColumnHeaderDoubleClick('checkbox');
-                      }}
-                      onContextMenu={(e) => handleHeaderContextMenu(e)}
-                    >
-                      <input
-                        type="checkbox"
-                        className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
-                        checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
-                        onChange={handleSelectAll}
-                      />
-                      {resizeGrip('checkbox')}
-                    </div>
-                    <div
-                      className="col-header justify-center relative"
-                      title="순번 · 더블클릭: 너비 초기화"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleColumnHeaderDoubleClick('seq');
-                      }}
-                      onContextMenu={(e) => handleHeaderContextMenu(e)}
-                    >
-                      #{resizeGrip('seq')}
-                    </div>
-                    <div
-                      className="col-header justify-center relative"
-                      title="펼침 · 더블클릭: 너비 초기화"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleColumnHeaderDoubleClick('expand');
-                      }}
-                      onContextMenu={(e) => handleHeaderContextMenu(e)}
-                    >
-                      <span className="text-stone-300">▾</span>
-                      {resizeGrip('expand')}
-                    </div>
-                    {visibleColumnIds.map(renderHeaderCell)}
-                    <div
-                      className="col-header justify-end relative"
-                      title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleColumnHeaderDoubleClick('actions');
-                      }}
-                      onContextMenu={(e) => handleHeaderContextMenu(e)}
-                    >
-                      관리
-                      {resizeGrip('actions')}
-                    </div>
-                  </div>
-                </div>
+          <div className={cn('flex flex-col min-h-0 bg-[var(--color-bg)]', fillHeight && 'flex-1')}>
+            <div
+              ref={(el) => {
+                if (typeof syncScrollRef === 'function') syncScrollRef(el);
+                else if (syncScrollRef) (syncScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+                tableScrollRef.current = el;
+              }}
+              tabIndex={0}
+              data-wbs-table
+              className={cn(
+                // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
+                isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
+                'relative outline-none focus:ring-0',
+                !tableEditMode && 'wbs-view-mode',
+                fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
+                wrapTextInCells && 'wrap-text-in-cells',
+                // 표 하단에 항상 여백을 둬서 마지막 행이 일괄 수정 바나 화면 끝에 붙어 보이지 않게 한다.
+                'pb-40',
               )}
-
-              {/* Rows */}
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}
-              >
-                {(() => {
-                  // `displayWbsMap`은 `wbsSettings.maxLevel`보다 깊은 레벨에서 WBS 표기를 숨기기 위해 빈 문자열('')을 줄 수 있다.
-                  // 하지만 하위 WBS 자체를 테이블에서 숨기면 "특정 레벨 이상 펼쳐지지 않는" 현상처럼 보일 수 있으므로,
-                  // 렌더링은 유지하고 표기만 비운다.
-                  const tasksForRender = visibleTasks;
-                  const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : null;
-                  const topPad = virtualItems ? (virtualItems[0]?.start ?? 0) : 0;
-                  const bottomPad = virtualItems ? rowVirtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0) : 0;
-                  const itemsToRender = virtualItems
-                    ? virtualItems.map((v) => ({ task: tasksForRender[v.index], rowIndex: v.index }))
-                    : tasksForRender.map((task, rowIndex) => ({ task, rowIndex }));
-                  return (
-                    <SortableContext items={tasksForRender.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                      {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
-                      {itemsToRender.map(({ task, rowIndex }) => (
-                        <React.Fragment key={task.id}>
-                          <SortableTaskRow
-                            rowIndex={rowIndex}
-                            task={task}
-                            dropIndicator={dropTarget?.overId === task.id ? dropTarget.position : null}
-                            wbsId={wbsMap.get(task.id)}
-                            displayWbsId={displayWbsMap.get(task.id)}
-                            displayWbsMap={displayWbsMap}
-                            taskIdToSeqNum={taskIdToSeqNum}
-                            seqNumToTaskId={seqNumToTaskId}
-                            isSelected={selectedTaskIds.has(task.id)}
-                            isFocused={lastSelectedId === task.id || activeTaskId === task.id}
-                            hasChildren={hasChildrenSet.has(task.id)}
-                            isTreeView={isTreeView}
-                            onSelect={handleSelect}
-                            onFocusRow={setLastSelectedId}
-                            onSetRowAnchor={(id) => {
-                              rangeAnchorRef.current = id;
-                              setAnchorTaskId(id);
-                            }}
-                            canEdit={canEditCurrentProject}
-                            onEdit={setEditingTask}
-                            onDeleteClick={handleDeleteClick}
-                            onContextMenu={handleContextMenu}
-                            toggleExpand={toggleExpand}
-                            gridStyle={gridStyle}
-                            visibleColumnIds={visibleColumnIds}
-                            isInlineEditingName={inlineEditingNameId === task.id}
-                            setInlineEditingNameId={setInlineEditingNameId}
-                            editingCell={editingCell}
-                            setEditingCell={setEditingCell}
-                            focusedCell={focusedCell}
-                            setFocusedCell={setFocusedCell}
-                            tableEditMode={tableEditMode}
-                            allAssignees={allAssignees}
-                            assigneeOptionsByProjectId={assigneeOptionsByProjectId}
-                            updateTask={updateTask}
-                            statusConfigs={wbsSettings?.statusConfigs ?? []}
-                            projectAssignmentsByProjectId={projectAssignmentsByProjectId}
-                            criticalPathSet={effectiveCriticalPathSet}
-                            allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
-                            otherFocusByCellKey={otherFocusByCellKey}
-                            customColumnNameById={customColumnNameById}
-                            projectEffortUnitByProjectId={projectEffortUnitByProjectId}
-                            prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
-                          />
-                          {inlineAddingTaskId === task.id && (
-                            <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
-                              <div className="data-cell justify-center text-blue-400 font-bold text-[10px]">*</div>
-                              <div className="data-cell justify-center"></div>
-                              <div className="data-cell justify-center"></div>
-                              <div className="data-cell justify-center text-blue-400">
-                                <CornerDownRight size={14} />
-                              </div>
-                              {visibleColumnIds.map((colId) => {
-                                if (colId === 'name') {
-                                  return (
-                                    <div
-                                      key={colId}
-                                      className="data-cell p-0"
-                                      style={{ paddingLeft: `${((task.parentId === null ? 0 : task.depth || 0) + 1) * 20 + 12}px` }}
-                                    >
-                                      <form
-                                        onSubmit={(e) => handleInlineQuickAdd(e, task.parentId)}
-                                        className="flex w-full h-full relative group/form"
-                                      >
-                                        <input
-                                          autoFocus
-                                          ref={quickAddNameInlineRef}
-                                          type="text"
-                                          defaultValue=""
-                                          onBlur={() => setInlineAddingTaskId(null)}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Escape') setInlineAddingTaskId(null);
-                                            e.stopPropagation();
-                                          }}
-                                          onPaste={(e) => {
-                                            if (!canEditCurrentProject) return;
-                                            const pasteText = e.clipboardData.getData('text');
-                                            if (!pasteText || !pasteText.includes('\n')) {
-                                              return;
-                                            }
-                                            e.preventDefault();
-                                            const lines = pasteText
-                                              .split(/\r?\n/)
-                                              .map((line) => line.trim())
-                                              .filter((line) => line.length > 0);
-                                            if (lines.length === 0) return;
-
-                                            const proj = projects.find((p) => p.id === (task.projectId || currentProjectId));
-                                            const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-
-                                            lines.forEach((line) => {
-                                              addTask({
-                                                name: line,
-                                                parentId: task.id,
-                                                startDate: filters.startDate || defaultDate,
-                                                endDate: filters.endDate || defaultDate,
-                                                progress: 0,
-                                                workEffort: 0.5,
-                                                assignee: filters.assignee || '',
-                                                status: 'todo',
-                                              });
-                                            });
-
-                                            if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
-                                            setInlineAddingTaskId(null);
-                                            setInsertTargetId(null);
-                                          }}
-                                          placeholder="작업명 입력 후 Enter..."
-                                          className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-sm font-bold text-blue-600 placeholder:text-blue-300 h-full py-2 px-2"
-                                        />
-                                        <button
-                                          type="submit"
-                                          onMouseDown={(e) => e.preventDefault()}
-                                          className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-blue-500 uppercase px-3 hover:bg-blue-600 transition-colors opacity-0 group-hover/form:opacity-100"
-                                        >
-                                          확인
-                                        </button>
-                                      </form>
-                                    </div>
-                                  );
-                                }
-                                if (colId === 'wbsId') {
-                                  return (
-                                    <div key={colId} className="data-cell text-[10px] font-mono text-blue-400">
-                                      신규
-                                    </div>
-                                  );
-                                }
-                                return <div key={colId} className="data-cell"></div>;
-                              })}
-                              <div className="data-cell"></div>
-                            </div>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
-                    </SortableContext>
-                  );
-                })()}
-              </DndContext>
-
-              {canEditCurrentProject && (
-                <div
-                  className="data-row flex-shrink-0 sticky bottom-0 z-20 bg-blue-50/70 border-y border-blue-200/70 shadow-sm backdrop-blur-sm box-border"
-                  style={{
-                    ...gridStyle,
-                    ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
-                  }}
-                >
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell"></div>
-                  <div className="data-cell justify-center text-blue-500">
-                    <Plus size={14} />
-                  </div>
-                  {visibleColumnIds.map((colId) => {
-                    if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-                    return (
-                      <div key={colId} className="data-cell p-0">
-                        <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                          <input
-                            data-quick-add
-                            ref={quickAddNameBottomRef}
-                            type="text"
-                            defaultValue=""
-                            placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                            className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
-                          />
-                        </form>
+              onScroll={(e) => {
+                const target = e.currentTarget;
+                const header = headerScrollRef.current;
+                const quickAddFooter = quickAddFooterScrollRef.current;
+                if (!isSyncingScrollRef.current) {
+                  isSyncingScrollRef.current = true;
+                  if (isSplitView && header) header.scrollLeft = target.scrollLeft;
+                  if (quickAddFooter) quickAddFooter.scrollLeft = target.scrollLeft;
+                  requestAnimationFrame(() => {
+                    isSyncingScrollRef.current = false;
+                  });
+                }
+              }}
+            >
+              <div className="min-w-fit w-full bg-white relative">
+                {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 스크롤 밖 하단 고정 */}
+                {!isSplitView && (
+                  <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                    <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
+                      <div
+                        className="col-header justify-center relative"
+                        title="드래그 · 더블클릭: 너비 초기화"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleColumnHeaderDoubleClick('grip');
+                        }}
+                        onContextMenu={(e) => handleHeaderContextMenu(e)}
+                      >
+                        {resizeGrip('grip')}
                       </div>
-                    );
-                  })}
-                  <div className="data-cell"></div>
-                </div>
-              )}
+                      <div
+                        className="col-header justify-center relative"
+                        title="전체 선택 · 더블클릭: 너비 초기화"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleColumnHeaderDoubleClick('checkbox');
+                        }}
+                        onContextMenu={(e) => handleHeaderContextMenu(e)}
+                      >
+                        <input
+                          type="checkbox"
+                          className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                          checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
+                          onChange={handleSelectAll}
+                        />
+                        {resizeGrip('checkbox')}
+                      </div>
+                      <div
+                        className="col-header justify-center relative"
+                        title="순번 · 더블클릭: 너비 초기화"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleColumnHeaderDoubleClick('seq');
+                        }}
+                        onContextMenu={(e) => handleHeaderContextMenu(e)}
+                      >
+                        #{resizeGrip('seq')}
+                      </div>
+                      <div
+                        className="col-header justify-center relative"
+                        title="펼침 · 더블클릭: 너비 초기화"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleColumnHeaderDoubleClick('expand');
+                        }}
+                        onContextMenu={(e) => handleHeaderContextMenu(e)}
+                      >
+                        <span className="text-stone-300">▾</span>
+                        {resizeGrip('expand')}
+                      </div>
+                      {visibleColumnIds.map(renderHeaderCell)}
+                      <div
+                        className="col-header justify-end relative"
+                        title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleColumnHeaderDoubleClick('actions');
+                        }}
+                        onContextMenu={(e) => handleHeaderContextMenu(e)}
+                      >
+                        관리
+                        {resizeGrip('actions')}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-              {visibleTasks.length === 0 && tasks.length === 0 && (
-                <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
-                  등록된 작업이 없습니다. 새 작업을 추가해 보세요.
-                </div>
-              )}
-              {visibleTasks.length === 0 && tasks.length > 0 && (
-                <div className="flex flex-col items-center justify-center py-16 text-stone-400 gap-3">
-                  <p className="text-sm">필터 조건에 맞는 작업이 없습니다.</p>
-                  <button type="button" onClick={() => onResetFilters?.()} className="text-xs text-[var(--color-accent)] hover:underline">
-                    필터 초기화
-                  </button>
-                </div>
-              )}
+                {/* Rows */}
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  {(() => {
+                    // `displayWbsMap`은 `wbsSettings.maxLevel`보다 깊은 레벨에서 WBS 표기를 숨기기 위해 빈 문자열('')을 줄 수 있다.
+                    // 하지만 하위 WBS 자체를 테이블에서 숨기면 "특정 레벨 이상 펼쳐지지 않는" 현상처럼 보일 수 있으므로,
+                    // 렌더링은 유지하고 표기만 비운다.
+                    const tasksForRender = visibleTasks;
+                    const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : null;
+                    const topPad = virtualItems ? (virtualItems[0]?.start ?? 0) : 0;
+                    const bottomPad = virtualItems ? rowVirtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0) : 0;
+                    const itemsToRender = virtualItems
+                      ? virtualItems.map((v) => ({ task: tasksForRender[v.index], rowIndex: v.index }))
+                      : tasksForRender.map((task, rowIndex) => ({ task, rowIndex }));
+                    return (
+                      <SortableContext items={tasksForRender.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                        {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
+                        {itemsToRender.map(({ task, rowIndex }) => (
+                          <React.Fragment key={task.id}>
+                            <SortableTaskRow
+                              rowIndex={rowIndex}
+                              task={task}
+                              dropIndicator={dropTarget?.overId === task.id ? dropTarget.position : null}
+                              wbsId={wbsMap.get(task.id)}
+                              displayWbsId={displayWbsMap.get(task.id)}
+                              displayWbsMap={displayWbsMap}
+                              taskIdToSeqNum={taskIdToSeqNum}
+                              seqNumToTaskId={seqNumToTaskId}
+                              isSelected={selectedTaskIds.has(task.id)}
+                              isFocused={lastSelectedId === task.id || activeTaskId === task.id}
+                              hasChildren={hasChildrenSet.has(task.id)}
+                              isTreeView={isTreeView}
+                              onSelect={handleSelect}
+                              onFocusRow={setLastSelectedId}
+                              onSetRowAnchor={(id) => {
+                                rangeAnchorRef.current = id;
+                                setAnchorTaskId(id);
+                              }}
+                              canEdit={canEditCurrentProject}
+                              onEdit={setEditingTask}
+                              onDeleteClick={handleDeleteClick}
+                              onContextMenu={handleContextMenu}
+                              toggleExpand={toggleExpand}
+                              gridStyle={gridStyle}
+                              visibleColumnIds={visibleColumnIds}
+                              isInlineEditingName={inlineEditingNameId === task.id}
+                              setInlineEditingNameId={setInlineEditingNameId}
+                              editingCell={editingCell}
+                              setEditingCell={setEditingCell}
+                              focusedCell={focusedCell}
+                              setFocusedCell={setFocusedCell}
+                              tableEditMode={tableEditMode}
+                              allAssignees={allAssignees}
+                              assigneeOptionsByProjectId={assigneeOptionsByProjectId}
+                              updateTask={updateTask}
+                              statusConfigs={wbsSettings?.statusConfigs ?? []}
+                              projectAssignmentsByProjectId={projectAssignmentsByProjectId}
+                              criticalPathSet={effectiveCriticalPathSet}
+                              allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
+                              otherFocusByCellKey={otherFocusByCellKey}
+                              customColumnNameById={customColumnNameById}
+                              projectEffortUnitByProjectId={projectEffortUnitByProjectId}
+                              prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
+                            />
+                            {inlineAddingTaskId === task.id && (
+                              <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
+                                <div className="data-cell justify-center text-blue-400 font-bold text-[10px]">*</div>
+                                <div className="data-cell justify-center"></div>
+                                <div className="data-cell justify-center"></div>
+                                <div className="data-cell justify-center text-blue-400">
+                                  <CornerDownRight size={14} />
+                                </div>
+                                {visibleColumnIds.map((colId) => {
+                                  if (colId === 'name') {
+                                    return (
+                                      <div
+                                        key={colId}
+                                        className="data-cell p-0"
+                                        style={{ paddingLeft: `${((task.parentId === null ? 0 : task.depth || 0) + 1) * 20 + 12}px` }}
+                                      >
+                                        <form
+                                          onSubmit={(e) => handleInlineQuickAdd(e, task.parentId)}
+                                          className="flex w-full h-full relative group/form"
+                                        >
+                                          <input
+                                            autoFocus
+                                            ref={quickAddNameInlineRef}
+                                            type="text"
+                                            defaultValue=""
+                                            onBlur={() => setInlineAddingTaskId(null)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') setInlineAddingTaskId(null);
+                                              e.stopPropagation();
+                                            }}
+                                            onPaste={(e) => {
+                                              if (!canEditCurrentProject) return;
+                                              const pasteText = e.clipboardData.getData('text');
+                                              if (!pasteText || !pasteText.includes('\n')) {
+                                                return;
+                                              }
+                                              e.preventDefault();
+                                              const lines = pasteText
+                                                .split(/\r?\n/)
+                                                .map((line) => line.trim())
+                                                .filter((line) => line.length > 0);
+                                              if (lines.length === 0) return;
+
+                                              const proj = projects.find((p) => p.id === (task.projectId || currentProjectId));
+                                              const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+
+                                              lines.forEach((line) => {
+                                                addTask({
+                                                  name: line,
+                                                  parentId: task.id,
+                                                  startDate: filters.startDate || defaultDate,
+                                                  endDate: filters.endDate || defaultDate,
+                                                  progress: 0,
+                                                  workEffort: 0.5,
+                                                  assignee: filters.assignee || '',
+                                                  status: 'todo',
+                                                });
+                                              });
+
+                                              if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
+                                              setInlineAddingTaskId(null);
+                                              setInsertTargetId(null);
+                                            }}
+                                            placeholder="작업명 입력 후 Enter..."
+                                            className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-sm font-bold text-blue-600 placeholder:text-blue-300 h-full py-2 px-2"
+                                          />
+                                          <button
+                                            type="submit"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-blue-500 uppercase px-3 hover:bg-blue-600 transition-colors opacity-0 group-hover/form:opacity-100"
+                                          >
+                                            확인
+                                          </button>
+                                        </form>
+                                      </div>
+                                    );
+                                  }
+                                  if (colId === 'wbsId') {
+                                    return (
+                                      <div key={colId} className="data-cell text-[10px] font-mono text-blue-400">
+                                        신규
+                                      </div>
+                                    );
+                                  }
+                                  return <div key={colId} className="data-cell"></div>;
+                                })}
+                                <div className="data-cell"></div>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        ))}
+                        {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
+                      </SortableContext>
+                    );
+                  })()}
+                </DndContext>
+
+                {visibleTasks.length === 0 && tasks.length === 0 && (
+                  <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+                    등록된 작업이 없습니다. 새 작업을 추가해 보세요.
+                  </div>
+                )}
+                {visibleTasks.length === 0 && tasks.length > 0 && (
+                  <div className="flex flex-col items-center justify-center py-16 text-stone-400 gap-3">
+                    <p className="text-sm">필터 조건에 맞는 작업이 없습니다.</p>
+                    <button type="button" onClick={() => onResetFilters?.()} className="text-xs text-[var(--color-accent)] hover:underline">
+                      필터 초기화
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
+            {canEditCurrentProject && (
+              <div
+                ref={quickAddFooterScrollRef}
+                className="flex-shrink-0 overflow-x-hidden border-t border-blue-200/70 bg-blue-50/70 shadow-[0_-1px_3px_rgba(0,0,0,0.04)]"
+                onScroll={(e) => {
+                  const body = tableScrollRef.current;
+                  const header = headerScrollRef.current;
+                  if (!body || isSyncingScrollRef.current) return;
+                  isSyncingScrollRef.current = true;
+                  body.scrollLeft = e.currentTarget.scrollLeft;
+                  if (isSplitView && header) header.scrollLeft = e.currentTarget.scrollLeft;
+                  requestAnimationFrame(() => {
+                    isSyncingScrollRef.current = false;
+                  });
+                }}
+              >
+                <div className="min-w-fit w-full">
+                  <div
+                    className="data-row flex-shrink-0 bg-blue-50/70 border-y border-blue-200/70 shadow-sm box-border"
+                    style={{
+                      ...gridStyle,
+                      ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
+                    }}
+                  >
+                    <div className="data-cell"></div>
+                    <div className="data-cell"></div>
+                    <div className="data-cell"></div>
+                    <div className="data-cell justify-center text-blue-500">
+                      <Plus size={14} />
+                    </div>
+                    {visibleColumnIds.map((colId) => {
+                      if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                      return (
+                        <div key={colId} className="data-cell p-0">
+                          <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                            <input
+                              data-quick-add
+                              ref={quickAddNameBottomRef}
+                              type="text"
+                              defaultValue=""
+                              placeholder="+ 새 작업 추가 (Enter 키 입력)..."
+                              className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                            />
+                          </form>
+                        </div>
+                      );
+                    })}
+                    <div className="data-cell"></div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {excelView && (

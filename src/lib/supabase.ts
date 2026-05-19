@@ -73,6 +73,7 @@ export interface ProjectRow {
   min_work_effort_days?: number | null;
   work_effort_unit?: string | null;
   created_at?: string;
+  project_kind?: string | null;
   report_category?: string | null;
   report_agency?: string | null;
   report_budget_this_year?: string | null;

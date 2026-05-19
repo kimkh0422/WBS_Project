@@ -7,7 +7,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithEmail: (email: string, password: string, fullName?: string) => Promise<{ error?: string }>;
+  signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
   /** 회원가입 OTP(6자리) 검증. 성공 시 세션 발급되어 자동 로그인 */
   verifySignupOtp: (email: string, token: string) => Promise<{ error?: string }>;
   /** 비밀번호 재설정 OTP를 이메일로 발송 */
@@ -81,12 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error?.message };
   };
 
-  const signUpWithEmail = async (email: string, password: string, fullName?: string) => {
+  const signUpWithEmail = async (email: string, password: string, fullName: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
+    const trimmedName = fullName.trim();
+    if (!trimmedName) return { error: '이름을 입력하세요.' };
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: fullName?.trim() ? { data: { full_name: fullName.trim() } } : undefined,
+      options: { data: { full_name: trimmedName } },
     });
     return { error: error?.message };
   };

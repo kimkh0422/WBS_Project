@@ -66,6 +66,10 @@ export function LoginScreen() {
     }
 
     if (isSignUp) {
+      if (!fullName.trim()) {
+        setError('이름을 입력하세요.');
+        return;
+      }
       if (!email.trim() || !password) {
         setError('이메일과 비밀번호를 입력하세요.');
         return;
@@ -80,7 +84,7 @@ export function LoginScreen() {
       }
       setLoading(true);
       try {
-        const result = await signUpWithEmail(email.trim(), password, fullName.trim() || undefined);
+        const result = await signUpWithEmail(email.trim(), password, fullName.trim());
         if (result?.error) {
           setError(result.error);
         } else {
@@ -274,10 +278,12 @@ export function LoginScreen() {
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="이름"
+                  placeholder="이름 (필수)"
                   className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
                   autoComplete="name"
+                  required
                   disabled={loading}
+                  aria-label="이름"
                 />
               )}
 

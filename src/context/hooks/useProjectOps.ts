@@ -58,6 +58,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       reportExtras?: Partial<
         Pick<
           Project,
+          | 'projectKind'
           | 'reportCategory'
           | 'reportAgency'
           | 'reportBudgetThisYear'

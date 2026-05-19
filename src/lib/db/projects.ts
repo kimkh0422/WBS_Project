@@ -11,15 +11,31 @@ export function isAssignmentsSchemaError(err: { code?: string; message?: string 
   return err.code === 'PGRST204' || msg.includes("'assignments'") || msg.includes('assignments');
 }
 
+function isMissingColumnError(err: { code?: string; message?: string }, columnName: string): boolean {
+  if (err.code !== 'PGRST204') return false;
+  const col = columnName.toLowerCase();
+  const msg = (err.message ?? '').toLowerCase();
+  return msg.includes(`'${col}'`) || msg.includes(col);
+}
+
+const PROJECT_SELECT_COLUMNS =
+  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,created_at';
+
 export async function fetchProjects(): Promise<Project[]> {
   requireSupabase();
-  const { data, error } = await supabase!
+  let { data, error } = await supabase!
     .from('projects')
     // egress 절감: 필요한 컬럼만 조회
-    .select(
-      'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,created_at',
-    )
+    .select(PROJECT_SELECT_COLUMNS)
     .order('created_at', { ascending: true });
+  if (error && isMissingColumnError(error, 'project_kind')) {
+    const retry = await supabase!
+      .from('projects')
+      .select(PROJECT_SELECT_COLUMNS.replace(',project_kind', ''))
+      .order('created_at', { ascending: true });
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) throw error;
   const rows = (data ?? []) as ProjectRow[];
   const seen = new Set<string>();
@@ -53,6 +69,10 @@ export async function upsertProject(project: Project): Promise<void> {
         .update(toProjectRowMinimal(project) as Record<string, unknown>)
         .eq('id', project.id);
       if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'project_kind')) {
+      const { project_kind: _pk, ...rowWithoutKind } = row as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').update(rowWithoutKind).eq('id', project.id);
+      if (err2) throw err2;
     } else if (error) {
       throw error;
     }
@@ -72,6 +92,10 @@ export async function upsertProject(project: Project): Promise<void> {
       const minimal = toProjectRowMinimal(project) as Record<string, unknown>;
       const minimalWithOwner = authedUserId ? { ...minimal, owner_id: authedUserId } : minimal;
       const { error: err2 } = await supabase!.from('projects').insert(minimalWithOwner);
+      if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'project_kind')) {
+      const { project_kind: _pk, ...insertWithoutKind } = insertRow as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutKind);
       if (err2) throw err2;
     } else if (error) {
       throw error;

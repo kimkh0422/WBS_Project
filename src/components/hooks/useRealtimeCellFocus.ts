@@ -114,11 +114,9 @@ export function useRealtimeCellFocus({
     if (!currentUserId) return;
     const cell = editingCell ?? focusedCell;
     const send = (event: 'cell_focus' | 'cell_blur', payload: Record<string, string>) => {
-      try {
-        channel.send({ type: 'broadcast', event, payload });
-      } catch {
+      void channel.httpSend(event, payload).catch(() => {
         /* ignore */
-      }
+      });
     };
     if (!cell) {
       send('cell_blur', { userId: currentUserId });

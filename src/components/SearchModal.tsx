@@ -3,6 +3,8 @@ import { Search, FileText, FolderOpen, ArrowRight, Hash } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
 import { cn } from '../lib/utils';
 import { isComposingKeyEvent } from '../lib/ime';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -24,6 +26,8 @@ interface SearchResult {
 
 export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: SearchModalProps) {
   const { allTasks, projects, wbsMap, wbsSettings } = useWBS();
+  const { orgMembers } = useOrganization();
+  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -85,7 +89,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
           id: t.id,
           projectId: t.projectId,
           title: t.name,
-          subtitle: `${projectNameMap.get(t.projectId) ?? ''} · ${t.assignee || '미배정'}`,
+          subtitle: `${projectNameMap.get(t.projectId) ?? ''} · ${formatAssigneeDisplay(t.assignee, assigneePositionByName) || '미배정'}`,
           wbs: wbsCode,
           progress: t.progress,
           status: statusNameMap.get(t.status) ?? t.status,
@@ -94,7 +98,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
     }
 
     return items.slice(0, 50); // 최대 50개
-  }, [query, projects, allTasks, wbsMap, projectNameMap, statusNameMap]);
+  }, [query, projects, allTasks, wbsMap, projectNameMap, statusNameMap, assigneePositionByName]);
 
   // 선택 인덱스 범위 유지
   useEffect(() => {

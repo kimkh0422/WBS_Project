@@ -1,6 +1,7 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
 import type { Task, Project, ProjectAssignment } from '../../types';
 import { normalizeWorkEffortUnit } from '../workEffortUnits';
+import { normalizeProjectKind } from '../projectKind';
 import type { WBSSettings } from '../wbsSettings';
 
 export function toTaskRow(task: Task, sortOrder: number): TaskRow {
@@ -81,6 +82,7 @@ export function toProjectRow(project: Project): ProjectRow {
     owner_id: project.ownerId ?? null,
     min_work_effort_days: project.minWorkEffortDays ?? null,
     work_effort_unit: normalizeWorkEffortUnit(project.workEffortUnit),
+    project_kind: project.projectKind ?? null,
     report_category: project.reportCategory ?? null,
     report_agency: project.reportAgency ?? null,
     report_budget_this_year: project.reportBudgetThisYear ?? null,
@@ -116,6 +118,7 @@ export function fromProjectRow(row: ProjectRow): Project {
     ownerId: row.owner_id ?? undefined,
     minWorkEffortDays: minDays != null && Number.isFinite(minDays) ? minDays : undefined,
     workEffortUnit: normalizeWorkEffortUnit(row.work_effort_unit),
+    projectKind: normalizeProjectKind(row.project_kind),
     reportCategory: row.report_category ?? undefined,
     reportAgency: row.report_agency ?? undefined,
     reportBudgetThisYear: row.report_budget_this_year ?? undefined,

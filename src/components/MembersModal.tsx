@@ -42,7 +42,7 @@ import { MemberProjectAccessModal } from './MemberProjectAccessModal';
 import type { Project } from '../types';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
-import { departmentInManagedSubtree, flattenOrgNodesWithDepth } from '../lib/orgProfileScope';
+import { departmentInManagedSubtree } from '../lib/orgProfileScope';
 import { buildOrgDepartmentByNameMap, lookupOrgDepartment, resolveMemberDepartment } from '../lib/orgDepartmentLookup';
 import { cn } from '../lib/utils';
 
@@ -215,8 +215,6 @@ export function MembersModal({
     return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
   }, [orgTree, orgMembers]);
 
-  const flatOrgNodes = useMemo(() => flattenOrgNodesWithDepth(orgTree), [orgTree]);
-
   const canChangeMemberRole = useCallback(
     (m: ProfileRow) => {
       if (m.id === currentUserId) return false;
@@ -266,24 +264,6 @@ export function MembersModal({
       return next;
     },
     [effectiveIsAdmin, orgDeptByName],
-  );
-
-  const persistMemberManagedNode = useCallback(
-    async (member: ProfileRow, nodeId: string) => {
-      if (!effectiveIsAdmin || savingOrgId === member.id) return;
-      setSavingOrgId(member.id);
-      const nid = nodeId.trim();
-      const result = await updateMemberOrgFields(member.id, {
-        managed_org_node_id: nid === '' ? null : nid,
-      });
-      setSavingOrgId(null);
-      if (result.success) {
-        setMembers((prev) => prev.map((x) => (x.id === member.id ? { ...x, managed_org_node_id: nid === '' ? null : nid } : x)));
-      } else {
-        setError(result.error ?? '조직 책임 범위 저장에 실패했습니다.');
-      }
-    },
-    [effectiveIsAdmin, savingOrgId],
   );
 
   const toggleSort = (key: SortKey) => {
@@ -761,14 +741,6 @@ export function MembersModal({
                     >
                       부서
                     </th>
-                    {effectiveIsAdmin ? (
-                      <th
-                        className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap min-w-[140px]"
-                        title="팀장·사업부장에게 부여할 org_nodes 트리 루트"
-                      >
-                        조직 관리 범위
-                      </th>
-                    ) : null}
                     <th className="text-left py-3 px-2 font-semibold text-stone-600">
                       <button
                         type="button"
@@ -977,27 +949,6 @@ export function MembersModal({
                           </span>
                         )}
                       </td>
-                      {effectiveIsAdmin ? (
-                        <td className="py-3 px-2 align-top">
-                          <select
-                            value={m.managed_org_node_id ?? ''}
-                            disabled={savingOrgId === m.id}
-                            onChange={(e) => void persistMemberManagedNode(m, e.target.value)}
-                            className="w-full min-w-[120px] max-w-[240px] text-xs px-2 py-1 border border-stone-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            title="이 노드와 그 하위 부서 소속 회원의 역할을 해당 사용자가 바꿀 수 있습니다."
-                          >
-                            <option value="">(없음)</option>
-                            {m.managed_org_node_id && !flatOrgNodes.some((o) => o.id === m.managed_org_node_id) ? (
-                              <option value={m.managed_org_node_id}>현재: {m.managed_org_node_id}</option>
-                            ) : null}
-                            {flatOrgNodes.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      ) : null}
                       <td className="py-3 px-2 text-stone-500">
                         {m.created_at ? (
                           <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
