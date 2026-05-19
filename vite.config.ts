@@ -25,7 +25,19 @@ function parseChangelog(changelogPath: string): { version: string; date: string;
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
+  const appVersion = pkg && typeof pkg.version === 'string' ? pkg.version : '0.0.0';
+  // 앱 '변경이력' 메뉴 표시용: docs/변경이력_주요기능.md 우선, 없거나 비면 CHANGELOG.md 사용
+  const changelogPath = path.resolve(__dirname, 'docs/변경이력_주요기능.md');
+  const fallbackChangelogPath = path.resolve(__dirname, 'CHANGELOG.md');
+  let changelogSections = parseChangelog(changelogPath);
+  if (changelogSections.length === 0) changelogSections = parseChangelog(fallbackChangelogPath);
+  const releaseChangelogSections = parseChangelog(fallbackChangelogPath);
   const commitDate = (() => {
+    const releaseDate =
+      releaseChangelogSections.find((s) => s.version === appVersion)?.date ??
+      changelogSections.find((s) => s.version === appVersion)?.date;
+    if (releaseDate) return `${releaseDate}T12:00:00+09:00`;
     try {
       return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'] })
         .toString()
@@ -34,13 +46,6 @@ export default defineConfig(({ mode }) => {
       return new Date().toISOString();
     }
   })();
-  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
-  const appVersion = pkg && typeof pkg.version === 'string' ? pkg.version : '0.0.0';
-  // 앱 '변경이력' 메뉴 표시용: docs/변경이력_주요기능.md 우선, 없거나 비면 CHANGELOG.md 사용
-  const changelogPath = path.resolve(__dirname, 'docs/변경이력_주요기능.md');
-  const fallbackChangelogPath = path.resolve(__dirname, 'CHANGELOG.md');
-  let changelogSections = parseChangelog(changelogPath);
-  if (changelogSections.length === 0) changelogSections = parseChangelog(fallbackChangelogPath);
 
   return {
     plugins: [

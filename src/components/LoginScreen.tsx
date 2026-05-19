@@ -457,8 +457,20 @@ export function LoginScreen() {
               )}
             </div>
 
-            <p className="text-[11px] text-slate-500/80 pt-2" title="앱 버전">
+            <p
+              className="text-[11px] text-slate-500/80 pt-2"
+              title={`앱 버전 v${__APP_VERSION__} · 수정일 ${new Date(__APP_COMMIT_DATE__).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
+            >
               v{__APP_VERSION__}
+              <span className="text-slate-400/80">
+                {' '}
+                · 수정일{' '}
+                {new Date(__APP_COMMIT_DATE__).toLocaleDateString('ko-KR', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                })}
+              </span>
             </p>
           </div>
         </div>

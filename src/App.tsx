@@ -2145,8 +2145,15 @@ function WBSApp({
         <footer className="bg-slate-50/50 border-t border-slate-200/50 px-4 py-3 text-center mt-auto safe-bottom">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
-            <div className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap">
+            <div
+              className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap"
+              title={`버전 v${__APP_VERSION__} (수정일: ${formatCommitDate(__APP_COMMIT_DATE__)})`}
+            >
               <span>v{__APP_VERSION__}</span>
+              <span className="text-slate-300" aria-hidden>
+                ·
+              </span>
+              <span>수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}</span>
               <span className="text-slate-300" aria-hidden>
                 ·
               </span>
