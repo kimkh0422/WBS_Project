@@ -20,7 +20,7 @@ const ROOT = path.resolve(__dirname, '..');
 
 try {
   execSync('node scripts/update-release.mjs patch "버전 업데이트"', { cwd: ROOT, stdio: 'inherit' });
-  execSync('git add package.json CHANGELOG.md version.txt', { cwd: ROOT, stdio: 'inherit' });
+  execSync('git add package.json package-lock.json CHANGELOG.md version.txt', { cwd: ROOT, stdio: 'inherit' });
 } catch (e) {
   console.error('[version] 버전/CHANGELOG 자동 갱신 실패:', e?.message ?? e);
   process.exit(1);

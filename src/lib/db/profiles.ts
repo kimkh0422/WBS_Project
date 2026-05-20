@@ -148,6 +148,27 @@ export async function getProjectOwnerDisplayNames(ownerIds: string[]): Promise<R
   }
 }
 
+/** 등록 회원(profiles) 수. RPC `get_registered_member_count` 미배포 시 RLS 범위 내 count 폴백. */
+export async function getRegisteredMemberCount(): Promise<number> {
+  if (!isSupabaseConfigured || !supabase) return 0;
+  if (!isRpcDisabled('get_registered_member_count')) {
+    try {
+      const { data, error } = await supabase.rpc('get_registered_member_count');
+      if (!error) return typeof data === 'number' ? data : Number(data) || 0;
+      if (isRpcNotFoundError(error)) disableRpc('get_registered_member_count');
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    const { count, error } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+    if (error) return 0;
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function getVisitorStats(): Promise<{ daily: number; total: number }> {
   if (!isSupabaseConfigured || !supabase) return { daily: 0, total: 0 };
   if (isRpcDisabled('get_visitor_stats')) return { daily: 0, total: 0 };

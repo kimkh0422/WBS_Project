@@ -56,12 +56,12 @@ export function AddProjectPersonAllocation({
           setPerson(unassignedPersons[0] ?? '');
         }}
         className={cn(
-          'inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-stone-300 text-xs text-stone-500 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 transition-colors',
+          'inline-flex items-center gap-1 shrink-0 whitespace-nowrap px-2.5 py-1 text-xs font-medium rounded-lg border border-dashed border-teal-300 text-teal-700 bg-teal-50/40 hover:bg-teal-50 hover:border-teal-400 transition-colors',
           className,
         )}
         title={`${projectName}에 인원 투입 추가`}
       >
-        <Plus size={12} />
+        <Plus size={13} className="shrink-0" aria-hidden />
         인원
       </button>
     );

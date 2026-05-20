@@ -3,12 +3,27 @@ import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { getVisitorStats, getDailyVisitors, type DailyVisitorRow } from '../lib/db';
-import { Briefcase, Clock, LayoutGrid, Flag, Loader2, Bug, Building2, Settings2, Check, User, X, ListChecks } from 'lucide-react';
+import { getVisitorStats, getDailyVisitors, getRegisteredMemberCount, type DailyVisitorRow } from '../lib/db';
+import {
+  Briefcase,
+  Clock,
+  LayoutGrid,
+  Flag,
+  Loader2,
+  Bug,
+  Building2,
+  Settings2,
+  Check,
+  User,
+  X,
+  ListChecks,
+  ArrowUpDown,
+} from 'lucide-react';
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
+import { PROJECT_KINDS, resolveProjectKindOrDefault } from '../lib/projectKind';
 import type { Task, Project } from '../types';
-import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
+import type { WBSSettings, StatusConfig, ProjectGroup } from '../lib/wbsSettings';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
 
@@ -20,6 +35,8 @@ interface ProjectStats {
   progress: number;
   assigneeCount: number;
 }
+
+type ProjectCardSortKey = 'default' | 'group' | 'kind';
 
 /** 주어진 task 목록에서 깊이(depth)를 메모이제이션하여 반환하는 getter 생성 */
 function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
@@ -249,16 +266,77 @@ export function Dashboard({
     });
   };
 
-  // 사용자 선택 + "내 프로젝트만" 토글 적용한 최종 표시 목록.
+  // 사용자 선택 + "내 프로젝트만" 토글 적용한 표시 목록 (정렬 전).
   // 우선순위: showMyOnly가 켜져 있으면 그것만 적용 (사용자 체크 선택은 무시).
   // 아니면 사용자 체크 선택이 있으면 그것 적용. 둘 다 없으면 전체.
-  const displayProjectStats = useMemo(() => {
+  const baseDisplayProjectStats = useMemo(() => {
     if (showMyOnly && myInvolvedProjectIds) {
       return visibleProjectStats.filter((p) => myInvolvedProjectIds.has(p.id));
     }
     if (!dashboardVisibleIds) return visibleProjectStats;
     return visibleProjectStats.filter((p) => dashboardVisibleIds.has(p.id));
   }, [visibleProjectStats, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
+
+  const sortedProjectGroups = useMemo<ProjectGroup[]>(() => {
+    const list = wbsSettings.projectGroups ?? [];
+    return [...list].sort((a, b) => {
+      const ao = a.sortOrder ?? 0;
+      const bo = b.sortOrder ?? 0;
+      if (ao !== bo) return ao - bo;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+  }, [wbsSettings.projectGroups]);
+
+  const PROJECT_CARD_SORT_KEY = 'wbs-dashboard-project-card-sort';
+  const [projectCardSort, setProjectCardSort] = useState<ProjectCardSortKey>(() => {
+    try {
+      const v = localStorage.getItem(PROJECT_CARD_SORT_KEY);
+      if (v === 'default' || v === 'group' || v === 'kind') return v;
+      return 'default';
+    } catch {
+      return 'default';
+    }
+  });
+
+  const persistProjectCardSort = (next: ProjectCardSortKey) => {
+    try {
+      if (next === 'default') localStorage.removeItem(PROJECT_CARD_SORT_KEY);
+      else localStorage.setItem(PROJECT_CARD_SORT_KEY, next);
+    } catch {
+      /* ignore */
+    }
+    setProjectCardSort(next);
+  };
+
+  const displayProjectStats = useMemo(() => {
+    if (projectCardSort === 'default') return baseDisplayProjectStats;
+
+    const list = [...baseDisplayProjectStats];
+    const validGroupIds = new Set(sortedProjectGroups.map((g) => g.id));
+    const getEffectiveGroupId = (p: (typeof list)[0]) => (p.groupId && validGroupIds.has(p.groupId) ? p.groupId : '__none__');
+
+    if (projectCardSort === 'group') {
+      const groupOrder = new Map<string, number>();
+      sortedProjectGroups.forEach((g, i) => groupOrder.set(g.id, i));
+      groupOrder.set('__none__', sortedProjectGroups.length);
+      list.sort((a, b) => {
+        const ga = groupOrder.get(getEffectiveGroupId(a)) ?? 999;
+        const gb = groupOrder.get(getEffectiveGroupId(b)) ?? 999;
+        if (ga !== gb) return ga - gb;
+        return a.name.localeCompare(b.name, 'ko');
+      });
+    } else if (projectCardSort === 'kind') {
+      const kindOrder = new Map(PROJECT_KINDS.map((k, i) => [k, i]));
+      list.sort((a, b) => {
+        const ka = kindOrder.get(resolveProjectKindOrDefault(a)) ?? 999;
+        const kb = kindOrder.get(resolveProjectKindOrDefault(b)) ?? 999;
+        if (ka !== kb) return ka - kb;
+        return a.name.localeCompare(b.name, 'ko');
+      });
+    }
+
+    return list;
+  }, [baseDisplayProjectStats, projectCardSort, sortedProjectGroups]);
   const displayProjectsForAllocation = useMemo(() => {
     const ids = new Set(displayProjectStats.map((p) => p.id));
     return projects.filter((p) => ids.has(p.id));
@@ -269,59 +347,13 @@ export function Dashboard({
     return allTasks.filter((t) => ids.has(t.projectId));
   }, [allTasks, displayProjectsForAllocation]);
 
-  // Total summary (전체 진척율: 1레벨 가중평균 우선, 폴백으로 리프 평균)
-  const summary = useMemo(() => {
-    const doneStatus = wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id || 'done';
-    const inProgressStatus = wbsSettings.statusConfigs.find((c) => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
-
-    const totalTasks = allTasks.length;
-    const taskById = new Map<string, Task>(allTasks.map((t) => [t.id, t]));
-    const getDepth = buildDepthGetter(taskById);
-    const level1 = allTasks.filter((t) => getDepth(t.id) === 1);
-    // parentIdSet(공유)으로 leaf 판별 O(n)화
-    const leafTasks = allTasks.filter((t) => !parentIdSet.has(t.id));
-    const forAggregate = leafTasks.length > 0 ? leafTasks : allTasks;
-    const avgProgress =
-      level1.length > 0
-        ? computeWeightedProgress(level1)
-        : forAggregate.length > 0
-          ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
-          : 0;
-
-    // Global status counts across all projects
-    const statusCounts: Record<string, number> = {};
-    wbsSettings.statusConfigs.forEach((c) => (statusCounts[c.id] = 0));
-    allTasks.forEach((t) => {
-      if (statusCounts[t.status] !== undefined) statusCounts[t.status]++;
-    });
-
-    // Global assignee counts
-    const assignees = Array.from(new Set(allTasks.map((t) => t.assignee).filter(Boolean)));
-
-    // Earliest project start date
-    let earliestStartDate: string | null = null;
-    projects.forEach((p) => {
-      if (p.startDate) {
-        if (!earliestStartDate || p.startDate < earliestStartDate) {
-          earliestStartDate = p.startDate;
-        }
-      }
-    });
-
-    const totalMilestones = allTasks.filter((t) => t.isMilestone).length;
-
-    return {
+  const summary = useMemo(
+    () => ({
       totalProjects: projects.length,
-      totalTasks,
-      totalDone: allTasks.filter((t) => t.status === doneStatus).length,
-      totalInProgress: allTasks.filter((t) => t.status === inProgressStatus).length,
-      totalMilestones,
-      avgProgress,
-      statusCounts,
-      assigneeCount: assignees.length,
-      earliestStartDate,
-    };
-  }, [projects, allTasks, wbsSettings.statusConfigs, parentIdSet]);
+      totalTasks: allTasks.length,
+    }),
+    [projects, allTasks],
+  );
 
   // 마일스톤 목록 (날짜순)
   const milestones = useMemo(() => {
@@ -487,6 +519,8 @@ export function Dashboard({
   const { user } = useAuth();
   const [visitorStats, setVisitorStats] = React.useState({ daily: 0, total: 0 });
   const [loadingVisitorStats, setLoadingVisitorStats] = React.useState(false);
+  const [memberCount, setMemberCount] = React.useState(0);
+  const [loadingMemberCount, setLoadingMemberCount] = React.useState(false);
   const [dailyVisitorsOpen, setDailyVisitorsOpen] = React.useState(false);
   const [dailyVisitorsLoading, setDailyVisitorsLoading] = React.useState(false);
   const [dailyVisitorsList, setDailyVisitorsList] = React.useState<DailyVisitorRow[]>([]);
@@ -504,11 +538,14 @@ export function Dashboard({
     if (!isSupabaseConfigured || !supabase || !user) {
       setVisitorStats({ daily: 0, total: 0 });
       setLoadingVisitorStats(false);
+      setMemberCount(0);
+      setLoadingMemberCount(false);
       return;
     }
 
     const run = async () => {
       setLoadingVisitorStats(true);
+      setLoadingMemberCount(true);
       // 세션당 하루 1회만 기록
       let sessionId = sessionStorage.getItem('wbs-visit-session-id');
       if (!sessionId) {
@@ -523,12 +560,15 @@ export function Dashboard({
       }
 
       try {
-        const stats = await getVisitorStats();
+        const [stats, count] = await Promise.all([getVisitorStats(), getRegisteredMemberCount()]);
         setVisitorStats(stats);
+        setMemberCount(count);
       } catch {
         setVisitorStats({ daily: 0, total: 0 });
+        setMemberCount(0);
       } finally {
         setLoadingVisitorStats(false);
+        setLoadingMemberCount(false);
       }
     };
 
@@ -781,50 +821,44 @@ export function Dashboard({
               <LayoutGrid className="text-slate-500" size={24} />
               전체 현황 요약
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <SummaryCard
-                title="총 프로젝트"
+                title="등록된 프로젝트 수"
                 value={summary.totalProjects}
                 subtitle=""
                 onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
               />
               <SummaryCard
-                title="총 작업 수"
+                title="등록된 총 작업 수"
                 value={summary.totalTasks}
                 subtitle=""
                 onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
               />
               <SummaryCard
-                title="진행 중 작업"
-                value={summary.totalInProgress}
+                title="회원가입자 수"
+                value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
                 subtitle=""
-                onClick={() => {
-                  const inProgressStatus = wbsSettings.statusConfigs.find((c) => c.progress > 0 && c.progress < 100)?.id || 'in-progress';
-                  onNavigate?.('kanban', { projectId: 'all', status: inProgressStatus, assignee: '' });
-                }}
+                highlight="text-violet-600"
               />
               <SummaryCard
-                title="완료된 작업"
-                value={summary.totalDone}
-                subtitle=""
-                onClick={() => {
-                  const doneStatus = wbsSettings.statusConfigs.find((c) => c.progress === 100)?.id || 'done';
-                  onNavigate?.('table', { projectId: 'all', status: doneStatus, assignee: '' });
-                }}
-              />
-              <SummaryCard title="평균 진척율" value={`${summary.avgProgress}%`} subtitle="" highlight="text-emerald-600" />
-              <SummaryCard
-                title="마일스톤"
-                value={summary.totalMilestones}
-                subtitle=""
-                highlight="text-amber-600"
-                onClick={() => onNavigate?.('table', { projectId: 'all', status: 'all', assignee: '' })}
-              />
-              <SummaryCard
-                title="금일 접속자"
-                value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.daily}
-                subtitle="클릭하여 명단"
-                highlight="text-blue-600"
+                title="접속자수"
+                value={
+                  loadingVisitorStats ? (
+                    <Loader2 size={14} className="animate-spin text-stone-400" />
+                  ) : (
+                    <div className="space-y-1.5 not-italic font-normal tracking-normal">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium text-slate-400">금일</span>
+                        <span className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium text-slate-400">누적</span>
+                        <span className="text-xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</span>
+                      </div>
+                    </div>
+                  )
+                }
+                subtitle="클릭하여 금일 명단"
                 onClick={async () => {
                   setDailyVisitorsOpen(true);
                   setDailyVisitorsLoading(true);
@@ -837,12 +871,6 @@ export function Dashboard({
                     setDailyVisitorsLoading(false);
                   }
                 }}
-              />
-              <SummaryCard
-                title="누적 접속자"
-                value={loadingVisitorStats ? <Loader2 size={14} className="animate-spin text-stone-400" /> : visitorStats.total}
-                subtitle=""
-                highlight="text-purple-600"
               />
             </div>
           </section>
@@ -1100,18 +1128,30 @@ export function Dashboard({
 
           {/* Project List */}
           <section>
-            <h2 className="text-xl font-bold text-[var(--color-ink)] mb-4 flex items-center gap-2 flex-wrap">
-              <Briefcase className="text-[var(--color-accent)]" size={24} />
-              프로젝트별 상태
-              <span className="text-sm font-normal text-stone-500 ml-1">
-                ({displayProjectStats.length}
-                {(dashboardVisibleIds || showMyOnly) && visibleProjectStats.length !== displayProjectStats.length
-                  ? ` / ${visibleProjectStats.length}`
-                  : ''}
-                개)
-              </span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
+                <Briefcase className="text-[var(--color-accent)]" size={24} />
+                프로젝트별 상태
+                <span className="text-sm font-normal text-stone-500 ml-1">({displayProjectStats.length}개)</span>
+              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <ArrowUpDown size={14} className="text-stone-400 shrink-0" aria-hidden />
+                <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600">
+                  <span className="text-stone-400 shrink-0">정렬</span>
+                  <select
+                    value={projectCardSort}
+                    onChange={(e) => persistProjectCardSort(e.target.value as ProjectCardSortKey)}
+                    className="px-2 py-1 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[7rem]"
+                    title="프로젝트 카드 정렬"
+                  >
+                    <option value="default">기본</option>
+                    <option value="group">그룹순</option>
+                    <option value="kind">종류순</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {displayProjectStats.length === 0 ? (
                 <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
                   {visibleProjectStats.length === 0
@@ -1268,64 +1308,47 @@ function ProjectCard({
             }
           : undefined
       }
-      className={cn('card flex flex-col overflow-hidden group', onClick && 'cursor-pointer hover:border-indigo-200')}
+      className={cn('card flex flex-col overflow-hidden group p-3.5', onClick && 'cursor-pointer hover:border-indigo-200')}
     >
-      <div className="p-6 border-b border-slate-100 bg-gradient-to-br from-white to-slate-50/30">
-        <h3
-          className="text-[17px] font-bold text-[var(--color-ink)] mb-1.5 break-words group-hover:text-indigo-600 transition-colors"
-          title={project.name}
-        >
-          {project.name}
-        </h3>
-        <p className="text-xs text-slate-500 line-clamp-1 mb-3 h-4">{project.description || '설명 없음'}</p>
+      <h3
+        className="text-sm font-semibold text-[var(--color-ink)] mb-0.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
+        title={project.name}
+      >
+        {project.name}
+      </h3>
+      <p className="text-[11px] text-slate-400 line-clamp-1 mb-2">{project.description || '설명 없음'}</p>
 
-        <div className="flex items-center gap-2 mb-2">
-          <div className="text-[11px] font-bold text-slate-500 w-12 tracking-wide">진척율</div>
-          <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-            <div
-              className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
-              style={{ width: `${s.progress}%` }}
-            />
-          </div>
-          <div className="text-xs font-bold text-[var(--color-ink)] w-8 text-right">{formatNum2(s.progress)}%</div>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <span className="text-[10px] font-medium text-slate-400 shrink-0">진척</span>
+        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
+            style={{ width: `${s.progress}%` }}
+          />
+        </div>
+        <span className="text-[11px] font-semibold text-[var(--color-ink)] w-9 text-right tabular-nums">{formatNum2(s.progress)}%</span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400 pt-2 border-t border-slate-100">
+        <div className="flex items-center gap-1 min-w-0 shrink">
+          <Clock size={11} className="text-slate-300 shrink-0" />
+          <span className="truncate">시작: {project.startDate ? project.startDate : '미정'}</span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0 tabular-nums">
+          <span>작업 {s.total}</span>
+          <span className="text-slate-300">·</span>
+          <span>팀원 {s.assigneeCount}</span>
         </div>
       </div>
 
-      <div className="p-6 flex-1 flex flex-col justify-between bg-white">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          {wbsSettings.statusConfigs.map((config) => {
-            // Extract color classes from template or config
-            let colorClasses = 'bg-slate-50 text-slate-600 border border-slate-100';
-            if (config.id === 'done') colorClasses = 'bg-emerald-50 text-emerald-600 border border-emerald-100/50 shadow-sm';
-            if (config.id === 'in-progress') colorClasses = 'bg-indigo-50 text-indigo-600 border border-indigo-100/50 shadow-sm';
-            if (config.id === 'blocked') colorClasses = 'bg-red-50 text-red-600 border border-red-100/50 shadow-sm';
-
-            return <StatBadge key={config.id} label={config.name} count={s.statusCounts[config.id] || 0} color={colorClasses} />;
-          })}
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 pt-4 border-t border-slate-100/80">
-          <div className="flex items-center gap-1.5">
-            <Clock size={13} className="text-slate-300" />
-            <span>시작: {project.startDate ? project.startDate : '미정'}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">작업 {s.total}</span>
-            <span className="bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">팀원 {s.assigneeCount}</span>
-          </div>
-        </div>
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5 text-[10px] text-slate-400/90">
+        {wbsSettings.statusConfigs.map((config, i) => (
+          <span key={config.id} className="whitespace-nowrap">
+            {i > 0 && <span className="text-slate-300 mr-2">·</span>}
+            {config.name} <span className="tabular-nums text-slate-500">{s.statusCounts[config.id] || 0}</span>
+          </span>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function StatBadge({ label, count, color }: { label: string; count: number; color: string }) {
-  return (
-    <div
-      className={`flex flex-col items-center justify-center p-2.5 rounded-xl transition-transform group-hover:scale-105 duration-300 ${color}`}
-    >
-      <span className="text-[10px] font-bold uppercase tracking-widest mb-1 opacity-80">{label}</span>
-      <span className="text-xl font-black">{count}</span>
     </div>
   );
 }

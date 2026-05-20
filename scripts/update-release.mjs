@@ -12,6 +12,7 @@ import { execSync } from 'child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PKG_PATH = path.join(ROOT, 'package.json');
+const LOCK_PATH = path.join(ROOT, 'package-lock.json');
 const CHANGELOG_PATH = path.join(ROOT, 'CHANGELOG.md');
 const VERSION_TXT_PATH = path.join(ROOT, 'version.txt');
 
@@ -43,6 +44,17 @@ const next = bump(prev, versionType);
 pkg.version = next;
 fs.writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
 console.log(`package.json 버전: ${prev} → ${next}`);
+
+// package-lock.json 루트 버전도 함께 갱신
+try {
+  const lock = JSON.parse(fs.readFileSync(LOCK_PATH, 'utf-8'));
+  lock.version = next;
+  if (lock.packages?.['']) lock.packages[''].version = next;
+  fs.writeFileSync(LOCK_PATH, JSON.stringify(lock, null, 2) + '\n');
+  console.log(`package-lock.json 버전: ${prev} → ${next}`);
+} catch {
+  // ignore
+}
 
 // version.txt도 함께 갱신 (push.bat / 표시용)
 try {

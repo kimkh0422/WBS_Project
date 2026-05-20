@@ -208,3 +208,43 @@ export function computePersonProjectWorkEffort(allTasks: Task[]): Map<string, Ma
   });
   return map;
 }
+
+/** 담당자 → 프로젝트 ID → 할당 작업 수 */
+export function computePersonProjectTaskCounts(allTasks: Task[]): Map<string, Map<string, number>> {
+  const map = new Map<string, Map<string, number>>();
+  allTasks.forEach((task) => {
+    const person = (task.assignee || '').trim() || '(미지정)';
+    if (!map.has(person)) map.set(person, new Map());
+    const projMap = map.get(person)!;
+    projMap.set(task.projectId, (projMap.get(task.projectId) ?? 0) + 1);
+  });
+  return map;
+}
+
+export type PersonTaskAllocationItem = { project: Project; taskCount: number };
+
+export type PersonTaskAllocation = {
+  person: string;
+  items: PersonTaskAllocationItem[];
+  totalTaskCount: number;
+};
+
+/** 표시 대상 프로젝트 범위 내 담당자별 할당 작업 수 집계 */
+export function computePersonTaskAllocations(projects: Project[], taskCounts: Map<string, Map<string, number>>): PersonTaskAllocation[] {
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  return Array.from(taskCounts.entries())
+    .map(([person, projMap]) => {
+      const items: PersonTaskAllocationItem[] = [];
+      for (const [projectId, taskCount] of projMap.entries()) {
+        const project = projectById.get(projectId);
+        if (!project || taskCount <= 0) continue;
+        items.push({ project, taskCount });
+      }
+      items.sort((a, b) => b.taskCount - a.taskCount);
+      const totalTaskCount = items.reduce((s, i) => s + i.taskCount, 0);
+      return { person, items, totalTaskCount };
+    })
+    .filter((row) => row.totalTaskCount > 0)
+    .sort((a, b) => b.totalTaskCount - a.totalTaskCount);
+}

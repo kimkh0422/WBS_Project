@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { computeProjectTotalManMonths, countProjectPersonnel, getProjectMonthKeys } from '../personAllocations';
-import type { Project } from '../../types';
+import {
+  computePersonProjectTaskCounts,
+  computePersonTaskAllocations,
+  computeProjectTotalManMonths,
+  countProjectPersonnel,
+  getProjectMonthKeys,
+} from '../personAllocations';
+import type { Project, Task } from '../../types';
 
 describe('getProjectMonthKeys', () => {
   it('시작·종료일 사이 월 목록을 반환한다', () => {
@@ -50,5 +56,46 @@ describe('computeProjectTotalManMonths', () => {
     };
     // 0.5 + 0.25 = 0.75 M/M
     expect(computeProjectTotalManMonths(project)).toBe(0.8);
+  });
+});
+
+describe('computePersonProjectTaskCounts', () => {
+  it('담당자·프로젝트별 할당 작업 수를 집계한다', () => {
+    const tasks: Task[] = [
+      { id: 't1', projectId: 'p1', parentId: null, name: 'A', startDate: '', endDate: '', progress: 0, assignee: 'Kim', status: 'todo' },
+      { id: 't2', projectId: 'p1', parentId: null, name: 'B', startDate: '', endDate: '', progress: 0, assignee: 'Kim', status: 'todo' },
+      { id: 't3', projectId: 'p2', parentId: null, name: 'C', startDate: '', endDate: '', progress: 0, assignee: 'Kim', status: 'todo' },
+      { id: 't4', projectId: 'p1', parentId: null, name: 'D', startDate: '', endDate: '', progress: 0, assignee: 'Lee', status: 'todo' },
+      { id: 't5', projectId: 'p1', parentId: null, name: 'E', startDate: '', endDate: '', progress: 0, assignee: '', status: 'todo' },
+    ];
+    const counts = computePersonProjectTaskCounts(tasks);
+    expect(counts.get('Kim')?.get('p1')).toBe(2);
+    expect(counts.get('Kim')?.get('p2')).toBe(1);
+    expect(counts.get('Lee')?.get('p1')).toBe(1);
+    expect(counts.get('(미지정)')?.get('p1')).toBe(1);
+  });
+});
+
+describe('computePersonTaskAllocations', () => {
+  it('표시 프로젝트 범위 내 담당자별 작업 할당을 정렬해 반환한다', () => {
+    const projects: Project[] = [
+      { id: 'p1', name: 'Alpha' },
+      { id: 'p2', name: 'Beta' },
+    ];
+    const taskCounts = new Map<string, Map<string, number>>([
+      [
+        'Kim',
+        new Map([
+          ['p1', 2],
+          ['p2', 1],
+        ]),
+      ],
+      ['Lee', new Map([['p1', 1]])],
+      ['Park', new Map([['p9', 5]])],
+    ]);
+    const rows = computePersonTaskAllocations(projects, taskCounts);
+    expect(rows.map((r) => r.person)).toEqual(['Kim', 'Lee']);
+    expect(rows[0].totalTaskCount).toBe(3);
+    expect(rows[0].items.map((i) => i.taskCount)).toEqual([2, 1]);
   });
 });
