@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_HIDDEN_VIEWS?: string;
   readonly VITE_ENABLE_PRESENCE?: string;
   readonly VITE_REALTIME_ENABLED?: string;
+  /** billing: paid(기본) | free — free면 Realtime 부가기능 최소화 */
+  readonly VITE_BILLING_PLAN?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;

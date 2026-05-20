@@ -28,7 +28,7 @@ export interface WBSSettings {
    */
   linkEffortToSchedule?: boolean;
   tableColumns?: { id: string; visible: boolean }[];
-  /** 크리티컬 패스 표시 여부 (간트·표에서 강조) */
+  /** 예전 설정 호환용. 항상 false로 읽히며 UI에서 변경 불가 */
   showCriticalPath?: boolean;
   /** 셀 텍스트 줄바꿈 여부. true면 줄바꿈 허용·행 높이 자동 확장 */
   wrapTextInCells?: boolean;
@@ -129,7 +129,8 @@ export function parseSettings(raw: unknown): WBSSettings {
               .filter((c) => c && typeof c.id === 'string')
               .map((c) => ({ id: String(c.id), visible: c.visible !== false }))
           : DEFAULT_SETTINGS.tableColumns,
-      showCriticalPath: parsed.showCriticalPath === true,
+      // 크리티컬 패스 강조는 제거됨: 저장값과 무관하게 항상 끔
+      showCriticalPath: false,
       wrapTextInCells: parsed.wrapTextInCells === true,
       linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
       linkEffortToSchedule: parsed.linkEffortToSchedule === true,

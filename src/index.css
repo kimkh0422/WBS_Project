@@ -583,7 +583,9 @@ input[list] {
 .wrap-text-in-cells .data-cell {
   @apply break-words;
   word-break: break-word;
-  overflow: visible;
+  /* 세로는 내용만큼 늘리되, 가로로 인접 셀·하단「새 작업 추가」줄 위로 텍스트가 비치지 않도록 막는다 */
+  overflow-x: hidden;
+  overflow-y: visible;
   text-overflow: unset;
   white-space: normal;
 }

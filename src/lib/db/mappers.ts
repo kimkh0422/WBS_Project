@@ -1,7 +1,7 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
 import type { Task, Project, ProjectAssignment } from '../../types';
 import { normalizeWorkEffortUnit } from '../workEffortUnits';
-import { normalizeProjectKind } from '../projectKind';
+import { migrateDbProjectKindToAppKind } from '../projectKind';
 import type { WBSSettings } from '../wbsSettings';
 
 export function toTaskRow(task: Task, sortOrder: number): TaskRow {
@@ -90,6 +90,8 @@ export function toProjectRow(project: Project): ProjectRow {
     report_name_short: project.reportNameShort ?? null,
     report_name_full: project.reportNameFull ?? null,
     group_id: project.groupId ?? null,
+    pm_name: project.pmName?.trim() ? project.pmName.trim() : null,
+    include_in_dashboard: project.includeInDashboard !== false,
   };
 }
 
@@ -108,6 +110,12 @@ export function fromProjectRow(row: ProjectRow): Project {
       }))
     : [];
   const minDays = row.min_work_effort_days != null ? Number(row.min_work_effort_days) : undefined;
+  const rawKind = (row.project_kind ?? '').trim();
+  const projectKind = migrateDbProjectKindToAppKind(row.project_kind);
+  let includeInDashboard: boolean | undefined = row.include_in_dashboard === false ? false : undefined;
+  if (rawKind === '테스트') {
+    includeInDashboard = false;
+  }
   return {
     id: row.id,
     name: row.name,
@@ -118,7 +126,7 @@ export function fromProjectRow(row: ProjectRow): Project {
     ownerId: row.owner_id ?? undefined,
     minWorkEffortDays: minDays != null && Number.isFinite(minDays) ? minDays : undefined,
     workEffortUnit: normalizeWorkEffortUnit(row.work_effort_unit),
-    projectKind: normalizeProjectKind(row.project_kind),
+    projectKind,
     reportCategory: row.report_category ?? undefined,
     reportAgency: row.report_agency ?? undefined,
     reportBudgetThisYear: row.report_budget_this_year ?? undefined,
@@ -126,6 +134,8 @@ export function fromProjectRow(row: ProjectRow): Project {
     reportNameShort: row.report_name_short ?? undefined,
     reportNameFull: row.report_name_full ?? undefined,
     groupId: row.group_id ?? undefined,
+    pmName: row.pm_name?.trim() ? row.pm_name.trim() : undefined,
+    includeInDashboard,
   };
 }
 

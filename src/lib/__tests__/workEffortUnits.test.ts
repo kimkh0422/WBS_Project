@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   convertStoredEffortBetweenUnits,
+  DEFAULT_MAN_DAYS_PER_MAN_MONTH,
+  manDaysToManMonths,
   manDaysToStoredWorkEffort,
   normalizeWorkEffortUnit,
   workEffortToManDays,
@@ -12,6 +14,16 @@ describe('normalizeWorkEffortUnit', () => {
     expect(normalizeWorkEffortUnit('DAY')).toBe('day');
     expect(normalizeWorkEffortUnit('hour')).toBe('hour');
     expect(normalizeWorkEffortUnit('week')).toBe('week');
+  });
+});
+
+describe('manDaysToManMonths', () => {
+  it('divides by default month length', () => {
+    expect(manDaysToManMonths(0)).toBe(0);
+    expect(manDaysToManMonths(20)).toBeCloseTo(1, 6);
+    expect(manDaysToManMonths(40)).toBeCloseTo(2, 6);
+    expect(manDaysToManMonths(10, 22)).toBeCloseTo(10 / 22, 6);
+    expect(DEFAULT_MAN_DAYS_PER_MAN_MONTH).toBe(20);
   });
 });
 

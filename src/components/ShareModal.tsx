@@ -33,6 +33,8 @@ interface ShareModalProps {
   isAdmin?: boolean;
   /** 멤버 표시명 및 멤버 추가 시 사용. 관리자/소유자 권한 관리 시 필요 */
   profileMap?: Record<string, string>;
+  /** 화면 표시 전용(소속·이름·직급). 없으면 profileMap */
+  profileDisplayById?: Record<string, string>;
   profiles?: ShareModalProfile[];
   /** 프로젝트 소유자 ID. 멤버 추가 시 소유자는 제외 */
   ownerId?: string;
@@ -46,10 +48,12 @@ export function ShareModal({
   isOwner,
   isAdmin,
   profileMap = {},
+  profileDisplayById = {},
   profiles = [],
   ownerId,
 }: ShareModalProps) {
   const { user } = useAuth();
+  const labelForProfileId = (id: string, fallback?: string) => profileDisplayById[id] ?? profileMap[id] ?? fallback ?? id;
   const [copied, setCopied] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [members, setMembers] = useState<ProjectMemberRow[]>([]);
@@ -200,14 +204,14 @@ export function ShareModal({
     // 이메일 우선 매칭 (더 정확)
     if (emailNorm) {
       const byEmail = profiles.find((p) => (p.email ?? '').trim().toLowerCase() === emailNorm);
-      if (byEmail) return { id: byEmail.id, label: profileMap[byEmail.id] ?? byEmail.full_name ?? byEmail.email ?? byEmail.id };
+      if (byEmail) return { id: byEmail.id, label: labelForProfileId(byEmail.id, byEmail.full_name ?? byEmail.email ?? byEmail.id) };
     }
     if (nameNorm) {
       const byName = profiles.find((p) => {
-        const candidate = (profileMap[p.id] ?? p.full_name ?? '').trim();
+        const candidate = (labelForProfileId(p.id, p.full_name ?? '') ?? '').trim();
         return candidate === nameNorm;
       });
-      if (byName) return { id: byName.id, label: profileMap[byName.id] ?? byName.full_name ?? byName.email ?? byName.id };
+      if (byName) return { id: byName.id, label: labelForProfileId(byName.id, byName.full_name ?? byName.email ?? byName.id) };
     }
     return null;
   };
@@ -305,12 +309,12 @@ export function ShareModal({
   const addSearchActive = addSearch.trim().length > 0;
   const filteredAddableProfiles = addableProfiles.filter((p) => {
     if (!addSearchActive && namesInSelectedOrg) {
-      const name = profileMap[p.id] ?? p.full_name ?? '';
+      const name = labelForProfileId(p.id, p.full_name ?? '');
       if (!namesInSelectedOrg.has(name)) return false;
     }
     if (!addSearchActive) return true;
     const q = addSearch.trim().toLowerCase();
-    const label = (profileMap[p.id] ?? p.full_name ?? p.email ?? p.id).toLowerCase();
+    const label = (labelForProfileId(p.id, p.full_name ?? p.email ?? p.id) ?? '').toLowerCase();
     return label.includes(q);
   });
   const toggleAddSelection = (id: string) => {
@@ -411,7 +415,7 @@ export function ShareModal({
           ) : (
             <ul className="space-y-2">
               {members.map((m) => {
-                const displayName = m.user_id === user?.id ? '나' : (profileMap[m.user_id] ?? `멤버 (${m.user_id.slice(0, 8)}...)`);
+                const displayName = m.user_id === user?.id ? '나' : labelForProfileId(m.user_id, `멤버 (${m.user_id.slice(0, 8)}...)`);
                 const canChangeRole = canManage && m.role !== 'owner' && (m.role === 'editor' || m.role === 'viewer');
                 return (
                   <li key={m.id} className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-stone-50">
@@ -599,7 +603,7 @@ export function ShareModal({
                     ) : (
                       <ul className="space-y-1">
                         {filteredAddableProfiles.map((p) => {
-                          const label = profileMap[p.id] ?? p.full_name ?? p.email ?? p.id.slice(0, 8);
+                          const label = labelForProfileId(p.id, p.full_name ?? p.email ?? p.id.slice(0, 8));
                           const checked = selectedAddUserIds.has(p.id);
                           return (
                             <li key={p.id}>

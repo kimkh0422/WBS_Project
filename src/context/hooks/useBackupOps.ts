@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project } from '../../types';
+import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { WBSSettings, parseSettings } from '../../lib/wbsSettings';
 import { BackupData } from '../../lib/export';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,6 +11,8 @@ export interface BackupOpsDeps {
   bumpDirty: () => void;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
   ownerIdRef: MutableRefObject<string | undefined>;
+  /** 신규·리셋 프로젝트 PM 기본값(표시명) */
+  creatorDisplayNameRef: MutableRefObject<string | undefined>;
   currentProjectIdRef: MutableRefObject<string>;
   projectsRef: MutableRefObject<Project[]>;
   allTasksRef: MutableRefObject<Task[]>;
@@ -28,6 +31,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
     bumpDirty,
     recordDeletedTaskIds,
     ownerIdRef,
+    creatorDisplayNameRef,
     currentProjectIdRef,
     projectsRef,
     allTasksRef,
@@ -54,6 +58,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
             id: uuidv4(),
             name: newProjectName!.trim() || '가져온 프로젝트',
             ownerId: ownerIdRef.current ?? undefined,
+            pmName: creatorDisplayNameRef.current?.trim() || 'PM 미입력',
           }
         : null;
 
@@ -78,7 +83,17 @@ export function useBackupOps(deps: BackupOpsDeps) {
         );
       });
     },
-    [saveHistory, recordDeletedTaskIds, ownerIdRef, currentProjectIdRef, projectsRef, setProjects, setAllTasks, setCurrentProjectId],
+    [
+      saveHistory,
+      recordDeletedTaskIds,
+      ownerIdRef,
+      creatorDisplayNameRef,
+      currentProjectIdRef,
+      projectsRef,
+      setProjects,
+      setAllTasks,
+      setCurrentProjectId,
+    ],
   );
 
   const deleteAllTasks = useCallback(() => {
@@ -114,7 +129,14 @@ export function useBackupOps(deps: BackupOpsDeps) {
   }, [saveHistory, recordDeletedTaskIds, setAllTasks]);
 
   const resetAllProjectsToNew = useCallback(async (): Promise<void> => {
-    const newProject: Project = { id: uuidv4(), name: '새 프로젝트', ownerId: ownerIdRef.current };
+    const newProject: Project = {
+      id: uuidv4(),
+      name: '새 프로젝트',
+      ownerId: ownerIdRef.current,
+      projectKind: DEFAULT_NEW_PROJECT_KIND,
+      includeInDashboard: false,
+      pmName: creatorDisplayNameRef.current?.trim() || 'PM 미입력',
+    };
     saveHistory();
     setSelectedTaskIds([]);
 
@@ -145,6 +167,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
     bumpDirty,
     recordDeletedTaskIds,
     ownerIdRef,
+    creatorDisplayNameRef,
     projectsRef,
     setProjects,
     setAllTasks,

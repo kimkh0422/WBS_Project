@@ -1,6 +1,25 @@
 import { addMonths, eachMonthOfInterval, format, isValid, parseISO, startOfMonth } from 'date-fns';
+import type { OrgMember } from '../data/organization';
 import type { Project, ProjectAssignment, Task } from '../types';
+import { formatProjectDisplayName } from './projectKind';
 import { getEffectiveAllocationPercent } from './workload';
+
+/** 원시 assignments에서 해당 담당자의 월별 투입(%)을 합칩니다(동일 키는 마지막 값). */
+export function mergeMonthlyAllocationsForAssignee(project: Project, assignee: string): Record<string, number> | null {
+  const target = (assignee || '').trim() || '(미지정)';
+  const out: Record<string, number> = {};
+  for (const a of project.assignments ?? []) {
+    const key = (a.assignee || '').trim() || '(미지정)';
+    if (key !== target) continue;
+    if (!a.monthlyAllocations) continue;
+    for (const [ym, v] of Object.entries(a.monthlyAllocations)) {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      out[ym] = n;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 export function normalizeProjectAssignments(
   assignments: ProjectAssignment[],
@@ -84,7 +103,7 @@ export type PersonProjectAddPayload = { kind: 'existing'; projectId: string } | 
 export function findProjectByAllocationInput(input: string, projects: Project[]): Project | undefined {
   const trimmed = input.trim();
   if (!trimmed) return undefined;
-  return projects.find((p) => p.id === trimmed || p.name.trim() === trimmed);
+  return projects.find((p) => p.id === trimmed || p.name.trim() === trimmed || formatProjectDisplayName(p.name, p.projectKind) === trimmed);
 }
 
 /** 기존 프로젝트 투입 갱신 또는 신규 프로젝트 생성 후 투입 등록 */
@@ -195,6 +214,19 @@ export function computeProjectTotalManMonths(project: Pick<Project, 'startDate' 
   return Math.round(total * 10) / 10;
 }
 
+/** 프로젝트 내 담당자별 WBS 공수(M/D) 합 */
+export function computeProjectAssigneeWorkEffort(allTasks: Task[], projectId: string): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const t of allTasks) {
+    if (t.projectId !== projectId) continue;
+    const person = (t.assignee || '').trim() || '(미지정)';
+    const effort = Number(t.workEffort) || 0;
+    if (effort <= 0) continue;
+    map.set(person, (map.get(person) ?? 0) + effort);
+  }
+  return map;
+}
+
 /** 담당자 → 프로젝트 ID → 작업 공수(M/D) 합 */
 export function computePersonProjectWorkEffort(allTasks: Task[]): Map<string, Map<string, number>> {
   const map = new Map<string, Map<string, number>>();
@@ -247,4 +279,34 @@ export function computePersonTaskAllocations(projects: Project[], taskCounts: Ma
     })
     .filter((row) => row.totalTaskCount > 0)
     .sort((a, b) => b.totalTaskCount - a.totalTaskCount);
+}
+
+/**
+ * 조직 인원 디렉터리가 있을 때, 인원별 작업 할당 표에 조직의 전체 직원을 포함한다.
+ * - 조직 멤버 순서를 먼저 채우고, 작업에는 있으나 조직에 없는 담당자는 뒤에 이어 붙인다.
+ * - 할당이 없는 직원은 totalTaskCount 0, items 빈 배열로 둔다.
+ */
+export function mergePersonTaskAllocationsWithOrgDirectory(
+  base: PersonTaskAllocation[],
+  orgMembers: OrgMember[] | undefined,
+): PersonTaskAllocation[] {
+  const byPerson = new Map(base.map((r) => [r.person, r]));
+  const seen = new Set<string>();
+  const out: PersonTaskAllocation[] = [];
+
+  for (const m of orgMembers ?? []) {
+    const name = (m.name || '').trim();
+    if (!name) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(byPerson.get(name) ?? { person: name, items: [], totalTaskCount: 0 });
+  }
+
+  for (const row of base) {
+    if (seen.has(row.person)) continue;
+    seen.add(row.person);
+    out.push(row);
+  }
+
+  return out;
 }

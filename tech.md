@@ -84,7 +84,6 @@ WBS_MG/
 │       ├── MembersModal.tsx      # 회원 관리 (관리자)
 │       ├── AuditLogModal.tsx     # 변경 이력 조회
 │       ├── AdminPasswordModal.tsx # 관리자 비밀번호 모달
-│       ├── ShortcutsSidebar.tsx  # 단축키 안내 사이드바
 │       ├── BaselineView.tsx      # 베이스라인 비교 뷰
 │       ├── OverloadWarningModal.tsx # 과부하 경고 모달
 │       ├── ConfirmDialog.tsx     # 확인 다이얼로그

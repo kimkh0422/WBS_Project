@@ -6,7 +6,13 @@ import { Task, Project } from '../types';
 import { TaskModal } from './TaskModal';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import {
+  buildAssigneeCandidates,
+  buildOrgMemberLabelMap,
+  buildOrgMemberDisplayMetaMap,
+  formatAssigneeDisplay,
+} from '../lib/assigneeOptions';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import { cn, formatNum2 } from '../lib/utils';
 
 interface WeeklyReportModalProps {
@@ -63,7 +69,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
   /** 담당자 자동완성 후보: 조직 회원 + 모든 프로젝트 등록 인원 + 작업의 기존 담당자 */
   const issueAssigneeCandidates = useMemo(() => buildAssigneeCandidates({ orgMembers, projects, tasks }), [orgMembers, projects, tasks]);
   const issueOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
-  const issueAssigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
+  const issueAssigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const [baseStartStr, setBaseStartStr] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [baseEndStr, setBaseEndStr] = useState(() => format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [scope, setScope] = useState<Scope>('me');
@@ -153,7 +159,10 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
     const projectName =
       projectScope === 'multiple' && selectedProjectIds.length > 0
         ? selectedProjectIds.length === 1
-          ? (projects.find((p) => p.id === selectedProjectIds[0])?.name ?? '선택한 프로젝트')
+          ? (() => {
+              const sp = projects.find((p) => p.id === selectedProjectIds[0]);
+              return sp ? formatProjectDisplayName(sp.name, sp.projectKind) : '선택한 프로젝트';
+            })()
           : `선택한 프로젝트 (${selectedProjectIds.length}개)`
         : '전체 프로젝트';
 
@@ -298,7 +307,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
       const map = new Map<string, Task[]>();
       for (const t of items) {
         const p = projects.find((prj) => prj.id === t.projectId);
-        const name = p?.name || '기타';
+        const name = p ? formatProjectDisplayName(p.name, p.projectKind) : '기타';
         if (!map.has(name)) map.set(name, []);
         map.get(name)!.push(t);
       }
@@ -466,7 +475,10 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
     const pName =
       projectScope === 'multiple' && selectedProjectIds.length > 0
         ? selectedProjectIds.length === 1
-          ? (projects.find((p) => p.id === selectedProjectIds[0])?.name ?? '선택한 프로젝트')
+          ? (() => {
+              const sp = projects.find((p) => p.id === selectedProjectIds[0]);
+              return sp ? formatProjectDisplayName(sp.name, sp.projectKind) : '선택한 프로젝트';
+            })()
           : `선택한 프로젝트 (${selectedProjectIds.length}개)`
         : '전체 프로젝트';
 
@@ -680,7 +692,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                       }}
                       className="rounded border-slate-300 text-indigo-600"
                     />
-                    <span className="whitespace-nowrap">{p.name}</span>
+                    <span className="whitespace-nowrap">{formatProjectDisplayName(p.name, p.projectKind)}</span>
                   </label>
                 ))}
               </div>
@@ -848,7 +860,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top whitespace-nowrap text-slate-700">
                                 <div contentEditable suppressContentEditableWarning>
-                                  {formatAssigneeDisplay(row.assignee, issueAssigneePositionByName) || '-'}
+                                  {formatAssigneeDisplay(row.assignee, issueAssigneeDisplayMetaByName) || '-'}
                                 </div>
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
@@ -901,7 +913,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                             <option value="">-- 선택 --</option>
                             {projects.map((p) => (
                               <option key={p.id} value={p.name}>
-                                {p.name}
+                                {formatProjectDisplayName(p.name, p.projectKind)}
                               </option>
                             ))}
                             <option value="기타">기타</option>

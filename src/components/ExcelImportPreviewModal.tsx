@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } fr
 import { cn } from '../lib/utils';
 import { ExcelImportMeta } from '../lib/excel';
 import type { Project } from '../types';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import { ConfirmDialog } from './ConfirmDialog';
 
 type ImportFilePreview = {
@@ -36,9 +37,12 @@ const colToLetter = (n: number) => {
 };
 
 const colRangeLabel = (indices?: number[], fallback?: number) => {
-  const cols = (Array.isArray(indices) && indices.length > 0)
-    ? [...indices].filter(n => n >= 0).sort((a, b) => a - b)
-    : (typeof fallback === 'number' && fallback >= 0 ? [fallback] : []);
+  const cols =
+    Array.isArray(indices) && indices.length > 0
+      ? [...indices].filter((n) => n >= 0).sort((a, b) => a - b)
+      : typeof fallback === 'number' && fallback >= 0
+        ? [fallback]
+        : [];
   if (cols.length === 0) return '-';
   if (cols.length === 1) return `${colToLetter(cols[0])} (${cols[0] + 1})`;
   return `${colToLetter(cols[0])}~${colToLetter(cols[cols.length - 1])} (${cols[0] + 1}~${cols[cols.length - 1] + 1})`;
@@ -83,7 +87,7 @@ export function ExcelImportPreviewModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setOpenFiles(prev => {
+    setOpenFiles((prev) => {
       const next: Record<string, boolean> = { ...prev };
       for (const f of files) {
         if (next[f.fileName] === undefined) next[f.fileName] = files.length === 1;
@@ -97,11 +101,11 @@ export function ExcelImportPreviewModal({
     if (!isOpen) return;
     const defaultProjectId = effectiveCurrent || IMPORT_TARGET_NEW;
     setTargetProjectId(defaultProjectId);
-    setNewProjectName(prev => prev || `가져온 프로젝트 (${new Date().toLocaleDateString('ko-KR')})`);
+    setNewProjectName((prev) => prev || `가져온 프로젝트 (${new Date().toLocaleDateString('ko-KR')})`);
   }, [isOpen, effectiveCurrent, projects]);
 
   const hasAnyUnmapped = useMemo(() => {
-    return files.some(f => f.meta.unmappedHeaders.length > 0);
+    return files.some((f) => f.meta.unmappedHeaders.length > 0);
   }, [files]);
 
   if (!isOpen) return null;
@@ -141,7 +145,7 @@ export function ExcelImportPreviewModal({
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} (기존 덮어쓰기)
+                    {formatProjectDisplayName(p.name, p.projectKind)} (기존 덮어쓰기)
                   </option>
                 ))}
                 <option value={IMPORT_TARGET_NEW}>+ 새 프로젝트 생성</option>
@@ -156,9 +160,7 @@ export function ExcelImportPreviewModal({
                 />
               )}
             </div>
-            <div className="text-[12px] text-slate-500">
-              아래는 엑셀 컬럼이 앱 필드로 어떻게 매칭되었는지의 자동 감지 결과입니다.
-            </div>
+            <div className="text-[12px] text-slate-500">아래는 엑셀 컬럼이 앱 필드로 어떻게 매칭되었는지의 자동 감지 결과입니다.</div>
             <div className="mt-2 inline-flex items-center gap-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
               <Info size={14} className="text-slate-500" />
               <span title={effortTooltip} className="cursor-help">
@@ -176,20 +178,25 @@ export function ExcelImportPreviewModal({
                 <div key={f.fileName} className="border border-slate-200 rounded-xl overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => setOpenFiles(prev => ({ ...prev, [f.fileName]: !isExpanded }))}
+                    onClick={() => setOpenFiles((prev) => ({ ...prev, [f.fileName]: !isExpanded }))}
                     className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-slate-50 transition-colors"
                   >
                     <div className="flex items-center gap-2 text-left min-w-0">
-                      {isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                      {isExpanded ? (
+                        <ChevronDown size={16} className="text-slate-400" />
+                      ) : (
+                        <ChevronRight size={16} className="text-slate-400" />
+                      )}
                       <div className="min-w-0">
                         <div className="text-sm font-bold text-slate-800 truncate">{f.fileName}</div>
                         <div className="text-[11px] text-slate-500 mt-0.5">
-                          시트 <span className="font-semibold text-slate-700">{sheet}</span> · 헤더 {headerRowNo}행 · 작업 {f.taskCount.toLocaleString()}개 · 인식 방식 {f.meta.mode === 'known' ? '정규(내보내기 포맷)' : '자동(스마트)'}
+                          시트 <span className="font-semibold text-slate-700">{sheet}</span> · 헤더 {headerRowNo}행 · 작업{' '}
+                          {f.taskCount.toLocaleString()}개 · 인식 방식 {f.meta.mode === 'known' ? '정규(내보내기 포맷)' : '자동(스마트)'}
                         </div>
                       </div>
                     </div>
                     <div className="text-[11px] text-slate-500 shrink-0">
-                      매칭 {f.meta.mapped.filter(m => m.columnIndex >= 0).length}/{f.meta.mapped.length}
+                      매칭 {f.meta.mapped.filter((m) => m.columnIndex >= 0).length}/{f.meta.mapped.length}
                     </div>
                   </button>
 
@@ -219,7 +226,7 @@ export function ExcelImportPreviewModal({
                                   )}
                                 </div>
                                 <div className="col-span-7 px-3 py-2 border-l border-slate-200">
-                                  <span className={cn("font-medium", ok ? "text-slate-800" : "text-red-600")}>
+                                  <span className={cn('font-medium', ok ? 'text-slate-800' : 'text-red-600')}>
                                     {ok ? m.header : '미매칭'}
                                   </span>
                                   {m.note && (
@@ -242,7 +249,10 @@ export function ExcelImportPreviewModal({
                           <div className="font-bold text-slate-700 mb-1">미사용(미매칭) 엑셀 컬럼</div>
                           <div className="flex flex-wrap gap-1.5">
                             {f.meta.unmappedHeaders.slice(0, 24).map((u) => (
-                              <span key={`${u.columnIndex}-${u.header}`} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
+                              <span
+                                key={`${u.columnIndex}-${u.header}`}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full"
+                              >
                                 {u.header} <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
                               </span>
                             ))}
@@ -276,7 +286,9 @@ export function ExcelImportPreviewModal({
             onClose();
           }}
         >
-          <button type="button" onClick={onClose} className="btn-ghost">취소</button>
+          <button type="button" onClick={onClose} className="btn-ghost">
+            취소
+          </button>
           <button ref={confirmButtonRef} type="submit" className="btn-primary">
             가져오기
           </button>
@@ -296,7 +308,10 @@ export function ExcelImportPreviewModal({
         title="기존 프로젝트 덮어쓰기"
         message={
           overwriteConfirm.targetProjectId
-            ? `기존 프로젝트 "${projects.find((p) => p.id === overwriteConfirm.targetProjectId)?.name ?? '선택한 프로젝트'}"을(를) 덮어쓸까요?\n기존 작업 데이터가 가져온 데이터로 대체됩니다.`
+            ? `기존 프로젝트 "${(() => {
+                const tp = projects.find((p) => p.id === overwriteConfirm.targetProjectId);
+                return tp ? formatProjectDisplayName(tp.name, tp.projectKind) : '선택한 프로젝트';
+              })()}"을(를) 덮어쓸까요?\n기존 작업 데이터가 가져온 데이터로 대체됩니다.`
             : ''
         }
         confirmLabel="가져오기"
@@ -305,4 +320,3 @@ export function ExcelImportPreviewModal({
     </div>
   );
 }
-

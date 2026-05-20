@@ -12,7 +12,12 @@ import { useWBS } from '../context/WBSContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { useToast } from './Toast';
-import { buildOrgMemberLabelMap, buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import {
+  buildOrgMemberLabelMap,
+  buildOrgMemberDisplayMetaMap,
+  formatAssigneeDisplay,
+  type PersonDisplayMeta,
+} from '../lib/assigneeOptions';
 import { type TableColumnId } from './wbsTableTypes';
 
 /** taskId → 표에서의 순번(1부터) */
@@ -37,13 +42,13 @@ function getTaskDetailTooltip(
   displayWbsMap: Map<string, string> | null | undefined,
   isCritical?: boolean,
   projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
-  positionByName?: Map<string, string>,
+  displayMetaByName?: Map<string, PersonDisplayMeta>,
 ): string {
   if (!task) return '';
   const lines: string[] = [];
   const effortUnit = normalizeWorkEffortUnit(projectEffortUnitByProjectId?.get(task.projectId));
   const statusName = Array.isArray(statusConfigs) ? (statusConfigs.find((c) => c.id === task.status)?.name ?? task.status) : task.status;
-  const assigneeText = formatAssigneeDisplay(task.assignee, positionByName) || '—';
+  const assigneeText = formatAssigneeDisplay(task.assignee, displayMetaByName) || '—';
   lines.push(`작업명: ${task.name ?? ''}`);
   if (task.isMilestone) lines.push('유형: 마일스톤');
   if (task.isIssue) lines.push('이슈: 예');
@@ -215,7 +220,7 @@ function SortableTaskRowInner({
   const rowLevelBg = (lev: number, hasKids: boolean) => (hasKids ? levelRowBgCtx(lev) : 'transparent');
   const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
-  const orgMemberPositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
+  const orgMemberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
   /** 프로젝트 assignments에서 담당자명(트림) 기준으로 비율 합침 — 동일 이름 중복 시 마지막 값, 표시·편집 기본값과 일치 */
   const projectAllocPctByTrimmedName = useMemo(() => {
@@ -496,7 +501,7 @@ function SortableTaskRowInner({
                 displayWbsMap,
                 criticalPathSet?.has(task.id),
                 projectEffortUnitByProjectId,
-                orgMemberPositionByName,
+                orgMemberDisplayMetaByName,
               )}
             >
               {isInlineEditingName ? (
@@ -522,7 +527,7 @@ function SortableTaskRowInner({
                 />
               ) : (
                 <span
-                  className="font-medium text-[var(--color-ink)] flex items-center gap-1.5 cursor-cell"
+                  className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('name');
@@ -537,7 +542,7 @@ function SortableTaskRowInner({
                     displayWbsMap,
                     criticalPathSet?.has(task.id),
                     projectEffortUnitByProjectId,
-                    orgMemberPositionByName,
+                    orgMemberDisplayMetaByName,
                   )}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
@@ -990,7 +995,7 @@ function SortableTaskRowInner({
               ) : (
                 <>
                   <div className={cn('w-full px-1 py-0.5 truncate', task.assignee ? 'text-stone-600' : 'text-stone-400')}>
-                    {formatAssigneeDisplay(task.assignee, orgMemberPositionByName) || '배정 ...'}
+                    {formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 ...'}
                   </div>
                   <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
                     <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">

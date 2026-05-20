@@ -1,4 +1,5 @@
 import type { Project, Task, WorkEffortUnit } from '../types';
+import { formatNum2 } from './utils';
 
 export const DEFAULT_WORK_EFFORT_UNIT: WorkEffortUnit = 'day';
 
@@ -6,6 +7,41 @@ const HOURS_PER_MAN_DAY = 8;
 const MINUTES_PER_MAN_DAY = HOURS_PER_MAN_DAY * 60;
 /** `week` 단위 1주 → MD 환산(영업일 5일) */
 export const MAN_DAYS_PER_WEEK_STORED = 5;
+
+/**
+ * M/M(맨먼스)로 환산할 때 1개월에 해당하는 표준 인일 수.
+ * 보고·예산 관행에 맞게 20·22 등으로 바꿀 수 있습니다.
+ */
+export const DEFAULT_MAN_DAYS_PER_MAN_MONTH = 20;
+
+/** 인일(MD) → 맨먼스. `daysPerMonth` 기본값은 {@link DEFAULT_MAN_DAYS_PER_MAN_MONTH}. */
+export function manDaysToManMonths(md: number, daysPerMonth: number = DEFAULT_MAN_DAYS_PER_MAN_MONTH): number {
+  if (!Number.isFinite(md) || md <= 0) return 0;
+  if (!Number.isFinite(daysPerMonth) || daysPerMonth <= 0) return 0;
+  return md / daysPerMonth;
+}
+
+/**
+ * 프로젝트·인원의 투입비율(%) 합계를 맨먼스로 볼 때의 값.
+ * 100%(1명 상당 전일 투입) = 1 M/M.
+ */
+export function allocationPercentSumToManMonths(totalPercent: number): number {
+  if (!Number.isFinite(totalPercent)) return 0;
+  return totalPercent / 100;
+}
+
+/** {@link allocationPercentSumToManMonths} 결과를 표준 인월(기본 20 M/D) 기준 인일로 환산 */
+export function allocationPercentSumToManDays(totalPercent: number, daysPerMonth: number = DEFAULT_MAN_DAYS_PER_MAN_MONTH): number {
+  if (!Number.isFinite(daysPerMonth) || daysPerMonth <= 0) return 0;
+  return allocationPercentSumToManMonths(totalPercent) * daysPerMonth;
+}
+
+/** 투입비율(%) 합계를 M/M 또는 M/D로 표시 */
+export function formatAllocationPercentSumForDisplay(totalPercent: number, unit: 'mm' | 'md'): string {
+  if (!Number.isFinite(totalPercent)) return '-';
+  if (unit === 'md') return `${formatNum2(allocationPercentSumToManDays(totalPercent))} M/D`;
+  return `${formatNum2(allocationPercentSumToManMonths(totalPercent))} M/M`;
+}
 
 /** UI·프로젝트 설정 선택지 */
 export const WORK_EFFORT_UNIT_OPTIONS: { value: WorkEffortUnit; label: string }[] = [

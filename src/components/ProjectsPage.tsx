@@ -7,25 +7,48 @@ import { ShareModal } from './ShareModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ProjectGroupManagerModal } from './ProjectGroupManagerModal';
 import { useToast } from './Toast';
-import { FolderPlus, Trash2, Edit, Share2, Copy, List, ChevronRight, ChevronDown, Loader2, FolderOpen, FolderCog } from 'lucide-react';
-import { cn } from '../lib/utils';
+import {
+  FolderPlus,
+  Trash2,
+  Edit,
+  Share2,
+  Copy,
+  List,
+  ChevronRight,
+  ChevronDown,
+  Loader2,
+  FolderOpen,
+  FolderCog,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-react';
+import { cn, formatNum2 } from '../lib/utils';
+import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
+import { manDaysToManMonths } from '../lib/workEffortUnits';
 import { Project } from '../types';
-import { getProjectKindBadgeClass, groupProjectsByKind } from '../lib/projectKind';
+import { getProjectKindBadgeClass, groupProjectsByKind, PROJECT_KINDS, resolveProjectKindOrDefault } from '../lib/projectKind';
+import { PROJECT_CARD_SORT_LS_KEY, parseProjectCardSortKey, type ProjectCardSortKey } from '../lib/projectCardSort';
 import type { ProjectGroup } from '../lib/wbsSettings';
 import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatPersonDisplay } from '../lib/assigneeOptions';
+import type { ProfileRow } from '../lib/supabase';
+
+/** 프로젝트 관리 표의 열 정렬 키 */
+type ProjectsColumnSortKey = 'name' | 'kind' | 'group' | 'tasks' | 'input' | 'owner' | 'start' | 'end' | 'pm';
 
 interface ProjectsPageProps {
   onNavigateToWork?: (projectId?: string) => void;
 }
 
-type ProjectSortKey = 'default' | 'task_desc' | 'task_asc';
-
 export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { user } = useAuth();
   const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId, wbsSettings } = useWBS();
   const { push: pushToast } = useToast();
+  const { orgMembers } = useOrganization();
 
-  const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null }[]>([]);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
@@ -38,7 +61,25 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isCopyConfirmOpen, setIsCopyConfirmOpen] = useState(false);
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
-  const [projectSort, setProjectSort] = useState<ProjectSortKey>('default');
+  const [projectSort, setProjectSort] = useState<ProjectCardSortKey>(() => {
+    try {
+      return parseProjectCardSortKey(localStorage.getItem(PROJECT_CARD_SORT_LS_KEY));
+    } catch {
+      return 'default';
+    }
+  });
+
+  const persistProjectSort = (next: ProjectCardSortKey) => {
+    try {
+      if (next === 'default') localStorage.removeItem(PROJECT_CARD_SORT_LS_KEY);
+      else localStorage.setItem(PROJECT_CARD_SORT_LS_KEY, next);
+    } catch {
+      /* ignore */
+    }
+    setProjectSort(next);
+  };
+
+  const [columnSort, setColumnSort] = useState<{ key: ProjectsColumnSortKey; dir: 'asc' | 'desc' } | null>(null);
   const [groupByOwner, setGroupByOwner] = useState(false);
   const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
     try {
@@ -125,6 +166,31 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return m;
   }, [profiles, ownerDisplayNames]);
 
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
+
+  const profileDisplayById = useMemo(
+    () => buildProfileDisplayById(profiles, orgMembers, ownerDisplayNames),
+    [profiles, orgMembers, ownerDisplayNames],
+  );
+
+  const currentUserPlainName = useMemo(() => {
+    if (!user) return '';
+    const profile = profiles.find((p) => p.id === user.id);
+    const name = profile?.full_name || (user.user_metadata as { full_name?: string } | undefined)?.full_name;
+    return ((name && String(name).trim()) || user.email || '사용자').trim();
+  }, [user, profiles]);
+
+  const currentUserDisplay = useMemo(() => {
+    if (!user) return '';
+    const profile = profiles.find((p) => p.id === user.id);
+    const plain =
+      (profile?.full_name && String(profile.full_name).trim()) ||
+      (user.user_metadata as { full_name?: string } | undefined)?.full_name ||
+      '';
+    const base = (plain && String(plain).trim()) || user.email || '사용자';
+    return formatPersonDisplay(base, { orgMetaByName: assigneeDisplayMetaByName, fallbackDepartment: profile?.department });
+  }, [user, profiles, assigneeDisplayMetaByName]);
+
   const effectiveIsAdmin = isAdmin;
 
   // 권한 헬퍼: 시스템 관리자 / 프로젝트 소유자만
@@ -144,6 +210,27 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return m;
   }, [projects, allTasks]);
 
+  /** 프로젝트별 WBS 공수 합(M/D) — 대시보드 카드·「투입 M/M」정렬과 동일 기준 */
+  const inputManDaysByProjectId = useMemo(() => {
+    const r: Record<string, number> = {};
+    for (const p of projects) {
+      const wd = computeProjectAssigneeWorkEffort(allTasks, p.id);
+      r[p.id] = [...wd.values()].reduce((a, b) => a + b, 0);
+    }
+    return r;
+  }, [projects, allTasks]);
+
+  const effortDisplayUnitForProjectList = useMemo((): 'mm' | 'md' => {
+    if (typeof window === 'undefined') return 'mm';
+    try {
+      const v = window.localStorage.getItem('dashboard-person-allocation-effort-unit');
+      if (v === 'md' || v === 'mm') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'mm';
+  }, []);
+
   // id 기준으로만 표시 (사용자별 복사본이 원본과 합쳐지지 않음)
   // showMyOnly가 true면 본인 owner인 프로젝트만 노출.
   const uniqueProjects = useMemo(() => {
@@ -156,25 +243,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     });
   }, [projects, showMyOnly, user?.id]);
 
-  const sortedProjects = useMemo(() => {
-    if (projectSort === 'default') return uniqueProjects;
-    const copy = [...uniqueProjects];
-    const dir = projectSort === 'task_asc' ? 1 : -1;
-    copy.sort((a, b) => {
-      const ac = taskCountByProject[a.id] ?? 0;
-      const bc = taskCountByProject[b.id] ?? 0;
-      if (ac !== bc) return (ac - bc) * dir;
-      const nameCmp = a.name.localeCompare(b.name, 'ko');
-      if (nameCmp !== 0) return nameCmp;
-      return a.id.localeCompare(b.id);
-    });
-    return copy;
-  }, [uniqueProjects, projectSort, taskCountByProject]);
-
   const ownerLabel = (ownerId: string | undefined) => {
     if (!ownerId) return '소유자 미지정';
     if (ownerId === user?.id) return '내 프로젝트';
-    return profileMap[ownerId] ?? `사용자 (${ownerId.slice(0, 8)}…)`;
+    return profileDisplayById[ownerId] ?? profileMap[ownerId] ?? `사용자 (${ownerId.slice(0, 8)}…)`;
   };
 
   const sortedGroups = useMemo<ProjectGroup[]>(() => {
@@ -187,40 +259,170 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     });
   }, [wbsSettings.projectGroups]);
 
+  const sortedProjects = useMemo(() => {
+    if (projectSort === 'default') return uniqueProjects;
+    const list = [...uniqueProjects];
+    const validGroupIds = new Set(sortedGroups.map((g) => g.id));
+    const getEffectiveGroupId = (p: Project) => (p.groupId && validGroupIds.has(p.groupId) ? p.groupId : '__none__');
+
+    if (projectSort === 'group') {
+      const groupOrder = new Map<string, number>();
+      sortedGroups.forEach((g, i) => groupOrder.set(g.id, i));
+      groupOrder.set('__none__', sortedGroups.length);
+      list.sort((a, b) => {
+        const ga = groupOrder.get(getEffectiveGroupId(a)) ?? 999;
+        const gb = groupOrder.get(getEffectiveGroupId(b)) ?? 999;
+        if (ga !== gb) return ga - gb;
+        const nameCmp = a.name.localeCompare(b.name, 'ko');
+        if (nameCmp !== 0) return nameCmp;
+        return a.id.localeCompare(b.id);
+      });
+    } else if (projectSort === 'kind') {
+      const kindOrder = new Map(PROJECT_KINDS.map((k, i) => [k, i] as const));
+      list.sort((a, b) => {
+        const ka = kindOrder.get(resolveProjectKindOrDefault(a)) ?? 999;
+        const kb = kindOrder.get(resolveProjectKindOrDefault(b)) ?? 999;
+        if (ka !== kb) return ka - kb;
+        const nameCmp = a.name.localeCompare(b.name, 'ko');
+        if (nameCmp !== 0) return nameCmp;
+        return a.id.localeCompare(b.id);
+      });
+    } else if (projectSort === 'inputMm') {
+      list.sort((a, b) => {
+        const da = inputManDaysByProjectId[a.id] ?? 0;
+        const db = inputManDaysByProjectId[b.id] ?? 0;
+        if (db !== da) return db - da;
+        const nameCmp = a.name.localeCompare(b.name, 'ko');
+        if (nameCmp !== 0) return nameCmp;
+        return a.id.localeCompare(b.id);
+      });
+    }
+
+    return list;
+  }, [uniqueProjects, projectSort, sortedGroups, inputManDaysByProjectId]);
+
+  const orderedProjects = useMemo(() => {
+    if (!columnSort) return sortedProjects;
+    const list = [...uniqueProjects];
+    const mult = columnSort.dir === 'desc' ? -1 : 1;
+    const kindOrder = new Map(PROJECT_KINDS.map((k, i) => [k, i] as const));
+    const validGroupIds = new Set(sortedGroups.map((g) => g.id));
+    const getEffectiveGroupId = (p: Project) => (p.groupId && validGroupIds.has(p.groupId) ? p.groupId : '__none__');
+    const groupOrder = new Map<string, number>();
+    sortedGroups.forEach((g, i) => groupOrder.set(g.id, i));
+    groupOrder.set('__none__', sortedGroups.length);
+
+    const ownerSortStr = (ownerId: string | undefined) => {
+      if (!ownerId) return '소유자 미지정';
+      if (ownerId === user?.id) return '내 프로젝트';
+      return profileDisplayById[ownerId] ?? profileMap[ownerId] ?? ownerId;
+    };
+
+    list.sort((a, b) => {
+      let c = 0;
+      switch (columnSort.key) {
+        case 'name':
+          c = a.name.localeCompare(b.name, 'ko');
+          break;
+        case 'kind': {
+          const ka = kindOrder.get(resolveProjectKindOrDefault(a)) ?? 999;
+          const kb = kindOrder.get(resolveProjectKindOrDefault(b)) ?? 999;
+          c = ka - kb;
+          break;
+        }
+        case 'group': {
+          const ga = groupOrder.get(getEffectiveGroupId(a)) ?? 999;
+          const gb = groupOrder.get(getEffectiveGroupId(b)) ?? 999;
+          c = ga - gb;
+          if (c === 0) c = a.name.localeCompare(b.name, 'ko');
+          break;
+        }
+        case 'tasks':
+          c = (taskCountByProject[a.id] ?? 0) - (taskCountByProject[b.id] ?? 0);
+          break;
+        case 'input':
+          c = (inputManDaysByProjectId[a.id] ?? 0) - (inputManDaysByProjectId[b.id] ?? 0);
+          break;
+        case 'owner':
+          c = ownerSortStr(a.ownerId).localeCompare(ownerSortStr(b.ownerId), 'ko');
+          break;
+        case 'start': {
+          const sa = a.startDate ?? '';
+          const sb = b.startDate ?? '';
+          c = sa.localeCompare(sb);
+          break;
+        }
+        case 'end': {
+          const ea = a.endDate ?? '';
+          const eb = b.endDate ?? '';
+          c = ea.localeCompare(eb);
+          break;
+        }
+        case 'pm': {
+          const pa = (a.pmName ?? '').trim() || '\u0000';
+          const pb = (b.pmName ?? '').trim() || '\u0000';
+          c = pa.localeCompare(pb, 'ko');
+          break;
+        }
+        default:
+          break;
+      }
+      if (c === 0) return a.id.localeCompare(b.id);
+      return c * mult;
+    });
+    return list;
+  }, [
+    columnSort,
+    sortedProjects,
+    uniqueProjects,
+    sortedGroups,
+    taskCountByProject,
+    inputManDaysByProjectId,
+    user?.id,
+    profileDisplayById,
+    profileMap,
+  ]);
+
   const projectsGroupedByGroup = useMemo(() => {
     const map = new Map<string, Project[]>();
     sortedGroups.forEach((g) => map.set(g.id, []));
     map.set('__none__', []);
-    for (const p of sortedProjects) {
+    for (const p of orderedProjects) {
       const k = p.groupId && map.has(p.groupId) ? p.groupId : '__none__';
       map.get(k)!.push(p);
     }
     return map;
-  }, [sortedProjects, sortedGroups]);
+  }, [orderedProjects, sortedGroups]);
 
-  const projectsByKind = useMemo(() => groupProjectsByKind(sortedProjects), [sortedProjects]);
+  const projectsByKind = useMemo(() => groupProjectsByKind(orderedProjects), [orderedProjects]);
 
   const projectsGroupedByOwner = useMemo(() => {
     const map = new Map<string, Project[]>();
-    for (const p of sortedProjects) {
+    for (const p of orderedProjects) {
       const k = p.ownerId ?? '__none__';
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(p);
     }
     const entries = [...map.entries()] as [string, Project[]][];
+    const ownerSectionLabel = (ownerKey: string) => {
+      if (ownerKey === '__none__') return '소유자 미지정';
+      if (ownerKey === user?.id) return '내 프로젝트';
+      return profileDisplayById[ownerKey] ?? profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
+    };
     entries.sort(([ka], [kb]) => {
       if (user?.id && ka === user.id) return -1;
       if (user?.id && kb === user.id) return 1;
       if (ka === '__none__') return 1;
       if (kb === '__none__') return -1;
-      return ownerLabel(ka === '__none__' ? undefined : ka).localeCompare(ownerLabel(kb === '__none__' ? undefined : kb), 'ko');
+      return ownerSectionLabel(ka).localeCompare(ownerSectionLabel(kb), 'ko');
     });
     return entries;
-  }, [sortedProjects, user?.id, profileMap]);
+  }, [orderedProjects, user?.id, profileMap, profileDisplayById]);
 
   const handleSaveProject = (
     name: string,
     description: string,
+    pmName: string,
     startDate?: string,
     endDate?: string,
     assignments?: Project['assignments'],
@@ -233,6 +435,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     reportTotalPeriod?: string,
     reportNameShort?: string,
     reportNameFull?: string,
+    includeInDashboard?: boolean,
   ) => {
     if (editingProject) {
       updateProject(editingProject.id, {
@@ -250,6 +453,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         reportTotalPeriod,
         reportNameShort,
         reportNameFull,
+        pmName,
+        includeInDashboard,
       });
       setEditingProject(null);
     } else {
@@ -262,6 +467,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         reportTotalPeriod,
         reportNameShort,
         reportNameFull,
+        pmName,
+        includeInDashboard,
       });
     }
     setIsProjectModalOpen(false);
@@ -294,6 +501,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   // 일괄 삭제 선택 가능한 프로젝트(소유자·관리자만)
   const manageableProjects = useMemo(() => uniqueProjects.filter((p) => canManageProject(p)), [uniqueProjects, effectiveIsAdmin, user?.id]);
+  const showSelectCol = manageableProjects.length > 1;
+  const tableColSpan = (showSelectCol ? 1 : 0) + 10;
 
   const toggleProjectSelection = (projectId: string) => {
     setSelectedProjectIds((prev) => {
@@ -327,127 +536,205 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     onNavigateToWork?.(projectId);
   };
 
-  const renderProjectCard = (project: Project) => {
+  const formatListInputEffort = (projectId: string) => {
+    const md = inputManDaysByProjectId[projectId] ?? 0;
+    if (md <= 0) return '—';
+    if (effortDisplayUnitForProjectList === 'md') return `${formatNum2(md)} M/D`;
+    return `${formatNum2(manDaysToManMonths(md))} M/M`;
+  };
+
+  const handleColumnHeaderClick = (key: ProjectsColumnSortKey) => {
+    setColumnSort((prev) => {
+      if (prev?.key === key) return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' };
+      const defaultDesc = key === 'tasks' || key === 'input';
+      return { key, dir: defaultDesc ? 'desc' : 'asc' };
+    });
+    persistProjectSort('default');
+  };
+
+  const renderSortTh = (label: string, sortKey: ProjectsColumnSortKey, className?: string) => (
+    <th
+      scope="col"
+      className={cn(
+        'text-left text-xs font-semibold text-stone-600 px-3 py-2.5 border-b border-stone-200 bg-stone-100 whitespace-nowrap cursor-pointer select-none hover:bg-stone-200/90',
+        className,
+      )}
+      onClick={() => handleColumnHeaderClick(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {columnSort?.key === sortKey ? (
+          columnSort.dir === 'asc' ? (
+            <ArrowUp className="shrink-0 opacity-80" size={14} aria-hidden />
+          ) : (
+            <ArrowDown className="shrink-0 opacity-80" size={14} aria-hidden />
+          )
+        ) : (
+          <ArrowUpDown className="shrink-0 text-stone-400" size={13} aria-hidden />
+        )}
+      </span>
+    </th>
+  );
+
+  const renderTableHead = () => (
+    <thead className="sticky top-0 z-[1] shadow-[0_1px_0_0_rgba(0,0,0,0.06)]">
+      <tr>
+        {showSelectCol && <th scope="col" className="w-10 px-2 py-2.5 border-b border-stone-200 bg-stone-100" aria-label="선택" />}
+        {renderSortTh('종류', 'kind', 'min-w-[76px]')}
+        {renderSortTh('프로젝트명', 'name', 'min-w-[160px]')}
+        {renderSortTh('그룹', 'group', 'min-w-[120px]')}
+        {renderSortTh('PM', 'pm', 'min-w-[100px]')}
+        {renderSortTh('시작', 'start', 'min-w-[88px]')}
+        {renderSortTh('종료', 'end', 'min-w-[88px]')}
+        {renderSortTh('작업 수', 'tasks', 'min-w-[72px] text-right')}
+        {renderSortTh(effortDisplayUnitForProjectList === 'md' ? '투입 M/D' : '투입 M/M', 'input', 'min-w-[88px] text-right')}
+        {renderSortTh('소유자', 'owner', 'min-w-[120px]')}
+        <th
+          scope="col"
+          className="text-right text-xs font-semibold text-stone-600 px-3 py-2.5 border-b border-stone-200 bg-stone-100 whitespace-nowrap min-w-[140px]"
+        >
+          작업
+        </th>
+      </tr>
+    </thead>
+  );
+
+  const renderProjectRow = (project: Project) => {
     const canManage = canManageProject(project);
     const canEdit = canEditProject(project);
+    const kind = resolveProjectKindOrDefault(project);
     return (
-      <div
+      <tr
         key={project.id}
-        role="button"
-        tabIndex={0}
-        className={cn(
-          'bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden transition-all',
-          'hover:shadow-md hover:border-stone-300 cursor-pointer',
-        )}
+        className={cn('bg-white hover:bg-stone-50/90 transition-colors group/row', canEdit && 'cursor-pointer')}
         onDoubleClick={() => {
           if (!canEdit) return;
           setEditingProject(project);
           setIsProjectModalOpen(true);
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            if (!canEdit) return;
-            e.preventDefault();
-            setEditingProject(project);
-            setIsProjectModalOpen(true);
-          }
-        }}
         title={canEdit ? '더블클릭: 편집' : '편집 권한이 없습니다'}
       >
-        <div className="flex items-center gap-4 p-4">
-          {manageableProjects.length > 1 && canManage && (
-            <input
-              type="checkbox"
-              checked={selectedProjectIds.has(project.id)}
-              onChange={() => {}}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleProjectSelection(project.id);
-              }}
-              className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] shrink-0 cursor-pointer"
-              title="다중 선택 (삭제 권한이 있는 프로젝트만 선택 가능)"
-            />
+        {showSelectCol && (
+          <td className="px-2 py-2 align-middle border-b border-stone-100 w-10" onClick={(e) => e.stopPropagation()}>
+            {canManage ? (
+              <input
+                type="checkbox"
+                checked={selectedProjectIds.has(project.id)}
+                onChange={() => {}}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleProjectSelection(project.id);
+                }}
+                className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] cursor-pointer"
+                title="다중 선택 (삭제 권한이 있는 프로젝트만 선택 가능)"
+              />
+            ) : null}
+          </td>
+        )}
+        <td className="px-3 py-2 align-middle border-b border-stone-100">
+          <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-md border inline-block', getProjectKindBadgeClass(kind))}>
+            {kind}
+          </span>
+        </td>
+        <td className="px-3 py-2 align-middle border-b border-stone-100 min-w-0 max-w-[280px]">
+          <ProjectNameLabel project={project} name={project.name} nameClassName="font-medium text-[var(--color-ink)] truncate" />
+        </td>
+        <td className="px-3 py-2 align-middle border-b border-stone-100 text-stone-600" onClick={(e) => e.stopPropagation()}>
+          {sortedGroups.length > 0 ? (
+            canEdit ? (
+              <select
+                value={project.groupId ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  updateProject(project.id, { groupId: val === '' ? undefined : val });
+                }}
+                className="max-w-full text-xs text-stone-700 bg-white border border-stone-200 rounded-md px-2 py-1 hover:border-stone-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                title="그룹 선택"
+              >
+                <option value="">그룹 미지정</option>
+                {sortedGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs text-stone-500">{sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정'}</span>
+            )
+          ) : (
+            <span className="text-xs text-stone-400">—</span>
           )}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
-              {(taskCountByProject[project.id] ?? 0) > 0 && (
-                <span className="text-xs text-stone-400 shrink-0">({taskCountByProject[project.id] ?? 0}개 작업)</span>
-              )}
-            </div>
-            <span
-              className="text-xs text-stone-400 truncate block mt-0.5"
-              title={project.ownerId ? (profileMap[project.ownerId] ?? project.ownerId) : undefined}
-            >
-              소유(만든 사람):{' '}
-              {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
-                <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
-              ) : (
-                ownerLabel(project.ownerId)
-              )}
-            </span>
-            {sortedGroups.length > 0 && (
-              <div className="flex items-center gap-1.5 mt-1.5" onClick={(e) => e.stopPropagation()}>
-                <FolderOpen size={11} className="text-stone-300 shrink-0" />
-                {canEdit ? (
-                  <select
-                    value={project.groupId ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      updateProject(project.id, { groupId: val === '' ? undefined : val });
-                    }}
-                    className="text-[11px] text-stone-500 bg-transparent border border-stone-200 rounded px-1.5 py-0.5 hover:border-stone-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    title="그룹 선택"
-                  >
-                    <option value="">그룹 미지정</option>
-                    {sortedGroups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="text-[11px] text-stone-400">
-                    {sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정'}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
+        </td>
+        <td
+          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 max-w-[140px] truncate"
+          title={project.pmName}
+        >
+          {(project.pmName ?? '').trim() || '—'}
+        </td>
+        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums whitespace-nowrap">
+          {project.startDate ?? '—'}
+        </td>
+        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums whitespace-nowrap">
+          {project.endDate ?? '—'}
+        </td>
+        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums text-right">
+          {taskCountByProject[project.id] ?? 0}
+        </td>
+        <td
+          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums text-right"
+          title="WBS 작업 공수 합(담당자별)"
+        >
+          {formatListInputEffort(project.id)}
+        </td>
+        <td
+          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 min-w-0 max-w-[200px] truncate"
+          title={project.ownerId ? (profileDisplayById[project.ownerId] ?? profileMap[project.ownerId] ?? project.ownerId) : undefined}
+        >
+          {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
+            <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
+          ) : (
+            ownerLabel(project.ownerId)
+          )}
+        </td>
+        <td className="px-2 py-2 align-middle border-b border-stone-100 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+          <div className="inline-flex items-center justify-end gap-0.5">
             <button
+              type="button"
               onClick={() => handleNavigateToWork(project.id)}
-              className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
+              className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
               title="작업 보기"
             >
               <List size={16} />
             </button>
             {canManage && (
               <button
+                type="button"
                 onClick={() => handleOpenShare(project)}
-                className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+                className="p-1.5 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
                 title="공유"
               >
                 <Share2 size={16} />
               </button>
             )}
             <button
+              type="button"
               onClick={() => {
                 setProjectToCopy(project);
                 setIsCopyConfirmOpen(true);
               }}
-              className="p-2 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="p-1.5 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
               title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
             >
               <Copy size={16} />
             </button>
             {canEdit && (
               <button
+                type="button"
                 onClick={() => {
                   setEditingProject(project);
                   setIsProjectModalOpen(true);
                 }}
-                className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
                 title="편집"
               >
                 <Edit size={16} />
@@ -455,37 +742,32 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             )}
             {uniqueProjects.length > 1 && canManage && (
               <button
+                type="button"
                 onClick={() => {
                   setProjectToDelete(project);
                   setIsDeleteConfirmOpen(true);
                 }}
-                className="p-2 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                className="p-1.5 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
                 title="삭제"
               >
                 <Trash2 size={16} />
               </button>
             )}
           </div>
-        </div>
-        {onNavigateToWork && (
-          <button
-            onClick={() => handleNavigateToWork(project.id)}
-            className="w-full px-4 py-2 text-left text-xs font-medium text-stone-400 hover:bg-stone-50 hover:text-[var(--color-accent)] flex items-center gap-1 border-t border-stone-100"
-          >
-            작업 보기 <ChevronRight size={12} />
-          </button>
-        )}
-      </div>
+        </td>
+      </tr>
     );
   };
 
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="max-w-7xl mx-auto p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-[var(--color-ink)]">프로젝트 관리</h1>
-            <p className="text-sm text-stone-500 mt-0.5">프로젝트를 생성·편집·공유·삭제할 수 있습니다.</p>
+            <p className="text-sm text-stone-500 mt-0.5">
+              프로젝트를 생성·편집·공유·삭제할 수 있습니다. 표 머리글을 클릭하면 해당 열 기준으로 오름·내림차순 정렬됩니다.
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -569,18 +851,43 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               소유자별 그룹
             </label>
             <div className="h-4 w-px bg-stone-200/80" />
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-stone-400">정렬</span>
-              <select
-                value={projectSort}
-                onChange={(e) => setProjectSort(e.target.value as ProjectSortKey)}
-                className="px-2 py-1 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all"
-                title="프로젝트 정렬"
+            <div className="flex flex-wrap items-center gap-2">
+              <ArrowUpDown size={14} className="text-stone-400 shrink-0" aria-hidden />
+              <span className="text-xs font-medium text-stone-400 shrink-0">정렬</span>
+              <div
+                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
+                role="radiogroup"
+                aria-label="프로젝트 정렬"
+                title="대시보드「프로젝트별 상태」카드 정렬과 연동됩니다. 표 헤더로 정렬하면 프리셋은 기본으로 맞춰집니다."
               >
-                <option value="default">기본</option>
-                <option value="task_desc">작업 많은 순</option>
-                <option value="task_asc">작업 적은 순</option>
-              </select>
+                {(
+                  [
+                    { key: 'default' as const, label: '기본' },
+                    { key: 'group' as const, label: '그룹순' },
+                    { key: 'kind' as const, label: '종류순' },
+                    { key: 'inputMm' as const, label: '투입 M/M' },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={columnSort === null && projectSort === key}
+                    onClick={() => {
+                      setColumnSort(null);
+                      persistProjectSort(key);
+                    }}
+                    className={cn(
+                      'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                      projectSort === key && columnSort === null
+                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             {selectedProjectIds.size > 0 && (
               <button
@@ -593,8 +900,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           </div>
         )}
 
-        {/* 프로젝트 목록 */}
-        <div className="space-y-2">
+        {/* 프로젝트 목록 (표) */}
+        <div>
           {uniqueProjects.length === 0 ? (
             <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
               <FolderPlus className="mx-auto text-stone-300 mb-4" size={48} />
@@ -604,65 +911,84 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 새 프로젝트 만들기
               </button>
             </div>
-          ) : groupByOwner ? (
-            <div className="space-y-8">
-              {projectsGroupedByOwner.map(([ownerKey, list]) => (
-                <section key={ownerKey}>
-                  <h2 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 px-1 flex flex-wrap items-center gap-2 border-b border-stone-200/80 pb-2">
-                    <span>{ownerLabel(ownerKey === '__none__' ? undefined : ownerKey)}</span>
-                    <span className="font-normal text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
-                  </h2>
-                  <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
-                </section>
-              ))}
-            </div>
-          ) : sortedGroups.length > 0 ? (
-            <div className="space-y-6">
-              {[...sortedGroups, { id: '__none__', name: '그룹 미지정' } as ProjectGroup].map((g) => {
-                const list = projectsGroupedByGroup.get(g.id) ?? [];
-                if (g.id === '__none__' && list.length === 0) return null;
-                const collapsed = collapsedGroupIds.has(g.id);
-                return (
-                  <section key={g.id}>
-                    <h2 className="mb-3 px-1 flex items-center gap-3 border-b border-stone-200/80 pb-2.5">
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupCollapsed(g.id)}
-                        className="flex items-center gap-2 text-stone-800 hover:text-indigo-600"
-                        aria-expanded={!collapsed}
-                      >
-                        {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-                        <FolderOpen size={20} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
-                        <span className="text-base font-bold">{g.name}</span>
-                      </button>
-                      <span className="text-xs font-medium text-stone-400 tabular-nums">프로젝트 {list.length}개</span>
-                    </h2>
-                    {!collapsed &&
-                      (list.length > 0 ? (
-                        <div className="space-y-2 pl-6 border-l border-stone-100 ml-2">{list.map((p) => renderProjectCard(p))}</div>
-                      ) : (
-                        <div className="text-xs text-stone-400 px-2 py-3">소속된 프로젝트가 없습니다.</div>
-                      ))}
-                  </section>
-                );
-              })}
-            </div>
           ) : (
-            <div className="space-y-8">
-              {projectsByKind.map(({ kind, projects: list }) => (
-                <section key={kind}>
-                  <h2
-                    className={cn(
-                      'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border mb-3',
-                      getProjectKindBadgeClass(kind),
-                    )}
-                  >
-                    {kind}
-                    <span className="text-xs font-medium opacity-80 tabular-nums">프로젝트 {list.length}개</span>
-                  </h2>
-                  <div className="space-y-2">{list.map((p) => renderProjectCard(p))}</div>
-                </section>
-              ))}
+            <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
+              <table className="w-full min-w-[980px] text-sm border-collapse">
+                {renderTableHead()}
+                <tbody>
+                  {groupByOwner ? (
+                    <>
+                      {projectsGroupedByOwner.flatMap(([ownerKey, list]) => [
+                        <tr key={`sec-owner-${ownerKey}`} className="bg-stone-100/95">
+                          <td colSpan={tableColSpan} className="px-3 py-2.5 text-xs font-bold text-stone-700 border-b border-stone-200">
+                            <span>{ownerLabel(ownerKey === '__none__' ? undefined : ownerKey)}</span>
+                            <span className="ml-2 font-normal text-stone-500 tabular-nums">프로젝트 {list.length}개</span>
+                          </td>
+                        </tr>,
+                        ...list.map((p) => renderProjectRow(p)),
+                      ])}
+                    </>
+                  ) : sortedGroups.length > 0 ? (
+                    <>
+                      {[...sortedGroups, { id: '__none__', name: '그룹 미지정' } as ProjectGroup].flatMap((g) => {
+                        const list = projectsGroupedByGroup.get(g.id) ?? [];
+                        if (g.id === '__none__' && list.length === 0) return [];
+                        const collapsed = collapsedGroupIds.has(g.id);
+                        return [
+                          <tr key={`sec-grp-${g.id}`} className="bg-stone-100/95">
+                            <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                              <button
+                                type="button"
+                                onClick={() => toggleGroupCollapsed(g.id)}
+                                className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-indigo-600 font-bold text-sm w-full min-w-0"
+                                aria-expanded={!collapsed}
+                              >
+                                {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+                                <FolderOpen size={18} className={g.id === '__none__' ? 'text-stone-400' : 'text-amber-500 shrink-0'} />
+                                <span>{g.name}</span>
+                                <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {list.length}개</span>
+                              </button>
+                            </td>
+                          </tr>,
+                          ...(collapsed
+                            ? []
+                            : list.length > 0
+                              ? list.map((p) => renderProjectRow(p))
+                              : [
+                                  <tr key={`empty-grp-${g.id}`}>
+                                    <td
+                                      colSpan={tableColSpan}
+                                      className="px-3 py-3 text-xs text-stone-400 border-b border-stone-100 bg-stone-50/50"
+                                    >
+                                      소속된 프로젝트가 없습니다.
+                                    </td>
+                                  </tr>,
+                                ]),
+                        ];
+                      })}
+                    </>
+                  ) : (
+                    <>
+                      {projectsByKind.flatMap(({ kind, projects: list }) => [
+                        <tr key={`sec-kind-${kind}`} className="bg-stone-50">
+                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border',
+                                getProjectKindBadgeClass(kind),
+                              )}
+                            >
+                              {kind}
+                              <span className="text-xs font-medium opacity-80 tabular-nums">프로젝트 {list.length}개</span>
+                            </span>
+                          </td>
+                        </tr>,
+                        ...list.map((p) => renderProjectRow(p)),
+                      ])}
+                    </>
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -677,6 +1003,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         onSave={handleSaveProject}
         project={editingProject}
         allProjects={projects}
+        defaultPmNameForNewProject={currentUserPlainName}
       />
       <ShareModal
         isOpen={!!shareProjectId}
@@ -689,6 +1016,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         isOwner={projects.find((p) => p.id === shareProjectId)?.ownerId === user?.id}
         isAdmin={effectiveIsAdmin}
         profileMap={profileMap}
+        profileDisplayById={profileDisplayById}
         profiles={profiles.map((p) => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
         ownerId={projects.find((p) => p.id === shareProjectId)?.ownerId}
       />

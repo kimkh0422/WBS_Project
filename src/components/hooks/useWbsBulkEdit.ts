@@ -3,6 +3,9 @@ import type { Project, Task, TaskStatus } from '../../types';
 import type { WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
 
+/** 일괄 수정 바의 작업 유형(플래그 일괄 지정). '' = 변경 없음 */
+export type BulkTaskKind = '' | 'plain' | 'milestone' | 'issue' | 'action';
+
 interface UseWbsBulkEditOptions {
   selectedTaskIds: Set<string>;
   tasks: Task[];
@@ -41,6 +44,7 @@ export function useWbsBulkEdit({
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
   const [bulkAllocation, setBulkAllocation] = useState('');
+  const [bulkTaskKind, setBulkTaskKind] = useState<BulkTaskKind>('');
 
   const resetBulkFields = useCallback(() => {
     setBulkStatus('');
@@ -51,6 +55,7 @@ export function useWbsBulkEdit({
     setBulkStartDate('');
     setBulkEndDate('');
     setBulkAllocation('');
+    setBulkTaskKind('');
   }, []);
 
   const executeBulkEdit = useCallback(() => {
@@ -76,19 +81,48 @@ export function useWbsBulkEdit({
     if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
     if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();
     const hasAllocation = bulkAllocation !== '';
-    if (Object.keys(updates).length === 0 && !hasAllocation) return;
+    const hasTaskKind = bulkTaskKind !== '';
+    if (Object.keys(updates).length === 0 && !hasAllocation && !hasTaskKind) return;
     const ids = Array.from(selectedTaskIds);
-    // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
-    const hasScheduleField =
-      Object.prototype.hasOwnProperty.call(updates, 'workEffort') ||
-      Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
-      Object.prototype.hasOwnProperty.call(updates, 'startDate') ||
-      Object.prototype.hasOwnProperty.call(updates, 'dependencies');
-    if (Object.keys(updates).length > 0) {
-      if (hasScheduleField) {
-        ids.forEach((id) => updateTask(id, updates));
-      } else {
-        updateTasksBulk(ids, updates);
+    const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+
+    // 작업 유형(마일스톤/이슈/액션): 마일스톤은 작업별로 종료일·공수를 맞춤(TaskModal과 동일)
+    if (bulkTaskKind === 'milestone') {
+      for (const id of ids) {
+        const t = taskById.get(id);
+        if (!t) continue;
+        const start = (updates.startDate as string | undefined) ?? t.startDate;
+        updateTask(id, {
+          ...updates,
+          isMilestone: true,
+          isIssue: false,
+          isActionItem: false,
+          endDate: start,
+          workEffort: 0,
+        });
+      }
+    } else {
+      let merged: Partial<Task> = { ...updates };
+      if (bulkTaskKind === 'plain') {
+        merged = { ...merged, isMilestone: false, isIssue: false, isActionItem: false };
+      } else if (bulkTaskKind === 'issue') {
+        merged = { ...merged, isMilestone: false, isIssue: true };
+      } else if (bulkTaskKind === 'action') {
+        merged = { ...merged, isMilestone: false, isActionItem: true };
+      }
+
+      // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
+      const hasScheduleField =
+        Object.prototype.hasOwnProperty.call(merged, 'workEffort') ||
+        Object.prototype.hasOwnProperty.call(merged, 'endDate') ||
+        Object.prototype.hasOwnProperty.call(merged, 'startDate') ||
+        Object.prototype.hasOwnProperty.call(merged, 'dependencies');
+      if (Object.keys(merged).length > 0) {
+        if (hasScheduleField) {
+          ids.forEach((id) => updateTask(id, merged));
+        } else {
+          updateTasksBulk(ids, merged);
+        }
       }
     }
 
@@ -99,7 +133,6 @@ export function useWbsBulkEdit({
       const rawVal = parseFloat(bulkAllocation);
       if (!Number.isNaN(rawVal) && Number.isFinite(rawVal)) {
         const pct = Math.min(100, Math.max(0, Math.round(rawVal * 10) / 10));
-        const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
         const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
         // 프로젝트별 변경 담당자 집합 수집
         const assigneesByProjectId = new Map<string, Set<string>>();
@@ -148,6 +181,7 @@ export function useWbsBulkEdit({
     bulkStartDate,
     bulkEndDate,
     bulkAllocation,
+    bulkTaskKind,
     wbsSettings,
     selectedTaskIds,
     updateTask,
@@ -275,6 +309,8 @@ export function useWbsBulkEdit({
     setBulkEndDate,
     bulkAllocation,
     setBulkAllocation,
+    bulkTaskKind,
+    setBulkTaskKind,
     resetBulkFields,
     executeBulkEdit,
     executeBulkWorkEffort,

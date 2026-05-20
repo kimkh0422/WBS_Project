@@ -21,7 +21,7 @@ import { useGanttDrag } from './hooks/useGanttDrag';
 import { GanttTopHeader, GanttBottomHeader } from './Gantt/GanttHeader';
 import { GanttGrid } from './Gantt/GanttGrid';
 import { useOrganization } from '../context/OrganizationContext';
-import { buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -35,7 +35,7 @@ interface GanttChartProps {
   onRowHeightChange?: (height: number) => void;
   syncScrollRef?: React.Ref<HTMLDivElement>;
   hotkeysEnabled?: boolean;
-  /** split 뷰에서 표의 sticky [+ 새 작업 추가] 행 높이만큼 간트 하단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
+  /** split 뷰에서 표 본문 맨 아래 [+ 새 작업 추가] 행 높이만큼 간트 하단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
   bottomSpacerHeight?: number;
 }
 
@@ -65,7 +65,7 @@ export function GanttChart({
     projects,
   } = useWBS();
   const { orgMembers } = useOrganization();
-  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
@@ -462,7 +462,9 @@ export function GanttChart({
         >
           <div className="font-semibold text-stone-800 break-words">{displayName}</div>
           <div className="text-stone-600 mt-1 tabular-nums">{formatRange(t.startDate, t.endDate)}</div>
-          {t.assignee ? <div className="text-stone-500 mt-1 break-words">{t.assignee}</div> : null}
+          {t.assignee ? (
+            <div className="text-stone-500 mt-1 break-words">{formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName)}</div>
+          ) : null}
         </div>
       );
     })();
@@ -710,7 +712,7 @@ export function GanttChart({
                         backgroundColor: levelGanttBarFill(level),
                         borderColor: isCritical ? '#dc2626' : levelBarBg(level),
                       }}
-                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneePositionByName)}` : ''}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
@@ -776,7 +778,7 @@ export function GanttChart({
                 );
               })}
             </div>
-            {/* 하단 spacer — 표의 sticky [+ 새 작업 추가] 행에 대응 */}
+            {/* 하단 spacer — 표 본문 맨 아래 퀵 추가 행에 대응 */}
             {canEditCurrentProject && bottomSpacerHeight > 0 && (
               <div
                 className="sticky bottom-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm box-border"

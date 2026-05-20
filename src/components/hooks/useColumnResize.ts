@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateA
 import { type BuiltInTableColumnId, type TableColumnId } from '../wbsTableTypes';
 import { formatDate, formatNum1, formatNum2 } from '../../lib/utils';
 import type { Task } from '../../types';
+import { formatAssigneeDisplay, type PersonDisplayMeta } from '../../lib/assigneeOptions';
 
 // ── Default column widths ──────────────────────────────────────────
 export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
@@ -55,6 +56,7 @@ export interface UseColumnResizeParams {
   allocationDisplayByTaskId: Map<string, string>;
   taskIdToSeqNum: Map<string, number>;
   customColumnNameById: Map<string, string>;
+  assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>;
 }
 
 export interface UseColumnResizeReturn {
@@ -77,6 +79,7 @@ export function useColumnResize({
   allocationDisplayByTaskId,
   taskIdToSeqNum,
   customColumnNameById,
+  assigneeDisplayMetaByName,
 }: UseColumnResizeParams): UseColumnResizeReturn {
   // ── State ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ ...DEFAULT_COLUMN_WIDTHS });
@@ -182,7 +185,7 @@ export function useColumnResize({
         else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
         else if (colId === 'weight') cellText = task.weight != null ? formatNum1(task.weight) : '-';
         else if (colId === 'assignee') {
-          cellText = task.assignee || '—';
+          cellText = formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '—';
         } else if (colId === 'allocation') cellText = allocationDisplayByTaskId.get(task.id) ?? '—';
         else if (colId === 'status') {
           const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
@@ -210,6 +213,7 @@ export function useColumnResize({
       allocationDisplayByTaskId,
       taskIdToSeqNum,
       customColumnNameById,
+      assigneeDisplayMetaByName,
       wbsSettings?.statusConfigs,
       wbsSettings?.prependDisplayWbsToTaskName,
       measureText,

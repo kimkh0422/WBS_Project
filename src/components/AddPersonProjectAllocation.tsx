@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { findProjectByAllocationInput, parseAllocationPercentInput, type PersonProjectAddPayload } from '../lib/personAllocations';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import type { Project } from '../types';
 
 interface AddPersonProjectAllocationProps {
@@ -105,7 +106,7 @@ export function AddPersonProjectAllocation({
       />
       <datalist id={datalistId}>
         {unassignedProjects.map((p) => (
-          <option key={p.id} value={p.name} />
+          <option key={p.id} value={formatProjectDisplayName(p.name, p.projectKind)} />
         ))}
       </datalist>
       <input

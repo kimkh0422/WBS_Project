@@ -24,7 +24,6 @@ import {
   X,
   Filter,
   Briefcase,
-  Keyboard,
   Columns,
   Sparkles,
   Edit,
@@ -65,10 +64,12 @@ import {
   type LastExportPrefs,
 } from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
+import { useMatchMedia } from './hooks/useMatchMedia';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn } from './lib/utils';
+import { formatProjectDisplayName } from './lib/projectKind';
 import { useOrganization } from './context/OrganizationContext';
-import { buildOrgMemberPositionMap, formatAssigneeDisplay } from './lib/assigneeOptions';
+import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
 import { clearAllLocalData } from './lib/persist';
 import {
@@ -81,7 +82,6 @@ import {
   getMyEditableProjectIds,
 } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { ShortcutsSidebar } from './components/ShortcutsSidebar';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
@@ -112,9 +112,17 @@ const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
 const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
 const OrganizationModal = React.lazy(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
-const UserGuidePage = React.lazy(() => import('./components/UserGuidePage').then((m) => ({ default: m.UserGuidePage })));
-
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
+
+/** `VITE_PROJECT_STATUS_ONLY`: "1" | "true" | "yes"(대소문자 무시)면 true */
+function viteEnvTruthy(key: string): boolean {
+  const v = (import.meta.env as Record<string, unknown>)[key];
+  if (typeof v !== 'string') return false;
+  const t = v.trim().toLowerCase();
+  return t === '1' || t === 'true' || t === 'yes';
+}
+
+const VITE_PROJECT_STATUS_ONLY = viteEnvTruthy('VITE_PROJECT_STATUS_ONLY');
 
 function formatCommitDate(value: string) {
   try {
@@ -179,33 +187,21 @@ function WBSApp({
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
   const { orgMembers } = useOrganization();
-  const assigneePositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
   // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
-  type ViewType = 'table' | 'tablegantt' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation' | 'guide';
-  const VALID_VIEWS = new Set<string>([
-    'table',
-    'tablegantt',
-    'gantt',
-    'kanban',
-    'mindmap',
-    'dashboard',
-    'projects',
-    'allocation',
-    'guide',
-  ]);
+  type ViewType = 'table' | 'tablegantt' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation';
+  const VALID_VIEWS = new Set<string>(['table', 'tablegantt', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation']);
+  /** 숨김 뷰 보정·기본 경로에 사용: 앞쪽부터 첫 미숨김 뷰 */
+  const MAIN_NAV_VIEW_ORDER: ViewType[] = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
+  function pickFirstVisibleView(hidden: Set<string>): ViewType {
+    for (const v of MAIN_NAV_VIEW_ORDER) {
+      if (!hidden.has(v)) return v;
+    }
+    return 'dashboard';
+  }
   const location = useLocation();
   const navigate = useNavigate();
-  const view: ViewType = useMemo(() => {
-    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
-    return VALID_VIEWS.has(path) ? (path as ViewType) : 'table';
-  }, [location.pathname]);
-
-  useEffect(() => {
-    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
-    if (path === 'list') navigate('/table', { replace: true });
-    if (path === 'tablekanban') navigate('/tablegantt', { replace: true });
-  }, [location.pathname, navigate]);
   const setView = useCallback(
     (v: ViewType) => {
       navigate(`/${v}`, { replace: false });
@@ -220,8 +216,6 @@ function WBSApp({
     setIsProjectModalOpen,
     isSettingsModalOpen,
     setIsSettingsModalOpen,
-    isShortcutsVisible,
-    setIsShortcutsVisible,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
     isExportModalOpen,
@@ -274,10 +268,6 @@ function WBSApp({
     setErrorAlert,
   } = modals;
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-  /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
-  useEffect(() => {
-    setIsProjectDropdownOpen(false);
-  }, [view]);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
@@ -287,7 +277,9 @@ function WBSApp({
   const effectiveIsAdmin = (isAdmin || adminOverride) && !memberPreview;
   /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
   const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
-  const [profiles, setProfiles] = useState<{ id: string; email: string | null; full_name?: string | null; approved?: boolean }[]>([]);
+  const [profiles, setProfiles] = useState<
+    { id: string; email: string | null; full_name?: string | null; approved?: boolean; department?: string | null }[]
+  >([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
   const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -298,6 +290,7 @@ function WBSApp({
     return window.matchMedia('(max-width: 767px)').matches;
   });
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
+  // `VITE_PROJECT_STATUS_ONLY=true` 이면 표·간트·칸반·프로젝트 관리·마인드맵을 추가로 숨기고 대시보드(프로젝트 현황) 중심으로 둡니다.
   // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨). 마인드맵은 관리자 전용 유지.
   // 투입현황: 현재는 화면에서 일괄 숨김(관리자 포함). 다시 살릴 때 이 줄 제거.
   const hiddenViews = React.useMemo(() => {
@@ -313,8 +306,51 @@ function WBSApp({
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }
+    if (VITE_PROJECT_STATUS_ONLY) {
+      for (const v of ['table', 'tablegantt', 'gantt', 'kanban', 'projects', 'mindmap'] as const) {
+        set.add(v);
+      }
+    }
     return set;
   }, [effectiveIsAdmin]);
+
+  /** 768px 미만: 대시보드 중심 읽기 전용(표·간트 등 숨김). 대시보드가 env로 숨겨진 경우는 기존 동작 유지 */
+  const isMobileLayout = useMatchMedia('(max-width: 767px)');
+  const lockMobileToDashboard = isMobileLayout && !hiddenViews.has('dashboard');
+
+  const view: ViewType = useMemo(() => {
+    const segmentRaw = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    const segment = segmentRaw && VALID_VIEWS.has(segmentRaw) ? segmentRaw : '';
+
+    if (lockMobileToDashboard) {
+      if (segment && !hiddenViews.has(segment) && (segment === 'dashboard' || segment === 'projects')) {
+        return segment as ViewType;
+      }
+      for (const v of ['dashboard', 'projects'] as const) {
+        if (!hiddenViews.has(v)) return v;
+      }
+      return pickFirstVisibleView(hiddenViews);
+    }
+
+    if (segment && !hiddenViews.has(segment)) return segment as ViewType;
+    return pickFirstVisibleView(hiddenViews);
+  }, [location.pathname, hiddenViews, lockMobileToDashboard]);
+
+  useEffect(() => {
+    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    const legacyTableTarget: ViewType = hiddenViews.has('table') ? pickFirstVisibleView(hiddenViews) : 'table';
+    if (path === 'list') navigate(`/${legacyTableTarget}`, { replace: true });
+    if (path === 'tablekanban') {
+      const ganttTarget: ViewType = hiddenViews.has('tablegantt') ? pickFirstVisibleView(hiddenViews) : 'tablegantt';
+      navigate(`/${ganttTarget}`, { replace: true });
+    }
+    if (path === 'guide') navigate(`/${legacyTableTarget}`, { replace: true });
+  }, [location.pathname, navigate, hiddenViews]);
+
+  /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
+  useEffect(() => {
+    setIsProjectDropdownOpen(false);
+  }, [view]);
 
   const { push: pushToast, tipOnce } = useToast();
 
@@ -357,7 +393,10 @@ function WBSApp({
   } = useWBS();
 
   // NotificationBell용 메모
-  const notifProjectNameMap = React.useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+  const notifProjectNameMap = React.useMemo(
+    () => new Map(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)])),
+    [projects],
+  );
   const notifStatusNameMap = React.useMemo(
     () => new Map((wbsSettings.statusConfigs ?? []).map((c) => [c.id, c.name])),
     [wbsSettings.statusConfigs],
@@ -396,20 +435,25 @@ function WBSApp({
   }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
   const initialDbSyncDoneRef = useRef(false);
 
-  // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동
+  // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동 — 프로젝트 현황 전용 모드에서는 대시보드에 머무름
   useEffect(() => {
     if (isLoading) return;
     if (projects.length === 0) {
-      setView('projects');
+      if (!VITE_PROJECT_STATUS_ONLY) {
+        setView('projects');
+      }
       setIsProjectDropdownOpen(false);
       setFilters((prev) => ({ ...prev, projectIds: 'all' }));
     }
   }, [isLoading, projects.length]);
 
-  // 숨겨진 메뉴(view)로 진입한 경우 안전하게 기본 화면(표만)으로 이동
+  // URL 세그먼트와 허용 뷰(`view`) 불일치 시 보정(숨김 탭·모바일 제한·북마크 등)
   useEffect(() => {
-    if (hiddenViews.has(view)) setView('table');
-  }, [hiddenViews, view]);
+    const segment = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    if (segment !== view) {
+      navigate(`/${view}`, { replace: true });
+    }
+  }, [location.pathname, view, navigate]);
 
   // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
   useEffect(() => {
@@ -467,12 +511,29 @@ function WBSApp({
     return names;
   }, [profiles]);
 
-  const currentUserDisplay = React.useMemo(() => {
+  const profileDisplayById = React.useMemo(
+    () => buildProfileDisplayById(profiles, orgMembers, ownerDisplayNames),
+    [profiles, orgMembers, ownerDisplayNames],
+  );
+
+  /** 필터·담당자 매칭·PM 기본값 등 저장/비교용 평문 표시명 */
+  const currentUserPlainName = React.useMemo(() => {
     if (!user) return '';
     const profile = profiles.find((p) => p.id === user.id) as { full_name?: string | null } | undefined;
     const name = profile?.full_name || (user.user_metadata as { full_name?: string } | undefined)?.full_name;
-    return (name && String(name).trim()) || user.email || '사용자';
+    return ((name && String(name).trim()) || user.email || '사용자').trim();
   }, [user, profiles]);
+
+  const currentUserDisplay = React.useMemo(() => {
+    if (!user) return '';
+    const profile = profiles.find((p) => p.id === user.id) as { full_name?: string | null; department?: string | null } | undefined;
+    const plain =
+      (profile?.full_name && String(profile.full_name).trim()) ||
+      (user.user_metadata as { full_name?: string } | undefined)?.full_name ||
+      '';
+    const base = (plain && String(plain).trim()) || user.email || '사용자';
+    return formatPersonDisplay(base, { orgMetaByName: assigneeDisplayMetaByName, fallbackDepartment: profile?.department });
+  }, [user, profiles, assigneeDisplayMetaByName]);
 
   // 동시에 이 프로젝트를 보고 있는 다른 사용자 (Supabase Presence)
   const { others: presenceOthers } = usePresence(currentProjectId === 'all' ? '' : currentProjectId, user?.id, currentUserDisplay);
@@ -568,7 +629,13 @@ function WBSApp({
   const navigateWithTip = useCallback(
     (nextView: typeof view) => {
       setView(nextView);
-      if (nextView === 'dashboard') tipOnce('nav.dashboard', '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.');
+      if (nextView === 'dashboard')
+        tipOnce(
+          'nav.dashboard',
+          VITE_PROJECT_STATUS_ONLY
+            ? '프로젝트 현황에서 사업·PM·일정 요약을 확인할 수 있어요.'
+            : '대시보드에서 프로젝트/상태별 현황을 빠르게 확인할 수 있어요.',
+        );
       if (nextView === 'projects') tipOnce('nav.projects', '프로젝트를 생성·편집·공유·삭제할 수 있습니다.');
       if (nextView === 'allocation') tipOnce('nav.allocation', '프로젝트별·인원별로 투입 비율을 한눈에 확인할 수 있어요.');
       if (nextView === 'table') tipOnce('nav.table', '표만: 작업을 빠르게 편집/정렬/복사·붙여넣기 할 때 유용합니다.');
@@ -576,7 +643,6 @@ function WBSApp({
       if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
       if (nextView === 'tablegantt') tipOnce('nav.tablegantt', '표+간트: 작업표와 간트 차트를 한 화면에서 함께 봅니다.');
       if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
-      if (nextView === 'guide') tipOnce('nav.guide', '주요 사용 방법과 역할별 권한 안내를 확인할 수 있어요.');
     },
     [tipOnce, setView, view],
   );
@@ -587,7 +653,6 @@ function WBSApp({
     redo,
     expandToLevel,
     setTreeExpandLevel,
-    setIsShortcutsVisible,
     canToggleAdminMemberView: (isAdmin || adminOverride) && !!user?.id,
     memberPreview,
     setMemberPreview,
@@ -629,10 +694,10 @@ function WBSApp({
       // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
       const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
       if (!taskViews.includes(view)) {
-        setView('table');
+        setView(lockMobileToDashboard ? 'dashboard' : 'table');
       }
     },
-    [setCurrentProjectId, setView, view],
+    [setCurrentProjectId, setView, view, lockMobileToDashboard],
   );
 
   // Filter on/off (when on, filter bar and filters apply)
@@ -705,6 +770,21 @@ function WBSApp({
   /** 검색/알림에서 작업 선택 시 공통 동작 */
   const navigateToTask = useCallback(
     (taskId: string, projectId: string) => {
+      if (lockMobileToDashboard || hiddenViews.has('table')) {
+        setCurrentProjectId(projectId);
+        setView('dashboard');
+        pushToast(
+          lockMobileToDashboard
+            ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 상세·편집은 PC에서 이용해 주세요.'
+            : '현재 화면에서는 프로젝트 현황(대시보드)만 제공됩니다. 작업 표는 사용할 수 없습니다.',
+          {
+            variant: 'default',
+            durationMs: 5000,
+            id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+          },
+        );
+        return;
+      }
       setCurrentProjectId(projectId);
       setSelectedTaskIds([taskId]);
       expandAncestors(taskId);
@@ -717,12 +797,13 @@ function WBSApp({
         table?.focus();
       }, 500);
     },
-    [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView],
+    [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView, lockMobileToDashboard, hiddenViews, pushToast],
   );
 
   const handleSaveProject = (
     name: string,
     description: string,
+    pmName: string,
     startDate?: string,
     endDate?: string,
     assignments?: Project['assignments'],
@@ -735,6 +816,7 @@ function WBSApp({
     reportTotalPeriod?: string,
     reportNameShort?: string,
     reportNameFull?: string,
+    includeInDashboard?: boolean,
   ) => {
     if (editingProject) {
       updateProject(editingProject.id, {
@@ -752,6 +834,8 @@ function WBSApp({
         reportTotalPeriod,
         reportNameShort,
         reportNameFull,
+        pmName,
+        includeInDashboard,
       });
       setEditingProject(null);
     } else {
@@ -764,6 +848,8 @@ function WBSApp({
         reportTotalPeriod,
         reportNameShort,
         reportNameFull,
+        pmName,
+        includeInDashboard,
       });
     }
     setIsProjectModalOpen(false);
@@ -823,6 +909,7 @@ function WBSApp({
     importPreview,
     backupConfirm,
     multiMergeConfirm,
+    assigneeDisplayMetaByName,
   });
   const {
     fileInputRef,
@@ -880,7 +967,7 @@ function WBSApp({
     })();
   }, [isLoading, executeDbSync, isSupabaseConfigured]);
 
-  // View switch, shortcuts toggle, Ctrl+S — now in useAppKeyboardShortcuts
+  // View switch, Ctrl+S preventDefault — now in useAppKeyboardShortcuts
 
   // importFromExcelFiles ~ executeRestoreBackupIntoProject — now in useFileImportExport
 
@@ -1075,6 +1162,7 @@ function WBSApp({
           user={user}
           effectiveIsAdmin={effectiveIsAdmin}
           profileMap={profileMap}
+          profileDisplayById={profileDisplayById}
           presenceOthers={presenceOthers}
           selectProject={selectProject}
           allTasks={allTasks}
@@ -1098,6 +1186,7 @@ function WBSApp({
           canRedo={canRedo}
           hiddenViews={hiddenViews}
           view={view}
+          dashboardNavLabel={VITE_PROJECT_STATUS_ONLY ? '프로젝트 현황' : '대시보드'}
           navigateWithTip={navigateWithTip}
           filterOn={filterOn}
           setFilterOn={setFilterOn}
@@ -1116,8 +1205,6 @@ function WBSApp({
           handleImportClick={handleImportClick}
           setIsExportModalOpen={setIsExportModalOpen}
           setIsSettingsModalOpen={setIsSettingsModalOpen}
-          isShortcutsVisible={isShortcutsVisible}
-          setIsShortcutsVisible={setIsShortcutsVisible}
           setIsMembersModalOpen={setIsMembersModalOpen}
           setIsResetConfirmOpen={setIsResetConfirmOpen}
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
@@ -1156,7 +1243,7 @@ function WBSApp({
       )}
 
       {/* Filter bar: filterOn일 때 항상 표시 (모바일에서도 헤더 접힘과 무관) */}
-      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && view !== 'dashboard' && view !== 'guide' && (
+      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && view !== 'dashboard' && (
         <div
           className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40"
           style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
@@ -1179,7 +1266,10 @@ function WBSApp({
                 {filters.projectIds === 'all'
                   ? '전체'
                   : filters.projectIds.length === 1
-                    ? (uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개')
+                    ? (() => {
+                        const sel = uniqueProjects.find((p) => p.id === filters.projectIds[0]);
+                        return sel ? formatProjectDisplayName(sel.name, sel.projectKind) : '1개';
+                      })()
                     : `${filters.projectIds.length}개 프로젝트`}
               </span>
               <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
@@ -1263,7 +1353,7 @@ function WBSApp({
                               }}
                               className="rounded border-slate-300 text-indigo-600"
                             />
-                            <span className="break-words">{p.name}</span>
+                            <ProjectNameLabel project={p} name={p.name} />
                           </label>
                         );
                       })}
@@ -1330,12 +1420,12 @@ function WBSApp({
               )}
               {allAssignees.map((a) => (
                 <button
-                  key={a}
-                  onClick={() => setFilters((f) => ({ ...f, assignee: a }))}
-                  className={cn('filter-chip', filters.assignee === a ? 'filter-chip-active' : 'filter-chip-inactive')}
-                  title={`${formatAssigneeDisplay(a, assigneePositionByName)} 담당 작업만 표시`}
+                  key={String(a)}
+                  onClick={() => setFilters((f) => ({ ...f, assignee: String(a) }))}
+                  className={cn('filter-chip', filters.assignee === String(a) ? 'filter-chip-active' : 'filter-chip-inactive')}
+                  title={`${formatAssigneeDisplay(String(a), assigneeDisplayMetaByName)} 담당 작업만 표시`}
                 >
-                  {formatAssigneeDisplay(a, assigneePositionByName)}
+                  {formatAssigneeDisplay(String(a), assigneeDisplayMetaByName)}
                 </button>
               ))}
             </div>
@@ -1580,7 +1670,8 @@ function WBSApp({
       )}
       <main
         className={cn(
-          'min-h-0 overflow-hidden flex flex-row relative flex-1 pb-[72px] md:pb-0',
+          'min-h-0 overflow-hidden flex flex-row relative flex-1',
+          lockMobileToDashboard ? 'pb-0' : 'pb-[72px] md:pb-0',
           isFullscreen && 'fixed inset-0 z-50 bg-[var(--color-surface)]',
         )}
       >
@@ -1602,7 +1693,7 @@ function WBSApp({
             (view === 'table' || view === 'tablegantt' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
               <ProjectAccessRequestBanner
                 projectId={currentProjectId}
-                projectName={currentProject.name}
+                projectName={formatProjectDisplayName(currentProject.name, currentProject.projectKind)}
                 onRequestSent={() =>
                   getMyProjectMemberProjectIds()
                     .then(setMyMemberProjectIds)
@@ -1666,7 +1757,9 @@ function WBSApp({
             ) : view === 'dashboard' ? (
               <ErrorBoundary viewName="대시보드">
                 <Dashboard
-                  onNavigate={handleDashboardNavigate}
+                  mobileReadabilityMode={lockMobileToDashboard}
+                  onNavigate={lockMobileToDashboard || hiddenViews.has('table') ? undefined : handleDashboardNavigate}
+                  onOpenTaskInTable={navigateToTask}
                   registeredMemberDisplayNames={registeredMemberDisplayNames}
                   // 비관리자(또는 회원 체험 모드)는 본인이 참여한 프로젝트만 표시.
                   // 관리자는 undefined → 전체 표시.
@@ -1676,7 +1769,7 @@ function WBSApp({
                       : new Set([...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id), ...myMemberProjectIds])
                   }
                   // "내가 포함된 프로젝트" — owner이거나, 멤버이거나, 작업 담당자(이름 매칭)인 프로젝트.
-                  // 사용자 표시 이름은 currentUserDisplay 기준. 비로그인 시 undefined.
+                  // 작업 담당자 비교는 평문 이름(currentUserPlainName) 기준. 비로그인 시 undefined.
                   myInvolvedProjectIds={
                     user?.id
                       ? (() => {
@@ -1685,7 +1778,7 @@ function WBSApp({
                             if (p.ownerId === user.id) ids.add(p.id);
                           }
                           for (const id of myMemberProjectIds) ids.add(id);
-                          const myName = (currentUserDisplay || '').trim();
+                          const myName = (currentUserPlainName || '').trim();
                           if (myName) {
                             for (const t of allTasks) {
                               if (t.assignee && t.assignee.trim() === myName) ids.add(t.projectId);
@@ -1705,13 +1798,23 @@ function WBSApp({
                 <ProjectsPage
                   onNavigateToWork={(projectId) => {
                     if (projectId) setCurrentProjectId(projectId);
-                    setView('table');
+                    if (lockMobileToDashboard || hiddenViews.has('table')) {
+                      pushToast(
+                        lockMobileToDashboard
+                          ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
+                          : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
+                        {
+                          variant: 'default',
+                          durationMs: 5000,
+                          id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+                        },
+                      );
+                      setView('dashboard');
+                    } else {
+                      setView('table');
+                    }
                   }}
                 />
-              </ErrorBoundary>
-            ) : view === 'guide' ? (
-              <ErrorBoundary viewName="사용 안내">
-                <UserGuidePage />
               </ErrorBoundary>
             ) : view === 'allocation' ? (
               <ErrorBoundary viewName="투입현황">
@@ -1723,7 +1826,7 @@ function WBSApp({
                   }}
                   onNavigateToWork={(projectId) => {
                     setCurrentProjectId(projectId);
-                    setView('table');
+                    setView(hiddenViews.has('table') ? 'dashboard' : 'table');
                   }}
                 />
               </ErrorBoundary>
@@ -1737,7 +1840,6 @@ function WBSApp({
               </ErrorBoundary>
             )}
           </div>
-          {isShortcutsVisible && <ShortcutsSidebar view={view} onClose={() => setIsShortcutsVisible(false)} />}
         </Suspense>
       </main>
 
@@ -1748,7 +1850,21 @@ function WBSApp({
           onSelectTask={navigateToTask}
           onSelectProject={(projectId) => {
             setCurrentProjectId(projectId);
-            setView('table');
+            if (lockMobileToDashboard || hiddenViews.has('table')) {
+              setView('dashboard');
+              pushToast(
+                lockMobileToDashboard
+                  ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
+                  : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
+                {
+                  variant: 'default',
+                  durationMs: 5000,
+                  id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+                },
+              );
+            } else {
+              setView('table');
+            }
           }}
         />
       )}
@@ -1774,6 +1890,7 @@ function WBSApp({
           onSave={handleSaveProject}
           project={editingProject}
           allProjects={projects}
+          defaultPmNameForNewProject={currentUserPlainName}
         />
       )}
       <Suspense fallback={null}>
@@ -2032,10 +2149,11 @@ function WBSApp({
             isOpen
             onClose={() => setIsShareOpen(false)}
             projectId={currentProject?.id}
-            projectName={currentProject?.name}
+            projectName={currentProject ? formatProjectDisplayName(currentProject.name, currentProject.projectKind) : undefined}
             isOwner={currentProject?.ownerId === user?.id}
             isAdmin={effectiveIsAdmin}
             profileMap={profileMap}
+            profileDisplayById={profileDisplayById}
             profiles={profiles.map((p) => ({ id: p.id, full_name: p.full_name ?? null, email: p.email ?? null }))}
             ownerId={currentProject?.ownerId}
           />
@@ -2045,7 +2163,7 @@ function WBSApp({
             // pid가 null이면 '전체 변경 이력' 모드(관리자가 admin 메뉴에서 진입). 그 외에는 특정 프로젝트.
             const pid = auditLogProjectId;
             const proj = pid ? projects.find((p) => p.id === pid) : null;
-            const projectNameMap = Object.fromEntries(projects.map((p) => [p.id, p.name]));
+            const projectNameMap = Object.fromEntries(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
             return (
               <AuditLogModal
                 isOpen={true}
@@ -2054,7 +2172,7 @@ function WBSApp({
                   setAuditLogProjectId(null);
                 }}
                 projectId={pid}
-                projectName={proj?.name}
+                projectName={proj ? formatProjectDisplayName(proj.name, proj.projectKind) : undefined}
                 projectNameMap={projectNameMap}
               />
             );
@@ -2068,12 +2186,22 @@ function WBSApp({
             adminOverride={adminOverride}
             isOrgScopedManager={isOrgScopedManager}
             managedOrgNodeIdForViewer={currentUserManagedOrgNodeId}
-            projects={projectsSortedByName.map((p) => ({ id: p.id, name: p.name, ownerId: p.ownerId }))}
+            projects={projectsSortedByName.map((p) => ({
+              id: p.id,
+              name: p.name,
+              ownerId: p.ownerId,
+              projectKind: p.projectKind,
+            }))}
             profileMap={profileMap}
+            profileDisplayById={profileDisplayById}
             onNavigateToProject={(projectId) => {
               setCurrentProjectId(projectId);
-              setView('table');
               setIsMembersModalOpen(false);
+              if (lockMobileToDashboard || hiddenViews.has('table')) {
+                setView('dashboard');
+              } else {
+                setView('table');
+              }
             }}
             onDeleted={() => {
               pushToast('회원이 삭제되었습니다.', { variant: 'success' });

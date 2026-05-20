@@ -3,6 +3,7 @@ import { X, Download, FileSpreadsheet, FileJson, FileText, Table } from 'lucide-
 import { cn } from '../lib/utils';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
+import { formatProjectDisplayName } from '../lib/projectKind';
 
 export type ExportScope = 'all' | 'selected';
 export type ExportFormat = 'excel' | 'json' | 'markdown' | 'csv';
@@ -170,7 +171,7 @@ export function ExportModal({
                         onChange={() => toggleProject(p.id)}
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-slate-700 flex-1 break-words">{p.name}</span>
+                      <span className="text-sm text-slate-700 flex-1 break-words">{formatProjectDisplayName(p.name, p.projectKind)}</span>
                       <span className="text-xs text-slate-400 tabular-nums">{taskCountByProject[p.id] ?? 0}개</span>
                     </label>
                   ))

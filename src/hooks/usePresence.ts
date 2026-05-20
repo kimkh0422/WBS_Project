@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isRealtimeMinimized } from '../lib/realtimePolicy';
 
 export interface PresenceUser {
   userId: string;
@@ -18,7 +19,7 @@ const presenceEnabled = (() => {
 export function usePresence(
   projectId: string,
   currentUserId: string | undefined,
-  currentUserDisplayName: string
+  currentUserDisplayName: string,
 ): { others: PresenceUser[] } {
   const [others, setOthers] = useState<PresenceUser[]>([]);
   const channelRef = useRef<{ untrack: () => Promise<void>; unsubscribe: () => void } | null>(null);
@@ -29,7 +30,7 @@ export function usePresence(
   useEffect(() => {
     // Presence는 필수 기능이 아니므로, 연결 실패 시 콘솔이 도배되지 않도록 "자동 비활성화" 한다.
     // (환경에 따라 Realtime이 꺼져있거나 방화벽/프록시로 WebSocket이 차단될 수 있음)
-    if (!presenceEnabled || !isSupabaseConfigured || !supabase || !projectId || projectId === 'all') {
+    if (!presenceEnabled || isRealtimeMinimized() || !isSupabaseConfigured || !supabase || !projectId || projectId === 'all') {
       setOthers([]);
       return;
     }
@@ -112,7 +113,7 @@ export function usePresence(
 
   // 표시 이름만 바뀌면 채널 재구독 없이 presence 갱신
   useEffect(() => {
-    if (!presenceEnabled || !presenceSubscribedRef.current || !channelRef.current || !currentUserId) return;
+    if (!presenceEnabled || isRealtimeMinimized() || !presenceSubscribedRef.current || !channelRef.current || !currentUserId) return;
     const ch = channelRef.current as { track: (payload: object) => Promise<void> };
     void ch.track({
       user_id: currentUserId,

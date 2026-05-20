@@ -2,6 +2,8 @@ import * as XLSX from 'xlsx';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus, Project } from '../types';
 import { randomUUID, round2 } from './utils';
+import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
+import { formatProjectDisplayName } from './projectKind';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -23,13 +25,22 @@ const HEADER_MAP: Record<string, string> = {
 type HeaderToKey = keyof Task | 'wbsId' | 'level';
 const REVERSE_HEADER_MAP: Record<string, HeaderToKey> = Object.entries(HEADER_MAP).reduce(
   (acc, [key, value]) => ({ ...acc, [value]: key as HeaderToKey }),
-  {} as Record<string, HeaderToKey>
+  {} as Record<string, HeaderToKey>,
 );
 // WBS/레벨 컬럼의 다른 표기 인식 (정규 포맷에서 미매칭 방지)
 const WBS_HEADER_ALIASES = ['WBS번호', 'WBS', 'WBS코드', 'WBS ID', 'WBS code', 'WBS Code'];
 const LEVEL_HEADER_ALIASES = ['레벨', 'Level', 'Lvl', '단계', 'LV'];
-[['WBS', 'wbsId'], ['WBS코드', 'wbsId'], ['WBS ID', 'wbsId'], ['WBS code', 'wbsId'], ['WBS Code', 'wbsId'],
- ['Level', 'level'], ['Lvl', 'level'], ['단계', 'level'], ['LV', 'level']].forEach(([h, k]) => {
+[
+  ['WBS', 'wbsId'],
+  ['WBS코드', 'wbsId'],
+  ['WBS ID', 'wbsId'],
+  ['WBS code', 'wbsId'],
+  ['WBS Code', 'wbsId'],
+  ['Level', 'level'],
+  ['Lvl', 'level'],
+  ['단계', 'level'],
+  ['LV', 'level'],
+].forEach(([h, k]) => {
   if (!REVERSE_HEADER_MAP[h as string]) REVERSE_HEADER_MAP[h as string] = k as HeaderToKey;
 });
 
@@ -253,7 +264,7 @@ const pickBestSheetAndHeader = (workbook: XLSX.WorkBook) => {
     const scanLimit = Math.min(80, rows.length);
     let sheetBest = { headerRowIndex: 0, score: -1 };
     for (let i = 0; i < scanLimit; i++) {
-      const header = (rows[i] ?? []).map(h => String(h ?? '').trim());
+      const header = (rows[i] ?? []).map((h) => String(h ?? '').trim());
       const s = scoreHeaderRow(header);
       if (s > sheetBest.score) sheetBest = { headerRowIndex: i, score: s };
     }
@@ -331,7 +342,10 @@ const applyLevelHierarchyInOrder = (tasksInOrder: Task[], levelsByTaskId: Map<st
     let parentId: string | null = null;
     for (let p = level - 1; p >= 1; p--) {
       const pid = lastIdAtLevel.get(p);
-      if (pid) { parentId = pid; break; }
+      if (pid) {
+        parentId = pid;
+        break;
+      }
     }
     t.parentId = parentId;
 
@@ -360,7 +374,7 @@ const FIELD_LABELS: Record<ExcelImportFieldId, string> = {
 };
 
 const buildUnmappedHeaders = (headerRow: string[], mappedCols: number[]) => {
-  const mapped = new Set(mappedCols.filter(n => n >= 0));
+  const mapped = new Set(mappedCols.filter((n) => n >= 0));
   const out: { header: string; columnIndex: number }[] = [];
   for (let i = 0; i < headerRow.length; i++) {
     const h = String(headerRow[i] ?? '').trim();
@@ -426,14 +440,15 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   }
 
   const headerRowIndex = Math.max(0, Math.min(picked.headerRowIndex, rawRows.length - 1));
-  const headerRowRaw = (rawRows[headerRowIndex] ?? []).map(h => String(h ?? '').trim());
+  const headerRowRaw = (rawRows[headerRowIndex] ?? []).map((h) => String(h ?? '').trim());
   const headerRow = fillMergedHeaders(headerRowRaw);
 
   // Detect whether this is our exported format (Korean headers).
   // NOTE: Some templates (e.g. XLGantt) contain a subset of these headers (like "산출물") but are NOT our format.
   // So we require either core headers or a minimum number of matches.
   const knownHeaderHits = headerRow.reduce((acc, h) => (REVERSE_HEADER_MAP[h] !== undefined ? acc + 1 : acc), 0);
-  const hasCoreKnownHeaders = headerRow.includes(HEADER_MAP.name) && (headerRow.includes(HEADER_MAP.startDate) || headerRow.includes(HEADER_MAP.endDate));
+  const hasCoreKnownHeaders =
+    headerRow.includes(HEADER_MAP.name) && (headerRow.includes(HEADER_MAP.startDate) || headerRow.includes(HEADER_MAP.endDate));
   const hasKnownHeader = hasCoreKnownHeaders || knownHeaderHits >= 4;
   if (hasKnownHeader) {
     const tasks: Task[] = [];
@@ -453,10 +468,17 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       Object.keys(rowObj).forEach((header) => {
         const key = REVERSE_HEADER_MAP[header];
         if (!key) return;
-        if (key === 'level') { parsedLevel = clampLevel(rowObj[header]); return; }
+        if (key === 'level') {
+          parsedLevel = clampLevel(rowObj[header]);
+          return;
+        }
         const v = rowObj[header];
         if (key === 'dependencies') {
-          task[key] = v ? String(v).split(',').map((s: string) => s.trim()) : [];
+          task[key] = v
+            ? String(v)
+                .split(',')
+                .map((s: string) => s.trim())
+            : [];
         } else if (key === 'parentId') {
           task[key] = v ? String(v) : null;
         } else if (key === 'id') {
@@ -544,27 +566,20 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     };
     const wbsFallback = findColumnByAliases(WBS_HEADER_ALIASES);
     const levelFallback = findColumnByAliases(LEVEL_HEADER_ALIASES);
-    const wbsOverride =
-      headerRow.indexOf(HEADER_MAP.wbsId) >= 0
-        ? undefined
-        : (wbsFallback.index >= 0 ? wbsFallback : undefined);
+    const wbsOverride = headerRow.indexOf(HEADER_MAP.wbsId) >= 0 ? undefined : wbsFallback.index >= 0 ? wbsFallback : undefined;
     add('wbsKey', HEADER_MAP.wbsId, undefined, wbsOverride);
 
     // 레벨 컬럼이 없더라도 WBS(예: 1.2.3.4)로 레벨/계층을 복원할 수 있음.
     // 미리보기에서 '레벨 미매칭'으로 보이는 혼란을 줄이기 위해, WBS 컬럼을 레벨(추정)로 표시한다.
     const explicitLevelOverride =
-      headerRow.indexOf(HEADER_MAP.level) >= 0
-        ? undefined
-        : (levelFallback.index >= 0 ? levelFallback : undefined);
-    const effectiveWbsIndex = (wbsOverride?.index ?? headerRow.indexOf(HEADER_MAP.wbsId));
+      headerRow.indexOf(HEADER_MAP.level) >= 0 ? undefined : levelFallback.index >= 0 ? levelFallback : undefined;
+    const effectiveWbsIndex = wbsOverride?.index ?? headerRow.indexOf(HEADER_MAP.wbsId);
     const canInferLevelFromWbs = !explicitLevelOverride && effectiveWbsIndex >= 0;
     add(
       'level',
       HEADER_MAP.level,
       canInferLevelFromWbs ? 'WBS로 추정' : undefined,
-      canInferLevelFromWbs
-        ? { index: effectiveWbsIndex, header: headerRow[effectiveWbsIndex] ?? HEADER_MAP.wbsId }
-        : explicitLevelOverride
+      canInferLevelFromWbs ? { index: effectiveWbsIndex, header: headerRow[effectiveWbsIndex] ?? HEADER_MAP.wbsId } : explicitLevelOverride,
     );
     add('name', HEADER_MAP.name);
     add('startDate', HEADER_MAP.startDate);
@@ -586,7 +601,10 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
         headerRow,
         mode: 'known',
         mapped,
-        unmappedHeaders: buildUnmappedHeaders(headerRow, mapped.map(m => m.columnIndex)),
+        unmappedHeaders: buildUnmappedHeaders(
+          headerRow,
+          mapped.map((m) => m.columnIndex),
+        ),
       },
     };
   }
@@ -648,33 +666,84 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const descriptionCol = adjustIndexForMergedHeader(body, headers, descriptionIdx);
 
   const mapped: ExcelImportMappingItem[] = [
-    { fieldId: 'wbsKey', fieldLabel: FIELD_LABELS.wbsKey, header: headers[wbsCol] ?? '', columnIndex: wbsCol, note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'level', fieldLabel: FIELD_LABELS.level, header: headers[levelCol] ?? '', columnIndex: levelCol, note: levelCol !== levelIdx && levelIdx >= 0 ? '병합헤더 보정' : undefined },
+    {
+      fieldId: 'wbsKey',
+      fieldLabel: FIELD_LABELS.wbsKey,
+      header: headers[wbsCol] ?? '',
+      columnIndex: wbsCol,
+      note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'level',
+      fieldLabel: FIELD_LABELS.level,
+      header: headers[levelCol] ?? '',
+      columnIndex: levelCol,
+      note: levelCol !== levelIdx && levelIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
     {
       fieldId: 'name',
       fieldLabel: FIELD_LABELS.name,
       header: headers[nameCol] ?? '',
       columnIndex: nameCol,
       columnIndices: nameColsByHeader.length > 1 ? nameColsByHeader : undefined,
-      note: nameColsByHeader.length > 1 ? '레벨별 다중컬럼' : (nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined),
+      note: nameColsByHeader.length > 1 ? '레벨별 다중컬럼' : nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined,
     },
-    { fieldId: 'startDate', fieldLabel: FIELD_LABELS.startDate, header: headers[startCol] ?? '', columnIndex: startCol, note: startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'endDate', fieldLabel: FIELD_LABELS.endDate, header: headers[endCol] ?? '', columnIndex: endCol, note: endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'assignee', fieldLabel: FIELD_LABELS.assignee, header: headers[assigneeCol] ?? '', columnIndex: assigneeCol, note: assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'progress', fieldLabel: FIELD_LABELS.progress, header: headers[progressCol] ?? '', columnIndex: progressCol, note: progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'status', fieldLabel: FIELD_LABELS.status, header: headers[statusCol] ?? '', columnIndex: statusCol, note: statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined },
+    {
+      fieldId: 'startDate',
+      fieldLabel: FIELD_LABELS.startDate,
+      header: headers[startCol] ?? '',
+      columnIndex: startCol,
+      note: startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'endDate',
+      fieldLabel: FIELD_LABELS.endDate,
+      header: headers[endCol] ?? '',
+      columnIndex: endCol,
+      note: endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'assignee',
+      fieldLabel: FIELD_LABELS.assignee,
+      header: headers[assigneeCol] ?? '',
+      columnIndex: assigneeCol,
+      note: assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'progress',
+      fieldLabel: FIELD_LABELS.progress,
+      header: headers[progressCol] ?? '',
+      columnIndex: progressCol,
+      note: progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'status',
+      fieldLabel: FIELD_LABELS.status,
+      header: headers[statusCol] ?? '',
+      columnIndex: statusCol,
+      note: statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
     {
       fieldId: 'workEffort',
       fieldLabel: FIELD_LABELS.workEffort,
       header: headers[effortCol] ?? '',
       columnIndex: effortCol,
-      note:
-        effortCol < 0
-          ? '미입력시 자동산정(기간)'
-          : (effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined),
+      note: effortCol < 0 ? '미입력시 자동산정(기간)' : effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined,
     },
-    { fieldId: 'deliverables', fieldLabel: FIELD_LABELS.deliverables, header: headers[deliverablesCol] ?? '', columnIndex: deliverablesCol, note: deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined },
-    { fieldId: 'description', fieldLabel: FIELD_LABELS.description, header: headers[descriptionCol] ?? '', columnIndex: descriptionCol, note: descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined },
+    {
+      fieldId: 'deliverables',
+      fieldLabel: FIELD_LABELS.deliverables,
+      header: headers[deliverablesCol] ?? '',
+      columnIndex: deliverablesCol,
+      note: deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
+    {
+      fieldId: 'description',
+      fieldLabel: FIELD_LABELS.description,
+      header: headers[descriptionCol] ?? '',
+      columnIndex: descriptionCol,
+      note: descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined,
+    },
   ];
 
   // Reuse existing smart parsing to build tasks (kept identical to parseExcel() behavior)
@@ -692,7 +761,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     const explicitLevel = levelCol >= 0 ? clampLevel(cells[levelCol]) : undefined;
     const inferredLevelFromNameCols = (() => {
       if (nameColsByHeader.length <= 1) return undefined;
-      const cols = [...nameColsByHeader].filter(n => n >= 0).sort((a, b) => a - b);
+      const cols = [...nameColsByHeader].filter((n) => n >= 0).sort((a, b) => a - b);
       for (let i = 0; i < cols.length; i++) {
         const s = String(cells?.[cols[i]] ?? '').trim();
         if (s) return i + 1;
@@ -700,11 +769,9 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       return undefined;
     })();
     const effectiveLevel: LevelValue =
-      explicitLevel ??
-      inferredLevelFromNameCols ??
-      (wbsKey ? wbsKey.split('.').filter(Boolean).length : undefined);
+      explicitLevel ?? inferredLevelFromNameCols ?? (wbsKey ? wbsKey.split('.').filter(Boolean).length : undefined);
 
-    const hasAny = (name || wbsKey || String(cells.join('')).trim());
+    const hasAny = name || wbsKey || String(cells.join('')).trim();
     if (!hasAny) continue;
     if (!name) continue;
 
@@ -727,7 +794,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       parentId: null,
       name,
       startDate: startDate || today,
-      endDate: endDate || (startDate || today),
+      endDate: endDate || startDate || today,
       progress: Math.max(0, Math.min(100, round2(progress))),
       assignee,
       status,
@@ -735,7 +802,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       dependencies: [],
       ...(() => {
         const baseStart = startDate || today;
-        const baseEnd = endDate || (startDate || today);
+        const baseEnd = endDate || startDate || today;
         const est = estimateWorkEffortFromDates(baseStart, baseEnd);
         const roundEffort = (n: number) => Math.round(n * 10) / 10;
         if (workEffort !== undefined) return { workEffort: roundEffort(workEffort) };
@@ -759,7 +826,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     tasks.push(task);
   }
 
-  const useLevelHierarchy = (levelCol >= 0) || (nameColsByHeader.length > 1);
+  const useLevelHierarchy = levelCol >= 0 || nameColsByHeader.length > 1;
   if (useLevelHierarchy && levelsByTaskId.size > 0) {
     applyLevelHierarchyInOrder(tasks, levelsByTaskId);
   } else if (pendingParentByWbs.size > 0) {
@@ -781,7 +848,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       mapped,
       unmappedHeaders: buildUnmappedHeaders(
         headerRow,
-        mapped.flatMap(m => (Array.isArray(m.columnIndices) && m.columnIndices.length > 0) ? m.columnIndices : [m.columnIndex])
+        mapped.flatMap((m) => (Array.isArray(m.columnIndices) && m.columnIndices.length > 0 ? m.columnIndices : [m.columnIndex])),
       ),
     },
   };
@@ -790,11 +857,11 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
 /** 작업별 투입율만 반환 (예: "50%"). 프로젝트 설정값 사용 */
 function getAllocationRateString(
   task: Task,
-  projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>
+  projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>,
 ): string {
-  const assignments = task.projectId ? projectAssignmentsByProjectId.get(task.projectId) ?? [] : [];
+  const assignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
   const current = (task.assignee || '').trim();
-  const match = current ? assignments.find(a => (a.assignee || '').trim() === current) : assignments[0];
+  const match = current ? assignments.find((a) => (a.assignee || '').trim() === current) : assignments[0];
   return match ? `${match.allocationPercent}%` : '';
 }
 
@@ -823,17 +890,19 @@ export const exportToExcel = (
   wbsMap: Map<string, string>,
   fileName: string = 'wbs_export.xlsx',
   projects: Project[] = [],
-  projectNameMap?: ProjectNameMap
+  projectNameMap?: ProjectNameMap,
+  assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>,
 ) => {
-  const projectAssignmentsByProjectId = new Map(
-    projects.map(p => [p.id, p.assignments ?? []])
-  );
-  const nameMap = projectNameMap ?? new Map(projects.map(p => [p.id, p.name]));
+  const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
+  const nameMap = projectNameMap ?? new Map(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
 
   // 프로젝트별로 작업 그룹화 (projects 순서 유지)
   const tasksByProject = new Map<string, Task[]>();
   for (const p of projects) {
-    tasksByProject.set(p.id, tasks.filter(t => t.projectId === p.id));
+    tasksByProject.set(
+      p.id,
+      tasks.filter((t) => t.projectId === p.id),
+    );
   }
 
   const workbook = XLSX.utils.book_new();
@@ -847,13 +916,13 @@ export const exportToExcel = (
     const exportWbsMap = new Map<string, string>();
     const orderedTasks: Task[] = [];
     const fillWbs = (parentId: string | null) => {
-      const children = projectTasks.filter(t => t.parentId === parentId);
+      const children = projectTasks.filter((t) => t.parentId === parentId);
       children.forEach((child, index) => {
         const contextVal = wbsMap.get(child.id);
         if (contextVal) {
           exportWbsMap.set(child.id, contextVal);
         } else {
-          const parentWbs = parentId ? (exportWbsMap.get(parentId) || '') : '';
+          const parentWbs = parentId ? exportWbsMap.get(parentId) || '' : '';
           exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
         }
         orderedTasks.push(child);
@@ -873,8 +942,8 @@ export const exportToExcel = (
         [HEADER_MAP.startDate]: task.startDate,
         [HEADER_MAP.endDate]: task.endDate,
         [HEADER_MAP.progress]: task.progress,
-        [HEADER_MAP.assignee]: task.assignee,
-        '투입율': allocationRate,
+        [HEADER_MAP.assignee]: formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName),
+        투입율: allocationRate,
         [HEADER_MAP.status]: task.status,
         [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
         [HEADER_MAP.workEffort]: task.workEffort || 0,
@@ -914,5 +983,5 @@ export const exportToExcel = (
 };
 
 export const parseExcel = (file: File): Promise<Task[]> => {
-  return parseExcelWithMeta(file).then(r => r.tasks);
+  return parseExcelWithMeta(file).then((r) => r.tasks);
 };

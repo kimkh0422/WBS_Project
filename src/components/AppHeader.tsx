@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { cn } from '../lib/utils';
+import { useMatchMedia } from '../hooks/useMatchMedia';
 import {
   ChevronDown,
   ChevronUp,
@@ -9,8 +10,6 @@ import {
   Download,
   Upload,
   Settings2,
-  Keyboard,
-  BookOpen,
   ShieldCheck,
   Shield,
   Trash2,
@@ -36,6 +35,7 @@ import {
   Monitor,
   Star,
   EyeOff,
+  Layers,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -63,6 +63,8 @@ export interface AppHeaderProps {
   user: SupabaseUser | null;
   effectiveIsAdmin: boolean;
   profileMap: Record<string, string>;
+  /** 표시 전용(소속·이름·직급). 없으면 profileMap 사용 */
+  profileDisplayById?: Record<string, string>;
   presenceOthers: PresenceUser[];
   selectProject: (id: string) => void;
   allTasks: Task[];
@@ -89,6 +91,8 @@ export interface AppHeaderProps {
   canRedo: boolean;
   hiddenViews: Set<string>;
   view: string;
+  /** 상단 탭에서 대시보드 버튼 라벨(기본: "대시보드"). 프로젝트 현황 전용 배포 시 "프로젝트 현황" 등 */
+  dashboardNavLabel?: string;
   navigateWithTip: (v: string) => void;
   filterOn: boolean;
   setFilterOn: (v: boolean | ((prev: boolean) => boolean)) => void;
@@ -110,8 +114,6 @@ export interface AppHeaderProps {
   handleImportClick: () => void;
   setIsExportModalOpen: (v: boolean) => void;
   setIsSettingsModalOpen: (v: boolean) => void;
-  isShortcutsVisible: boolean;
-  setIsShortcutsVisible: (v: boolean) => void;
   setIsMembersModalOpen: (v: boolean) => void;
   setIsResetConfirmOpen: (v: boolean) => void;
   setIsDeleteChoiceOpen: (v: boolean) => void;
@@ -154,6 +156,7 @@ export function AppHeader({
   user,
   effectiveIsAdmin,
   profileMap,
+  profileDisplayById = {},
   presenceOthers,
   selectProject,
   allTasks,
@@ -177,6 +180,7 @@ export function AppHeader({
   canRedo,
   hiddenViews,
   view,
+  dashboardNavLabel = '대시보드',
   navigateWithTip,
   filterOn,
   setFilterOn,
@@ -195,8 +199,6 @@ export function AppHeader({
   handleImportClick,
   setIsExportModalOpen,
   setIsSettingsModalOpen,
-  isShortcutsVisible,
-  setIsShortcutsVisible,
   setIsMembersModalOpen,
   setIsResetConfirmOpen,
   setIsDeleteChoiceOpen,
@@ -215,21 +217,47 @@ export function AppHeader({
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
   const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
   const allowMembersManagement = canOpenMembersManagement ?? effectiveIsAdmin;
+  /** DB `is_admin`만 — 비밀번호 관리자 모드·회원 화면 미리보기에서는 숨김 */
+  const showSuperAdminDeleteMenu = isAdmin && !memberPreview;
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   /** 프로젝트 드롭다운 영역. 이 범위 밖을 누르면 드롭다운을 닫는다(헤더의 ...·다른 버튼 클릭에도 대응). */
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+  /** 768px 미만이면서 대시보드가 숨김 처리되지 않은 경우: 하단 작업 탭 숨김(App에서 대시보드 고정과 동일 조건) */
+  const lockMobileToDashboard = useMatchMedia('(max-width: 767px)') && !hiddenViews.has('dashboard');
+
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
-  /** 프로젝트 목록 보기 모드 — 한 번에 하나만(다시 누르면 전체). */
-  type ProjectListMode = 'all' | 'my' | 'group' | 'favorites';
-  const PROJECT_LIST_MODE_KEY = 'wbs-header-projects-list-mode';
-  const [listMode, setListMode] = useState<ProjectListMode>(() => {
+  /** 목록 필터: 전체 / 내 프로젝트 / 관심 — 서로 토글(같은 버튼 다시 누르면 전체). */
+  type ProjectListFilter = 'all' | 'my' | 'favorites';
+  const PROJECT_LIST_FILTER_KEY = 'wbs-header-projects-list-filter';
+  /** 폴더(조직 그룹) vs 항목 구분(상품·연구·용역·유지·제품·기타) — 그룹이 정의된 경우에만 UI 표시. */
+  type ProjectListLayout = 'kind' | 'group';
+  const PROJECT_LIST_LAYOUT_KEY = 'wbs-header-projects-list-layout';
+  /** 구버전: 필터+그룹 레이아웃이 한 키에 묶여 있었음 → 최초 로드 시 분리 마이그레이션 */
+  const PROJECT_LIST_MODE_LEGACY_KEY = 'wbs-header-projects-list-mode';
+
+  const [listFilter, setListFilter] = useState<ProjectListFilter>(() => {
     try {
-      const saved = localStorage.getItem(PROJECT_LIST_MODE_KEY);
-      if (saved === 'my' || saved === 'group' || saved === 'favorites' || saved === 'all') return saved;
+      const nf = localStorage.getItem(PROJECT_LIST_FILTER_KEY);
+      if (nf === 'my' || nf === 'favorites') return nf;
+      const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
+      if (legacy === 'my') return 'my';
+      if (legacy === 'favorites') return 'favorites';
       if (localStorage.getItem('wbs-header-projects-my-only') === '1') return 'my';
+      return 'all';
+    } catch {
+      return 'all';
+    }
+  });
+
+  const [projectListLayout, setProjectListLayout] = useState<ProjectListLayout>(() => {
+    try {
+      const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_KEY);
+      if (nl === 'group' || nl === 'kind') return nl;
+      const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
+      if (legacy === 'group') return 'group';
       if (
         localStorage.getItem('wbs-header-projects-group-assigned-only') === '1' ||
         localStorage.getItem('wbs-header-projects-group-layout') === '1' ||
@@ -237,9 +265,9 @@ export function AppHeader({
       ) {
         return 'group';
       }
-      return 'all';
+      return 'kind';
     } catch {
-      return 'all';
+      return 'kind';
     }
   });
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
@@ -247,17 +275,27 @@ export function AppHeader({
   // 관심 프로젝트 (즐겨찾기) — wbsSettings(DB) 동기화
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
 
-  const persistListMode = (mode: ProjectListMode) => {
-    setListMode(mode);
+  const persistListFilter = (next: ProjectListFilter) => {
+    setListFilter(next);
     try {
-      localStorage.setItem(PROJECT_LIST_MODE_KEY, mode);
+      if (next === 'all') localStorage.removeItem(PROJECT_LIST_FILTER_KEY);
+      else localStorage.setItem(PROJECT_LIST_FILTER_KEY, next);
     } catch {
       /* ignore */
     }
   };
 
-  const toggleListMode = (target: Exclude<ProjectListMode, 'all'>) => {
-    persistListMode(listMode === target ? 'all' : target);
+  const persistProjectListLayout = (next: ProjectListLayout) => {
+    setProjectListLayout(next);
+    try {
+      localStorage.setItem(PROJECT_LIST_LAYOUT_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const toggleListFilter = (target: Exclude<ProjectListFilter, 'all'>) => {
+    persistListFilter(listFilter === target ? 'all' : target);
   };
 
   const toggleFavorite = (projectId: string) => {
@@ -278,10 +316,10 @@ export function AppHeader({
 
   const displayProjects = useMemo(() => {
     const base = projectsSortedByName;
-    if (listMode === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
-    if (listMode === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
+    if (listFilter === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
+    if (listFilter === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
     return base;
-  }, [projectsSortedByName, listMode, favoriteIds, user?.id]);
+  }, [projectsSortedByName, listFilter, favoriteIds, user?.id]);
 
   const projectsByKind = useMemo(() => groupProjectsByKind(displayProjects), [displayProjects]);
 
@@ -344,18 +382,18 @@ export function AppHeader({
 
   // 드롭다운 열릴 때 모든 그룹 자동 펼침 + 현재 프로젝트 소속 그룹 펼침 보장
   useEffect(() => {
-    if (isProjectDropdownOpen && listMode === 'group') {
+    if (isProjectDropdownOpen && projectListLayout === 'group') {
       const next = new Set<string>();
       sortedProjectGroups.forEach((g) => next.add(g.id));
       next.add('__none__');
       setExpandedGroupKeys(next);
     }
-  }, [isProjectDropdownOpen, listMode, sortedProjectGroups]);
+  }, [isProjectDropdownOpen, projectListLayout, sortedProjectGroups]);
 
   const ownerGroupLabel = (ownerKey: string) => {
     if (ownerKey === '__none__') return '소유자 미지정';
     if (user?.id && ownerKey === user.id) return '내 프로젝트';
-    return profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
+    return profileDisplayById[ownerKey] ?? profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
   };
 
   // 권한 체크 헬퍼: 시스템 관리자 / 프로젝트 소유자만
@@ -402,6 +440,20 @@ export function AppHeader({
     return () => document.removeEventListener('mousedown', onDown);
   }, [isMoreMenuOpen, isUserMenuOpen, isProjectDropdownOpen, setIsMoreMenuOpen, setIsProjectDropdownOpen]);
 
+  const dashboardHomeHint = `${dashboardNavLabel}(홈)으로 이동`;
+
+  type MobileNavKey = 'dashboard' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
+  const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
+    const items: { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] = [
+      { key: 'dashboard', label: dashboardNavLabel, title: dashboardNavLabel, icon: <LayoutDashboard size={14} /> },
+      { key: 'table', label: '표', title: '표', icon: <CheckSquare size={14} /> },
+      { key: 'tablegantt', label: '표+간', title: '표와 간트 함께 보기', icon: <Columns2 size={14} /> },
+      { key: 'gantt', label: '간트', title: '간트', icon: <Target size={14} /> },
+      { key: 'kanban', label: '칸반', title: '칸반', icon: <MapIcon size={14} /> },
+    ];
+    return items.filter((i) => !hiddenViews.has(i.key));
+  }, [dashboardNavLabel, hiddenViews]);
+
   return (
     <header
       className={cn(
@@ -417,8 +469,8 @@ export function AppHeader({
             type="button"
             onClick={() => navigateWithTip('dashboard')}
             className="shrink-0"
-            title="대시보드(홈)으로 이동"
-            aria-label="대시보드(홈)으로 이동"
+            title={dashboardHomeHint}
+            aria-label={dashboardHomeHint}
           >
             <img src={logo} alt="GMT Logo" className="w-11 h-11 object-contain dark-logo" />
           </button>
@@ -454,8 +506,8 @@ export function AppHeader({
                 navigateWithTip('dashboard');
               }
             }}
-            title="대시보드(홈)으로 이동"
-            aria-label="대시보드(홈)으로 이동"
+            title={dashboardHomeHint}
+            aria-label={dashboardHomeHint}
           >
             <img src={logo} alt="GMT Logo" className="w-12 h-12 md:w-[52px] md:h-[52px] object-contain dark-logo" />
           </div>
@@ -509,12 +561,16 @@ export function AppHeader({
                   {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
                     <span
                       className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5"
-                      title={currentProject.ownerId ? (profileMap[currentProject.ownerId] ?? currentProject.ownerId) : undefined}
+                      title={
+                        currentProject.ownerId
+                          ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? currentProject.ownerId)
+                          : undefined
+                      }
                     >
                       {currentProject.ownerId === user?.id
                         ? '내 프로젝트'
                         : currentProject.ownerId
-                          ? (profileMap[currentProject.ownerId] ?? '다른 사용자')
+                          ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? '다른 사용자')
                           : '소유자 없음'}
                     </span>
                   )}
@@ -542,7 +598,7 @@ export function AppHeader({
                     <div className="p-1">
                       <div
                         className="px-3 py-2 flex items-center justify-between gap-2"
-                        title="내 프로젝트만·그룹별·관심만은 한 번에 하나만 적용됩니다. 켜진 버튼을 다시 누르면 전체 목록으로 돌아갑니다."
+                        title="내 프로젝트·관심은 목록을 좁힙니다. 구분별은 상품·연구·용역·유지·제품·기타로, 그룹별은 설정한 폴더로 묶습니다. 같은 필터 버튼을 다시 누르면 전체로 돌아갑니다."
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
@@ -551,55 +607,74 @@ export function AppHeader({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleListMode('my');
+                                toggleListFilter('my');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listMode === 'my'
+                                listFilter === 'my'
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                                   : 'text-stone-400 hover:text-emerald-600 border border-transparent hover:border-stone-200',
                               )}
-                              title={listMode === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
+                              title={listFilter === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
                             >
                               <User size={10} />내 프로젝트만
                             </button>
                           )}
                           {sortedProjectGroups.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleListMode('group');
-                              }}
-                              className={cn(
-                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listMode === 'group'
-                                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                                  : 'text-stone-400 hover:text-indigo-600 border border-transparent hover:border-stone-200',
-                              )}
-                              title={listMode === 'group' ? '전체 프로젝트 보기' : '그룹별로 묶어 보기'}
-                            >
-                              <FolderOpen size={10} />
-                              그룹별
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  persistProjectListLayout('kind');
+                                }}
+                                className={cn(
+                                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                  projectListLayout === 'kind'
+                                    ? 'bg-violet-100 text-violet-800 border border-violet-200'
+                                    : 'text-stone-400 hover:text-violet-700 border border-transparent hover:border-stone-200',
+                                )}
+                                title="상품·연구·용역·유지·제품·기타 구분으로 묶어 보기"
+                              >
+                                <Layers size={10} />
+                                구분별
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  persistProjectListLayout('group');
+                                }}
+                                className={cn(
+                                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                  projectListLayout === 'group'
+                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                    : 'text-stone-400 hover:text-indigo-600 border border-transparent hover:border-stone-200',
+                                )}
+                                title="프로젝트 그룹(폴더)별로 묶어 보기"
+                              >
+                                <FolderOpen size={10} />
+                                그룹별
+                              </button>
+                            </>
                           )}
                           {favoriteIds.size > 0 && (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleListMode('favorites');
+                                toggleListFilter('favorites');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listMode === 'favorites'
+                                listFilter === 'favorites'
                                   ? 'bg-amber-100 text-amber-700 border border-amber-200'
                                   : 'text-stone-400 hover:text-amber-600 border border-transparent hover:border-stone-200',
                               )}
-                              title={listMode === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
+                              title={listFilter === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
                             >
-                              <Star size={10} className={listMode === 'favorites' ? 'fill-amber-500' : ''} />
-                              {listMode === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
+                              <Star size={10} className={listFilter === 'favorites' ? 'fill-amber-500' : ''} />
+                              {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
                             </button>
                           )}
                           <span className="text-[10px] text-stone-400 shrink-0">{displayProjects.length}개</span>
@@ -616,9 +691,13 @@ export function AppHeader({
                         </div>
                       )}
                       <div
+                        role="option"
+                        aria-selected={currentProjectId === 'all'}
                         className={cn(
-                          'px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors',
-                          currentProjectId === 'all' ? 'bg-stone-100 font-medium' : 'text-stone-600 hover:bg-stone-50',
+                          'px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border',
+                          currentProjectId === 'all'
+                            ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
+                            : 'text-stone-600 hover:bg-stone-50 border-transparent',
                         )}
                         onClick={() => {
                           selectProject('all');
@@ -630,7 +709,17 @@ export function AppHeader({
                             : '모든 프로젝트의 작업을 한 화면에서 확인합니다.'
                         }
                       >
-                        <span className="truncate flex-1">전체</span>
+                        <span className="truncate flex-1 inline-flex items-center gap-2 min-w-0">
+                          <span className="truncate">전체</span>
+                          {currentProjectId === 'all' && (
+                            <span
+                              className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-600 text-white"
+                              title="지금 작업 중인 범위입니다."
+                            >
+                              현재
+                            </span>
+                          )}
+                        </span>
                         {allTasks.length > 0 && <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>}
                       </div>
                       {orphanAndUnassignedTaskCount > 0 && (
@@ -647,12 +736,17 @@ export function AppHeader({
                         {(() => {
                           const renderProjectRow = (project: Project) => {
                             const ownerLabel = ownerGroupLabel(project.ownerId ?? '__none__');
+                            const isCurrentProject = currentProjectId === project.id;
                             return (
                               <div
                                 key={project.id}
+                                role="option"
+                                aria-selected={isCurrentProject}
                                 className={cn(
-                                  'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors',
-                                  currentProjectId === project.id ? 'bg-stone-100 font-medium' : 'text-stone-600 hover:bg-stone-50',
+                                  'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border gap-1',
+                                  isCurrentProject
+                                    ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
+                                    : 'text-stone-600 hover:bg-stone-50 border-transparent',
                                 )}
                                 onClick={() => {
                                   selectProject(project.id);
@@ -676,6 +770,14 @@ export function AppHeader({
                                 <div className="flex-1 min-w-0 break-words">
                                   <span className="inline-flex flex-wrap items-center gap-1">
                                     <ProjectNameLabel project={project} name={project.name} />
+                                    {isCurrentProject && (
+                                      <span
+                                        className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-600 text-white"
+                                        title="지금 작업 중인 프로젝트입니다."
+                                      >
+                                        현재
+                                      </span>
+                                    )}
                                     <span className="text-[10px] text-stone-400">({ownerLabel})</span>
                                   </span>
                                   {(taskCountByProject[project.id] ?? 0) > 0 && (
@@ -745,7 +847,7 @@ export function AppHeader({
                             );
                           };
 
-                          if (listMode === 'group' && sortedProjectGroups.length > 0) {
+                          if (projectListLayout === 'group' && sortedProjectGroups.length > 0) {
                             return [...sortedProjectGroups, { id: '__none__', name: '그룹 미지정' }].map((g) => {
                               const list = projectsByGroup.get(g.id) ?? [];
                               if (g.id === '__none__' && list.length === 0) return null;
@@ -786,27 +888,31 @@ export function AppHeader({
                         })()}
                       </div>
                       <div className="border-t border-[var(--color-line)] my-1"></div>
-                      <button
-                        onClick={() => {
-                          setEditingProject(null);
-                          setIsProjectModalOpen(true);
-                          setIsProjectDropdownOpen(false);
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors"
-                        title="새 프로젝트를 생성합니다."
-                      >
-                        <FolderPlus size={14} /> 새 프로젝트
-                      </button>
-                      <button
-                        onClick={() => {
-                          setIsProjectDropdownOpen(false);
-                          setView('projects');
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors"
-                        title="프로젝트 관리 페이지로 이동합니다."
-                      >
-                        <Briefcase size={14} /> 프로젝트 관리
-                      </button>
+                      {!hiddenViews.has('projects') && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingProject(null);
+                              setIsProjectModalOpen(true);
+                              setIsProjectDropdownOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors"
+                            title="새 프로젝트를 생성합니다."
+                          >
+                            <FolderPlus size={14} /> 새 프로젝트
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsProjectDropdownOpen(false);
+                              setView('projects');
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors"
+                            title="프로젝트 관리 페이지로 이동합니다."
+                          >
+                            <Briefcase size={14} /> 프로젝트 관리
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </>
@@ -845,8 +951,12 @@ export function AppHeader({
                 active={view === 'dashboard'}
                 onClick={() => navigateWithTip('dashboard')}
                 icon={<LayoutDashboard size={14} />}
-                label="대시보드"
-                title="프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다."
+                label={dashboardNavLabel}
+                title={
+                  dashboardNavLabel !== '대시보드'
+                    ? '사업부·팀·PM·사업 기간 등 프로젝트 현황을 한눈에 봅니다.'
+                    : '프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다.'
+                }
                 tourId="tour-nav-dashboard"
               />
             )}
@@ -860,38 +970,46 @@ export function AppHeader({
                 tourId="tour-nav-allocation"
               />
             )}
-            <NavButton
-              active={view === 'table'}
-              onClick={() => navigateWithTip('table')}
-              icon={<CheckSquare size={14} />}
-              label="표만"
-              title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다."
-              tourId="tour-nav-table"
-            />
-            <NavButton
-              active={view === 'tablegantt'}
-              onClick={() => navigateWithTip('tablegantt')}
-              icon={<Columns2 size={14} />}
-              label="표+간트"
-              title="작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)"
-              tourId="tour-nav-tablegantt"
-            />
-            <NavButton
-              active={view === 'gantt'}
-              onClick={() => navigateWithTip('gantt')}
-              icon={<Target size={14} />}
-              label="간트만"
-              title="일정 막대를 드래그해 날짜를 조정하고, 선후관계·크리티컬 패스를 확인합니다."
-              tourId="tour-nav-gantt"
-            />
-            <NavButton
-              active={view === 'kanban'}
-              onClick={() => navigateWithTip('kanban')}
-              icon={<MapIcon size={14} />}
-              label="칸반"
-              title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다."
-              tourId="tour-nav-kanban"
-            />
+            {!hiddenViews.has('table') && (
+              <NavButton
+                active={view === 'table'}
+                onClick={() => navigateWithTip('table')}
+                icon={<CheckSquare size={14} />}
+                label="표만"
+                title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다."
+                tourId="tour-nav-table"
+              />
+            )}
+            {!hiddenViews.has('tablegantt') && (
+              <NavButton
+                active={view === 'tablegantt'}
+                onClick={() => navigateWithTip('tablegantt')}
+                icon={<Columns2 size={14} />}
+                label="표+간트"
+                title="작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)"
+                tourId="tour-nav-tablegantt"
+              />
+            )}
+            {!hiddenViews.has('gantt') && (
+              <NavButton
+                active={view === 'gantt'}
+                onClick={() => navigateWithTip('gantt')}
+                icon={<Target size={14} />}
+                label="간트만"
+                title="일정 막대를 드래그해 날짜를 조정하고, 선후관계를 확인합니다."
+                tourId="tour-nav-gantt"
+              />
+            )}
+            {!hiddenViews.has('kanban') && (
+              <NavButton
+                active={view === 'kanban'}
+                onClick={() => navigateWithTip('kanban')}
+                icon={<MapIcon size={14} />}
+                label="칸반"
+                title="상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다."
+                tourId="tour-nav-kanban"
+              />
+            )}
             {/* 마인드맵: 관리자에게도 숨김 처리 */}
           </div>
 
@@ -1043,30 +1161,8 @@ export function AppHeader({
                   >
                     <Settings2 size={14} /> 환경설정
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setIsShortcutsVisible(!isShortcutsVisible);
-                      tipOnce?.('menu.shortcuts', '단축키 패널을 여는 버튼입니다. (예: Ctrl+A, Del로 일괄 삭제)');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    <Keyboard size={14} /> 단축키
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      navigateWithTip('guide');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
-                    title="주요 사용 방법과 역할별 권한을 한 페이지에서 확인합니다."
-                  >
-                    <BookOpen size={14} /> 사용 안내
-                  </button>
 
-                  <div className="h-px bg-slate-100 my-1 mx-2" />
+                  {(allowMembersManagement || showSuperAdminDeleteMenu) && <div className="h-px bg-slate-100 my-1 mx-2" />}
 
                   {allowMembersManagement && (
                     <>
@@ -1088,17 +1184,19 @@ export function AppHeader({
                     </>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setIsDeleteChoiceOpen(true);
-                      tipOnce?.('menu.deleteAll', '삭제 및 초기화 메뉴입니다.');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1"
-                  >
-                    <Trash2 size={14} /> 부분/전체 삭제
-                  </button>
+                  {showSuperAdminDeleteMenu && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsDeleteChoiceOpen(true);
+                        tipOnce?.('menu.deleteAll', '삭제 및 초기화 메뉴입니다.');
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1"
+                    >
+                      <Trash2 size={14} /> 부분/전체 삭제
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -1218,46 +1316,23 @@ export function AppHeader({
           </button>
         </div>
       </div>
-      {/* 모바일 하단 고정 탭바: 대시보드 / 표 / 표+간트 / 간트 / 칸반 */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
-        <div className="grid grid-cols-5 gap-0.5">
-          <NavButton
-            active={view === 'dashboard'}
-            onClick={() => navigateWithTip('dashboard')}
-            icon={<LayoutDashboard size={14} />}
-            label="대시보드"
-            title="대시보드"
-          />
-          <NavButton
-            active={view === 'table'}
-            onClick={() => navigateWithTip('table')}
-            icon={<CheckSquare size={14} />}
-            label="표"
-            title="표"
-          />
-          <NavButton
-            active={view === 'tablegantt'}
-            onClick={() => navigateWithTip('tablegantt')}
-            icon={<Columns2 size={14} />}
-            label="표+간"
-            title="표와 간트 함께 보기"
-          />
-          <NavButton
-            active={view === 'gantt'}
-            onClick={() => navigateWithTip('gantt')}
-            icon={<Target size={14} />}
-            label="간트"
-            title="간트"
-          />
-          <NavButton
-            active={view === 'kanban'}
-            onClick={() => navigateWithTip('kanban')}
-            icon={<MapIcon size={14} />}
-            label="칸반"
-            title="칸반"
-          />
-        </div>
-      </nav>
+      {/* 모바일 하단 고정 탭바: 숨김 설정에 따라 대시보드 / 표 / … */}
+      {!lockMobileToDashboard && mobileBottomNavItems.length > 0 && (
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
+          <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${mobileBottomNavItems.length}, minmax(0, 1fr))` }}>
+            {mobileBottomNavItems.map((item) => (
+              <NavButton
+                key={item.key}
+                active={view === item.key}
+                onClick={() => navigateWithTip(item.key)}
+                icon={item.icon}
+                label={item.label}
+                title={item.title}
+              />
+            ))}
+          </div>
+        </nav>
+      )}
     </header>
   );
 }

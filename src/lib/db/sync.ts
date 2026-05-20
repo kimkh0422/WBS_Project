@@ -58,6 +58,7 @@ export function fingerprintProjectRowForSync(row: ProjectRow): string {
     report_name_short: row.report_name_short ?? null,
     report_name_full: row.report_name_full ?? null,
     group_id: row.group_id ?? null,
+    include_in_dashboard: row.include_in_dashboard !== false,
   });
 }
 

@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { TableColumnId } from '../wbsTableTypes';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { isRealtimeMinimized } from '../../lib/realtimePolicy';
 
 /** 다른 사용자의 셀 포커스 정보 (실시간 커서 표시용) */
 export type OtherCellFocus = {
@@ -49,7 +50,7 @@ export function useRealtimeCellFocus({
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!isSupabaseConfigured || !supabase || isRealtimeMinimized()) return;
     if (!currentProjectId || currentProjectId === 'all') return;
     if (!currentUserId) return;
 

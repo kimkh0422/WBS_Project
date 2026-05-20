@@ -5,7 +5,9 @@ import {
   computeProjectTotalManMonths,
   countProjectPersonnel,
   getProjectMonthKeys,
+  mergePersonTaskAllocationsWithOrgDirectory,
 } from '../personAllocations';
+import type { OrgMember } from '../../data/organization';
 import type { Project, Task } from '../../types';
 
 describe('getProjectMonthKeys', () => {
@@ -97,5 +99,34 @@ describe('computePersonTaskAllocations', () => {
     expect(rows.map((r) => r.person)).toEqual(['Kim', 'Lee']);
     expect(rows[0].totalTaskCount).toBe(3);
     expect(rows[0].items.map((i) => i.taskCount)).toEqual([2, 1]);
+  });
+});
+
+describe('mergePersonTaskAllocationsWithOrgDirectory', () => {
+  it('조직 인원 전체를 포함하고 할당 없는 직원은 0건으로 둔다', () => {
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha' }];
+    const taskCounts = new Map<string, Map<string, number>>([['Kim', new Map([['p1', 2]])]]);
+    const base = computePersonTaskAllocations(projects, taskCounts);
+    const org: OrgMember[] = [
+      { name: 'Lee', department: '개발팀', position: '', gender: '' },
+      { name: 'Kim', department: '개발팀', position: '', gender: '' },
+    ];
+    const merged = mergePersonTaskAllocationsWithOrgDirectory(base, org);
+    expect(merged.map((r) => r.person)).toEqual(['Lee', 'Kim']);
+    expect(merged[0].totalTaskCount).toBe(0);
+    expect(merged[0].items).toEqual([]);
+    expect(merged[1].totalTaskCount).toBe(2);
+  });
+
+  it('작업에만 있는 비조직 담당자는 뒤에 이어 붙인다', () => {
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha' }];
+    const taskCounts = new Map<string, Map<string, number>>([
+      ['Kim', new Map([['p1', 1]])],
+      ['Outsider', new Map([['p1', 3]])],
+    ]);
+    const base = computePersonTaskAllocations(projects, taskCounts);
+    const org: OrgMember[] = [{ name: 'Kim', department: 'A', position: '', gender: '' }];
+    const merged = mergePersonTaskAllocationsWithOrgDirectory(base, org);
+    expect(merged.map((r) => r.person)).toEqual(['Kim', 'Outsider']);
   });
 });

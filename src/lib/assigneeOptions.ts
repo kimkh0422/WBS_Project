@@ -36,26 +36,85 @@ export function buildAssigneeCandidates(opts: {
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
 }
 
+/** 조직도 인원 1명분 표시 메타(소속·직급). 이름 키는 저장 담당자 문자열과 동일한 `OrgMember.name` */
+export type PersonDisplayMeta = {
+  department: string;
+  position: string;
+};
+
 /**
- * 이름 → 직위(직급) 맵. 화면 표시용.
+ * 이름 → 소속·직급 메타. 화면 표시용.
+ * 부서 또는 직급 중 하나라도 있을 때만 맵에 넣는다.
  */
-export function buildOrgMemberPositionMap(orgMembers: OrgMember[] | undefined): Map<string, string> {
-  const m = new Map<string, string>();
+export function buildOrgMemberDisplayMetaMap(orgMembers: OrgMember[] | undefined): Map<string, PersonDisplayMeta> {
+  const m = new Map<string, PersonDisplayMeta>();
   for (const member of orgMembers ?? []) {
     if (!member?.name) continue;
     if (m.has(member.name)) continue;
-    const pos = (member.position || '').trim();
-    if (pos) m.set(member.name, pos);
+    const department = (member.department || '').trim();
+    const position = (member.position || '').trim();
+    if (!department && !position) continue;
+    m.set(member.name, { department, position });
   }
   return m;
 }
 
-/** 담당자 이름과 직급을 함께 표시 (예: "홍길동 과장"). 저장값은 이름만 유지한다. */
-export function formatAssigneeDisplay(name: string | undefined | null, positionByName?: Map<string, string>): string {
+export type FormatPersonDisplayOpts = {
+  orgMetaByName?: Map<string, PersonDisplayMeta>;
+  /** 조직 노드에 없을 때 프로필 등에서 온 소속 */
+  fallbackDepartment?: string | null;
+};
+
+/**
+ * 단일 인물 표기: `소속 이름 직급` (있는 항목만 공백으로 연결).
+ * 콤마 구분 복수 담당자(예: "A, B")는 각각 포맷한 뒤 ", "로 이어 붙인다.
+ */
+export function formatPersonDisplay(name: string | undefined | null, opts?: FormatPersonDisplayOpts): string {
   const trimmed = (name ?? '').trim();
   if (!trimmed) return '';
-  const pos = positionByName?.get(trimmed);
-  return pos ? `${trimmed} ${pos}` : trimmed;
+  const parts = trimmed
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length > 1) {
+    return parts.map((p) => formatPersonDisplay(p, opts)).join(', ');
+  }
+  const org = opts?.orgMetaByName?.get(trimmed);
+  const dept = org?.department?.trim() || opts?.fallbackDepartment?.trim() || '' || '';
+  const pos = org?.position?.trim() || '';
+  const segments = [dept, trimmed, pos].filter(Boolean);
+  if (segments.length === 1) return segments[0]!;
+  return segments.join(' ');
+}
+
+/** 담당자 저장값(이름)에 소속·직급을 붙여 표시. 저장값은 이름(들)만 유지한다. */
+export function formatAssigneeDisplay(name: string | undefined | null, orgMetaByName?: Map<string, PersonDisplayMeta>): string {
+  return formatPersonDisplay(name, { orgMetaByName: orgMetaByName });
+}
+
+/**
+ * 프로필 id → 화면용 표시 문자열(소속·이름·직급).
+ * 필터·담당자 매칭용 `profileMap`은 별도로 평문 이름을 유지하고, 이 맵은 표시 전용으로 쓴다.
+ */
+export function buildProfileDisplayById(
+  profiles: ReadonlyArray<{ id: string; email: string | null; full_name?: string | null; department?: string | null }>,
+  orgMembers: OrgMember[] | undefined,
+  ownerDisplayNames?: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const meta = buildOrgMemberDisplayMetaMap(orgMembers);
+  const out: Record<string, string> = {};
+  for (const p of profiles) {
+    const plain = (p.full_name && String(p.full_name).trim()) || p.email || '(이메일 없음)';
+    out[p.id] = formatPersonDisplay(plain, { orgMetaByName: meta, fallbackDepartment: p.department });
+  }
+  if (ownerDisplayNames) {
+    for (const [id, raw] of Object.entries(ownerDisplayNames)) {
+      const plain = String(raw ?? '').trim();
+      if (!plain) continue;
+      out[id] = formatPersonDisplay(plain, { orgMetaByName: meta });
+    }
+  }
+  return out;
 }
 
 /**

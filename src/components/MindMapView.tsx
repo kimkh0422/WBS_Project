@@ -20,6 +20,9 @@ import {
   Network,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import { formatProjectDisplayName } from '../lib/projectKind';
 
 const NODE_W = 200;
 const NODE_H = 44; // 진행률 바 공간 확보를 위해 높이 증가
@@ -454,6 +457,8 @@ interface MindMapViewProps {
 
 export function MindMapView({ filters }: MindMapViewProps) {
   const { tasks, addTask, updateTask, deleteTask, reorderTask, currentProjectId, projects, wbsMap, canEditCurrentProject } = useWBS();
+  const { orgMembers } = useOrganization();
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const filterId = React.useId().replace(/:/g, '');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -483,9 +488,12 @@ export function MindMapView({ filters }: MindMapViewProps) {
   const projectLabel = useMemo(() => {
     if (filters.projectIds === 'all') {
       const p = projects.find((x) => x.id === currentProjectId);
-      return p?.name ?? '프로젝트';
+      return p ? formatProjectDisplayName(p.name, p.projectKind) : '프로젝트';
     }
-    if (filters.projectIds.length === 1) return projects.find((x) => x.id === filters.projectIds[0])?.name ?? '프로젝트';
+    if (filters.projectIds.length === 1) {
+      const p = projects.find((x) => x.id === filters.projectIds[0]);
+      return p ? formatProjectDisplayName(p.name, p.projectKind) : '프로젝트';
+    }
     return `${filters.projectIds.length}개 프로젝트`;
   }, [filters.projectIds, projects, currentProjectId]);
 
@@ -1446,7 +1454,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
               {selectedTask.assignee && (
                 <div>
                   <span className="text-slate-400">담당자</span>
-                  <span className="ml-2 font-medium">{selectedTask.assignee}</span>
+                  <span className="ml-2 font-medium">{formatAssigneeDisplay(selectedTask.assignee, assigneeDisplayMetaByName)}</span>
                 </div>
               )}
               {typeof selectedTask.progress === 'number' && (

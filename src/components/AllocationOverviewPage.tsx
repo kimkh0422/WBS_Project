@@ -14,7 +14,12 @@ import {
 import { EditableAllocationBadge } from './EditableAllocationBadge';
 import { AddPersonProjectAllocation } from './AddPersonProjectAllocation';
 import { AddPersonAllocationControl } from './AddPersonAllocationControl';
-import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberPositionMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import {
+  buildAssigneeCandidates,
+  buildOrgMemberLabelMap,
+  buildOrgMemberDisplayMetaMap,
+  formatAssigneeDisplay,
+} from '../lib/assigneeOptions';
 import { Project } from '../types';
 import { ProjectNameLabel } from './ProjectNameLabel';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -72,7 +77,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
     [orgMembers, projects, registeredMemberDisplayNames],
   );
   const allocationOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
-  const allocationPositionByName = useMemo(() => buildOrgMemberPositionMap(orgMembers), [orgMembers]);
+  const allocationDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
   return (
     <div className="h-full overflow-auto bg-stone-50/50">
@@ -185,7 +190,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                         className="inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
                       >
                         <EditableAllocationBadge
-                          projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationPositionByName)}
+                          projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationDisplayMetaByName)}
                           allocationPercent={a.allocationPercent}
                           disabled={((a.assignee || '').trim() || '(미지정)') === '(미지정)'}
                           onSave={(percent) => handleUpdatePersonAllocation(project.id, (a.assignee || '').trim() || '(미지정)', percent)}
@@ -292,7 +297,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                     ) : (
                       <div className="flex items-center gap-2">
                         <div className="font-semibold text-[var(--color-ink)]">
-                          {formatAssigneeDisplay(person, allocationPositionByName)}
+                          {formatAssigneeDisplay(person, allocationDisplayMetaByName)}
                         </div>
                         {person !== '(미지정)' && (
                           <button

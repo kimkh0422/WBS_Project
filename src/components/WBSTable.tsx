@@ -46,7 +46,7 @@ import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
+import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
 import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
@@ -132,7 +132,12 @@ export function WBSTable({
   const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
-  const currentUserDisplayName = String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
+  const currentUserDisplayName = useMemo(() => {
+    const raw = String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
+    if (raw === '(이름 없음)') return raw;
+    return formatPersonDisplay(raw, { orgMetaByName: assigneeDisplayMetaByName }) || raw;
+  }, [user, assigneeDisplayMetaByName]);
   /** 다중 선택 일괄 수정 바의 담당자 후보 (조직 회원 + 모든 프로젝트 등록 인원 + 작업 담당자 통합) */
   const bulkAssigneeCandidates = useMemo(() => buildAssigneeCandidates({ orgMembers, projects, tasks }), [orgMembers, projects, tasks]);
   const bulkAssigneeLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
@@ -204,10 +209,23 @@ export function WBSTable({
     return loadClipboardTasks();
   });
 
-  const quickAddNameInlineRef = useRef<HTMLInputElement>(null);
-  const quickAddNameBottomRef = useRef<HTMLInputElement>(null);
+  /** 하단/인라인「새 작업」입력은 제어 컴포넌트로 두어, 제출·프로젝트 전환 후에도 값이 남는 현상을 방지 */
+  const [quickAddBottomValue, setQuickAddBottomValue] = useState('');
+  const [quickAddInlineValue, setQuickAddInlineValue] = useState('');
+  const bottomQuickAddInputRef = useRef<HTMLInputElement>(null);
   const [insertTargetId, setInsertTargetId] = useState<string | null>(null);
   const [inlineAddingTaskId, setInlineAddingTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setQuickAddBottomValue('');
+    setQuickAddInlineValue('');
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    if (inlineAddingTaskId === null) {
+      setQuickAddInlineValue('');
+    }
+  }, [inlineAddingTaskId]);
 
   // F2 Inline Name Edit state
   const [inlineEditingNameId, setInlineEditingNameId] = useState<string | null>(null);
@@ -278,8 +296,6 @@ export function WBSTable({
 
   // Column resize hook + gridStyle — moved below allocationDisplayByTaskId/taskIdToSeqNum
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
-  /** 하단 [+ 새 작업 추가] 행 — 본문 가로 스크롤과 동기화 */
-  const quickAddFooterScrollRef = useRef<HTMLDivElement | null>(null);
   /** 스플릿 뷰에서 헤더 가로 스크롤 동기화용 */
   const headerScrollRef = useRef<HTMLDivElement | null>(null);
   const isSyncingScrollRef = useRef(false);
@@ -528,6 +544,7 @@ export function WBSTable({
     allocationDisplayByTaskId,
     taskIdToSeqNum,
     customColumnNameById,
+    assigneeDisplayMetaByName,
   });
 
   const gridStyle = useMemo(() => {
@@ -635,6 +652,8 @@ export function WBSTable({
     setBulkEndDate,
     bulkAllocation,
     setBulkAllocation,
+    bulkTaskKind,
+    setBulkTaskKind,
     resetBulkFields,
     executeBulkEdit,
     executeBulkAssignee,
@@ -712,14 +731,14 @@ export function WBSTable({
   const handleInlineQuickAdd = (e: React.FormEvent, parentId: string | null) => {
     e.preventDefault();
     if (!canEditCurrentProject) return; // 편집 권한 없으면 인라인 추가 비활성화
-    const name = quickAddNameInlineRef.current?.value ?? '';
-    if (!name.trim()) return;
+    const name = quickAddInlineValue.trim();
+    if (!name) return;
 
     const proj = projects.find((p) => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
     const newId = addTask(
       {
-        name: name.trim(),
+        name,
         parentId,
         startDate: filters.startDate || defaultDate,
         endDate: filters.endDate || defaultDate,
@@ -731,7 +750,7 @@ export function WBSTable({
       insertTargetId || undefined,
     );
 
-    if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
+    setQuickAddInlineValue('');
     setInlineAddingTaskId(null);
     setInsertTargetId(null);
 
@@ -767,13 +786,13 @@ export function WBSTable({
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEditCurrentProject) return; // 편집 권한 없으면 빠른 추가 비활성화
-    const name = quickAddNameBottomRef.current?.value ?? '';
-    if (!name.trim()) return;
+    const name = quickAddBottomValue.trim();
+    if (!name) return;
 
     const proj = projects.find((p) => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
     const newId = addTask({
-      name: name.trim(),
+      name,
       startDate: filters.startDate || defaultDate,
       endDate: filters.endDate || defaultDate,
       progress: 0,
@@ -782,11 +801,9 @@ export function WBSTable({
       status: 'todo',
       parentId: null,
     });
-    if (quickAddNameBottomRef.current) {
-      quickAddNameBottomRef.current.value = '';
-      // input에서 포커스 빼야 ↑/↓ 단축키가 동작 (useWbsTableKeyboard의 inQuickAdd 가드)
-      quickAddNameBottomRef.current.blur();
-    }
+    setQuickAddBottomValue('');
+    // input에서 포커스 빼야 ↑/↓ 단축키가 동작 (useWbsTableKeyboard의 inQuickAdd 가드)
+    bottomQuickAddInputRef.current?.blur();
     if (newId) {
       // 포커스 행 지정 → 노란색 강조 + ↑/↓로 즉시 이동 가능. 체크박스는 자동 체크 X.
       setLastSelectedId(newId);
@@ -957,7 +974,7 @@ export function WBSTable({
         onOpenMdEditor={() => {
           const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
           const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
-          setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView));
+          setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
           setIsMdEditModalOpen(true);
         }}
       />
@@ -1067,17 +1084,15 @@ export function WBSTable({
                 !tableEditMode && 'wbs-view-mode',
                 fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
                 wrapTextInCells && 'wrap-text-in-cells',
-                // 표 하단에 항상 여백을 둬서 마지막 행이 일괄 수정 바나 화면 끝에 붙어 보이지 않게 한다.
-                'pb-40',
+                // 마지막 행·퀵 추가 입력 아래에 약간 여백(일괄 수정 바 등 고정 UI와 겹침 완화)
+                'pb-6',
               )}
               onScroll={(e) => {
                 const target = e.currentTarget;
                 const header = headerScrollRef.current;
-                const quickAddFooter = quickAddFooterScrollRef.current;
                 if (!isSyncingScrollRef.current) {
                   isSyncingScrollRef.current = true;
                   if (isSplitView && header) header.scrollLeft = target.scrollLeft;
-                  if (quickAddFooter) quickAddFooter.scrollLeft = target.scrollLeft;
                   requestAnimationFrame(() => {
                     isSyncingScrollRef.current = false;
                   });
@@ -1085,7 +1100,7 @@ export function WBSTable({
               }}
             >
               <div className="min-w-fit w-full bg-white relative">
-                {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 스크롤 밖 하단 고정 */}
+                {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 본문 맨 아래(행 직후)에 배치 */}
                 {!isSplitView && (
                   <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
                     <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
@@ -1249,12 +1264,18 @@ export function WBSTable({
                                         >
                                           <input
                                             autoFocus
-                                            ref={quickAddNameInlineRef}
+                                            autoComplete="off"
+                                            data-quick-add
                                             type="text"
-                                            defaultValue=""
-                                            onBlur={() => setInlineAddingTaskId(null)}
+                                            value={quickAddInlineValue}
+                                            onChange={(e) => setQuickAddInlineValue(e.target.value)}
+                                            onBlur={() => {
+                                              setInlineAddingTaskId(null);
+                                            }}
                                             onKeyDown={(e) => {
-                                              if (e.key === 'Escape') setInlineAddingTaskId(null);
+                                              if (e.key === 'Escape') {
+                                                setInlineAddingTaskId(null);
+                                              }
                                               e.stopPropagation();
                                             }}
                                             onPaste={(e) => {
@@ -1286,7 +1307,7 @@ export function WBSTable({
                                                 });
                                               });
 
-                                              if (quickAddNameInlineRef.current) quickAddNameInlineRef.current.value = '';
+                                              setQuickAddInlineValue('');
                                               setInlineAddingTaskId(null);
                                               setInsertTargetId(null);
                                             }}
@@ -1337,60 +1358,46 @@ export function WBSTable({
                     </button>
                   </div>
                 )}
+                {canEditCurrentProject && (
+                  <div className="min-w-fit w-full border-t border-blue-200/70 bg-blue-50/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                    <div
+                      className="data-row flex-shrink-0 bg-blue-50/70 border-b border-blue-200/70 shadow-sm box-border"
+                      style={{
+                        ...gridStyle,
+                        ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
+                      }}
+                    >
+                      <div className="data-cell"></div>
+                      <div className="data-cell"></div>
+                      <div className="data-cell"></div>
+                      <div className="data-cell justify-center text-blue-500">
+                        <Plus size={14} />
+                      </div>
+                      {visibleColumnIds.map((colId) => {
+                        if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                        return (
+                          <div key={colId} className="data-cell p-0">
+                            <form onSubmit={handleQuickAdd} className="flex w-full h-full">
+                              <input
+                                data-quick-add
+                                ref={bottomQuickAddInputRef}
+                                type="text"
+                                autoComplete="off"
+                                value={quickAddBottomValue}
+                                onChange={(e) => setQuickAddBottomValue(e.target.value)}
+                                placeholder="+ 새 작업 추가 (Enter 키 입력)..."
+                                className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                              />
+                            </form>
+                          </div>
+                        );
+                      })}
+                      <div className="data-cell"></div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-            {canEditCurrentProject && (
-              <div
-                ref={quickAddFooterScrollRef}
-                className="flex-shrink-0 overflow-x-hidden border-t border-blue-200/70 bg-blue-50/70 shadow-[0_-1px_3px_rgba(0,0,0,0.04)]"
-                onScroll={(e) => {
-                  const body = tableScrollRef.current;
-                  const header = headerScrollRef.current;
-                  if (!body || isSyncingScrollRef.current) return;
-                  isSyncingScrollRef.current = true;
-                  body.scrollLeft = e.currentTarget.scrollLeft;
-                  if (isSplitView && header) header.scrollLeft = e.currentTarget.scrollLeft;
-                  requestAnimationFrame(() => {
-                    isSyncingScrollRef.current = false;
-                  });
-                }}
-              >
-                <div className="min-w-fit w-full">
-                  <div
-                    className="data-row flex-shrink-0 bg-blue-50/70 border-y border-blue-200/70 shadow-sm box-border"
-                    style={{
-                      ...gridStyle,
-                      ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
-                    }}
-                  >
-                    <div className="data-cell"></div>
-                    <div className="data-cell"></div>
-                    <div className="data-cell"></div>
-                    <div className="data-cell justify-center text-blue-500">
-                      <Plus size={14} />
-                    </div>
-                    {visibleColumnIds.map((colId) => {
-                      if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
-                      return (
-                        <div key={colId} className="data-cell p-0">
-                          <form onSubmit={handleQuickAdd} className="flex w-full h-full">
-                            <input
-                              data-quick-add
-                              ref={quickAddNameBottomRef}
-                              type="text"
-                              defaultValue=""
-                              placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                              className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
-                            />
-                          </form>
-                        </div>
-                      );
-                    })}
-                    <div className="data-cell"></div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
         {excelView && (
@@ -1442,6 +1449,26 @@ export function WBSTable({
                     {config.name}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            {/* 작업 유형(마일스톤·이슈·액션) */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">유형</label>
+              <select
+                value={bulkTaskKind}
+                onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
+                title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
+                className={cn(
+                  'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer min-w-[8.5rem]',
+                  bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                )}
+              >
+                <option value="">변경 없음</option>
+                <option value="plain">일반 작업</option>
+                <option value="milestone">마일스톤</option>
+                <option value="issue">이슈</option>
+                <option value="action">액션 항목</option>
               </select>
             </div>
 
@@ -1559,11 +1586,12 @@ export function WBSTable({
               />
             </div>
 
-            {/* 적용 버튼 - 상태, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
+            {/* 적용 버튼 - 상태, 유형, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
             <button
               onClick={executeBulkEdit}
               disabled={
                 !bulkStatus &&
+                !bulkTaskKind &&
                 !bulkAssignee.trim() &&
                 (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
                 (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&

@@ -15,8 +15,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   AlertTriangle,
-  ChevronRight,
-  ChevronDown,
 } from 'lucide-react';
 import {
   fetchProfiles,
@@ -44,7 +42,9 @@ import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
 import { departmentInManagedSubtree } from '../lib/orgProfileScope';
 import { buildOrgDepartmentByNameMap, lookupOrgDepartment, resolveMemberDepartment } from '../lib/orgDepartmentLookup';
+import { buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
 import { cn } from '../lib/utils';
+import { formatProjectDisplayName } from '../lib/projectKind';
 
 interface MembersModalProps {
   isOpen: boolean;
@@ -59,8 +59,9 @@ interface MembersModalProps {
   /** 로그인 사용자의 org_nodes.id (조직 책임 범위 루트) */
   managedOrgNodeIdForViewer?: string | null;
   /** 프로젝트 권한 요청 목록에서 프로젝트명 표시용 */
-  projects?: Array<Pick<Project, 'id' | 'name' | 'ownerId'>>;
+  projects?: Array<Pick<Project, 'id' | 'name' | 'ownerId' | 'projectKind'>>;
   profileMap?: Record<string, string>;
+  profileDisplayById?: Record<string, string>;
   /** 관리자: 회원별 소유 프로젝트 칩에서 해당 프로젝트 작업 화면으로 이동 */
   onNavigateToProject?: (projectId: string) => void;
   onDeleted?: () => void;
@@ -77,6 +78,7 @@ export function MembersModal({
   managedOrgNodeIdForViewer = null,
   projects = [],
   profileMap = {},
+  profileDisplayById = {},
   onNavigateToProject,
   onDeleted,
   onApproved,
@@ -102,6 +104,7 @@ export function MembersModal({
 
   const { orgTree, orgMembers } = useOrganization();
   const orgDeptByName = useMemo(() => buildOrgDepartmentByNameMap(orgMembers), [orgMembers]);
+  const memberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const membersRef = useRef(members);
   membersRef.current = members;
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
@@ -126,12 +129,12 @@ export function MembersModal({
 
   /** 회원별 본인이 만든 프로젝트(소유자) 목록·갯수. `projects` prop은 RLS로 조회 가능한 범위만 포함. */
   const projectsByOwner = useMemo(() => {
-    const map = new Map<string, Array<Pick<Project, 'id' | 'name'>>>();
+    const map = new Map<string, Array<Pick<Project, 'id' | 'name' | 'projectKind'>>>();
     for (const p of projects) {
       const k = p.ownerId;
       if (!k) continue;
       if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push({ id: p.id, name: p.name });
+      map.get(k)!.push({ id: p.id, name: p.name, projectKind: p.projectKind });
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
@@ -139,64 +142,6 @@ export function MembersModal({
     return map;
   }, [projects]);
   const getProjectCountForMember = useCallback((memberId: string) => projectsByOwner.get(memberId)?.length ?? 0, [projectsByOwner]);
-
-  const [isAdminProjectSummaryCollapsed, setIsAdminProjectSummaryCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem('wbs-members-admin-project-summary-collapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleAdminProjectSummary = () => {
-    setIsAdminProjectSummaryCollapsed((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem('wbs-members-admin-project-summary-collapsed', next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
-  const ownerSummaryLabel = useCallback(
-    (ownerKey: string) => {
-      if (ownerKey === '__none__') return '소유자 미지정';
-      if (ownerKey === currentUserId) return '내 프로젝트';
-      return profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
-    },
-    [currentUserId, profileMap],
-  );
-
-  /** 시스템 관리자 전용: 소유자별 프로젝트 목록(프로젝트 관리 화면에 있던 요약과 동일 목적) */
-  const adminOwnerProjectSummary = useMemo((): [string, Array<Pick<Project, 'id' | 'name'>>][] => {
-    if (!effectiveIsAdmin) return [];
-    const seen = new Set<string>();
-    const deduped = projects.filter((p) => {
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
-    const map = new Map<string, Array<Pick<Project, 'id' | 'name'>>>();
-    for (const p of deduped) {
-      const k = p.ownerId ?? '__none__';
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push({ id: p.id, name: p.name });
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
-    }
-    const entries = [...map.entries()] as [string, Array<Pick<Project, 'id' | 'name'>>][];
-    entries.sort(([ka, la], [kb, lb]) => {
-      if (currentUserId && ka === currentUserId) return -1;
-      if (currentUserId && kb === currentUserId) return 1;
-      if (ka === '__none__') return 1;
-      if (kb === '__none__') return -1;
-      if (la.length !== lb.length) return lb.length - la.length;
-      return ownerSummaryLabel(ka).localeCompare(ownerSummaryLabel(kb), 'ko');
-    });
-    return entries;
-  }, [effectiveIsAdmin, projects, currentUserId, ownerSummaryLabel]);
 
   const departmentOptions = useMemo(() => {
     const set = new Set<string>();
@@ -604,80 +549,17 @@ export function MembersModal({
 
         <div className="p-5 overflow-y-auto flex-1">
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-          {effectiveIsAdmin && adminOwnerProjectSummary.length > 0 && (
-            <div className="mb-4 bg-stone-50 rounded-xl border border-stone-200 shadow-sm overflow-hidden">
-              <button
-                type="button"
-                onClick={toggleAdminProjectSummary}
-                className="w-full flex flex-wrap items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-100/80 transition-colors"
-                aria-expanded={!isAdminProjectSummaryCollapsed}
-                title="회원별 프로젝트 현황 펼치기/접기"
-              >
-                {isAdminProjectSummaryCollapsed ? (
-                  <ChevronRight size={16} className="text-stone-400 shrink-0" />
-                ) : (
-                  <ChevronDown size={16} className="text-stone-400 shrink-0" />
-                )}
-                <span className="text-sm font-semibold text-stone-800">회원별 프로젝트 현황</span>
-                <span className="text-xs text-stone-400 tabular-nums ml-auto">
-                  {adminOwnerProjectSummary.length}명 · {adminOwnerProjectSummary.reduce((n, [, list]) => n + list.length, 0)}개
-                </span>
-              </button>
-              {!isAdminProjectSummaryCollapsed && (
-                <div className="border-t border-stone-200 divide-y divide-stone-100 max-h-[320px] overflow-y-auto bg-white">
-                  {adminOwnerProjectSummary.map(([ownerKey, list]) => {
-                    const isMe = !!currentUserId && ownerKey === currentUserId;
-                    const labelText = ownerSummaryLabel(ownerKey);
-                    return (
-                      <div key={ownerKey} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2">
-                        <div
-                          className={cn(
-                            'flex items-baseline gap-1.5 min-w-[120px] max-w-[200px] shrink-0',
-                            isMe ? 'text-indigo-700' : 'text-stone-700',
-                          )}
-                          title={labelText}
-                        >
-                          <span className={cn('truncate text-sm', isMe ? 'font-semibold' : 'font-medium')}>{labelText}</span>
-                          <span className="text-xs text-stone-400 tabular-nums">({list.length})</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 min-w-0">
-                          {list.map((p) =>
-                            onNavigateToProject ? (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => {
-                                  onNavigateToProject(p.id);
-                                  onClose();
-                                }}
-                                className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-stone-700 transition-colors text-left break-words"
-                                title={`${p.name} — 작업 화면으로 이동`}
-                              >
-                                {p.name}
-                              </button>
-                            ) : (
-                              <span
-                                key={p.id}
-                                className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 text-stone-700 break-words"
-                                title={p.name}
-                              >
-                                {p.name}
-                              </span>
-                            ),
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
           {!effectiveIsAdmin && isOrgScopedManager && (
             <p className="text-sm text-teal-900 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2.5 mb-4 leading-relaxed">
               <strong>조직 책임자</strong>로 로그인했습니다. 같은 조직 범위(org_nodes 하위 부서) 소속 회원의{' '}
               <strong>역할(회원·관리자)</strong>만 바꿀 수 있습니다. 회원의 <strong>부서</strong>는 시스템 관리자가 지정해야 하며, 본인의{' '}
               <strong>관리 범위</strong>도 관리자에게 요청해 주세요.
+            </p>
+          )}
+          {effectiveIsAdmin && (
+            <p className="text-xs text-stone-500 mb-3 leading-relaxed">
+              조직도(<span className="font-mono">org_members</span>)에서 직책이 팀장이면 부팀장을 제외하고, 회원명·부서가 동일할 때{' '}
+              <strong>관리자</strong> 권한이 자동으로 부여됩니다(로그인·부서·조직도 갱신 시 반영).
             </p>
           )}
           {loading ? (
@@ -893,7 +775,12 @@ export function MembersModal({
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 group">
-                            <span>{m.full_name || '-'}</span>
+                            <span>
+                              {formatPersonDisplay(m.full_name || '', {
+                                orgMetaByName: memberDisplayMetaByName,
+                                fallbackDepartment: m.department,
+                              }) || '-'}
+                            </span>
                             {effectiveIsAdmin && (
                               <button
                                 onClick={() => startEdit(m)}
@@ -1029,17 +916,17 @@ export function MembersModal({
                                           onClose();
                                         }}
                                         className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-stone-700 transition-colors text-left break-words max-w-full"
-                                        title={`${p.name} — 작업 화면으로 이동`}
+                                        title={`${formatProjectDisplayName(p.name, p.projectKind)} — 작업 화면으로 이동`}
                                       >
-                                        {p.name}
+                                        {formatProjectDisplayName(p.name, p.projectKind)}
                                       </button>
                                     ) : (
                                       <span
                                         key={p.id}
                                         className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 text-stone-700 break-words max-w-full"
-                                        title={p.name}
+                                        title={formatProjectDisplayName(p.name, p.projectKind)}
                                       >
-                                        {p.name}
+                                        {formatProjectDisplayName(p.name, p.projectKind)}
                                       </span>
                                     ),
                                   )}
@@ -1138,7 +1025,14 @@ export function MembersModal({
                 <tbody>
                   {adminAccessRequests.map((req) => {
                     const requester = members.find((m) => m.id === req.user_id);
-                    const requesterName = requester ? requester.full_name || requester.email || req.user_id : req.user_id;
+                    const requesterName = requester
+                      ? formatPersonDisplay((requester.full_name || '').trim(), {
+                          orgMetaByName: memberDisplayMetaByName,
+                          fallbackDepartment: requester.department,
+                        }) ||
+                        requester.email ||
+                        req.user_id
+                      : req.user_id;
                     const isProcessing = processingAdminRequestId === req.id;
                     return (
                       <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
@@ -1204,9 +1098,17 @@ export function MembersModal({
                 </thead>
                 <tbody>
                   {accessRequests.map((req) => {
-                    const projectName = projects.find((p) => p.id === req.project_id)?.name ?? req.project_id;
+                    const proj = projects.find((p) => p.id === req.project_id);
+                    const projectName = proj ? formatProjectDisplayName(proj.name, proj.projectKind) : req.project_id;
                     const requester = members.find((m) => m.id === req.user_id);
-                    const requesterName = requester ? requester.full_name || requester.email || req.user_id : req.user_id;
+                    const requesterName = requester
+                      ? formatPersonDisplay((requester.full_name || '').trim(), {
+                          orgMetaByName: memberDisplayMetaByName,
+                          fallbackDepartment: requester.department,
+                        }) ||
+                        requester.email ||
+                        req.user_id
+                      : req.user_id;
                     const isProcessing = processingRequestId === req.id;
                     return (
                       <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
@@ -1299,6 +1201,7 @@ export function MembersModal({
         member={accessMember ? { id: accessMember.id, full_name: accessMember.full_name ?? null, email: accessMember.email ?? null } : null}
         projects={projects}
         profileMap={profileMap}
+        profileDisplayById={profileDisplayById}
       />
 
       {bulkConfirmOpen && (
@@ -1313,7 +1216,14 @@ export function MembersModal({
                 <p className="mt-2 text-sm text-stone-700 leading-relaxed">
                   현재 본인(
                   <strong>
-                    {members.find((m) => m.id === currentUserId)?.full_name || members.find((m) => m.id === currentUserId)?.email || '본인'}
+                    {members.find((m) => m.id === currentUserId)
+                      ? formatPersonDisplay((members.find((m) => m.id === currentUserId)?.full_name || '').trim(), {
+                          orgMetaByName: memberDisplayMetaByName,
+                          fallbackDepartment: members.find((m) => m.id === currentUserId)?.department,
+                        }) ||
+                        members.find((m) => m.id === currentUserId)?.email ||
+                        '본인'
+                      : '본인'}
                   </strong>
                   ) 계정을 제외한 <strong className="text-red-700">{members.filter((m) => m.id !== currentUserId).length}명</strong>의
                   회원이 모두 삭제됩니다.

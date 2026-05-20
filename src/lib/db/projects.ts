@@ -11,15 +11,34 @@ export function isAssignmentsSchemaError(err: { code?: string; message?: string 
   return err.code === 'PGRST204' || msg.includes("'assignments'") || msg.includes('assignments');
 }
 
-function isMissingColumnError(err: { code?: string; message?: string }, columnName: string): boolean {
-  if (err.code !== 'PGRST204') return false;
+function isMissingColumnError(err: { code?: string | number; message?: string }, columnName: string): boolean {
   const col = columnName.toLowerCase();
   const msg = (err.message ?? '').toLowerCase();
-  return msg.includes(`'${col}'`) || msg.includes(col);
+  const codeStr = String(err.code ?? '').trim();
+  // 클라이언트·PostgREST 버전에 따라 code가 문자열 또는 숫자로 올 수 있음
+  const is42703 = codeStr === '42703' || err.code === 42703;
+  const isPgrst204 = codeStr === 'PGRST204' || err.code === 'PGRST204';
+
+  // PostgREST 스키마 캐시 기준 알 수 없는 컬럼
+  if (isPgrst204) {
+    return msg.includes(`'${col}'`) || msg.includes(col);
+  }
+
+  // PostgreSQL undefined_column — 원격 DB에 컬럼이 아직 없을 때 흔히 42703으로 올라옴
+  if (is42703 && msg.includes('does not exist') && msg.includes(col)) {
+    return true;
+  }
+
+  // code가 비어 있거나 래핑된 경우에도 메시지로 보조 판별 (undefined_column 문구)
+  if (msg.includes('column') && msg.includes('does not exist') && msg.includes(col)) {
+    return true;
+  }
+
+  return false;
 }
 
 const PROJECT_SELECT_COLUMNS =
-  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,created_at';
+  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,pm_name,include_in_dashboard,created_at';
 
 export async function fetchProjects(): Promise<Project[]> {
   requireSupabase();
@@ -32,6 +51,22 @@ export async function fetchProjects(): Promise<Project[]> {
     const retry = await supabase!
       .from('projects')
       .select(PROJECT_SELECT_COLUMNS.replace(',project_kind', ''))
+      .order('created_at', { ascending: true });
+    data = retry.data;
+    error = retry.error;
+  }
+  if (error && isMissingColumnError(error, 'pm_name')) {
+    const retry = await supabase!
+      .from('projects')
+      .select(PROJECT_SELECT_COLUMNS.replace(',pm_name', ''))
+      .order('created_at', { ascending: true });
+    data = retry.data;
+    error = retry.error;
+  }
+  if (error && isMissingColumnError(error, 'include_in_dashboard')) {
+    const retry = await supabase!
+      .from('projects')
+      .select(PROJECT_SELECT_COLUMNS.replace(',include_in_dashboard', ''))
       .order('created_at', { ascending: true });
     data = retry.data;
     error = retry.error;
@@ -50,11 +85,19 @@ export async function fetchProjects(): Promise<Project[]> {
 
 export async function upsertProject(project: Project): Promise<void> {
   requireSupabase();
-  const existing = await supabase!
-    .from('projects')
-    .select('id, name, description, start_date, end_date')
-    .eq('id', project.id)
-    .maybeSingle();
+  let existingSelect = 'id, name, description, start_date, end_date, pm_name, include_in_dashboard';
+  let existing = await supabase!.from('projects').select(existingSelect).eq('id', project.id).maybeSingle();
+  for (let attempt = 0; attempt < 4 && existing.error; attempt++) {
+    if (isMissingColumnError(existing.error, 'pm_name')) {
+      existingSelect = existingSelect.replace(',pm_name', '');
+    } else if (isMissingColumnError(existing.error, 'include_in_dashboard')) {
+      existingSelect = existingSelect.replace(',include_in_dashboard', '');
+    } else {
+      break;
+    }
+    existing = await supabase!.from('projects').select(existingSelect).eq('id', project.id).maybeSingle();
+  }
+  if (existing.error) throw existing.error;
   const existingRow = (existing.data ?? null) as ProjectRow | null;
   const row = toProjectRow(project);
   // RLS 환경에서 upsert(INSERT .. ON CONFLICT DO UPDATE)는 INSERT 정책의 WITH CHECK가
@@ -72,6 +115,14 @@ export async function upsertProject(project: Project): Promise<void> {
     } else if (error && isMissingColumnError(error, 'project_kind')) {
       const { project_kind: _pk, ...rowWithoutKind } = row as Record<string, unknown>;
       const { error: err2 } = await supabase!.from('projects').update(rowWithoutKind).eq('id', project.id);
+      if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'pm_name')) {
+      const { pm_name: _pm, ...rowWithoutPm } = row as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').update(rowWithoutPm).eq('id', project.id);
+      if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'include_in_dashboard')) {
+      const { include_in_dashboard: _inc, ...rowWithoutDash } = row as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').update(rowWithoutDash).eq('id', project.id);
       if (err2) throw err2;
     } else if (error) {
       throw error;
@@ -96,6 +147,14 @@ export async function upsertProject(project: Project): Promise<void> {
     } else if (error && isMissingColumnError(error, 'project_kind')) {
       const { project_kind: _pk, ...insertWithoutKind } = insertRow as Record<string, unknown>;
       const { error: err2 } = await supabase!.from('projects').insert(insertWithoutKind);
+      if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'pm_name')) {
+      const { pm_name: _pm, ...insertWithoutPm } = insertRow as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutPm);
+      if (err2) throw err2;
+    } else if (error && isMissingColumnError(error, 'include_in_dashboard')) {
+      const { include_in_dashboard: _inc, ...insertWithoutDash } = insertRow as Record<string, unknown>;
+      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutDash);
       if (err2) throw err2;
     } else if (error) {
       throw error;

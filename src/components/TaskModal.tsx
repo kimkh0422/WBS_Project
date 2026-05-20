@@ -15,6 +15,7 @@ import {
 } from '../lib/dependencyPicker';
 import { useToast } from './Toast';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isRealtimeMinimized } from '../lib/realtimePolicy';
 import { useAuth } from '../context/AuthContext';
 import * as Y from 'yjs';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -213,7 +214,7 @@ export function TaskModal({
       return;
     }
     const pid = String(taskProjectId ?? '').trim();
-    const canCollab = isSupabaseConfigured && !!supabase && !!initialData?.id && !!pid && !!currentUserId;
+    const canCollab = !isRealtimeMinimized() && isSupabaseConfigured && !!supabase && !!initialData?.id && !!pid && !!currentUserId;
     if (!canCollab) {
       setDescCollab(null);
       return;
@@ -745,7 +746,6 @@ export function TaskModal({
               <input
                 required
                 type="text"
-                list="task-name-suggestions"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="input-field py-1.5 text-sm"
@@ -754,16 +754,6 @@ export function TaskModal({
                 readOnly={readOnly}
                 disabled={readOnly}
               />
-              <datalist id="task-name-suggestions">
-                <option value="기획" />
-                <option value="디자인" />
-                <option value="프론트엔드 개발" />
-                <option value="백엔드 개발" />
-                <option value="테스트" />
-                <option value="배포" />
-                <option value="문서화" />
-                <option value="미팅" />
-              </datalist>
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">상위 작업</label>

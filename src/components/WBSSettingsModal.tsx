@@ -5,7 +5,19 @@ import { useAuth } from '../context/AuthContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
 import { cn, round2, formatNum2 } from '../lib/utils';
+import {
+  DASHBOARD_SECTION_IDS,
+  DASHBOARD_SECTION_LABELS,
+  readDashboardSectionVisibility,
+  writeDashboardSectionVisibility,
+  resetDashboardSectionVisibility,
+  getDefaultDashboardSectionVisibility,
+  WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED,
+} from '../lib/dashboardSections';
+import { resetDashboardSectionLayout } from '../lib/dashboardSectionLayout';
 import { ColorPicker } from './ColorPicker';
+import { ProjectNameLabel } from './ProjectNameLabel';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import { TaskStatus } from '../types';
 
 interface WBSSettingsModalProps {
@@ -81,7 +93,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const canEditProject = (ownerId?: string | null) => isAdmin || (!!user?.id && ownerId === user.id);
 
   const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
-  const [showCriticalPath, setShowCriticalPath] = useState(wbsSettings.showCriticalPath === true);
   const [wrapTextInCells, setWrapTextInCells] = useState(wbsSettings.wrapTextInCells === true);
   const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
@@ -99,7 +110,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
   const [customColumns, setCustomColumns] = useState<Array<{ id: string; name: string }>>(wbsSettings.customColumns || []);
   const [levelColorsState, setLevelColorsState] = useState<RgbColor[]>(DEFAULT_LEVEL_COLORS);
-  const [activeTab, setActiveTab] = useState<'basic' | 'columns' | 'status' | 'projects'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'columns' | 'status' | 'projects' | 'dashboard'>('basic');
+  const [dashSectionVis, setDashSectionVis] = useState(() => readDashboardSectionVisibility());
 
   const TABLE_COLUMN_LABELS: Record<string, string> = useMemo(
     () => ({
@@ -174,9 +186,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       }
     }
 
-    // Keep name always visible
-    return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
-    // 정의가 제거된 사용자 컬럼은 목록에서 제거
+    // 정의가 제거된 사용자 컬럼은 목록에서 제거; name은 항상 표시
     return cleaned
       .filter((c) => !c.id.startsWith('custom:') || customIds.has(c.id))
       .map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
@@ -185,7 +195,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   useEffect(() => {
     if (isOpen) {
       setAppTitle(wbsSettings.appTitle);
-      setShowCriticalPath(wbsSettings.showCriticalPath === true);
       setWrapTextInCells(wbsSettings.wrapTextInCells === true);
       setPrependDisplayWbsToTaskName(wbsSettings.prependDisplayWbsToTaskName === true);
       setLevel1(wbsSettings.level1Prefix);
@@ -208,8 +217,16 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       });
       setProjectDates(initialStartDates);
       setProjectEndDates(initialEndDates);
+      setDashSectionVis(readDashboardSectionVisibility());
     }
   }, [isOpen, wbsSettings, projects, levelColors]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const sync = () => setDashSectionVis(readDashboardSectionVisibility());
+    window.addEventListener(WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED, sync);
+    return () => window.removeEventListener(WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED, sync);
+  }, [isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -245,7 +262,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
     if (canEditGlobal) {
       updateWbsSettings({
         appTitle: appTitle.trim(),
-        showCriticalPath,
+        showCriticalPath: false,
         wrapTextInCells,
         prependDisplayWbsToTaskName,
         level1Prefix: level1.trim(),
@@ -381,6 +398,17 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               >
                 프로젝트 기간
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('dashboard')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
+                  activeTab === 'dashboard'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
+                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                }`}
+              >
+                대시보드
+              </button>
             </div>
           </div>
 
@@ -403,21 +431,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     />
                   </div>
                   <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="showCriticalPath"
-                      checked={showCriticalPath}
-                      onChange={(e) => setShowCriticalPath(e.target.checked)}
-                      className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="showCriticalPath" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
-                      크리티컬 패스 표시
-                    </label>
-                  </div>
-                  <p className="text-[10px] text-stone-400 leading-relaxed">
-                    간트 차트·작업표에서 크리티컬 패스 작업을 빨간색으로 강조합니다.
-                  </p>
-                  <div className="flex items-center gap-3 mt-4">
                     <input
                       type="checkbox"
                       id="wrapTextInCells"
@@ -593,17 +606,22 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             <div className="text-sm font-semibold text-stone-800 leading-snug whitespace-normal break-words">{label}</div>
                             <div className="text-[11px] text-stone-500 font-mono leading-snug whitespace-normal break-all">{col.id}</div>
                           </div>
-                          <button
-                            type="button"
-                            disabled={isName}
-                            onClick={() => {
-                              setTableColumns((prev) => (prev || []).map((p) => (p.id === col.id ? { ...p, visible: !p.visible } : p)));
-                            }}
-                            className={`p-1.5 rounded-md transition-colors ${isName ? 'opacity-40 cursor-not-allowed' : 'hover:bg-stone-50'}`}
-                            title={isName ? '작업명은 항상 표시됩니다.' : col.visible ? '숨기기' : '보이기'}
-                          >
-                            {col.visible ? <Eye size={14} className="text-stone-600" /> : <EyeOff size={14} className="text-stone-400" />}
-                          </button>
+                          {isName ? (
+                            <span className="p-1.5 rounded-md shrink-0 text-stone-500" title="작업명은 항상 표시됩니다." aria-hidden>
+                              <Eye size={14} />
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTableColumns((prev) => (prev || []).map((p) => (p.id === col.id ? { ...p, visible: !p.visible } : p)));
+                              }}
+                              className="p-1.5 rounded-md transition-colors hover:bg-stone-50"
+                              title={col.visible ? '숨기기' : '보이기'}
+                            >
+                              {col.visible ? <Eye size={14} className="text-stone-600" /> : <EyeOff size={14} className="text-stone-400" />}
+                            </button>
+                          )}
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -960,6 +978,51 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               </fieldset>
             )}
 
+            {activeTab === 'dashboard' && (
+              <div className="space-y-6 max-w-xl">
+                <div className="space-y-2">
+                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">대시보드에 표시할 항목</h3>
+                  <p className="text-xs text-stone-500 leading-relaxed">
+                    체크한 블록만 대시보드에 나타납니다. 이 기기(브라우저)에만 저장되며, 변경 시 바로 반영됩니다. 아래 버튼으로 전체 표시
+                    상태로 되돌릴 수 있습니다.
+                  </p>
+                </div>
+                <ul className="space-y-2">
+                  {DASHBOARD_SECTION_IDS.map((id) => (
+                    <li key={id}>
+                      <label className="flex items-center gap-3 p-3 rounded-lg border border-stone-200 bg-white hover:bg-stone-50/80 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={dashSectionVis[id]}
+                          onChange={() => {
+                            const next = { ...dashSectionVis, [id]: !dashSectionVis[id] };
+                            setDashSectionVis(next);
+                            writeDashboardSectionVisibility(next);
+                          }}
+                          className="rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-sm font-medium text-stone-800">{DASHBOARD_SECTION_LABELS[id]}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <div className="pt-2 border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetDashboardSectionVisibility();
+                      resetDashboardSectionLayout();
+                      setDashSectionVis(getDefaultDashboardSectionVisibility());
+                    }}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100"
+                  >
+                    <RotateCcw size={14} aria-hidden />
+                    모두 표시(기본값으로 초기화)
+                  </button>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'projects' && (
               <div className="space-y-8">
                 {/* Project Start/End Dates Settings */}
@@ -976,8 +1039,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                           }`}
                         >
                           <div className="flex-1 min-w-0">
-                            <label className="text-xs font-bold text-stone-600 break-words block flex items-center gap-1.5" title={p.name}>
-                              <span className="break-words">{p.name}</span>
+                            <label
+                              className="text-xs font-bold text-stone-600 break-words block flex items-center gap-1.5 min-w-0"
+                              title={formatProjectDisplayName(p.name, p.projectKind)}
+                            >
+                              <ProjectNameLabel project={p} name={p.name} className="min-w-0" />
                               {!editable && (
                                 <span
                                   className="inline-flex items-center gap-0.5 text-[9px] font-medium text-stone-500 bg-stone-200 px-1.5 py-0.5 rounded shrink-0"

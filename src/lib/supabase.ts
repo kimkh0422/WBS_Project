@@ -82,6 +82,10 @@ export interface ProjectRow {
   report_name_full?: string | null;
   /** 사용자 정의 그룹 ID. wbs_settings.config_json.projectGroups의 항목과 매핑 */
   group_id?: string | null;
+  /** 프로젝트 PM 표시 이름 */
+  pm_name?: string | null;
+  /** false면 대시보드에 반영하지 않음 */
+  include_in_dashboard?: boolean | null;
 }
 
 export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';

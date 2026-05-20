@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { findProjectByAllocationInput, parseAllocationPercentInput, type PersonProjectAddPayload } from '../lib/personAllocations';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import type { Project } from '../types';
 
 interface AddPersonAllocationControlProps {
@@ -62,7 +63,7 @@ export function AddPersonAllocationControl({
         type="button"
         onClick={() => setIsAdding(true)}
         className={cn(
-          'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-dashed border-teal-300 text-teal-700 bg-teal-50/50 hover:bg-teal-50 hover:border-teal-400 transition-colors',
+          'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 border-teal-600 text-teal-700 bg-white shadow-sm hover:bg-teal-600 hover:text-white hover:border-teal-600 transition-colors',
           className,
         )}
       >
@@ -127,7 +128,7 @@ export function AddPersonAllocationControl({
       />
       <datalist id={projectDatalistId}>
         {availableProjects.map((p) => (
-          <option key={p.id} value={p.name} />
+          <option key={p.id} value={formatProjectDisplayName(p.name, p.projectKind)} />
         ))}
       </datalist>
       <span className="inline-flex items-center gap-0.5">

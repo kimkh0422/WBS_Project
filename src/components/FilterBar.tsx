@@ -1,11 +1,14 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { cn } from '../lib/utils';
 import { ChevronDown, Flag, User, Bug, Clock, X, Search } from 'lucide-react';
 import { FilterState, Project } from '../types';
 import { ProjectNameLabel } from './ProjectNameLabel';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 export interface FilterBarProps {
   filterOn: boolean;
@@ -46,6 +49,8 @@ export function WbsFilterBar({
   hasActiveFilters,
   setCurrentProjectId,
 }: FilterBarProps) {
+  const { orgMembers } = useOrganization();
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const [isProjectFilterDropdownOpen, setIsProjectFilterDropdownOpen] = React.useState(false);
   const [projectSearch, setProjectSearch] = useState('');
   const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
@@ -101,7 +106,10 @@ export function WbsFilterBar({
             {filters.projectIds === 'all'
               ? '전체'
               : filters.projectIds.length === 1
-                ? (uniqueProjects.find((p) => p.id === filters.projectIds[0])?.name ?? '1개')
+                ? (() => {
+                    const sel = uniqueProjects.find((p) => p.id === filters.projectIds[0]);
+                    return sel ? formatProjectDisplayName(sel.name, sel.projectKind) : '1개';
+                  })()
                 : `${filters.projectIds.length}개 프로젝트`}
           </span>
           <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
@@ -121,7 +129,12 @@ export function WbsFilterBar({
             {(() => {
               const allIds = projectsSortedByName.map((x) => x.id);
               const q = projectSearch.trim().toLowerCase();
-              const filteredProjects = q ? projectsSortedByName.filter((p) => p.name.toLowerCase().includes(q)) : projectsSortedByName;
+              const filteredProjects = q
+                ? projectsSortedByName.filter((p) => {
+                    const disp = formatProjectDisplayName(p.name, p.projectKind).toLowerCase();
+                    return p.name.toLowerCase().includes(q) || disp.includes(q);
+                  })
+                : projectsSortedByName;
               const isAll = filters.projectIds === 'all';
               const isPartial =
                 Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
@@ -279,9 +292,9 @@ export function WbsFilterBar({
               key={a}
               onClick={() => setFilters((f) => ({ ...f, assignee: a }))}
               className={cn('filter-chip', filters.assignee === a ? 'filter-chip-active' : 'filter-chip-inactive')}
-              title={`${a} 담당 작업만 표시`}
+              title={`${formatAssigneeDisplay(a, assigneeDisplayMetaByName)} 담당 작업만 표시`}
             >
-              {a}
+              {formatAssigneeDisplay(a, assigneeDisplayMetaByName)}
             </button>
           ))}
         </div>

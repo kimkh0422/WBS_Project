@@ -2,12 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import type { Project } from '../types';
 import type { ProjectMemberRow } from '../lib/supabase';
-import {
-  fetchProjectMembershipsByUser,
-  removeProjectMember,
-  setProjectMemberRole,
-  upsertProjectMember,
-} from '../lib/db';
+import { formatProjectDisplayName } from '../lib/projectKind';
+import { fetchProjectMembershipsByUser, removeProjectMember, setProjectMemberRole, upsertProjectMember } from '../lib/db';
 
 type RoleUi = 'owner' | 'editor' | 'viewer' | 'none';
 
@@ -21,8 +17,9 @@ interface MemberProjectAccessModalProps {
   isOpen: boolean;
   onClose: () => void;
   member: MemberProjectAccessModalMember | null;
-  projects: Array<Pick<Project, 'id' | 'name' | 'ownerId'>>;
+  projects: Array<Pick<Project, 'id' | 'name' | 'ownerId' | 'projectKind'>>;
   profileMap?: Record<string, string>;
+  profileDisplayById?: Record<string, string>;
 }
 
 export function MemberProjectAccessModal({
@@ -31,6 +28,7 @@ export function MemberProjectAccessModal({
   member,
   projects,
   profileMap = {},
+  profileDisplayById = {},
 }: MemberProjectAccessModalProps) {
   const [loading, setLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -66,7 +64,7 @@ export function MemberProjectAccessModal({
       const role: RoleUi = isOwner ? 'owner' : (membership?.role ?? 'none');
       return {
         projectId: p.id,
-        projectName: p.name,
+        projectName: formatProjectDisplayName(p.name, p.projectKind),
         projectOwnerId: p.ownerId ?? null,
         role,
         membership,
@@ -108,10 +106,7 @@ export function MemberProjectAccessModal({
 
   if (!isOpen || !member) return null;
 
-  const memberLabel =
-    (member.full_name && member.full_name.trim()) ||
-    member.email ||
-    member.id;
+  const memberLabel = (member.full_name && member.full_name.trim()) || member.email || member.id;
 
   return (
     <>
@@ -130,9 +125,7 @@ export function MemberProjectAccessModal({
         </div>
 
         <div className="p-5 overflow-y-auto flex-1">
-          {error && (
-            <p className="text-red-500 text-sm mb-4">{error}</p>
-          )}
+          {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
           {loading ? (
             <div className="flex items-center justify-center py-12 gap-2 text-stone-500">
@@ -153,7 +146,7 @@ export function MemberProjectAccessModal({
               <tbody>
                 {rows.map((r) => {
                   const ownerLabel = r.projectOwnerId
-                    ? (profileMap[r.projectOwnerId] ?? r.projectOwnerId)
+                    ? (profileDisplayById[r.projectOwnerId] ?? profileMap[r.projectOwnerId] ?? r.projectOwnerId)
                     : '-';
                   const saving = savingKey === `${r.projectId}:${member.id}`;
                   const roleValue: RoleUi = r.role;
@@ -194,12 +187,9 @@ export function MemberProjectAccessModal({
         </div>
 
         <div className="p-4 border-t border-[var(--color-line)] bg-stone-50/50">
-          <p className="text-xs text-stone-500">
-            변경 사항은 즉시 저장됩니다. (없음 = 해당 프로젝트 멤버에서 제거)
-          </p>
+          <p className="text-xs text-stone-500">변경 사항은 즉시 저장됩니다. (없음 = 해당 프로젝트 멤버에서 제거)</p>
         </div>
       </div>
     </>
   );
 }
-

@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project, ProjectAssignment } from '../../types';
+import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { upsertProject, upsertTasks } from '../../lib/db';
@@ -19,6 +20,8 @@ export interface ProjectOpsDeps {
   bumpDirty: () => void;
   handleDbError: (err: unknown, fallback: string) => void;
   ownerIdRef: MutableRefObject<string | undefined>;
+  /** 신규·복사 프로젝트 PM 기본값(만든 사람 표시명). `extras.pmName`이 비어 있으면 이 값으로 채움 */
+  creatorDisplayNameRef: MutableRefObject<string | undefined>;
   projectsRef: MutableRefObject<Project[]>;
   allTasksRef: MutableRefObject<Task[]>;
   currentProjectIdRef: MutableRefObject<string>;
@@ -36,6 +39,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     bumpDirty,
     handleDbError,
     ownerIdRef,
+    creatorDisplayNameRef,
     projectsRef,
     allTasksRef,
     currentProjectIdRef,
@@ -66,6 +70,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           | 'reportNameShort'
           | 'reportNameFull'
           | 'workEffortUnit'
+          | 'pmName'
+          | 'includeInDashboard'
         >
       >,
     ) => {
@@ -77,6 +83,20 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         return;
       }
       bumpDirty();
+      const extras = reportExtras ?? {};
+      const resolvedKind = extras.projectKind !== undefined ? extras.projectKind : DEFAULT_NEW_PROJECT_KIND;
+      const creatorDefault = creatorDisplayNameRef.current?.trim() || undefined;
+      // extras에 pmName 키만 있고 값이 비어 있으면(모달에서 undefined 전달 등) 생성자 이름으로 채운다.
+      const explicitPm = extras.pmName?.trim();
+      const resolvedPmName = explicitPm || creatorDefault;
+      if (!resolvedPmName?.trim()) {
+        handleDbError(
+          new Error('프로젝트 PM이 비어 있습니다. 로그인 사용자 표시명이 없으면 프로젝트 생성 전에 프로필 이름을 설정해 주세요.'),
+          '프로젝트를 만들 수 없습니다.',
+        );
+        return;
+      }
+      const pmFinal = resolvedPmName.trim();
       const newProject: Project = {
         id: uuidv4(),
         name,
@@ -86,13 +106,15 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         assignments,
         minWorkEffortDays,
         ownerId: ownerIdRef.current,
-        ...reportExtras,
+        ...extras,
+        projectKind: resolvedKind,
+        pmName: pmFinal,
       };
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
       if (!useLocalOnlyRef.current) upsertProject(newProject).catch((err) => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
     },
-    [bumpDirty, handleDbError, ownerIdRef, useLocalOnlyRef, setProjects, setCurrentProjectId],
+    [bumpDirty, handleDbError, ownerIdRef, creatorDisplayNameRef, useLocalOnlyRef, setProjects, setCurrentProjectId],
   );
 
   const updateProject = useCallback(
@@ -262,6 +284,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       if (!source) return;
       const sourceTasks = tasks.filter((t) => t.projectId === sourceProjectId);
       const newProjectId = uuidv4();
+      const copierPm = creatorDisplayNameRef.current?.trim() || undefined;
+      const copiedPm = copierPm || source.pmName?.trim();
       const newProject: Project = {
         id: newProjectId,
         name: `${source.name} (복사본)`,
@@ -272,6 +296,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         minWorkEffortDays: source.minWorkEffortDays,
         workEffortUnit: source.workEffortUnit,
         ownerId: ownerIdRef.current ?? undefined,
+        pmName: copiedPm || 'PM 미입력',
+        includeInDashboard: source.includeInDashboard !== false,
       };
       const taskIdMap = new Map<string, string>();
       for (const t of sourceTasks) taskIdMap.set(t.id, uuidv4());
@@ -303,7 +329,18 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           .catch((err) => handleDbError(err, '복사 프로젝트 저장에 실패했습니다.'));
       }
     },
-    [saveHistory, handleDbError, projectsRef, allTasksRef, ownerIdRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId],
+    [
+      saveHistory,
+      handleDbError,
+      projectsRef,
+      allTasksRef,
+      ownerIdRef,
+      creatorDisplayNameRef,
+      useLocalOnlyRef,
+      setProjects,
+      setAllTasks,
+      setCurrentProjectId,
+    ],
   );
 
   return { addProject, updateProject, deleteProject, copyProject };

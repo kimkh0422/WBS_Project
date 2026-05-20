@@ -1,7 +1,13 @@
 import React from 'react';
 import { cn } from '../lib/utils';
 import type { Project } from '../types';
-import { formatProjectDisplayName, getProjectKindBadgeClass, resolveProjectKind } from '../lib/projectKind';
+import {
+  formatProjectDisplayName,
+  getProjectKindBadgeClass,
+  normalizeProjectKind,
+  resolveProjectKind,
+  DEFAULT_PROJECT_KIND,
+} from '../lib/projectKind';
 
 interface ProjectNameLabelProps {
   name: string;
@@ -17,7 +23,7 @@ interface ProjectNameLabelProps {
   title?: string;
 }
 
-/** 프로젝트 항목(연구·사업·기타) 뱃지 + 프로젝트명 */
+/** 프로젝트 항목(상품·연구·용역·유지·제품·기타) 뱃지 + 프로젝트명 */
 export function ProjectNameLabel({
   name,
   projectKind,
@@ -29,13 +35,12 @@ export function ProjectNameLabel({
   title,
 }: ProjectNameLabelProps) {
   const displayName = project?.name ?? name;
-  const kind = resolveProjectKind(project ?? { projectKind });
-  const resolvedKind = projectKind ?? kind;
+  const resolvedKind = normalizeProjectKind(projectKind) ?? resolveProjectKind(project ?? null) ?? DEFAULT_PROJECT_KIND;
   const fullTitle = title ?? formatProjectDisplayName(displayName, resolvedKind);
 
   return (
     <span className={cn('inline-flex items-center gap-1.5 min-w-0', className)} title={fullTitle}>
-      {showBadge && resolvedKind && (
+      {showBadge && (
         <span
           className={cn(
             'shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border leading-none',

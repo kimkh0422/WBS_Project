@@ -3,6 +3,8 @@ import { X, AlertTriangle, Calendar, TrendingUp, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { WorkloadDay } from '../lib/workload';
 import type { Task } from '../types';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 export type OverloadFixStrategy = 'extend' | 'increaseAllocation' | 'skip';
 
@@ -19,14 +21,9 @@ interface OverloadWarningModalProps {
   onFix: (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => void;
 }
 
-export function OverloadWarningModal({
-  isOpen,
-  onClose,
-  overloads,
-  tasksById,
-  wbsMap,
-  onFix,
-}: OverloadWarningModalProps) {
+export function OverloadWarningModal({ isOpen, onClose, overloads, tasksById, wbsMap, onFix }: OverloadWarningModalProps) {
+  const { orgMembers } = useOrganization();
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const [strategies, setStrategies] = useState<Record<string, OverloadFixStrategy>>({});
 
   useEffect(() => {
@@ -83,10 +80,7 @@ export function OverloadWarningModal({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-amber-100 rounded-full transition-colors text-amber-700 hover:text-amber-900"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-amber-100 rounded-full transition-colors text-amber-700 hover:text-amber-900">
             <X size={18} />
           </button>
         </div>
@@ -97,13 +91,14 @@ export function OverloadWarningModal({
               const key = getOverloadKey(o);
               const strategy = strategiesByKey[key];
               return (
-                <li
-                  key={key}
-                  className="flex flex-col gap-3 p-4 rounded-xl border border-amber-100 bg-amber-50/50"
-                >
+                <li key={key} className="flex flex-col gap-3 p-4 rounded-xl border border-amber-100 bg-amber-50/50">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold text-[var(--color-ink)]">{o.assignee}</span>
-                    <span className="text-sm font-bold text-amber-700 shrink-0">{o.date} · {o.totalPercent}%</span>
+                    <span className="font-semibold text-[var(--color-ink)]">
+                      {formatAssigneeDisplay(o.assignee, assigneeDisplayMetaByName)}
+                    </span>
+                    <span className="text-sm font-bold text-amber-700 shrink-0">
+                      {o.date} · {o.totalPercent}%
+                    </span>
                   </div>
                   <div className="text-xs text-slate-600 space-y-1">
                     {o.taskIds.map((tid) => {
@@ -122,10 +117,10 @@ export function OverloadWarningModal({
                       type="button"
                       onClick={() => setStrategy(key, 'extend')}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
                         strategy === 'extend'
-                          ? "border-blue-300 bg-blue-50 text-blue-700"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
                       )}
                       title="겹치는 작업을 순차 배치"
                     >
@@ -137,10 +132,10 @@ export function OverloadWarningModal({
                       type="button"
                       onClick={() => setStrategy(key, 'increaseAllocation')}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
                         strategy === 'increaseAllocation'
-                          ? "border-blue-300 bg-blue-50 text-blue-700"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
                       )}
                       title="50% → 100%로 조정 후 종료일 재계산"
                     >
@@ -152,10 +147,10 @@ export function OverloadWarningModal({
                       type="button"
                       onClick={() => setStrategy(key, 'skip')}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
                         strategy === 'skip'
-                          ? "border-slate-300 bg-slate-100 text-slate-600"
-                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                          ? 'border-slate-300 bg-slate-100 text-slate-600'
+                          : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50',
                       )}
                     >
                       {strategy === 'skip' && <Check size={12} />}
@@ -171,7 +166,9 @@ export function OverloadWarningModal({
         <div className="p-5 border-t border-slate-100 bg-slate-50/50 space-y-3">
           <p className="text-xs font-medium text-slate-600">
             {selectedCount > 0 ? (
-              <span><strong>{selectedCount}건</strong>에 대해 조정을 적용합니다.</span>
+              <span>
+                <strong>{selectedCount}건</strong>에 대해 조정을 적용합니다.
+              </span>
             ) : (
               <span>각 항목에서 조정 방식을 선택한 뒤 적용 버튼을 누르세요.</span>
             )}
@@ -184,10 +181,7 @@ export function OverloadWarningModal({
               type="button"
               onClick={handleApply}
               disabled={selectedCount === 0}
-              className={cn(
-                "btn-primary",
-                selectedCount === 0 && "opacity-50 cursor-not-allowed"
-              )}
+              className={cn('btn-primary', selectedCount === 0 && 'opacity-50 cursor-not-allowed')}
             >
               적용 ({selectedCount})
             </button>

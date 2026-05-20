@@ -1,4 +1,6 @@
 import React, { useMemo } from 'react';
+import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import type { ColDef, ValueParserParams, ValueFormatterParams } from 'ag-grid-community';
@@ -15,6 +17,9 @@ interface ExcelGridProps {
 }
 
 export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps) {
+  const { orgMembers } = useOrganization();
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
+
   const rowData = useMemo(
     () =>
       tasks.map((t) => ({
@@ -23,9 +28,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
         // Excel 편집 모드에서 모든 컬럼 정보를 한눈에 보기 위해
         // 표 컬럼에 대응하는 표시용 텍스트를 함께 포함한다.
         _allocationText: '',
-        _dependenciesText: Array.isArray(t.dependencies) && t.dependencies.length > 0
-          ? t.dependencies.join(', ')
-          : '',
+        _dependenciesText: Array.isArray(t.dependencies) && t.dependencies.length > 0 ? t.dependencies.join(', ') : '',
       })),
     [tasks, displayWbsMap],
   );
@@ -34,7 +37,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
     const v = String(p.newValue ?? '').trim();
     if (!v) return null;
     const n = Number(v.replace(/,/g, ''));
-    return Number.isFinite(n) ? n : p.oldValue ?? null;
+    return Number.isFinite(n) ? n : (p.oldValue ?? null);
   };
 
   const percentFormatter = (p: ValueFormatterParams) => {
@@ -75,6 +78,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
         field: 'assignee',
         width: 130,
         editable: true,
+        valueFormatter: (p: ValueFormatterParams) => formatAssigneeDisplay(String(p.value ?? ''), assigneeDisplayMetaByName),
       },
       {
         headerName: '투입율(%)',
@@ -125,7 +129,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
         editable: false,
       },
     ];
-  }, []);
+  }, [assigneeDisplayMetaByName]);
 
   const defaultColDef: ColDef = {
     resizable: true,
@@ -156,4 +160,3 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
     </div>
   );
 }
-

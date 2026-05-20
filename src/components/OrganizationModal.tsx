@@ -4,6 +4,7 @@ import { BaseModal } from './Base/Modal';
 import type { OrgNode, OrgMember } from '../data/organization';
 import { useOrganization, getDirectMembersFromTree, countMembersDeepFromTree } from '../context/OrganizationContext';
 import { cn } from '../lib/utils';
+import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 
 interface OrganizationModalProps {
   isOpen: boolean;
@@ -98,19 +99,6 @@ function collectAllIds(node: OrgNode, into: string[] = []): string[] {
   return into;
 }
 
-const POSITION_ORDER = ['대표이사', '고문', '전무', '상무', '이사', '수석', '책임', '선임', '전임', '연구원', '사원'];
-
-function sortMembers(members: OrgMember[]): OrgMember[] {
-  return [...members].sort((a, b) => {
-    const pa = POSITION_ORDER.indexOf(a.position);
-    const pb = POSITION_ORDER.indexOf(b.position);
-    const ia = pa === -1 ? POSITION_ORDER.length : pa;
-    const ib = pb === -1 ? POSITION_ORDER.length : pb;
-    if (ia !== ib) return ia - ib;
-    return a.name.localeCompare(b.name, 'ko');
-  });
-}
-
 export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
   const { orgTree, orgMembers, isLoading, isHydratedFromDb } = useOrganization();
 
@@ -149,12 +137,12 @@ export function OrganizationModal({ isOpen, onClose }: OrganizationModalProps) {
     const groups: { label: string; members: OrgMember[] }[] = [];
     const direct = getDirectMembersFromTree(selectedNode, orgMembers);
     if (direct.length > 0) {
-      groups.push({ label: `${selectedNode.name} 직속`, members: sortMembers(direct) });
+      groups.push({ label: `${selectedNode.name} 직속`, members: sortOrgMembersByPosition(direct) });
     }
     const walkChild = (node: OrgNode) => {
       const directOfChild = getDirectMembersFromTree(node, orgMembers);
       if (directOfChild.length > 0) {
-        groups.push({ label: node.name, members: sortMembers(directOfChild) });
+        groups.push({ label: node.name, members: sortOrgMembersByPosition(directOfChild) });
       }
       for (const c of node.children ?? []) walkChild(c);
     };
