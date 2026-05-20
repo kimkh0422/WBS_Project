@@ -592,7 +592,7 @@ export function AppHeader({
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
                   <div
-                    className="absolute top-full left-0 mt-2 w-[min(33rem,calc(100vw-1.5rem))] max-w-[100vw] bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu"
+                    className="absolute top-full left-0 mt-2 w-[min(49.5rem,calc(100vw-1.5rem))] max-w-[100vw] bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu"
                     style={{ boxShadow: 'var(--shadow-xl)' }}
                   >
                     <div className="p-1">

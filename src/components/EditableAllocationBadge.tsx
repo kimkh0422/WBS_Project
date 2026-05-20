@@ -15,6 +15,8 @@ interface EditableAllocationBadgeProps {
   disabled?: boolean;
   onSave: (percent: number) => void;
   onNavigate?: () => void;
+  /** 카드 빈 영역 클릭 시 상세 팝업 등(이름·투입율 버튼 제외) */
+  onOpenDetail?: () => void;
   className?: string;
 }
 
@@ -36,6 +38,7 @@ export function EditableAllocationBadge({
   disabled,
   onSave,
   onNavigate,
+  onOpenDetail,
   className,
 }: EditableAllocationBadgeProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -132,13 +135,25 @@ export function EditableAllocationBadge({
           onNavigate
             ? 'border-stone-200/90 bg-stone-50/90 hover:bg-teal-50/50 hover:border-teal-200'
             : 'border-stone-200/90 bg-stone-50/90',
+          onOpenDetail && 'cursor-pointer',
           className,
         )}
+        onClick={
+          onOpenDetail
+            ? () => {
+                onOpenDetail();
+              }
+            : undefined
+        }
+        title={onOpenDetail ? '카드 빈 영역: 상세 정보 · 이름: 작업 표 · 비율: 수정' : undefined}
       >
         <div className="flex items-start justify-between gap-2 min-w-0">
           <button
             type="button"
-            onClick={onNavigate}
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate?.();
+            }}
             disabled={!onNavigate}
             className={cn(
               'text-left text-sm font-semibold text-stone-800 leading-snug break-words min-w-0',
@@ -176,12 +191,18 @@ export function EditableAllocationBadge({
       className={cn(
         'inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs',
         onNavigate ? 'border-stone-100 bg-stone-50 hover:bg-teal-50/60 hover:border-teal-100' : 'border-stone-100 bg-stone-50',
+        onOpenDetail && 'cursor-pointer',
         className,
       )}
+      onClick={onOpenDetail ? () => onOpenDetail() : undefined}
+      title={onOpenDetail ? '빈 영역: 상세 · 이름: 작업 표 · 비율: 수정' : undefined}
     >
       <button
         type="button"
-        onClick={onNavigate}
+        onClick={(e) => {
+          e.stopPropagation();
+          onNavigate?.();
+        }}
         disabled={!onNavigate}
         className={cn(
           'text-stone-700 max-w-[8rem] truncate text-left',

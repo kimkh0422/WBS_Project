@@ -26,11 +26,9 @@ import {
 import { cn, randomUUID, formatNum2 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { PROJECT_KINDS, formatProjectDisplayName, resolveProjectKindOrDefault, type ProjectKind } from '../lib/projectKind';
-import { PROJECT_CARD_SORT_LS_KEY, parseProjectCardSortKey, type ProjectCardSortKey } from '../lib/projectCardSort';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
-import { manDaysToManMonths } from '../lib/workEffortUnits';
 import type { Task, Project } from '../types';
-import type { WBSSettings, StatusConfig, ProjectGroup } from '../lib/wbsSettings';
+import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import {
   readDashboardSectionVisibility,
   type DashboardSectionId,
@@ -58,6 +56,7 @@ import { DashboardVisitTrendChart } from './DashboardVisitTrendChart';
 import { DashboardDivisionDetail } from './DashboardDivisionDetail';
 import { DashboardDetailPage, type DashboardDetailKind } from './DashboardDetailPage';
 import { DashboardProjectCardDetailPanel } from './DashboardProjectCardDetailPanel';
+import { BaseModal } from './Base/Modal';
 import {
   type ActionDueDateFilter,
   filterActionTasksByDuePeriod,
@@ -74,7 +73,7 @@ interface ProjectStats {
   inputManDays: number;
 }
 
-type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'tasks' | 'team' | 'input';
+type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'team' | 'start' | 'end';
 
 const DASHBOARD_DETAIL_KINDS = new Set<DashboardDetailKind>([
   'projects',
@@ -445,36 +444,7 @@ export function Dashboard({
     return visibleProjectStats.filter((p) => dashboardVisibleIds.has(p.id));
   }, [visibleProjectStats, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
 
-  const sortedProjectGroups = useMemo<ProjectGroup[]>(() => {
-    const list = wbsSettings.projectGroups ?? [];
-    return [...list].sort((a, b) => {
-      const ao = a.sortOrder ?? 0;
-      const bo = b.sortOrder ?? 0;
-      if (ao !== bo) return ao - bo;
-      return a.name.localeCompare(b.name, 'ko');
-    });
-  }, [wbsSettings.projectGroups]);
-
-  const [projectCardSort, setProjectCardSort] = useState<ProjectCardSortKey>(() => {
-    try {
-      return parseProjectCardSortKey(localStorage.getItem(PROJECT_CARD_SORT_LS_KEY));
-    } catch {
-      return 'default';
-    }
-  });
-
-  const persistProjectCardSort = (next: ProjectCardSortKey) => {
-    try {
-      if (next === 'default') localStorage.removeItem(PROJECT_CARD_SORT_LS_KEY);
-      else localStorage.setItem(PROJECT_CARD_SORT_LS_KEY, next);
-    } catch {
-      /* ignore */
-    }
-    setProjectCardSort(next);
-    setProjectStatusTableSort(null);
-  };
-
-  /** 프로젝트별 상태 표: 헤더 클릭 정렬(라디오 정렬과 별도 — 헤더 정렬 시 라디오는 시각적으로만 유지되며 실제 순서는 헤더 기준) */
+  /** 프로젝트별 상태 표: 헤더 클릭 정렬(카드 뷰에서는 적용하지 않음) */
   const [projectStatusTableSort, setProjectStatusTableSort] = useState<{
     key: ProjectStatusTableSortKey;
     direction: 'asc' | 'desc';
@@ -499,8 +469,10 @@ export function Dashboard({
       <ArrowDown size={12} className="shrink-0 text-indigo-600" aria-hidden />
     );
 
-  /** 프로젝트별 상태 카드에서 선택 시 인라인 상세 패널에 표시할 프로젝트 ID */
+  /** 프로젝트별 상태 카드/표 행 선택 시 상세 팝업에 표시할 프로젝트 ID */
   const [selectedProjectCardId, setSelectedProjectCardId] = useState<string | null>(null);
+  /** 이슈 작업 카드 클릭 시 상세 팝업 */
+  const [issueTaskDetailModal, setIssueTaskDetailModal] = useState<Task | null>(null);
 
   // ─── 대시보드 본문 블록 표시 여부(설정 → 대시보드 탭에서 변경·초기화) ───
   const [dashboardSectionVisibility, setDashboardSectionVisibility] = useState(() => readDashboardSectionVisibility());
@@ -530,7 +502,9 @@ export function Dashboard({
     type Row = (typeof baseDisplayProjectStats)[number];
     const tieName = (a: Row, b: Row) => a.name.localeCompare(b.name, 'ko');
 
-    if (projectStatusTableSort) {
+    const projectsLayout = dashboardSectionLayout.projects;
+
+    if (projectsLayout === 'table' && projectStatusTableSort) {
       const list = [...baseDisplayProjectStats];
       const dir = projectStatusTableSort.direction === 'asc' ? 1 : -1;
       const { key } = projectStatusTableSort;
@@ -549,14 +523,14 @@ export function Dashboard({
           case 'progress':
             cmp = a.stats.progress - b.stats.progress;
             break;
-          case 'tasks':
-            cmp = a.stats.total - b.stats.total;
-            break;
           case 'team':
             cmp = a.stats.assigneeCount - b.stats.assigneeCount;
             break;
-          case 'input':
-            cmp = (a.stats.inputManDays ?? 0) - (b.stats.inputManDays ?? 0);
+          case 'start':
+            cmp = (a.startDate ?? '').localeCompare(b.startDate ?? '', 'ko');
+            break;
+          case 'end':
+            cmp = (a.endDate ?? '').localeCompare(b.endDate ?? '', 'ko');
             break;
           default:
             break;
@@ -567,52 +541,8 @@ export function Dashboard({
       return list;
     }
 
-    if (projectCardSort === 'default') return baseDisplayProjectStats;
-
-    const list = [...baseDisplayProjectStats];
-    const validGroupIds = new Set(sortedProjectGroups.map((g) => g.id));
-    const getEffectiveGroupId = (p: (typeof list)[0]) => (p.groupId && validGroupIds.has(p.groupId) ? p.groupId : '__none__');
-
-    if (projectCardSort === 'group') {
-      const groupOrder = new Map<string, number>();
-      sortedProjectGroups.forEach((g, i) => groupOrder.set(g.id, i));
-      groupOrder.set('__none__', sortedProjectGroups.length);
-      list.sort((a, b) => {
-        const ga = groupOrder.get(getEffectiveGroupId(a)) ?? 999;
-        const gb = groupOrder.get(getEffectiveGroupId(b)) ?? 999;
-        if (ga !== gb) return ga - gb;
-        return a.name.localeCompare(b.name, 'ko');
-      });
-    } else if (projectCardSort === 'kind') {
-      const kindOrder = new Map(PROJECT_KINDS.map((k, i) => [k, i]));
-      list.sort((a, b) => {
-        const ka = kindOrder.get(resolveProjectKindOrDefault(a)) ?? 999;
-        const kb = kindOrder.get(resolveProjectKindOrDefault(b)) ?? 999;
-        if (ka !== kb) return ka - kb;
-        return a.name.localeCompare(b.name, 'ko');
-      });
-    } else if (projectCardSort === 'inputMm') {
-      list.sort((a, b) => {
-        const da = a.stats.inputManDays ?? 0;
-        const db = b.stats.inputManDays ?? 0;
-        if (db !== da) return db - da;
-        return a.name.localeCompare(b.name, 'ko');
-      });
-    }
-
-    return list;
-  }, [baseDisplayProjectStats, projectCardSort, sortedProjectGroups, projectStatusTableSort, profileMap]);
-
-  /** 열 헤더 정렬이 켜지면 프리셋(그룹순 등)과 충돌하지 않도록 프리셋을 기본으로 맞춤 */
-  useEffect(() => {
-    if (!projectStatusTableSort || projectCardSort === 'default') return;
-    try {
-      localStorage.removeItem(PROJECT_CARD_SORT_LS_KEY);
-    } catch {
-      /* ignore */
-    }
-    setProjectCardSort('default');
-  }, [projectStatusTableSort, projectCardSort]);
+    return baseDisplayProjectStats;
+  }, [baseDisplayProjectStats, dashboardSectionLayout.projects, projectStatusTableSort, profileMap]);
 
   const selectedProjectCard = useMemo(
     () => (selectedProjectCardId ? displayProjectStats.find((p) => p.id === selectedProjectCardId) : undefined),
@@ -640,15 +570,6 @@ export function Dashboard({
       setSelectedProjectCardId(null);
     }
   }, [selectedProjectCardId, displayProjectStats]);
-
-  useEffect(() => {
-    if (!selectedProjectCardId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedProjectCardId(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedProjectCardId]);
 
   /** 투입만 있고 작업 0건인 프로젝트는 visibleProjectStats에 없어 제외되므로, assignments가 있으면 함께 집계한다. */
   const displayProjectsForAllocation = useMemo(() => {
@@ -1370,25 +1291,1064 @@ export function Dashboard({
     [onNavigate],
   );
 
-  const openIssueTaskInTable = useCallback(
-    (t: Task) => {
-      if (onOpenTaskInTable) {
-        onOpenTaskInTable(t.id, t.projectId);
-        return;
-      }
-      openDashboardDetail('issues');
-    },
-    [onOpenTaskInTable, openDashboardDetail],
-  );
+  const openIssueTaskDetailPopup = useCallback((t: Task) => {
+    setIssueTaskDetailModal(t);
+  }, []);
+
+  useEffect(() => {
+    if (detailKind || divisionDetailId) {
+      setSelectedProjectCardId(null);
+      setIssueTaskDetailModal(null);
+    }
+  }, [detailKind, divisionDetailId]);
 
   return (
     <>
       {!divisionDetailId && !detailKind && dashboardFiltersToolbar}
       <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-4 pb-8 sm:p-6 md:p-8">
-        {divisionDetailId ? (
+        <>
           <div
             className={cn(
               'max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500',
+              mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
+            )}
+          >
+            {mobileReadabilityMode && (
+              <div
+                role="status"
+                className="rounded-xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950 leading-relaxed"
+              >
+                모바일 화면에서는 <strong className="font-semibold">요약 대시보드</strong>만 표시됩니다. 작업 표·간트·칸반 편집은 PC(가로
+                넓은 화면)에서 이용해 주세요.
+              </div>
+            )}
+            {/* Header Summary */}
+            {showDashSection('summary') && (
+              <section>
+                <div className={cn('flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+                  <h2
+                    className={cn(
+                      'font-bold text-[var(--color-ink)] flex items-center gap-2 m-0',
+                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                    )}
+                  >
+                    <LayoutGrid className="text-slate-500" size={24} />
+                    전체 현황 요약
+                  </h2>
+                </div>
+                {dashboardSectionLayout.summary === 'card' ? (
+                  <div className={cn('grid gap-3 md:gap-4', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-4')}>
+                    <SummaryCard
+                      title="등록된 프로젝트 수"
+                      value={summary.totalProjects}
+                      subtitle={
+                        dashboardExcludedIds.size > 0
+                          ? `※ 대시보드 집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
+                          : ''
+                      }
+                      compact={mobileReadabilityMode}
+                      onClick={() => openDashboardDetail('projects')}
+                    />
+                    <SummaryCard
+                      title="등록된 총 작업 수"
+                      value={summary.totalTasks}
+                      subtitle={dashboardExcludedIds.size > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : ''}
+                      compact={mobileReadabilityMode}
+                      onClick={() => openDashboardDetail('tasks')}
+                    />
+                    <SummaryCard
+                      title="회원가입자 수"
+                      value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
+                      subtitle="클릭하여 명단·상세"
+                      compact={mobileReadabilityMode}
+                      highlight="text-violet-600"
+                      onClick={() => openDashboardDetail('members')}
+                    />
+                    <SummaryCard
+                      title="접속자수"
+                      compact={mobileReadabilityMode}
+                      value={
+                        loadingVisitorStats ? (
+                          <Loader2 size={14} className="animate-spin text-stone-400" />
+                        ) : (
+                          <div className="space-y-1.5 not-italic font-normal tracking-normal">
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-xs font-medium text-slate-400">금일</span>
+                              <span className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</span>
+                            </div>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-xs font-medium text-slate-400">누적</span>
+                              <span className="text-xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</span>
+                            </div>
+                          </div>
+                        )
+                      }
+                      subtitle="클릭하여 금일 명단·상세"
+                      onClick={() => openDashboardDetail('visitors')}
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden mb-3 md:mb-4">
+                    <table className="w-full text-sm">
+                      <thead className="bg-stone-50 border-b border-stone-200">
+                        <tr className="text-xs text-stone-500">
+                          <th className="text-left font-medium px-3 py-2.5">항목</th>
+                          <th className="text-left font-medium px-3 py-2.5">값</th>
+                          <th className="text-left font-medium px-3 py-2.5 min-w-[40%]">비고</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          onClick={() => openDashboardDetail('projects')}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 프로젝트 수</td>
+                          <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalProjects}</td>
+                          <td className="px-3 py-2.5 text-xs text-stone-500">
+                            {dashboardExcludedIds.size > 0
+                              ? `집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
+                              : '—'}
+                          </td>
+                        </tr>
+                        <tr
+                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          onClick={() => openDashboardDetail('tasks')}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 총 작업 수</td>
+                          <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalTasks}</td>
+                          <td className="px-3 py-2.5 text-xs text-stone-500">
+                            {dashboardExcludedIds.size > 0 ? '제외 프로젝트의 작업은 합계에 미포함' : '—'}
+                          </td>
+                        </tr>
+                        <tr
+                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          onClick={() => openDashboardDetail('members')}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">회원가입자 수</td>
+                          <td className="px-3 py-2.5 font-bold text-violet-600 tabular-nums">
+                            {loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 명단·상세</td>
+                        </tr>
+                        <tr
+                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          onClick={() => openDashboardDetail('visitors')}
+                        >
+                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">접속자수</td>
+                          <td className="px-3 py-2.5 text-stone-800">
+                            {loadingVisitorStats ? (
+                              <Loader2 size={14} className="animate-spin text-stone-400" />
+                            ) : (
+                              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
+                                <span>
+                                  <span className="text-[10px] font-medium text-slate-400 mr-1">금일</span>
+                                  <span className="font-bold text-blue-600">{visitorStats.daily}</span>
+                                </span>
+                                <span>
+                                  <span className="text-[10px] font-medium text-slate-400 mr-1">누적</span>
+                                  <span className="font-bold text-purple-600">{visitorStats.total}</span>
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 금일 명단·상세</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="mt-4 md:mt-5">
+                  <DashboardVisitTrendChart
+                    points={dailyVisitTrend}
+                    loading={loadingVisitorStats}
+                    subtitle="세션당 하루 1회 집계(금일·누적 카드와 동일 기준)"
+                    compact={mobileReadabilityMode}
+                    onOpenDetail={() => openDashboardDetail('visitors')}
+                  />
+                </div>
+              </section>
+            )}
+
+            {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
+            {showDashSection('issues') && (
+              <section>
+                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+                  <h2
+                    className={cn(
+                      'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
+                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                    )}
+                  >
+                    <Bug className="text-rose-500 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
+                    이슈 작업
+                    <span className="text-sm font-medium text-stone-400">{issueTasksAll.length}건</span>
+                  </h2>
+                </div>
+                {issueTasks.length === 0 ? (
+                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                    등록된 이슈 작업이 없습니다.
+                  </div>
+                ) : dashboardSectionLayout.issues === 'card' ? (
+                  <div className="space-y-2.5">
+                    {issueTasks.map((t) => {
+                      const proj = projectMap.get(t.projectId);
+                      return (
+                        <div
+                          key={t.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openIssueTaskDetailPopup(t)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openIssueTaskDetailPopup(t);
+                            }
+                          }}
+                          className={cn(
+                            'rounded-xl border border-stone-200 bg-white p-4 shadow-sm text-left transition-colors',
+                            'cursor-pointer hover:border-rose-200 hover:bg-rose-50/35 active:scale-[0.99]',
+                          )}
+                          title="클릭하여 이슈 작업 상세 팝업"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <Bug size={18} className="text-rose-500 shrink-0 mt-0.5" aria-hidden />
+                            <div className="min-w-0 flex-1 space-y-2.5">
+                              <p className="font-semibold text-stone-900 text-[15px] leading-snug break-words">{t.name || '(이름 없음)'}</p>
+                              <dl className="space-y-1.5 text-sm text-stone-600">
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">프로젝트</dt>
+                                  <dd className="text-right font-medium text-stone-800 break-words min-w-0">
+                                    {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">담당자</dt>
+                                  <dd className="text-right break-words min-w-0">
+                                    {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">종료일</dt>
+                                  <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">진척률</dt>
+                                  <dd className="tabular-nums font-semibold text-stone-800">
+                                    {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                                  </dd>
+                                </div>
+                              </dl>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-stone-50 border-b border-stone-200">
+                        <tr className="text-xs text-stone-500">
+                          <th className="text-left font-medium px-3 py-2">작업명</th>
+                          <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
+                          <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {issueTasks.map((t) => {
+                          const proj = projectMap.get(t.projectId);
+                          return (
+                            <tr
+                              key={t.id}
+                              className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                              onClick={() => openIssueTaskDetailPopup(t)}
+                              title="클릭하여 이슈 작업 상세 팝업"
+                            >
+                              <td className="px-3 py-2 text-stone-800">
+                                <div className="flex items-center gap-1.5">
+                                  <Bug size={12} className="text-rose-500 shrink-0" />
+                                  <span className="truncate">{t.name || '(이름 없음)'}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-stone-600 break-words">
+                                {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-stone-600 truncate">
+                                {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
+                              </td>
+                              <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                              <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                                {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
+            {showDashSection('actions') && (
+              <section>
+                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+                  <h2
+                    className={cn(
+                      'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
+                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                    )}
+                  >
+                    <ListChecks className="text-teal-600 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
+                    액션 항목
+                    <span className="text-sm font-medium text-stone-400">{actionTasksFiltered.length}건</span>
+                    {actionTasksWithDueDate.length > 0 && actionTasksFiltered.length !== actionTasksWithDueDate.length && (
+                      <span className="text-xs font-normal text-stone-400 w-full sm:w-auto sm:inline sm:ml-1">
+                        (마감일 지정 {actionTasksWithDueDate.length}건 중)
+                      </span>
+                    )}
+                  </h2>
+                  {actionTasksWithDueDate.length > 0 && (
+                    <div
+                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                      role="group"
+                      aria-label="액션 항목 마감일 구간"
+                    >
+                      {(
+                        [
+                          { id: 'today' as const, label: '금일' },
+                          { id: 'thisWeek' as const, label: '금주' },
+                          { id: 'overdue' as const, label: '기한초과' },
+                        ] as const
+                      ).map(({ id, label }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setActionDueDateFilter(id)}
+                          className={cn(
+                            'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                            actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {actionTasksWithDueDate.length === 0 ? (
+                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
+                    마감일(종료일)이 지정된 액션 항목만 이 목록에 나타납니다.
+                    <br />
+                    작업 편집에서「액션 항목」을 켜고 종료일을 입력해 주세요.
+                  </div>
+                ) : actionTasksFiltered.length === 0 ? (
+                  <div className="text-sm text-stone-500 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
+                    선택한 구간(
+                    {actionDueDateFilter === 'today' ? '금일' : actionDueDateFilter === 'thisWeek' ? '금주' : '기한초과'}
+                    )에 해당하는 액션 항목이 없습니다.
+                  </div>
+                ) : dashboardSectionLayout.actions === 'card' ? (
+                  <div className="space-y-2.5">
+                    {actionTasks.map((t) => {
+                      const proj = projectMap.get(t.projectId);
+                      const done = isActionTaskCompleted(t);
+                      return (
+                        <div
+                          key={t.id}
+                          className={cn(
+                            'rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition-colors',
+                            'cursor-pointer hover:border-teal-200 hover:bg-teal-50/30 active:scale-[0.99]',
+                            done && 'bg-teal-50/45',
+                          )}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openDashboardDetail('actions')}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openDashboardDetail('actions');
+                            }
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={done}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const checked = e.target.checked;
+                                  if (checked) {
+                                    updateTask(t.id, { status: doneStatusId, progress: 100 });
+                                  } else {
+                                    updateTask(t.id, { status: todoStatusId, progress: 0 });
+                                  }
+                                }}
+                                className="rounded border-stone-300 text-teal-600 focus:ring-teal-500 h-5 w-5"
+                                title={done ? '완료 해제' : '완료 표시'}
+                                aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <p
+                                className={cn(
+                                  'font-semibold text-[15px] leading-snug break-words flex items-start gap-1.5',
+                                  done ? 'line-through text-stone-500' : 'text-stone-900',
+                                )}
+                              >
+                                <ListChecks size={16} className="text-teal-600 shrink-0 mt-0.5" aria-hidden />
+                                <span>{t.name || '(이름 없음)'}</span>
+                                {done && <Check size={14} className="text-teal-600 shrink-0 mt-1" strokeWidth={3} aria-hidden />}
+                              </p>
+                              <dl className="space-y-1.5 text-sm text-stone-600">
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">프로젝트</dt>
+                                  <dd className="text-right font-medium text-stone-800 break-words min-w-0">
+                                    {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">담당자</dt>
+                                  <dd className="text-right break-words min-w-0">
+                                    {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
+                                  </dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">종료일</dt>
+                                  <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
+                                </div>
+                                <div className="flex justify-between gap-3">
+                                  <dt className="text-stone-400 shrink-0">진척률</dt>
+                                  <dd className="tabular-nums font-semibold text-stone-800">
+                                    {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                                  </dd>
+                                </div>
+                              </dl>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-stone-50 border-b border-stone-200">
+                        <tr className="text-xs text-stone-500">
+                          <th className="text-center font-medium px-2 py-2 w-14">완료</th>
+                          <th className="text-left font-medium px-3 py-2">작업명</th>
+                          <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
+                          <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {actionTasks.map((t) => {
+                          const proj = projectMap.get(t.projectId);
+                          const done = isActionTaskCompleted(t);
+                          return (
+                            <tr
+                              key={t.id}
+                              className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
+                              onClick={() => openDashboardDetail('actions')}
+                              title="액션 항목 상세로 이동"
+                            >
+                              <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={done}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    const checked = e.target.checked;
+                                    if (checked) {
+                                      updateTask(t.id, { status: doneStatusId, progress: 100 });
+                                    } else {
+                                      updateTask(t.id, { status: todoStatusId, progress: 0 });
+                                    }
+                                  }}
+                                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                                  title={done ? '완료 해제' : '완료 표시'}
+                                  aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-stone-800">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                                  <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
+                                  {done && (
+                                    <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-stone-600 break-words">
+                                {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-stone-600 truncate">
+                                {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
+                              </td>
+                              <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                              <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                                {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 사업부·부서별 현황 */}
+            {showDashSection('divisions') && (
+              <section>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
+                    <Building2 className="text-sky-500" size={24} />
+                    사업부·부서별 현황
+                    <span className="text-sm font-normal text-stone-500 ml-1">
+                      ({displayDivisionStats.length}
+                      {(divisionVisibleIds || showMyDivisionOnly) && divisionStats.length !== displayDivisionStats.length
+                        ? ` / ${divisionStats.length}`
+                        : ''}
+                      개)
+                    </span>
+                  </h2>
+                  <div
+                    className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                    role="group"
+                    aria-label="사업부·부서별 현황 표 또는 카드 보기"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardSectionLayout('divisions', 'table')}
+                      className={cn(
+                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                        dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      )}
+                      title="표로 보기"
+                    >
+                      <Table2 size={12} aria-hidden />표
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardSectionLayout('divisions', 'card')}
+                      className={cn(
+                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                        dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      )}
+                      title="카드로 보기"
+                    >
+                      <LayoutGrid size={12} aria-hidden />
+                      카드
+                    </button>
+                  </div>
+                </div>
+                {displayDivisionStats.length === 0 ? (
+                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                    {divisionStats.length === 0
+                      ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
+                      : showMyDivisionOnly
+                        ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
+                        : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
+                  </div>
+                ) : dashboardSectionLayout.divisions === 'card' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {displayDivisionStats.map((d) => (
+                      <div
+                        key={d.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openDivisionDetail(d.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openDivisionDetail(d.id);
+                          }
+                        }}
+                        className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer hover:border-indigo-200/80 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+                        title="클릭하여 사업부 상세 보기"
+                      >
+                        <h3 className="font-semibold text-stone-800 truncate mb-3" title={d.name}>
+                          {d.name}
+                        </h3>
+                        <div className="space-y-3">
+                          <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5">
+                            <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">등록 프로젝트</div>
+                            <div className="text-[1.65rem] font-bold text-sky-600 tabular-nums leading-tight mt-0.5">{d.projectCount}</div>
+                          </div>
+                          <div>
+                            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                              <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
+                              <span className="text-2xl font-bold text-indigo-600 tabular-nums leading-none">{d.progress}%</span>
+                            </div>
+                            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-center">
+                            <div>
+                              <div className="text-[10px] text-stone-500 mb-0.5">소속 인원</div>
+                              <div className="text-lg font-bold text-stone-800 tabular-nums">{d.memberCount}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] text-stone-500 mb-0.5">전체 Task</div>
+                              <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] text-stone-500 mb-0.5">진행 중</div>
+                              <div className="text-lg font-bold text-violet-600 tabular-nums">{d.inProgressCount}</div>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[10px] text-stone-400">
+                            <span>
+                              완료 <span className="text-emerald-600 font-semibold tabular-nums">{d.doneCount}</span>
+                            </span>
+                            <span>
+                              이슈 <span className="text-rose-600 font-semibold tabular-nums">{d.issueCount}</span>
+                            </span>
+                            {d.assigneeCount !== d.memberCount && (
+                              <span className="text-stone-400" title="이 사업부 작업에 이름이 올라간 서로 다른 담당자 수">
+                                담당자 {d.assigneeCount}명
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
+                    <table className="w-full text-sm min-w-[640px]">
+                      <thead className="bg-stone-50 border-b border-stone-200">
+                        <tr className="text-xs text-stone-500">
+                          <th className="text-left font-medium px-3 py-2">사업부·본부</th>
+                          <th className="text-right font-medium px-2 py-2 w-16">프로젝트</th>
+                          <th className="text-right font-medium px-2 py-2 w-20">진척율</th>
+                          <th className="text-right font-medium px-2 py-2 w-16">인원</th>
+                          <th className="text-right font-medium px-2 py-2 w-16">Task</th>
+                          <th className="text-right font-medium px-2 py-2 w-16">진행</th>
+                          <th className="text-right font-medium px-2 py-2 w-14">완료</th>
+                          <th className="text-right font-medium px-3 py-2 w-14">이슈</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayDivisionStats.map((d) => (
+                          <tr
+                            key={d.id}
+                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                            onClick={() => openDivisionDetail(d.id)}
+                            title="클릭하여 사업부 상세 보기"
+                          >
+                            <td className="px-3 py-2 font-medium text-stone-800 max-w-[14rem] truncate" title={d.name}>
+                              {d.name}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold">{d.projectCount}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">{d.progress}%</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.memberCount}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.total}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-violet-600">{d.inProgressCount}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-emerald-600">{d.doneCount}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-rose-600">{d.issueCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {showDashSection('allocation') && (
+              <DashboardPersonAllocationSection
+                projects={displayProjectsForAllocation}
+                allTasks={displayTasksForAllocation}
+                profileMap={profileMap}
+                registeredMemberDisplayNames={registeredMemberDisplayNames}
+                showFilterHint={dashboardFiltersActive}
+                onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
+              />
+            )}
+
+            {/* Milestones */}
+            {showDashSection('milestones') && milestones.length > 0 && (
+              <section>
+                <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
+                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 m-0">
+                    <Flag className="text-amber-500" size={24} />
+                    마일스톤
+                    <span className="text-sm font-medium text-stone-400">{milestones.length}건</span>
+                  </h2>
+                </div>
+                {dashboardSectionLayout.milestones === 'card' ? (
+                  <div className="card-elevated overflow-hidden">
+                    <ul className="divide-y divide-slate-100">
+                      {milestones.map((task) => (
+                        <li
+                          key={task.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openDashboardDetail('milestones')}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openDashboardDetail('milestones');
+                            }
+                          }}
+                          className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                        >
+                          <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
+                            <Flag size={18} className="text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {task.projectName} · {task.startDate}
+                            </div>
+                          </div>
+                          {(() => {
+                            const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
+                            const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
+                            return (
+                              <span
+                                className={cn(
+                                  'text-xs font-medium px-2.5 py-1 rounded-full border',
+                                  colorProps.className,
+                                  'text-stone-700',
+                                )}
+                                style={colorProps.style}
+                              >
+                                {sc?.name ?? task.status}
+                              </span>
+                            );
+                          })()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-stone-50 border-b border-stone-200">
+                        <tr className="text-xs text-stone-500">
+                          <th className="text-left font-medium px-3 py-2">작업명</th>
+                          <th className="text-left font-medium px-3 py-2 w-44">프로젝트</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">시작일</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">상태</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {milestones.map((task) => {
+                          const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
+                          const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
+                          return (
+                            <tr
+                              key={task.id}
+                              className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                              onClick={() => openDashboardDetail('milestones')}
+                              title="마일스톤 상세로 이동"
+                            >
+                              <td className="px-3 py-2 text-stone-800">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
+                                  <span className="truncate font-medium">{task.name}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-stone-600 truncate">{task.projectName}</td>
+                              <td className="px-3 py-2 text-stone-500 tabular-nums">{task.startDate || '—'}</td>
+                              <td className="px-3 py-2">
+                                <span
+                                  className={cn('text-xs font-medium px-2 py-0.5 rounded-full border inline-block', colorProps.className)}
+                                  style={colorProps.style}
+                                >
+                                  {sc?.name ?? task.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* Project List */}
+            {showDashSection('projects') && (
+              <section>
+                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
+                    <Briefcase className="text-[var(--color-accent)]" size={24} />
+                    프로젝트별 상태
+                    <span className="text-sm font-normal text-stone-500 ml-1">({displayProjectStats.length}개)</span>
+                  </h2>
+                  <div
+                    className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                    role="group"
+                    aria-label="프로젝트별 상태 표 또는 카드 보기"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardSectionLayout('projects', 'table')}
+                      className={cn(
+                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                        dashboardSectionLayout.projects === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      )}
+                      title="표로 보기"
+                    >
+                      <Table2 size={12} aria-hidden />표
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => persistDashboardSectionLayout('projects', 'card')}
+                      className={cn(
+                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                        dashboardSectionLayout.projects === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      )}
+                      title="카드로 보기"
+                    >
+                      <LayoutGrid size={12} aria-hidden />
+                      카드
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-stone-500 -mt-1 mb-1">
+                  {dashboardSectionLayout.projects === 'card'
+                    ? '카드를 클릭하면 투입·작업·기한 초과 등 상세 정보가 팝업으로 열립니다. 「대시보드 상세」로 기존 요약 화면도 열 수 있습니다.'
+                    : '표의 행을 클릭하면 동일한 상세 정보가 팝업으로 열립니다. 열 머리글을 클릭하면 해당 열 기준으로 정렬합니다(한 번 더 클릭하면 방향 전환·해제). 「대시보드 상세」로 기존 요약 화면도 열 수 있습니다.'}
+                </p>
+                <div className="space-y-3">
+                  {dashboardSectionLayout.projects === 'card' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {displayProjectStats.length === 0 ? (
+                        <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                          {projects.length > 0 && projectsEligibleForDashboard.length === 0
+                            ? dashboardIncludedKinds.size === 0
+                              ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
+                              : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
+                            : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
+                              ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
+                              : visibleProjectStats.length === 0
+                                ? '작업이 있는 프로젝트가 없습니다.'
+                                : showMyOnly
+                                  ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                                  : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
+                        </div>
+                      ) : (
+                        displayProjectStats.map((project) => (
+                          <ProjectCard
+                            key={project.id}
+                            project={project}
+                            isSelected={selectedProjectCardId === project.id}
+                            onClick={() => setSelectedProjectCardId((prev) => (prev === project.id ? null : project.id))}
+                            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+                            profileMap={profileMap}
+                          />
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
+                      {displayProjectStats.length === 0 ? (
+                        <div className="text-sm text-stone-400 p-6 text-center">
+                          {projects.length > 0 && projectsEligibleForDashboard.length === 0
+                            ? dashboardIncludedKinds.size === 0
+                              ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
+                              : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
+                            : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
+                              ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
+                              : visibleProjectStats.length === 0
+                                ? '작업이 있는 프로젝트가 없습니다.'
+                                : showMyOnly
+                                  ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                                  : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm min-w-[640px]">
+                          <thead className="bg-stone-50 border-b border-stone-200">
+                            <tr className="text-xs text-stone-500">
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 cursor-pointer select-none hover:bg-stone-100/90 transition-colors max-w-[16rem]"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('name')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('name');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  프로젝트
+                                  {projectStatusSortIconEl('name')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 w-32 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('pm')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('pm');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  PM
+                                  {projectStatusSortIconEl('pm')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 w-28 cursor-pointer select-none hover:bg-stone-100/90 transition-colors whitespace-nowrap"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('start')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('start');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  시작
+                                  {projectStatusSortIconEl('start')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 w-28 cursor-pointer select-none hover:bg-stone-100/90 transition-colors whitespace-nowrap"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('end')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('end');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  종료
+                                  {projectStatusSortIconEl('end')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-right font-medium px-2 py-2 w-16 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('team')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('team');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center justify-end gap-0.5 w-full">
+                                  팀원
+                                  {projectStatusSortIconEl('team')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 w-36 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('progress')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('progress');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  진척률
+                                  {projectStatusSortIconEl('progress')}
+                                </span>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayProjectStats.map((project) => {
+                              const s = project.stats;
+                              const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
+                              const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
+                              const selected = selectedProjectCardId === project.id;
+                              return (
+                                <tr
+                                  key={project.id}
+                                  className={cn(
+                                    'border-t border-stone-100 cursor-pointer transition-colors',
+                                    selected ? 'bg-indigo-50/50 ring-1 ring-inset ring-indigo-200/80' : 'hover:bg-stone-50/60',
+                                  )}
+                                  onClick={() => setSelectedProjectCardId((prev) => (prev === project.id ? null : project.id))}
+                                >
+                                  <td className="px-3 py-2 font-medium text-stone-800 max-w-[16rem]">
+                                    <div className="truncate" title={formatProjectDisplayName(project.name, project.projectKind)}>
+                                      {formatProjectDisplayName(project.name, project.projectKind)}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-stone-600 text-xs truncate max-w-[8rem]" title={pmDisplay || undefined}>
+                                    {pmDisplay || <span className="text-stone-400">미지정</span>}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs tabular-nums text-stone-600 whitespace-nowrap">
+                                    {project.startDate || '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs tabular-nums text-stone-600 whitespace-nowrap">
+                                    {project.endDate || '—'}
+                                  </td>
+                                  <td className="px-2 py-2 text-right tabular-nums text-stone-700">{s.assigneeCount}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-2 min-w-[6rem]">
+                                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden min-w-[3rem]">
+                                        <div
+                                          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
+                                          style={{ width: `${s.progress}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-xs font-semibold tabular-nums text-stone-800 w-10 text-right shrink-0">
+                                        {formatNum2(s.progress)}%
+                                      </span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
+          </div>
+        </>
+      </div>
+
+      <BaseModal isOpen={Boolean(divisionDetailId)} onClose={clearDivisionDetail} showCloseButton={false} size="full" bodyClassName="p-0">
+        {divisionDetailId && (
+          <div
+            className={cn(
+              'max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500',
               mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
             )}
           >
@@ -1421,10 +2381,20 @@ export function Dashboard({
               </div>
             )}
           </div>
-        ) : detailKind ? (
+        )}
+      </BaseModal>
+
+      <BaseModal
+        isOpen={Boolean(detailKind && !divisionDetailId)}
+        onClose={clearDashboardDetailParams}
+        showCloseButton={false}
+        size="full"
+        bodyClassName="p-0"
+      >
+        {detailKind && !divisionDetailId && (
           <div
             className={cn(
-              'max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500',
+              'max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500',
               mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
             )}
           >
@@ -1464,1075 +2434,123 @@ export function Dashboard({
               totalProjectsInAccount={projects.length}
             />
           </div>
-        ) : (
-          <>
-            <div
-              className={cn(
-                'max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500',
-                mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
-              )}
-            >
-              {mobileReadabilityMode && (
-                <div
-                  role="status"
-                  className="rounded-xl border border-sky-200/80 bg-sky-50/90 px-4 py-3 text-sm text-sky-950 leading-relaxed"
-                >
-                  모바일 화면에서는 <strong className="font-semibold">요약 대시보드</strong>만 표시됩니다. 작업 표·간트·칸반 편집은 PC(가로
-                  넓은 화면)에서 이용해 주세요.
-                </div>
-              )}
-              {/* Header Summary */}
-              {showDashSection('summary') && (
-                <section>
-                  <div className={cn('flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
-                    <h2
-                      className={cn(
-                        'font-bold text-[var(--color-ink)] flex items-center gap-2 m-0',
-                        mobileReadabilityMode ? 'text-lg' : 'text-xl',
-                      )}
-                    >
-                      <LayoutGrid className="text-slate-500" size={24} />
-                      전체 현황 요약
-                    </h2>
-                  </div>
-                  {dashboardSectionLayout.summary === 'card' ? (
-                    <div className={cn('grid gap-3 md:gap-4', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-4')}>
-                      <SummaryCard
-                        title="등록된 프로젝트 수"
-                        value={summary.totalProjects}
-                        subtitle={
-                          dashboardExcludedIds.size > 0
-                            ? `※ 대시보드 집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
-                            : ''
-                        }
-                        compact={mobileReadabilityMode}
-                        onClick={() => openDashboardDetail('projects')}
-                      />
-                      <SummaryCard
-                        title="등록된 총 작업 수"
-                        value={summary.totalTasks}
-                        subtitle={dashboardExcludedIds.size > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : ''}
-                        compact={mobileReadabilityMode}
-                        onClick={() => openDashboardDetail('tasks')}
-                      />
-                      <SummaryCard
-                        title="회원가입자 수"
-                        value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
-                        subtitle="클릭하여 명단·상세"
-                        compact={mobileReadabilityMode}
-                        highlight="text-violet-600"
-                        onClick={() => openDashboardDetail('members')}
-                      />
-                      <SummaryCard
-                        title="접속자수"
-                        compact={mobileReadabilityMode}
-                        value={
-                          loadingVisitorStats ? (
-                            <Loader2 size={14} className="animate-spin text-stone-400" />
-                          ) : (
-                            <div className="space-y-1.5 not-italic font-normal tracking-normal">
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-xs font-medium text-slate-400">금일</span>
-                                <span className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</span>
-                              </div>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-xs font-medium text-slate-400">누적</span>
-                                <span className="text-xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</span>
-                              </div>
-                            </div>
-                          )
-                        }
-                        subtitle="클릭하여 금일 명단·상세"
-                        onClick={() => openDashboardDetail('visitors')}
-                      />
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-stone-200 rounded-xl overflow-hidden mb-3 md:mb-4">
-                      <table className="w-full text-sm">
-                        <thead className="bg-stone-50 border-b border-stone-200">
-                          <tr className="text-xs text-stone-500">
-                            <th className="text-left font-medium px-3 py-2.5">항목</th>
-                            <th className="text-left font-medium px-3 py-2.5">값</th>
-                            <th className="text-left font-medium px-3 py-2.5 min-w-[40%]">비고</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr
-                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                            onClick={() => openDashboardDetail('projects')}
-                          >
-                            <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 프로젝트 수</td>
-                            <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalProjects}</td>
-                            <td className="px-3 py-2.5 text-xs text-stone-500">
-                              {dashboardExcludedIds.size > 0
-                                ? `집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
-                                : '—'}
-                            </td>
-                          </tr>
-                          <tr
-                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                            onClick={() => openDashboardDetail('tasks')}
-                          >
-                            <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 총 작업 수</td>
-                            <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalTasks}</td>
-                            <td className="px-3 py-2.5 text-xs text-stone-500">
-                              {dashboardExcludedIds.size > 0 ? '제외 프로젝트의 작업은 합계에 미포함' : '—'}
-                            </td>
-                          </tr>
-                          <tr
-                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                            onClick={() => openDashboardDetail('members')}
-                          >
-                            <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">회원가입자 수</td>
-                            <td className="px-3 py-2.5 font-bold text-violet-600 tabular-nums">
-                              {loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 명단·상세</td>
-                          </tr>
-                          <tr
-                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                            onClick={() => openDashboardDetail('visitors')}
-                          >
-                            <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">접속자수</td>
-                            <td className="px-3 py-2.5 text-stone-800">
-                              {loadingVisitorStats ? (
-                                <Loader2 size={14} className="animate-spin text-stone-400" />
-                              ) : (
-                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
-                                  <span>
-                                    <span className="text-[10px] font-medium text-slate-400 mr-1">금일</span>
-                                    <span className="font-bold text-blue-600">{visitorStats.daily}</span>
-                                  </span>
-                                  <span>
-                                    <span className="text-[10px] font-medium text-slate-400 mr-1">누적</span>
-                                    <span className="font-bold text-purple-600">{visitorStats.total}</span>
-                                  </span>
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 금일 명단·상세</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  <div className="mt-4 md:mt-5">
-                    <DashboardVisitTrendChart
-                      points={dailyVisitTrend}
-                      loading={loadingVisitorStats}
-                      subtitle="세션당 하루 1회 집계(금일·누적 카드와 동일 기준)"
-                      compact={mobileReadabilityMode}
-                    />
-                  </div>
-                </section>
-              )}
-
-              {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
-              {showDashSection('issues') && (
-                <section>
-                  <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
-                    <h2
-                      className={cn(
-                        'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                        mobileReadabilityMode ? 'text-lg' : 'text-xl',
-                      )}
-                    >
-                      <Bug className="text-rose-500 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
-                      이슈 작업
-                      <span className="text-sm font-medium text-stone-400">{issueTasksAll.length}건</span>
-                    </h2>
-                  </div>
-                  {issueTasks.length === 0 ? (
-                    <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                      등록된 이슈 작업이 없습니다.
-                    </div>
-                  ) : dashboardSectionLayout.issues === 'card' ? (
-                    <div className="space-y-2.5">
-                      {issueTasks.map((t) => {
-                        const proj = projectMap.get(t.projectId);
-                        return (
-                          <div
-                            key={t.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openIssueTaskInTable(t)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                openIssueTaskInTable(t);
-                              }
-                            }}
-                            className={cn(
-                              'rounded-xl border border-stone-200 bg-white p-4 shadow-sm text-left transition-colors',
-                              'cursor-pointer hover:border-rose-200 hover:bg-rose-50/35 active:scale-[0.99]',
-                            )}
-                            title={onOpenTaskInTable ? '해당 작업 WBS 표로 이동' : '이슈 작업 상세로 이동'}
-                          >
-                            <div className="flex items-start gap-2.5">
-                              <Bug size={18} className="text-rose-500 shrink-0 mt-0.5" aria-hidden />
-                              <div className="min-w-0 flex-1 space-y-2.5">
-                                <p className="font-semibold text-stone-900 text-[15px] leading-snug break-words">
-                                  {t.name || '(이름 없음)'}
-                                </p>
-                                <dl className="space-y-1.5 text-sm text-stone-600">
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">프로젝트</dt>
-                                    <dd className="text-right font-medium text-stone-800 break-words min-w-0">
-                                      {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                    </dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">담당자</dt>
-                                    <dd className="text-right break-words min-w-0">
-                                      {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                    </dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">종료일</dt>
-                                    <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">진척률</dt>
-                                    <dd className="tabular-nums font-semibold text-stone-800">
-                                      {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                                    </dd>
-                                  </div>
-                                </dl>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead className="bg-stone-50 border-b border-stone-200">
-                          <tr className="text-xs text-stone-500">
-                            <th className="text-left font-medium px-3 py-2">작업명</th>
-                            <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                            <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {issueTasks.map((t) => {
-                            const proj = projectMap.get(t.projectId);
-                            return (
-                              <tr
-                                key={t.id}
-                                className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                                onClick={() => openIssueTaskInTable(t)}
-                                title={onOpenTaskInTable ? '해당 작업 WBS 표로 이동' : '이슈 작업 상세로 이동'}
-                              >
-                                <td className="px-3 py-2 text-stone-800">
-                                  <div className="flex items-center gap-1.5">
-                                    <Bug size={12} className="text-rose-500 shrink-0" />
-                                    <span className="truncate">{t.name || '(이름 없음)'}</span>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 text-stone-600 break-words">
-                                  {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                </td>
-                                <td className="px-3 py-2 text-stone-600 truncate">
-                                  {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                </td>
-                                <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                                <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                                  {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
-              {showDashSection('actions') && (
-                <section>
-                  <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
-                    <h2
-                      className={cn(
-                        'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                        mobileReadabilityMode ? 'text-lg' : 'text-xl',
-                      )}
-                    >
-                      <ListChecks className="text-teal-600 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
-                      액션 항목
-                      <span className="text-sm font-medium text-stone-400">{actionTasksFiltered.length}건</span>
-                      {actionTasksWithDueDate.length > 0 && actionTasksFiltered.length !== actionTasksWithDueDate.length && (
-                        <span className="text-xs font-normal text-stone-400 w-full sm:w-auto sm:inline sm:ml-1">
-                          (마감일 지정 {actionTasksWithDueDate.length}건 중)
-                        </span>
-                      )}
-                    </h2>
-                    {actionTasksWithDueDate.length > 0 && (
-                      <div
-                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                        role="group"
-                        aria-label="액션 항목 마감일 구간"
-                      >
-                        {(
-                          [
-                            { id: 'today' as const, label: '금일' },
-                            { id: 'thisWeek' as const, label: '금주' },
-                            { id: 'overdue' as const, label: '기한초과' },
-                          ] as const
-                        ).map(({ id, label }) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => setActionDueDateFilter(id)}
-                            className={cn(
-                              'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                              actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                            )}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {actionTasksWithDueDate.length === 0 ? (
-                    <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
-                      마감일(종료일)이 지정된 액션 항목만 이 목록에 나타납니다.
-                      <br />
-                      작업 편집에서「액션 항목」을 켜고 종료일을 입력해 주세요.
-                    </div>
-                  ) : actionTasksFiltered.length === 0 ? (
-                    <div className="text-sm text-stone-500 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
-                      선택한 구간(
-                      {actionDueDateFilter === 'today' ? '금일' : actionDueDateFilter === 'thisWeek' ? '금주' : '기한초과'}
-                      )에 해당하는 액션 항목이 없습니다.
-                    </div>
-                  ) : dashboardSectionLayout.actions === 'card' ? (
-                    <div className="space-y-2.5">
-                      {actionTasks.map((t) => {
-                        const proj = projectMap.get(t.projectId);
-                        const done = isActionTaskCompleted(t);
-                        return (
-                          <div
-                            key={t.id}
-                            className={cn(
-                              'rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition-colors',
-                              'cursor-pointer hover:border-teal-200 hover:bg-teal-50/30 active:scale-[0.99]',
-                              done && 'bg-teal-50/45',
-                            )}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openDashboardDetail('actions')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                openDashboardDetail('actions');
-                              }
-                            }}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  checked={done}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    const checked = e.target.checked;
-                                    if (checked) {
-                                      updateTask(t.id, { status: doneStatusId, progress: 100 });
-                                    } else {
-                                      updateTask(t.id, { status: todoStatusId, progress: 0 });
-                                    }
-                                  }}
-                                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500 h-5 w-5"
-                                  title={done ? '완료 해제' : '완료 표시'}
-                                  aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
-                                />
-                              </div>
-                              <div className="min-w-0 flex-1 space-y-2">
-                                <p
-                                  className={cn(
-                                    'font-semibold text-[15px] leading-snug break-words flex items-start gap-1.5',
-                                    done ? 'line-through text-stone-500' : 'text-stone-900',
-                                  )}
-                                >
-                                  <ListChecks size={16} className="text-teal-600 shrink-0 mt-0.5" aria-hidden />
-                                  <span>{t.name || '(이름 없음)'}</span>
-                                  {done && <Check size={14} className="text-teal-600 shrink-0 mt-1" strokeWidth={3} aria-hidden />}
-                                </p>
-                                <dl className="space-y-1.5 text-sm text-stone-600">
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">프로젝트</dt>
-                                    <dd className="text-right font-medium text-stone-800 break-words min-w-0">
-                                      {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                    </dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">담당자</dt>
-                                    <dd className="text-right break-words min-w-0">
-                                      {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                    </dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">종료일</dt>
-                                    <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
-                                  </div>
-                                  <div className="flex justify-between gap-3">
-                                    <dt className="text-stone-400 shrink-0">진척률</dt>
-                                    <dd className="tabular-nums font-semibold text-stone-800">
-                                      {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                                    </dd>
-                                  </div>
-                                </dl>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead className="bg-stone-50 border-b border-stone-200">
-                          <tr className="text-xs text-stone-500">
-                            <th className="text-center font-medium px-2 py-2 w-14">완료</th>
-                            <th className="text-left font-medium px-3 py-2">작업명</th>
-                            <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                            <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {actionTasks.map((t) => {
-                            const proj = projectMap.get(t.projectId);
-                            const done = isActionTaskCompleted(t);
-                            return (
-                              <tr
-                                key={t.id}
-                                className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
-                                onClick={() => openDashboardDetail('actions')}
-                                title="액션 항목 상세로 이동"
-                              >
-                                <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={done}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      const checked = e.target.checked;
-                                      if (checked) {
-                                        updateTask(t.id, { status: doneStatusId, progress: 100 });
-                                      } else {
-                                        updateTask(t.id, { status: todoStatusId, progress: 0 });
-                                      }
-                                    }}
-                                    className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
-                                    title={done ? '완료 해제' : '완료 표시'}
-                                    aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-stone-800">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
-                                    <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
-                                    {done && (
-                                      <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 text-stone-600 break-words">
-                                  {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                </td>
-                                <td className="px-3 py-2 text-stone-600 truncate">
-                                  {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                </td>
-                                <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                                <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                                  {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* 사업부·부서별 현황 */}
-              {showDashSection('divisions') && (
-                <section>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
-                      <Building2 className="text-sky-500" size={24} />
-                      사업부·부서별 현황
-                      <span className="text-sm font-normal text-stone-500 ml-1">
-                        ({displayDivisionStats.length}
-                        {(divisionVisibleIds || showMyDivisionOnly) && divisionStats.length !== displayDivisionStats.length
-                          ? ` / ${divisionStats.length}`
-                          : ''}
-                        개)
-                      </span>
-                    </h2>
-                    <div
-                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                      role="group"
-                      aria-label="사업부·부서별 현황 표 또는 카드 보기"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => persistDashboardSectionLayout('divisions', 'table')}
-                        className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                        )}
-                        title="표로 보기"
-                      >
-                        <Table2 size={12} aria-hidden />표
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => persistDashboardSectionLayout('divisions', 'card')}
-                        className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                        )}
-                        title="카드로 보기"
-                      >
-                        <LayoutGrid size={12} aria-hidden />
-                        카드
-                      </button>
-                    </div>
-                  </div>
-                  {displayDivisionStats.length === 0 ? (
-                    <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                      {divisionStats.length === 0
-                        ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
-                        : showMyDivisionOnly
-                          ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
-                          : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
-                    </div>
-                  ) : dashboardSectionLayout.divisions === 'card' ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {displayDivisionStats.map((d) => (
-                        <div
-                          key={d.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openDivisionDetail(d.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openDivisionDetail(d.id);
-                            }
-                          }}
-                          className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer hover:border-indigo-200/80 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
-                          title="클릭하여 사업부 상세 보기"
-                        >
-                          <h3 className="font-semibold text-stone-800 truncate mb-3" title={d.name}>
-                            {d.name}
-                          </h3>
-                          <div className="space-y-3">
-                            <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5">
-                              <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">등록 프로젝트</div>
-                              <div className="text-[1.65rem] font-bold text-sky-600 tabular-nums leading-tight mt-0.5">
-                                {d.projectCount}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                                <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
-                                <span className="text-2xl font-bold text-indigo-600 tabular-nums leading-none">{d.progress}%</span>
-                              </div>
-                              <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-center">
-                              <div>
-                                <div className="text-[10px] text-stone-500 mb-0.5">소속 인원</div>
-                                <div className="text-lg font-bold text-stone-800 tabular-nums">{d.memberCount}</div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-stone-500 mb-0.5">전체 Task</div>
-                                <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-stone-500 mb-0.5">진행 중</div>
-                                <div className="text-lg font-bold text-violet-600 tabular-nums">{d.inProgressCount}</div>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[10px] text-stone-400">
-                              <span>
-                                완료 <span className="text-emerald-600 font-semibold tabular-nums">{d.doneCount}</span>
-                              </span>
-                              <span>
-                                이슈 <span className="text-rose-600 font-semibold tabular-nums">{d.issueCount}</span>
-                              </span>
-                              {d.assigneeCount !== d.memberCount && (
-                                <span className="text-stone-400" title="이 사업부 작업에 이름이 올라간 서로 다른 담당자 수">
-                                  담당자 {d.assigneeCount}명
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
-                      <table className="w-full text-sm min-w-[640px]">
-                        <thead className="bg-stone-50 border-b border-stone-200">
-                          <tr className="text-xs text-stone-500">
-                            <th className="text-left font-medium px-3 py-2">사업부·본부</th>
-                            <th className="text-right font-medium px-2 py-2 w-16">프로젝트</th>
-                            <th className="text-right font-medium px-2 py-2 w-20">진척율</th>
-                            <th className="text-right font-medium px-2 py-2 w-16">인원</th>
-                            <th className="text-right font-medium px-2 py-2 w-16">Task</th>
-                            <th className="text-right font-medium px-2 py-2 w-16">진행</th>
-                            <th className="text-right font-medium px-2 py-2 w-14">완료</th>
-                            <th className="text-right font-medium px-3 py-2 w-14">이슈</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayDivisionStats.map((d) => (
-                            <tr
-                              key={d.id}
-                              className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                              onClick={() => openDivisionDetail(d.id)}
-                              title="클릭하여 사업부 상세 보기"
-                            >
-                              <td className="px-3 py-2 font-medium text-stone-800 max-w-[14rem] truncate" title={d.name}>
-                                {d.name}
-                              </td>
-                              <td className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold">{d.projectCount}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">{d.progress}%</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.memberCount}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.total}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-violet-600">{d.inProgressCount}</td>
-                              <td className="px-2 py-2 text-right tabular-nums text-emerald-600">{d.doneCount}</td>
-                              <td className="px-3 py-2 text-right tabular-nums text-rose-600">{d.issueCount}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {showDashSection('allocation') && (
-                <DashboardPersonAllocationSection
-                  projects={displayProjectsForAllocation}
-                  allTasks={displayTasksForAllocation}
-                  profileMap={profileMap}
-                  registeredMemberDisplayNames={registeredMemberDisplayNames}
-                  showFilterHint={dashboardFiltersActive}
-                  onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
-                />
-              )}
-
-              {/* Milestones */}
-              {showDashSection('milestones') && milestones.length > 0 && (
-                <section>
-                  <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
-                    <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 m-0">
-                      <Flag className="text-amber-500" size={24} />
-                      마일스톤
-                      <span className="text-sm font-medium text-stone-400">{milestones.length}건</span>
-                    </h2>
-                  </div>
-                  {dashboardSectionLayout.milestones === 'card' ? (
-                    <div className="card-elevated overflow-hidden">
-                      <ul className="divide-y divide-slate-100">
-                        {milestones.map((task) => (
-                          <li
-                            key={task.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openDashboardDetail('milestones')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                openDashboardDetail('milestones');
-                              }
-                            }}
-                            className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
-                          >
-                            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
-                              <Flag size={18} className="text-amber-600" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
-                              <div className="text-xs text-slate-500 mt-0.5">
-                                {task.projectName} · {task.startDate}
-                              </div>
-                            </div>
-                            {(() => {
-                              const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                              const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                              return (
-                                <span
-                                  className={cn(
-                                    'text-xs font-medium px-2.5 py-1 rounded-full border',
-                                    colorProps.className,
-                                    'text-stone-700',
-                                  )}
-                                  style={colorProps.style}
-                                >
-                                  {sc?.name ?? task.status}
-                                </span>
-                              );
-                            })()}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead className="bg-stone-50 border-b border-stone-200">
-                          <tr className="text-xs text-stone-500">
-                            <th className="text-left font-medium px-3 py-2">작업명</th>
-                            <th className="text-left font-medium px-3 py-2 w-44">프로젝트</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">시작일</th>
-                            <th className="text-left font-medium px-3 py-2 w-28">상태</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {milestones.map((task) => {
-                            const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                            const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                            return (
-                              <tr
-                                key={task.id}
-                                className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                                onClick={() => openDashboardDetail('milestones')}
-                                title="마일스톤 상세로 이동"
-                              >
-                                <td className="px-3 py-2 text-stone-800">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
-                                    <span className="truncate font-medium">{task.name}</span>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 text-stone-600 truncate">{task.projectName}</td>
-                                <td className="px-3 py-2 text-stone-500 tabular-nums">{task.startDate || '—'}</td>
-                                <td className="px-3 py-2">
-                                  <span
-                                    className={cn('text-xs font-medium px-2 py-0.5 rounded-full border inline-block', colorProps.className)}
-                                    style={colorProps.style}
-                                  >
-                                    {sc?.name ?? task.status}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* Project List */}
-              {showDashSection('projects') && (
-                <section>
-                  <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
-                    <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
-                      <Briefcase className="text-[var(--color-accent)]" size={24} />
-                      프로젝트별 상태
-                      <span className="text-sm font-normal text-stone-500 ml-1">({displayProjectStats.length}개)</span>
-                    </h2>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <ArrowUpDown size={14} className="text-stone-400 shrink-0" aria-hidden />
-                      <span className="text-xs font-medium text-stone-400 shrink-0">정렬</span>
-                      <div
-                        className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
-                        role="radiogroup"
-                        aria-label="프로젝트 카드 정렬"
-                      >
-                        {(
-                          [
-                            { key: 'default' as const, label: '기본' },
-                            { key: 'group' as const, label: '그룹순' },
-                            { key: 'kind' as const, label: '종류순' },
-                            { key: 'inputMm' as const, label: '투입 M/M' },
-                          ] as const
-                        ).map(({ key, label }) => (
-                          <button
-                            key={key}
-                            type="button"
-                            role="radio"
-                            aria-checked={projectCardSort === key}
-                            onClick={() => persistProjectCardSort(key)}
-                            className={cn(
-                              'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
-                              projectCardSort === key
-                                ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                                : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
-                            )}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-stone-500 -mt-1 mb-1">
-                    {dashboardSectionLayout.projects === 'card'
-                      ? '카드를 클릭하면 투입·작업·팀원·기한 초과 등 상세 정보가 카드 아래에 펼쳐집니다. 「대시보드 상세」로 기존 요약 화면도 열 수 있습니다.'
-                      : '표의 행을 클릭하면 동일한 상세 정보가 아래에 펼쳐집니다. 열 머리글(프로젝트·PM·진척률 등)을 클릭하면 해당 열 기준으로 정렬합니다(한 번 더 클릭하면 방향 전환·해제). 「대시보드 상세」로 기존 요약 화면도 열 수 있습니다.'}
-                  </p>
-                  <div className="space-y-3">
-                    {dashboardSectionLayout.projects === 'card' ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                        {displayProjectStats.length === 0 ? (
-                          <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                            {projects.length > 0 && projectsEligibleForDashboard.length === 0
-                              ? dashboardIncludedKinds.size === 0
-                                ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
-                                : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
-                              : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
-                                ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
-                                : visibleProjectStats.length === 0
-                                  ? '작업이 있는 프로젝트가 없습니다.'
-                                  : showMyOnly
-                                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
-                                    : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
-                          </div>
-                        ) : (
-                          displayProjectStats.map((project) => (
-                            <ProjectCard
-                              key={project.id}
-                              project={project}
-                              isSelected={selectedProjectCardId === project.id}
-                              onClick={() => setSelectedProjectCardId((prev) => (prev === project.id ? null : project.id))}
-                              wbsSettings={wbsSettings}
-                              assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-                              profileMap={profileMap}
-                              effortDisplayUnit={effortUnitForProjectCardPanel}
-                            />
-                          ))
-                        )}
-                      </div>
-                    ) : (
-                      <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
-                        {displayProjectStats.length === 0 ? (
-                          <div className="text-sm text-stone-400 p-6 text-center">
-                            {projects.length > 0 && projectsEligibleForDashboard.length === 0
-                              ? dashboardIncludedKinds.size === 0
-                                ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
-                                : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
-                              : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
-                                ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
-                                : visibleProjectStats.length === 0
-                                  ? '작업이 있는 프로젝트가 없습니다.'
-                                  : showMyOnly
-                                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
-                                    : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
-                          </div>
-                        ) : (
-                          <table className="w-full text-sm min-w-[720px]">
-                            <thead className="bg-stone-50 border-b border-stone-200">
-                              <tr className="text-xs text-stone-500">
-                                <th
-                                  scope="col"
-                                  className="text-left font-medium px-3 py-2 cursor-pointer select-none hover:bg-stone-100/90 transition-colors max-w-[16rem]"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('name')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('name');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center gap-0.5">
-                                    프로젝트
-                                    {projectStatusSortIconEl('name')}
-                                  </span>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="text-left font-medium px-3 py-2 w-32 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('pm')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('pm');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center gap-0.5">
-                                    PM
-                                    {projectStatusSortIconEl('pm')}
-                                  </span>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="text-left font-medium px-3 py-2 w-36 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('progress')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('progress');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center gap-0.5">
-                                    진척률
-                                    {projectStatusSortIconEl('progress')}
-                                  </span>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="text-right font-medium px-2 py-2 w-14 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('tasks')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('tasks');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center justify-end gap-0.5 w-full">
-                                    작업
-                                    {projectStatusSortIconEl('tasks')}
-                                  </span>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="text-right font-medium px-2 py-2 w-14 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('team')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('team');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center justify-end gap-0.5 w-full">
-                                    팀원
-                                    {projectStatusSortIconEl('team')}
-                                  </span>
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="text-right font-medium px-3 py-2 w-24 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
-                                  title="클릭하여 정렬"
-                                  onClick={() => toggleProjectStatusColumnSort('input')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault();
-                                      toggleProjectStatusColumnSort('input');
-                                    }
-                                  }}
-                                  tabIndex={0}
-                                >
-                                  <span className="inline-flex items-center justify-end gap-0.5 w-full">
-                                    투입
-                                    {projectStatusSortIconEl('input')}
-                                  </span>
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {displayProjectStats.map((project) => {
-                                const s = project.stats;
-                                const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
-                                const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
-                                const selected = selectedProjectCardId === project.id;
-                                return (
-                                  <tr
-                                    key={project.id}
-                                    className={cn(
-                                      'border-t border-stone-100 cursor-pointer transition-colors',
-                                      selected ? 'bg-indigo-50/50 ring-1 ring-inset ring-indigo-200/80' : 'hover:bg-stone-50/60',
-                                    )}
-                                    onClick={() => setSelectedProjectCardId((prev) => (prev === project.id ? null : project.id))}
-                                  >
-                                    <td className="px-3 py-2 font-medium text-stone-800 max-w-[16rem]">
-                                      <div className="truncate" title={formatProjectDisplayName(project.name, project.projectKind)}>
-                                        {formatProjectDisplayName(project.name, project.projectKind)}
-                                      </div>
-                                    </td>
-                                    <td className="px-3 py-2 text-stone-600 text-xs truncate max-w-[8rem]" title={pmDisplay || undefined}>
-                                      {pmDisplay || <span className="text-stone-400">미지정</span>}
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <div className="flex items-center gap-2 min-w-[6rem]">
-                                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden min-w-[3rem]">
-                                          <div
-                                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
-                                            style={{ width: `${s.progress}%` }}
-                                          />
-                                        </div>
-                                        <span className="text-xs font-semibold tabular-nums text-stone-800 w-10 text-right shrink-0">
-                                          {formatNum2(s.progress)}%
-                                        </span>
-                                      </div>
-                                    </td>
-                                    <td className="px-2 py-2 text-right tabular-nums text-stone-700">{s.total}</td>
-                                    <td className="px-2 py-2 text-right tabular-nums text-stone-700">{s.assigneeCount}</td>
-                                    <td className="px-3 py-2 text-right text-xs tabular-nums text-stone-600">
-                                      {formatCardInputEffort(s.inputManDays ?? 0, effortUnitForProjectCardPanel)}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    )}
-                    {selectedProjectCard && (
-                      <DashboardProjectCardDetailPanel
-                        project={selectedProjectCard}
-                        tasks={tasksForSelectedProjectCard}
-                        wbsSettings={wbsSettings}
-                        assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-                        profileMap={profileMap}
-                        orgMemberLabelByName={dashboardOrgMemberLabelByName}
-                        doneStatusIds={doneStatusIds}
-                        projectGroupName={
-                          selectedProjectCard.groupId ? groupNameByProjectGroupId.get(selectedProjectCard.groupId) : undefined
-                        }
-                        effortDisplayUnit={effortUnitForProjectCardPanel}
-                        onClose={() => setSelectedProjectCardId(null)}
-                        onOpenDashboardProjectDetail={() => openDashboardDetail('project', { projectId: selectedProjectCard.id })}
-                        onNavigateToTable={
-                          onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined
-                        }
-                        onOpenTaskInTable={onOpenTaskInTable}
-                      />
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* 번다운 차트: 일시 숨김 처리 (관리자에게도 비표시) */}
-            </div>
-          </>
         )}
-      </div>
+      </BaseModal>
+
+      <BaseModal
+        isOpen={Boolean(selectedProjectCard)}
+        onClose={() => setSelectedProjectCardId(null)}
+        showCloseButton={false}
+        size="full"
+        bodyClassName="p-2 sm:p-4 bg-stone-100/40"
+      >
+        {selectedProjectCard ? (
+          <DashboardProjectCardDetailPanel
+            project={selectedProjectCard}
+            tasks={tasksForSelectedProjectCard}
+            wbsSettings={wbsSettings}
+            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+            profileMap={profileMap}
+            orgMemberLabelByName={dashboardOrgMemberLabelByName}
+            doneStatusIds={doneStatusIds}
+            projectGroupName={selectedProjectCard.groupId ? groupNameByProjectGroupId.get(selectedProjectCard.groupId) : undefined}
+            effortDisplayUnit={effortUnitForProjectCardPanel}
+            onClose={() => setSelectedProjectCardId(null)}
+            onOpenDashboardProjectDetail={() => openDashboardDetail('project', { projectId: selectedProjectCard.id })}
+            onNavigateToTable={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
+            onOpenTaskInTable={onOpenTaskInTable}
+          />
+        ) : null}
+      </BaseModal>
+
+      <BaseModal
+        isOpen={Boolean(issueTaskDetailModal)}
+        onClose={() => setIssueTaskDetailModal(null)}
+        title="이슈 작업 상세"
+        size="lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIssueTaskDetailModal(null)}
+              className="px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+            >
+              닫기
+            </button>
+            {onOpenTaskInTable && issueTaskDetailModal ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenTaskInTable(issueTaskDetailModal.id, issueTaskDetailModal.projectId);
+                  setIssueTaskDetailModal(null);
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                WBS 표에서 열기
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  openDashboardDetail('issues');
+                  setIssueTaskDetailModal(null);
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-rose-600 text-white hover:bg-rose-700"
+              >
+                이슈 목록 상세
+              </button>
+            )}
+          </div>
+        }
+      >
+        {issueTaskDetailModal ? (
+          <IssueTaskDetailModalBody
+            task={issueTaskDetailModal}
+            projectMap={projectMap}
+            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+          />
+        ) : null}
+      </BaseModal>
     </>
+  );
+}
+
+function IssueTaskDetailModalBody({
+  task,
+  projectMap,
+  assigneeDisplayMetaByName,
+}: {
+  task: Task;
+  projectMap: Map<string, Project>;
+  assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
+}) {
+  const proj = projectMap.get(task.projectId);
+  return (
+    <div className="space-y-4 text-sm text-stone-700">
+      <p className="text-base font-semibold text-stone-900 leading-snug break-words">{task.name || '(이름 없음)'}</p>
+      <dl className="space-y-2">
+        <div className="flex justify-between gap-3">
+          <dt className="text-stone-400 shrink-0">프로젝트</dt>
+          <dd className="text-right font-medium text-stone-800 break-words min-w-0">
+            {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-stone-400 shrink-0">담당자</dt>
+          <dd className="text-right break-words min-w-0">{formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '—'}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-stone-400 shrink-0">종료일</dt>
+          <dd className="tabular-nums text-stone-700">{task.endDate || '—'}</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-stone-400 shrink-0">진척률</dt>
+          <dd className="tabular-nums font-semibold text-stone-800">
+            {typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—'}
+          </dd>
+        </div>
+      </dl>
+    </div>
   );
 }
 
@@ -2583,33 +2601,22 @@ function SummaryCard({
   );
 }
 
-function formatCardInputEffort(md: number, unit: 'mm' | 'md'): string {
-  if (md <= 0) return '—';
-  if (unit === 'md') return `${formatNum2(md)} M/D`;
-  return `${formatNum2(manDaysToManMonths(md))} M/M`;
-}
-
 function ProjectCard({
   project,
   onClick,
   isSelected,
-  wbsSettings,
   assigneeDisplayMetaByName,
   profileMap,
-  effortDisplayUnit = 'mm',
 }: {
   project: Project & { stats: ProjectStats };
   onClick?: () => void;
   isSelected?: boolean;
-  wbsSettings: WBSSettings;
   assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
   profileMap?: Record<string, string>;
-  effortDisplayUnit?: 'mm' | 'md';
 }) {
   const s = project.stats;
   const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
   const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
-  const inputEffortLabel = formatCardInputEffort(s.inputManDays ?? 0, effortDisplayUnit);
 
   return (
     <div
@@ -2633,12 +2640,11 @@ function ProjectCard({
       )}
     >
       <h3
-        className="text-sm font-semibold text-[var(--color-ink)] mb-0.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
+        className="text-sm font-semibold text-[var(--color-ink)] mb-1.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
         title={formatProjectDisplayName(project.name, project.projectKind)}
       >
         {formatProjectDisplayName(project.name, project.projectKind)}
       </h3>
-      <p className="text-[11px] text-slate-400 line-clamp-1 mb-1.5">{project.description || '설명 없음'}</p>
       <div className="flex items-start gap-1.5 text-[11px] text-slate-600 mb-2 min-h-[1.25rem]">
         <span className="text-[10px] font-bold text-violet-600/90 uppercase tracking-wide shrink-0 pt-0.5">PM</span>
         <span className={cn('line-clamp-2 leading-snug', !pmDisplay && 'text-slate-400 font-normal')}>{pmDisplay || '미지정'}</span>
@@ -2655,27 +2661,21 @@ function ProjectCard({
         <span className="text-[11px] font-semibold text-[var(--color-ink)] w-9 text-right tabular-nums">{formatNum2(s.progress)}%</span>
       </div>
 
-      <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400 pt-2 border-t border-slate-100">
-        <div className="flex items-center gap-1 min-w-0 shrink">
-          <Clock size={11} className="text-slate-300 shrink-0" />
-          <span className="truncate">시작: {project.startDate ? project.startDate : '미정'}</span>
+      <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-100 space-y-1">
+        <div className="flex items-start gap-1 min-w-0">
+          <Clock size={11} className="text-slate-300 shrink-0 mt-0.5" aria-hidden />
+          <div className="min-w-0 flex flex-col gap-0.5 leading-snug">
+            <span>
+              시작: <span className="tabular-nums text-slate-500">{project.startDate ? project.startDate : '미정'}</span>
+            </span>
+            <span>
+              종료: <span className="tabular-nums text-slate-500">{project.endDate ? project.endDate : '미정'}</span>
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0 tabular-nums text-right">
-          <span>작업 {s.total}</span>
-          <span className="text-slate-300">·</span>
-          <span>팀원 {s.assigneeCount}</span>
-          <span className="text-slate-300">·</span>
-          <span title="WBS 작업 공수 합(담당자별)">투입 {inputEffortLabel}</span>
+        <div className="tabular-nums text-slate-500">
+          팀원 <span className="font-semibold text-[var(--color-ink)]">{s.assigneeCount}</span>명
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1.5 text-[10px] text-slate-400/90">
-        {wbsSettings.statusConfigs.map((config, i) => (
-          <span key={config.id} className="whitespace-nowrap">
-            {i > 0 && <span className="text-slate-300 mr-2">·</span>}
-            {config.name} <span className="tabular-nums text-slate-500">{s.statusCounts[config.id] || 0}</span>
-          </span>
-        ))}
       </div>
     </div>
   );

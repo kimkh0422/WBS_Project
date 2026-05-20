@@ -1,4 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '../lib/utils';
 
 export type VisitTrendPoint = { visitDate: string; count: number };
 
@@ -24,6 +25,8 @@ export function DashboardVisitTrendChart({
   title = '최근 30일 일별 접속(세션)',
   subtitle,
   compact = false,
+  /** 카드 영역 클릭 시 접속자 상세 등으로 이동 */
+  onOpenDetail,
 }: {
   points: VisitTrendPoint[];
   loading?: boolean;
@@ -31,6 +34,7 @@ export function DashboardVisitTrendChart({
   subtitle?: string;
   /** 모바일 요약: 축 라벨·높이 축소 */
   compact?: boolean;
+  onOpenDetail?: () => void;
 }) {
   const max = useMemo(() => Math.max(1, ...points.map((p) => p.count)), [points]);
   const yTicks = useMemo(() => {
@@ -87,9 +91,31 @@ export function DashboardVisitTrendChart({
     };
   }, []);
 
+  const cardShellClass = cn(
+    'rounded-xl border border-stone-200 bg-white p-4 md:p-5 overflow-hidden',
+    onOpenDetail &&
+      'cursor-pointer hover:border-sky-300/90 hover:shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 transition-shadow',
+  );
+
   if (loading) {
     return (
-      <div className="rounded-xl border border-stone-200 bg-white p-4 md:p-5">
+      <div
+        className={cn(cardShellClass, 'overflow-hidden')}
+        onClick={onOpenDetail}
+        role={onOpenDetail ? 'button' : undefined}
+        tabIndex={onOpenDetail ? 0 : undefined}
+        onKeyDown={
+          onOpenDetail
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenDetail();
+                }
+              }
+            : undefined
+        }
+        title={onOpenDetail ? '클릭하여 접속자 상세' : undefined}
+      >
         <div className="text-sm font-bold text-stone-800 mb-1">{title}</div>
         {subtitle && <p className="text-xs text-stone-500 mb-3">{subtitle}</p>}
         <div className="h-[140px] flex items-center justify-center text-sm text-stone-400">불러오는 중…</div>
@@ -99,7 +125,23 @@ export function DashboardVisitTrendChart({
 
   if (points.length === 0) {
     return (
-      <div className="rounded-xl border border-stone-200 bg-white p-4 md:p-5">
+      <div
+        className={cn(cardShellClass, 'overflow-hidden')}
+        onClick={onOpenDetail}
+        role={onOpenDetail ? 'button' : undefined}
+        tabIndex={onOpenDetail ? 0 : undefined}
+        onKeyDown={
+          onOpenDetail
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenDetail();
+                }
+              }
+            : undefined
+        }
+        title={onOpenDetail ? '클릭하여 접속자 상세' : undefined}
+      >
         <div className="text-sm font-bold text-stone-800 mb-1">{title}</div>
         {subtitle && <p className="text-xs text-stone-500 mb-2">{subtitle}</p>}
         <p className="text-sm text-stone-500 py-6 text-center">표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.</p>
@@ -121,7 +163,23 @@ export function DashboardVisitTrendChart({
   const labelEvery = compact ? Math.max(1, Math.ceil(n / 5)) : Math.max(1, Math.ceil(n / 12));
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-4 md:p-5 overflow-hidden">
+    <div
+      className={cardShellClass}
+      onClick={onOpenDetail}
+      role={onOpenDetail ? 'button' : undefined}
+      tabIndex={onOpenDetail ? 0 : undefined}
+      onKeyDown={
+        onOpenDetail
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenDetail();
+              }
+            }
+          : undefined
+      }
+      title={onOpenDetail ? '클릭하여 접속자 상세' : undefined}
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
         <div>
           <div className="text-sm font-bold text-stone-800">{title}</div>

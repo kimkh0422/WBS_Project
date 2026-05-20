@@ -1,7 +1,12 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { findProjectByAllocationInput, parseAllocationPercentInput, type PersonProjectAddPayload } from '../lib/personAllocations';
+import {
+  findProjectByAllocationInput,
+  parseAllocationPercentInput,
+  suggestPercentForPersonAllocationAdd,
+  type PersonProjectAddPayload,
+} from '../lib/personAllocations';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import type { Project } from '../types';
 
@@ -9,6 +14,8 @@ interface AddPersonProjectAllocationProps {
   person: string;
   assignedProjectIds: Set<string>;
   availableProjects: Project[];
+  /** 해당 인원의 기존 프로젝트 투입율 합계 — 열 때 투입율 칸 기본값(남은 비중 등) */
+  allocationSumPercent?: number;
   onAdd: (payload: PersonProjectAddPayload, percent: number) => void;
   disabled?: boolean;
   className?: string;
@@ -18,6 +25,7 @@ export function AddPersonProjectAllocation({
   person,
   assignedProjectIds,
   availableProjects,
+  allocationSumPercent = 0,
   onAdd,
   disabled,
   className,
@@ -64,7 +72,10 @@ export function AddPersonProjectAllocation({
     return (
       <button
         type="button"
-        onClick={() => setIsAdding(true)}
+        onClick={() => {
+          setIsAdding(true);
+          setPercentInput(String(suggestPercentForPersonAllocationAdd(allocationSumPercent)));
+        }}
         className={cn(
           'inline-flex items-center gap-1 shrink-0 whitespace-nowrap px-2.5 py-1 text-xs font-medium rounded-lg border border-dashed border-teal-300 text-teal-700 bg-teal-50/40 hover:bg-teal-50 hover:border-teal-400 transition-colors',
           className,

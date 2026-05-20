@@ -1,7 +1,7 @@
 import { addMonths, eachMonthOfInterval, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import type { OrgMember } from '../data/organization';
 import type { Project, ProjectAssignment, Task } from '../types';
-import { formatProjectDisplayName } from './projectKind';
+import { formatProjectDisplayName, parseKindBracketPrefixForNewProject } from './projectKind';
 import { getEffectiveAllocationPercent } from './workload';
 
 /** 원시 assignments에서 해당 담당자의 월별 투입(%)을 합칩니다(동일 키는 마지막 값). */
@@ -113,7 +113,7 @@ export function executePersonProjectAdd(
   percent: number,
   actions: {
     updateAllocation: (projectId: string) => void;
-    createProject: (name: string, assignments: ProjectAssignment[]) => void;
+    createProject: (name: string, assignments: ProjectAssignment[], reportExtras?: Partial<Pick<Project, 'projectKind'>>) => void;
   },
 ): void {
   if (payload.kind === 'existing') {
@@ -121,7 +121,8 @@ export function executePersonProjectAdd(
     return;
   }
   const assignee = person === '(미지정)' ? '' : person;
-  actions.createProject(payload.projectName, [{ assignee, allocationPercent: percent }]);
+  const { name, projectKind } = parseKindBracketPrefixForNewProject(payload.projectName);
+  actions.createProject(name, [{ assignee, allocationPercent: percent }], projectKind ? { projectKind } : undefined);
 }
 
 /** 투입율(%) 입력 문자열 파싱. allowZero가 false(기본)이면 0 이하는 null */
@@ -132,6 +133,18 @@ export function parseAllocationPercentInput(raw: string, opts?: { allowZero?: bo
   if (!Number.isFinite(parsed)) return null;
   if (!opts?.allowZero && parsed <= 0) return null;
   return Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+}
+
+/**
+ * 인원 행에서 프로젝트 투입을 추가할 때 투입율 입력란 기본값.
+ * 합계가 100% 미만이면 남은 비중, 이미 100% 이상이면 10%를 제안(직접 수정 가능).
+ */
+export function suggestPercentForPersonAllocationAdd(totalPercentAcrossProjects: number): number {
+  const t = Number(totalPercentAcrossProjects);
+  const safe = !Number.isFinite(t) ? 0 : t;
+  const headroom = Math.round((100 - safe) * 10) / 10;
+  if (headroom > 0) return Math.min(100, headroom);
+  return 10;
 }
 
 /** 프로젝트 투입 목록에서 특정 담당자의 투입비율을 갱신(동일 이름 중복 행은 하나로 합침). 0%면 해당 담당자 행 제거 */

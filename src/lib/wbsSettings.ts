@@ -30,7 +30,7 @@ export interface WBSSettings {
   tableColumns?: { id: string; visible: boolean }[];
   /** 예전 설정 호환용. 항상 false로 읽히며 UI에서 변경 불가 */
   showCriticalPath?: boolean;
-  /** 셀 텍스트 줄바꿈 여부. true면 줄바꿈 허용·행 높이 자동 확장 */
+  /** 셀 텍스트 줄바꿈(저장값·기본 false). 설정 UI는 없음 */
   wrapTextInCells?: boolean;
   /** 표 컬럼 너비(px). 사용자가 조절한 값 저장 */
   columnWidths?: Record<string, number>;

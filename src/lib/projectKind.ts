@@ -53,6 +53,20 @@ export function formatProjectDisplayName(name: string, kind?: ProjectKind): stri
   return `[${k}] ${name}`;
 }
 
+/**
+ * 자유 입력이 `[구분] 프로젝트명` 형태(자동완성·칩과 동일 패턴)이면 이름·구분을 분리한다.
+ * 알 수 없는 구분이거나 이름이 비면 원문 전체를 이름으로 둔다.
+ */
+export function parseKindBracketPrefixForNewProject(raw: string): { name: string; projectKind?: ProjectKind } {
+  const trimmed = raw.trim();
+  const m = trimmed.match(/^\[([^\]]+)\]\s*(.+)$/);
+  if (!m) return { name: trimmed };
+  const kind = normalizeProjectKind(m[1]);
+  const rest = m[2].trim();
+  if (!kind || !rest) return { name: trimmed };
+  return { name: rest, projectKind: kind };
+}
+
 export function resolveProjectKind(project?: Pick<Project, 'projectKind'> | null): ProjectKind | undefined {
   return project?.projectKind;
 }

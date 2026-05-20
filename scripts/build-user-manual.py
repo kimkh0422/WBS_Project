@@ -619,7 +619,7 @@ def build() -> Path:
     add_para(doc, "헤더 ⋮ → [환경설정]. 탭별로 다른 항목을 관리합니다.")
 
     add_heading(doc, "11.1 기본 설정", level=2)
-    add_bullet(doc, "웹 타이틀 / 크리티컬 패스 표시 / 셀 텍스트 줄바꿈 / WBS ID 접두사")
+    add_bullet(doc, "웹 타이틀 / WBS ID 접두사·최대 표시 레벨 등")
 
     add_heading(doc, "11.2 표 컬럼", level=2)
     add_bullet(doc, "기본 컬럼 표시·숨김 토글, 너비 조정")

@@ -93,7 +93,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const canEditProject = (ownerId?: string | null) => isAdmin || (!!user?.id && ownerId === user.id);
 
   const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
-  const [wrapTextInCells, setWrapTextInCells] = useState(wbsSettings.wrapTextInCells === true);
   const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
   const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
@@ -195,7 +194,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   useEffect(() => {
     if (isOpen) {
       setAppTitle(wbsSettings.appTitle);
-      setWrapTextInCells(wbsSettings.wrapTextInCells === true);
       setPrependDisplayWbsToTaskName(wbsSettings.prependDisplayWbsToTaskName === true);
       setLevel1(wbsSettings.level1Prefix);
       setLevel2(wbsSettings.level2Prefix);
@@ -263,7 +261,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       updateWbsSettings({
         appTitle: appTitle.trim(),
         showCriticalPath: false,
-        wrapTextInCells,
         prependDisplayWbsToTaskName,
         level1Prefix: level1.trim(),
         level2Prefix: level2.trim(),
@@ -430,21 +427,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="wrapTextInCells"
-                      checked={wrapTextInCells}
-                      onChange={(e) => setWrapTextInCells(e.target.checked)}
-                      className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="wrapTextInCells" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
-                      셀 텍스트 줄바꿈
-                    </label>
-                  </div>
-                  <p className="text-[10px] text-stone-400 leading-relaxed">
-                    켜면 긴 텍스트가 줄바꿈되고, 행 높이가 내용에 맞게 자동으로 늘어납니다. 표·간트 동시 보기에서도 행 높이가 동기화됩니다.
-                  </p>
                 </div>
 
                 {/* WBS ID Settings */}

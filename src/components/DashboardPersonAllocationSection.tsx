@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Briefcase, Info, ListTodo, Users } from 'lucide-react';
+import { Briefcase, ChevronDown, ChevronRight, Info, ListTodo, Users } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
 import { cn, formatNum2 } from '../lib/utils';
@@ -15,6 +15,7 @@ import {
   executePersonProjectAdd,
   mergePersonTaskAllocationsWithOrgDirectory,
   type PersonProjectAddPayload,
+  type PersonTaskAllocation,
 } from '../lib/personAllocations';
 import {
   buildAssigneeCandidates,
@@ -28,8 +29,11 @@ import { AddPersonProjectAllocation } from './AddPersonProjectAllocation';
 import { AddPersonAllocationControl } from './AddPersonAllocationControl';
 import { AddProjectPersonAllocation } from './AddProjectPersonAllocation';
 import { PersonAllocationDetailPanel } from './PersonAllocationDetailPanel';
+import { PersonProjectAllocationDetailModal } from './PersonProjectAllocationDetailModal';
 import { ProjectAllocationDetailPanel } from './ProjectAllocationDetailPanel';
+import { BaseModal } from './Base/Modal';
 import type { Project, Task } from '../types';
+import type { OrgNode } from '../data/organization';
 
 type AllocationViewMode = 'by-person' | 'by-project';
 type PersonMetricMode = 'allocation' | 'task-assignment';
@@ -58,6 +62,129 @@ function compareTaskAssignmentGroupLabels(a: string, b: string): number {
   const rb = rank(b);
   if (ra !== rb) return ra - rb;
   return a.localeCompare(b, 'ko');
+}
+
+type PersonTaskRow = PersonTaskAllocation;
+
+/** 조직도 노드별: 직속 부서(alias)에 매핑된 인원 + 하위 노드 */
+interface OrgTaskSection {
+  nodeId: string;
+  title: string;
+  depth: number;
+  directRows: PersonTaskRow[];
+  children: OrgTaskSection[];
+  subtreePersonCount: number;
+}
+
+interface UnmappedDeptTaskSection {
+  type: 'unmappedDept';
+  department: string;
+  rows: PersonTaskRow[];
+}
+
+interface SpecialTaskSection {
+  type: 'special';
+  key: string;
+  title: string;
+  rows: PersonTaskRow[];
+}
+
+interface TaskAssignmentOrgStructure {
+  rootSections: OrgTaskSection[];
+  unmapped: UnmappedDeptTaskSection[];
+  specials: SpecialTaskSection[];
+}
+
+/** 담당 미지정·조직 미등록 등은 트리 밖, 그 외는 부서명 → 행 */
+function partitionPersonTaskRowsByOrgLabels(
+  rows: PersonTaskRow[],
+  orgDeptByName: Map<string, string>,
+): { rowsByDept: Map<string, PersonTaskRow[]>; specials: SpecialTaskSection[] } {
+  const rowsByDept = new Map<string, PersonTaskRow[]>();
+  const specialMap = new Map<string, PersonTaskRow[]>();
+
+  for (const row of rows) {
+    const label = taskAssignmentGroupLabel(row.person, orgDeptByName);
+    if (label === '담당 미지정' || label === '조직 미등록 인원' || label === '소속 미지정') {
+      if (!specialMap.has(label)) specialMap.set(label, []);
+      specialMap.get(label)!.push(row);
+    } else {
+      if (!rowsByDept.has(label)) rowsByDept.set(label, []);
+      rowsByDept.get(label)!.push(row);
+    }
+  }
+
+  const specialKeys = [...specialMap.keys()].sort(compareTaskAssignmentGroupLabels);
+  const specials: SpecialTaskSection[] = specialKeys.map((key) => ({
+    type: 'special' as const,
+    key,
+    title: key,
+    rows: (specialMap.get(key) ?? []).slice().sort((a, b) => comparePersonSortKey(a.person, b.person)),
+  }));
+
+  return { rowsByDept, specials };
+}
+
+function buildOrgTaskSection(node: OrgNode, depth: number, remainingByDept: Map<string, PersonTaskRow[]>): OrgTaskSection | null {
+  const directRows: PersonTaskRow[] = [];
+  for (const d of node.departments ?? []) {
+    const list = remainingByDept.get(d);
+    if (list?.length) {
+      directRows.push(...list);
+      remainingByDept.delete(d);
+    }
+  }
+  directRows.sort((a, b) => comparePersonSortKey(a.person, b.person));
+
+  const children: OrgTaskSection[] = [];
+  for (const child of node.children ?? []) {
+    const sec = buildOrgTaskSection(child, depth + 1, remainingByDept);
+    if (sec) children.push(sec);
+  }
+
+  const subtreePersonCount = directRows.length + children.reduce((s, c) => s + c.subtreePersonCount, 0);
+  if (subtreePersonCount === 0) return null;
+
+  return {
+    nodeId: node.id,
+    title: node.name,
+    depth,
+    directRows,
+    children,
+    subtreePersonCount,
+  };
+}
+
+function buildOrgTreeTaskSections(
+  root: OrgNode,
+  rowsByDept: Map<string, PersonTaskRow[]>,
+): {
+  rootSections: OrgTaskSection[];
+  unmapped: UnmappedDeptTaskSection[];
+} {
+  const remaining = new Map(rowsByDept);
+  const rootSections: OrgTaskSection[] = [];
+  /** 법인 루트 아래 단일 래퍼(직속 부서 없음)만 있으면 한 단계 건너뛰어 실제 본부·실이 바로 보이게 한다. */
+  const topChildren = root.children ?? [];
+  const unwrap =
+    topChildren.length === 1 && !topChildren[0].departments?.length && (topChildren[0].children?.length ?? 0) > 0
+      ? (topChildren[0].children ?? [])
+      : topChildren;
+  for (const child of unwrap) {
+    const sec = buildOrgTaskSection(child, 0, remaining);
+    if (sec) rootSections.push(sec);
+  }
+
+  const unmapped: UnmappedDeptTaskSection[] = [...remaining.entries()]
+    .filter(([, rs]) => rs.length > 0)
+    .sort(([a], [b]) => a.localeCompare(b, 'ko'))
+    .map(([department, rs]) => ({
+      type: 'unmappedDept' as const,
+      department,
+      rows: rs.slice().sort((a, b) => comparePersonSortKey(a.person, b.person)),
+    }));
+
+  return { rootSections, unmapped };
 }
 
 /** 투입 현황 툴바 세그먼트: 선택 색을 통일해 인지 부담을 줄임 */
@@ -135,13 +262,15 @@ export function DashboardPersonAllocationSection({
   onNavigateToWork,
 }: DashboardPersonAllocationSectionProps) {
   const { updateProject, addProject, wbsSettings } = useWBS();
-  const { orgMembers } = useOrganization();
+  const { orgMembers, orgTree } = useOrganization();
   const [allocationViewMode, setAllocationViewMode] = useState<AllocationViewMode>('by-person');
   const [personMetricMode, setPersonMetricMode] = useState<PersonMetricMode>('allocation');
   /** 인원별 보기에서 행 클릭 시 상세 패널에 표시할 담당자(저장 키는 trim된 이름 또는 '(미지정)'). */
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   /** 프로젝트별 보기에서 행 클릭 시 상세 패널에 표시할 프로젝트 ID. */
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  /** 인원 칩(투입 카드) 클릭 시 팝업 — 프로젝트·담당자 단위. */
+  const [personProjectCardDetail, setPersonProjectCardDetail] = useState<{ projectId: string; person: string } | null>(null);
   const [effortDisplayUnit, setEffortDisplayUnit] = useState<EffortDisplayUnit>(() => {
     if (typeof window === 'undefined') return 'mm';
     try {
@@ -169,16 +298,8 @@ export function DashboardPersonAllocationSection({
   }, [allocationViewMode]);
 
   useEffect(() => {
-    if (!selectedPerson && !selectedProjectId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelectedPerson(null);
-        setSelectedProjectId(null);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedPerson, selectedProjectId]);
+    setPersonProjectCardDetail(null);
+  }, [allocationViewMode, personMetricMode]);
 
   const projectAllocations = useMemo(() => computeProjectAllocations(projects), [projects]);
   const personProjectWorkEffort = useMemo(() => computePersonProjectWorkEffort(allTasks), [allTasks]);
@@ -220,6 +341,40 @@ export function DashboardPersonAllocationSection({
     return labels.map((label) => ({ label, rows: groupMap.get(label)! }));
   }, [hasOrgMemberDirectory, personTaskRows, orgDeptByNameForTasks]);
 
+  /** 조직 인원 + 조직 트리가 있을 때: 작업 할당 표를 조직도 계층으로 묶기 위한 데이터 */
+  const taskAssignmentOrgStructure = useMemo((): TaskAssignmentOrgStructure | null => {
+    if (!hasOrgMemberDirectory) return null;
+    const { rowsByDept, specials } = partitionPersonTaskRowsByOrgLabels(personTaskRows, orgDeptByNameForTasks);
+    const { rootSections, unmapped } = buildOrgTreeTaskSections(orgTree, rowsByDept);
+    return { rootSections, unmapped, specials };
+  }, [hasOrgMemberDirectory, personTaskRows, orgDeptByNameForTasks, orgTree]);
+
+  const taskOrgCollapseKeyList = useMemo(() => {
+    if (!taskAssignmentOrgStructure) return [] as string[];
+    const keys: string[] = [];
+    const walk = (secs: OrgTaskSection[]) => {
+      for (const s of secs) {
+        keys.push(`org:${s.nodeId}`);
+        walk(s.children);
+      }
+    };
+    walk(taskAssignmentOrgStructure.rootSections);
+    for (const u of taskAssignmentOrgStructure.unmapped) keys.push(`dept:${u.department}`);
+    for (const sp of taskAssignmentOrgStructure.specials) keys.push(`special:${sp.key}`);
+    return keys;
+  }, [taskAssignmentOrgStructure]);
+
+  const [collapsedTaskOrgKeys, setCollapsedTaskOrgKeys] = useState<Set<string>>(() => new Set());
+
+  const toggleTaskOrgSection = (key: string) => {
+    setCollapsedTaskOrgKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!selectedPerson) return;
     const inAllocation = personAllocations.some((r) => r.person === selectedPerson);
@@ -250,6 +405,22 @@ export function DashboardPersonAllocationSection({
     return projectAllocations.find((r) => r.project.id === selectedProjectId);
   }, [selectedProjectId, projectAllocations]);
 
+  const personProjectCardModalPayload = useMemo(() => {
+    if (!personProjectCardDetail) return null;
+    const row = projectAllocations.find((r) => r.project.id === personProjectCardDetail.projectId);
+    if (!row) return null;
+    const assigneeKey = personProjectCardDetail.person;
+    const a = row.assignments.find((x) => x.assignee === assigneeKey);
+    if (!a) return null;
+    const workMd = personProjectWorkEffort.get(assigneeKey)?.get(personProjectCardDetail.projectId) ?? 0;
+    return { project: row.project, allocationPercent: a.allocationPercent, workEffortMd: workMd, person: assigneeKey };
+  }, [personProjectCardDetail, projectAllocations, personProjectWorkEffort]);
+
+  useEffect(() => {
+    if (!personProjectCardDetail) return;
+    if (!personProjectCardModalPayload) setPersonProjectCardDetail(null);
+  }, [personProjectCardDetail, personProjectCardModalPayload]);
+
   const handleUpdatePersonAllocation = (projectId: string, person: string, percent: number) => {
     const project = projects.find((p) => p.id === projectId);
     if (!project) return;
@@ -262,7 +433,8 @@ export function DashboardPersonAllocationSection({
   const handleAddPersonProject = (person: string, payload: PersonProjectAddPayload, percent: number) => {
     executePersonProjectAdd(payload, person, percent, {
       updateAllocation: (projectId) => handleUpdatePersonAllocation(projectId, person, percent),
-      createProject: (name, assignments) => addProject(name, undefined, undefined, undefined, assignments),
+      createProject: (name, assignments, reportExtras) =>
+        addProject(name, undefined, undefined, undefined, assignments, undefined, reportExtras),
     });
   };
 
@@ -287,17 +459,18 @@ export function DashboardPersonAllocationSection({
         `총 투입은 투입비율 합을 맨먼스로 환산합니다(100% = 1 M/M). ${unitLine}`,
         '「투입 현황」막대와 오른쪽 숫자는 합계 대비 비율을 같이 봅니다(100%를 넘으면 막대는 꽉 차고 수치에 초과가 표시됩니다).',
         '이름이 적힌 칩에서 비율을 클릭하면 수정할 수 있고, 「+ 인원」으로 담당자를 추가합니다.',
-        '프로젝트 행을 클릭하면 투입·작업·PM 등 상세 정보가 표 아래에 펼쳐집니다.',
+        '인원 카드의 빈 영역을 클릭하면 이 프로젝트 기준 상세가 팝업으로 열립니다(이름·비율 클릭은 기존과 동일).',
+        '프로젝트 행을 클릭하면 투입·작업·PM 등 상세 정보가 팝업으로 열립니다.',
         tail,
       ].filter(Boolean);
     }
     if (personMetricMode === 'task-assignment') {
       return [
         'WBS 작업 담당자 기준으로 프로젝트별 할당 건수를 집계합니다.',
-        '조직 인원이 등록되어 있으면 소속(부서)별로 묶어 표시하며, 할당이 없으면 0건으로 보입니다.',
+        '조직 인원이 등록되어 있으면 조직도 순서로 묶어 표시하며, 각 조직명 행을 눌러 하위 인원을 접거나 펼칠 수 있습니다. 할당이 없으면 0건으로 보입니다.',
         `막대와 %는 표시 중인 인원 중 최대 할당 건수 대비 비율입니다. ${unitLine}`,
         '프로젝트명을 클릭하면 해당 프로젝트 작업 화면으로 이동합니다.',
-        '담당자 행을 클릭하면 할당·투입 상세가 표 아래에 펼쳐집니다.',
+        '담당자 행을 클릭하면 할당·투입 상세가 팝업으로 열립니다.',
         tail,
       ].filter(Boolean);
     }
@@ -306,10 +479,127 @@ export function DashboardPersonAllocationSection({
       `총 투입·WBS 공수 합은 선택한 단위로 표시됩니다(총 투입은 100% = 1 M/M 기준). ${unitLine}`,
       '프로젝트별 투입율(%)을 클릭하면 바로 수정할 수 있습니다.',
       '「인원 추가」로 새 담당자를 등록하고, 「+ 프로젝트」로 다른 프로젝트 투입을 추가할 수 있습니다.',
-      '담당자 행을 클릭하면 투입·작업·PM 등 상세 정보가 표 아래에 펼쳐집니다.',
+      '담당자 행을 클릭하면 투입·작업·PM 등 상세 정보가 팝업으로 열립니다.',
       tail,
     ].filter(Boolean);
   }, [allocationViewMode, personMetricMode, filterHintSuffix]);
+
+  const renderPersonTaskAssignmentRow = (row: PersonTaskRow) => {
+    const { person, items, totalTaskCount } = row;
+    const personDisplay = formatAssigneeDisplay(person, allocationDisplayMetaByName);
+    const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce((s, v) => s + v, 0);
+    const barWidth = maxPersonTaskCount > 0 ? (totalTaskCount / maxPersonTaskCount) * 100 : 0;
+    return (
+      <tr
+        key={person}
+        onClick={() => togglePersonRowSelect(person)}
+        className={cn(
+          'border-t border-stone-100 hover:bg-stone-50/50 align-top cursor-pointer transition-colors',
+          selectedPerson === person && 'bg-violet-50/40 ring-1 ring-inset ring-violet-200/70',
+        )}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <motion.div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold shrink-0 text-sm">
+              {person.substring(0, 1)}
+            </motion.div>
+            <span className="font-semibold text-stone-800 truncate" title={personDisplay}>
+              {personDisplay}
+            </span>
+          </div>
+        </td>
+        <td className="px-2 py-3 text-center tabular-nums text-stone-600">{items.length}</td>
+        <td className="px-3 py-3 text-right">
+          <div className="font-bold tabular-nums text-violet-600">{totalTaskCount}건</div>
+          {totalMd > 0 && (
+            <div className="text-[10px] text-stone-400 tabular-nums mt-0.5">{formatEffortFromManDays(totalMd, effortDisplayUnit)}</div>
+          )}
+        </td>
+        <td className="px-3 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden min-w-[4rem]">
+              <div className="h-full rounded-full transition-all bg-violet-500" style={{ width: `${barWidth}%` }} />
+            </div>
+            {maxPersonTaskCount > 0 && <span className="text-[10px] text-stone-400 tabular-nums shrink-0">{Math.round(barWidth)}%</span>}
+          </div>
+        </td>
+        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-wrap gap-1.5">
+            {items.map(({ project, taskCount }) => (
+              <TaskAssignmentBadge
+                key={`${person}:${project.id}`}
+                projectName={formatProjectDisplayName(project.name, project.projectKind)}
+                taskCount={taskCount}
+                onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+              />
+            ))}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
+  const renderCollapsibleTaskGroupRows = (collapseKey: string, title: string, rowCount: number, depth: number, rows: PersonTaskRow[]) => {
+    const collapsed = collapsedTaskOrgKeys.has(collapseKey);
+    return (
+      <React.Fragment key={collapseKey}>
+        <tr className="bg-stone-100/90 border-t border-stone-200">
+          <td colSpan={5} className="p-0">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 py-2.5 pr-4 text-left text-xs font-bold text-stone-700 transition-colors hover:bg-stone-200/40"
+              style={{ paddingLeft: 16 + depth * 18 }}
+              aria-expanded={!collapsed}
+              onClick={() => toggleTaskOrgSection(collapseKey)}
+            >
+              {collapsed ? (
+                <ChevronRight className="shrink-0 text-stone-500" size={16} aria-hidden />
+              ) : (
+                <ChevronDown className="shrink-0 text-stone-500" size={16} aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 truncate">{title}</span>
+              <span className="shrink-0 tabular-nums text-[11px] font-semibold text-stone-500">{rowCount}명</span>
+            </button>
+          </td>
+        </tr>
+        {!collapsed && rows.map((r) => renderPersonTaskAssignmentRow(r))}
+      </React.Fragment>
+    );
+  };
+
+  const renderOrgTaskSection = (section: OrgTaskSection): React.ReactNode => {
+    const collapseKey = `org:${section.nodeId}`;
+    const collapsed = collapsedTaskOrgKeys.has(collapseKey);
+    return (
+      <React.Fragment key={section.nodeId}>
+        <tr className="bg-stone-100/90 border-t border-stone-200">
+          <td colSpan={5} className="p-0">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 py-2.5 pr-4 text-left text-xs font-bold text-stone-700 transition-colors hover:bg-stone-200/40"
+              style={{ paddingLeft: 16 + section.depth * 18 }}
+              aria-expanded={!collapsed}
+              onClick={() => toggleTaskOrgSection(collapseKey)}
+            >
+              {collapsed ? (
+                <ChevronRight className="shrink-0 text-stone-500" size={16} aria-hidden />
+              ) : (
+                <ChevronDown className="shrink-0 text-stone-500" size={16} aria-hidden />
+              )}
+              <span className="min-w-0 flex-1 truncate">{section.title}</span>
+              <span className="shrink-0 tabular-nums text-[11px] font-semibold text-stone-500">{section.subtreePersonCount}명</span>
+            </button>
+          </td>
+        </tr>
+        {!collapsed && (
+          <>
+            {section.directRows.map((r) => renderPersonTaskAssignmentRow(r))}
+            {section.children.map((child) => renderOrgTaskSection(child))}
+          </>
+        )}
+      </React.Fragment>
+    );
+  };
 
   return (
     <section>
@@ -445,6 +735,25 @@ export function DashboardPersonAllocationSection({
             </motion.div>
           ) : (
             <motion.div className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
+              {hasOrgMemberDirectory && taskAssignmentOrgStructure && taskOrgCollapseKeyList.length > 0 && (
+                <div className="flex flex-wrap items-center justify-end gap-2 border-b border-stone-100 bg-stone-50/70 px-3 py-2">
+                  <span className="mr-auto text-[11px] font-medium text-stone-500">조직도 단위 접기·펼치기</span>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedTaskOrgKeys(new Set())}
+                    className="rounded-md px-2 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50"
+                  >
+                    전체 펼치기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedTaskOrgKeys(new Set(taskOrgCollapseKeyList))}
+                    className="rounded-md px-2 py-1 text-[11px] font-semibold text-stone-600 hover:bg-stone-100"
+                  >
+                    전체 접기
+                  </button>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[720px]">
                   <thead className="bg-stone-50 border-b border-stone-200">
@@ -457,93 +766,57 @@ export function DashboardPersonAllocationSection({
                     </tr>
                   </thead>
                   <tbody>
-                    {personTaskRowsGrouped.map((group) => (
-                      <React.Fragment key={group.label ?? '__all'}>
-                        {group.label != null && (
-                          <tr className="bg-stone-100/90 border-t border-stone-200">
-                            <td colSpan={5} className="px-4 py-2 text-xs font-bold text-stone-600">
-                              {group.label}
-                            </td>
-                          </tr>
+                    {hasOrgMemberDirectory && taskAssignmentOrgStructure ? (
+                      <>
+                        {taskAssignmentOrgStructure.rootSections.map((sec) => renderOrgTaskSection(sec))}
+                        {taskAssignmentOrgStructure.unmapped.map((u) =>
+                          renderCollapsibleTaskGroupRows(`dept:${u.department}`, u.department, u.rows.length, 0, u.rows),
                         )}
-                        {group.rows.map(({ person, items, totalTaskCount }) => {
-                          const personDisplay = formatAssigneeDisplay(person, allocationDisplayMetaByName);
-                          const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce((s, v) => s + v, 0);
-                          const barWidth = maxPersonTaskCount > 0 ? (totalTaskCount / maxPersonTaskCount) * 100 : 0;
-                          return (
-                            <tr
-                              key={person}
-                              onClick={() => togglePersonRowSelect(person)}
-                              className={cn(
-                                'border-t border-stone-100 hover:bg-stone-50/50 align-top cursor-pointer transition-colors',
-                                selectedPerson === person && 'bg-violet-50/40 ring-1 ring-inset ring-violet-200/70',
-                              )}
-                            >
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <motion.div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold shrink-0 text-sm">
-                                    {person.substring(0, 1)}
-                                  </motion.div>
-                                  <span className="font-semibold text-stone-800 truncate" title={personDisplay}>
-                                    {personDisplay}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-2 py-3 text-center tabular-nums text-stone-600">{items.length}</td>
-                              <td className="px-3 py-3 text-right">
-                                <div className="font-bold tabular-nums text-violet-600">{totalTaskCount}건</div>
-                                {totalMd > 0 && (
-                                  <div className="text-[10px] text-stone-400 tabular-nums mt-0.5">
-                                    {formatEffortFromManDays(totalMd, effortDisplayUnit)}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-3 py-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden min-w-[4rem]">
-                                    <div className="h-full rounded-full transition-all bg-violet-500" style={{ width: `${barWidth}%` }} />
-                                  </div>
-                                  {maxPersonTaskCount > 0 && (
-                                    <span className="text-[10px] text-stone-400 tabular-nums shrink-0">{Math.round(barWidth)}%</span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {items.map(({ project, taskCount }) => (
-                                    <TaskAssignmentBadge
-                                      key={`${person}:${project.id}`}
-                                      projectName={formatProjectDisplayName(project.name, project.projectKind)}
-                                      taskCount={taskCount}
-                                      onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
-                                    />
-                                  ))}
-                                </div>
+                        {taskAssignmentOrgStructure.specials.map((s) =>
+                          renderCollapsibleTaskGroupRows(`special:${s.key}`, s.title, s.rows.length, 0, s.rows),
+                        )}
+                      </>
+                    ) : (
+                      personTaskRowsGrouped.map((group) => (
+                        <React.Fragment key={group.label ?? '__all'}>
+                          {group.label != null && (
+                            <tr className="bg-stone-100/90 border-t border-stone-200">
+                              <td colSpan={5} className="px-4 py-2 text-xs font-bold text-stone-600">
+                                {group.label}
                               </td>
                             </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    ))}
+                          )}
+                          {group.rows.map((row) => renderPersonTaskAssignmentRow(row))}
+                        </React.Fragment>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-              {selectedPerson && (
-                <PersonAllocationDetailPanel
-                  person={selectedPerson}
-                  projects={projects}
-                  allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
-                  personProjectWorkEffort={personProjectWorkEffort}
-                  allTasks={allTasks}
-                  effortDisplayUnit={effortDisplayUnit}
-                  orgMemberLabelByName={allocationOrgLabelByName}
-                  displayMetaByName={allocationDisplayMetaByName}
-                  statusConfigs={wbsSettings.statusConfigs}
-                  onClose={() => setSelectedPerson(null)}
-                  onNavigateToWork={onNavigateToWork}
-                  profileMap={profileMap}
-                />
-              )}
+              <BaseModal
+                isOpen={Boolean(selectedPerson)}
+                onClose={() => setSelectedPerson(null)}
+                showCloseButton={false}
+                size="xl"
+                bodyClassName="p-0"
+              >
+                {selectedPerson && (
+                  <PersonAllocationDetailPanel
+                    person={selectedPerson}
+                    projects={projects}
+                    allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
+                    personProjectWorkEffort={personProjectWorkEffort}
+                    allTasks={allTasks}
+                    effortDisplayUnit={effortDisplayUnit}
+                    orgMemberLabelByName={allocationOrgLabelByName}
+                    displayMetaByName={allocationDisplayMetaByName}
+                    statusConfigs={wbsSettings.statusConfigs}
+                    onClose={() => setSelectedPerson(null)}
+                    onNavigateToWork={onNavigateToWork}
+                    profileMap={profileMap}
+                  />
+                )}
+              </BaseModal>
             </motion.div>
           )
         ) : personAllocations.length === 0 ? (
@@ -644,6 +917,7 @@ export function DashboardPersonAllocationSection({
                                   disabled={person === UNSPECIFIED_PERSON}
                                   onSave={(percent) => handleUpdatePersonAllocation(project.id, person, percent)}
                                   onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                                  onOpenDetail={() => setPersonProjectCardDetail({ projectId: project.id, person })}
                                 />
                               );
                             })}
@@ -651,6 +925,7 @@ export function DashboardPersonAllocationSection({
                               person={person}
                               assignedProjectIds={new Set(items.map((i) => i.project.id))}
                               availableProjects={projects}
+                              allocationSumPercent={totalPercent}
                               disabled={person === UNSPECIFIED_PERSON}
                               onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}
                             />
@@ -662,22 +937,30 @@ export function DashboardPersonAllocationSection({
                 </tbody>
               </table>
             </div>
-            {selectedPerson && (
-              <PersonAllocationDetailPanel
-                person={selectedPerson}
-                projects={projects}
-                allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
-                personProjectWorkEffort={personProjectWorkEffort}
-                allTasks={allTasks}
-                effortDisplayUnit={effortDisplayUnit}
-                orgMemberLabelByName={allocationOrgLabelByName}
-                displayMetaByName={allocationDisplayMetaByName}
-                statusConfigs={wbsSettings.statusConfigs}
-                onClose={() => setSelectedPerson(null)}
-                onNavigateToWork={onNavigateToWork}
-                profileMap={profileMap}
-              />
-            )}
+            <BaseModal
+              isOpen={Boolean(selectedPerson)}
+              onClose={() => setSelectedPerson(null)}
+              showCloseButton={false}
+              size="xl"
+              bodyClassName="p-0"
+            >
+              {selectedPerson && (
+                <PersonAllocationDetailPanel
+                  person={selectedPerson}
+                  projects={projects}
+                  allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
+                  personProjectWorkEffort={personProjectWorkEffort}
+                  allTasks={allTasks}
+                  effortDisplayUnit={effortDisplayUnit}
+                  orgMemberLabelByName={allocationOrgLabelByName}
+                  displayMetaByName={allocationDisplayMetaByName}
+                  statusConfigs={wbsSettings.statusConfigs}
+                  onClose={() => setSelectedPerson(null)}
+                  onNavigateToWork={onNavigateToWork}
+                  profileMap={profileMap}
+                />
+              )}
+            </BaseModal>
           </motion.div>
         )
       ) : projectAllocations.length === 0 ? (
@@ -768,6 +1051,7 @@ export function DashboardPersonAllocationSection({
                                 disabled={a.assignee === UNSPECIFIED_PERSON}
                                 onSave={(percent) => handleUpdatePersonAllocation(project.id, a.assignee, percent)}
                                 onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                                onOpenDetail={() => setPersonProjectCardDetail({ projectId: project.id, person: a.assignee })}
                               />
                             );
                           })}
@@ -785,22 +1069,47 @@ export function DashboardPersonAllocationSection({
               </tbody>
             </table>
           </div>
-          {selectedProjectRow && (
-            <ProjectAllocationDetailPanel
-              project={selectedProjectRow.project}
-              assignments={selectedProjectRow.assignments}
-              totalPercent={selectedProjectRow.totalPercent}
-              allTasks={allTasks}
-              effortDisplayUnit={effortDisplayUnit}
-              orgMemberLabelByName={allocationOrgLabelByName}
-              displayMetaByName={allocationDisplayMetaByName}
-              statusConfigs={wbsSettings.statusConfigs}
-              onClose={() => setSelectedProjectId(null)}
-              onNavigateToWork={onNavigateToWork}
-              profileMap={profileMap}
-            />
-          )}
+          <BaseModal
+            isOpen={Boolean(selectedProjectRow)}
+            onClose={() => setSelectedProjectId(null)}
+            showCloseButton={false}
+            size="xl"
+            bodyClassName="p-0"
+          >
+            {selectedProjectRow && (
+              <ProjectAllocationDetailPanel
+                project={selectedProjectRow.project}
+                assignments={selectedProjectRow.assignments}
+                totalPercent={selectedProjectRow.totalPercent}
+                allTasks={allTasks}
+                effortDisplayUnit={effortDisplayUnit}
+                orgMemberLabelByName={allocationOrgLabelByName}
+                displayMetaByName={allocationDisplayMetaByName}
+                statusConfigs={wbsSettings.statusConfigs}
+                onClose={() => setSelectedProjectId(null)}
+                onNavigateToWork={onNavigateToWork}
+                profileMap={profileMap}
+              />
+            )}
+          </BaseModal>
         </motion.div>
+      )}
+      {personProjectCardModalPayload && (
+        <PersonProjectAllocationDetailModal
+          isOpen
+          onClose={() => setPersonProjectCardDetail(null)}
+          person={personProjectCardModalPayload.person}
+          project={personProjectCardModalPayload.project}
+          allocationPercent={personProjectCardModalPayload.allocationPercent}
+          workEffortMd={personProjectCardModalPayload.workEffortMd}
+          allTasks={allTasks}
+          effortDisplayUnit={effortDisplayUnit}
+          orgMemberLabelByName={allocationOrgLabelByName}
+          displayMetaByName={allocationDisplayMetaByName}
+          statusConfigs={wbsSettings.statusConfigs}
+          onNavigateToWork={onNavigateToWork}
+          profileMap={profileMap}
+        />
       )}
     </section>
   );

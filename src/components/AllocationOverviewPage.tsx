@@ -63,7 +63,8 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
   const handleAddPersonProject = (person: string, payload: PersonProjectAddPayload, percent: number) => {
     executePersonProjectAdd(payload, person, percent, {
       updateAllocation: (projectId) => handleUpdatePersonAllocation(projectId, person, percent),
-      createProject: (name, assignments) => addProject(name, undefined, undefined, undefined, assignments),
+      createProject: (name, assignments, reportExtras) =>
+        addProject(name, undefined, undefined, undefined, assignments, undefined, reportExtras),
     });
   };
 
@@ -346,6 +347,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                       person={person}
                       assignedProjectIds={new Set(items.map((i) => i.project.id))}
                       availableProjects={projects}
+                      allocationSumPercent={totalPercent}
                       disabled={person === '(미지정)'}
                       onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}
                     />

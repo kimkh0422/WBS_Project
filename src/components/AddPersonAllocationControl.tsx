@@ -1,7 +1,12 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { findProjectByAllocationInput, parseAllocationPercentInput, type PersonProjectAddPayload } from '../lib/personAllocations';
+import {
+  findProjectByAllocationInput,
+  parseAllocationPercentInput,
+  suggestPercentForPersonAllocationAdd,
+  type PersonProjectAddPayload,
+} from '../lib/personAllocations';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import type { Project } from '../types';
 
@@ -61,7 +66,10 @@ export function AddPersonAllocationControl({
     return (
       <button
         type="button"
-        onClick={() => setIsAdding(true)}
+        onClick={() => {
+          setIsAdding(true);
+          setPercentInput(String(suggestPercentForPersonAllocationAdd(0)));
+        }}
         className={cn(
           'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border-2 border-teal-600 text-teal-700 bg-white shadow-sm hover:bg-teal-600 hover:text-white hover:border-teal-600 transition-colors',
           className,

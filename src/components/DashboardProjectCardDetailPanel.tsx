@@ -140,7 +140,7 @@ export function DashboardProjectCardDetailPanel({
 
   return (
     <div
-      className="col-span-full rounded-xl border border-indigo-100/90 bg-gradient-to-b from-indigo-50/40 via-white to-white shadow-sm overflow-hidden"
+      className="w-full rounded-xl border border-indigo-100/90 bg-gradient-to-b from-indigo-50/40 via-white to-white shadow-sm overflow-hidden"
       role="region"
       aria-label={`${title} 상세`}
     >
@@ -165,7 +165,7 @@ export function DashboardProjectCardDetailPanel({
               <span className="text-violet-700 font-bold uppercase tracking-wide">PM</span>
               <span className={cn(!pmDisplay && 'text-stone-400')}>{pmDisplay || '미지정'}</span>
             </div>
-            <p className="text-[11px] text-stone-400 mt-2">카드를 다시 클릭하거나 Esc로 접습니다.</p>
+            <p className="text-[11px] text-stone-400 mt-2">같은 카드·행을 다시 클릭하거나 Esc, 팝업 바깥 배경 클릭으로 닫을 수 있습니다.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">

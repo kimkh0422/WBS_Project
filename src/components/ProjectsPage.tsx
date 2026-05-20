@@ -858,7 +858,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
                 role="radiogroup"
                 aria-label="프로젝트 정렬"
-                title="대시보드「프로젝트별 상태」카드 정렬과 연동됩니다. 표 헤더로 정렬하면 프리셋은 기본으로 맞춰집니다."
+                title="목록 정렬 프리셋입니다. 표 머리글로 정렬하면 프리셋은 기본으로 맞춰집니다."
               >
                 {(
                   [
