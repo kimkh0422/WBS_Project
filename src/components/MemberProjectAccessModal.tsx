@@ -4,6 +4,8 @@ import type { Project } from '../types';
 import type { ProjectMemberRow } from '../lib/supabase';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { fetchProjectMembershipsByUser, removeProjectMember, setProjectMemberRole, upsertProjectMember } from '../lib/db';
+import { cn } from '../lib/utils';
+import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 type RoleUi = 'owner' | 'editor' | 'viewer' | 'none';
 
@@ -110,8 +112,14 @@ export function MemberProjectAccessModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-[70] animate-in fade-in duration-150" onClick={onClose} />
-      <div className="fixed inset-4 z-[80] bg-white rounded-2xl shadow-xl border border-[var(--color-line)] overflow-hidden animate-in zoom-in-95 fade-in duration-200 flex flex-col md:inset-10 max-w-4xl mx-auto">
+      <div className={cn(MODAL_SCRIM_CLASS, 'z-[70]')} onClick={onClose} />
+      <div
+        className={cn(
+          MODAL_PANEL_BASE_CLASS,
+          'fixed z-[80] inset-4 md:inset-10 max-w-4xl mx-auto overflow-hidden flex flex-col border-[var(--color-line)]',
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-5 border-b border-[var(--color-line)]">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-[var(--color-ink)] truncate">프로젝트 권한</h2>

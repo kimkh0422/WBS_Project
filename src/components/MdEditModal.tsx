@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 interface MdEditModalProps {
   isOpen: boolean;
@@ -42,13 +44,16 @@ export function MdEditModal({ isOpen, onClose, initialMarkdown, onSave }: MdEdit
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-slate-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-4xl max-h-[90vh] overflow-hidden flex flex-col')}>
         <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 bg-slate-50/80 shrink-0">
-          <h3 className="text-sm font-semibold text-slate-800">
-            표 내용 마크다운 편집
-          </h3>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-700" title="닫기 (Esc)">
+          <h3 className="text-sm font-semibold text-slate-800">표 내용 마크다운 편집</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+            title="닫기 (Esc)"
+          >
             <X size={18} />
           </button>
         </div>
@@ -69,7 +74,11 @@ export function MdEditModal({ isOpen, onClose, initialMarkdown, onSave }: MdEdit
           <button type="button" onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-lg">
             취소
           </button>
-          <button type="button" onClick={handleSave} className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+          <button
+            type="button"
+            onClick={handleSave}
+            className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
             저장
           </button>
         </div>

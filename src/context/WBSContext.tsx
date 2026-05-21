@@ -1154,6 +1154,9 @@ export function WBSProvider({
   const updateWbsSettings = useCallback(
     (updates: Partial<WBSSettings>) => {
       const newSettings = { ...wbsSettingsRef.current, ...updates };
+      // 다음 렌더 전에도 ref가 최신이어야 함(예: 환경설정 저장 직후 syncProgressFromStatusConfigs가
+      // 같은 틱에서 호출될 때 이전 statusConfigs로 일괄 동기화되는 버그 방지).
+      wbsSettingsRef.current = newSettings;
       setWbsSettings(newSettings);
       // 로컬에 즉시 저장 (디바운스 전 새로고침 시에도 유지)
       saveJsonWithIdbFallback('wbs-settings', newSettings).catch(() => {});
@@ -1244,6 +1247,7 @@ export function WBSProvider({
       updateTasksBulk: taskOps.updateTasksBulk,
       linkSequentialPredecessors: taskOps.linkSequentialPredecessors,
       deleteTask: taskOps.deleteTask,
+      flushProjectTaskRollups: taskOps.flushProjectTaskRollups,
       setBaselineForTasks: taskOps.setBaselineForTasks,
       setBaselineForAllTasks: taskOps.setBaselineForAllTasks,
       renameAssignee: taskOps.renameAssignee,

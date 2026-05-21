@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { getVisitorStats, getRegisteredMemberCount, getDailyVisitCounts, type DailyVisitCountRow } from '../lib/db';
+import { getVisitorStats, getRegisteredMemberCount } from '../lib/db';
 import {
   Briefcase,
   Clock,
@@ -23,7 +23,7 @@ import {
   Ban,
   Table2,
 } from 'lucide-react';
-import { cn, randomUUID, formatNum2 } from '../lib/utils';
+import { cn, randomUUID, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { PROJECT_KINDS, formatProjectDisplayName, resolveProjectKindOrDefault, type ProjectKind } from '../lib/projectKind';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
@@ -52,10 +52,10 @@ import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 
 import { DashboardPersonAllocationSection } from './DashboardPersonAllocationSection';
-import { DashboardVisitTrendChart } from './DashboardVisitTrendChart';
 import { DashboardDivisionDetail } from './DashboardDivisionDetail';
 import { DashboardDetailPage, type DashboardDetailKind } from './DashboardDetailPage';
 import { DashboardProjectCardDetailPanel } from './DashboardProjectCardDetailPanel';
+import { ActionItemDetailModalBody } from './ActionItemDetailModalBody';
 import { BaseModal } from './Base/Modal';
 import {
   type ActionDueDateFilter,
@@ -73,7 +73,7 @@ interface ProjectStats {
   inputManDays: number;
 }
 
-type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'team' | 'start' | 'end';
+type ProjectStatusTableSortKey = 'name' | 'pm' | 'po' | 'progress' | 'team' | 'start' | 'end';
 
 const DASHBOARD_DETAIL_KINDS = new Set<DashboardDetailKind>([
   'projects',
@@ -155,7 +155,7 @@ export function Dashboard({
   /** 모바일 전용: 한 열·카드형 레이아웃으로 가독성 강화(App에서 대시보드 고정 시 true) */
   mobileReadabilityMode?: boolean;
 }) {
-  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask } = useWBS();
+  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask, updateProject } = useWBS();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
   const projects = useMemo(
     () => (accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects),
@@ -473,6 +473,7 @@ export function Dashboard({
   const [selectedProjectCardId, setSelectedProjectCardId] = useState<string | null>(null);
   /** 이슈 작업 카드 클릭 시 상세 팝업 */
   const [issueTaskDetailModal, setIssueTaskDetailModal] = useState<Task | null>(null);
+  const [actionTaskDetailModal, setActionTaskDetailModal] = useState<Task | null>(null);
 
   // ─── 대시보드 본문 블록 표시 여부(설정 → 대시보드 탭에서 변경·초기화) ───
   const [dashboardSectionVisibility, setDashboardSectionVisibility] = useState(() => readDashboardSectionVisibility());
@@ -483,7 +484,21 @@ export function Dashboard({
   }, []);
   const showDashSection = (id: DashboardSectionId) => dashboardSectionVisibility[id] !== false;
 
-  const [dashboardSectionLayout, setDashboardSectionLayout] = useState(() => readDashboardSectionLayout());
+  const [persistedDashboardSectionLayout, setDashboardSectionLayout] = useState(() => readDashboardSectionLayout());
+  const dashboardSectionLayout = useMemo(() => {
+    if (mobileReadabilityMode) {
+      return {
+        summary: 'card',
+        issues: 'card',
+        actions: 'card',
+        divisions: 'card',
+        allocation: 'card',
+        milestones: 'card',
+        projects: 'card',
+      } as DashboardSectionLayout;
+    }
+    return persistedDashboardSectionLayout;
+  }, [mobileReadabilityMode, persistedDashboardSectionLayout]);
   useEffect(() => {
     const onChange = () => setDashboardSectionLayout(readDashboardSectionLayout());
     window.addEventListener(WBS_DASHBOARD_SECTION_LAYOUT_CHANGED, onChange);
@@ -517,6 +532,12 @@ export function Dashboard({
           case 'pm': {
             const pa = resolveProjectPmRawDisplayName(a, profileMap);
             const pb = resolveProjectPmRawDisplayName(b, profileMap);
+            cmp = pa.localeCompare(pb, 'ko');
+            break;
+          }
+          case 'po': {
+            const pa = (a.poName ?? '').trim();
+            const pb = (b.poName ?? '').trim();
             cmp = pa.localeCompare(pb, 'ko');
             break;
           }
@@ -860,7 +881,6 @@ export function Dashboard({
   // Visitor tracking: DB 기반 (Supabase)
   const { user } = useAuth();
   const [visitorStats, setVisitorStats] = React.useState({ daily: 0, total: 0 });
-  const [dailyVisitTrend, setDailyVisitTrend] = React.useState<DailyVisitCountRow[]>([]);
   const [loadingVisitorStats, setLoadingVisitorStats] = React.useState(false);
   const [memberCount, setMemberCount] = React.useState(0);
   const [loadingMemberCount, setLoadingMemberCount] = React.useState(false);
@@ -868,7 +888,6 @@ export function Dashboard({
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase || !user) {
       setVisitorStats({ daily: 0, total: 0 });
-      setDailyVisitTrend([]);
       setLoadingVisitorStats(false);
       setMemberCount(0);
       setLoadingMemberCount(false);
@@ -892,14 +911,12 @@ export function Dashboard({
       }
 
       try {
-        const [stats, count, trend] = await Promise.all([getVisitorStats(), getRegisteredMemberCount(), getDailyVisitCounts(30)]);
+        const [stats, count] = await Promise.all([getVisitorStats(), getRegisteredMemberCount()]);
         setVisitorStats(stats);
         setMemberCount(count);
-        setDailyVisitTrend(trend);
       } catch {
         setVisitorStats({ daily: 0, total: 0 });
         setMemberCount(0);
-        setDailyVisitTrend([]);
       } finally {
         setLoadingVisitorStats(false);
         setLoadingMemberCount(false);
@@ -1295,17 +1312,22 @@ export function Dashboard({
     setIssueTaskDetailModal(t);
   }, []);
 
+  const openActionTaskDetailPopup = useCallback((t: Task) => {
+    setActionTaskDetailModal(t);
+  }, []);
+
   useEffect(() => {
     if (detailKind || divisionDetailId) {
       setSelectedProjectCardId(null);
       setIssueTaskDetailModal(null);
+      setActionTaskDetailModal(null);
     }
   }, [detailKind, divisionDetailId]);
 
   return (
     <>
       {!divisionDetailId && !detailKind && dashboardFiltersToolbar}
-      <div className="h-full overflow-y-auto bg-[var(--color-bg)] p-4 pb-8 sm:p-6 md:p-8">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain bg-[var(--color-bg)] p-4 pb-10 sm:p-6 md:p-8">
         <>
           <div
             className={cn(
@@ -1457,15 +1479,6 @@ export function Dashboard({
                     </table>
                   </div>
                 )}
-                <div className="mt-4 md:mt-5">
-                  <DashboardVisitTrendChart
-                    points={dailyVisitTrend}
-                    loading={loadingVisitorStats}
-                    subtitle="세션당 하루 1회 집계(금일·누적 카드와 동일 기준)"
-                    compact={mobileReadabilityMode}
-                    onOpenDetail={() => openDashboardDetail('visitors')}
-                  />
-                </div>
               </section>
             )}
 
@@ -1534,7 +1547,7 @@ export function Dashboard({
                                 <div className="flex justify-between gap-3">
                                   <dt className="text-stone-400 shrink-0">진척률</dt>
                                   <dd className="tabular-nums font-semibold text-stone-800">
-                                    {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                                    {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : '—'}
                                   </dd>
                                 </div>
                               </dl>
@@ -1580,7 +1593,7 @@ export function Dashboard({
                               </td>
                               <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
                               <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                                {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
+                                {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : '—'}
                               </td>
                             </tr>
                           );
@@ -1612,30 +1625,32 @@ export function Dashboard({
                     )}
                   </h2>
                   {actionTasksWithDueDate.length > 0 && (
-                    <div
-                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                      role="group"
-                      aria-label="액션 항목 마감일 구간"
-                    >
-                      {(
-                        [
-                          { id: 'today' as const, label: '금일' },
-                          { id: 'thisWeek' as const, label: '금주' },
-                          { id: 'overdue' as const, label: '기한초과' },
-                        ] as const
-                      ).map(({ id, label }) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setActionDueDateFilter(id)}
-                          className={cn(
-                            'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                            actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                          )}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      <div
+                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                        role="group"
+                        aria-label="액션 항목 마감일 구간"
+                      >
+                        {(
+                          [
+                            { id: 'today' as const, label: '금일' },
+                            { id: 'thisWeek' as const, label: '금주' },
+                            { id: 'overdue' as const, label: '기한초과' },
+                          ] as const
+                        ).map(({ id, label }) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setActionDueDateFilter(id)}
+                            className={cn(
+                              'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                              actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1666,13 +1681,14 @@ export function Dashboard({
                           )}
                           role="button"
                           tabIndex={0}
-                          onClick={() => openDashboardDetail('actions')}
+                          onClick={() => openActionTaskDetailPopup(t)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              openDashboardDetail('actions');
+                              openActionTaskDetailPopup(t);
                             }
                           }}
+                          title="클릭하여 액션 상세"
                         >
                           <div className="flex items-start gap-3">
                             <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1718,14 +1734,8 @@ export function Dashboard({
                                   </dd>
                                 </div>
                                 <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">종료일</dt>
+                                  <dt className="text-stone-400 shrink-0">기한날짜</dt>
                                   <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">진척률</dt>
-                                  <dd className="tabular-nums font-semibold text-stone-800">
-                                    {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                                  </dd>
                                 </div>
                               </dl>
                             </div>
@@ -1740,11 +1750,10 @@ export function Dashboard({
                       <thead className="bg-stone-50 border-b border-stone-200">
                         <tr className="text-xs text-stone-500">
                           <th className="text-center font-medium px-2 py-2 w-14">완료</th>
-                          <th className="text-left font-medium px-3 py-2">작업명</th>
+                          <th className="text-left font-medium px-3 py-2">액션명</th>
                           <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
                           <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                          <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
+                          <th className="text-left font-medium px-3 py-2 w-28">기한날짜</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1755,8 +1764,8 @@ export function Dashboard({
                             <tr
                               key={t.id}
                               className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
-                              onClick={() => openDashboardDetail('actions')}
-                              title="액션 항목 상세로 이동"
+                              onClick={() => openActionTaskDetailPopup(t)}
+                              title="클릭하여 액션 상세"
                             >
                               <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                                 <input
@@ -1792,9 +1801,6 @@ export function Dashboard({
                                 {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                               </td>
                               <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                              <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                                {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : '—'}
-                              </td>
                             </tr>
                           );
                         })}
@@ -1820,35 +1826,37 @@ export function Dashboard({
                       개)
                     </span>
                   </h2>
-                  <div
-                    className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                    role="group"
-                    aria-label="사업부·부서별 현황 표 또는 카드 보기"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => persistDashboardSectionLayout('divisions', 'table')}
-                      className={cn(
-                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                        dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                      )}
-                      title="표로 보기"
+                  {!mobileReadabilityMode && (
+                    <div
+                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                      role="group"
+                      aria-label="사업부·부서별 현황 표 또는 카드 보기"
                     >
-                      <Table2 size={12} aria-hidden />표
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => persistDashboardSectionLayout('divisions', 'card')}
-                      className={cn(
-                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                        dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                      )}
-                      title="카드로 보기"
-                    >
-                      <LayoutGrid size={12} aria-hidden />
-                      카드
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => persistDashboardSectionLayout('divisions', 'table')}
+                        className={cn(
+                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                          dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                        )}
+                        title="표로 보기"
+                      >
+                        <Table2 size={12} aria-hidden />표
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => persistDashboardSectionLayout('divisions', 'card')}
+                        className={cn(
+                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                          dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                        )}
+                        title="카드로 보기"
+                      >
+                        <LayoutGrid size={12} aria-hidden />
+                        카드
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {displayDivisionStats.length === 0 ? (
                   <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
@@ -1886,7 +1894,9 @@ export function Dashboard({
                           <div>
                             <div className="flex items-baseline justify-between gap-2 mb-1.5">
                               <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
-                              <span className="text-2xl font-bold text-indigo-600 tabular-nums leading-none">{d.progress}%</span>
+                              <span className="text-2xl font-bold text-indigo-600 tabular-nums leading-none">
+                                {formatPercent1(d.progress)}%
+                              </span>
                             </div>
                             <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
                               <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
@@ -1950,7 +1960,9 @@ export function Dashboard({
                               {d.name}
                             </td>
                             <td className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold">{d.projectCount}</td>
-                            <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">{d.progress}%</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">
+                              {formatPercent1(d.progress)}%
+                            </td>
                             <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.memberCount}</td>
                             <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.total}</td>
                             <td className="px-2 py-2 text-right tabular-nums text-violet-600">{d.inProgressCount}</td>
@@ -1973,6 +1985,7 @@ export function Dashboard({
                 registeredMemberDisplayNames={registeredMemberDisplayNames}
                 showFilterHint={dashboardFiltersActive}
                 onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
+                narrowScreenLayout={mobileReadabilityMode}
               />
             )}
 
@@ -2001,14 +2014,19 @@ export function Dashboard({
                               openDashboardDetail('milestones');
                             }
                           }}
-                          className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/80 cursor-pointer transition-colors"
+                          className={cn(
+                            'flex items-center hover:bg-slate-50/80 cursor-pointer transition-colors',
+                            mobileReadabilityMode ? 'gap-3 px-4 py-3.5' : 'gap-4 px-6 py-4',
+                          )}
                         >
                           <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
                             <Flag size={18} className="text-amber-600" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-[var(--color-ink)] truncate">{task.name}</div>
-                            <div className="text-xs text-slate-500 mt-0.5">
+                            <div className={cn('font-medium text-[var(--color-ink)]', mobileReadabilityMode ? 'break-words' : 'truncate')}>
+                              {task.name}
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5 break-words">
                               {task.projectName} · {task.startDate}
                             </div>
                           </div>
@@ -2089,35 +2107,37 @@ export function Dashboard({
                     프로젝트별 상태
                     <span className="text-sm font-normal text-stone-500 ml-1">({displayProjectStats.length}개)</span>
                   </h2>
-                  <div
-                    className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                    role="group"
-                    aria-label="프로젝트별 상태 표 또는 카드 보기"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => persistDashboardSectionLayout('projects', 'table')}
-                      className={cn(
-                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                        dashboardSectionLayout.projects === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                      )}
-                      title="표로 보기"
+                  {!mobileReadabilityMode && (
+                    <div
+                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                      role="group"
+                      aria-label="프로젝트별 상태 표 또는 카드 보기"
                     >
-                      <Table2 size={12} aria-hidden />표
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => persistDashboardSectionLayout('projects', 'card')}
-                      className={cn(
-                        'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                        dashboardSectionLayout.projects === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                      )}
-                      title="카드로 보기"
-                    >
-                      <LayoutGrid size={12} aria-hidden />
-                      카드
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => persistDashboardSectionLayout('projects', 'table')}
+                        className={cn(
+                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                          dashboardSectionLayout.projects === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                        )}
+                        title="표로 보기"
+                      >
+                        <Table2 size={12} aria-hidden />표
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => persistDashboardSectionLayout('projects', 'card')}
+                        className={cn(
+                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                          dashboardSectionLayout.projects === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                        )}
+                        title="카드로 보기"
+                      >
+                        <LayoutGrid size={12} aria-hidden />
+                        카드
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <p className="text-xs text-stone-500 -mt-1 mb-1">
                   {dashboardSectionLayout.projects === 'card'
@@ -2171,7 +2191,7 @@ export function Dashboard({
                                   : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
                         </div>
                       ) : (
-                        <table className="w-full text-sm min-w-[640px]">
+                        <table className="w-full text-sm min-w-[720px]">
                           <thead className="bg-stone-50 border-b border-stone-200">
                             <tr className="text-xs text-stone-500">
                               <th
@@ -2208,6 +2228,24 @@ export function Dashboard({
                                 <span className="inline-flex items-center gap-0.5">
                                   PM
                                   {projectStatusSortIconEl('pm')}
+                                </span>
+                              </th>
+                              <th
+                                scope="col"
+                                className="text-left font-medium px-3 py-2 w-32 cursor-pointer select-none hover:bg-stone-100/90 transition-colors"
+                                title="클릭하여 정렬"
+                                onClick={() => toggleProjectStatusColumnSort('po')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProjectStatusColumnSort('po');
+                                  }
+                                }}
+                                tabIndex={0}
+                              >
+                                <span className="inline-flex items-center gap-0.5">
+                                  PO
+                                  {projectStatusSortIconEl('po')}
                                 </span>
                               </th>
                               <th
@@ -2289,6 +2327,8 @@ export function Dashboard({
                               const s = project.stats;
                               const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
                               const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
+                              const poRaw = (project.poName ?? '').trim();
+                              const poDisplay = poRaw ? formatAssigneeDisplay(poRaw, assigneeDisplayMetaByName) : '';
                               const selected = selectedProjectCardId === project.id;
                               return (
                                 <tr
@@ -2307,6 +2347,9 @@ export function Dashboard({
                                   <td className="px-3 py-2 text-stone-600 text-xs truncate max-w-[8rem]" title={pmDisplay || undefined}>
                                     {pmDisplay || <span className="text-stone-400">미지정</span>}
                                   </td>
+                                  <td className="px-3 py-2 text-stone-600 text-xs truncate max-w-[8rem]" title={poDisplay || undefined}>
+                                    {poDisplay || <span className="text-stone-400">—</span>}
+                                  </td>
                                   <td className="px-3 py-2 text-xs tabular-nums text-stone-600 whitespace-nowrap">
                                     {project.startDate || '—'}
                                   </td>
@@ -2323,7 +2366,7 @@ export function Dashboard({
                                         />
                                       </div>
                                       <span className="text-xs font-semibold tabular-nums text-stone-800 w-10 text-right shrink-0">
-                                        {formatNum2(s.progress)}%
+                                        {formatPercent1(s.progress)}%
                                       </span>
                                     </div>
                                   </td>
@@ -2455,6 +2498,9 @@ export function Dashboard({
             doneStatusIds={doneStatusIds}
             projectGroupName={selectedProjectCard.groupId ? groupNameByProjectGroupId.get(selectedProjectCard.groupId) : undefined}
             effortDisplayUnit={effortUnitForProjectCardPanel}
+            localDashboardAggregationExcluded={dashboardExcludedIds.has(selectedProjectCard.id)}
+            onToggleLocalDashboardAggregationExclude={() => toggleDashboardExcluded(selectedProjectCard.id)}
+            onIncludeInDashboardChange={(include) => updateProject(selectedProjectCard.id, { includeInDashboard: include })}
             onClose={() => setSelectedProjectCardId(null)}
             onOpenDashboardProjectDetail={() => openDashboardDetail('project', { projectId: selectedProjectCard.id })}
             onNavigateToTable={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
@@ -2511,6 +2557,56 @@ export function Dashboard({
           />
         ) : null}
       </BaseModal>
+
+      <BaseModal
+        isOpen={Boolean(actionTaskDetailModal)}
+        onClose={() => setActionTaskDetailModal(null)}
+        title="액션 항목 상세"
+        size="lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setActionTaskDetailModal(null)}
+              className="px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+            >
+              닫기
+            </button>
+            {onOpenTaskInTable && actionTaskDetailModal ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenTaskInTable(actionTaskDetailModal.id, actionTaskDetailModal.projectId);
+                  setActionTaskDetailModal(null);
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                WBS 표에서 열기
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  openDashboardDetail('actions');
+                  setActionTaskDetailModal(null);
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-xl bg-teal-700 text-white hover:bg-teal-800"
+              >
+                액션 전체 목록
+              </button>
+            )}
+          </div>
+        }
+      >
+        {actionTaskDetailModal ? (
+          <ActionItemDetailModalBody
+            task={actionTaskDetailModal}
+            projectMap={projectMap}
+            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+            wbsSettings={wbsSettings}
+          />
+        ) : null}
+      </BaseModal>
     </>
   );
 }
@@ -2546,7 +2642,7 @@ function IssueTaskDetailModalBody({
         <div className="flex justify-between gap-3">
           <dt className="text-stone-400 shrink-0">진척률</dt>
           <dd className="tabular-nums font-semibold text-stone-800">
-            {typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—'}
+            {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—'}
           </dd>
         </div>
       </dl>
@@ -2617,6 +2713,8 @@ function ProjectCard({
   const s = project.stats;
   const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
   const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
+  const poRaw = (project.poName ?? '').trim();
+  const poDisplay = poRaw ? formatAssigneeDisplay(poRaw, assigneeDisplayMetaByName) : '';
 
   return (
     <div
@@ -2645,9 +2743,13 @@ function ProjectCard({
       >
         {formatProjectDisplayName(project.name, project.projectKind)}
       </h3>
-      <div className="flex items-start gap-1.5 text-[11px] text-slate-600 mb-2 min-h-[1.25rem]">
+      <div className="flex items-start gap-1.5 text-[11px] text-slate-600 mb-1 min-h-[1.25rem]">
         <span className="text-[10px] font-bold text-violet-600/90 uppercase tracking-wide shrink-0 pt-0.5">PM</span>
         <span className={cn('line-clamp-2 leading-snug', !pmDisplay && 'text-slate-400 font-normal')}>{pmDisplay || '미지정'}</span>
+      </div>
+      <div className="flex items-start gap-1.5 text-[11px] text-slate-600 mb-2 min-h-[1.25rem]">
+        <span className="text-[10px] font-bold text-amber-700/90 uppercase tracking-wide shrink-0 pt-0.5">PO</span>
+        <span className={cn('line-clamp-2 leading-snug', !poDisplay && 'text-slate-400 font-normal')}>{poDisplay || '—'}</span>
       </div>
 
       <div className="flex items-center gap-1.5 mb-2.5">
@@ -2658,7 +2760,7 @@ function ProjectCard({
             style={{ width: `${s.progress}%` }}
           />
         </div>
-        <span className="text-[11px] font-semibold text-[var(--color-ink)] w-9 text-right tabular-nums">{formatNum2(s.progress)}%</span>
+        <span className="text-[11px] font-semibold text-[var(--color-ink)] w-9 text-right tabular-nums">{formatPercent1(s.progress)}%</span>
       </div>
 
       <div className="text-[10px] text-slate-400 pt-2 border-t border-slate-100 space-y-1">

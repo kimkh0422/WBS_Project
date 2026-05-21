@@ -111,6 +111,18 @@ describe('applyDependencySchedule', () => {
     expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
   });
 
+  it('FS 체인에서 linkEffortToSchedule false면 공수가 작아도 기존 달력 간격으로 종료일 유지', () => {
+    const tasks = [
+      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 0.5 },
+      { ...baseTask, id: 't2', name: 'T2', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 0.5, dependencies: ['t1'] },
+    ];
+    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
+    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: false });
+    expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-10');
+    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-13');
+    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-24');
+  });
+
   it('담당자 투입율만 반영해 기간 산정 (다른 인원 투입율 합산 제외)', () => {
     const tasks = [{ ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 5 }];
     const assignments = new Map([

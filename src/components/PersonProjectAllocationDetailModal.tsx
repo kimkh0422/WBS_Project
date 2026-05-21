@@ -3,7 +3,7 @@ import { Briefcase, ListTodo, UserCircle } from 'lucide-react';
 import type { Project, Task, WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { BaseModal } from './Base/Modal';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -131,7 +131,7 @@ export function PersonProjectAllocationDetailModal({
           <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">이 프로젝트 투입</div>
             <div className={cn('text-lg font-bold tabular-nums mt-0.5', allocationPercent > 100 ? 'text-amber-600' : 'text-teal-700')}>
-              {formatNum2(allocationPercent)}%
+              {formatPercent1(allocationPercent)}%
             </div>
           </div>
           <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
@@ -173,7 +173,7 @@ export function PersonProjectAllocationDetailModal({
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([ym, pct]) => (
                   <span key={ym} className="tabular-nums">
-                    {ym} <strong>{pct}%</strong>
+                    {ym} <strong>{formatPercent1(Number(pct))}%</strong>
                   </span>
                 ))}
             </div>
@@ -226,7 +226,7 @@ export function PersonProjectAllocationDetailModal({
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatNum2(task.progress)}%</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
                         <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                           {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                         </td>

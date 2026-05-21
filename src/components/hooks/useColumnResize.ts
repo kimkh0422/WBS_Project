@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type RefObject } from 'react';
 import { type BuiltInTableColumnId, type TableColumnId } from '../wbsTableTypes';
-import { formatDate, formatNum1, formatNum2 } from '../../lib/utils';
+import { formatDate, formatNum1, formatPercent1 } from '../../lib/utils';
 import type { Task } from '../../types';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../../lib/assigneeOptions';
 
@@ -46,6 +46,7 @@ export interface UseColumnResizeParams {
   wbsSettings:
     | {
         columnWidths?: Record<string, number>;
+        skipImplicitTableColumnAutoFit?: boolean;
         statusConfigs?: Array<{ id: string; name?: string }>;
         prependDisplayWbsToTaskName?: boolean;
       }
@@ -57,6 +58,8 @@ export interface UseColumnResizeParams {
   taskIdToSeqNum: Map<string, number>;
   customColumnNameById: Map<string, string>;
   assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>;
+  /** 표시 중인 크리티컬 패스(작업명 열 배지 너비 자동 맞춤용). Summary와 동일하게 `showCriticalPath` 반영된 집합을 넘긴다. */
+  criticalPathTaskIds?: ReadonlySet<string>;
 }
 
 export interface UseColumnResizeReturn {
@@ -66,11 +69,42 @@ export interface UseColumnResizeReturn {
   measureText: (text: string) => number;
   measureRef: RefObject<HTMLDivElement | null>;
   handleColumnHeaderDoubleClick: (col: string) => void;
-  autoFitAllColumns: (visibleColumnIds: string[]) => void;
+  autoFitAllColumns: (visibleColumnIds: string[], opts?: { implicitOrToolbarAutoFit?: boolean }) => void;
   startColumnResize: (columnId: string, startX: number) => void;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────
+/** 긴 본문이 있는 컬럼은 자동 맞춤 시 너비 상한을 넉넉히 둔다(기존 800px에서는 말줄임이 남음). */
+const AUTO_FIT_MAX_WIDE = 8000;
+const AUTO_FIT_MAX_DEFAULT = 800;
+
+function autoFitWidthCap(col: string): number {
+  if (col === 'name' || col === 'deliverables' || col === 'dependencies' || col.startsWith('custom:')) return AUTO_FIT_MAX_WIDE;
+  return AUTO_FIT_MAX_DEFAULT;
+}
+
+type TaskWithDepth = Task & { depth?: number };
+
+/** 작업명 셀: 트리 들여쓰기·접두 아이콘/배지가 문자 측정값에 포함되지 않으므로 가로 여유를 더한다. */
+function nameColumnExtraWidth(task: TaskWithDepth, criticalPathTaskIds: ReadonlySet<string> | undefined): number {
+  const depth = task.depth ?? 0;
+  const leftPad = depth * 20 + 12;
+  const rightPad = 10; // .data-cell px-2.5 우측
+  const gap = 6; // 작업명 행 flex gap-1.5
+  const parts: number[] = [];
+  if (task.isMilestone) parts.push(14);
+  if (task.isIssue) parts.push(14);
+  if (task.isActionItem) parts.push(14);
+  if (criticalPathTaskIds?.has(task.id)) parts.push(72); // "크리티컬" 칩 대략 폭
+  let prefixW = 0;
+  for (let i = 0; i < parts.length; i++) {
+    prefixW += parts[i] ?? 0;
+    if (i < parts.length - 1) prefixW += gap;
+  }
+  if (parts.length > 0) prefixW += gap;
+  return leftPad + rightPad + prefixW;
+}
+
 export function useColumnResize({
   wbsSettings,
   updateWbsSettings,
@@ -80,6 +114,7 @@ export function useColumnResize({
   taskIdToSeqNum,
   customColumnNameById,
   assigneeDisplayMetaByName,
+  criticalPathTaskIds,
 }: UseColumnResizeParams): UseColumnResizeReturn {
   // ── State ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ ...DEFAULT_COLUMN_WIDTHS });
@@ -127,7 +162,7 @@ export function useColumnResize({
       setResizingCol(null);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
-      updateWbsSettings({ columnWidths: columnWidthsRef.current });
+      updateWbsSettings({ columnWidths: columnWidthsRef.current, skipImplicitTableColumnAutoFit: true });
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -165,21 +200,24 @@ export function useColumnResize({
         const headerW = measureText('#');
         const dataW = measureText(dataText);
         const padding = 24;
-        return Math.max(30, Math.min(800, Math.max(headerW, dataW) + padding));
+        return Math.max(30, Math.min(autoFitWidthCap(col), Math.max(headerW, dataW) + padding));
       }
       const colId = col as TableColumnId;
       const headerLabel = colId.startsWith('custom:')
         ? (customColumnNameById.get(colId) ?? colId)
         : COLUMN_HEADER_LABELS[colId as BuiltInTableColumnId];
       let maxW = measureText(headerLabel ?? String(colId));
+      const widthCap = autoFitWidthCap(col);
       for (const task of visibleTasks) {
         let cellText = '';
+        let extraW = 0;
         if (colId === 'wbsId') cellText = displayWbsMap?.get(task.id) ?? '';
         else if (colId === 'name') {
           const dw = (displayWbsMap?.get(task.id) ?? '').trim();
           const prepend = wbsSettings?.prependDisplayWbsToTaskName === true;
           const nm = (task.name ?? '').trim();
           cellText = prepend && dw ? (nm ? `${dw} ${nm}` : dw) : (task.name ?? '');
+          extraW = nameColumnExtraWidth(task, criticalPathTaskIds);
         } else if (colId === 'startDate') cellText = formatDate(task.startDate);
         else if (colId === 'endDate') cellText = formatDate(task.endDate);
         else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
@@ -190,7 +228,7 @@ export function useColumnResize({
         else if (colId === 'status') {
           const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
           cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
-        } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—';
+        } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—';
         else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
         else if (colId === 'dependencies') {
           const nums = (task.dependencies ?? [])
@@ -201,11 +239,11 @@ export function useColumnResize({
         } else if (colId.startsWith('custom:')) {
           cellText = task.customFields?.[colId] ?? '';
         }
-        const w = measureText(cellText);
+        const w = measureText(cellText) + extraW;
         if (w > maxW) maxW = w;
       }
       const padding = 24;
-      return Math.max(30, Math.min(800, maxW + padding));
+      return Math.max(30, Math.min(widthCap, maxW + padding));
     },
     [
       visibleTasks,
@@ -214,6 +252,7 @@ export function useColumnResize({
       taskIdToSeqNum,
       customColumnNameById,
       assigneeDisplayMetaByName,
+      criticalPathTaskIds,
       wbsSettings?.statusConfigs,
       wbsSettings?.prependDisplayWbsToTaskName,
       measureText,
@@ -225,7 +264,7 @@ export function useColumnResize({
     (col: string) => {
       const newWidth = computeAutoFitWidth(col);
       setColumnWidths((prev) => ({ ...prev, [col]: newWidth }));
-      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth } });
+      updateWbsSettings({ columnWidths: { ...columnWidthsRef.current, [col]: newWidth }, skipImplicitTableColumnAutoFit: true });
     },
     [computeAutoFitWidth, updateWbsSettings],
   );
@@ -234,14 +273,18 @@ export function useColumnResize({
   // 호출부에서 넘어오는 visibleColumnIds는 데이터 컬럼만 포함하므로,
   // 좌측 보조 컬럼(grip/checkbox/seq/expand)과 우측 actions도 같이 리셋/측정한다.
   const autoFitAllColumns = useCallback(
-    (visibleColumnIds: string[]) => {
+    (visibleColumnIds: string[], opts?: { implicitOrToolbarAutoFit?: boolean }) => {
       const next: Record<string, number> = { ...columnWidthsRef.current };
       const allCols = Array.from(new Set(['grip', 'checkbox', 'seq', 'expand', ...visibleColumnIds, 'actions']));
       for (const col of allCols) {
         next[col] = computeAutoFitWidth(col);
       }
       setColumnWidths(next);
-      updateWbsSettings({ columnWidths: next });
+      if (opts?.implicitOrToolbarAutoFit) {
+        updateWbsSettings({ columnWidths: next, skipImplicitTableColumnAutoFit: false });
+      } else {
+        updateWbsSettings({ columnWidths: next });
+      }
     },
     [computeAutoFitWidth, updateWbsSettings],
   );

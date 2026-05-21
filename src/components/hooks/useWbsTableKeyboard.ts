@@ -3,6 +3,7 @@ import type { Task, TaskStatus, FilterState, SortConfig, Project } from '../../t
 import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
+import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../../lib/workEffortUnits';
 
 /** Clipboard payload shape (defined in WBSTable, passed in as type parameter) */
 type ClipboardPayloadV1 = { version: 1; copiedAt: string; tasks: Task[] };
@@ -35,6 +36,8 @@ export interface WbsTableKeyboardDeps {
 
   // State setters
   setLastSelectedId: (id: string | null) => void;
+  /** Shift+↑/↓ 범위 선택 앵커: 화살표·탭·F2 등으로 행 포커스만 옮길 때 lastSelectedId와 ref가 어긋나지 않게 동기화 */
+  syncRangeAnchorForKeyboardFocus?: (taskId: string | null) => void;
   setTableEditMode: (v: boolean) => void;
   setFocusedCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void;
   setInlineEditingNameId: (id: string | null) => void;
@@ -95,6 +98,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     inlineAddingTaskId,
     setInlineAddingTaskId,
     setLastSelectedId,
+    syncRangeAnchorForKeyboardFocus,
     setTableEditMode,
     setFocusedCell,
     setInlineEditingNameId,
@@ -151,6 +155,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
       };
 
+      /** 보라 다중 선택 안에서 ↑↓만으로는 Shift 앵커 유지; 선택 밖 행으로 포커스가 나가면 앵커를 그 행에 맞춘다 */
+      const maybeSyncShiftRangeAnchor = (taskId: string) => {
+        if (selectedTaskIds.size === 0 || !selectedTaskIds.has(taskId)) {
+          syncRangeAnchorForKeyboardFocus?.(taskId);
+        }
+      };
+
       // 새 작업 입력칸(하단/인라인)에서는 Enter가 폼 submit 되도록 전역 단축키 미동작
       if (inQuickAdd) return;
       // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작
@@ -173,6 +184,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             const next = idx >= 0 ? visibleTasks[idx + 1] : null;
             if (next) {
               setLastSelectedId(next.id);
+              maybeSyncShiftRangeAnchor(next.id);
               setFocusedCell({ taskId: next.id, columnId: currentColId });
               document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
             } else {
@@ -209,6 +221,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         // 2) 새 작업으로 이동
         const moveToTaskId = (nextId: string) => {
           setLastSelectedId(nextId);
+          maybeSyncShiftRangeAnchor(nextId);
           setFocusedCell({ taskId: nextId, columnId });
           if (columnId === 'name') {
             setInlineEditingNameId(nextId);
@@ -237,7 +250,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
-              workEffort: 0.5,
+              workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
               assignee: filters.assignee || '',
               status: 'todo',
               parentId: base?.parentId ?? null,
@@ -264,6 +277,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             setInlineEditingNameId(null);
             setEditingCell(null);
             setLastSelectedId(nextTask.id);
+            maybeSyncShiftRangeAnchor(nextTask.id);
             // inline 편집 종료 후에도 F2 기준 셀이 이전 행에 남지 않도록 포커스를 현재 행으로 동기화
             setFocusedCell({ taskId: nextTask.id, columnId: 'name' });
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
@@ -322,6 +336,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               (document.activeElement as HTMLElement | null)?.blur?.();
               setTimeout(() => {
                 setLastSelectedId(nextTask.id);
+                maybeSyncShiftRangeAnchor(nextTask.id);
                 setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
                 if (wasEditing) {
                   if (nextCol === 'name') {
@@ -393,6 +408,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               e.preventDefault();
               setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
               setLastSelectedId(nextTask.id);
+              maybeSyncShiftRangeAnchor(nextTask.id);
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
               // 다음 키 입력도 안정적으로 받도록 표 컨테이너로 포커스 복원
               tableScrollRef.current?.focus();
@@ -530,7 +546,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         // Select newly pasted tasks
         if (addedIds.length > 0) {
           setSelection(new Set(addedIds));
-          setLastSelectedId(addedIds[addedIds.length - 1]);
+          const lastPasted = addedIds[addedIds.length - 1];
+          setLastSelectedId(lastPasted);
+          syncRangeAnchorForKeyboardFocus?.(lastPasted);
         }
         return;
       }
@@ -606,6 +624,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               : editableColumnIds[0]!;
         setFocusedCell({ taskId, columnId });
         setLastSelectedId(taskId);
+        maybeSyncShiftRangeAnchor(taskId);
         // 체크박스 선택은 유지 (편집만으로 행이 자동 체크되지 않음)
         if (columnId === 'name') {
           setInlineEditingNameId(taskId);
@@ -643,6 +662,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const next = e.key === 'ArrowDown' ? first : last;
           if (next) {
             setLastSelectedId(next.id);
+            maybeSyncShiftRangeAnchor(next.id);
             document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
           }
         }
@@ -669,7 +689,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         !!filters.milestoneOnly ||
         !!filters.issueOnly;
 
-      const currentIndex = visibleTasks.findIndex((t) => t.id === lastSelectedId);
+      // 셀 링 포커스(focusedCell)와 lastSelectedId가 잠깐 어긋나도(간트 동기화 등) ↑/↓·Shift 범위는 보이는 행 기준으로
+      const rowForArrowNav = focusedCell?.taskId ?? lastSelectedId;
+      let currentIndex = visibleTasks.findIndex((t) => t.id === rowForArrowNav);
+      if (currentIndex === -1 && lastSelectedId) {
+        currentIndex = visibleTasks.findIndex((t) => t.id === lastSelectedId);
+      }
       if (currentIndex === -1) return;
 
       if (e.key === 'ArrowUp') {
@@ -689,6 +714,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(prevTask.id);
+              maybeSyncShiftRangeAnchor(prevTask.id);
               // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
               setFocusedCell({
                 taskId: prevTask.id,
@@ -715,6 +741,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
             } else {
               setLastSelectedId(nextTask.id);
+              maybeSyncShiftRangeAnchor(nextTask.id);
               // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
               setFocusedCell({
                 taskId: nextTask.id,
@@ -808,7 +835,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             startDate: filters.startDate || defaultDate,
             endDate: filters.endDate || defaultDate,
             progress: 0,
-            workEffort: 0.5,
+            workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
             assignee: filters.assignee || '',
             status: 'todo',
             parentId: parentIdForNew,
@@ -816,6 +843,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           insertAfterId,
         );
         setLastSelectedId(newId);
+        maybeSyncShiftRangeAnchor(newId);
         setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
@@ -844,7 +872,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
-              workEffort: 0.5,
+              workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
               assignee: filters.assignee || '',
               status: 'todo',
               parentId: baseTask.parentId ?? null,
@@ -852,6 +880,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             insertAfterId,
           );
           setLastSelectedId(newId);
+          maybeSyncShiftRangeAnchor(newId);
           setInlineEditingNameId(newId);
         } else {
           // Insert: 기준 행의 하위 작업 추가 (기준 행이 없으면 루트 하위로 추가)
@@ -862,7 +891,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               startDate: filters.startDate || defaultDate,
               endDate: filters.endDate || defaultDate,
               progress: 0,
-              workEffort: 0.5,
+              workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
               assignee: filters.assignee || '',
               status: 'todo',
               parentId: parentForChildId,
@@ -876,6 +905,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
 
           setLastSelectedId(newId);
+          maybeSyncShiftRangeAnchor(newId);
           setInlineEditingNameId(newId);
         }
       }
@@ -924,6 +954,16 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setBulkWorkEffort,
     setBulkProgress,
     tableScrollRef,
+    setLastSelectedId,
+    syncRangeAnchorForKeyboardFocus,
+    handleSelect,
+    setDeleteConfirm,
+    setCopiedTasks,
+    updateTask,
+    canEditCurrentProject,
+    currentProjectId,
+    projects,
+    CLIPBOARD_KEY,
   ]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지).

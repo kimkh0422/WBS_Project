@@ -42,6 +42,8 @@ function taskContentFingerprint(row: TaskRow): string {
 
 /** DB 행 기준 프로젝트 본문 지문 (동일이면 업로드 생략) */
 export function fingerprintProjectRowForSync(row: ProjectRow): string {
+  const pm = (row.pm_name && String(row.pm_name).trim()) || null;
+  const po = (row.po_name && String(row.po_name).trim()) || null;
   return JSON.stringify({
     name: row.name,
     description: row.description ?? null,
@@ -58,6 +60,9 @@ export function fingerprintProjectRowForSync(row: ProjectRow): string {
     report_name_short: row.report_name_short ?? null,
     report_name_full: row.report_name_full ?? null,
     group_id: row.group_id ?? null,
+    /** PM·PO만 바뀐 경우에도 업로드·서버 머지가 동작하도록 지문에 포함 */
+    pm_name: pm,
+    po_name: po,
     include_in_dashboard: row.include_in_dashboard !== false,
   });
 }

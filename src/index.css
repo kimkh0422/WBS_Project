@@ -592,14 +592,15 @@ input[list] {
 
 /* Modals */
 .modal-overlay {
-  @apply fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4;
-  animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  @apply fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-md p-3 sm:p-4;
+  animation: modalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal-content {
-  @apply bg-white rounded-2xl overflow-hidden outline-none w-full;
-  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(0,0,0,0.05);
-  animation: modalZoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  @apply rounded-2xl overflow-hidden outline-none w-full border border-slate-200/90;
+  background-color: var(--color-surface);
+  box-shadow: 0 22px 45px -15px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.04);
+  animation: modalZoomIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes modalFadeIn {
@@ -608,7 +609,7 @@ input[list] {
 }
 
 @keyframes modalZoomIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  from { opacity: 0; transform: scale(0.97) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 

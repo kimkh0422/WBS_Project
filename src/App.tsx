@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { APP_VERSION, APP_COMMIT_DATE } from './appRelease';
 import { WBSTable } from './components/WBSTable';
 import { TableGanttSplit } from './components/TableGanttSplit';
 import { NavButton } from './components/NavButton';
@@ -804,6 +805,7 @@ function WBSApp({
     name: string,
     description: string,
     pmName: string,
+    poName: string,
     startDate?: string,
     endDate?: string,
     assignments?: Project['assignments'],
@@ -818,6 +820,7 @@ function WBSApp({
     reportNameFull?: string,
     includeInDashboard?: boolean,
   ) => {
+    const poTrim = poName.trim();
     if (editingProject) {
       updateProject(editingProject.id, {
         name,
@@ -835,6 +838,7 @@ function WBSApp({
         reportNameShort,
         reportNameFull,
         pmName,
+        poName: poTrim || undefined,
         includeInDashboard,
       });
       setEditingProject(null);
@@ -849,6 +853,7 @@ function WBSApp({
         reportNameShort,
         reportNameFull,
         pmName,
+        poName: poTrim || undefined,
         includeInDashboard,
       });
     }
@@ -1151,10 +1156,10 @@ function WBSApp({
           setIsHeaderCollapsed={setIsHeaderCollapsed}
           requestRefresh={requestRefresh}
           logo={logo}
-          appVersion={__APP_VERSION__}
+          appVersion={APP_VERSION}
           formatCommitDate={formatCommitDate}
           formatCommitDateDateOnly={formatCommitDateDateOnly}
-          appCommitDate={__APP_COMMIT_DATE__}
+          appCommitDate={APP_COMMIT_DATE}
           isProjectDropdownOpen={isProjectDropdownOpen}
           setIsProjectDropdownOpen={setIsProjectDropdownOpen}
           currentProjectId={currentProjectId}
@@ -1682,7 +1687,7 @@ function WBSApp({
             </div>
           }
         >
-          <div className="flex-1 min-w-0 relative bg-white">
+          <div className="flex-1 min-h-0 min-w-0 h-full flex flex-col overflow-hidden relative bg-white">
             {!effectiveIsAdmin &&
             currentProjectId &&
             currentProjectId !== 'all' &&
@@ -1727,6 +1732,7 @@ function WBSApp({
                 <div className="h-full overflow-hidden">
                   <WBSTable
                     fillHeight
+                    autoFitColumnsOnMount
                     filters={effectiveFilters}
                     sortConfig={sortConfig}
                     onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
@@ -1904,7 +1910,7 @@ function WBSApp({
             }}
           />
         )}
-        {isVersionHistoryOpen && <VersionManager isOpen onClose={() => setIsVersionHistoryOpen(false)} currentVersion={__APP_VERSION__} />}
+        {isVersionHistoryOpen && <VersionManager isOpen onClose={() => setIsVersionHistoryOpen(false)} currentVersion={APP_VERSION} />}
 
         {/* 삭제 유형 선택: 전체 삭제(관리자) / 현재 프로젝트 삭제(소유자·관리자) / 프로젝트 선택 삭제(소유자·관리자) / 현재 프로젝트 작업 삭제(편집자) */}
         {isDeleteChoiceOpen &&
@@ -2275,13 +2281,13 @@ function WBSApp({
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
             <div
               className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap"
-              title={`버전 v${__APP_VERSION__} (수정일: ${formatCommitDate(__APP_COMMIT_DATE__)})`}
+              title={`버전 v${APP_VERSION} (수정일: ${formatCommitDate(APP_COMMIT_DATE)})`}
             >
-              <span>v{__APP_VERSION__}</span>
+              <span>v{APP_VERSION}</span>
               <span className="text-slate-300" aria-hidden>
                 ·
               </span>
-              <span>수정일 {formatCommitDateDateOnly(__APP_COMMIT_DATE__)}</span>
+              <span>수정일 {formatCommitDateDateOnly(APP_COMMIT_DATE)}</span>
               <span className="text-slate-300" aria-hidden>
                 ·
               </span>
@@ -2378,7 +2384,7 @@ function AppWithProviders() {
     };
   }, [user?.id]);
 
-  // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 (대시보드 여부와 무관)
+  // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 + 주기적 활동 하트비트(관리자용 현재 접속자 판별)
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase || !user?.id) return;
     let sessionId = sessionStorage.getItem('wbs-visit-session-id');
@@ -2386,13 +2392,29 @@ function AppWithProviders() {
       sessionId = uuidv4();
       sessionStorage.setItem('wbs-visit-session-id', sessionId);
     }
+    const sid = sessionId;
     void (async () => {
       try {
-        await supabase.rpc('record_visit', { p_session_id: sessionId });
+        await supabase.rpc('record_visit', { p_session_id: sid });
       } catch {
         // best-effort; ignore visit logging failures
       }
+      try {
+        await supabase.rpc('pulse_presence', { p_session_id: sid });
+      } catch {
+        // best-effort; DB에 마이그레이션 전이면 무시
+      }
     })();
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          await supabase.rpc('pulse_presence', { p_session_id: sid });
+        } catch {
+          /* ignore */
+        }
+      })();
+    }, 45_000);
+    return () => window.clearInterval(intervalId);
   }, [user?.id]);
 
   if (!isSupabaseConfigured) {

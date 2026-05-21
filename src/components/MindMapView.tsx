@@ -19,7 +19,7 @@ import {
   GitBranch,
   Network,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -1367,7 +1367,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                               fontWeight: 600,
                             }}
                           >
-                            {progress}%
+                            {formatPercent1(progress)}%
                           </text>
                         )}
 
@@ -1461,7 +1461,7 @@ export function MindMapView({ filters }: MindMapViewProps) {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-slate-400">진행률</span>
-                    <span className="font-medium">{selectedTask.progress}%</span>
+                    <span className="font-medium">{formatPercent1(selectedTask.progress)}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div

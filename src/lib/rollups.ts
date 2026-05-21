@@ -1,5 +1,5 @@
 import { Task } from '../types';
-import { round2 } from './utils';
+import { formatNum2, formatPercent1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 
 function minIsoDate(a: string | undefined, b: string | undefined): string | undefined {
@@ -20,6 +20,7 @@ function maxIsoDate(a: string | undefined, b: string | undefined): string | unde
  *                      false(기본): DB 싱크/전체 재계산 시 progressLocked 존중
  * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID. 본인이면 갱신을 건너뛰되,
  *                        조상 롤업 재귀는 계속 진행한다(상위 영향은 따로 반영).
+ * @param skipWorkEffortRollupParentIds 이 ID의 부모 행은 공수만 자식 합으로 덮어쓰지 않음(해당 행에서 공수를 직접 저장한 경우).
  */
 export function syncParentRollups(
   allTasks: Task[],
@@ -27,13 +28,14 @@ export function syncParentRollups(
   doneStatusIds?: Set<string>,
   forceProgress = false,
   excludeParentIds?: Set<string>,
+  skipWorkEffortRollupParentIds?: Set<string>,
 ): Task[] {
   if (!parentId) return allTasks;
   // 사용자가 막 편집한 부모는 자식 min/max로 덮어쓰지 않는다. 조상은 계속 롤업.
   if (excludeParentIds?.has(parentId)) {
     const parent = allTasks.find((t) => t.id === parentId);
     if (!parent) return allTasks;
-    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds);
+    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
   }
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
@@ -47,10 +49,10 @@ export function syncParentRollups(
   let weightedProgressSum = 0;
   let simpleProgressSum = 0;
 
+  let sumChildEffort = 0;
   for (const child of children) {
-    // 공수(workEffort)는 부모에서 사용자가 직접 입력한 값을 유지하므로 롤업하지 않는다.
-    // 대신 진행률 가중 평균 계산에 필요한 weight fallback으로만 effort를 사용한다.
     const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
+    sumChildEffort += effort;
     const weight = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
     totalWeight += weight;
     const progress = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
@@ -60,6 +62,8 @@ export function syncParentRollups(
 
   const parent = allTasks.find((t) => t.id === parentId);
   if (!parent) return allTasks;
+
+  sumChildEffort = round2(sumChildEffort);
 
   let parentProgress: number | undefined;
   // 완료 상태인 경우 자식 롤업으로 덮어쓰지 않고 100% 유지
@@ -73,6 +77,12 @@ export function syncParentRollups(
   }
 
   const lockedFields = new Set(parent.userLockedFields ?? []);
+  const workEffortLocked = lockedFields.has('workEffort');
+  const skipEffortRollup = skipWorkEffortRollupParentIds?.has(parentId) === true;
+  let alignedWorkEffort = parent.workEffort;
+  if (!workEffortLocked && !skipEffortRollup) {
+    alignedWorkEffort = sumChildEffort;
+  }
   // 부모 일정: 하위가 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장). 하위가 짧아져도 상위는 자동으로 줄이지 않음.
   let alignedStart = parent.startDate;
   let alignedEnd = parent.endDate;
@@ -86,10 +96,13 @@ export function syncParentRollups(
     alignedEnd = alignedStart;
   }
   const progressLocked = !forceProgress && lockedFields.has('progress');
+  const prevEffortForCompare = round2(typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : 0);
+  const effortRollupChanged = !workEffortLocked && !skipEffortRollup && prevEffortForCompare !== sumChildEffort;
   const shouldUpdate =
     parent.startDate !== alignedStart ||
     parent.endDate !== alignedEnd ||
-    (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress);
+    (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress) ||
+    effortRollupChanged;
 
   const updatedTasks = shouldUpdate
     ? allTasks.map((t) =>
@@ -98,13 +111,60 @@ export function syncParentRollups(
               ...t,
               startDate: alignedStart,
               endDate: alignedEnd,
+              ...(!workEffortLocked && !skipEffortRollup ? { workEffort: alignedWorkEffort } : {}),
               ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
             }
           : t,
       )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds);
+  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
+}
+
+/** 진척률 셀·툴팁용: syncParentRollups와 동일한 가중 규칙으로 설명 문구 생성 */
+export function getTaskProgressRollupTooltip(task: Task, allTasks: Task[], doneStatusIds?: Set<string>): string {
+  const children = allTasks.filter((c) => c.projectId === task.projectId && c.parentId === task.id);
+  if (children.length === 0) {
+    return '리프 작업: 표시값은 이 행에 저장된 진척률입니다. 저장 시 상위 작업·요약 바의 진척률은 자동으로 다시 계산됩니다.';
+  }
+  const lines: string[] = ['요약 행: 하위 작업 진척률을 자동 요약한 값입니다.'];
+  if (doneStatusIds && task.status && doneStatusIds.has(task.status)) {
+    lines.push('상태가 완료(진척 100%)로 정의된 단계이면, 하위 진척과 관계없이 100%로 유지됩니다.');
+    return lines.join('\n');
+  }
+  let totalWeight = 0;
+  let weightedProgressSum = 0;
+  let simpleProgressSum = 0;
+  const detailLines: string[] = [];
+  const maxLines = 10;
+  for (const child of children) {
+    const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
+    const w = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
+    const p = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
+    totalWeight += w;
+    weightedProgressSum += p * w;
+    simpleProgressSum += p;
+    if (detailLines.length < maxLines) {
+      const nm = (child.name ?? '').trim() || child.id;
+      const short = nm.length > 28 ? `${nm.slice(0, 28)}…` : nm;
+      detailLines.push(`· ${short}: ${formatPercent1(p)}% × 가중 ${formatNum2(w)} → ${formatNum2(p * w)}`);
+    }
+  }
+  lines.push('가중 = 진척 가중치(입력)가 있으면 그 값, 없으면 공수(과제 단위 그대로)입니다.');
+  if (totalWeight > 0) {
+    const rounded = Math.min(100, Math.max(0, Math.round(weightedProgressSum / totalWeight)));
+    lines.push(
+      `가중평균: Σ(진척×가중) ÷ Σ가중 = ${formatNum2(weightedProgressSum)} ÷ ${formatNum2(totalWeight)} ≈ ${formatPercent1(rounded)}%`,
+    );
+  } else {
+    const rounded = Math.min(100, Math.max(0, Math.round(simpleProgressSum / children.length)));
+    lines.push(`가중 합이 0이면 형제 진척률 단순 평균 → ${formatPercent1(rounded)}%`);
+  }
+  if (children.length > maxLines) {
+    detailLines.push(`· … 외 ${children.length - maxLines}개 하위 작업`);
+  }
+  lines.push('하위 구성:', ...detailLines);
+  return lines.join('\n');
 }
 
 /**
@@ -397,7 +457,7 @@ export function recomputeProjectRollups(
     // 사용자가 직접 편집한 부모는 자식 min/max로 덮어쓰지 않음.
     // syncParentRollups에도 excludeParentIds를 전달해 자식 쪽에서의 재귀 롤업도 막는다.
     if (excludeParentIds?.has(pid)) continue;
-    next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds);
+    next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds, undefined);
   }
   return next;
 }

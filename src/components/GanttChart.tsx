@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
@@ -34,6 +34,10 @@ interface GanttChartProps {
   rowHeights?: number[];
   onRowHeightChange?: (height: number) => void;
   syncScrollRef?: React.Ref<HTMLDivElement>;
+  /** split 뷰: 표와 가로 스크롤 동기화 — 간트 날짜 헤더 스크롤 컨테이너 */
+  splitGanttHeaderScrollRef?: React.Ref<HTMLDivElement | null>;
+  /** split 뷰: 표와 가로 스크롤 동기화 — 간트 하단 가로 스크롤바 */
+  splitGanttBottomScrollRef?: React.Ref<HTMLDivElement | null>;
   hotkeysEnabled?: boolean;
   /** split 뷰에서 표 본문 맨 아래 [+ 새 작업 추가] 행 높이만큼 간트 하단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
   bottomSpacerHeight?: number;
@@ -47,12 +51,15 @@ export function GanttChart({
   rowHeights: propRowHeights,
   onRowHeightChange,
   syncScrollRef,
+  splitGanttHeaderScrollRef,
+  splitGanttBottomScrollRef,
   hotkeysEnabled = true,
   bottomSpacerHeight = 0,
 }: GanttChartProps) {
   const {
     tasks,
     updateTask,
+    flushProjectTaskRollups,
     deleteTask,
     wbsMap,
     displayWbsMap,
@@ -290,8 +297,27 @@ export function GanttChart({
     overscan: 10,
   });
 
+  const isSplitView = !!syncScrollRef;
+
+  /** 간트 타임라인이 실제로 그려지는 스크롤 영역 너비(맞춤 줌·드래그 픽셀 환산에 사용). split 뷰는 containerRef가 없어 별도 측정. */
+  const [chartViewportWidth, setChartViewportWidth] = useState(0);
+  useLayoutEffect(() => {
+    const pickScrollEl = () => (isSplitView ? mainScrollRef.current : containerRef.current);
+    const measure = () => {
+      const el = pickScrollEl();
+      const w = el?.clientWidth ?? 0;
+      if (w > 0) setChartViewportWidth((prev) => (prev === w ? prev : w));
+    };
+    measure();
+    const el = pickScrollEl();
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isSplitView, sidebarWidth, hideSidebar, visibleTasks.length, syncScrollRef]);
+
   const effectiveSidebarWidth = hideSidebar ? 0 : sidebarWidth;
-  const containerWidth = containerRef.current?.clientWidth || window.innerWidth;
+  const containerWidth = Math.max(120, chartViewportWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200));
   const { dates, minDate, maxDate, totalDays, autoZoomLevel, currentZoomEntry, dayWidth } = useGanttViewport({
     visibleTasks,
     zoomIndex,
@@ -308,6 +334,7 @@ export function GanttChart({
     setSelectedTaskIds,
     setActiveTaskId,
     updateTask,
+    flushProjectTaskRollups,
     pushToast,
     dayWidth,
     minDate,
@@ -402,8 +429,6 @@ export function GanttChart({
     dates.length,
     effectiveCriticalPathSet,
   ]);
-
-  const isSplitView = !!syncScrollRef;
 
   // Split view: 날짜 헤더(상단 가로 스크롤) ↔ 본문 ↔ 하단 스크롤바 수평 동기화.
   // 상단·하단 어디서 스크롤해도 셋이 같이 움직이도록 유지.
@@ -502,7 +527,7 @@ export function GanttChart({
       <>
         <div className="w-full h-full flex flex-col bg-white">
           {/* 표의 Summary Bar와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 (min-h로 여유 두어 화면 잘림 방지) */}
-          <div className="min-h-12 flex-shrink-0 flex items-center gap-3 px-4 py-1.5 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto overflow-y-visible whitespace-nowrap">
+          <div className="h-14 flex-shrink-0 flex items-center gap-3 px-4 py-0 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto overflow-y-hidden whitespace-nowrap">
             {/* 확대/축소 (너비 간격) */}
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
@@ -589,7 +614,12 @@ export function GanttChart({
           {/* 헤더 고정 (스크롤 밖) - 표의 split 헤더처럼 상단 수평 스크롤바 노출하여 본문·하단과 동기화.
               표는 헤더에 위쪽 스크롤바, 본문에 아래 스크롤바를 두는 구조 — 간트도 같은 패턴으로 정렬. */}
           <div
-            ref={headerScrollRef}
+            ref={(el) => {
+              headerScrollRef.current = el;
+              const rh = splitGanttHeaderScrollRef;
+              if (typeof rh === 'function') rh(el);
+              else if (rh) (rh as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            }}
             className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-auto overflow-y-hidden"
           >
             <div className="relative flex-shrink-0" style={{ width: totalWidth, height: 60 }}>
@@ -609,7 +639,7 @@ export function GanttChart({
             // 간트 안 어디를 클릭해도 키보드 이동이 동작하도록 컨테이너 자체로 포커스를 가져온다.
             // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록해야 막히지 않는다.
             onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
-            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-40 outline-none focus:ring-0"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-6 outline-none focus:ring-0"
           >
             <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
@@ -684,21 +714,28 @@ export function GanttChart({
                     className={cn(
                       'absolute left-0 right-0 group box-border border-b border-slate-100/80 transition-colors z-[1]',
                       isSelected &&
-                        'z-[2] bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
-                      isActive && 'z-[2] bg-amber-50/80 font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70',
+                        'z-[2] bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
+                      isActive &&
+                        'z-[2] bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
                       !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
                     )}
                     style={{ width: totalWidth, height: rowH, top: virtualRow.start }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                     onMouseDown={(e) => {
                       if (e.button !== 0) return;
-                      handleBarMouseDown(e, task);
+                      // 막대가 아닌 타임라인 빈 칸 클릭: 일정 드래그는 시작하지 않고 활성 행만 맞춤
+                      if ((e.target as HTMLElement).closest?.('[data-gantt-task-bar]')) return;
+                      setActiveTaskId(task.id);
                     }}
                   >
                     <div
+                      data-gantt-task-bar
                       onDoubleClick={() => setEditingTask(task)}
                       onClick={(e) => handleBarClickForPopover(e, task)}
-                      onMouseDown={(e) => handleBarMouseDown(e, task)}
+                      onMouseDown={(e) => {
+                        handleBarMouseDown(e, task);
+                        e.stopPropagation();
+                      }}
                       className={cn(
                         'absolute top-0 rounded shadow-sm overflow-hidden transition-all border',
                         isDone && 'gantt-completed',
@@ -789,7 +826,12 @@ export function GanttChart({
           </div>
           {/* 하단 수평 스크롤바 */}
           <div
-            ref={bottomScrollRef}
+            ref={(el) => {
+              bottomScrollRef.current = el;
+              const rb = splitGanttBottomScrollRef;
+              if (typeof rb === 'function') rb(el);
+              else if (rb) (rb as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            }}
             className="flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-stone-200"
             style={{ height: 12 }}
           >
@@ -1072,22 +1114,28 @@ export function GanttChart({
                       className={cn(
                         'relative group box-border border-b border-slate-100/80 transition-colors',
                         isSelected &&
-                          'bg-purple-50/90 font-semibold text-purple-900 ring-2 ring-inset ring-purple-500/80 shadow-[inset_0_0_0_1px_rgba(168,85,247,0.12)]',
-                        isActive && 'bg-amber-50/80 font-medium text-amber-900 ring-2 ring-inset ring-amber-500/70',
+                          'bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
+                        isActive &&
+                          'bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
                         !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
                       )}
                       style={{ width: totalWidth, height: rowH }}
                       onContextMenu={(e) => handleContextMenu(e, task.id)}
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
-                        handleBarMouseDown(e, task);
+                        if ((e.target as HTMLElement).closest?.('[data-gantt-task-bar]')) return;
+                        setActiveTaskId(task.id);
                       }}
                     >
                       {/* 마일스톤: 다이아몬드 / 일반 작업: 바 */}
                       <div
+                        data-gantt-task-bar
                         onDoubleClick={() => setEditingTask(task)}
                         onClick={(e) => handleBarClickForPopover(e, task)}
-                        onMouseDown={(e) => handleBarMouseDown(e, task)}
+                        onMouseDown={(e) => {
+                          handleBarMouseDown(e, task);
+                          e.stopPropagation();
+                        }}
                         className={cn(
                           'absolute top-0 overflow-hidden transition-all',
                           isDone && 'gantt-completed',

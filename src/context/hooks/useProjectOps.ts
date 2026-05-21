@@ -71,6 +71,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           | 'reportNameFull'
           | 'workEffortUnit'
           | 'pmName'
+          | 'poName'
           | 'includeInDashboard'
         >
       >,
@@ -109,6 +110,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         ...extras,
         projectKind: resolvedKind,
         pmName: pmFinal,
+        poName: extras.poName?.trim() ? extras.poName.trim() : undefined,
       };
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
@@ -297,6 +299,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         workEffortUnit: source.workEffortUnit,
         ownerId: ownerIdRef.current ?? undefined,
         pmName: copiedPm || 'PM 미입력',
+        poName: source.poName?.trim() || undefined,
         includeInDashboard: source.includeInDashboard !== false,
       };
       const taskIdMap = new Map<string, string>();

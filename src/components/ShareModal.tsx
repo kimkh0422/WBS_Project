@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Copy, Check, Link2, Users, Loader2, UserPlus, Building2, UserCheck, Clock, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   fetchProjectMembers,
   createProjectInvite,
@@ -347,13 +348,13 @@ export function ShareModal({
   const iconBadge = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)]';
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-50 animate-in fade-in duration-150" onClick={onClose} />
+    <div className={MODAL_BACKDROP_CLASS} onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-modal-title"
-        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 flex w-full max-w-lg max-h-[min(90vh,720px)] flex-col overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] shadow-xl animate-in zoom-in-95 fade-in duration-200"
+        className={cn(MODAL_PANEL_BASE_CLASS, 'flex w-full max-w-lg max-h-[min(90vh,720px)] flex-col overflow-hidden')}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 border-b border-[var(--color-line)] px-5 py-4">
           <div className="flex items-start justify-between gap-3">
@@ -767,6 +768,6 @@ export function ShareModal({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

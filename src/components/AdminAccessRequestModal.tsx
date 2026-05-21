@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Shield, Loader2 } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { createAdminAccessRequest, getMyPendingAdminAccessRequest } from '../lib/db';
 
 interface AdminAccessRequestModalProps {
@@ -59,9 +61,8 @@ export function AdminAccessRequestModal({ isOpen, onClose, onSubmitted }: AdminA
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-[60] animate-in fade-in duration-150" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] w-full max-w-md bg-white rounded-2xl shadow-xl border border-[var(--color-line)] p-6 animate-in zoom-in-95 fade-in duration-200">
+    <div className={cn(MODAL_BACKDROP_CLASS, 'z-[60]')} onClick={onClose}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md p-6')} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
             <Shield size={18} />
@@ -133,6 +134,6 @@ export function AdminAccessRequestModal({ isOpen, onClose, onSubmitted }: AdminA
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

@@ -1,19 +1,22 @@
 import { supabase } from '../supabase';
 import type { ProjectRow } from '../supabase';
 import type { Project } from '../../types';
-import { requireSupabase, getAuthedUserId } from './client';
-import { toProjectRow, toProjectRowMinimal, fromProjectRow } from './mappers';
+import { requireSupabase, getAuthedUserId, getMissingColumnNameFromPgrst204, stripSelectListColumn } from './client';
+import { toProjectRow, fromProjectRow } from './mappers';
 import { insertAuditLog, diffProjectFields } from './audit';
 import type { AuditAction } from './audit';
 
-export function isAssignmentsSchemaError(err: { code?: string; message?: string }): boolean {
+export function isAssignmentsSchemaError(err: { code?: string | number; message?: string }): boolean {
   const msg = (err.message ?? '').toLowerCase();
   return err.code === 'PGRST204' || msg.includes("'assignments'") || msg.includes('assignments');
 }
 
-function isMissingColumnError(err: { code?: string | number; message?: string }, columnName: string): boolean {
+export function isMissingColumnError(
+  err: { code?: string | number; message?: string; details?: string; hint?: string },
+  columnName: string,
+): boolean {
   const col = columnName.toLowerCase();
-  const msg = (err.message ?? '').toLowerCase();
+  const msg = [err.message, err.details, err.hint].filter(Boolean).join(' ').toLowerCase();
   const codeStr = String(err.code ?? '').trim();
   // 클라이언트·PostgREST 버전에 따라 code가 문자열 또는 숫자로 올 수 있음
   const is42703 = codeStr === '42703' || err.code === 42703;
@@ -34,42 +37,104 @@ function isMissingColumnError(err: { code?: string | number; message?: string },
     return true;
   }
 
+  // 일부 클라이언트는 code 필드 없이 `[42703] column ...` 형태만 message에 실음
+  const bracketCode = msg.match(/^\s*\[(\d+)\]\s/)?.[1];
+  if (bracketCode === '42703' && msg.includes('does not exist') && msg.includes(col)) {
+    return true;
+  }
+
   return false;
 }
 
+/** 스키마가 앱보다 뒤처진 원격 DB용: 알려진 선택 컬럼 누락·assignments 미지원 시 필드를 제거하며 반복 저장 */
+const OPTIONAL_PROJECT_WRITE_COLUMNS = ['project_kind', 'pm_name', 'po_name', 'include_in_dashboard'] as const;
+
+function stripProjectWritePayloadForError(
+  err: { code?: string | number; message?: string; details?: string; hint?: string },
+  current: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (isAssignmentsSchemaError(err)) {
+    const { assignments: _a, ...rest } = current;
+    return rest;
+  }
+  for (const col of OPTIONAL_PROJECT_WRITE_COLUMNS) {
+    if (isMissingColumnError(err, col) && Object.prototype.hasOwnProperty.call(current, col)) {
+      const { [col]: _removed, ...rest } = current;
+      return rest;
+    }
+  }
+  return null;
+}
+
+async function updateProjectRowWithSchemaFallback(projectId: string, row: Record<string, unknown>): Promise<void> {
+  let current: Record<string, unknown> = { ...row };
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const { error } = await supabase!.from('projects').update(current).eq('id', projectId);
+    if (!error) return;
+    const next = stripProjectWritePayloadForError(error, current);
+    if (next) {
+      current = next;
+      continue;
+    }
+    throw error;
+  }
+  throw new Error('projects.update: 스키마 폴백 시도 횟수 초과');
+}
+
+async function insertProjectRowWithSchemaFallback(insertRow: Record<string, unknown>): Promise<void> {
+  let current: Record<string, unknown> = { ...insertRow };
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const { error } = await supabase!.from('projects').insert(current);
+    if (!error) return;
+    const next = stripProjectWritePayloadForError(error, current);
+    if (next) {
+      current = next;
+      continue;
+    }
+    throw error;
+  }
+  throw new Error('projects.insert: 스키마 폴백 시도 횟수 초과');
+}
+
 const PROJECT_SELECT_COLUMNS =
-  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,pm_name,include_in_dashboard,created_at';
+  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,pm_name,po_name,include_in_dashboard,created_at';
+
+/** 원격 DB/PostgREST 스키마가 앱보다 낮을 때 select 목록에서 제거해 재시도할 컬럼 (PGRST204 메시지 기준) */
+const PROJECT_OPTIONAL_SELECT_COLUMNS = new Set(
+  [
+    'assignments',
+    'end_date',
+    'owner_id',
+    'min_work_effort_days',
+    'project_kind',
+    'report_category',
+    'report_agency',
+    'report_budget_this_year',
+    'report_total_period',
+    'report_name_short',
+    'report_name_full',
+    'group_id',
+    'pm_name',
+    'po_name',
+    'include_in_dashboard',
+  ].map((c) => c.toLowerCase()),
+);
 
 export async function fetchProjects(): Promise<Project[]> {
   requireSupabase();
-  let { data, error } = await supabase!
-    .from('projects')
-    // egress 절감: 필요한 컬럼만 조회
-    .select(PROJECT_SELECT_COLUMNS)
-    .order('created_at', { ascending: true });
-  if (error && isMissingColumnError(error, 'project_kind')) {
-    const retry = await supabase!
-      .from('projects')
-      .select(PROJECT_SELECT_COLUMNS.replace(',project_kind', ''))
-      .order('created_at', { ascending: true });
-    data = retry.data;
-    error = retry.error;
-  }
-  if (error && isMissingColumnError(error, 'pm_name')) {
-    const retry = await supabase!
-      .from('projects')
-      .select(PROJECT_SELECT_COLUMNS.replace(',pm_name', ''))
-      .order('created_at', { ascending: true });
-    data = retry.data;
-    error = retry.error;
-  }
-  if (error && isMissingColumnError(error, 'include_in_dashboard')) {
-    const retry = await supabase!
-      .from('projects')
-      .select(PROJECT_SELECT_COLUMNS.replace(',include_in_dashboard', ''))
-      .order('created_at', { ascending: true });
-    data = retry.data;
-    error = retry.error;
+  let selectCols = PROJECT_SELECT_COLUMNS;
+  let data: ProjectRow[] | null = null;
+  let error: { message?: string; code?: string } | null = null;
+  for (let attempt = 0; attempt < 48; attempt++) {
+    const res = await supabase!.from('projects').select(selectCols).order('created_at', { ascending: true });
+    data = (res.data ?? null) as unknown as ProjectRow[] | null;
+    error = res.error;
+    if (!error) break;
+    const missing = getMissingColumnNameFromPgrst204(error);
+    if (!missing || !PROJECT_OPTIONAL_SELECT_COLUMNS.has(missing.toLowerCase())) break;
+    const next = stripSelectListColumn(selectCols, missing);
+    if (next === selectCols) break;
+    selectCols = next;
   }
   if (error) throw error;
   const rows = (data ?? []) as ProjectRow[];
@@ -85,48 +150,26 @@ export async function fetchProjects(): Promise<Project[]> {
 
 export async function upsertProject(project: Project): Promise<void> {
   requireSupabase();
-  let existingSelect = 'id, name, description, start_date, end_date, pm_name, include_in_dashboard';
+  const UPSERT_EXISTING_OPTIONAL = new Set(['end_date', 'pm_name', 'po_name', 'include_in_dashboard']);
+  let existingSelect = 'id, name, description, start_date, end_date, pm_name, po_name, include_in_dashboard';
   let existing = await supabase!.from('projects').select(existingSelect).eq('id', project.id).maybeSingle();
-  for (let attempt = 0; attempt < 4 && existing.error; attempt++) {
-    if (isMissingColumnError(existing.error, 'pm_name')) {
-      existingSelect = existingSelect.replace(',pm_name', '');
-    } else if (isMissingColumnError(existing.error, 'include_in_dashboard')) {
-      existingSelect = existingSelect.replace(',include_in_dashboard', '');
-    } else {
-      break;
-    }
+  for (let attempt = 0; attempt < 16 && existing.error; attempt++) {
+    const missing = getMissingColumnNameFromPgrst204(existing.error);
+    if (!missing || !UPSERT_EXISTING_OPTIONAL.has(missing.toLowerCase())) break;
+    const next = stripSelectListColumn(existingSelect, missing);
+    if (next === existingSelect) break;
+    existingSelect = next;
     existing = await supabase!.from('projects').select(existingSelect).eq('id', project.id).maybeSingle();
   }
   if (existing.error) throw existing.error;
-  const existingRow = (existing.data ?? null) as ProjectRow | null;
+  const existingRow = (existing.data ?? null) as unknown as ProjectRow | null;
   const row = toProjectRow(project);
   // RLS 환경에서 upsert(INSERT .. ON CONFLICT DO UPDATE)는 INSERT 정책의 WITH CHECK가
   // "충돌로 UPDATE 되는 케이스"에도 적용되어, 소유자(owner)가 아닌 editor 사용자가
   // 프로젝트를 저장할 때 실패할 수 있음.
   // 따라서 "존재하면 update, 없으면 insert"로 분기한다.
   if (existingRow) {
-    const { error } = await supabase!.from('projects').update(row).eq('id', project.id);
-    if (error && isAssignmentsSchemaError(error)) {
-      const { error: err2 } = await supabase!
-        .from('projects')
-        .update(toProjectRowMinimal(project) as Record<string, unknown>)
-        .eq('id', project.id);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'project_kind')) {
-      const { project_kind: _pk, ...rowWithoutKind } = row as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').update(rowWithoutKind).eq('id', project.id);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'pm_name')) {
-      const { pm_name: _pm, ...rowWithoutPm } = row as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').update(rowWithoutPm).eq('id', project.id);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'include_in_dashboard')) {
-      const { include_in_dashboard: _inc, ...rowWithoutDash } = row as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').update(rowWithoutDash).eq('id', project.id);
-      if (err2) throw err2;
-    } else if (error) {
-      throw error;
-    }
+    await updateProjectRowWithSchemaFallback(project.id, row as unknown as Record<string, unknown>);
   } else {
     // 백업/가져오기 데이터에는 ownerId가 타 사용자로 들어있을 수 있음.
     // RLS projects_insert는 owner_id = auth.uid()를 요구하므로,
@@ -138,27 +181,7 @@ export async function upsertProject(project: Project): Promise<void> {
       throw new Error('로그인 세션이 준비되지 않아 프로젝트를 저장할 수 없습니다.');
     }
     const insertRow = { ...row, owner_id: authedUserId };
-    const { error } = await supabase!.from('projects').insert(insertRow);
-    if (error && isAssignmentsSchemaError(error)) {
-      const minimal = toProjectRowMinimal(project) as Record<string, unknown>;
-      const minimalWithOwner = authedUserId ? { ...minimal, owner_id: authedUserId } : minimal;
-      const { error: err2 } = await supabase!.from('projects').insert(minimalWithOwner);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'project_kind')) {
-      const { project_kind: _pk, ...insertWithoutKind } = insertRow as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutKind);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'pm_name')) {
-      const { pm_name: _pm, ...insertWithoutPm } = insertRow as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutPm);
-      if (err2) throw err2;
-    } else if (error && isMissingColumnError(error, 'include_in_dashboard')) {
-      const { include_in_dashboard: _inc, ...insertWithoutDash } = insertRow as Record<string, unknown>;
-      const { error: err2 } = await supabase!.from('projects').insert(insertWithoutDash);
-      if (err2) throw err2;
-    } else if (error) {
-      throw error;
-    }
+    await insertProjectRowWithSchemaFallback(insertRow as unknown as Record<string, unknown>);
   }
   const action: AuditAction = existingRow ? 'update' : 'create';
   const changes = existingRow ? diffProjectFields(existingRow, row) : undefined;

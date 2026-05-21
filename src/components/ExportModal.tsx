@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Download, FileSpreadsheet, FileJson, FileText, Table } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -100,8 +101,8 @@ export function ExportModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}>
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             <Download size={20} className="text-[var(--color-accent)]" />

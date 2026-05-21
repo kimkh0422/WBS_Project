@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Task, Project } from '../../types';
+import { formatPercent1, round1 } from '../../lib/utils';
 import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../../lib/workEffortUnits';
 
 export interface SummaryStats {
@@ -8,6 +9,8 @@ export interface SummaryStats {
   effortDisplayAmount: number;
   effortDisplayLabel: string;
   avgProgress: number;
+  /** 요약 바「전체 진척율」계산 방식 설명 (title 툴팁) */
+  avgProgressTooltip: string;
   startDate: string;
   endDate: string;
   taskCount: number;
@@ -78,11 +81,11 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
         totalWeight += w;
         acc += p * w;
       }
-      if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
+      if (totalWeight > 0) return Math.min(100, Math.max(0, round1(acc / totalWeight)));
       if (items.length > 0)
         return Math.min(
           100,
-          Math.max(0, Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
+          Math.max(0, round1(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
         );
       return 0;
     };
@@ -90,8 +93,42 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       level1.length > 0
         ? computeWeighted(level1)
         : forAggregate.length > 0
-          ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
+          ? Math.min(100, Math.max(0, round1(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
           : 0;
+
+    let avgProgressTooltip: string;
+    if (level1.length > 0) {
+      const parts: string[] = [
+        '요약 바「전체 진척율」은 WBS 깊이 1인 작업만 집계합니다.',
+        '각 1레벨 작업의 진척률에 가중치를 곱한 합을, 가중치 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.',
+        '가중치는 작업에 입력한 진척 가중치가 있으면 그 값을 쓰고, 없으면 공수를 해당 프로젝트 단위에서 M/D로 환산한 값을 씁니다.',
+        `현재 표시: ${formatPercent1(avgProgress)}%`,
+      ];
+      const maxShow = 8;
+      if (level1.length <= maxShow) {
+        parts.push('1레벨 작업별 기여(진척×가중):');
+        for (const t of level1) {
+          const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
+          const w =
+            typeof t.weight === 'number' && Number.isFinite(t.weight)
+              ? t.weight
+              : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
+                ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
+                : 0;
+          const nm = (t.name ?? '').trim() || t.id;
+          const short = nm.length > 26 ? `${nm.slice(0, 26)}…` : nm;
+          parts.push(`· ${short}: ${formatPercent1(p)}% × ${w} → ${Math.round(p * w * 100) / 100}`);
+        }
+      } else {
+        parts.push(`1레벨 작업 ${level1.length}개(일부만 표시하려면 작업 수를 줄이거나 필터를 사용하세요).`);
+      }
+      avgProgressTooltip = parts.join('\n');
+    } else {
+      avgProgressTooltip = [
+        '깊이 1 작업이 없어, 단말(리프) 작업들의 진척률 산술평균을 사용합니다.',
+        `현재 표시: ${formatPercent1(avgProgress)}%`,
+      ].join('\n');
+    }
 
     // 기간 표시: 단일 프로젝트 뷰에서는 그 프로젝트의 startDate/endDate를 우선 표시한다.
     // 프로젝트 일정이 비어 있거나 다중 프로젝트가 섞여 있으면 작업의 min/max 합산으로 폴백.
@@ -111,6 +148,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       effortDisplayAmount,
       effortDisplayLabel,
       avgProgress,
+      avgProgressTooltip,
       startDate,
       endDate,
       taskCount: source.length,

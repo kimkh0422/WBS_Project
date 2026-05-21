@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
 import { X, History, Clock, CheckCircle2 } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
+import { APP_CHANGELOG_JSON, APP_COMMIT_DATE } from '../appRelease';
 
 interface VersionHistory {
   version: string;
@@ -37,7 +40,7 @@ function parseDateMaybe(value: string): number {
 
 function getHistoryData(): VersionHistory[] {
   try {
-    const parsed = JSON.parse(__APP_CHANGELOG_JSON__) as VersionHistory[];
+    const parsed = JSON.parse(APP_CHANGELOG_JSON) as VersionHistory[];
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
   } catch {
     /* fallback */
@@ -128,22 +131,22 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
 
   const commitDateText = (() => {
     try {
-      const d = new Date(__APP_COMMIT_DATE__);
-      if (Number.isNaN(d.getTime())) return __APP_COMMIT_DATE__;
+      const d = new Date(APP_COMMIT_DATE);
+      if (Number.isNaN(d.getTime())) return APP_COMMIT_DATE;
       return d.toLocaleDateString('ko-KR', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
       });
     } catch {
-      return __APP_COMMIT_DATE__;
+      return APP_COMMIT_DATE;
     }
   })();
 
   const commitDateFullText = (() => {
     try {
-      const d = new Date(__APP_COMMIT_DATE__);
-      if (Number.isNaN(d.getTime())) return __APP_COMMIT_DATE__;
+      const d = new Date(APP_COMMIT_DATE);
+      if (Number.isNaN(d.getTime())) return APP_COMMIT_DATE;
       return d.toLocaleString('ko-KR', {
         year: 'numeric',
         month: '2-digit',
@@ -153,7 +156,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
         hour12: false,
       });
     } catch {
-      return __APP_COMMIT_DATE__;
+      return APP_COMMIT_DATE;
     }
   })();
 
@@ -175,7 +178,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+      className={cn(MODAL_BACKDROP_CLASS, 'z-[100]')}
       role="dialog"
       aria-modal="true"
       aria-label="버전 히스토리"
@@ -185,7 +188,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
       }}
     >
       <div
-        className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[85vh]"
+        className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-4xl overflow-hidden flex flex-col max-h-[85vh]')}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">

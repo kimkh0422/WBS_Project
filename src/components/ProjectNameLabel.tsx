@@ -23,7 +23,7 @@ interface ProjectNameLabelProps {
   title?: string;
 }
 
-/** 프로젝트 항목(상품·연구·용역·유지·제품·기타) 뱃지 + 프로젝트명 */
+/** 프로젝트 항목(상품·연구·용역·유지·제품·내부·기타) 뱃지 + 프로젝트명 */
 export function ProjectNameLabel({
   name,
   projectKind,

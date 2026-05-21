@@ -82,12 +82,24 @@ export interface WBSContextType {
   copyProject: (sourceProjectId: string) => void;
   addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string) => string;
   addTasks: (tasks: Task[]) => void;
-  updateTask: (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => void;
+  updateTask: (
+    id: string,
+    updates: Partial<Task>,
+    options?: {
+      skipCascade?: boolean;
+      /** 간트 막대 이동: 공수↔일정 연동 생략 + 프로젝트 일자 클램프 생략(기간 유지) */
+      skipEffortScheduleLink?: boolean;
+      /** 여러 행 연속 패치 시 상위 롤업을 이 호출에서 건너뜀 → 마지막에 flushProjectTaskRollups */
+      deferScheduleSync?: boolean;
+    },
+  ) => void;
   /** 여러 작업에 동일한 수정 일괄 적용 (일정 변경 없을 때만 사용, 충돌 방지) */
   updateTasksBulk: (taskIds: string[], updates: Partial<Task>) => void;
   /** 화면 순서대로 선행작업 체인 연결 (각 작업의 선행은 목록에서 바로 위 작업만) */
   linkSequentialPredecessors: (orderedTaskIds: string[], options?: { bulkWorkEffort?: number; bulkAllocationPercent?: number }) => void;
   deleteTask: (id: string) => void;
+  /** 간트 다중 행 일정 패치 후 프로젝트 상위 롤업을 한 번에 수행 */
+  flushProjectTaskRollups: (projectId: string) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;

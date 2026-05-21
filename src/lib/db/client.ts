@@ -46,9 +46,29 @@ export function isRpcNotFoundError(error: unknown): boolean {
 export async function getAuthedUserId(): Promise<string | null> {
   if (!supabase) return null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     return session?.user?.id ?? null;
   } catch {
     return null;
   }
+}
+
+/** PostgREST PGRST204: select/upsert payload에 스키마에 없는 컬럼이 있을 때 */
+export function getMissingColumnNameFromPgrst204(err: { code?: string; message?: string }): string | null {
+  if (err.code !== 'PGRST204') return null;
+  const msg = err.message ?? '';
+  const m = msg.match(/could not find the '([^']+)' column/i);
+  return m?.[1] ? String(m[1]) : null;
+}
+
+/** 쉼표 구분 select 목록에서 컬럼 한 개 제거(스키마 폴백용) */
+export function stripSelectListColumn(selectList: string, column: string): string {
+  const colLower = column.toLowerCase();
+  return selectList
+    .split(',')
+    .map((s) => s.trim())
+    .filter((c) => c.length > 0 && c.toLowerCase() !== colLower)
+    .join(',');
 }

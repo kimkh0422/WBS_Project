@@ -54,6 +54,16 @@ VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
    - **Site URL**: `http://localhost:5173` (로컬) 또는 배포 URL
    - **Redirect URLs**: `http://localhost:5173/**` 등 추가
 
+### 슈퍼 관리자 등 고정 계정으로 로그인하려면
+
+DB 마이그레이션의 `is_bootstrap_super_admin` 등은 **`public.profiles`의 `is_admin`만** 자동으로 맞춥니다. **로그인 자체는 Supabase Auth(`auth.users`)에 사용자가 있어야** 합니다.
+
+1. **Authentication** → **Users** → **Add user** → **Create new user**
+2. 이메일·비밀번호 입력 후 생성 (예: `wbsadmin@gmtc.kr`)
+3. 앱에서 로그인. 이후 `ensure_profile` 등이 실행되면 부트스트랩 이메일은 `profiles.is_admin = true`로 갱신됩니다.
+
+이미 Auth에만 없고 `profiles` 행만 있는 경우에도 로그인은 불가하므로, 위처럼 Auth 사용자를 만든 뒤 같은 이메일로 맞추면 됩니다.
+
 ## 6. Edge Function 배포 (관리자 회원 삭제 기능)
 
 관리자가 회원을 삭제하려면 `admin-delete-user` Edge Function을 배포해야 합니다.
@@ -67,7 +77,7 @@ VITE_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 **비밀번호 관리자 모드**로 회원 관리에 들어간 경우( DB `is_admin` 없이 앱 비밀번호만 입력 ): 회원 삭제도 Edge Function이 허용해야 합니다. **반드시 최신 `admin-delete-user`를 다시 배포**하세요. (구버전 함수는 DB 관리자만 삭제 가능해 `403` / `non-2xx`가 납니다.)
 
-선택: 대시보드 **Edge Functions** → `admin-delete-user` → **Secrets**에 `WBS_ADMIN_PASSWORD`를 설정하면 앱의 관리자 비밀번호와 동일하게 맞출 수 있습니다. 미설정 시 기본값 `6501`과 비교합니다(프로덕션에서는 시크릿 설정 권장).
+선택: 대시보드 **Edge Functions** → `admin-delete-user` → **Secrets**에 `WBS_ADMIN_PASSWORD`를 설정하면 앱의 관리자 비밀번호와 동일하게 맞출 수 있습니다. 미설정 시 기본값 `6502`와 비교합니다(프로덕션에서는 시크릿 설정 권장).
 
 ## 7. 앱 실행
 
@@ -83,6 +93,7 @@ npm run dev
 
 | 증상 | 해결 |
 |------|------|
+| `Invalid login credentials` / 로그인만 안 됨 | **Authentication → Users**에 해당 이메일 사용자가 있는지 확인. 없으면 **Add user**로 생성하거나 앱에서 **회원가입**(@gmtc.kr)으로 만듭니다. DB `profiles`만 있고 Auth에 없으면 로그인되지 않습니다. |
 | `Could not find the table 'public.profiles'` | 4단계 마이그레이션을 실행했는지 확인 |
 | `Unsupported provider` | Auth Providers에서 Email 또는 사용할 OAuth 활성화 |
 | 프로젝트 PAUSED | Supabase 대시보드에서 프로젝트 복원 |

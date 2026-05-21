@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { ChevronLeft, Building2, Briefcase, Users, ListChecks } from 'lucide-react';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -96,7 +96,7 @@ export function DashboardDivisionDetail({
               {stats.name}
             </h1>
             <p className="text-sm text-stone-500 mt-1">
-              이 사업부 소속 담당자가 있는 작업과, 프로젝트 그룹(부서명)이 이 사업부에 매칭되는 프로젝트를 모았습니다.
+              대시보드에 포함된 프로젝트 중, 프로젝트 그룹(부서명)이 이 사업부에 맞거나 이 사업부 소속 담당자 작업이 있는 항목을 모았습니다.
             </p>
           </div>
         </div>
@@ -116,7 +116,7 @@ export function DashboardDivisionDetail({
           <div className="flex items-baseline justify-between gap-2 mb-1.5">
             <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
             <span className={cn('font-bold text-indigo-600 tabular-nums', mobileReadabilityMode ? 'text-xl' : 'text-2xl')}>
-              {stats.progress}%
+              {formatPercent1(stats.progress)}%
             </span>
           </div>
           <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
@@ -312,7 +312,7 @@ export function DashboardDivisionDetail({
                           className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full border inline-block', colorProps.className)}
                           style={colorProps.style}
                         >
-                          {typeof t.progress === 'number' ? `${formatNum2(t.progress)}%` : (sc?.name ?? '—')}
+                          {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : (sc?.name ?? '—')}
                         </span>
                       </td>
                     </tr>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, AlertTriangle, Calendar, TrendingUp, Check } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import type { WorkloadDay } from '../lib/workload';
 import type { Task } from '../types';
 import { useOrganization } from '../context/OrganizationContext';
@@ -66,8 +67,8 @@ export function OverloadWarningModal({ isOpen, onClose, overloads, tasksById, wb
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-2xl max-h-[85vh] flex flex-col overflow-hidden')}>
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-amber-50/80">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
@@ -97,7 +98,7 @@ export function OverloadWarningModal({ isOpen, onClose, overloads, tasksById, wb
                       {formatAssigneeDisplay(o.assignee, assigneeDisplayMetaByName)}
                     </span>
                     <span className="text-sm font-bold text-amber-700 shrink-0">
-                      {o.date} · {o.totalPercent}%
+                      {o.date} · {formatPercent1(o.totalPercent)}%
                     </span>
                   </div>
                   <div className="text-xs text-slate-600 space-y-1">

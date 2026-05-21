@@ -1,5 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 
 export type VisitTrendPoint = { visitDate: string; count: number };
 
@@ -206,7 +206,7 @@ export function DashboardVisitTrendChart({
           <div className="text-[11px] font-semibold text-stone-800 leading-snug">{fmtLongKo(points[hoverIndex].visitDate)}</div>
           <div className="text-[11px] text-stone-600 tabular-nums mt-0.5">
             세션 <span className="font-semibold text-sky-700">{points[hoverIndex].count}</span>건
-            <span className="text-stone-400"> · 최대 대비 {max > 0 ? Math.round((points[hoverIndex].count / max) * 100) : 0}%</span>
+            <span className="text-stone-400"> · 최대 대비 {formatPercent1(max > 0 ? (points[hoverIndex].count / max) * 100 : 0)}%</span>
           </div>
         </div>
       )}

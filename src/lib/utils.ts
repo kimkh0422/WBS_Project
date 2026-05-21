@@ -17,6 +17,7 @@ export function cn(...inputs: ClassValue[]) {
 export function formatDate(dateStr: string): string {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('ko-KR', {
+    year: 'numeric',
     month: 'long',
     day: 'numeric',
   });
@@ -46,4 +47,10 @@ export function formatNum1(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
   const r = round1(n);
   return r % 1 === 0 ? String(Math.round(r)) : r.toFixed(1);
+}
+
+/** 진척률·투입율 등 % 숫자 부분: 소수 첫째 자리까지 항상 표기 (예: 0.0, 12.3, 100.0). */
+export function formatPercent1(n: number): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
+  return round1(n).toFixed(1);
 }

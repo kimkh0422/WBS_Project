@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useWBS } from '../context/WBSContext';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 import {
   ChevronDown,
   ChevronUp,
@@ -28,7 +28,7 @@ import { useWbsSummaryStats } from './hooks/useWbsSummaryStats';
 import { useWbsBulkEdit } from './hooks/useWbsBulkEdit';
 import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
-import { HeaderCell } from './WBSTable/HeaderCell';
+import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { SortableTaskRow } from './SortableTaskRow';
 import { ExcelGrid } from './ExcelGrid';
@@ -47,7 +47,12 @@ import { getCriticalPathTaskIds } from '../lib/schedule';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
-import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import {
+  buildProjectEffortUnitMap,
+  DEFAULT_NEW_TASK_WORK_EFFORT,
+  normalizeWorkEffortUnit,
+  workEffortUnitSuffixKo,
+} from '../lib/workEffortUnits';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -86,6 +91,7 @@ export function WBSTable({
   sortConfig,
   onSort,
   syncScrollRef,
+  splitHeaderScrollRef,
   rowHeight: propRowHeight,
   onRowHeightChange,
   onRowHeightsChange,
@@ -93,6 +99,7 @@ export function WBSTable({
   hotkeysEnabled = true,
   onOpenColumnSettings,
   fillHeight = false,
+  autoFitColumnsOnMount = false,
   onResetFilters,
   scrollToTaskId,
 }: WBSTableProps) {
@@ -521,7 +528,7 @@ export function WBSTable({
         continue;
       }
       const pct = pctByAssignee.has(current) ? pctByAssignee.get(current)! : 100;
-      map.set(task.id, `${pct}%`);
+      map.set(task.id, `${formatPercent1(pct)}%`);
     }
     return map;
   }, [visibleTasks, projectAssignmentsByProjectId]);
@@ -545,7 +552,43 @@ export function WBSTable({
     taskIdToSeqNum,
     customColumnNameById,
     assigneeDisplayMetaByName,
+    criticalPathTaskIds: effectiveCriticalPathSet,
   });
+
+  const tableAutoFitFilterKey = useMemo(() => {
+    const p = filters.projectIds;
+    if (p === 'all') return 'all';
+    if (Array.isArray(p)) return p.slice().sort().join(',');
+    return String(p);
+  }, [filters.projectIds]);
+
+  /** 표만 뷰: 암묵적 자동 맞춤이 허용될 때만, 첫 표시·프로젝트·프로젝트 필터 바뀔 때 컬럼을 데이터에 맞게 일괄 조정 */
+  useEffect(() => {
+    if (!autoFitColumnsOnMount) return;
+    if (wbsSettings?.skipImplicitTableColumnAutoFit === true) return;
+    if (visibleColumnIds.length === 0) return;
+    let cancelled = false;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      if (cancelled) return;
+      raf2 = requestAnimationFrame(() => {
+        if (cancelled) return;
+        autoFitAllColumns(visibleColumnIds, { implicitOrToolbarAutoFit: true });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [
+    autoFitColumnsOnMount,
+    wbsSettings?.skipImplicitTableColumnAutoFit,
+    visibleColumnIds,
+    autoFitAllColumns,
+    currentProjectId,
+    tableAutoFitFilterKey,
+  ]);
 
   const gridStyle = useMemo(() => {
     const parts: string[] = [];
@@ -601,6 +644,16 @@ export function WBSTable({
       setActiveTaskId(id);
     },
     [setLastSelectedIdRaw, setActiveTaskId],
+  );
+
+  /** 키보드/탭으로 행 포커스만 옮길 때 Shift 범위 앵커와 동기화 (옛 클릭 앵커가 남아 ↑/↓+Shift가 어긋나는 현상 방지) */
+  const syncRangeAnchorForKeyboardFocus = useCallback(
+    (taskId: string | null) => {
+      if (taskId == null) return;
+      rangeAnchorRef.current = taskId;
+      setAnchorTaskId(taskId);
+    },
+    [setAnchorTaskId],
   );
 
   // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
@@ -700,6 +753,7 @@ export function WBSTable({
     inlineAddingTaskId,
     setInlineAddingTaskId,
     setLastSelectedId,
+    syncRangeAnchorForKeyboardFocus,
     setTableEditMode,
     setFocusedCell,
     setInlineEditingNameId,
@@ -743,7 +797,7 @@ export function WBSTable({
         startDate: filters.startDate || defaultDate,
         endDate: filters.endDate || defaultDate,
         progress: 0,
-        workEffort: 0.5,
+        workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
         status: 'todo',
       },
@@ -796,7 +850,7 @@ export function WBSTable({
       startDate: filters.startDate || defaultDate,
       endDate: filters.endDate || defaultDate,
       progress: 0,
-      workEffort: 0.5,
+      workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
       assignee: filters.assignee || '',
       status: 'todo',
       parentId: null,
@@ -902,6 +956,8 @@ export function WBSTable({
   const summaryStats = useWbsSummaryStats(baseTasks, projects);
 
   const isSplitView = !!syncScrollRef;
+  /** 표만(분할 아님) + 스프레드시트 편집 모드: 헤더 클릭 정렬 비활성 — 열/너비 조작 시 의도치 않은 정렬 방지 */
+  const headerSortClickEnabled = isSplitView || !tableEditMode;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
 
   /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그.
@@ -937,6 +993,7 @@ export function WBSTable({
         label={id.startsWith('custom:') ? customColumnNameById.get(id) : undefined}
         workEffortHeaderTitle={workEffortHeaderTitle}
         sortConfig={sortConfig}
+        headerSortClickEnabled={headerSortClickEnabled}
         onSort={onSort}
         resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
         onColContextMenu={(ev) => handleHeaderContextMenu(ev, id)}
@@ -953,7 +1010,7 @@ export function WBSTable({
       {/* 컬럼 너비 자동 조정용 측정 요소 (화면 밖, 테이블과 동일 폰트) */}
       <div
         ref={measureRef}
-        className="absolute left-[-9999px] top-0 text-xs font-sans whitespace-nowrap invisible pointer-events-none"
+        className="absolute left-[-9999px] top-0 text-[13px] font-medium font-sans tracking-[-0.01em] whitespace-nowrap invisible pointer-events-none"
         aria-hidden
       />
       {/* === Summary Bar (표 바로 위: 통계·레벨 펼치기·편집·줄간격) === */}
@@ -970,7 +1027,7 @@ export function WBSTable({
         setExcelView={setExcelView}
         rowHeight={rowHeight}
         handleSetRowHeight={handleSetRowHeight}
-        onAutoFitColumns={() => autoFitAllColumns(visibleColumnIds)}
+        onAutoFitColumns={() => autoFitAllColumns(visibleColumnIds, { implicitOrToolbarAutoFit: true })}
         onOpenMdEditor={() => {
           const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
           const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
@@ -985,7 +1042,12 @@ export function WBSTable({
         {/* Split view: 헤더를 스크롤 밖에 두되, 가로 스크롤은 본문과 동기화 */}
         {!excelView && isSplitView && (
           <div
-            ref={headerScrollRef}
+            ref={(el) => {
+              headerScrollRef.current = el;
+              const r = splitHeaderScrollRef;
+              if (typeof r === 'function') r(el);
+              else if (r) (r as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            }}
             className="flex-shrink-0 border-b border-slate-200 bg-slate-50/80 overflow-x-auto overflow-y-hidden"
             onScroll={(e) => {
               if (isSyncingScrollRef.current) return;
@@ -1241,6 +1303,7 @@ export function WBSTable({
                               customColumnNameById={customColumnNameById}
                               projectEffortUnitByProjectId={projectEffortUnitByProjectId}
                               prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
+                              rollupTooltipBaseTasks={baseTasks}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -1301,7 +1364,7 @@ export function WBSTable({
                                                   startDate: filters.startDate || defaultDate,
                                                   endDate: filters.endDate || defaultDate,
                                                   progress: 0,
-                                                  workEffort: 0.5,
+                                                  workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
                                                   assignee: filters.assignee || '',
                                                   status: 'todo',
                                                 });
@@ -1398,6 +1461,10 @@ export function WBSTable({
                 )}
               </div>
             </div>
+            {/* 표+간트: 간트 하단 수평 스크롤바(12px)와 세로 뷰포트·스크롤 범위를 맞춤 */}
+            {isSplitView && !excelView && (
+              <div className="flex-shrink-0 border-t border-stone-200 overflow-x-hidden" style={{ height: 12 }} aria-hidden />
+            )}
           </div>
         )}
         {excelView && (
@@ -1523,6 +1590,13 @@ export function WBSTable({
                 value={bulkProgress}
                 onChange={(e) => setBulkProgress(e.target.value)}
                 placeholder="0~100"
+                title={[
+                  '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
+                  '',
+                  PROGRESS_COLUMN_HELP_TEXT,
+                  '',
+                  '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
+                ].join('\n')}
                 className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
               />
             </div>
@@ -1537,7 +1611,7 @@ export function WBSTable({
                 value={bulkWeight}
                 onChange={(e) => setBulkWeight(e.target.value)}
                 placeholder="가중치 일괄 지정..."
-                title="진척 가중치. 지정 시 상위/요약 진척률 산정에서 공수 대신 사용됩니다."
+                title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
                 className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
               />
             </div>

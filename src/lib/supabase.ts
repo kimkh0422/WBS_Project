@@ -84,6 +84,8 @@ export interface ProjectRow {
   group_id?: string | null;
   /** 프로젝트 PM 표시 이름 */
   pm_name?: string | null;
+  /** 프로젝트 PO 표시 이름 */
+  po_name?: string | null;
   /** false면 대시보드에 반영하지 않음 */
   include_in_dashboard?: boolean | null;
 }

@@ -3,6 +3,16 @@ import { formatNum2 } from './utils';
 
 export const DEFAULT_WORK_EFFORT_UNIT: WorkEffortUnit = 'day';
 
+/** 신규 작업 등에서 쓰는 저장 공수 기본값 (프로젝트 `workEffortUnit` 기준; 예: day면 1일). */
+export const DEFAULT_NEW_TASK_WORK_EFFORT = 1;
+
+/** 신규 작업에 적용할 공수: `0`은 유지(이정표 등), 양의 유한값은 그대로, 그 외는 {@link DEFAULT_NEW_TASK_WORK_EFFORT}. */
+export function resolveWorkEffortForNewTask(workEffort: number | undefined | null): number {
+  if (workEffort === 0) return 0;
+  if (typeof workEffort === 'number' && Number.isFinite(workEffort) && workEffort > 0) return workEffort;
+  return DEFAULT_NEW_TASK_WORK_EFFORT;
+}
+
 const HOURS_PER_MAN_DAY = 8;
 const MINUTES_PER_MAN_DAY = HOURS_PER_MAN_DAY * 60;
 /** `week` 단위 1주 → MD 환산(영업일 5일) */

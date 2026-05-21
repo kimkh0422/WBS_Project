@@ -284,13 +284,15 @@ npm run version:major        # major
 npm run lint
 ```
 
-### Vite 빌드 시 주입되는 전역 변수
+### Vite에서 주입되는 앱 릴리스 메타 (`src/appRelease.ts`)
 
-| 변수 | 설명 |
-|------|------|
-| `__APP_VERSION__` | package.json의 version |
-| `__APP_COMMIT_DATE__` | 마지막 git 커밋 시각 |
-| `__APP_CHANGELOG_JSON__` | CHANGELOG.md 파싱 결과 (버전·날짜·변경사항) |
+`virtual:app-release` 가상 모듈이 `package.json`, `CHANGELOG.md`, `docs/변경이력_주요기능.md`를 읽어 export합니다. 개발 서버에서는 해당 파일을 watch하므로 **버전만 올리고 저장해도** HMR로 화면의 버전·수정일이 갱신됩니다.
+
+| export | 설명 |
+|--------|------|
+| `APP_VERSION` | package.json의 version |
+| `APP_COMMIT_DATE` | CHANGELOG의 해당 버전 날짜(또는 git 마지막 커밋 시각) |
+| `APP_CHANGELOG_JSON` | 변경이력 JSON 문자열 (`JSON.parse` 후 배열) |
 
 ---
 

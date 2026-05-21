@@ -16,3 +16,22 @@ export function resolveProjectPmRawDisplayName(
   if (fromProfile) return fromProfile;
   return `사용자 (${oid.slice(0, 8)}…)`;
 }
+
+/** 투입 담당자 키(저장된 assignee 문자열)가 프로젝트 PM 표시명과 같은지 — `PersonAllocationDetailPanel` 등과 동일 규칙 */
+export function isAssigneeProjectPm(
+  assigneeKey: string,
+  project: Pick<Project, 'pmName' | 'ownerId'>,
+  profileMap?: Readonly<Record<string, string>>,
+): boolean {
+  const t = assigneeKey.trim();
+  if (!t || t === '(미지정)') return false;
+  return resolveProjectPmRawDisplayName(project, profileMap).trim() === t;
+}
+
+/** 투입 담당자 키가 프로젝트 PO 이름과 같은지(PO 미입력이면 false) */
+export function isAssigneeProjectPo(assigneeKey: string, project: Pick<Project, 'poName'>): boolean {
+  const t = assigneeKey.trim();
+  if (!t || t === '(미지정)') return false;
+  const po = (project.poName ?? '').trim();
+  return Boolean(po && po === t);
+}

@@ -357,7 +357,7 @@ id, session_id uuid, user_id, visited_at, visit_date date, UNIQUE(session_id, vi
 
 ## 18. 빌드 주입
 
-- Vite define: `__APP_CHANGELOG_JSON__`, `__APP_COMMIT_DATE__`, 앱 버전 문자열
+- Vite 가상 모듈 `virtual:app-release` → `src/appRelease.ts`에서 `APP_VERSION`, `APP_COMMIT_DATE`, `APP_CHANGELOG_JSON` export (메타 파일 watch로 dev에서도 최신 반영)
 - 소스: `CHANGELOG.md` 파싱, `version.txt`, git commit date 스크립트
 
 ---

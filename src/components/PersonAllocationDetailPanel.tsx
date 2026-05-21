@@ -2,9 +2,9 @@ import React, { useMemo } from 'react';
 import { X, Briefcase, ListTodo, UserCircle } from 'lucide-react';
 import type { Project, Task, WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
-import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
+import { isAssigneeProjectPm, isAssigneeProjectPo, resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { getStatusColorProps } from '../lib/statusColor';
 import { formatAllocationPercentSumForDisplay, manDaysToManMonths } from '../lib/workEffortUnits';
@@ -82,9 +82,13 @@ export function PersonAllocationDetailPanel({
 
   const pmProjects = useMemo(() => {
     if (person === '(미지정)') return [];
-    const t = person.trim();
-    return projects.filter((p) => resolveProjectPmRawDisplayName(p, profileMap).trim() === t);
+    return projects.filter((p) => isAssigneeProjectPm(person, p, profileMap));
   }, [person, projects, profileMap]);
+
+  const poProjects = useMemo(() => {
+    if (person === '(미지정)') return [];
+    return projects.filter((p) => isAssigneeProjectPo(person, p));
+  }, [person, projects]);
 
   const statusNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -170,6 +174,31 @@ export function PersonAllocationDetailPanel({
         </div>
       )}
 
+      {poProjects.length > 0 && (
+        <div className="mb-5 rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-2.5">
+          <div className="text-xs font-semibold text-amber-950 flex items-center gap-1.5 mb-1.5">
+            <Briefcase size={14} className="shrink-0" aria-hidden />
+            PO로 등록된 프로젝트
+          </div>
+          <ul className="text-sm text-amber-950 space-y-1">
+            {poProjects.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium break-words">{formatProjectDisplayName(p.name, p.projectKind)}</span>
+                {onNavigateToWork && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToWork(p.id)}
+                    className="text-[11px] font-semibold text-amber-800 hover:underline"
+                  >
+                    작업 표
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mb-5">
         <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
           <Briefcase size={14} />
@@ -203,7 +232,9 @@ export function PersonAllocationDetailPanel({
                       <td className="px-3 py-2 font-medium text-stone-800 break-words max-w-[14rem]">
                         {formatProjectDisplayName(project.name, project.projectKind)}
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">{formatNum2(allocationPercent)}%</td>
+                      <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">
+                        {formatPercent1(allocationPercent)}%
+                      </td>
                       <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                         {md > 0 ? formatEffortFromManDays(md, effortDisplayUnit) : '—'}
                       </td>
@@ -215,7 +246,7 @@ export function PersonAllocationDetailPanel({
                               .sort(([a], [b]) => a.localeCompare(b))
                               .map(([ym, pct]) => (
                                 <span key={ym} className="tabular-nums">
-                                  {ym} {pct}%
+                                  {ym} {formatPercent1(Number(pct))}%
                                 </span>
                               ))}
                           </div>
@@ -295,7 +326,7 @@ export function PersonAllocationDetailPanel({
                           {statusLabel}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatNum2(task.progress)}%</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
                       <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                         {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                       </td>

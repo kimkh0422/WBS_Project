@@ -15,6 +15,8 @@ export interface DragState {
   type: DragType;
   startX: number;
   startY: number;
+  /** mousedown 시점의 dayWidth. 드래그 중 리렌더(스크롤바 등)로 dayWidth가 바뀌면 일수가 튀는 것을 방지 */
+  lockedDayWidth: number;
   /** 클릭(드래그 없음) 시 선택용 */
   clickTaskId: string;
   ctrlKey: boolean;

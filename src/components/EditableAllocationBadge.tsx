@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { manDaysToManMonths } from '../lib/workEffortUnits';
 
 interface EditableAllocationBadgeProps {
@@ -17,7 +17,33 @@ interface EditableAllocationBadgeProps {
   onNavigate?: () => void;
   /** 카드 빈 영역 클릭 시 상세 팝업 등(이름·투입율 버튼 제외) */
   onOpenDetail?: () => void;
+  /** 프로젝트별 인원 카드 등: PM/PO 역할 표시 */
+  roleTags?: ('pm' | 'po')[];
   className?: string;
+}
+
+function RoleTagBadges({ tags }: { tags: ('pm' | 'po')[] }) {
+  if (!tags.length) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 shrink-0">
+      {tags.includes('pm') && (
+        <span
+          className="text-[9px] font-bold text-violet-600 uppercase tracking-wide px-1 py-px rounded border border-violet-200/90 bg-violet-50/90 leading-none"
+          title="프로젝트 PM(과제 책임)"
+        >
+          PM
+        </span>
+      )}
+      {tags.includes('po') && (
+        <span
+          className="text-[9px] font-bold text-amber-700 uppercase tracking-wide px-1 py-px rounded border border-amber-200/90 bg-amber-50/90 leading-none"
+          title="프로젝트 PO"
+        >
+          PO
+        </span>
+      )}
+    </span>
+  );
 }
 
 function parseAllocationPercent(raw: string, fallback: number): number {
@@ -39,6 +65,7 @@ export function EditableAllocationBadge({
   onSave,
   onNavigate,
   onOpenDetail,
+  roleTags,
   className,
 }: EditableAllocationBadgeProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -72,6 +99,8 @@ export function EditableAllocationBadge({
       </span>
     ) : null;
 
+  const effectiveRoleTags = roleTags?.filter((x) => x === 'pm' || x === 'po') ?? [];
+
   if (isEditing) {
     const editShell =
       chipLayout === 'stacked'
@@ -81,16 +110,22 @@ export function EditableAllocationBadge({
     return (
       <span className={cn(editShell, className)} onClick={(e) => e.stopPropagation()}>
         <div
-          className={cn('min-w-0', chipLayout === 'stacked' ? 'flex items-start justify-between gap-2' : 'inline-flex items-center gap-1')}
+          className={cn(
+            'min-w-0',
+            chipLayout === 'stacked' ? 'flex items-start justify-between gap-2' : 'inline-flex items-center gap-1 flex-wrap',
+          )}
         >
-          <span
-            className={cn(
-              'text-stone-700',
-              chipLayout === 'stacked' ? 'text-sm font-semibold leading-snug break-words min-w-0' : 'max-w-[8rem] truncate',
-            )}
-            title={projectName}
-          >
-            {projectName}
+          <span className={cn('inline-flex items-start gap-1.5 min-w-0 flex-wrap', chipLayout === 'stacked' && 'flex-1')}>
+            <span
+              className={cn(
+                'text-stone-700',
+                chipLayout === 'stacked' ? 'text-sm font-semibold leading-snug break-words min-w-0' : 'max-w-[8rem] truncate',
+              )}
+              title={projectName}
+            >
+              {projectName}
+            </span>
+            {effectiveRoleTags.length > 0 ? <RoleTagBadges tags={effectiveRoleTags} /> : null}
           </span>
           <span className={cn('inline-flex items-center gap-0.5 shrink-0', chipLayout === 'stacked' && 'pt-0.5')}>
             <input
@@ -148,21 +183,24 @@ export function EditableAllocationBadge({
         title={onOpenDetail ? '카드 빈 영역: 상세 정보 · 이름: 작업 표 · 비율: 수정' : undefined}
       >
         <div className="flex items-start justify-between gap-2 min-w-0">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigate?.();
-            }}
-            disabled={!onNavigate}
-            className={cn(
-              'text-left text-sm font-semibold text-stone-800 leading-snug break-words min-w-0',
-              onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
-            )}
-            title={onNavigate ? `${projectName} 작업 보기` : projectName}
-          >
-            {projectName}
-          </button>
+          <div className="min-w-0 flex-1 flex items-start gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigate?.();
+              }}
+              disabled={!onNavigate}
+              className={cn(
+                'text-left text-sm font-semibold text-stone-800 leading-snug break-words min-w-0',
+                onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
+              )}
+              title={onNavigate ? `${projectName} 작업 보기` : projectName}
+            >
+              {projectName}
+            </button>
+            {effectiveRoleTags.length > 0 ? <RoleTagBadges tags={effectiveRoleTags} /> : null}
+          </div>
           <button
             type="button"
             disabled={disabled}
@@ -177,7 +215,7 @@ export function EditableAllocationBadge({
             )}
             title={disabled ? undefined : '클릭하여 투입율 수정'}
           >
-            {allocationPercent}%
+            {formatPercent1(allocationPercent)}%
           </button>
         </div>
         {subtitle ? <span className="text-[11px] text-stone-500 leading-snug break-words">{subtitle}</span> : null}
@@ -197,21 +235,24 @@ export function EditableAllocationBadge({
       onClick={onOpenDetail ? () => onOpenDetail() : undefined}
       title={onOpenDetail ? '빈 영역: 상세 · 이름: 작업 표 · 비율: 수정' : undefined}
     >
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onNavigate?.();
-        }}
-        disabled={!onNavigate}
-        className={cn(
-          'text-stone-700 max-w-[8rem] truncate text-left',
-          onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
-        )}
-        title={onNavigate ? `${projectName} 작업 보기` : projectName}
-      >
-        {projectName}
-      </button>
+      <span className="inline-flex items-center gap-1 min-w-0 flex-wrap">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate?.();
+          }}
+          disabled={!onNavigate}
+          className={cn(
+            'text-stone-700 max-w-[8rem] truncate text-left',
+            onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
+          )}
+          title={onNavigate ? `${projectName} 작업 보기` : projectName}
+        >
+          {projectName}
+        </button>
+        {effectiveRoleTags.length > 0 ? <RoleTagBadges tags={effectiveRoleTags} /> : null}
+      </span>
       <button
         type="button"
         disabled={disabled}
@@ -226,7 +267,7 @@ export function EditableAllocationBadge({
         )}
         title={disabled ? undefined : '클릭하여 투입율 수정'}
       >
-        {allocationPercent}%
+        {formatPercent1(allocationPercent)}%
       </button>
       {effortSuffix}
     </span>

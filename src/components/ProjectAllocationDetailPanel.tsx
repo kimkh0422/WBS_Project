@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { X, Briefcase, ListTodo, Users } from 'lucide-react';
 import type { Project, Task, WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -109,6 +109,8 @@ export function ProjectAllocationDetailPanel({
 
   const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
   const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, displayMetaByName) : null;
+  const poRaw = (project.poName ?? '').trim();
+  const poDisplay = poRaw ? formatAssigneeDisplay(poRaw, displayMetaByName) : null;
 
   const initial = (project.name || '?').trim().substring(0, 1);
 
@@ -129,8 +131,13 @@ export function ProjectAllocationDetailPanel({
               <h3 className="text-base font-bold text-stone-900 break-words">{title}</h3>
             </div>
             <p className="text-xs text-stone-500 mt-1">{period}</p>
-            <p className="text-xs text-indigo-800 mt-1">
-              PM: <span className={cn('font-semibold', !pmDisplay && 'text-stone-400 font-normal')}>{pmDisplay ?? '미지정'}</span>
+            <p className="text-xs text-indigo-800 mt-1 space-y-0.5">
+              <span className="block">
+                PM: <span className={cn('font-semibold', !pmDisplay && 'text-stone-400 font-normal')}>{pmDisplay ?? '미지정'}</span>
+              </span>
+              <span className="block">
+                PO: <span className={cn('font-semibold', !poDisplay && 'text-stone-400 font-normal')}>{poDisplay ?? '—'}</span>
+              </span>
             </p>
             {project.description?.trim() && (
               <p className="text-xs text-stone-600 mt-2 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
@@ -235,7 +242,9 @@ export function ProjectAllocationDetailPanel({
                   <tr key={a.assignee} className="border-t border-stone-100 align-top">
                     <td className="px-3 py-2 font-medium text-stone-900">{formatAssigneeDisplay(a.assignee, displayMetaByName)}</td>
                     <td className="px-2 py-2 text-stone-600 text-[11px] break-words">{org}</td>
-                    <td className="px-2 py-2 text-right tabular-nums font-semibold text-orange-700">{formatNum2(a.allocationPercent)}%</td>
+                    <td className="px-2 py-2 text-right tabular-nums font-semibold text-orange-700">
+                      {formatPercent1(a.allocationPercent)}%
+                    </td>
                     <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                       {md > 0 ? formatEffortFromManDays(md, effortDisplayUnit) : '—'}
                     </td>
@@ -246,7 +255,7 @@ export function ProjectAllocationDetailPanel({
                             .sort(([k1], [k2]) => k1.localeCompare(k2))
                             .map(([ym, pct]) => (
                               <span key={ym} className="tabular-nums">
-                                {ym} {pct}%
+                                {ym} {formatPercent1(Number(pct))}%
                               </span>
                             ))}
                         </div>
@@ -311,7 +320,7 @@ export function ProjectAllocationDetailPanel({
                           {statusLabel}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatNum2(task.progress)}%</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
                       <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                         {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                       </td>

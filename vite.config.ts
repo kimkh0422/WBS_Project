@@ -2,8 +2,12 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
+import type { Plugin } from 'vite';
 import fs from 'fs';
 import { execSync } from 'child_process';
+
+const VIRTUAL_APP_RELEASE = '\0virtual:app-release';
+const VIRTUAL_APP_RELEASE_ID = 'virtual:app-release';
 
 /** CHANGELOG 파싱: "## v0.1.0 (YYYY-MM-DD)" + "- 항목" 목록 → { version, date, changes }[] (섹션 사이 빈 줄·\r\n 허용) */
 function parseChangelog(changelogPath: string): { version: string; date: string; changes: string[] }[] {
@@ -23,32 +27,66 @@ function parseChangelog(changelogPath: string): { version: string; date: string;
   return sections;
 }
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
+function computeReleaseMeta(root: string): {
+  appVersion: string;
+  commitDate: string;
+  changelogSections: { version: string; date: string; changes: string[] }[];
+} {
+  const pkgPath = path.join(root, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
   const appVersion = pkg && typeof pkg.version === 'string' ? pkg.version : '0.0.0';
-  // 앱 '변경이력' 메뉴 표시용: docs/변경이력_주요기능.md 우선, 없거나 비면 CHANGELOG.md 사용
-  const changelogPath = path.resolve(__dirname, 'docs/변경이력_주요기능.md');
-  const fallbackChangelogPath = path.resolve(__dirname, 'CHANGELOG.md');
+  const changelogPath = path.join(root, 'docs', '변경이력_주요기능.md');
+  const fallbackChangelogPath = path.join(root, 'CHANGELOG.md');
   let changelogSections = parseChangelog(changelogPath);
   if (changelogSections.length === 0) changelogSections = parseChangelog(fallbackChangelogPath);
   const releaseChangelogSections = parseChangelog(fallbackChangelogPath);
   const commitDate = (() => {
     const releaseDate =
-      releaseChangelogSections.find((s) => s.version === appVersion)?.date ??
-      changelogSections.find((s) => s.version === appVersion)?.date;
+      releaseChangelogSections.find((s) => s.version === appVersion)?.date ?? changelogSections.find((s) => s.version === appVersion)?.date;
     if (releaseDate) return `${releaseDate}T12:00:00+09:00`;
     try {
-      return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'] })
+      return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'], cwd: root })
         .toString()
         .trim();
     } catch {
       return new Date().toISOString();
     }
   })();
+  return { appVersion, commitDate, changelogSections };
+}
+
+/** define 캐시로 dev에서 구버전이 남는 문제 방지: 메타 파일을 watch하고 load 시마다 최신값 생성 */
+function virtualAppReleasePlugin(root: string): Plugin {
+  return {
+    name: 'virtual-app-release',
+    resolveId(id) {
+      if (id === VIRTUAL_APP_RELEASE_ID) return VIRTUAL_APP_RELEASE;
+    },
+    load(id) {
+      if (id !== VIRTUAL_APP_RELEASE) return null;
+      this.addWatchFile(path.join(root, 'package.json'));
+      this.addWatchFile(path.join(root, 'CHANGELOG.md'));
+      const docsChangelog = path.join(root, 'docs', '변경이력_주요기능.md');
+      if (fs.existsSync(docsChangelog)) this.addWatchFile(docsChangelog);
+
+      const { appVersion, commitDate, changelogSections } = computeReleaseMeta(root);
+      const changelogJson = JSON.stringify(changelogSections);
+      return [
+        `export const APP_VERSION = ${JSON.stringify(appVersion)};`,
+        `export const APP_COMMIT_DATE = ${JSON.stringify(commitDate)};`,
+        `export const APP_CHANGELOG_JSON = ${JSON.stringify(changelogJson)};`,
+      ].join('\n');
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '.', '');
+  const root = path.resolve(__dirname);
 
   return {
     plugins: [
+      virtualAppReleasePlugin(root),
       react(),
       tailwindcss(),
       // 브라우저가 자동으로 요청하는 "기본 리소스"가 없을 때(특히 개발 중)
@@ -73,9 +111,6 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      __APP_VERSION__: JSON.stringify(appVersion),
-      __APP_COMMIT_DATE__: JSON.stringify(commitDate),
-      __APP_CHANGELOG_JSON__: JSON.stringify(changelogSections),
     },
     resolve: {
       alias: {
@@ -110,7 +145,7 @@ export default defineConfig(({ mode }) => {
       // Vite의 host 헤더 검증에 차단되지 않도록 모든 호스트 허용
       allowedHosts: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     preview: {

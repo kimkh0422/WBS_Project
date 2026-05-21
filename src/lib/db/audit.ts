@@ -120,7 +120,7 @@ export function diffProjectFields(
 ): Array<{ field: string; old_value: unknown; new_value: unknown }> | undefined {
   if (!oldRow) return undefined;
   const changes: Array<{ field: string; old_value: unknown; new_value: unknown }> = [];
-  const fields: (keyof ProjectRow)[] = ['name', 'description', 'start_date', 'end_date', 'pm_name', 'include_in_dashboard'];
+  const fields: (keyof ProjectRow)[] = ['name', 'description', 'start_date', 'end_date', 'pm_name', 'po_name', 'include_in_dashboard'];
   for (const key of fields) {
     const o = oldRow[key];
     const n = newRow[key];

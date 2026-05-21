@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
-import { X, Briefcase, Users, ListTodo, Flag, Bug, ListChecks, ExternalLink, Table2, CalendarClock } from 'lucide-react';
+import { X, Briefcase, Users, ListTodo, Flag, Bug, ListChecks, ExternalLink, Table2, CalendarClock, LayoutGrid, Ban } from 'lucide-react';
 import { isBefore, parseISO, startOfDay } from 'date-fns';
 import type { Project, Task, WorkEffortUnit } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -74,6 +74,11 @@ export interface DashboardProjectCardDetailPanelProps {
   onOpenDashboardProjectDetail?: () => void;
   onNavigateToTable?: (projectId: string) => void;
   onOpenTaskInTable?: (taskId: string, projectId: string) => void;
+  /** 이 브라우저에서만 대시보드 집계·카드에서 제외 중인지(상단「집계 제외」와 동일) */
+  localDashboardAggregationExcluded?: boolean;
+  onToggleLocalDashboardAggregationExclude?: () => void;
+  /** 조직/DB에 저장되는 대시보드 반영 여부(프로젝트 편집의「대시보드에 반영」과 동일) */
+  onIncludeInDashboardChange?: (include: boolean) => void;
 }
 
 export function DashboardProjectCardDetailPanel({
@@ -90,11 +95,16 @@ export function DashboardProjectCardDetailPanel({
   onOpenDashboardProjectDetail,
   onNavigateToTable,
   onOpenTaskInTable,
+  localDashboardAggregationExcluded = false,
+  onToggleLocalDashboardAggregationExclude,
+  onIncludeInDashboardChange,
 }: DashboardProjectCardDetailPanelProps) {
   const s = project.stats;
   const title = formatProjectDisplayName(project.name, project.projectKind);
   const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
   const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
+  const poRaw = (project.poName ?? '').trim();
+  const poDisplay = poRaw ? formatAssigneeDisplay(poRaw, assigneeDisplayMetaByName) : '';
 
   const normalizedAssignments = useMemo(() => normalizeProjectAssignments(project.assignments ?? []), [project.assignments]);
 
@@ -138,6 +148,9 @@ export function DashboardProjectCardDetailPanel({
 
   const period = project.startDate || project.endDate ? `${project.startDate || '미정'} ~ ${project.endDate || '미정'}` : '기간 미정';
 
+  const includeInDashboard = project.includeInDashboard !== false;
+  const showDashboardFlags = onIncludeInDashboardChange != null || onToggleLocalDashboardAggregationExclude != null;
+
   return (
     <div
       className="w-full rounded-xl border border-indigo-100/90 bg-gradient-to-b from-indigo-50/40 via-white to-white shadow-sm overflow-hidden"
@@ -161,9 +174,15 @@ export function DashboardProjectCardDetailPanel({
                 {period}
               </span>
             </p>
-            <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px]">
-              <span className="text-violet-700 font-bold uppercase tracking-wide">PM</span>
-              <span className={cn(!pmDisplay && 'text-stone-400')}>{pmDisplay || '미지정'}</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px]">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-violet-700 font-bold uppercase tracking-wide">PM</span>
+                <span className={cn(!pmDisplay && 'text-stone-400')}>{pmDisplay || '미지정'}</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-amber-800 font-bold uppercase tracking-wide">PO</span>
+                <span className={cn(!poDisplay && 'text-stone-400')}>{poDisplay || '—'}</span>
+              </span>
             </div>
             <p className="text-[11px] text-stone-400 mt-2">같은 카드·행을 다시 클릭하거나 Esc, 팝업 바깥 배경 클릭으로 닫을 수 있습니다.</p>
           </div>
@@ -208,10 +227,56 @@ export function DashboardProjectCardDetailPanel({
           </div>
         )}
 
+        {showDashboardFlags && (
+          <div className="rounded-lg border border-indigo-100/90 bg-gradient-to-br from-indigo-50/70 to-white px-3 py-3 shadow-sm space-y-3">
+            <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wide flex items-center gap-1.5">
+              <LayoutGrid size={14} className="text-indigo-600 shrink-0" aria-hidden />
+              대시보드 반영
+            </h4>
+            <div className="space-y-2.5">
+              {onIncludeInDashboardChange && (
+                <label className="flex gap-2.5 cursor-pointer items-start">
+                  <input
+                    type="checkbox"
+                    checked={includeInDashboard}
+                    onChange={(e) => onIncludeInDashboardChange(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="text-sm font-semibold text-stone-900">대시보드에 반영</span>
+                    <p className="text-[11px] text-stone-600 mt-0.5 leading-relaxed">
+                      끄면 조직 전체 기준으로 요약·프로젝트 카드·목록에서 제외됩니다. WBS·간트 등 작업 화면에는 그대로 표시됩니다.
+                    </p>
+                  </span>
+                </label>
+              )}
+              {onToggleLocalDashboardAggregationExclude && (
+                <label className="flex gap-2.5 cursor-pointer items-start rounded-md border border-amber-100/90 bg-amber-50/50 px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={localDashboardAggregationExcluded}
+                    onChange={() => onToggleLocalDashboardAggregationExclude()}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-amber-700 focus:ring-amber-500"
+                  />
+                  <span className="min-w-0">
+                    <span className="text-sm font-semibold text-stone-900 inline-flex items-center gap-1">
+                      <Ban size={12} className="text-amber-700 shrink-0" aria-hidden />이 기기에서만 집계 제외
+                    </span>
+                    <p className="text-[11px] text-stone-600 mt-0.5 leading-relaxed">
+                      이 브라우저에만 저장됩니다. 상단 도구 모음의「집계 제외」와 같은 목록이며, 체크 시 요약·부서 집계·투입 현황 등에서
+                      빠집니다.
+                    </p>
+                  </span>
+                </label>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
           <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
             <div className="text-[10px] font-semibold text-stone-400 uppercase">진척</div>
-            <div className="text-xl font-bold text-indigo-600 tabular-nums mt-0.5">{formatNum2(s.progress)}%</div>
+            <div className="text-xl font-bold text-indigo-600 tabular-nums mt-0.5">{formatPercent1(s.progress)}%</div>
             <div className="mt-1.5 h-1.5 bg-stone-100 rounded-full overflow-hidden">
               <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" style={{ width: `${Math.min(100, s.progress)}%` }} />
             </div>
@@ -358,7 +423,7 @@ export function DashboardProjectCardDetailPanel({
                           {formatAssigneeDisplay(a.assignee, assigneeDisplayMetaByName)}
                         </td>
                         <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">
-                          {formatNum2(a.allocationPercent)}%
+                          {formatPercent1(a.allocationPercent)}%
                         </td>
                         <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                           {md > 0 ? formatMdMm(md, effortDisplayUnit) : '—'}
@@ -370,7 +435,7 @@ export function DashboardProjectCardDetailPanel({
                                 .sort(([k1], [k2]) => k1.localeCompare(k2))
                                 .map(([ym, pct]) => (
                                   <span key={ym} className="tabular-nums">
-                                    {ym} {pct}%
+                                    {ym} {formatPercent1(Number(pct))}%
                                   </span>
                                 ))}
                             </div>
@@ -439,7 +504,7 @@ export function DashboardProjectCardDetailPanel({
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatNum2(task.progress)}%</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
                         <td className="px-2 py-2 text-right tabular-nums text-stone-600">
                           {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                         </td>

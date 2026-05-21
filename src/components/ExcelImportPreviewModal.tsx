@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { ExcelImportMeta } from '../lib/excel';
 import type { Project } from '../types';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -114,8 +115,8 @@ export function ExcelImportPreviewModal({
     '공수(MD)는 1인 1일 기준입니다. 엑셀에 공수 값이 없으면 시작~종료의 근무일수(주말 제외, 양끝 포함)로 자동 산정됩니다.';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-3xl overflow-hidden')}>
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             <FileSpreadsheet className="text-emerald-600" size={18} />

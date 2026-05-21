@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, type RefObject } from 'react';
 
 function maxScrollTop(el: HTMLElement): number {
   return Math.max(0, el.scrollHeight - el.clientHeight);
@@ -26,6 +26,93 @@ export function mirrorScrollTop(source: HTMLElement, target: HTMLElement) {
 
   const ratio = source.scrollTop / sourceMax;
   target.scrollTop = ratio * targetMax;
+}
+
+export type SplitHorizontalScrollRefs = {
+  tableHeader: RefObject<HTMLDivElement | null>;
+  tableBody: RefObject<HTMLDivElement | null>;
+  ganttHeader: RefObject<HTMLDivElement | null>;
+  ganttBottom: RefObject<HTMLDivElement | null>;
+};
+
+/**
+ * split 뷰: 표 컬럼 헤더·본문(scrollLeft) ↔ 간트 날짜 헤더·하단 스크롤바 가로 위치 동기화.
+ * 간트 본문은 overflow-x-hidden이라 가로 스크롤이 헤더/하단에만 있어 별도 연동이 필요하다.
+ */
+export function useSplitHorizontalScrollSync(
+  refs: SplitHorizontalScrollRefs,
+  enabled: boolean,
+  /** 엘리먼트가 늦게 붙거나(간트 빈 상태 등) 바뀔 때 리스너를 다시 붙이기 위한 키 */
+  reattachDeps: unknown[],
+) {
+  useEffect(() => {
+    if (!enabled) return;
+
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    let raf = 0;
+    let attempts = 0;
+
+    const attach = () => {
+      const th = refs.tableHeader.current;
+      const tb = refs.tableBody.current;
+      const gh = refs.ganttHeader.current;
+      const gb = refs.ganttBottom.current;
+
+      if (!th || !tb || !gh || !gb) {
+        if (!cancelled && attempts < 120) {
+          attempts += 1;
+          raf = requestAnimationFrame(attach);
+        }
+        return;
+      }
+
+      let hSync = false;
+
+      const syncFromTable = () => {
+        if (hSync) return;
+        hSync = true;
+        const left = th.scrollLeft;
+        if (gh.scrollLeft !== left) gh.scrollLeft = left;
+        if (gb.scrollLeft !== left) gb.scrollLeft = left;
+        if (tb.scrollLeft !== left) tb.scrollLeft = left;
+        hSync = false;
+      };
+
+      const syncFromGantt = (left: number) => {
+        if (hSync) return;
+        hSync = true;
+        if (th.scrollLeft !== left) th.scrollLeft = left;
+        if (tb.scrollLeft !== left) tb.scrollLeft = left;
+        if (gh.scrollLeft !== left) gh.scrollLeft = left;
+        if (gb.scrollLeft !== left) gb.scrollLeft = left;
+        hSync = false;
+      };
+
+      const onTh = () => syncFromTable();
+      const onGh = () => syncFromGantt(gh.scrollLeft);
+      const onGb = () => syncFromGantt(gb.scrollLeft);
+
+      th.addEventListener('scroll', onTh, { passive: true });
+      gh.addEventListener('scroll', onGh, { passive: true });
+      gb.addEventListener('scroll', onGb, { passive: true });
+
+      cleanup = () => {
+        th.removeEventListener('scroll', onTh);
+        gh.removeEventListener('scroll', onGh);
+        gb.removeEventListener('scroll', onGb);
+      };
+    };
+
+    attach();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      cleanup?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs 객체는 안정적이며 reattachDeps로 재연결 시점을 제어
+  }, [enabled, ...reattachDeps]);
 }
 
 /** 표·간트 본문 외부(드롭다운 등)의 세로 스크롤만 제외 */

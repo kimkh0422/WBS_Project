@@ -44,6 +44,7 @@ import { departmentInManagedSubtree } from '../lib/orgProfileScope';
 import { buildOrgDepartmentByNameMap, lookupOrgDepartment, resolveMemberDepartment } from '../lib/orgDepartmentLookup';
 import { buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
 import { cn } from '../lib/utils';
+import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS, MODAL_BACKDROP_CLASS } from '../lib/modalChrome';
 import { formatProjectDisplayName } from '../lib/projectKind';
 
 interface MembersModalProps {
@@ -517,8 +518,11 @@ export function MembersModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-50 animate-in fade-in duration-150" onClick={onClose} />
-      <div className="fixed inset-4 z-50 bg-white rounded-2xl shadow-xl border border-[var(--color-line)] overflow-hidden animate-in zoom-in-95 fade-in duration-200 flex flex-col md:inset-8">
+      <div className={cn(MODAL_SCRIM_CLASS, 'z-50')} onClick={onClose} />
+      <div
+        className={cn(MODAL_PANEL_BASE_CLASS, 'fixed z-[51] inset-4 md:inset-8 overflow-hidden flex flex-col border-[var(--color-line)]')}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-5 border-b border-[var(--color-line)]">
           <h2 className="text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
             <Users size={20} />
@@ -1161,8 +1165,8 @@ export function MembersModal({
       </div>
 
       {memberToDelete && (
-        <div className="fixed inset-0 bg-black/30 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-xl border border-[var(--color-line)] w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[60]')} onClick={() => setMemberToDelete(null)}>
+          <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')} onClick={(e) => e.stopPropagation()}>
             <div className="p-5 border-b border-[var(--color-line)]">
               <h3 className="text-lg font-bold text-[var(--color-ink)]">회원 삭제</h3>
               <p className="mt-2 text-sm text-stone-600">
@@ -1205,8 +1209,8 @@ export function MembersModal({
       />
 
       {bulkConfirmOpen && (
-        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-xl border border-[var(--color-line)] w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[60]')} onClick={closeBulkModal}>
+          <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-lg overflow-hidden')} onClick={(e) => e.stopPropagation()}>
             <div className="p-5 border-b border-[var(--color-line)] bg-red-50/50">
               <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
                 <AlertTriangle size={20} />

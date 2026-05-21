@@ -19,7 +19,8 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities';
 import { useWBS } from '../context/WBSContext';
 import { Task, TaskStatus, FilterState } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
+import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../lib/workEffortUnits';
 import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
@@ -309,7 +310,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
                 task.progress === 100 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700',
               )}
             >
-              {task.progress}%
+              {formatPercent1(task.progress)}%
             </div>
           )}
         </div>
@@ -482,7 +483,7 @@ function KanbanColumn({
               className="bg-blue-50 px-2 py-0.5 rounded-full text-[10px] font-bold text-blue-700 border border-blue-100 tabular-nums"
               title={`${column.name} 단계 기본 진척률`}
             >
-              {column.progress}%
+              {formatPercent1(column.progress)}%
             </span>
           )}
         </div>
@@ -924,7 +925,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         startDate: filters.startDate || today,
         endDate: filters.endDate || today,
         progress: 0,
-        workEffort: 0.5,
+        workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
         parentId: null,
       });
@@ -949,7 +950,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         startDate: filters.startDate || today,
         endDate: filters.endDate || today,
         progress: 0,
-        workEffort: 0.5,
+        workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
         parentId: null,
         description: `![image](${url})`,

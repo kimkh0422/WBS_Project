@@ -91,6 +91,7 @@ export function toProjectRow(project: Project): ProjectRow {
     report_name_full: project.reportNameFull ?? null,
     group_id: project.groupId ?? null,
     pm_name: project.pmName?.trim() ? project.pmName.trim() : null,
+    po_name: project.poName?.trim() ? project.poName.trim() : null,
     include_in_dashboard: project.includeInDashboard !== false,
   };
 }
@@ -135,6 +136,7 @@ export function fromProjectRow(row: ProjectRow): Project {
     reportNameFull: row.report_name_full ?? undefined,
     groupId: row.group_id ?? undefined,
     pmName: row.pm_name?.trim() ? row.pm_name.trim() : undefined,
+    poName: row.po_name?.trim() ? row.po_name.trim() : undefined,
     includeInDashboard,
   };
 }

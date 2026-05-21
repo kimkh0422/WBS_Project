@@ -6,8 +6,9 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
 import { useOrganization } from '../context/OrganizationContext';
-import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { randomUUID, cn, round1, round2 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   filterTasksForDependencyPicker,
   getActiveDependencyToken,
@@ -169,7 +170,7 @@ export function TaskModal({
     startDate: defaultDate,
     endDate: defaultDate,
     progress: 0,
-    workEffort: 0.5,
+    workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
     assignee: '',
     allocationPercent: 100,
     status: 'todo',
@@ -280,7 +281,7 @@ export function TaskModal({
         startDate: defaultStartDate || defaultDate,
         endDate: defaultEndDate || defaultDate,
         progress: 0,
-        workEffort: 0.5,
+        workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: defaultAssignee || '',
         allocationPercent: projectMatch?.allocationPercent ?? 100,
         status: 'todo',
@@ -718,8 +719,13 @@ export function TaskModal({
   const assigneeTitle = '프로젝트 등록 인원 또는 회사 직원(조직도)에서 선택, 또는 직접 입력. 투입비율은 프로젝트 설정에서 적용됩니다.';
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-3 sm:p-4">
-      <div className="bg-[var(--color-surface)] w-full max-w-7xl rounded-2xl shadow-2xl overflow-hidden border border-[var(--color-line)] max-h-[calc(100vh-2rem)] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div
+        className={cn(
+          MODAL_PANEL_BASE_CLASS,
+          'max-w-7xl overflow-hidden max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-2rem)] flex flex-col',
+        )}
+      >
         <div className="flex justify-between items-center px-4 py-2.5 border-b border-[var(--color-line)] bg-slate-50/80 flex-shrink-0">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--color-ink)]">
             {initialData ? (readOnly ? '작업 보기' : '작업 수정') : '새 작업'}

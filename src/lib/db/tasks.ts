@@ -1,7 +1,7 @@
 import { supabase } from '../supabase';
 import type { TaskRow } from '../supabase';
 import type { Task } from '../../types';
-import { requireSupabase } from './client';
+import { requireSupabase, getMissingColumnNameFromPgrst204, stripSelectListColumn } from './client';
 import { toTaskRow, fromTaskRow } from './mappers';
 import { insertAuditLog, diffTaskFields } from './audit';
 import type { AuditAction } from './audit';
@@ -22,19 +22,14 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'weight',
   // 사용자 정의 컬럼 값(JSONB)
   'custom_fields',
+  // 낙관적 잠금·동기화 (20250308000000)
+  'updated_at',
 ]);
 
 export function isTaskOptionalColumnSchemaError(err: { code?: string; message?: string }, columnName: string): boolean {
   const msg = (err.message ?? '').toLowerCase();
   const col = String(columnName ?? '').toLowerCase();
   return err.code === 'PGRST204' && (msg.includes(`'${col}'`) || msg.includes(col));
-}
-
-export function getMissingColumnNameFromPgrst204(err: { code?: string; message?: string }): string | null {
-  if (err.code !== 'PGRST204') return null;
-  const msg = err.message ?? '';
-  const m = msg.match(/could not find the '([^']+)' column/i);
-  return m?.[1] ? String(m[1]) : null;
 }
 
 export function stripTaskOptionalColumns(row: TaskRow, columns: string[]): TaskRow {
@@ -144,31 +139,32 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
   requireSupabase();
   const all: TaskRow[] = [];
   let offset = 0;
+  // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
+  // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
+  let taskListColumns =
+    'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
   while (true) {
-    // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
-    // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
-    const TASK_LIST_COLUMNS =
-      'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
     let { data, error } = await supabase!
       .from('tasks')
-      .select(TASK_LIST_COLUMNS)
+      .select(taskListColumns)
       .order('sort_order', { ascending: true })
       .range(offset, offset + TASKS_PAGE_SIZE - 1);
-    if (error) {
+    for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
       const missing = getMissingColumnNameFromPgrst204(error);
-      if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
-        const safeColumns = TASK_LIST_COLUMNS.replace(',custom_fields', '');
-        const retry = await supabase!
-          .from('tasks')
-          .select(safeColumns)
-          .order('sort_order', { ascending: true })
-          .range(offset, offset + TASKS_PAGE_SIZE - 1);
-        data = retry.data as unknown as typeof data;
-        error = retry.error;
-      }
+      if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
+      const nextCols = stripSelectListColumn(taskListColumns, missing);
+      if (nextCols === taskListColumns) break;
+      taskListColumns = nextCols;
+      const retry = await supabase!
+        .from('tasks')
+        .select(taskListColumns)
+        .order('sort_order', { ascending: true })
+        .range(offset, offset + TASKS_PAGE_SIZE - 1);
+      data = retry.data as unknown as typeof data;
+      error = retry.error;
     }
     if (error) throw error;
-    const page = (data ?? []) as TaskRow[];
+    const page = (data ?? []) as unknown as TaskRow[];
     all.push(...page);
     if (page.length < TASKS_PAGE_SIZE) break;
     offset += TASKS_PAGE_SIZE;

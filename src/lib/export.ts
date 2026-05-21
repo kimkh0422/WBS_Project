@@ -1,7 +1,7 @@
 import { Project, Task } from '../types';
 import { WBSSettings } from './wbsSettings';
 import { buildTasksInTreeOrderWithWbs } from './taskView';
-import { formatNum2, round2 } from './utils';
+import { formatPercent1, round2 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
 
@@ -69,7 +69,7 @@ export function buildMarkdownFromTasks(
       const name = (task.name || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
       const start = (task.startDate || '').slice(0, 10);
       const end = (task.endDate || '').slice(0, 10);
-      const progress = `${formatNum2(task.progress ?? 0)}%`;
+      const progress = `${formatPercent1(task.progress ?? 0)}%`;
       const assignee = formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName).replace(/\|/g, '\\|');
       const status = (task.status || '').replace(/\|/g, '\\|');
       const effort = task.workEffort != null ? `${task.workEffort}일` : '-';

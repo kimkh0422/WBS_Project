@@ -13,7 +13,8 @@ import {
   formatAssigneeDisplay,
 } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatPercent1, round1 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 interface WeeklyReportModalProps {
   isOpen: boolean;
@@ -268,7 +269,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
         totalWeight += w;
         acc += p * w;
       }
-      const avg = totalWeight > 0 ? Math.min(100, Math.max(0, Math.round(acc / totalWeight))) : 0;
+      const avg = totalWeight > 0 ? Math.min(100, Math.max(0, round1(acc / totalWeight))) : 0;
       return { avgProgress: avg, totalEffort: totalWeight };
     };
 
@@ -401,7 +402,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
       `[주간보고] ${projectName} / 담당자: ${
         currentUserDisplay || '작성자'
       } / 기간: ${format(thisWeekStart, 'yyyy-MM-dd')} ~ ${format(thisWeekEnd, 'yyyy-MM-dd')}`,
-      `전체 진척율: ${overallProgress}% (현재 선택한 범위 기준)`,
+      `전체 진척율: ${formatPercent1(overallProgress)}% (현재 선택한 범위 기준)`,
       '',
     );
 
@@ -485,7 +486,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
     // 제목 행
     aoa.push([`[주간보고] ${pName} / 담당자: ${currentUserDisplay || '작성자'} / 기간: ${baseStartStr} ~ ${baseEndStr}`]);
     aoa.push([
-      `전체 진척율: ${summary.overallProgress}%  |  금주한일: ${summary.thisWeekCount}건  |  차주계획: ${summary.nextWeekCount}건  |  이슈: ${summary.issueCount}건  |  총 투입공수: ${summary.overallEffort}일`,
+      `전체 진척율: ${formatPercent1(summary.overallProgress)}%  |  금주한일: ${summary.thisWeekCount}건  |  차주계획: ${summary.nextWeekCount}건  |  이슈: ${summary.issueCount}건  |  총 투입공수: ${summary.overallEffort}일`,
     ]);
     aoa.push([]);
 
@@ -534,8 +535,8 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-2 md:p-4">
-      <div className="bg-white w-full max-w-5xl md:max-w-6xl rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col h-[90vh]">
+    <div className={cn(MODAL_BACKDROP_CLASS, 'p-2 md:p-4')}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-5xl md:max-w-6xl flex flex-col h-[90vh]')}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/80">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
@@ -757,7 +758,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
             </span>
             <span>
               전체 투입공수 합계 <strong className="text-slate-800">{summary.overallEffort.toFixed(1)}</strong>일 · 평균 진척율{' '}
-              <strong className="text-slate-800">{summary.overallProgress}</strong>%
+              <strong className="text-slate-800">{formatPercent1(summary.overallProgress)}</strong>%
             </span>
           </div>
         </div>
@@ -870,7 +871,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-right whitespace-nowrap text-slate-700">
                                 <div contentEditable suppressContentEditableWarning>
-                                  {typeof row.progress === 'number' ? formatNum2(row.progress) : row.progress}
+                                  {typeof row.progress === 'number' ? formatPercent1(row.progress) : row.progress}
                                 </div>
                               </td>
                               <td className="px-2 py-1.5 border-b border-slate-100 align-top text-slate-700 whitespace-nowrap">

@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus, Project } from '../types';
-import { randomUUID, round2 } from './utils';
+import { randomUUID, round2, formatPercent1 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
 
@@ -862,7 +862,7 @@ function getAllocationRateString(
   const assignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
   const current = (task.assignee || '').trim();
   const match = current ? assignments.find((a) => (a.assignee || '').trim() === current) : assignments[0];
-  return match ? `${match.allocationPercent}%` : '';
+  return match ? `${formatPercent1(match.allocationPercent)}%` : '';
 }
 
 /** Excel 시트명: 31자 제한, \ / ? * [ ] : 문자 불가 */
@@ -941,7 +941,7 @@ export const exportToExcel = (
         [HEADER_MAP.name]: task.name,
         [HEADER_MAP.startDate]: task.startDate,
         [HEADER_MAP.endDate]: task.endDate,
-        [HEADER_MAP.progress]: task.progress,
+        [HEADER_MAP.progress]: `${formatPercent1(Number(task.progress ?? 0))}%`,
         [HEADER_MAP.assignee]: formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName),
         투입율: allocationRate,
         [HEADER_MAP.status]: task.status,

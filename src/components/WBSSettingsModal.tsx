@@ -4,7 +4,8 @@ import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
-import { cn, round2, formatNum2 } from '../lib/utils';
+import { cn, round2, formatPercent1 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   DASHBOARD_SECTION_IDS,
   DASHBOARD_SECTION_LABELS,
@@ -87,12 +88,11 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const { wbsSettings, updateWbsSettings, projects, updateProject, syncProgressFromStatusConfigs, isAdmin } = useWBS();
   const { user } = useAuth();
   const { levelColors, setLevelColors } = useLevelColors();
-  // 권한: 전역 설정(웹 타이틀, WBS prefix, 표 컬럼, 상태/진척도, 색상 등)은 관리자만 수정 가능.
+  // 권한: 전역 설정(WBS prefix, 표 컬럼, 상태/진척도, 색상 등)은 관리자만 수정 가능.
   // 프로젝트별 일정은 본인이 만든 프로젝트(소유자)이거나 관리자일 때만 수정 가능.
   const canEditGlobal = isAdmin;
   const canEditProject = (ownerId?: string | null) => isAdmin || (!!user?.id && ownerId === user.id);
 
-  const [appTitle, setAppTitle] = useState(wbsSettings.appTitle);
   const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
   const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
@@ -193,7 +193,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   useEffect(() => {
     if (isOpen) {
-      setAppTitle(wbsSettings.appTitle);
       setPrependDisplayWbsToTaskName(wbsSettings.prependDisplayWbsToTaskName === true);
       setLevel1(wbsSettings.level1Prefix);
       setLevel2(wbsSettings.level2Prefix);
@@ -259,7 +258,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
     // 전역 설정·색상·상태진척도 적용: 관리자만 (UI에서 입력은 disabled 처리되지만 방어적으로 한 번 더 차단)
     if (canEditGlobal) {
       updateWbsSettings({
-        appTitle: appTitle.trim(),
         showCriticalPath: false,
         prependDisplayWbsToTaskName,
         level1Prefix: level1.trim(),
@@ -324,8 +322,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-[var(--color-line)] max-h-[94vh] flex flex-col">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-7xl overflow-hidden max-h-[94vh] flex flex-col rounded-xl')}>
         <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-stone-50">
           <div className="flex items-center gap-2 text-[var(--color-ink)]">
             <Settings2 size={18} />
@@ -342,7 +340,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         {!canEditGlobal && (
           <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2">
             <span>
-              관리자 전용 설정(웹 타이틀·WBS 단계·표 컬럼·상태/진척도·색상 등)은 보기만 가능합니다.
+              관리자 전용 설정(WBS 단계·표 컬럼·상태/진척도·색상 등)은 보기만 가능합니다.
               <strong> 본인이 만든 프로젝트의 일정만</strong> 변경할 수 있습니다.
             </span>
           </div>
@@ -412,23 +410,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
           <div className="flex-1 overflow-y-auto p-6 md:p-8">
             {activeTab === 'basic' && (
               <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
-                {/* Application Settings */}
-                <div className="space-y-4">
-                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2 flex items-center gap-2">
-                    기본 설정
-                  </h3>
-                  <div>
-                    <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1.5">웹 타이틀</label>
-                    <input
-                      type="text"
-                      value={appTitle}
-                      onChange={(e) => setAppTitle(e.target.value)}
-                      placeholder="지엠티 스마트시트"
-                      className="w-full px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    />
-                  </div>
-                </div>
-
                 {/* WBS ID Settings */}
                 <div className="space-y-4">
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">WBS ID 표시 영역</h3>
@@ -798,7 +779,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                               <p className="text-sm font-bold">
                                 값은 0 이상 100 이하여야 합니다.
                                 {progressErrorNum != null && (
-                                  <span className="ml-1 font-normal text-amber-800">(입력된 값: {formatNum2(progressErrorNum)}%)</span>
+                                  <span className="ml-1 font-normal text-amber-800">(입력된 값: {formatPercent1(progressErrorNum)}%)</span>
                                 )}
                               </p>
                             </div>

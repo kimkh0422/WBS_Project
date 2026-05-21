@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Plus, UserPlus, Calendar } from 'lucide-react';
+import { X, Plus, Calendar } from 'lucide-react';
 import { Project, ProjectAssignment, type ProjectKind } from '../types';
 import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { normalizeWorkEffortUnit } from '../lib/workEffortUnits';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildAssigneeCandidates, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
@@ -17,6 +18,8 @@ interface ProjectModalProps {
     description: string,
     /** 프로젝트 PM 표시 이름(조직 회원 이름 권장). 필수 — 공백 불가 */
     pmName: string,
+    /** 프로젝트 PO 표시 이름(선택). 조직 회원 이름 권장 */
+    poName: string,
     startDate?: string,
     endDate?: string,
     assignments?: ProjectAssignment[],
@@ -50,6 +53,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
   /** 투입비율 입력란: 저장 전까지 문자열로 두어 빈 칸·소수 입력이 막히지 않게 함 */
   const [allocPctInputs, setAllocPctInputs] = useState<string[]>([]);
   const [pmName, setPmName] = useState('');
+  const [poName, setPoName] = useState('');
   /** 대시보드 집계·카드 포함 여부 — 신규는 기본 false(구분 필터·「대시보드에 반영」으로 포함) */
   const [includeInDashboard, setIncludeInDashboard] = useState(false);
 
@@ -67,9 +71,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       buildAssigneeCandidates({
         orgMembers,
         projects: allProjects,
-        extra: [...assignments.map((a) => a.assignee).filter(Boolean), pmName.trim()].filter(Boolean),
+        extra: [...assignments.map((a) => a.assignee).filter(Boolean), pmName.trim(), poName.trim()].filter(Boolean),
       }),
-    [orgMembers, allProjects, assignments, pmName],
+    [orgMembers, allProjects, assignments, pmName, poName],
   );
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
 
@@ -101,6 +105,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
         setAllocPctInputs(list.map((a) => String(Number(a.allocationPercent ?? 100))));
         /** DB에 pm_name이 없는 구 프로젝트는 PM란이 비어 저장 버튼이 막힘 → 신규와 동일하게 표시명 기본값 사용 */
         setPmName(project.pmName?.trim() || defaultPmNameForNewProject.trim() || '');
+        setPoName(project.poName?.trim() || '');
         setIncludeInDashboard(project.includeInDashboard !== false);
       } else {
         setName('');
@@ -111,6 +116,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
         setAssignments([]);
         setAllocPctInputs([]);
         setPmName(defaultPmNameForNewProject.trim());
+        setPoName('');
         setIncludeInDashboard(false);
       }
       setMonthlyExpandedIndex(null);
@@ -197,6 +203,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
       name,
       description,
       pmName.trim(),
+      poName.trim(),
       startDate || undefined,
       endDate || undefined,
       finalAssignments.length > 0 ? finalAssignments : undefined,
@@ -263,8 +270,13 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-glass-elevated rounded-[20px] shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)] w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border border-[var(--color-line)] max-h-[calc(100vh-2rem)] flex flex-col">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div
+        className={cn(
+          MODAL_PANEL_BASE_CLASS,
+          'bg-glass-elevated rounded-[20px] max-w-3xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col border-[var(--color-line)]',
+        )}
+      >
         <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-[var(--color-surface)]/40">
           <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-ink)]">{project ? '프로젝트 수정' : '새 프로젝트'}</h2>
           <button
@@ -275,20 +287,19 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           {/* 필수 */}
-          <section className="border border-amber-200/80 rounded-xl p-4 bg-amber-50/50 space-y-4">
-            <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-500 text-white text-[10px]">필수</span>
+          <section className="rounded-xl border border-amber-200/90 bg-amber-50/40 p-5 shadow-sm space-y-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                필수
+              </span>
               필수 입력
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-[7rem_1fr] gap-3 items-end">
-              <div>
-                <label
-                  className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5"
-                  htmlFor="project-modal-project-kind"
-                >
-                  항목 <span className="text-red-500">*</span>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-x-5">
+              <div className="min-w-0 flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-project-kind">
+                  항목 <span className="font-normal text-red-600">*</span>
                 </label>
                 <select
                   id="project-modal-project-kind"
@@ -297,7 +308,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                   disabled={!includeInDashboard}
                   required={includeInDashboard}
                   title={includeInDashboard ? undefined : '대시보드에 반영을 켜면 프로젝트 종류(항목)를 선택할 수 있습니다.'}
-                  className={cn('input-field w-full', !includeInDashboard && 'opacity-60 cursor-not-allowed bg-stone-100')}
+                  className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-stone-100/90 opacity-70')}
                 >
                   {PROJECT_KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -306,16 +317,15 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                   ))}
                 </select>
                 {!includeInDashboard && (
-                  <p className="text-[10px] text-stone-500 mt-1 leading-snug">
-                    대시보드에 반영을 켜야 항목을 선택할 수 있습니다. 아래「대시보드에 반영」체크박스를 켜 주세요.
-                  </p>
+                  <p className="text-xs leading-relaxed text-stone-600">항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.</p>
                 )}
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5">
-                  프로젝트 이름 <span className="text-red-500">*</span>
+              <div className="min-w-0 flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-name">
+                  프로젝트 이름 <span className="font-normal text-red-600">*</span>
                 </label>
                 <input
+                  id="project-modal-name"
                   type="text"
                   required
                   value={name}
@@ -326,90 +336,144 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-stone-600 uppercase tracking-wider mb-1.5" htmlFor="project-modal-pm">
-                프로젝트 PM <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="project-modal-pm"
-                type="text"
-                list="project-modal-pm-assignees"
-                required
-                value={pmName}
-                onChange={(e) => setPmName(e.target.value)}
-                className="input-field w-full max-w-md"
-                placeholder="이름 입력 또는 조직 회원에서 선택"
-                title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
-              />
-              <datalist id="project-modal-pm-assignees">
-                {assigneeCandidates.map((name) => {
-                  const label = orgMemberLabelByName.get(name);
-                  return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
-                })}
-              </datalist>
-              <p className="text-[10px] text-stone-500 mt-1">
-                새 프로젝트는 기본으로 생성자 이름이 들어갑니다. 필요 시 수정하세요. 조직도 회원 이름과 같으면 직급이 대시보드에 함께
-                표시됩니다.
-              </p>
+            <div className="grid grid-cols-1 gap-5 border-t border-amber-200/50 pt-5 sm:grid-cols-2 sm:gap-x-5">
+              <div className="min-w-0 flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-pm">
+                  프로젝트 PM <span className="font-normal text-red-600">*</span>
+                </label>
+                <input
+                  id="project-modal-pm"
+                  type="text"
+                  list="project-modal-pm-po-assignees"
+                  required
+                  value={pmName}
+                  onChange={(e) => setPmName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="이름 입력 또는 조직 회원에서 선택"
+                  title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
+                />
+                <p className="text-xs leading-relaxed text-stone-600 max-w-prose">
+                  과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
+                </p>
+              </div>
+              <div className="min-w-0 flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-po">
+                  프로젝트 PO <span className="text-stone-500 font-normal">(선택)</span>
+                </label>
+                <input
+                  id="project-modal-po"
+                  type="text"
+                  list="project-modal-pm-po-assignees"
+                  value={poName}
+                  onChange={(e) => setPoName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="예: 제품 책임자 이름"
+                  title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
+                />
+                <p className="text-xs leading-relaxed text-stone-600 max-w-prose">
+                  요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
+                </p>
+              </div>
             </div>
+            <datalist id="project-modal-pm-po-assignees">
+              {assigneeCandidates.map((name) => {
+                const label = orgMemberLabelByName.get(name);
+                return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+              })}
+            </datalist>
           </section>
 
           {/* 선택: 기본 정보 */}
-          <section className="border border-stone-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
-            <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
+          <section className="rounded-xl border border-stone-200/90 bg-slate-50/50 p-5 shadow-sm space-y-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-stone-500 px-1.5 text-[11px] font-bold text-white">
+                선택
+              </span>
               기본 정보 (선택)
             </h3>
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">설명</label>
+            <div className="grid grid-cols-1 gap-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-description">
+                  설명
+                </label>
                 <textarea
+                  id="project-modal-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="input-field min-h-[80px] w-full"
+                  className="input-field min-h-[88px] w-full"
                   placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">프로젝트 시작일</label>
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input-field w-full" />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="min-w-0 flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-start">
+                    프로젝트 시작일
+                  </label>
+                  <input
+                    id="project-modal-start"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="input-field w-full"
+                  />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-stone-500 mb-1.5">프로젝트 종료일</label>
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="input-field w-full" />
+                <div className="min-w-0 flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-end">
+                    프로젝트 종료일
+                  </label>
+                  <input
+                    id="project-modal-end"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="input-field w-full"
+                  />
                 </div>
               </div>
-              <p className="text-[10px] text-stone-400 -mt-2">WBS 작업은 이 기간 범위를 벗어날 수 없습니다. (선택 사항)</p>
-              <div className="flex items-start gap-3 pt-1">
+              <p className="text-xs leading-relaxed text-stone-600 -mt-1">
+                WBS 작업 일정은 이 기간을 벗어날 수 없습니다. (미입력 시 기간 제한 없음)
+              </p>
+              <div className="flex gap-3 rounded-lg border border-stone-200/80 bg-white/60 p-3.5">
                 <input
                   id="project-modal-include-dashboard"
                   type="checkbox"
                   checked={includeInDashboard}
                   onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
                 />
-                <label htmlFor="project-modal-include-dashboard" className="text-sm text-stone-700 leading-snug cursor-pointer">
-                  <span className="font-medium text-stone-800">대시보드에 반영</span>
-                  <span className="block text-[10px] text-stone-400 mt-0.5 font-normal">
-                    끄면 이 프로젝트와 소속 작업은 대시보드 요약·집계·프로젝트 카드에 나오지 않습니다. 대시보드 상단의「구분」필터에서 해당
-                    구분이 켜져 있어야 집계에 포함됩니다. (WBS 표·간트 등 작업 화면에는 그대로 표시됩니다.)
-                  </span>
-                </label>
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-stone-900">
+                    대시보드에 반영
+                  </label>
+                  <p className="mt-1 text-xs leading-relaxed text-stone-600">
+                    켜면 요약·집계·프로젝트 카드에 포함될 수 있습니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로
+                    표시됩니다.
+                  </p>
+                  <details className="mt-2 group">
+                    <summary className="cursor-pointer list-none text-xs font-medium text-indigo-700 hover:text-indigo-800 [&::-webkit-details-marker]:hidden">
+                      <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
+                    </summary>
+                    <p className="mt-2 border-l-2 border-stone-200 pl-3 text-xs leading-relaxed text-stone-600">
+                      대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할
+                      수 있습니다.
+                    </p>
+                  </details>
+                </div>
               </div>
             </div>
           </section>
 
           {/* 선택: 투입인원 */}
-          <section className="border border-stone-200 rounded-xl p-4 bg-slate-50/60 space-y-4">
-            <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider flex items-center gap-1.5">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-stone-400 text-white text-[10px]">선택</span>
+          <section className="rounded-xl border border-stone-200/90 bg-slate-50/50 p-5 shadow-sm space-y-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-stone-500 px-1.5 text-[11px] font-bold text-white">
+                선택
+              </span>
               프로젝트 투입인원 (투입비율)
             </h3>
             <div>
-              <p className="text-[10px] text-stone-400 mb-2">
-                이 프로젝트에 투입되는 인원과 비율을 설정합니다. 작업별 기간·공수 계산에 적용됩니다. 담당자 이름은 프로젝트 내에서만
-                사용되며 필요 시 수정할 수 있습니다.
+              <p className="mb-3 text-xs leading-relaxed text-stone-600 max-w-prose">
+                투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수 있습니다.
               </p>
               <div className="space-y-2">
                 {assignments.map((a, i) => (
@@ -508,7 +572,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                     </div>
                     {monthlyExpandedIndex === i && (
                       <div className="pt-2 border-t border-stone-100">
-                        <p className="text-[10px] font-medium text-stone-500 mb-2">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
+                        <p className="mb-2 text-xs font-medium text-stone-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
                         <div className="flex flex-wrap gap-2">
                           {projectMonths.map((ym) => {
                             const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
@@ -522,10 +586,10 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                                   onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
                                   className="input-field py-1.5 text-xs w-16"
                                 >
-                                  {!inPreset && <option value={displayNum}>{displayNum}%</option>}
+                                  {!inPreset && <option value={displayNum}>{formatPercent1(displayNum)}%</option>}
                                   {ALLOCATION_OPTIONS.map((pct) => (
                                     <option key={pct} value={pct}>
-                                      {pct}%
+                                      {formatPercent1(pct)}%
                                     </option>
                                   ))}
                                 </select>
@@ -541,9 +605,9 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
               <button
                 type="button"
                 onClick={addAssignment}
-                className="mt-2 text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
               >
-                <Plus size={12} /> 인원 추가
+                <Plus size={14} strokeWidth={2.25} aria-hidden /> 인원 추가
               </button>
               {/* 모든 인원 입력이 공유하는 자동완성 후보 */}
               <datalist id="project-modal-assignees">

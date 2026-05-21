@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../../lib/modalChrome';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { isComposingKeyEvent } from '../../lib/ime';
 
@@ -12,7 +13,8 @@ const SIZE_CLASS: Record<ModalSize, string> = {
   md: 'max-w-lg',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
-  full: 'max-w-[calc(100vw-2rem)] md:max-w-[calc(100vw-4rem)]',
+  /** 넓은 화면에서도 카드 형태가 유지되도록 상한을 둔 전체형 패널 */
+  full: 'max-w-[min(calc(100vw-1.5rem),72rem)]',
 };
 
 export interface BaseModalProps {
@@ -101,33 +103,25 @@ export function BaseModal({
   };
 
   const content = (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4"
-      onMouseDown={handleBackdropClick}
-    >
+    <div className={MODAL_BACKDROP_CLASS} onMouseDown={handleBackdropClick}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={resolvedTitleId}
-        className={cn(
-          'bg-white rounded-2xl shadow-xl w-full overflow-hidden flex flex-col border border-slate-200',
-          'max-h-[85vh] animate-in fade-in zoom-in-95 duration-200',
-          SIZE_CLASS[size],
-          className,
-        )}
+        className={cn(MODAL_PANEL_BASE_CLASS, 'overflow-hidden flex flex-col max-h-[92vh]', SIZE_CLASS[size], className)}
       >
         {(title || showCloseButton) && (
-          <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50 flex-shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex justify-between items-center gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-b from-slate-50 to-slate-50/40 flex-shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
               {headerStart}
               {title &&
                 (typeof title === 'string' ? (
-                  <h2 id={resolvedTitleId} className="text-lg font-bold text-[var(--color-ink)] break-words">
+                  <h2 id={resolvedTitleId} className="text-lg font-bold tracking-tight text-[var(--color-ink)] break-words">
                     {title}
                   </h2>
                 ) : (
-                  <div id={resolvedTitleId} className="text-lg font-bold text-[var(--color-ink)] min-w-0">
+                  <div id={resolvedTitleId} className="text-lg font-bold tracking-tight text-[var(--color-ink)] min-w-0">
                     {title}
                   </div>
                 ))}
@@ -137,17 +131,19 @@ export function BaseModal({
                 type="button"
                 aria-label={closeLabel}
                 onClick={onClose}
-                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800 flex-shrink-0"
+                className="p-2 rounded-xl transition-colors text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex-shrink-0 ring-1 ring-transparent hover:ring-slate-300/60"
               >
-                <X size={18} />
+                <X size={18} strokeWidth={2} />
               </button>
             )}
           </div>
         )}
 
-        <div className={cn('flex-1 min-h-0 overflow-y-auto p-6', bodyClassName)}>{children}</div>
+        <div className={cn('flex-1 min-h-0 overflow-y-auto p-5 sm:p-6', bodyClassName)}>{children}</div>
 
-        {footer && <div className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30 flex-shrink-0">{footer}</div>}
+        {footer && (
+          <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200/80 bg-slate-50/50 flex-shrink-0">{footer}</div>
+        )}
       </div>
     </div>
   );

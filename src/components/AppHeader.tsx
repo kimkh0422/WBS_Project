@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
-import { getProjectKindBadgeClass, groupProjectsByKind } from '../lib/projectKind';
+import { DASHBOARD_UNLISTED_SECTION_LABEL, groupProjectsForKindListView } from '../lib/projectKind';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -225,14 +225,19 @@ export function AppHeader({
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   /** 768px 미만이면서 대시보드가 숨김 처리되지 않은 경우: 하단 작업 탭 숨김(App에서 대시보드 고정과 동일 조건) */
   const lockMobileToDashboard = useMatchMedia('(max-width: 767px)') && !hiddenViews.has('dashboard');
+  const isMobileViewport = useMatchMedia('(max-width: 767px)');
+
+  useEffect(() => {
+    if (isMobileViewport) setIsProjectDropdownOpen(false);
+  }, [isMobileViewport, setIsProjectDropdownOpen]);
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
-  /** 목록 필터: 전체 / 내 프로젝트 / 관심 — 서로 토글(같은 버튼 다시 누르면 전체). */
-  type ProjectListFilter = 'all' | 'my' | 'favorites';
+  /** 목록 필터: 전체 / 내 프로젝트 / 관심 / 대시보드 미반영 — 서로 토글(같은 버튼 다시 누르면 전체). */
+  type ProjectListFilter = 'all' | 'my' | 'favorites' | 'dashboardOff';
   const PROJECT_LIST_FILTER_KEY = 'wbs-header-projects-list-filter';
-  /** 폴더(조직 그룹) vs 항목 구분(상품·연구·용역·유지·제품·기타) — 그룹이 정의된 경우에만 UI 표시. */
+  /** 폴더(조직 그룹) vs 항목 구분(상품·연구·용역·유지·제품·내부·기타) — 그룹이 정의된 경우에만 UI 표시. */
   type ProjectListLayout = 'kind' | 'group';
   const PROJECT_LIST_LAYOUT_KEY = 'wbs-header-projects-list-layout';
   /** 구버전: 필터+그룹 레이아웃이 한 키에 묶여 있었음 → 최초 로드 시 분리 마이그레이션 */
@@ -241,7 +246,7 @@ export function AppHeader({
   const [listFilter, setListFilter] = useState<ProjectListFilter>(() => {
     try {
       const nf = localStorage.getItem(PROJECT_LIST_FILTER_KEY);
-      if (nf === 'my' || nf === 'favorites') return nf;
+      if (nf === 'my' || nf === 'favorites' || nf === 'dashboardOff') return nf;
       const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
       if (legacy === 'my') return 'my';
       if (legacy === 'favorites') return 'favorites';
@@ -318,10 +323,16 @@ export function AppHeader({
     const base = projectsSortedByName;
     if (listFilter === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
     if (listFilter === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
+    if (listFilter === 'dashboardOff') return base.filter((p) => p.includeInDashboard === false);
     return base;
   }, [projectsSortedByName, listFilter, favoriteIds, user?.id]);
 
-  const projectsByKind = useMemo(() => groupProjectsByKind(displayProjects), [displayProjects]);
+  const dashboardExcludedInListCount = useMemo(
+    () => projectsSortedByName.filter((p) => p.includeInDashboard === false).length,
+    [projectsSortedByName],
+  );
+
+  const projectsByKindSections = useMemo(() => groupProjectsForKindListView(displayProjects), [displayProjects]);
 
   /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
   const ownerGroups = useMemo(() => {
@@ -444,12 +455,36 @@ export function AppHeader({
 
   type MobileNavKey = 'dashboard' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
+    const dashboardTitle =
+      dashboardNavLabel !== '대시보드'
+        ? '사업부·팀·PM·사업 기간 등 프로젝트 현황을 한눈에 봅니다.'
+        : '프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다.';
     const items: { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] = [
-      { key: 'dashboard', label: dashboardNavLabel, title: dashboardNavLabel, icon: <LayoutDashboard size={14} /> },
-      { key: 'table', label: '표', title: '표', icon: <CheckSquare size={14} /> },
-      { key: 'tablegantt', label: '표+간', title: '표와 간트 함께 보기', icon: <Columns2 size={14} /> },
-      { key: 'gantt', label: '간트', title: '간트', icon: <Target size={14} /> },
-      { key: 'kanban', label: '칸반', title: '칸반', icon: <MapIcon size={14} /> },
+      { key: 'dashboard', label: dashboardNavLabel, title: dashboardTitle, icon: <LayoutDashboard size={14} /> },
+      {
+        key: 'table',
+        label: '표',
+        title: '작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다.',
+        icon: <CheckSquare size={14} />,
+      },
+      {
+        key: 'tablegantt',
+        label: '표+간',
+        title: '작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)',
+        icon: <Columns2 size={14} />,
+      },
+      {
+        key: 'gantt',
+        label: '간트',
+        title: '일정 막대를 드래그해 날짜를 조정하고, 선후관계를 확인합니다.',
+        icon: <Target size={14} />,
+      },
+      {
+        key: 'kanban',
+        label: '칸반',
+        title: '상태별 칸으로 작업을 옮기며 진행 상황을 시각적으로 관리합니다.',
+        icon: <MapIcon size={14} />,
+      },
     ];
     return items.filter((i) => !hiddenViews.has(i.key));
   }, [dashboardNavLabel, hiddenViews]);
@@ -476,6 +511,12 @@ export function AppHeader({
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
+            <span
+              className="text-[10px] font-mono text-slate-400 shrink-0 tabular-nums"
+              title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
+            >
+              v{appVersion}
+            </span>
           </div>
         </div>
         <button
@@ -514,9 +555,17 @@ export function AppHeader({
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <h1 className="text-lg font-bold tracking-tight leading-tight">{wbsSettings.appTitle}</h1>
+              {/* 모바일: 프로젝트 선택 없이 앱 버전만 공통 표시 */}
+              <span
+                className="md:hidden text-[10px] font-mono text-slate-400 px-2 py-0.5 inline-flex items-center gap-1.5"
+                title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
+              >
+                <Tag size={10} className="text-slate-300" />
+                <span>v{appVersion}</span>
+              </span>
               {effectiveIsAdmin && (
                 <span
-                  className="text-[10px] font-mono text-slate-400 px-2 py-0.5 flex items-center gap-1.5"
+                  className="hidden md:inline-flex text-[10px] font-mono text-slate-400 px-2 py-0.5 items-center gap-1.5"
                   title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
                 >
                   <Tag size={10} className="text-slate-300" />
@@ -528,7 +577,7 @@ export function AppHeader({
               )}
             </div>
 
-            <div className="relative mt-0.5 group" ref={projectDropdownRef}>
+            <div className="relative mt-0.5 group hidden md:block" ref={projectDropdownRef}>
               <button
                 data-tourid="tour-project"
                 onClick={() => {
@@ -598,7 +647,7 @@ export function AppHeader({
                     <div className="p-1">
                       <div
                         className="px-3 py-2 flex items-center justify-between gap-2"
-                        title="내 프로젝트·관심은 목록을 좁힙니다. 구분별은 상품·연구·용역·유지·제품·기타로, 그룹별은 설정한 폴더로 묶습니다. 같은 필터 버튼을 다시 누르면 전체로 돌아갑니다."
+                        title={`내 프로젝트·관심은 목록을 좁힙니다. 구분별은 상품·연구·용역·유지·제품·내부·기타와 ${DASHBOARD_UNLISTED_SECTION_LABEL}로, 그룹별은 설정한 폴더로 묶습니다. 같은 필터 버튼을 다시 누르면 전체로 돌아갑니다.`}
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
@@ -634,7 +683,7 @@ export function AppHeader({
                                     ? 'bg-violet-100 text-violet-800 border border-violet-200'
                                     : 'text-stone-400 hover:text-violet-700 border border-transparent hover:border-stone-200',
                                 )}
-                                title="상품·연구·용역·유지·제품·기타 구분으로 묶어 보기"
+                                title={`상품·연구·용역·유지·제품·내부·기타·${DASHBOARD_UNLISTED_SECTION_LABEL}로 묶어 보기`}
                               >
                                 <Layers size={10} />
                                 구분별
@@ -675,6 +724,27 @@ export function AppHeader({
                             >
                               <Star size={10} className={listFilter === 'favorites' ? 'fill-amber-500' : ''} />
                               {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
+                            </button>
+                          )}
+                          {dashboardExcludedInListCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleListFilter('dashboardOff');
+                              }}
+                              className={cn(
+                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                listFilter === 'dashboardOff'
+                                  ? 'bg-orange-100 text-orange-900 border border-orange-200'
+                                  : 'text-stone-400 hover:text-orange-700 border border-transparent hover:border-stone-200',
+                              )}
+                              title={
+                                listFilter === 'dashboardOff' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함하지 않은 프로젝트만 보기'
+                              }
+                            >
+                              <EyeOff size={10} />
+                              {listFilter === 'dashboardOff' ? `미반영 ${dashboardExcludedInListCount}개` : '미반영만'}
                             </button>
                           )}
                           <span className="text-[10px] text-stone-400 shrink-0">{displayProjects.length}개</span>
@@ -871,15 +941,15 @@ export function AppHeader({
                               );
                             });
                           }
-                          return projectsByKind.map(({ kind, projects: list }) => (
-                            <section key={kind} className="mb-2 last:mb-0">
+                          return projectsByKindSections.map(({ sectionKey, headerLabel, headerBadgeClass, projects: list }) => (
+                            <section key={sectionKey} className="mb-2 last:mb-0">
                               <div
                                 className={cn(
                                   'sticky top-0 z-[1] flex items-center gap-2 px-2 py-1.5 mb-0.5 rounded-md border',
-                                  getProjectKindBadgeClass(kind),
+                                  headerBadgeClass,
                                 )}
                               >
-                                <span className="text-xs font-bold">{kind}</span>
+                                <span className="text-xs font-bold">{headerLabel}</span>
                                 <span className="text-[10px] font-medium opacity-80 tabular-nums">({list.length}개)</span>
                               </div>
                               {list.map((p) => renderProjectRow(p))}
@@ -1073,7 +1143,11 @@ export function AppHeader({
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25'
                   : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700',
               )}
-              title={filterOn ? '필터 끄기' : '필터 켜기'}
+              title={
+                filterOn
+                  ? '필터가 켜져 있습니다. 다시 누르면 필터를 끄고 조건 없이 전체 작업을 표시합니다.'
+                  : '상태·담당자·기간 등으로 작업 목록을 좁혀 봅니다. 켜면 필터 바가 나타납니다.'
+              }
             >
               <Settings2 size={14} /> {/* Replace Filter */}
               <span className="hidden sm:inline">필터</span>
@@ -1093,7 +1167,7 @@ export function AppHeader({
                 'icon-btn !p-1.5 transition-colors relative shrink-0',
                 isMoreMenuOpen ? 'text-[var(--color-ink)] bg-slate-100' : 'text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50',
               )}
-              title="추가 옵션"
+              title="가져오기·보내기·환경설정·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
               aria-label="추가 옵션"
             >
               <MoreHorizontal size={17} />
@@ -1115,6 +1189,7 @@ export function AppHeader({
                           setIsOrganizationOpen(true);
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                        title="조직도·부서·인원 구조를 확인하고, 회원과 연동되는 표시 정보를 점검할 수 있는 화면으로 이동합니다."
                       >
                         <Users size={14} /> 조직 현황
                       </button>
@@ -1131,7 +1206,11 @@ export function AppHeader({
                       handleImportClick();
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                    title={canEditCurrentProject ? '엑셀/JSON 파일 가져오기' : '편집 권한이 있는 프로젝트에서만 가져올 수 있습니다'}
+                    title={
+                      canEditCurrentProject
+                        ? 'Excel 또는 JSON 파일에서 작업표를 불러와 현재 프로젝트에 반영합니다. 형식에 따라 병합·치환 범위를 확인하세요.'
+                        : '편집 권한이 있는 프로젝트에서만 가져올 수 있습니다. 소유자·관리자에게 권한을 요청하거나 다른 프로젝트를 선택하세요.'
+                    }
                   >
                     <Upload size={14} /> 가져오기
                   </button>
@@ -1143,6 +1222,7 @@ export function AppHeader({
                       tipOnce?.('menu.export', '보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택해 받을 수 있어요.');
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    title="현재 프로젝트(또는 모달에서 선택한 범위)를 Excel·JSON·Markdown 등으로 보냅니다. 보관·공유·백업에 활용할 수 있습니다."
                   >
                     <Download size={14} />
                     보내기
@@ -1158,6 +1238,7 @@ export function AppHeader({
                       tipOnce?.('menu.settings', '환경설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 바꿀 수 있어요.');
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    title="WBS 열 구성, 상태·진척도 규칙, 앱 제목, 프로젝트 그룹·관심 목록 등 전역 설정을 변경합니다."
                   >
                     <Settings2 size={14} /> 환경설정
                   </button>
@@ -1176,6 +1257,7 @@ export function AppHeader({
                           setIsMembersModalOpen(true);
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-teal-600 hover:bg-teal-50 flex items-center gap-2"
+                        title="조직 회원 목록·승인·역할·프로젝트별 접근 권한을 확인하고 수정합니다. 시스템 관리자 또는 조직 책임자만 열 수 있습니다."
                       >
                         <Users size={14} /> 회원 관리
                       </button>
@@ -1193,6 +1275,7 @@ export function AppHeader({
                         tipOnce?.('menu.deleteAll', '삭제 및 초기화 메뉴입니다.');
                       }}
                       className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1"
+                      title="선택한 프로젝트·작업만 삭제하거나, 조직 데이터를 초기화하는 등 되돌리기 어려운 작업을 수행합니다. 실행 전 내용을 반드시 확인하세요."
                     >
                       <Trash2 size={14} /> 부분/전체 삭제
                     </button>
@@ -1211,7 +1294,11 @@ export function AppHeader({
             }}
             disabled={!canEditCurrentProject}
             className="btn-primary !py-2 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={canEditCurrentProject ? '새 작업 추가' : '보기 권한만 있어 편집할 수 없습니다'}
+            title={
+              canEditCurrentProject
+                ? '현재 프로젝트에 새 작업 행을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있습니다.'
+                : '보기 권한만 있어 편집할 수 없습니다. 편집 가능한 프로젝트를 선택하거나 소유자에게 권한을 요청하세요.'
+            }
           >
             <Plus size={14} /> <span>새 작업</span>
           </button>
@@ -1294,6 +1381,7 @@ export function AppHeader({
                   <button
                     type="button"
                     className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    title="현재 계정의 세션을 종료하고 로그인 화면으로 돌아갑니다. 저장되지 않은 변경이 있다면 먼저 저장하세요."
                     onClick={() => {
                       setIsUserMenuOpen(false);
                       void signOut();

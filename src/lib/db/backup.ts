@@ -2,17 +2,70 @@ import { supabase } from '../supabase';
 import type { Task, Project } from '../../types';
 import type { WBSSettings } from '../wbsSettings';
 import type { BackupData } from '../export';
-import { requireSupabase } from './client';
+import { requireSupabase, getMissingColumnNameFromPgrst204 } from './client';
 import { toProjectRow, toProjectRowMinimal, toTaskRow } from './mappers';
-import { isAssignmentsSchemaError } from './projects';
-import { fetchProjects } from './projects';
-import { fetchTasks, orderTaskRowsParentsFirst, retryTaskRowsWithOptionalColumnFallback, TASKS_UPSERT_BATCH_SIZE, getMissingColumnNameFromPgrst204, TASK_OPTIONAL_DB_COLUMNS, stripTaskOptionalColumns } from './tasks';
+import { fetchProjects, isAssignmentsSchemaError, isMissingColumnError } from './projects';
+import {
+  fetchTasks,
+  orderTaskRowsParentsFirst,
+  retryTaskRowsWithOptionalColumnFallback,
+  TASKS_UPSERT_BATCH_SIZE,
+  TASK_OPTIONAL_DB_COLUMNS,
+  stripTaskOptionalColumns,
+} from './tasks';
 import { upsertSettings } from './settings';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isValidUuid(s: string): boolean {
   return typeof s === 'string' && UUID_REGEX.test(s);
+}
+
+function stripOptionalProjectColumnFromRows(
+  rows: Record<string, unknown>[],
+  col: 'project_kind' | 'pm_name' | 'po_name' | 'include_in_dashboard',
+): Record<string, unknown>[] {
+  return rows.map((r) => {
+    if (!(col in r)) return r;
+    const { [col]: _, ...rest } = r;
+    return rest;
+  });
+}
+
+function tryStripOneMissingProjectColumn(
+  err: { code?: string | number; message?: string; details?: string; hint?: string },
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] | null {
+  const cols = ['project_kind', 'pm_name', 'po_name', 'include_in_dashboard'] as const;
+  for (const col of cols) {
+    if (isMissingColumnError(err, col)) {
+      return stripOptionalProjectColumnFromRows(rows, col);
+    }
+  }
+  return null;
+}
+
+/** assignments 없는 구 스키마 + 선택 컬럼 미적용 DB 대응 */
+async function insertOrUpsertProjectsWithSchemaFallback(
+  mode: 'insert' | 'upsert',
+  rows: Record<string, unknown>[],
+  getMinimalRows: () => Record<string, unknown>[],
+): Promise<void> {
+  let payload = rows;
+  let { error } = mode === 'insert' ? await supabase!.from('projects').insert(payload) : await supabase!.from('projects').upsert(payload);
+  if (error && isAssignmentsSchemaError(error)) {
+    payload = getMinimalRows();
+    const res = mode === 'insert' ? await supabase!.from('projects').insert(payload) : await supabase!.from('projects').upsert(payload);
+    error = res.error;
+  }
+  for (let i = 0; i < 10 && error; i++) {
+    const next = tryStripOneMissingProjectColumn(error, payload);
+    if (!next) break;
+    payload = next;
+    const res = mode === 'insert' ? await supabase!.from('projects').insert(payload) : await supabase!.from('projects').upsert(payload);
+    error = res.error;
+  }
+  if (error) throw error;
 }
 
 export async function restoreBackupToDB(data: BackupData, ownerId?: string): Promise<void> {
@@ -32,8 +85,10 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
       await supabase!.from('tasks').delete().not('id', 'is', null);
       await supabase!.from('projects').delete().not('id', 'is', null);
       if (snapshotProjects.length > 0) {
-        const projRows = snapshotProjects.map(p => toProjectRow(p));
-        await supabase!.from('projects').insert(projRows);
+        const projRows = snapshotProjects.map((p) => toProjectRow(p) as unknown as Record<string, unknown>);
+        await insertOrUpsertProjectsWithSchemaFallback('insert', projRows, () =>
+          snapshotProjects.map((p) => toProjectRowMinimal(p) as unknown as Record<string, unknown>),
+        );
       }
       if (snapshotTasks.length > 0) {
         const taskRows = snapshotTasks.map((t, i) => toTaskRow(t, i));
@@ -47,72 +102,60 @@ export async function restoreBackupToDB(data: BackupData, ownerId?: string): Pro
     }
   };
 
-  const { error: delTasksErr } = await supabase!
-    .from('tasks')
-    .delete()
-    .not('id', 'is', null);
+  const { error: delTasksErr } = await supabase!.from('tasks').delete().not('id', 'is', null);
   if (delTasksErr) throw delTasksErr;
 
-  const { error: delProjErr } = await supabase!
-    .from('projects')
-    .delete()
-    .not('id', 'is', null);
+  const { error: delProjErr } = await supabase!.from('projects').delete().not('id', 'is', null);
   if (delProjErr) throw delProjErr;
 
   try {
-
-  if (data.projects.length > 0) {
-    const rows = data.projects.map(p => {
-      const row = toProjectRow(p);
-      if (ownerId) row.owner_id = ownerId;
-      return row;
-    });
-    let { error } = await supabase!.from('projects').insert(rows);
-    if (error && isAssignmentsSchemaError(error)) {
-      const minimalRows = data.projects.map(p => {
-        const r = toProjectRowMinimal(p) as Record<string, unknown>;
-        if (ownerId) r.owner_id = ownerId;
-        return r;
+    if (data.projects.length > 0) {
+      const rows = data.projects.map((p) => {
+        const row = toProjectRow(p);
+        if (ownerId) row.owner_id = ownerId;
+        return row as unknown as Record<string, unknown>;
       });
-      const res = await supabase!.from('projects').insert(minimalRows);
-      error = res.error;
+      await insertOrUpsertProjectsWithSchemaFallback('insert', rows, () =>
+        data.projects.map((p) => {
+          const r = toProjectRowMinimal(p) as unknown as Record<string, unknown>;
+          if (ownerId) r.owner_id = ownerId;
+          return r;
+        }),
+      );
     }
-    if (error) throw error;
-  }
 
-  if (data.tasks.length > 0) {
-    const byId = new Map<string, Task>();
-    for (const t of data.tasks) {
-      if (!t?.id) continue;
-      byId.set(t.id, t);
+    if (data.tasks.length > 0) {
+      const byId = new Map<string, Task>();
+      for (const t of data.tasks) {
+        if (!t?.id) continue;
+        byId.set(t.id, t);
+      }
+      const uniqueTasks: Task[] = [];
+      const seen = new Set<string>();
+      for (let i = data.tasks.length - 1; i >= 0; i--) {
+        const id = data.tasks[i]?.id;
+        if (!id || seen.has(id)) continue;
+        const latest = byId.get(id);
+        if (latest) uniqueTasks.push(latest);
+        seen.add(id);
+      }
+      uniqueTasks.reverse();
+
+      const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
+      const orderedRows = orderTaskRowsParentsFirst(desiredRows);
+      for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
+        const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
+        const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
+          const res = await supabase!.from('tasks').insert(payload);
+          return { error: res.error };
+        });
+        if (error) throw error;
+      }
     }
-    const uniqueTasks: Task[] = [];
-    const seen = new Set<string>();
-    for (let i = data.tasks.length - 1; i >= 0; i--) {
-      const id = data.tasks[i]?.id;
-      if (!id || seen.has(id)) continue;
-      const latest = byId.get(id);
-      if (latest) uniqueTasks.push(latest);
-      seen.add(id);
+
+    if (data.settings) {
+      await upsertSettings(data.settings);
     }
-    uniqueTasks.reverse();
-
-    const desiredRows = uniqueTasks.map((t, idx) => toTaskRow(t, idx));
-    const orderedRows = orderTaskRowsParentsFirst(desiredRows);
-    for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
-      const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
-      const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
-        const res = await supabase!.from('tasks').insert(payload);
-        return { error: res.error };
-      });
-      if (error) throw error;
-    }
-  }
-
-  if (data.settings) {
-    await upsertSettings(data.settings);
-  }
-
   } catch (restoreErr) {
     await rollback();
     throw restoreErr;
@@ -138,40 +181,36 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
     const taskIdMap = new Map<string, string>();
     const { v4: uuidv4 } = await import('uuid');
 
-    const projectsWithUuid = projects.map(p => {
+    const projectsWithUuid = projects.map((p) => {
       const newId = isValidUuid(p.id) ? p.id : uuidv4();
       if (!isValidUuid(p.id)) projectIdMap.set(p.id, newId);
       return { ...p, id: newId, ownerId: p.ownerId ?? ownerId };
     });
 
-    tasks.forEach(t => {
+    tasks.forEach((t) => {
       if (!isValidUuid(t.id)) taskIdMap.set(t.id, uuidv4());
     });
-    const tasksWithUuid = tasks.map(t => {
+    const tasksWithUuid = tasks.map((t) => {
       const newId = taskIdMap.get(t.id) ?? t.id;
       const newProjectId = projectIdMap.get(t.projectId) ?? (isValidUuid(t.projectId) ? t.projectId : projectsWithUuid[0]?.id);
       const newParentId = t.parentId ? (taskIdMap.get(t.parentId) ?? (isValidUuid(t.parentId) ? t.parentId : null)) : null;
-      const newDeps = (t.dependencies ?? []).map(d => taskIdMap.get(d) ?? (isValidUuid(d) ? d : null)).filter(Boolean) as string[];
+      const newDeps = (t.dependencies ?? []).map((d) => taskIdMap.get(d) ?? (isValidUuid(d) ? d : null)).filter(Boolean) as string[];
       return { ...t, id: newId, projectId: newProjectId ?? t.projectId, parentId: newParentId, dependencies: newDeps };
     });
 
     if (projectsWithUuid.length > 0) {
-      const rows = projectsWithUuid.map(p => {
+      const rows = projectsWithUuid.map((p) => {
         const row = toProjectRow(p);
         if (ownerId) row.owner_id = ownerId;
-        return row;
+        return row as unknown as Record<string, unknown>;
       });
-      let { error } = await supabase!.from('projects').upsert(rows);
-      if (error && isAssignmentsSchemaError(error)) {
-        const minimalRows = projectsWithUuid.map(p => {
-          const r = toProjectRowMinimal(p) as Record<string, unknown>;
+      await insertOrUpsertProjectsWithSchemaFallback('upsert', rows, () =>
+        projectsWithUuid.map((p) => {
+          const r = toProjectRowMinimal(p) as unknown as Record<string, unknown>;
           if (ownerId) r.owner_id = ownerId;
           return r;
-        });
-        const res = await supabase!.from('projects').upsert(minimalRows);
-        error = res.error;
-      }
-      if (error) throw error;
+        }),
+      );
     }
 
     if (tasksWithUuid.length > 0) {
@@ -182,7 +221,7 @@ export async function migrateFromLocalStorage(ownerId?: string): Promise<boolean
         if (error) {
           const missing = getMissingColumnNameFromPgrst204(error);
           if (missing && TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) {
-            const minimalRows = rows.map(r => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
+            const minimalRows = rows.map((r) => stripTaskOptionalColumns(r, [missing.toLowerCase()]));
             const retry = await supabase!.from('tasks').upsert(minimalRows);
             error = retry.error;
           }

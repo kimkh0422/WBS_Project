@@ -34,6 +34,11 @@ export interface WBSSettings {
   wrapTextInCells?: boolean;
   /** 표 컬럼 너비(px). 사용자가 조절한 값 저장 */
   columnWidths?: Record<string, number>;
+  /**
+   * true: 표만 뷰 진입·프로젝트/필터 변경 시 암묵적 일괄 자동 맞춤을 하지 않음(컬럼 드래그·헤더 더블클릭으로 너비를 확정한 경우).
+   * false/미설정: 표만 뷰에서 암묵적 자동 맞춤 허용. 요약 바「자동 맞춤」으로 false로 되돌릴 수 있음.
+   */
+  skipImplicitTableColumnAutoFit?: boolean;
   /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
   allocationHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
@@ -142,6 +147,14 @@ export function parseSettings(raw: unknown): WBSSettings {
       const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
       base.tableColumns = cols.map((c) => (c && c.id === 'allocation' ? { ...c, visible: false } : c));
       base.allocationHiddenMigrated = true;
+    }
+
+    // 컬럼 너비 저장은 예전부터 있었으나 암묵적 자동맞춤 플래그는 이번에 추가됨 → 기존 저장이 있으면 덮어쓰지 않도록 기본 잠금
+    if (typeof parsed.skipImplicitTableColumnAutoFit === 'boolean') {
+      base.skipImplicitTableColumnAutoFit = parsed.skipImplicitTableColumnAutoFit;
+    } else {
+      const cw = base.columnWidths;
+      base.skipImplicitTableColumnAutoFit = !!(cw && typeof cw === 'object' && Object.keys(cw).length > 0);
     }
 
     return base;

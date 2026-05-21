@@ -2,7 +2,7 @@ import type { Project, ProjectKind } from '../types';
 
 export type { ProjectKind };
 
-export const PROJECT_KINDS: ProjectKind[] = ['상품', '연구', '용역', '유지', '제품', '기타'];
+export const PROJECT_KINDS: ProjectKind[] = ['상품', '연구', '용역', '유지', '제품', '내부', '기타'];
 
 /** DB·UI에서 구분이 비어 있을 때(기존 데이터 호환): 집계·표시용 기본값 */
 export const DEFAULT_PROJECT_KIND: ProjectKind = '기타';
@@ -42,6 +42,8 @@ export function getProjectKindBadgeClass(kind: ProjectKind): string {
       return 'bg-teal-100 text-teal-800 border-teal-200/80';
     case '제품':
       return 'bg-indigo-100 text-indigo-800 border-indigo-200/80';
+    case '내부':
+      return 'bg-slate-100 text-slate-800 border-slate-200/80';
     case '기타':
       return 'bg-stone-100 text-stone-600 border-stone-200/80';
   }
@@ -80,7 +82,7 @@ export type ProjectKindGroup<T extends Pick<Project, 'projectKind'>> = {
   projects: T[];
 };
 
-/** 상품 → 연구 → 용역 → 유지 → 제품 → 기타 순으로 프로젝트를 묶음. projectKind 미설정은 기타. */
+/** 상품 → 연구 → 용역 → 유지 → 제품 → 내부 → 기타 순으로 프로젝트를 묶음. projectKind 미설정은 기타. */
 export function groupProjectsByKind<T extends Pick<Project, 'projectKind'>>(
   projects: readonly T[],
   options?: { omitEmpty?: boolean },
@@ -92,4 +94,69 @@ export function groupProjectsByKind<T extends Pick<Project, 'projectKind'>>(
   }
   const groups = PROJECT_KINDS.map((kind) => ({ kind, projects: buckets.get(kind)! }));
   return omitEmpty ? groups.filter((g) => g.projects.length > 0) : groups;
+}
+
+/** 구분별 목록에서 `include_in_dashboard = false` 프로젝트를 묶는 섹션 제목 */
+export const DASHBOARD_UNLISTED_SECTION_LABEL = '대시보드 반영 안된 프로젝트';
+
+export function getDashboardUnlistedBadgeClass(): string {
+  return 'bg-amber-50 text-amber-900 border-amber-200/80';
+}
+
+/** 프로젝트 목록 표·헤더 드롭다운의 종류 칼럼/섹션 뱃지 */
+export function getProjectListKindBadgeMeta(project: Pick<Project, 'includeInDashboard' | 'projectKind'>): {
+  label: string;
+  badgeClass: string;
+} {
+  if (project.includeInDashboard === false) {
+    return { label: DASHBOARD_UNLISTED_SECTION_LABEL, badgeClass: getDashboardUnlistedBadgeClass() };
+  }
+  const kind = resolveProjectKindOrDefault(project);
+  return { label: kind, badgeClass: getProjectKindBadgeClass(kind) };
+}
+
+/** 종류순 정렬: 대시보드 미반영은 항상 마지막(기타 다음) */
+export function projectListKindSortRank(project: Pick<Project, 'includeInDashboard' | 'projectKind'>): number {
+  if (project.includeInDashboard === false) return PROJECT_KINDS.length;
+  return PROJECT_KINDS.indexOf(resolveProjectKindOrDefault(project));
+}
+
+export type ProjectsGroupedForKindListView<T extends Pick<Project, 'projectKind' | 'includeInDashboard'>> = {
+  sectionKey: string;
+  headerLabel: string;
+  headerBadgeClass: string;
+  projects: T[];
+};
+
+/**
+ * 구분별 보기: 대시보드에 반영하지 않는 프로젝트는 `DASHBOARD_UNLISTED_SECTION_LABEL` 섹션으로만 묶음.
+ * 나머지는 기존 `groupProjectsByKind`와 동일.
+ */
+export function groupProjectsForKindListView<T extends Pick<Project, 'projectKind' | 'includeInDashboard'>>(
+  projects: readonly T[],
+  options?: { omitEmpty?: boolean },
+): ProjectsGroupedForKindListView<T>[] {
+  const omitEmpty = options?.omitEmpty ?? true;
+  const excluded: T[] = [];
+  const included: T[] = [];
+  for (const p of projects) {
+    if (p.includeInDashboard === false) excluded.push(p);
+    else included.push(p);
+  }
+  const kindGroups = groupProjectsByKind(included, { omitEmpty });
+  const sections: ProjectsGroupedForKindListView<T>[] = kindGroups.map((g) => ({
+    sectionKey: `kind:${g.kind}`,
+    headerLabel: g.kind,
+    headerBadgeClass: getProjectKindBadgeClass(g.kind),
+    projects: g.projects,
+  }));
+  if (excluded.length > 0 || !omitEmpty) {
+    sections.push({
+      sectionKey: 'dashboard-unlisted',
+      headerLabel: DASHBOARD_UNLISTED_SECTION_LABEL,
+      headerBadgeClass: getDashboardUnlistedBadgeClass(),
+      projects: excluded,
+    });
+  }
+  return sections;
 }

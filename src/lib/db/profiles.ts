@@ -270,6 +270,75 @@ export async function getVisitorRanking(): Promise<VisitorRankingRow[]> {
   }
 }
 
+/** 로그인 세션의 마지막 활동 시각 갱신(온라인 판별용). 실패 시 무시. */
+export async function pulsePresence(sessionId: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase || !sessionId) return;
+  if (isRpcDisabled('pulse_presence')) return;
+  try {
+    const { error } = await supabase.rpc('pulse_presence', { p_session_id: sessionId });
+    if (error && isRpcNotFoundError(error)) disableRpc('pulse_presence');
+  } catch {
+    /* ignore */
+  }
+}
+
+export type OnlinePresenceRow = {
+  userId: string;
+  displayName: string;
+  lastSeenAt: string;
+};
+
+/** 인증 사용자 공통: 최근 활동 기준 온라인 인원 수만. RPC 미배포·오류 시 null. */
+export async function getOnlinePresenceCount(withinSeconds = 180): Promise<number | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+  if (isRpcDisabled('get_online_presence_count')) return null;
+  try {
+    const { data, error } = await supabase.rpc('get_online_presence_count', { p_within_seconds: withinSeconds });
+    if (error) {
+      if (isRpcNotFoundError(error)) disableRpc('get_online_presence_count');
+      return null;
+    }
+    const n = typeof data === 'number' ? data : Number(data);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 시스템 관리자 전용: 최근 활동 기준 접속 중 사용자 목록. RPC 미배포 시 빈 배열. */
+export async function getOnlinePresenceUsers(withinSeconds = 180): Promise<OnlinePresenceRow[]> {
+  if (!isSupabaseConfigured || !supabase) return [];
+  if (isRpcDisabled('get_online_presence_users')) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_online_presence_users', { p_within_seconds: withinSeconds });
+    if (error) {
+      if (isRpcNotFoundError(error)) disableRpc('get_online_presence_users');
+      return [];
+    }
+    const raw = data as unknown;
+    let arr: unknown[] = [];
+    if (Array.isArray(raw)) arr = raw;
+    else if (typeof raw === 'string') {
+      try {
+        const p = JSON.parse(raw) as unknown;
+        if (Array.isArray(p)) arr = p;
+      } catch {
+        /* ignore */
+      }
+    }
+    return arr.map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        userId: String(r.user_id ?? ''),
+        displayName: String(r.display_name ?? ''),
+        lastSeenAt: String(r.last_seen_at ?? ''),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** 일별 접속(세션) 건수. RPC `get_daily_visit_counts` 미배포 시 빈 배열. */
 export type DailyVisitCountRow = { visitDate: string; count: number };
 

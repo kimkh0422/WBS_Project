@@ -1,6 +1,9 @@
-declare const __APP_VERSION__: string;
-declare const __APP_COMMIT_DATE__: string;
-declare const __APP_CHANGELOG_JSON__: string; // JSON array of { version, date, changes[] }
+declare module 'virtual:app-release' {
+  export const APP_VERSION: string;
+  export const APP_COMMIT_DATE: string;
+  /** JSON 문자열 — `JSON.parse` 후 `{ version, date, changes[] }[]` */
+  export const APP_CHANGELOG_JSON: string;
+}
 
 declare module '*.png' {
   const src: string;

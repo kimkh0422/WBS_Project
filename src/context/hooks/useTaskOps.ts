@@ -9,7 +9,12 @@ import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort,
 import { getHolidaysForTaskDates } from '../../lib/calendar';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
 import { syncParentRollups, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
-import { buildProjectEffortUnitMap, normalizeWorkEffortUnit, workEffortToManDays } from '../../lib/workEffortUnits';
+import {
+  buildProjectEffortUnitMap,
+  normalizeWorkEffortUnit,
+  resolveWorkEffortForNewTask,
+  workEffortToManDays,
+} from '../../lib/workEffortUnits';
 
 /** rootIds와 그 모든 하위 작업 id (같은 트리: parentId 체인). */
 function collectDescendantTaskIds(rootIds: Iterable<string>, tasks: Task[]): Set<string> {
@@ -84,7 +89,15 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const projs = projectsRef.current;
       const projectId = projectIdOverride ?? (cpi === 'all' ? projs[0]?.id || '' : cpi);
       const project = projs.find((p) => p.id === projectId);
-      const task: Task = clampTaskToProjectRange({ ...newTask, id: uuidv4(), projectId } as Task, project);
+      const task: Task = clampTaskToProjectRange(
+        {
+          ...newTask,
+          workEffort: resolveWorkEffortForNewTask(newTask.workEffort),
+          id: uuidv4(),
+          projectId,
+        } as Task,
+        project,
+      );
       setAllTasks((prev) => {
         let nextTasks: Task[];
         if (insertAfterId) {
@@ -121,7 +134,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const projs = projectsRef.current;
       const effectiveProjectId = cpi === 'all' ? projs[0]?.id || '' : cpi;
       const project = projs.find((p) => p.id === effectiveProjectId);
-      const tasksWithProject = newTasks.map((t) => clampTaskToProjectRange({ ...t, projectId: effectiveProjectId }, project));
+      const tasksWithProject = newTasks.map((t) =>
+        clampTaskToProjectRange(
+          { ...t, projectId: effectiveProjectId, workEffort: resolveWorkEffortForNewTask(t.workEffort) } as Task,
+          project,
+        ),
+      );
       setAllTasks((prev) => {
         const next = [...prev, ...tasksWithProject];
 
@@ -132,8 +150,14 @@ export function useTaskOps(deps: TaskOpsDeps) {
   );
 
   const updateTask = useCallback(
-    (id: string, updates: Partial<Task>, options?: { skipCascade?: boolean }) => {
+    (
+      id: string,
+      updates: Partial<Task>,
+      options?: { skipCascade?: boolean; skipEffortScheduleLink?: boolean; deferScheduleSync?: boolean },
+    ) => {
       const skipCascade = options?.skipCascade ?? false;
+      const skipEffortScheduleLink = options?.skipEffortScheduleLink ?? false;
+      const deferScheduleSync = options?.deferScheduleSync ?? false;
       saveHistory();
       // setAllTasks 업데이터에서 프로젝트 자동 확장이 필요한지 결정한 뒤, 외부에서 setProjects/upsertProject로 반영한다.
       let projectExpansionToApply: { project: Project; expansion: { startDate?: string; endDate?: string } } | null = null;
@@ -175,7 +199,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const linkEffortToSchedule = wSettings.linkEffortToSchedule === true;
         const scheduleOpts = { linkEffortToSchedule } as const;
 
-        if (hasScheduleChange && linkEffortToSchedule) {
+        if (hasScheduleChange && linkEffortToSchedule && !skipEffortScheduleLink) {
           const newStart = updates.startDate ?? task.startDate;
           const newEnd = updates.endDate ?? task.endDate;
           const workEffort = updates.workEffort !== undefined ? updates.workEffort : task.workEffort;
@@ -253,7 +277,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
         }
         const willExpandProject = expansion.startDate !== undefined || expansion.endDate !== undefined;
         const effectiveProject = willExpandProject ? ({ ...project!, ...expansion } as Project) : project;
-        updatedTask = clampTaskToProjectRange(updatedTask, effectiveProject);
+        // 간트 막대 이동(순수 평행 이동): 프로젝트 경계 클램프가 시작/종료를 비대칭으로 잘라 기간이 변하는 것을 막음
+        if (!skipEffortScheduleLink) {
+          updatedTask = clampTaskToProjectRange(updatedTask, effectiveProject);
+        }
 
         // 프로젝트 범위 확장은 setAllTasks 외부에서 setProjects/upsertProject로 별도 적용해야 한다.
         if (willExpandProject && project) {
@@ -414,26 +441,34 @@ export function useTaskOps(deps: TaskOpsDeps) {
           });
         }
 
-        const affectsRollup = ['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress'].some((k) =>
-          Object.prototype.hasOwnProperty.call(resolvedUpdates, k),
+        // updates / resolvedUpdates 둘 다 검사: 일부 경로에서 파생 필드만 resolved에 있거나,
+        // 클라이언트가 보낸 키가 updates에만 있는 경우에도 상위 진척 롤업이 빠지지 않도록 한다.
+        const affectsRollup = (['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress', 'status'] as const).some(
+          (k) => Object.prototype.hasOwnProperty.call(updates, k) || Object.prototype.hasOwnProperty.call(resolvedUpdates, k),
         );
         const doneStatusIds: Set<string> = new Set(
           ((wSettings.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
         );
         const parentIdChanged = Object.prototype.hasOwnProperty.call(updates, 'parentId') && updates.parentId !== task.parentId;
         let result = nextTasks;
-        if (affectsRollup) {
-          const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
-          const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
-          if (hasChildTasks && !hasDateChange && !isDirectProgressEdit) {
-            result = syncParentRollups(result, id, doneStatusIds, true);
-          } else {
-            result = syncParentRollups(result, task.parentId, doneStatusIds, true);
+        // 간트 등에서 여러 행 일정을 연속 패치할 때: 중간마다 상위 롤업을 돌리면 아직 옮기지 않은 형제/자식 때문에 부모 시작일이 당겨지는 버그가 난다.
+        if (!deferScheduleSync) {
+          if (affectsRollup) {
+            const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
+            const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
+            // 하위가 있는 행에서 공수만 직접 바꾼 경우: 같은 틱에서 자식 합으로 덮어쓰지 않도록 공수 롤업만 건너뜀
+            const skipWorkEffortRollupParentIds =
+              hasChildTasks && !hasDateChange && !isDirectProgressEdit && hasWorkEffortChange ? new Set([id]) : undefined;
+            if (hasChildTasks && !hasDateChange && !isDirectProgressEdit) {
+              result = syncParentRollups(result, id, doneStatusIds, true, undefined, skipWorkEffortRollupParentIds);
+            } else {
+              result = syncParentRollups(result, task.parentId, doneStatusIds, true);
+            }
           }
-        }
-        if (parentIdChanged) {
-          if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds);
-          if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds);
+          if (parentIdChanged) {
+            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds);
+            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds);
+          }
         }
 
         // 자식 단계(status) 변경 시 부모(및 조상)의 단계도 함께 갱신.
@@ -443,7 +478,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           Object.prototype.hasOwnProperty.call(updates, 'status') &&
           typeof resolvedUpdates.status === 'string' &&
           resolvedUpdates.status !== task.status;
-        if (statusChanged) {
+        if (statusChanged && !deferScheduleSync) {
           const cfgs = (wSettings.statusConfigs ?? []) as StatusConfig[];
           if (cfgs.length > 0) {
             const syncProgress = wSettings.linkStatusAndProgress !== false;
@@ -461,7 +496,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         // 일정 필드 변경 시 의존 작업/연쇄 작업이 다른 가지에 있을 수 있어
         // 해당 가지의 상위 작업 기간 롤업이 누락되지 않도록 프로젝트 단위로 최종 정합화한다.
         // 단, 사용자가 직접 편집한 부모 작업(자식이 있는 경우)은 자식 min/max로 덮어쓰지 않도록 제외.
-        if (hasScheduleChange && task.projectId) {
+        if (hasScheduleChange && task.projectId && !deferScheduleSync) {
           const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
           const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
           result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup);
@@ -508,7 +543,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       setAllTasks((prev) => {
         const idSet = hasAssignee ? collectDescendantTaskIds(originalIdSet, prev) : originalIdSet;
         const assigneePatch: Partial<Task> = hasAssignee ? { assignee: updates.assignee as string } : {};
-        const next = prev.map((t) => {
+        let next = prev.map((t) => {
           if (!idSet.has(t.id)) return t;
           const patch = originalIdSet.has(t.id) ? updates : assigneePatch;
           if (Object.keys(patch).length === 0) return t;
@@ -526,10 +561,28 @@ export function useTaskOps(deps: TaskOpsDeps) {
           };
         });
 
+        // 일괄 수정은 updateTask와 달리 기본적으로 롤업이 없어 상위·요약 진척률이 갱신되지 않았음.
+        const needsProgressRollup = ['progress', 'weight', 'workEffort', 'status'].some((k) =>
+          Object.prototype.hasOwnProperty.call(updates, k),
+        );
+        if (needsProgressRollup) {
+          const doneStatusIds: Set<string> = new Set(
+            ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
+          );
+          const parentIds = new Set<string>();
+          for (const tid of idSet) {
+            const row = next.find((x) => x.id === tid);
+            if (row?.parentId) parentIds.add(row.parentId);
+          }
+          for (const pid of parentIds) {
+            next = syncParentRollups(next, pid, doneStatusIds, true);
+          }
+        }
+
         return next;
       });
     },
-    [saveHistory, setAllTasks],
+    [saveHistory, setAllTasks, wbsSettingsRef],
   );
 
   const setBaselineForTasks = useCallback(
@@ -759,9 +812,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
         });
 
         const projectTaskList = nextTasks.filter((t) => t.projectId === projectId);
-        // 선행 순차 연결은 공수·투입율 기준 일정 재산정이 핵심이므로 linkEffortToSchedule 설정과 무관하게 적용
+        // 선행 순차 연결: FS로 시작일만 밀 때는 기존 달력(시작~종료) 간격을 유지하고, 공수로 종료일을 짧게 덮어쓰지 않음
         const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap, {
-          linkEffortToSchedule: true,
+          linkEffortToSchedule: false,
         });
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         nextTasks = nextTasks.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
@@ -773,6 +826,18 @@ export function useTaskOps(deps: TaskOpsDeps) {
       });
     },
     [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError],
+  );
+
+  /** 간트 다중 행 패치 후 한 번만 호출: 연속 updateTask(deferScheduleSync)로 롤업을 건너뛴 뒤 프로젝트 전체 상위 일정을 맞춤 */
+  const flushProjectTaskRollups = useCallback(
+    (projectId: string) => {
+      if (!projectId || projectId === 'all') return;
+      const doneStatusIds: Set<string> = new Set(
+        ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
+      );
+      setAllTasks((prev) => recomputeProjectRollups(prev, projectId, doneStatusIds));
+    },
+    [setAllTasks, wbsSettingsRef],
   );
 
   const deleteTask = useCallback(
@@ -806,5 +871,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
     refreshProjectSchedule,
     fixOverload,
     deleteTask,
+    flushProjectTaskRollups,
   };
 }

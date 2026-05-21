@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileJson, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import type { Project } from '../types';
 import type { BackupData } from '../lib/export';
 
@@ -30,7 +31,7 @@ export function BackupRestoreModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setTargetProjectId(prev => (projects.some(p => p.id === prev) ? prev : effectiveCurrent || (projects[0]?.id ?? '')));
+    setTargetProjectId((prev) => (projects.some((p) => p.id === prev) ? prev : effectiveCurrent || (projects[0]?.id ?? '')));
   }, [isOpen, effectiveCurrent, projects]);
 
   useEffect(() => {
@@ -66,8 +67,8 @@ export function BackupRestoreModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}>
         <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
             <FileJson className="text-amber-600" size={20} />
@@ -80,7 +81,8 @@ export function BackupRestoreModal({
 
         <div className="p-5 space-y-4">
           <p className="text-sm text-slate-600">
-            프로젝트 <span className="font-bold">{projectCount}</span>개, 작업 <span className="font-bold">{taskCount.toLocaleString()}</span>개가 포함된 백업입니다.
+            프로젝트 <span className="font-bold">{projectCount}</span>개, 작업{' '}
+            <span className="font-bold">{taskCount.toLocaleString()}</span>개가 포함된 백업입니다.
           </p>
 
           <div>
@@ -88,17 +90,11 @@ export function BackupRestoreModal({
             <div className="space-y-2">
               <label
                 className={cn(
-                  "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                  mode === 'full' ? "border-amber-300 bg-amber-50" : "border-slate-200 hover:bg-slate-50"
+                  'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                  mode === 'full' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 hover:bg-slate-50',
                 )}
               >
-                <input
-                  type="radio"
-                  name="restoreMode"
-                  checked={mode === 'full'}
-                  onChange={() => setMode('full')}
-                  className="mt-1"
-                />
+                <input type="radio" name="restoreMode" checked={mode === 'full'} onChange={() => setMode('full')} className="mt-1" />
                 <div>
                   <span className="font-medium text-slate-800">전체 복원</span>
                   <p className="text-xs text-slate-500 mt-0.5">모든 프로젝트와 작업이 백업 내용으로 덮어씌워집니다.</p>
@@ -107,9 +103,9 @@ export function BackupRestoreModal({
 
               <label
                 className={cn(
-                  "flex items-start gap-3 p-3 rounded-lg border transition-colors",
-                  projects.length === 0 ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
-                  mode === 'project' ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50"
+                  'flex items-start gap-3 p-3 rounded-lg border transition-colors',
+                  projects.length === 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+                  mode === 'project' ? 'border-blue-300 bg-blue-50' : 'border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <input
@@ -158,7 +154,7 @@ export function BackupRestoreModal({
           <button
             ref={confirmButtonRef}
             type="submit"
-            className={cn("btn-primary", mode === 'full' && "bg-red-600 hover:bg-red-700")}
+            className={cn('btn-primary', mode === 'full' && 'bg-red-600 hover:bg-red-700')}
             disabled={mode === 'project' && !targetProjectId}
           >
             {mode === 'full' ? '전체 복원' : '덮어쓰기'}

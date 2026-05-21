@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WBSTable } from './WBSTable';
 import { GanttChart } from './GanttChart';
-import { mirrorScrollTop, useScrollSync } from '../hooks/useScrollSync';
+import { mirrorScrollTop, useScrollSync, useSplitHorizontalScrollSync } from '../hooks/useScrollSync';
 import type { FilterState, SortConfig, Task } from '../types';
 
 const SPLIT_TABLE_WIDTH_KEY = 'wbs.split.wbsTableWidth';
@@ -47,7 +47,10 @@ export function TableGanttSplit({
 }: TableGanttSplitProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableHeaderScrollRef = useRef<HTMLDivElement | null>(null);
   const ganttScrollRef = useRef<HTMLDivElement | null>(null);
+  const ganttHeaderScrollRef = useRef<HTMLDivElement | null>(null);
+  const ganttBottomScrollRef = useRef<HTMLDivElement | null>(null);
   const paneResizeRef = useRef<{ startX: number; startPct: number } | null>(null);
   const tablePaneWidthPctRef = useRef(readTablePaneWidthPct());
   const resizeRafRef = useRef(0);
@@ -59,6 +62,17 @@ export function TableGanttSplit({
   tablePaneWidthPctRef.current = tablePaneWidthPct;
 
   useScrollSync(tableScrollRef, ganttScrollRef, true, containerRef);
+
+  useSplitHorizontalScrollSync(
+    {
+      tableHeader: tableHeaderScrollRef,
+      tableBody: tableScrollRef,
+      ganttHeader: ganttHeaderScrollRef,
+      ganttBottom: ganttBottomScrollRef,
+    },
+    true,
+    [tablePaneWidthPct, rowHeights.length],
+  );
 
   // 줄바꿈 등으로 행 높이가 갱신되면 스크롤 위치를 다시 맞춤
   useEffect(() => {
@@ -146,6 +160,7 @@ export function TableGanttSplit({
           scrollToTaskId={scrollToTaskId}
           onSort={onSort}
           syncScrollRef={tableScrollRef}
+          splitHeaderScrollRef={tableHeaderScrollRef}
           rowHeight={sharedRowHeight}
           onRowHeightChange={onRowHeightChange}
           onRowHeightsChange={setRowHeights}
@@ -167,6 +182,8 @@ export function TableGanttSplit({
           sortConfig={sortConfig}
           hideSidebar
           syncScrollRef={ganttScrollRef}
+          splitGanttHeaderScrollRef={ganttHeaderScrollRef}
+          splitGanttBottomScrollRef={ganttBottomScrollRef}
           rowHeight={sharedRowHeight}
           rowHeights={rowHeights}
           onRowHeightChange={onRowHeightChange}

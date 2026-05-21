@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, FileText, FolderOpen, ArrowRight, Hash } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { isComposingKeyEvent } from '../lib/ime';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
@@ -125,6 +126,23 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
     [onSelectTask, onSelectProject, onClose],
   );
 
+  /** 브라우저 기본 툴팁(title): 마우스 오버 시 항목 유형·동작·주요 필드를 한눈에 안내 */
+  const resultTooltip = useCallback((item: SearchResult) => {
+    if (item.type === 'project') {
+      const desc = item.subtitle && item.subtitle !== '설명 없음' ? `프로젝트 설명: ${item.subtitle}` : '등록된 프로젝트 설명이 없습니다.';
+      return `프로젝트 — Enter 또는 클릭하면 이 프로젝트를 작업 대상으로 선택합니다. 표시명「${item.title}」. ${desc}`;
+    }
+    const bits: string[] = [
+      '작업 — Enter 또는 클릭하면 이 작업이 있는 프로젝트로 이동합니다.',
+      item.wbs ? `WBS 코드 ${item.wbs}.` : '',
+      `작업명「${item.title}」.`,
+      item.subtitle ? `소속·담당: ${item.subtitle}.` : '',
+      item.status ? `상태: ${item.status}.` : '',
+      typeof item.progress === 'number' ? `진척도 ${formatPercent1(item.progress)}%.` : '',
+    ];
+    return bits.filter(Boolean).join(' ');
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isComposingKeyEvent(e.nativeEvent)) return;
     if (e.key === 'ArrowDown') {
@@ -145,12 +163,8 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[15vh] p-4" onClick={onClose}>
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-      <div
-        className="relative w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-line)] rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className={cn(MODAL_BACKDROP_CLASS, 'z-[70] items-start justify-center pt-[15vh]')} onClick={onClose}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'relative max-w-lg overflow-hidden')} onClick={(e) => e.stopPropagation()}>
         {/* 검색 입력 */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--color-line)]">
           <Search size={18} className="text-[var(--color-ink-muted)] shrink-0" />
@@ -161,6 +175,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="작업명, 프로젝트, 담당자, WBS 번호로 검색..."
+            title="작업명·프로젝트명·프로젝트 설명·담당자 표시명·WBS 코드로 검색합니다. ↑↓로 결과 이동, Enter로 열기, Esc로 닫기."
             className="flex-1 bg-transparent text-[var(--color-ink)] text-sm outline-none placeholder:text-[var(--color-ink-muted)]"
           />
           <kbd className="hidden sm:inline-flex text-[10px] font-mono px-1.5 py-0.5 rounded border border-[var(--color-line)] text-[var(--color-ink-muted)]">
@@ -183,6 +198,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
                   'w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors',
                   idx === selectedIndex ? 'bg-[var(--color-accent-soft)]' : 'hover:bg-[var(--color-line-soft)]',
                 )}
+                title={resultTooltip(item)}
                 onClick={() => handleSelect(item)}
                 onMouseEnter={() => setSelectedIndex(idx)}
               >
@@ -206,7 +222,9 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
                         {item.status}
                       </span>
                     )}
-                    {typeof item.progress === 'number' && <span className="shrink-0 text-[10px] font-mono">{item.progress}%</span>}
+                    {typeof item.progress === 'number' && (
+                      <span className="shrink-0 text-[10px] font-mono">{formatPercent1(item.progress)}%</span>
+                    )}
                   </div>
                 </div>
                 <ArrowRight

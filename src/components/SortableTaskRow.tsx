@@ -5,12 +5,13 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatDate, formatNum1, formatNum2, round1, round2 } from '../lib/utils';
+import { cn, formatDate, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { useWBS } from '../context/WBSContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { getTaskProgressRollupTooltip } from '../lib/rollups';
 import { useToast } from './Toast';
 import {
   buildOrgMemberLabelMap,
@@ -19,6 +20,7 @@ import {
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { type TableColumnId } from './wbsTableTypes';
+import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
@@ -65,7 +67,7 @@ function getTaskDetailTooltip(
   if (task.weight != null) lines.push(`가중치: ${formatNum1(task.weight)}`);
   lines.push(`담당: ${assigneeText}`);
   lines.push(`상태: ${statusName}`);
-  lines.push(`진척률: ${typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '—'}`);
+  lines.push(`진척률: ${typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—'}`);
   if (task.description?.trim()) lines.push(`설명: ${task.description.trim()}`);
   if (task.deliverables?.trim()) lines.push(`산출물: ${task.deliverables.trim()}`);
   const deps = task.dependencies;
@@ -132,6 +134,8 @@ export interface SortableTaskRowProps {
   projectEffortUnitByProjectId: Map<string, WorkEffortUnit>;
   /** true면 작업명 컬럼에 표시용 WBS 접두(예: P1)를 붙여 표시 */
   prependDisplayWbsToTaskName?: boolean;
+  /** 진척률 셀 툴팁(요약 바와 같은 범위의 작업 집합) */
+  rollupTooltipBaseTasks: Task[];
 }
 
 function SortableTaskRowInner({
@@ -175,6 +179,7 @@ function SortableTaskRowInner({
   customColumnNameById,
   projectEffortUnitByProjectId,
   prependDisplayWbsToTaskName = false,
+  rollupTooltipBaseTasks,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
@@ -221,6 +226,38 @@ function SortableTaskRowInner({
   const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const orgMemberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
+
+  const doneStatusIdsForProgressTip = useMemo(
+    () => new Set((statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id)),
+    [statusConfigs],
+  );
+  const effortSuffix = workEffortUnitSuffixKo(effortUnitForTask);
+  const weightColumnTooltip = useMemo(
+    () =>
+      [
+        WEIGHT_COLUMN_HELP_TEXT,
+        '',
+        `이 프로젝트 공수 단위: ${effortSuffix} — 가중이 비어 있을 때 롤업에 쓰입니다.`,
+        '가중이 큰 형제는 진척이 조금만 올라도 상위 평균에 크게 반영되고, 가중이 작은 형제는 덜 반영됩니다.',
+        '',
+        '클릭: 포커스 · 더블클릭 또는 F2: 편집',
+      ].join('\n'),
+    [effortSuffix],
+  );
+  const progressColumnTooltip = useMemo(
+    () =>
+      [
+        PROGRESS_COLUMN_HELP_TEXT,
+        '',
+        '더블클릭 또는 F2: 편집 · 우클릭: 상태별 진척 갱신 메뉴.',
+        '가중치가 비어 있는 자식은 롤업 시 공수를 가중으로 씁니다. 형제 간 가중 비율에 따라 상위 진척이 달라질 수 있습니다.',
+        '',
+        '— 아래는 이 행 기준 산식 상세 —',
+        '',
+        getTaskProgressRollupTooltip(task, rollupTooltipBaseTasks, doneStatusIdsForProgressTip),
+      ].join('\n'),
+    [task, rollupTooltipBaseTasks, doneStatusIdsForProgressTip],
+  );
 
   /** 프로젝트 assignments에서 담당자명(트림) 기준으로 비율 합침 — 동일 이름 중복 시 마지막 값, 표시·편집 기본값과 일치 */
   const projectAllocPctByTrimmedName = useMemo(() => {
@@ -860,7 +897,7 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     beginEdit('weight');
                   }}
-                  title="클릭하여 가중치 수정(형제 합 100 불필요, 상대 중요도)"
+                  title={weightColumnTooltip}
                 >
                   {task.weight != null ? formatNum1(task.weight) : '-'}
                 </button>
@@ -888,7 +925,7 @@ function SortableTaskRowInner({
                 e.stopPropagation();
                 if (!isEditing) beginEditNow('progress');
               }}
-              title="클릭하여 진척률 수정 · 우클릭: 갱신 메뉴"
+              title={progressColumnTooltip}
             >
               {isEditing ? (
                 <input
@@ -930,7 +967,7 @@ function SortableTaskRowInner({
                     beginEdit('progress');
                   }}
                 >
-                  {typeof task.progress === 'number' ? `${formatNum2(task.progress)}%` : '-'}
+                  {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
                 </button>
               )}
             </div>
@@ -1578,7 +1615,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById &&
-    prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName
+    prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName &&
+    prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks
   );
 }
 

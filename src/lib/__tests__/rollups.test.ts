@@ -65,6 +65,44 @@ describe('syncParentRollups', () => {
     const parent = result.find((t) => t.id === 'parent')!;
     expect(parent.progress).toBe(100);
   });
+
+  it('직속 자식 공수 합으로 부모 공수를 롤업', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', workEffort: 99, progress: 0 }),
+      makeTask({ id: 'c1', parentId: 'parent', workEffort: 6 }),
+      makeTask({ id: 'c2', parentId: 'parent', workEffort: 4 }),
+    ];
+    const result = syncParentRollups(tasks, 'parent');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.workEffort).toBe(10);
+  });
+
+  it('userLockedFields에 workEffort가 있으면 부모 공수는 자식 합으로 덮어쓰지 않음', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', workEffort: 14, userLockedFields: ['workEffort'] }),
+      makeTask({ id: 'c1', parentId: 'parent', workEffort: 0.5 }),
+      makeTask({ id: 'c2', parentId: 'parent', workEffort: 0.5 }),
+    ];
+    const result = syncParentRollups(tasks, 'parent');
+    expect(result.find((t) => t.id === 'parent')!.workEffort).toBe(14);
+  });
+
+  it('3레벨: 손자 공수 변경이 조부모 공수까지 롤업', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'gp', workEffort: 1 }),
+      makeTask({ id: 'p', parentId: 'gp', workEffort: 1 }),
+      makeTask({ id: 'leaf', parentId: 'p', workEffort: 7 }),
+    ];
+    const result = syncParentRollups(tasks, 'p');
+    expect(result.find((t) => t.id === 'p')!.workEffort).toBe(7);
+    expect(result.find((t) => t.id === 'gp')!.workEffort).toBe(7);
+  });
+
+  it('skipWorkEffortRollupParentIds면 해당 부모 공수만 롤업 생략', () => {
+    const tasks: Task[] = [makeTask({ id: 'parent', workEffort: 14 }), makeTask({ id: 'c1', parentId: 'parent', workEffort: 3 })];
+    const result = syncParentRollups(tasks, 'parent', undefined, false, undefined, new Set(['parent']));
+    expect(result.find((t) => t.id === 'parent')!.workEffort).toBe(14);
+  });
 });
 
 describe('recomputeProjectRollups', () => {
@@ -77,6 +115,7 @@ describe('recomputeProjectRollups', () => {
     const result = recomputeProjectRollups(tasks, 'p1');
     const root = result.find((t) => t.id === 'root')!;
     expect(root.progress).toBe(30); // (100*3 + 0*7) / 10
+    expect(root.workEffort).toBe(10);
   });
 
   it('다른 프로젝트 작업은 영향 없음', () => {
@@ -101,6 +140,7 @@ describe('applyRollupsToTasks', () => {
     const result = applyRollupsToTasks(tasks, configs);
     const parent = result.find((t) => t.id === 'parent')!;
     expect(parent.progress).toBe(50); // (100*5 + 0*5) / 10
+    expect(parent.workEffort).toBe(10);
   });
 
   it('리프 작업은 진척률 변경 없음 (상태 기반 매핑은 별도 함수)', () => {

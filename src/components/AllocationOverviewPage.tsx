@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
 import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 import {
   applyPersonProjectAllocation,
   computePersonAllocations,
@@ -159,7 +159,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
-                      <span className="text-xs text-stone-400">총 {totalPercent}% 투입</span>
+                      <span className="text-xs text-stone-400">총 {formatPercent1(totalPercent)}% 투입</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -204,7 +204,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                               .sort(([k1], [k2]) => k1.localeCompare(k2))
                               .map(([ym, pct]) => (
                                 <span key={ym}>
-                                  {ym} {pct}%
+                                  {ym} {formatPercent1(Number(pct))}%
                                 </span>
                               ))}
                           </div>
@@ -315,7 +315,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                       </div>
                     )}
                     <div className="text-xs text-stone-500">
-                      {items.length}개 프로젝트 · 총 {totalPercent}% 투입
+                      {items.length}개 프로젝트 · 총 {formatPercent1(totalPercent)}% 투입
                       {(() => {
                         const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce(
                           (s: number, v: number) => s + v,

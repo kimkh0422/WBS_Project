@@ -3,6 +3,8 @@ import { X, History, Loader2 } from 'lucide-react';
 import { fetchAuditLog, type AuditLogEntry, type AuditAction } from '../lib/db';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 interface AuditLogModalProps {
   isOpen: boolean;
@@ -55,11 +57,8 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
-      <div
-        className="bg-white rounded-xl shadow-xl border border-stone-200 w-full max-w-3xl max-h-[85vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className={MODAL_BACKDROP_CLASS} onClick={onClose}>
+      <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-3xl max-h-[85vh] flex flex-col rounded-xl')} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-stone-200">
           <div className="flex items-center gap-2">
             <History className="w-5 h-5 text-stone-500" />

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
+import { formatPercent1 } from '../lib/utils';
 import { AgGridReact } from 'ag-grid-react';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import type { ColDef, ValueParserParams, ValueFormatterParams } from 'ag-grid-community';
@@ -43,7 +44,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
   const percentFormatter = (p: ValueFormatterParams) => {
     const v = typeof p.value === 'number' ? p.value : Number(p.value);
     if (!Number.isFinite(v)) return '';
-    return `${v}%`;
+    return `${formatPercent1(v)}%`;
   };
 
   const columnDefs = useMemo<ColDef<Task & { _wbs: string; _allocationText: string; _dependenciesText: string }>[]>(() => {

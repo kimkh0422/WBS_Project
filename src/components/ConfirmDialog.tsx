@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { isComposingKeyEvent } from '../lib/ime';
 
@@ -64,15 +65,15 @@ export function ConfirmDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4">
+    <div className={MODAL_BACKDROP_CLASS}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-200"
+        className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-sm overflow-hidden')}
       >
-        <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex justify-between items-center gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-b from-slate-50 to-slate-50/40">
           <div className="flex items-center gap-2">
             {isDanger && <AlertTriangle className="text-red-500" size={20} />}
             <h2 id="confirm-dialog-title" className="text-lg font-bold text-[var(--color-ink)]">
@@ -82,18 +83,18 @@ export function ConfirmDialog({
           <button
             aria-label="닫기"
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-slate-800"
+            className="p-2 rounded-xl transition-colors text-slate-500 hover:text-slate-900 hover:bg-slate-200/80"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="px-5 py-5 sm:px-6">
           <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{message}</p>
         </div>
 
         <form
-          className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30"
+          className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200/80 bg-slate-50/50"
           onSubmit={(e) => {
             e.preventDefault();
             onConfirm();

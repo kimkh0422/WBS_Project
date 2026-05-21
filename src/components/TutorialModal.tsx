@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, BookOpen, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 export interface TutorialSection {
   id: string;
@@ -50,7 +51,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
         type: 'list',
         items: [
           '상단 "프로젝트" 탭을 클릭해 프로젝트 목록 화면으로 이동합니다.',
-          '"프로젝트 추가" 버튼을 누르고, 이름·설명·시작일·종료일을 입력한 뒤 저장합니다.',
+          '"프로젝트 추가" 버튼을 누르고, 이름·PM(필수)·PO(선택)·설명·시작일·종료일을 입력한 뒤 저장합니다. PM/PO는 WBS 작업의「담당자」와 별개이며, 대시보드·프로젝트 목록에서 확인할 수 있습니다.',
           '프로젝트 카드를 클릭하면 해당 프로젝트가 선택되고, 표/간트 등에서 해당 프로젝트의 작업을 편집할 수 있습니다.',
         ],
       },
@@ -366,9 +367,9 @@ export function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+    <div className={cn(MODAL_BACKDROP_CLASS, 'z-[100]')}>
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
+        className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-4xl h-[85vh] flex flex-col overflow-hidden')}
         role="dialog"
         aria-labelledby="tutorial-title"
         aria-modal="true"

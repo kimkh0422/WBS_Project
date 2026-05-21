@@ -1,10 +1,21 @@
 import React from 'react';
 import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2 } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 
-const StatChip = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
-  <div className="flex items-center gap-1.5 px-3 py-1">
+const StatChip = ({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  /** 네이티브 툴팁(계산 방식 등) */
+  hint?: string;
+}) => (
+  <div className="flex items-center gap-1.5 px-3 py-1" title={hint}>
     <span className="text-stone-400">{icon}</span>
     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{label}</span>
     <span className="text-xs font-semibold text-[var(--color-ink)]">{value}</span>
@@ -52,7 +63,7 @@ export function SummaryBar({
       className={cn(
         // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
         isSplitView
-          ? 'min-h-12 flex items-center gap-0 border-b px-4 py-1.5 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto overflow-y-visible whitespace-nowrap'
+          ? 'h-14 flex items-center gap-0 border-b px-4 py-0 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
           : 'flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0',
         'border-[var(--color-line)]',
       )}
@@ -67,7 +78,12 @@ export function SummaryBar({
             value={`${Number(summaryStats.effortDisplayAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${summaryStats.effortDisplayLabel}`}
           />
           <Divider />
-          <StatChip icon={<TrendingUp size={12} />} label="전체 진척율" value={`${summaryStats.avgProgress}%`} />
+          <StatChip
+            icon={<TrendingUp size={12} />}
+            label="전체 진척율"
+            value={`${formatPercent1(summaryStats.avgProgress)}%`}
+            hint={summaryStats.avgProgressTooltip}
+          />
           <Divider />
           <StatChip
             icon={<CalendarDays size={12} />}
@@ -115,7 +131,7 @@ export function SummaryBar({
               type="button"
               onClick={onAutoFitColumns}
               className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정 (헤더 더블클릭은 단일 컬럼만 적용)"
+              title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
             >
               <Maximize2 size={12} strokeWidth={2} aria-hidden />
               자동 맞춤
@@ -157,7 +173,7 @@ export function SummaryBar({
             type="button"
             onClick={onAutoFitColumns}
             className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정 (헤더 더블클릭은 단일 컬럼만 적용)"
+            title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
           >
             <Maximize2 size={12} strokeWidth={2} aria-hidden />
             자동 맞춤

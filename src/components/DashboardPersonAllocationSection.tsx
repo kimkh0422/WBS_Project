@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Briefcase, ChevronDown, ChevronRight, Info, ListTodo, Users } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { DEFAULT_MAN_DAYS_PER_MAN_MONTH, formatAllocationPercentSumForDisplay, manDaysToManMonths } from '../lib/workEffortUnits';
 import {
   applyPersonProjectAllocation,
@@ -24,6 +24,7 @@ import {
   formatAssigneeDisplay,
 } from '../lib/assigneeOptions';
 import { formatProjectDisplayName, getProjectKindBadgeClass, resolveProjectKindOrDefault } from '../lib/projectKind';
+import { isAssigneeProjectPm, isAssigneeProjectPo } from '../lib/projectPmDisplay';
 import { EditableAllocationBadge } from './EditableAllocationBadge';
 import { AddPersonProjectAllocation } from './AddPersonProjectAllocation';
 import { AddPersonAllocationControl } from './AddPersonAllocationControl';
@@ -39,7 +40,8 @@ type AllocationViewMode = 'by-person' | 'by-project';
 type PersonMetricMode = 'allocation' | 'task-assignment';
 type EffortDisplayUnit = 'mm' | 'md';
 
-const DASHBOARD_EFFORT_DISPLAY_KEY = 'dashboard-person-allocation-effort-unit';
+/** 투입 현황 표의 공수 표기 단위(툴바 토글 제거 후 M/M 고정). */
+const EFFORT_DISPLAY_UNIT: EffortDisplayUnit = 'mm';
 
 const UNSPECIFIED_PERSON = '(미지정)';
 
@@ -251,6 +253,8 @@ interface DashboardPersonAllocationSectionProps {
   /** 상단 대시보드 프로젝트 필터가 적용 중일 때 안내 문구 표시 */
   showFilterHint?: boolean;
   onNavigateToWork?: (projectId: string) => void;
+  /** 좁은 화면(모바일 대시보드): 가로 스크롤 없이 표가 뷰포트 너비에 맞춰 줄바꿈되도록 함 */
+  narrowScreenLayout?: boolean;
 }
 
 export function DashboardPersonAllocationSection({
@@ -260,6 +264,7 @@ export function DashboardPersonAllocationSection({
   registeredMemberDisplayNames,
   showFilterHint,
   onNavigateToWork,
+  narrowScreenLayout = false,
 }: DashboardPersonAllocationSectionProps) {
   const { updateProject, addProject, wbsSettings } = useWBS();
   const { orgMembers, orgTree } = useOrganization();
@@ -271,23 +276,6 @@ export function DashboardPersonAllocationSection({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   /** 인원 칩(투입 카드) 클릭 시 팝업 — 프로젝트·담당자 단위. */
   const [personProjectCardDetail, setPersonProjectCardDetail] = useState<{ projectId: string; person: string } | null>(null);
-  const [effortDisplayUnit, setEffortDisplayUnit] = useState<EffortDisplayUnit>(() => {
-    if (typeof window === 'undefined') return 'mm';
-    try {
-      const v = window.localStorage.getItem(DASHBOARD_EFFORT_DISPLAY_KEY);
-      if (v === 'md' || v === 'mm') return v;
-    } catch {
-      /* ignore */
-    }
-    return 'mm';
-  });
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(DASHBOARD_EFFORT_DISPLAY_KEY, effortDisplayUnit);
-    } catch {
-      /* ignore */
-    }
-  }, [effortDisplayUnit]);
 
   useEffect(() => {
     if (allocationViewMode !== 'by-person') setSelectedPerson(null);
@@ -451,14 +439,14 @@ export function DashboardPersonAllocationSection({
   const filterHintSuffix = showFilterHint ? ' · 상단 필터에 맞춘 프로젝트만 집계합니다.' : '';
 
   const allocationHelpBullets = useMemo(() => {
-    const unitLine = `공수 단위(M/M·M/D)는 우측 툴바에서 바꿀 수 있으며, 1 M/M = ${DEFAULT_MAN_DAYS_PER_MAN_MONTH} M/D입니다.`;
+    const unitLine = `공수는 M/M(맨먼스)로 표시하며, 1 M/M = ${DEFAULT_MAN_DAYS_PER_MAN_MONTH} M/D입니다.`;
     const tail = filterHintSuffix.trim();
     if (allocationViewMode === 'by-project') {
       return [
         '프로젝트별 담당 인원과 투입 비율을 표시합니다.',
         `총 투입은 투입비율 합을 맨먼스로 환산합니다(100% = 1 M/M). ${unitLine}`,
         '「투입 현황」막대와 오른쪽 숫자는 합계 대비 비율을 같이 봅니다(100%를 넘으면 막대는 꽉 차고 수치에 초과가 표시됩니다).',
-        '이름이 적힌 칩에서 비율을 클릭하면 수정할 수 있고, 「+ 인원」으로 담당자를 추가합니다.',
+        '이름이 적힌 칩에서 비율을 클릭하면 수정할 수 있고, 「+ 인원」으로 담당자를 추가합니다. 프로젝트에 등록한 PM·PO와 이름이 같으면 칩에 뱃지로 표시됩니다.',
         '인원 카드의 빈 영역을 클릭하면 이 프로젝트 기준 상세가 팝업으로 열립니다(이름·비율 클릭은 기존과 동일).',
         '프로젝트 행을 클릭하면 투입·작업·PM 등 상세 정보가 팝업으로 열립니다.',
         tail,
@@ -476,9 +464,9 @@ export function DashboardPersonAllocationSection({
     }
     return [
       '프로젝트에 설정한 투입비율 합계입니다. 여러 프로젝트에 동시 투입하면 100%를 초과할 수 있습니다.',
-      `총 투입·WBS 공수 합은 선택한 단위로 표시됩니다(총 투입은 100% = 1 M/M 기준). ${unitLine}`,
+      `총 투입·WBS 공수 합은 M/M로 표시됩니다(총 투입은 100% = 1 M/M 기준). ${unitLine}`,
       '프로젝트별 투입율(%)을 클릭하면 바로 수정할 수 있습니다.',
-      '「인원 추가」로 새 담당자를 등록하고, 「+ 프로젝트」로 다른 프로젝트 투입을 추가할 수 있습니다.',
+      '「인원 추가」로 새 담당자를 등록하고, 「+ 프로젝트」로 다른 프로젝트 투입을 추가할 수 있습니다. 각 프로젝트의 PM·PO와 이름이 같으면 칩에 뱃지로 표시됩니다.',
       '담당자 행을 클릭하면 투입·작업·PM 등 상세 정보가 팝업으로 열립니다.',
       tail,
     ].filter(Boolean);
@@ -508,19 +496,24 @@ export function DashboardPersonAllocationSection({
             </span>
           </div>
         </td>
-        <td className="px-2 py-3 text-center tabular-nums text-stone-600">{items.length}</td>
+        <td className="px-2 py-3 text-center tabular-nums text-stone-600 hidden sm:table-cell">{items.length}</td>
         <td className="px-3 py-3 text-right">
           <div className="font-bold tabular-nums text-violet-600">{totalTaskCount}건</div>
           {totalMd > 0 && (
-            <div className="text-[10px] text-stone-400 tabular-nums mt-0.5">{formatEffortFromManDays(totalMd, effortDisplayUnit)}</div>
+            <div className="text-[10px] text-stone-400 tabular-nums mt-0.5">{formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT)}</div>
+          )}
+          {maxPersonTaskCount > 0 && (
+            <div className="text-[10px] text-stone-400 tabular-nums mt-0.5 md:hidden">{formatPercent1(barWidth)}%</div>
           )}
         </td>
-        <td className="px-3 py-3">
+        <td className="px-3 py-3 hidden md:table-cell">
           <div className="flex items-center gap-2">
             <div className="flex-1 h-2 bg-stone-100 rounded-full overflow-hidden min-w-[4rem]">
               <div className="h-full rounded-full transition-all bg-violet-500" style={{ width: `${barWidth}%` }} />
             </div>
-            {maxPersonTaskCount > 0 && <span className="text-[10px] text-stone-400 tabular-nums shrink-0">{Math.round(barWidth)}%</span>}
+            {maxPersonTaskCount > 0 && (
+              <span className="text-[10px] text-stone-400 tabular-nums shrink-0">{formatPercent1(barWidth)}%</span>
+            )}
           </div>
         </td>
         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
@@ -632,7 +625,7 @@ export function DashboardPersonAllocationSection({
             layout
             className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-stone-200 bg-gradient-to-b from-white to-stone-50/90 p-1 shadow-sm"
             role="toolbar"
-            aria-label="투입 현황 보기·단위"
+            aria-label="투입 현황 보기"
           >
             <div
               className="inline-flex gap-0.5 rounded-lg bg-stone-100/80 p-0.5 ring-1 ring-stone-200/50"
@@ -679,28 +672,6 @@ export function DashboardPersonAllocationSection({
                 </div>
               </>
             )}
-            <span className="hidden sm:block w-px h-5 shrink-0 bg-stone-200" aria-hidden />
-            <div
-              className="inline-flex gap-0.5 rounded-lg bg-stone-100/80 p-0.5 ring-1 ring-stone-200/50"
-              role="group"
-              aria-label="공수 단위"
-              title={`1 M/M = ${DEFAULT_MAN_DAYS_PER_MAN_MONTH} M/D`}
-            >
-              <button
-                type="button"
-                onClick={() => setEffortDisplayUnit('mm')}
-                className={allocationToolbarSegmentClass(effortDisplayUnit === 'mm')}
-              >
-                M/M
-              </button>
-              <button
-                type="button"
-                onClick={() => setEffortDisplayUnit('md')}
-                className={allocationToolbarSegmentClass(effortDisplayUnit === 'md')}
-              >
-                M/D
-              </button>
-            </div>
           </motion.div>
           {allocationViewMode === 'by-person' && personMetricMode === 'allocation' && (
             <AddPersonAllocationControl
@@ -754,14 +725,14 @@ export function DashboardPersonAllocationSection({
                   </button>
                 </div>
               )}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[720px]">
+              <div className={narrowScreenLayout ? 'overflow-x-hidden' : 'overflow-x-auto'}>
+                <table className={cn('w-full text-sm', narrowScreenLayout ? 'min-w-0' : 'min-w-[500px] md:min-w-[720px]')}>
                   <thead className="bg-stone-50 border-b border-stone-200">
                     <tr className="text-xs text-stone-500">
                       <th className="text-left font-medium px-4 py-2.5 w-36">담당자</th>
-                      <th className="text-center font-medium px-2 py-2.5 w-16">프로젝트</th>
+                      <th className="text-center font-medium px-2 py-2.5 w-16 hidden sm:table-cell">프로젝트</th>
                       <th className="text-right font-medium px-3 py-2.5 w-28">총 할당</th>
-                      <th className="text-left font-medium px-3 py-2.5 w-32">할당 현황</th>
+                      <th className="text-left font-medium px-3 py-2.5 w-32 hidden md:table-cell">할당 현황</th>
                       <th className="text-left font-medium px-3 py-2.5">프로젝트별</th>
                     </tr>
                   </thead>
@@ -807,7 +778,7 @@ export function DashboardPersonAllocationSection({
                     allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
                     personProjectWorkEffort={personProjectWorkEffort}
                     allTasks={allTasks}
-                    effortDisplayUnit={effortDisplayUnit}
+                    effortDisplayUnit={EFFORT_DISPLAY_UNIT}
                     orgMemberLabelByName={allocationOrgLabelByName}
                     displayMetaByName={allocationDisplayMetaByName}
                     statusConfigs={wbsSettings.statusConfigs}
@@ -834,14 +805,14 @@ export function DashboardPersonAllocationSection({
           </motion.div>
         ) : (
           <motion.div className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
+            <div className={narrowScreenLayout ? 'overflow-x-hidden' : 'overflow-x-auto'}>
+              <table className={cn('w-full text-sm', narrowScreenLayout ? 'min-w-0' : 'min-w-[500px] md:min-w-[720px]')}>
                 <thead className="bg-stone-50 border-b border-stone-200">
                   <tr className="text-xs text-stone-500">
                     <th className="text-left font-medium px-4 py-2.5 w-36">담당자</th>
-                    <th className="text-center font-medium px-2 py-2.5 w-16">프로젝트</th>
+                    <th className="text-center font-medium px-2 py-2.5 w-16 hidden sm:table-cell">프로젝트</th>
                     <th className="text-right font-medium px-3 py-2.5 w-28">총 투입</th>
-                    <th className="text-left font-medium px-3 py-2.5 w-32">투입 현황</th>
+                    <th className="text-left font-medium px-3 py-2.5 w-32 hidden md:table-cell">투입 현황</th>
                     <th className="text-left font-medium px-3 py-2.5">프로젝트별</th>
                   </tr>
                 </thead>
@@ -869,19 +840,26 @@ export function DashboardPersonAllocationSection({
                             </span>
                           </div>
                         </td>
-                        <td className="px-2 py-3 text-center tabular-nums text-stone-600">{items.length}</td>
+                        <td className="px-2 py-3 text-center tabular-nums text-stone-600 hidden sm:table-cell">{items.length}</td>
                         <td className="px-3 py-3 text-right">
                           <div className={cn('font-bold tabular-nums text-base', totalPercent > 100 ? 'text-amber-600' : 'text-stone-800')}>
-                            {formatAllocationPercentSumForDisplay(totalPercent, effortDisplayUnit)}
+                            {formatAllocationPercentSumForDisplay(totalPercent, EFFORT_DISPLAY_UNIT)}
                           </div>
                           {totalPercent > 100 && <div className="text-[11px] font-medium text-amber-600 mt-0.5">투입 합계 100% 초과</div>}
                           {totalMd > 0 && (
                             <div className="text-[10px] text-stone-400 tabular-nums mt-0.5">
-                              {formatEffortFromManDays(totalMd, effortDisplayUnit)}
+                              {formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT)}
                             </div>
                           )}
+                          <div className="md:hidden mt-1">
+                            <span
+                              className={cn('text-xs tabular-nums', totalPercent > 100 ? 'text-amber-700 font-semibold' : 'text-stone-500')}
+                            >
+                              {totalPercent > 100 ? `${formatPercent1(totalPercent)}%` : `${formatPercent1(barWidth)}%`}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-3 hidden md:table-cell">
                           <div className="flex items-center gap-2.5 min-w-[9rem]">
                             <div className="flex-1 h-2.5 bg-stone-100 rounded-full overflow-hidden min-w-[4rem] ring-1 ring-stone-200/40">
                               <div
@@ -894,9 +872,9 @@ export function DashboardPersonAllocationSection({
                                 'text-xs tabular-nums shrink-0 w-[3.25rem] text-right',
                                 totalPercent > 100 ? 'text-amber-700 font-semibold' : 'text-stone-500',
                               )}
-                              title={totalPercent > 100 ? `실제 합계 ${formatNum2(totalPercent)}%` : undefined}
+                              title={totalPercent > 100 ? `실제 합계 ${formatPercent1(totalPercent)}%` : undefined}
                             >
-                              {totalPercent > 100 ? `${formatNum2(totalPercent)}%` : `${Math.round(barWidth)}%`}
+                              {totalPercent > 100 ? `${formatPercent1(totalPercent)}%` : `${formatPercent1(barWidth)}%`}
                             </span>
                             {totalPercent > 100 && (
                               <span className="text-[10px] font-semibold text-amber-600 shrink-0 hidden sm:inline">초과</span>
@@ -907,14 +885,18 @@ export function DashboardPersonAllocationSection({
                           <div className="flex flex-wrap gap-1.5">
                             {items.map(({ project, allocationPercent }) => {
                               const workEffortMd = personProjectWorkEffort.get(person)?.get(project.id) ?? 0;
+                              const roleTags: ('pm' | 'po')[] = [];
+                              if (isAssigneeProjectPm(person, project, profileMap)) roleTags.push('pm');
+                              if (isAssigneeProjectPo(person, project)) roleTags.push('po');
                               return (
                                 <EditableAllocationBadge
                                   key={`${person}:${project.id}`}
                                   projectName={formatProjectDisplayName(project.name, project.projectKind)}
                                   allocationPercent={allocationPercent}
                                   workEffortMd={workEffortMd > 0 ? workEffortMd : undefined}
-                                  effortDisplayUnit={effortDisplayUnit}
+                                  effortDisplayUnit={EFFORT_DISPLAY_UNIT}
                                   disabled={person === UNSPECIFIED_PERSON}
+                                  roleTags={roleTags.length ? roleTags : undefined}
                                   onSave={(percent) => handleUpdatePersonAllocation(project.id, person, percent)}
                                   onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
                                   onOpenDetail={() => setPersonProjectCardDetail({ projectId: project.id, person })}
@@ -951,7 +933,7 @@ export function DashboardPersonAllocationSection({
                   allocationItems={personAllocations.find((r) => r.person === selectedPerson)?.items ?? []}
                   personProjectWorkEffort={personProjectWorkEffort}
                   allTasks={allTasks}
-                  effortDisplayUnit={effortDisplayUnit}
+                  effortDisplayUnit={EFFORT_DISPLAY_UNIT}
                   orgMemberLabelByName={allocationOrgLabelByName}
                   displayMetaByName={allocationDisplayMetaByName}
                   statusConfigs={wbsSettings.statusConfigs}
@@ -969,15 +951,19 @@ export function DashboardPersonAllocationSection({
         </motion.div>
       ) : (
         <motion.div className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[800px]">
+          <div className={narrowScreenLayout ? 'overflow-x-hidden' : 'overflow-x-auto'}>
+            <table className={cn('w-full text-sm', narrowScreenLayout ? 'min-w-0' : 'min-w-[500px] md:min-w-[800px]')}>
               <thead className="bg-stone-50 border-b border-stone-200">
                 <tr className="text-[11px] text-stone-500 uppercase tracking-wide">
-                  <th className="text-left font-semibold px-4 py-3 min-w-[12rem]">프로젝트</th>
-                  <th className="text-center font-semibold px-2 py-3 w-20">인원</th>
-                  <th className="text-right font-semibold px-3 py-3 w-32">총 투입</th>
-                  <th className="text-left font-semibold px-3 py-3 w-40">투입 현황</th>
-                  <th className="text-left font-semibold px-3 py-3 min-w-[18rem]">인원별</th>
+                  <th className={cn('text-left font-semibold py-3', narrowScreenLayout ? 'px-2 min-w-0 w-[30%]' : 'px-4 min-w-[12rem]')}>
+                    프로젝트
+                  </th>
+                  <th className="text-center font-semibold px-2 py-3 w-20 hidden sm:table-cell">인원</th>
+                  <th className={cn('text-right font-semibold py-3 tabular-nums', narrowScreenLayout ? 'px-2 w-[22%]' : 'px-3 w-32')}>
+                    총 투입
+                  </th>
+                  <th className="text-left font-semibold px-3 py-3 w-40 hidden md:table-cell">투입 현황</th>
+                  <th className={cn('text-left font-semibold py-3', narrowScreenLayout ? 'px-2 min-w-0' : 'px-3 min-w-[18rem]')}>인원별</th>
                 </tr>
               </thead>
               <tbody>
@@ -993,7 +979,12 @@ export function DashboardPersonAllocationSection({
                         selectedProjectId === project.id && 'bg-orange-50/40 ring-1 ring-inset ring-orange-200/80',
                       )}
                     >
-                      <td className="px-4 py-3 align-top min-w-[12rem] max-w-[22rem]">
+                      <td
+                        className={cn(
+                          'py-3 align-top',
+                          narrowScreenLayout ? 'px-2 min-w-0 max-w-none' : 'px-4 min-w-[12rem] max-w-[22rem]',
+                        )}
+                      >
                         <div className="flex flex-col gap-1.5">
                           <span
                             className={cn(
@@ -1006,14 +997,23 @@ export function DashboardPersonAllocationSection({
                           <span className="text-sm font-semibold text-stone-900 leading-snug break-words">{project.name}</span>
                         </div>
                       </td>
-                      <td className="px-2 py-3 text-center tabular-nums text-stone-700 font-medium">{assignments.length}</td>
+                      <td className="px-2 py-3 text-center tabular-nums text-stone-700 font-medium hidden sm:table-cell">
+                        {assignments.length}
+                      </td>
                       <td className="px-3 py-3 text-right align-middle">
                         <div className={cn('font-bold tabular-nums text-base', totalPercent > 100 ? 'text-amber-600' : 'text-stone-800')}>
-                          {formatAllocationPercentSumForDisplay(totalPercent, effortDisplayUnit)}
+                          {formatAllocationPercentSumForDisplay(totalPercent, EFFORT_DISPLAY_UNIT)}
                         </div>
                         {totalPercent > 100 && <div className="text-[11px] font-medium text-amber-600 mt-0.5">투입 합계 100% 초과</div>}
+                        <div className="md:hidden mt-1">
+                          <span
+                            className={cn('text-xs tabular-nums', totalPercent > 100 ? 'text-amber-700 font-semibold' : 'text-stone-500')}
+                          >
+                            {totalPercent > 100 ? `${formatPercent1(totalPercent)}%` : `${formatPercent1(barPct)}%`}
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-3 py-3 align-middle">
+                      <td className="px-3 py-3 align-middle hidden md:table-cell">
                         <div className="flex items-center gap-2.5 min-w-[9rem]">
                           <div className="flex-1 h-2.5 bg-stone-100 rounded-full overflow-hidden min-w-[4rem] ring-1 ring-stone-200/40">
                             <div
@@ -1026,13 +1026,13 @@ export function DashboardPersonAllocationSection({
                               'text-xs tabular-nums shrink-0 w-[3.25rem] text-right',
                               totalPercent > 100 ? 'text-amber-700 font-semibold' : 'text-stone-500',
                             )}
-                            title={totalPercent > 100 ? `실제 합계 ${formatNum2(totalPercent)}%` : undefined}
+                            title={totalPercent > 100 ? `실제 합계 ${formatPercent1(totalPercent)}%` : undefined}
                           >
-                            {totalPercent > 100 ? `${formatNum2(totalPercent)}%` : `${Math.round(barPct)}%`}
+                            {totalPercent > 100 ? `${formatPercent1(totalPercent)}%` : `${formatPercent1(barPct)}%`}
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+                      <td className={cn('py-3 align-top', narrowScreenLayout ? 'px-2' : 'px-3')} onClick={(e) => e.stopPropagation()}>
                         <div className="flex flex-wrap gap-2">
                           {assignments.map((a) => {
                             const meta = allocationDisplayMetaByName.get(a.assignee);
@@ -1041,6 +1041,9 @@ export function DashboardPersonAllocationSection({
                                 ? [meta.department, meta.position].filter(Boolean).join(' · ')
                                 : '';
                             const subtitle = subtitleFromMeta || allocationOrgLabelByName.get(a.assignee) || undefined;
+                            const roleTags: ('pm' | 'po')[] = [];
+                            if (isAssigneeProjectPm(a.assignee, project, profileMap)) roleTags.push('pm');
+                            if (isAssigneeProjectPo(a.assignee, project)) roleTags.push('po');
                             return (
                               <EditableAllocationBadge
                                 key={`${project.id}:${a.assignee}`}
@@ -1049,6 +1052,7 @@ export function DashboardPersonAllocationSection({
                                 subtitle={subtitle}
                                 chipLayout="stacked"
                                 disabled={a.assignee === UNSPECIFIED_PERSON}
+                                roleTags={roleTags.length ? roleTags : undefined}
                                 onSave={(percent) => handleUpdatePersonAllocation(project.id, a.assignee, percent)}
                                 onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
                                 onOpenDetail={() => setPersonProjectCardDetail({ projectId: project.id, person: a.assignee })}
@@ -1082,7 +1086,7 @@ export function DashboardPersonAllocationSection({
                 assignments={selectedProjectRow.assignments}
                 totalPercent={selectedProjectRow.totalPercent}
                 allTasks={allTasks}
-                effortDisplayUnit={effortDisplayUnit}
+                effortDisplayUnit={EFFORT_DISPLAY_UNIT}
                 orgMemberLabelByName={allocationOrgLabelByName}
                 displayMetaByName={allocationDisplayMetaByName}
                 statusConfigs={wbsSettings.statusConfigs}
@@ -1103,7 +1107,7 @@ export function DashboardPersonAllocationSection({
           allocationPercent={personProjectCardModalPayload.allocationPercent}
           workEffortMd={personProjectCardModalPayload.workEffortMd}
           allTasks={allTasks}
-          effortDisplayUnit={effortDisplayUnit}
+          effortDisplayUnit={EFFORT_DISPLAY_UNIT}
           orgMemberLabelByName={allocationOrgLabelByName}
           displayMetaByName={allocationDisplayMetaByName}
           statusConfigs={wbsSettings.statusConfigs}

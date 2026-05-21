@@ -245,7 +245,7 @@ JSON 풀백업/복원·머지: [src/context/hooks/useBackupOps.ts](src/context/h
 
 ### 9.2 부모 작업 롤업 — [src/lib/rollups.ts](src/lib/rollups.ts)
 
-- **`syncParentRollups(allTasks, parentId, doneStatusIds, forceProgress, excludeParentIds)`**: 자식이 변경되면 부모의 `startDate=min(children)`, `endDate=max(children)`, `progress=가중평균(weight 또는 workEffort 기반)`을 재계산해 조상까지 재귀.
+- **`syncParentRollups(allTasks, parentId, doneStatusIds, forceProgress, excludeParentIds, skipWorkEffortRollupParentIds)`**: 자식이 변경되면 부모의 `startDate=min(children)`, `endDate=max(children)`, `workEffort=직속 자식 공수 합(공수 잠금·해당 행 직접 공수 편집 시 제외)`, `progress=가중평균(weight 또는 workEffort 기반)`을 재계산해 조상까지 재귀.
 - `excludeParentIds`: 사용자가 막 편집한 부모는 자식 min/max로 덮어쓰지 않고 조상 롤업만 진행.
 - 상태가 'done'인 부모는 자식 진척률로 덮어쓰지 않고 100% 유지.
 

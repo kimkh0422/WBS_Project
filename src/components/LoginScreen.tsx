@@ -3,6 +3,16 @@ import { ArrowRight, Eye, EyeOff, ArrowLeft, KeyRound, MailCheck } from 'lucide-
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import { isAllowedSignupEmail, SIGNUP_DOMAIN_ERROR, ALLOWED_SIGNUP_DOMAIN } from '../lib/emailDomain';
+import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
+
+/** Supabase 기본 영문 메시지를 한국어 안내로 보강 */
+function formatSignInErrorMessage(raw: string): string {
+  const t = raw.trim();
+  if (/invalid login credentials/i.test(t) || /invalid email or password/i.test(t)) {
+    return '이메일 또는 비밀번호가 올바르지 않거나, Supabase Auth에 등록된 사용자가 없습니다. 대시보드 → Authentication → Users에서 사용자를 추가했는지 확인하거나, 회원가입으로 계정을 만든 뒤 다시 시도해 주세요.';
+  }
+  return t;
+}
 
 type Mode = 'signIn' | 'signUp' | 'verifySignup' | 'forgotEmail' | 'forgotVerify' | 'forgotReset';
 
@@ -58,7 +68,7 @@ export function LoginScreen() {
       setLoading(true);
       try {
         const result = await signInWithEmail(email.trim(), password);
-        if (result?.error) setError(result.error);
+        if (result?.error) setError(formatSignInErrorMessage(result.error));
       } finally {
         setLoading(false);
       }
@@ -459,13 +469,13 @@ export function LoginScreen() {
 
             <p
               className="text-[11px] text-slate-500/80 pt-2"
-              title={`앱 버전 v${__APP_VERSION__} · 수정일 ${new Date(__APP_COMMIT_DATE__).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
+              title={`앱 버전 v${APP_VERSION} · 수정일 ${new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
             >
-              v{__APP_VERSION__}
+              v{APP_VERSION}
               <span className="text-slate-400/80">
                 {' '}
                 · 수정일{' '}
-                {new Date(__APP_COMMIT_DATE__).toLocaleDateString('ko-KR', {
+                {new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', {
                   year: 'numeric',
                   month: '2-digit',
                   day: '2-digit',
