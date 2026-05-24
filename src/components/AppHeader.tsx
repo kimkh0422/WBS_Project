@@ -20,7 +20,6 @@ import {
   History,
   Map as MapIcon,
   FolderPlus,
-  FolderOpen,
   Briefcase,
   Share2,
   Copy,
@@ -35,11 +34,20 @@ import {
   Monitor,
   Star,
   EyeOff,
-  Layers,
+  Network,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
-import { DASHBOARD_UNLISTED_SECTION_LABEL, groupProjectsForKindListView } from '../lib/projectKind';
+import { groupProjectsForKindListView } from '../lib/projectKind';
+import {
+  PROJECT_LIST_LAYOUT_LS_KEY,
+  buildOrgChartProjectListBlocks,
+  collectOrgExpandKeysForBlocks,
+  countProjectsInOrgBranch,
+  type OrgChartGroupBranch,
+  type ProjectListLayoutMode,
+} from '../lib/projectListOrgGrouping';
+import { useOrganization } from '../context/OrganizationContext';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -137,6 +145,8 @@ export interface AppHeaderProps {
   setIsAdminPasswordModalOpen?: (v: boolean) => void;
   /** DB 시스템 관리자 권한 요청 모달 */
   setIsAdminAccessRequestModalOpen?: (v: boolean) => void;
+  /** 프로젝트 소유자 id → profiles.department. PM이 조직 인원과 매칭되지 않을 때 조직도 분류 보조 */
+  ownerDepartmentByUserId?: Record<string, string | null | undefined>;
 }
 
 export function AppHeader({
@@ -213,6 +223,7 @@ export function AppHeader({
   canOpenMembersManagement,
   setIsAdminPasswordModalOpen,
   setIsAdminAccessRequestModalOpen,
+  ownerDepartmentByUserId,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
   const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
@@ -234,19 +245,19 @@ export function AppHeader({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
-  /** 목록 필터: 전체 / 내 프로젝트 / 관심 / 대시보드 미반영 — 서로 토글(같은 버튼 다시 누르면 전체). */
-  type ProjectListFilter = 'all' | 'my' | 'favorites' | 'dashboardOff';
+  /** 목록 필터: 전체 / 내 프로젝트 / 관심 / 대시보드 반영 — 서로 토글(같은 버튼 다시 누르면 전체). */
+  type ProjectListFilter = 'all' | 'my' | 'favorites' | 'dashboardOn';
   const PROJECT_LIST_FILTER_KEY = 'wbs-header-projects-list-filter';
-  /** 폴더(조직 그룹) vs 항목 구분(상품·연구·용역·유지·제품·내부·기타) — 그룹이 정의된 경우에만 UI 표시. */
-  type ProjectListLayout = 'kind' | 'group';
-  const PROJECT_LIST_LAYOUT_KEY = 'wbs-header-projects-list-layout';
+  /** 목록 묶음: 기본은 항목 구분(상품·연구 등), 조직도별은 조직 트리로 전환(헤더 버튼). */
+  type ProjectListLayout = ProjectListLayoutMode;
   /** 구버전: 필터+그룹 레이아웃이 한 키에 묶여 있었음 → 최초 로드 시 분리 마이그레이션 */
   const PROJECT_LIST_MODE_LEGACY_KEY = 'wbs-header-projects-list-mode';
 
   const [listFilter, setListFilter] = useState<ProjectListFilter>(() => {
     try {
       const nf = localStorage.getItem(PROJECT_LIST_FILTER_KEY);
-      if (nf === 'my' || nf === 'favorites' || nf === 'dashboardOff') return nf;
+      if (nf === 'my' || nf === 'favorites' || nf === 'dashboardOn') return nf;
+      if (nf === 'dashboardOff') return 'all';
       const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
       if (legacy === 'my') return 'my';
       if (legacy === 'favorites') return 'favorites';
@@ -259,25 +270,26 @@ export function AppHeader({
 
   const [projectListLayout, setProjectListLayout] = useState<ProjectListLayout>(() => {
     try {
-      const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_KEY);
-      if (nl === 'group' || nl === 'kind') return nl;
+      const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_LS_KEY);
+      if (nl === 'org') return 'org';
+      if (nl === 'group' || nl === 'kind') return 'kind';
       const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
-      if (legacy === 'group') return 'group';
+      if (legacy === 'group') return 'kind';
       if (
         localStorage.getItem('wbs-header-projects-group-assigned-only') === '1' ||
         localStorage.getItem('wbs-header-projects-group-layout') === '1' ||
         localStorage.getItem('wbs-header-projects-by-group') === '1'
       ) {
-        return 'group';
+        return 'kind';
       }
       return 'kind';
     } catch {
       return 'kind';
     }
   });
-  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
+  const [expandedOrgNodeKeys, setExpandedOrgNodeKeys] = useState<Set<string>>(new Set());
 
-  // 관심 프로젝트 (즐겨찾기) — wbsSettings(DB) 동기화
+  const { orgTree, orgMembers } = useOrganization();
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
 
   const persistListFilter = (next: ProjectListFilter) => {
@@ -293,7 +305,7 @@ export function AppHeader({
   const persistProjectListLayout = (next: ProjectListLayout) => {
     setProjectListLayout(next);
     try {
-      localStorage.setItem(PROJECT_LIST_LAYOUT_KEY, next);
+      localStorage.setItem(PROJECT_LIST_LAYOUT_LS_KEY, next);
     } catch {
       /* ignore */
     }
@@ -323,7 +335,7 @@ export function AppHeader({
     const base = projectsSortedByName;
     if (listFilter === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
     if (listFilter === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
-    if (listFilter === 'dashboardOff') return base.filter((p) => p.includeInDashboard === false);
+    if (listFilter === 'dashboardOn') return base.filter((p) => p.includeInDashboard !== false);
     return base;
   }, [projectsSortedByName, listFilter, favoriteIds, user?.id]);
 
@@ -332,58 +344,22 @@ export function AppHeader({
     [projectsSortedByName],
   );
 
+  const dashboardIncludedInListCount = useMemo(
+    () => projectsSortedByName.filter((p) => p.includeInDashboard !== false).length,
+    [projectsSortedByName],
+  );
+
   const projectsByKindSections = useMemo(() => groupProjectsForKindListView(displayProjects), [displayProjects]);
 
-  /** 소유자(owner)별 프로젝트 그룹 — 표시명순(내 프로젝트·미지정 처리) */
-  const ownerGroups = useMemo(() => {
-    type P = (typeof projectsSortedByName)[number];
-    const map = new Map<string, P[]>();
-    for (const p of projectsSortedByName) {
-      const k = p.ownerId ?? '__none__';
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(p);
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'ko') || (a.id ?? '').localeCompare(b.id ?? '', 'ko'));
-    }
-    const entries: [string, P[]][] = [...map.entries()];
-    entries.sort(([ka], [kb]) => {
-      if (user?.id && ka === user.id) return -1;
-      if (user?.id && kb === user.id) return 1;
-      if (ka === '__none__') return 1;
-      if (kb === '__none__') return -1;
-      const na = profileMap[ka] || ka;
-      const nb = profileMap[kb] || kb;
-      return na.localeCompare(nb, 'ko');
-    });
-    return entries;
-  }, [projectsSortedByName, user?.id, profileMap]);
+  const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
 
-  /** 사용자 정의 프로젝트 그룹 정렬 */
-  const sortedProjectGroups = useMemo(() => {
-    const list = wbsSettings.projectGroups ?? [];
-    return [...list].sort((a, b) => {
-      const ao = a.sortOrder ?? 0;
-      const bo = b.sortOrder ?? 0;
-      if (ao !== bo) return ao - bo;
-      return a.name.localeCompare(b.name, 'ko');
-    });
-  }, [wbsSettings.projectGroups]);
+  const orgChartListModel = useMemo(
+    () => buildOrgChartProjectListBlocks(displayProjects, orgTree, orgMembers, ownerDepartmentByUserId),
+    [displayProjects, orgTree, orgMembers, ownerDepartmentByUserId],
+  );
 
-  /** 표시할 프로젝트들을 그룹 단위로 묶음. "그룹 미지정"은 마지막 항목으로 자동 추가. */
-  const projectsByGroup = useMemo(() => {
-    const map = new Map<string, Project[]>();
-    sortedProjectGroups.forEach((g) => map.set(g.id, []));
-    map.set('__none__', []);
-    for (const p of displayProjects) {
-      const k = p.groupId && map.has(p.groupId) ? p.groupId : '__none__';
-      map.get(k)!.push(p);
-    }
-    return map;
-  }, [displayProjects, sortedProjectGroups]);
-
-  const toggleGroupExpanded = (key: string) => {
-    setExpandedGroupKeys((s) => {
+  const toggleOrgExpanded = (key: string) => {
+    setExpandedOrgNodeKeys((s) => {
       const n = new Set(s);
       if (n.has(key)) n.delete(key);
       else n.add(key);
@@ -391,15 +367,15 @@ export function AppHeader({
     });
   };
 
-  // 드롭다운 열릴 때 모든 그룹 자동 펼침 + 현재 프로젝트 소속 그룹 펼침 보장
+  // 드롭다운 열릴 때 조직도 레이아웃: 모든 조직 섹션을 펼친다
   useEffect(() => {
-    if (isProjectDropdownOpen && projectListLayout === 'group') {
-      const next = new Set<string>();
-      sortedProjectGroups.forEach((g) => next.add(g.id));
-      next.add('__none__');
-      setExpandedGroupKeys(next);
+    if (isProjectDropdownOpen && projectListLayout === 'org' && topLevelDivisions.length > 0) {
+      const { blocks, unmapped } = orgChartListModel;
+      const next = new Set(collectOrgExpandKeysForBlocks(blocks));
+      if (unmapped.length > 0) next.add('org:__unmapped__');
+      setExpandedOrgNodeKeys(next);
     }
-  }, [isProjectDropdownOpen, projectListLayout, sortedProjectGroups]);
+  }, [isProjectDropdownOpen, projectListLayout, topLevelDivisions.length, orgChartListModel]);
 
   const ownerGroupLabel = (ownerKey: string) => {
     if (ownerKey === '__none__') return '소유자 미지정';
@@ -451,7 +427,7 @@ export function AppHeader({
     return () => document.removeEventListener('mousedown', onDown);
   }, [isMoreMenuOpen, isUserMenuOpen, isProjectDropdownOpen, setIsMoreMenuOpen, setIsProjectDropdownOpen]);
 
-  const dashboardHomeHint = `${dashboardNavLabel}(홈)으로 이동`;
+  const logoRefreshHint = '페이지 새로고침 (F5와 동일)';
 
   type MobileNavKey = 'dashboard' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
@@ -502,10 +478,10 @@ export function AppHeader({
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
-            onClick={() => navigateWithTip('dashboard')}
+            onClick={() => window.location.reload()}
             className="shrink-0"
-            title={dashboardHomeHint}
-            aria-label={dashboardHomeHint}
+            title={logoRefreshHint}
+            aria-label={logoRefreshHint}
           >
             <img src={logo} alt="GMT Logo" className="w-11 h-11 object-contain dark-logo" />
           </button>
@@ -540,15 +516,15 @@ export function AppHeader({
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity shrink-0"
             role="button"
             tabIndex={0}
-            onClick={() => navigateWithTip('dashboard')}
+            onClick={() => window.location.reload()}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                navigateWithTip('dashboard');
+                window.location.reload();
               }
             }}
-            title={dashboardHomeHint}
-            aria-label={dashboardHomeHint}
+            title={logoRefreshHint}
+            aria-label={logoRefreshHint}
           >
             <img src={logo} alt="GMT Logo" className="w-12 h-12 md:w-[52px] md:h-[52px] object-contain dark-logo" />
           </div>
@@ -647,7 +623,7 @@ export function AppHeader({
                     <div className="p-1">
                       <div
                         className="px-3 py-2 flex items-center justify-between gap-2"
-                        title={`내 프로젝트·관심은 목록을 좁힙니다. 구분별은 상품·연구·용역·유지·제품·내부·기타와 ${DASHBOARD_UNLISTED_SECTION_LABEL}로, 그룹별은 설정한 폴더로 묶습니다. 같은 필터 버튼을 다시 누르면 전체로 돌아갑니다.`}
+                        title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별은 조직 구조로 묶어 보거나, 다시 눌러 기본(항목 구분) 목록으로 돌아갑니다."
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
@@ -669,43 +645,29 @@ export function AppHeader({
                               <User size={10} />내 프로젝트만
                             </button>
                           )}
-                          {sortedProjectGroups.length > 0 && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  persistProjectListLayout('kind');
-                                }}
-                                className={cn(
-                                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                  projectListLayout === 'kind'
-                                    ? 'bg-violet-100 text-violet-800 border border-violet-200'
-                                    : 'text-stone-400 hover:text-violet-700 border border-transparent hover:border-stone-200',
-                                )}
-                                title={`상품·연구·용역·유지·제품·내부·기타·${DASHBOARD_UNLISTED_SECTION_LABEL}로 묶어 보기`}
-                              >
-                                <Layers size={10} />
-                                구분별
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  persistProjectListLayout('group');
-                                }}
-                                className={cn(
-                                  'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                  projectListLayout === 'group'
-                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
-                                    : 'text-stone-400 hover:text-indigo-600 border border-transparent hover:border-stone-200',
-                                )}
-                                title="프로젝트 그룹(폴더)별로 묶어 보기"
-                              >
-                                <FolderOpen size={10} />
-                                그룹별
-                              </button>
-                            </>
+                          {topLevelDivisions.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                persistProjectListLayout(projectListLayout === 'org' ? 'kind' : 'org');
+                              }}
+                              className={cn(
+                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                                projectListLayout === 'org'
+                                  ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                                  : 'text-stone-400 hover:text-teal-700 border border-transparent hover:border-stone-200',
+                              )}
+                              title={
+                                projectListLayout === 'org'
+                                  ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
+                                  : '조직 현황(조직도)의 부서·팀 구조로 묶습니다. PM 이름이 조직 인원과 같으면 그 부서를 사용하고, 아니면 소유자 회원 정보의 부서를 보조로 씁니다.'
+                              }
+                              aria-pressed={projectListLayout === 'org'}
+                            >
+                              <Network size={10} />
+                              조직도별
+                            </button>
                           )}
                           {favoriteIds.size > 0 && (
                             <button
@@ -726,25 +688,23 @@ export function AppHeader({
                               {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
                             </button>
                           )}
-                          {dashboardExcludedInListCount > 0 && (
+                          {dashboardExcludedInListCount > 0 && dashboardIncludedInListCount > 0 && (
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                toggleListFilter('dashboardOff');
+                                toggleListFilter('dashboardOn');
                               }}
                               className={cn(
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listFilter === 'dashboardOff'
-                                  ? 'bg-orange-100 text-orange-900 border border-orange-200'
-                                  : 'text-stone-400 hover:text-orange-700 border border-transparent hover:border-stone-200',
+                                listFilter === 'dashboardOn'
+                                  ? 'bg-sky-100 text-sky-900 border border-sky-200'
+                                  : 'text-stone-400 hover:text-sky-800 border border-transparent hover:border-stone-200',
                               )}
-                              title={
-                                listFilter === 'dashboardOff' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함하지 않은 프로젝트만 보기'
-                              }
+                              title={listFilter === 'dashboardOn' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함된 프로젝트만 보기'}
                             >
-                              <EyeOff size={10} />
-                              {listFilter === 'dashboardOff' ? `미반영 ${dashboardExcludedInListCount}개` : '미반영만'}
+                              <LayoutDashboard size={10} />
+                              {listFilter === 'dashboardOn' ? `반영 ${dashboardIncludedInListCount}개` : '반영만'}
                             </button>
                           )}
                           <span className="text-[10px] text-stone-400 shrink-0">{displayProjects.length}개</span>
@@ -917,30 +877,77 @@ export function AppHeader({
                             );
                           };
 
-                          if (projectListLayout === 'group' && sortedProjectGroups.length > 0) {
-                            return [...sortedProjectGroups, { id: '__none__', name: '그룹 미지정' }].map((g) => {
-                              const list = projectsByGroup.get(g.id) ?? [];
-                              if (g.id === '__none__' && list.length === 0) return null;
-                              const expanded = expandedGroupKeys.has(g.id);
+                          if (projectListLayout === 'org' && topLevelDivisions.length > 0) {
+                            const { blocks, unmapped } = orgChartListModel;
+                            const renderOrgBranch = (divisionId: string, branch: OrgChartGroupBranch): React.ReactNode => {
+                              const sub = countProjectsInOrgBranch(branch);
+                              if (sub === 0) return null;
+                              const ek = `org:${divisionId}:${branch.nodeId}`;
+                              const expanded = expandedOrgNodeKeys.has(ek);
                               return (
-                                <div key={g.id} className="mb-1">
+                                <div key={ek} className="mb-0.5">
                                   <button
                                     type="button"
-                                    onClick={() => toggleGroupExpanded(g.id)}
+                                    onClick={() => toggleOrgExpanded(ek)}
                                     className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-stone-600 hover:bg-stone-50"
+                                    style={{ paddingLeft: 8 + branch.depth * 10 }}
                                   >
                                     {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                                    <FolderOpen size={12} className={g.id === '__none__' ? 'text-stone-300' : 'text-amber-500'} />
-                                    <span className="text-xs font-semibold flex-1 text-left">{g.name}</span>
-                                    <span className="text-[10px] text-stone-400">{list.length}</span>
+                                    <Network size={12} className="text-teal-600 shrink-0" />
+                                    <span className="text-xs font-semibold flex-1 text-left">{branch.title}</span>
+                                    <span className="text-[10px] text-stone-400">{sub}</span>
                                   </button>
-                                  {expanded && list.length > 0 && (
-                                    <div className="pl-7 border-l border-stone-100 ml-2">{list.map((p) => renderProjectRow(p))}</div>
+                                  {expanded && (
+                                    <div className={branch.depth === 0 ? 'mt-0.5' : 'pl-2 ml-3 border-l border-stone-100'}>
+                                      {branch.children.map((c) => renderOrgBranch(divisionId, c))}
+                                      {branch.projects.map((p) => renderProjectRow(p))}
+                                    </div>
                                   )}
                                 </div>
                               );
-                            });
+                            };
+
+                            const nodes: React.ReactNode[] = [];
+                            for (const b of blocks) {
+                              if (b.totalInBlock === 0) continue;
+                              nodes.push(
+                                <div key={`org-div-${b.division.id}`} className="mb-2 last:mb-0">
+                                  {renderOrgBranch(b.division.id, b.branch)}
+                                </div>,
+                              );
+                            }
+                            if (unmapped.length > 0) {
+                              const umKey = 'org:__unmapped__';
+                              const umEx = expandedOrgNodeKeys.has(umKey);
+                              nodes.push(
+                                <div key={umKey} className="mb-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleOrgExpanded(umKey)}
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-stone-600 hover:bg-stone-50"
+                                  >
+                                    {umEx ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                    <Network size={12} className="text-stone-400 shrink-0" />
+                                    <span className="text-xs font-semibold flex-1 text-left">조직 미매칭</span>
+                                    <span className="text-[10px] text-stone-400">{unmapped.length}</span>
+                                  </button>
+                                  {umEx && (
+                                    <div className="pl-7 border-l border-stone-100 ml-2">{unmapped.map((p) => renderProjectRow(p))}</div>
+                                  )}
+                                </div>,
+                              );
+                            }
+                            if (nodes.length === 0) {
+                              return (
+                                <div className="px-3 py-2 text-[11px] text-stone-500 leading-relaxed">
+                                  조직도에 표시할 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 동일하게 맞추거나, 회원 프로필의 부서가
+                                  조직도 부서명과 맞는지 확인해 주세요.
+                                </div>
+                              );
+                            }
+                            return nodes;
                           }
+
                           return projectsByKindSections.map(({ sectionKey, headerLabel, headerBadgeClass, projects: list }) => (
                             <section key={sectionKey} className="mb-2 last:mb-0">
                               <div

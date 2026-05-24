@@ -946,8 +946,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 <div className="space-y-2">
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">대시보드에 표시할 항목</h3>
                   <p className="text-xs text-stone-500 leading-relaxed">
-                    체크한 블록만 대시보드에 나타납니다. 이 기기(브라우저)에만 저장되며, 변경 시 바로 반영됩니다. 아래 버튼으로 전체 표시
-                    상태로 되돌릴 수 있습니다.
+                    체크한 블록만 대시보드에 나타납니다. 처음에는 <strong className="font-semibold text-stone-600">전체 현황 요약</strong>,{' '}
+                    <strong className="font-semibold text-stone-600">인원·사업부별 작업 투입공수</strong>,{' '}
+                    <strong className="font-semibold text-stone-600">프로젝트별 상태</strong>가 켜져 있고, 부서·마일스톤·이슈·액션 등은
+                    필요할 때 여기서 켜 주시면 됩니다. 이 기기(브라우저)에만 저장되며, 아래 버튼으로 앱 기본값으로 되돌릴 수 있습니다.
                   </p>
                 </div>
                 <ul className="space-y-2">
@@ -980,7 +982,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100"
                   >
                     <RotateCcw size={14} aria-hidden />
-                    모두 표시(기본값으로 초기화)
+                    기본값으로 초기화
                   </button>
                 </div>
               </div>

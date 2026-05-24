@@ -15,6 +15,8 @@ export interface DivisionDetailStats {
   doneCount: number;
   issueCount: number;
   projectCount: number;
+  /** 대시보드 집계에 포함된 프로젝트(그룹명→사업부 매칭), 표시명 가나다순 */
+  registeredProjects: { id: string; label: string }[];
   progress: number;
   assigneeCount: number;
   /** 조직도에서 이 사업부에 매칭된 인원 수 */
@@ -35,6 +37,8 @@ interface DashboardDivisionDetailProps {
   assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
   onBack: () => void;
   onOpenProjectTasks: (projectId: string) => void;
+  /** 대시보드 투입 섹션으로 스크롤·이 사업부 소속 인원만 필터 */
+  onOpenAllocationForDivision?: () => void;
   mobileReadabilityMode?: boolean;
 }
 
@@ -58,6 +62,7 @@ export function DashboardDivisionDetail({
   assigneeDisplayMetaByName,
   onBack,
   onOpenProjectTasks,
+  onOpenAllocationForDivision,
   mobileReadabilityMode = false,
 }: DashboardDivisionDetailProps) {
   useEffect(() => {
@@ -111,6 +116,20 @@ export function DashboardDivisionDetail({
           <div className={cn('font-bold text-sky-600 tabular-nums leading-tight mt-0.5', mobileReadabilityMode ? 'text-2xl' : 'text-3xl')}>
             {stats.projectCount}
           </div>
+          {stats.registeredProjects.length > 0 && (
+            <ul
+              className={cn(
+                'mt-2 pt-2 border-t border-sky-100/90 space-y-1 max-h-[9rem] overflow-y-auto text-sky-900/90 leading-snug',
+                mobileReadabilityMode ? 'text-xs' : 'text-sm',
+              )}
+            >
+              {stats.registeredProjects.map((rp) => (
+                <li key={rp.id} className="font-medium break-words" title={rp.label}>
+                  {rp.label}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div>
           <div className="flex items-baseline justify-between gap-2 mb-1.5">
@@ -155,6 +174,19 @@ export function DashboardDivisionDetail({
           )}
         </div>
       </div>
+
+      {onOpenAllocationForDivision && (
+        <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+          <button
+            type="button"
+            onClick={onOpenAllocationForDivision}
+            className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100/90 transition-colors"
+          >
+            <Users className="shrink-0 text-teal-600" size={18} aria-hidden />
+            사업부별 작업 투입공수로 (이 사업부 소속만)
+          </button>
+        </div>
+      )}
 
       <section>
         <h2 className={cn('font-bold text-[var(--color-ink)] mb-3 flex items-center gap-2', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>

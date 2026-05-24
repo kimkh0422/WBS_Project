@@ -118,7 +118,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
             if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
             return v;
           };
-          const rows = filteredTasks.map((t) =>
+          const taskRow = (t: Task) =>
             [
               wbsMap.get(t.id) ?? '',
               projectMap.get(t.projectId) ?? '',
@@ -131,8 +131,17 @@ export function useFileImportExport(deps: FileImportExportDeps) {
               t.workEffort != null ? String(t.workEffort) : '',
             ]
               .map(escape)
-              .join(','),
-          );
+              .join(',');
+          const rows: string[] = [];
+          for (const p of filteredProjects) {
+            const pname = projectMap.get(p.id) ?? '';
+            const tasksForP = filteredTasks.filter((t) => t.projectId === p.id);
+            if (tasksForP.length === 0) {
+              rows.push(['', pname, '(작업 없음)', '', '', '', p.startDate ?? '', p.endDate ?? '', ''].map(escape).join(','));
+            } else {
+              for (const t of tasksForP) rows.push(taskRow(t));
+            }
+          }
           const bom = '\uFEFF';
           const csv = bom + [header.join(','), ...rows].join('\r\n');
           const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

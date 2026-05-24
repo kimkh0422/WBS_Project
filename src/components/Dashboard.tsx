@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -22,6 +22,8 @@ import {
   ArrowDown,
   Ban,
   Table2,
+  Calendar,
+  ChevronDown,
 } from 'lucide-react';
 import { cn, randomUUID, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
@@ -50,12 +52,15 @@ import {
 } from '../lib/assigneeOptions';
 import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
+import { hasUndeterminedProjectPeriod } from '../lib/projectPeriod';
+import { ProjectPeriodDateText } from './ProjectPeriodDateText';
 
 import { DashboardPersonAllocationSection } from './DashboardPersonAllocationSection';
 import { DashboardDivisionDetail } from './DashboardDivisionDetail';
 import { DashboardDetailPage, type DashboardDetailKind } from './DashboardDetailPage';
 import { DashboardProjectCardDetailPanel } from './DashboardProjectCardDetailPanel';
 import { ActionItemDetailModalBody } from './ActionItemDetailModalBody';
+import { ActionDueDateCell, ActionDueStatusBadge, actionDueSurfaceClassName, resolveActionDueVisualState } from './ActionItemDueDisplay';
 import { BaseModal } from './Base/Modal';
 import {
   type ActionDueDateFilter,
@@ -129,6 +134,16 @@ function computeWeightedProgress(items: Task[]): number {
   return 0;
 }
 
+type DivisionStatRow = {
+  projectCount: number;
+  total: number;
+};
+
+/** 프로젝트 또는 Task가 하나라도 있는 부서 */
+function isActiveDivisionStat(d: DivisionStatRow): boolean {
+  return d.projectCount > 0 || d.total > 0;
+}
+
 export function Dashboard({
   onNavigate,
   onOpenTaskInTable,
@@ -137,6 +152,8 @@ export function Dashboard({
   myInvolvedProjectIds,
   currentUserDisplay,
   profileMap,
+  ownerDepartmentByUserId,
+  currentUserId,
   mobileReadabilityMode = false,
 }: {
   onNavigate?: (view: string, filters: Record<string, string>) => void;
@@ -151,6 +168,8 @@ export function Dashboard({
   currentUserDisplay?: string;
   /** 프로젝트 owner_id → 프로필 표시명 (PM 미지정 시 소유자 이름 표시용). */
   profileMap?: Record<string, string>;
+  /** 조직도 매칭 보조: owner_id → 프로필 부서명 */
+  ownerDepartmentByUserId?: Record<string, string | null | undefined>;
   currentUserId?: string;
   /** 모바일 전용: 한 열·카드형 레이아웃으로 가독성 강화(App에서 대시보드 고정 시 true) */
   mobileReadabilityMode?: boolean;
@@ -244,6 +263,10 @@ export function Dashboard({
   const projectsForDashboard = useMemo(
     () => projectsEligibleForDashboard.filter((p) => !dashboardExcludedIds.has(p.id)),
     [projectsEligibleForDashboard, dashboardExcludedIds],
+  );
+  const projectsWithUndeterminedPeriod = useMemo(
+    () => projectsForDashboard.filter((p) => hasUndeterminedProjectPeriod(p)),
+    [projectsForDashboard],
   );
   const dashboardAggregatedProjectIds = useMemo(() => {
     const s = new Set<string>();
@@ -433,16 +456,17 @@ export function Dashboard({
     });
   };
 
-  // 사용자 선택 + "내 프로젝트만" 토글 적용한 표시 목록 (정렬 전).
-  // 우선순위: showMyOnly가 켜져 있으면 그것만 적용 (사용자 체크 선택은 무시).
-  // 아니면 사용자 체크 선택이 있으면 그것 적용. 둘 다 없으면 전체.
+  const [showUndeterminedPeriodProjectsOnly, setShowUndeterminedPeriodProjectsOnly] = useState(false);
+
+  // 사용자 선택 + "내 프로젝트만" + "기간 미정만" 토글 적용한 표시 목록 (정렬 전).
   const baseDisplayProjectStats = useMemo(() => {
+    const base = showUndeterminedPeriodProjectsOnly ? projectStats.filter((p) => hasUndeterminedProjectPeriod(p)) : visibleProjectStats;
     if (showMyOnly && myInvolvedProjectIds) {
-      return visibleProjectStats.filter((p) => myInvolvedProjectIds.has(p.id));
+      return base.filter((p) => myInvolvedProjectIds.has(p.id));
     }
-    if (!dashboardVisibleIds) return visibleProjectStats;
-    return visibleProjectStats.filter((p) => dashboardVisibleIds.has(p.id));
-  }, [visibleProjectStats, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
+    if (!dashboardVisibleIds) return base;
+    return base.filter((p) => dashboardVisibleIds.has(p.id));
+  }, [visibleProjectStats, projectStats, showUndeterminedPeriodProjectsOnly, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
 
   /** 프로젝트별 상태 표: 헤더 클릭 정렬(카드 뷰에서는 적용하지 않음) */
   const [projectStatusTableSort, setProjectStatusTableSort] = useState<{
@@ -675,14 +699,19 @@ export function Dashboard({
   const divisionStats = useMemo(() => {
     const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
     const groupNameById = new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const));
-    const projectCountByDivision = new Map<string, number>();
-    for (const division of topLevelDivisions) projectCountByDivision.set(division.id, 0);
+    const registeredProjectsByDivision = new Map<string, { id: string; label: string }[]>();
+    for (const division of topLevelDivisions) registeredProjectsByDivision.set(division.id, []);
     for (const p of projectsForDashboard) {
       const gname = p.groupId ? groupNameById.get(p.groupId) : undefined;
       if (!gname) continue;
       const divId = departmentNameToDivisionId.get(gname);
       if (!divId) continue;
-      projectCountByDivision.set(divId, (projectCountByDivision.get(divId) ?? 0) + 1);
+      const list = registeredProjectsByDivision.get(divId);
+      if (!list) continue;
+      list.push({ id: p.id, label: formatProjectDisplayName(p.name, p.projectKind) });
+    }
+    for (const list of registeredProjectsByDivision.values()) {
+      list.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
     }
 
     const stats = topLevelDivisions.map((division) => {
@@ -697,6 +726,7 @@ export function Dashboard({
       const assigneeSet = new Set(tasks.map((t) => (t.assignee || '').trim()).filter(Boolean));
       const progress = computeWeightedProgress(tasks);
       const memberCount = orgMembers.filter((m) => memberToDivisionId.get(m.name) === division.id).length;
+      const registeredProjects = registeredProjectsByDivision.get(division.id) ?? [];
       return {
         id: division.id,
         name: division.name,
@@ -707,7 +737,8 @@ export function Dashboard({
         assigneeCount: assigneeSet.size,
         memberCount,
         inProgressCount,
-        projectCount: projectCountByDivision.get(division.id) ?? 0,
+        projectCount: registeredProjects.length,
+        registeredProjects,
       };
     });
     // 작업이 있는 사업부 우선 + 인원만 있는 사업부도 보여주기
@@ -726,6 +757,7 @@ export function Dashboard({
   // ─── 사업부 표시 필터 (사용자 선택 + 내가 포함된 부서 토글) ─────────────
   const DIVISION_VISIBLE_KEY = 'wbs-dashboard-visible-division-ids';
   const DIVISION_MY_ONLY_KEY = 'wbs-dashboard-division-my-only';
+  const DIVISION_ACTIVE_ONLY_KEY = 'wbs-dashboard-division-active-only';
   const [divisionVisibleIds, setDivisionVisibleIds] = useState<Set<string> | null>(() => {
     try {
       const raw = localStorage.getItem(DIVISION_VISIBLE_KEY);
@@ -743,8 +775,16 @@ export function Dashboard({
       return false;
     }
   });
+  const [showActiveDivisionsOnly, setShowActiveDivisionsOnly] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DIVISION_ACTIVE_ONLY_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [isDivisionPickerOpen, setIsDivisionPickerOpen] = useState(false);
   const divisionPickerRef = useRef<HTMLDivElement>(null);
+  const allocationScrollAnchorRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!isDivisionPickerOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -781,6 +821,18 @@ export function Dashboard({
       return next;
     });
   };
+  const toggleShowActiveDivisionsOnly = () => {
+    setShowActiveDivisionsOnly((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.removeItem(DIVISION_ACTIVE_ONLY_KEY);
+        else localStorage.setItem(DIVISION_ACTIVE_ONLY_KEY, '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   // 현재 사용자가 속한 부서 ID (organizationMembers의 이름 매칭)
   const myDivisionId = useMemo(() => {
@@ -789,9 +841,7 @@ export function Dashboard({
     return memberToDivisionId.get(name);
   }, [currentUserDisplay, memberToDivisionId]);
 
-  // 사용자 선택 + "내 부서만" 토글 적용한 최종 표시 부서 목록.
-  // 우선순위: showMyDivisionOnly가 켜져 있으면 그것만 적용. 아니면 사용자 체크 선택.
-  const displayDivisionStats = useMemo(() => {
+  const divisionStatsAfterVisibility = useMemo(() => {
     if (showMyDivisionOnly) {
       if (!myDivisionId) return [];
       return divisionStats.filter((d) => d.id === myDivisionId);
@@ -800,10 +850,30 @@ export function Dashboard({
     return divisionStats.filter((d) => divisionVisibleIds.has(d.id));
   }, [divisionStats, divisionVisibleIds, showMyDivisionOnly, myDivisionId]);
 
+  const activeDivisionCount = useMemo(
+    () => divisionStatsAfterVisibility.filter(isActiveDivisionStat).length,
+    [divisionStatsAfterVisibility],
+  );
+
+  // 사용자 선택 + "내 부서만" + "활성 부서만" 토글 적용한 최종 표시 부서 목록.
+  const displayDivisionStats = useMemo(() => {
+    if (!showActiveDivisionsOnly) return divisionStatsAfterVisibility;
+    return divisionStatsAfterVisibility.filter(isActiveDivisionStat);
+  }, [divisionStatsAfterVisibility, showActiveDivisionsOnly]);
+
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { hash } = useLocation();
   const divisionDetailIdRaw = searchParams.get('division');
   const divisionDetailId = divisionDetailIdRaw && divisionDetailIdRaw.trim() ? divisionDetailIdRaw.trim() : null;
+  const allocationFocusDivisionIdRaw = searchParams.get('allocationFocus');
+  const allocationFocusDivisionId =
+    allocationFocusDivisionIdRaw && allocationFocusDivisionIdRaw.trim() ? allocationFocusDivisionIdRaw.trim() : null;
+
+  const allocationFocusDivisionLabel = useMemo(() => {
+    if (!allocationFocusDivisionId) return null;
+    return topLevelDivisions.find((x) => x.id === allocationFocusDivisionId)?.name ?? null;
+  }, [allocationFocusDivisionId, topLevelDivisions]);
 
   const detailParamRaw = searchParams.get('detail');
   const detailKind: DashboardDetailKind | null =
@@ -835,6 +905,24 @@ export function Dashboard({
     },
     [navigate],
   );
+
+  const openDashboardAllocationForDivision = useCallback(
+    (divisionId: string) => {
+      const sp = new URLSearchParams();
+      sp.set('allocationFocus', divisionId);
+      navigate({ pathname: '/dashboard', search: sp.toString(), hash: 'dashboard-allocation' });
+    },
+    [navigate],
+  );
+
+  useLayoutEffect(() => {
+    if (hash !== '#dashboard-allocation') return;
+    if (!allocationFocusDivisionId) return;
+    const id = window.requestAnimationFrame(() => {
+      allocationScrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [hash, allocationFocusDivisionId]);
 
   const groupNameByProjectGroupId = useMemo(
     () => new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const)),
@@ -943,6 +1031,18 @@ export function Dashboard({
     };
   }, []);
 
+  /** 구분·부서·집계 제외 등 — 기본은 접어 두고, 해당 옵션이 켜지면 자동으로 펼침 */
+  const dashboardAdvancedFiltersActive =
+    dashboardKindsFilterActive ||
+    showMyDivisionOnly ||
+    showActiveDivisionsOnly ||
+    divisionVisibleIds !== null ||
+    dashboardExcludedIds.size > 0;
+  const [showAdvancedDashboardToolbar, setShowAdvancedDashboardToolbar] = useState(false);
+  useEffect(() => {
+    if (dashboardAdvancedFiltersActive) setShowAdvancedDashboardToolbar(true);
+  }, [dashboardAdvancedFiltersActive]);
+
   /** 렌더 시점에는 형제인 #dashboard-filter-toolbar-host 가 아직 DOM에 없을 수 있어, 커밋 직후에 포털 대상을 잡는다. */
   const [dashboardToolbarHost, setDashboardToolbarHost] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
@@ -953,159 +1053,295 @@ export function Dashboard({
   const dashboardFiltersToolbar =
     dashboardToolbarHost &&
     createPortal(
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 w-full">
-        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0">대시보드 표시</span>
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50/80 border border-violet-100/80 px-2 py-1.5">
-          <span
-            className="text-[10px] font-bold text-violet-700 uppercase tracking-wider shrink-0"
-            title="체크한 구분의 프로젝트만 대시보드 요약·집계·카드·부서·투입에 반영됩니다."
+      <div className="flex flex-col items-stretch gap-3 w-full">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0">대시보드 표시</span>
+          <button
+            type="button"
+            onClick={() => setShowAdvancedDashboardToolbar((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 transition-colors"
+            aria-expanded={showAdvancedDashboardToolbar}
           >
-            구분
-          </span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {PROJECT_KINDS.map((kind) => {
-              const on = dashboardIncludedKinds.has(kind);
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => toggleDashboardIncludedKind(kind)}
-                  className={cn(
-                    'px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors',
-                    on
-                      ? 'bg-violet-600 border-violet-600 text-white hover:bg-violet-700'
-                      : 'bg-white border-stone-200 text-stone-400 line-through hover:bg-stone-50',
-                  )}
-                  title={on ? '클릭하여 이 구분을 집계에서 제외' : '클릭하여 이 구분을 집계에 포함'}
-                  aria-pressed={on}
-                >
-                  {kind}
-                </button>
-              );
-            })}
-            {dashboardKindsFilterActive && (
-              <button
-                type="button"
-                onClick={selectAllDashboardKinds}
-                className="text-[11px] text-violet-700 hover:text-violet-900 font-medium px-1.5"
-                title="모든 구분을 집계에 포함"
-              >
-                전체
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50/80 border border-sky-100/80 px-2 py-1.5">
-          <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider shrink-0" title="사업부·부서별 카드">
-            사업부
-          </span>
-          {currentUserDisplay && (
-            <button
-              type="button"
-              onClick={toggleShowMyDivisionOnly}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
-                showMyDivisionOnly
-                  ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
-                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
-              )}
-              title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
-              aria-pressed={showMyDivisionOnly}
-              disabled={!myDivisionId}
-            >
-              <User size={12} />
-              내가 포함된 부서만
-              {showMyDivisionOnly && <Check size={11} strokeWidth={3} />}
-            </button>
-          )}
-          <div className="relative" ref={divisionPickerRef}>
-            <button
-              type="button"
-              onClick={() => {
-                setIsDivisionPickerOpen((v) => !v);
-                setIsProjectPickerOpen(false);
-                setIsExclusionPickerOpen(false);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
-              title="대시보드에 표시할 부서 선택"
-            >
-              <Settings2 size={12} />
-              필터
-              {divisionVisibleIds && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">
-                  {divisionVisibleIds.size}
-                </span>
-              )}
-            </button>
-            {isDivisionPickerOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
-                <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
-                  <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => persistDivisionVisible(new Set(divisionStats.map((d) => d.id)))}
-                      className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
-                      title="모든 부서 선택"
-                    >
-                      모두 선택
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => persistDivisionVisible(new Set())}
-                      className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
-                      title="모든 부서 해제"
-                    >
-                      모두 해제
-                    </button>
-                  </div>
-                </div>
-                {divisionStats.length === 0 ? (
-                  <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {divisionStats.map((d) => {
-                      const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
-                      return (
-                        <li key={d.id}>
-                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
-                            <span
-                              className={cn(
-                                'inline-flex items-center justify-center w-4 h-4 rounded border',
-                                checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
-                              )}
-                            >
-                              {checked && <Check size={11} strokeWidth={3} />}
-                            </span>
-                            <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
-                            <span className="text-sm text-stone-700 truncate" title={d.name}>
-                              {d.name}
-                            </span>
-                            <span className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums">
-                              {d.memberCount}명 · 프로젝트 {d.projectCount}
-                            </span>
-                          </label>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                <div className="px-2 pt-2 mt-1 border-t border-stone-100">
-                  <button
-                    type="button"
-                    onClick={showAllDivisions}
-                    className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
-                    title="필터 해제 (기본 상태로)"
-                  >
-                    필터 초기화 (기본)
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+            <ChevronDown
+              size={14}
+              className={cn('text-stone-500 shrink-0 transition-transform', showAdvancedDashboardToolbar && 'rotate-180')}
+              aria-hidden
+            />
+            고급 (구분·부서·집계 제외)
+            {dashboardAdvancedFiltersActive && !showAdvancedDashboardToolbar ? (
+              <span className="ml-0.5 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">적용 중</span>
+            ) : null}
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50/70 border border-indigo-100/80 px-2 py-1.5">
+        {showAdvancedDashboardToolbar ? (
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 w-full">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50/80 border border-violet-100/80 px-2 py-1.5">
+              <span
+                className="text-[10px] font-bold text-violet-700 uppercase tracking-wider shrink-0"
+                title="체크한 구분의 프로젝트만 대시보드 요약·집계·카드·부서·투입에 반영됩니다."
+              >
+                구분
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {PROJECT_KINDS.map((kind) => {
+                  const on = dashboardIncludedKinds.has(kind);
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => toggleDashboardIncludedKind(kind)}
+                      className={cn(
+                        'px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors',
+                        on
+                          ? 'bg-violet-600 border-violet-600 text-white hover:bg-violet-700'
+                          : 'bg-white border-stone-200 text-stone-400 line-through hover:bg-stone-50',
+                      )}
+                      title={on ? '클릭하여 이 구분을 집계에서 제외' : '클릭하여 이 구분을 집계에 포함'}
+                      aria-pressed={on}
+                    >
+                      {kind}
+                    </button>
+                  );
+                })}
+                {dashboardKindsFilterActive && (
+                  <button
+                    type="button"
+                    onClick={selectAllDashboardKinds}
+                    className="text-[11px] text-violet-700 hover:text-violet-900 font-medium px-1.5"
+                    title="모든 구분을 집계에 포함"
+                  >
+                    전체
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50/80 border border-sky-100/80 px-2 py-1.5">
+              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider shrink-0" title="사업부·부서별 카드">
+                사업부
+              </span>
+              {currentUserDisplay && (
+                <button
+                  type="button"
+                  onClick={toggleShowMyDivisionOnly}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
+                    showMyDivisionOnly
+                      ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                  )}
+                  title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
+                  aria-pressed={showMyDivisionOnly}
+                  disabled={!myDivisionId}
+                >
+                  <User size={12} />
+                  내가 포함된 부서만
+                  {showMyDivisionOnly && <Check size={11} strokeWidth={3} />}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleShowActiveDivisionsOnly}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
+                  showActiveDivisionsOnly
+                    ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                    : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                )}
+                title="프로젝트·작업이 있는 부서만 표시"
+                aria-pressed={showActiveDivisionsOnly}
+              >
+                <Building2 size={12} />
+                활성 부서만
+                {showActiveDivisionsOnly && <Check size={11} strokeWidth={3} />}
+              </button>
+              <div className="relative" ref={divisionPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDivisionPickerOpen((v) => !v);
+                    setIsProjectPickerOpen(false);
+                    setIsExclusionPickerOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+                  title="대시보드에 표시할 부서 선택"
+                >
+                  <Settings2 size={12} />
+                  필터
+                  {divisionVisibleIds && (
+                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">
+                      {divisionVisibleIds.size}
+                    </span>
+                  )}
+                </button>
+                {isDivisionPickerOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
+                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
+                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => persistDivisionVisible(new Set(divisionStats.map((d) => d.id)))}
+                          className="text-[11px] text-sky-600 hover:text-sky-800 font-medium"
+                          title="모든 부서 선택"
+                        >
+                          모두 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => persistDivisionVisible(new Set())}
+                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                          title="모든 부서 해제"
+                        >
+                          모두 해제
+                        </button>
+                      </div>
+                    </div>
+                    {divisionStats.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {divisionStats.map((d) => {
+                          const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
+                          return (
+                            <li key={d.id}>
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center justify-center w-4 h-4 rounded border',
+                                    checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
+                                  )}
+                                >
+                                  {checked && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
+                                <span className="text-sm text-stone-700 truncate" title={d.name}>
+                                  {d.name}
+                                </span>
+                                <span
+                                  className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums max-w-[9rem] truncate text-right"
+                                  title={
+                                    d.registeredProjects.length > 0
+                                      ? d.registeredProjects.map((r) => r.label).join('\n')
+                                      : `${d.memberCount}명 · 프로젝트 ${d.projectCount}`
+                                  }
+                                >
+                                  {d.memberCount}명 · 프로젝트 {d.projectCount}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                      <button
+                        type="button"
+                        onClick={showAllDivisions}
+                        className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
+                        title="필터 해제 (기본 상태로)"
+                      >
+                        필터 초기화 (기본)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50/80 border border-amber-100/80 px-2 py-1.5">
+              <span
+                className="text-[10px] font-bold text-amber-800 uppercase tracking-wider shrink-0"
+                title="요약 숫자·부서별 집계·이슈·액션·마일스톤·투입 현황·프로젝트 카드에서 제외"
+              >
+                집계 제외
+              </span>
+              <div className="relative" ref={exclusionPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExclusionPickerOpen((v) => !v);
+                    setIsProjectPickerOpen(false);
+                    setIsDivisionPickerOpen(false);
+                  }}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
+                    dashboardExcludedIds.size > 0
+                      ? 'border-amber-400 bg-amber-100 text-amber-950 hover:bg-amber-200/90'
+                      : 'border-stone-200 bg-white hover:bg-stone-50 text-stone-600',
+                  )}
+                  title="대시보드 집계에서 뺄 프로젝트 선택 (이 브라우저에만 저장)"
+                >
+                  <Ban size={12} className="shrink-0" />
+                  프로젝트 선택
+                  {dashboardExcludedIds.size > 0 && (
+                    <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-bold tabular-nums">
+                      {dashboardExcludedIds.size}
+                    </span>
+                  )}
+                </button>
+                {isExclusionPickerOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 w-80 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
+                    <p className="px-2 pb-2 text-[11px] text-stone-500 leading-snug border-b border-stone-100 mb-1">
+                      체크한 프로젝트는 대시보드 요약·목록·카드·부서 집계·투입 현황에 포함되지 않습니다. (표시 필터와 별개, 이 기기에만
+                      저장)
+                    </p>
+                    <div className="flex items-center justify-end gap-2 px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => clearDashboardExcluded()}
+                        className="text-[11px] text-amber-700 hover:text-amber-900 font-medium"
+                        title="집계 제외 목록 비우기"
+                      >
+                        제외 전체 해제
+                      </button>
+                    </div>
+                    {projectsForExclusionPicker.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-stone-400 text-center">프로젝트가 없습니다.</p>
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {projectsForExclusionPicker.map((p) => {
+                          const excluded = dashboardExcludedIds.has(p.id);
+                          return (
+                            <li key={p.id}>
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center justify-center w-4 h-4 rounded border shrink-0',
+                                    excluded ? 'bg-amber-500 border-amber-500 text-white' : 'border-stone-300 bg-white',
+                                  )}
+                                >
+                                  {excluded && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={excluded}
+                                  onChange={() => toggleDashboardExcluded(p.id)}
+                                  className="sr-only"
+                                />
+                                <span
+                                  className="text-sm text-stone-700 break-words min-w-0"
+                                  title={formatProjectDisplayName(p.name, p.projectKind)}
+                                >
+                                  {formatProjectDisplayName(p.name, p.projectKind)}
+                                </span>
+                                <span className="ml-auto text-[10px] text-amber-700/80 shrink-0 font-medium whitespace-nowrap">
+                                  {excluded ? '집계 제외' : ''}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50/70 border border-indigo-100/80 px-2 py-1.5 w-full sm:w-auto">
           <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider shrink-0" title="프로젝트별 카드">
             프로젝트
           </span>
@@ -1210,90 +1446,6 @@ export function Dashboard({
             )}
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50/80 border border-amber-100/80 px-2 py-1.5">
-          <span
-            className="text-[10px] font-bold text-amber-800 uppercase tracking-wider shrink-0"
-            title="요약 숫자·부서별 집계·이슈·액션·마일스톤·투입 현황·프로젝트 카드에서 제외"
-          >
-            집계 제외
-          </span>
-          <div className="relative" ref={exclusionPickerRef}>
-            <button
-              type="button"
-              onClick={() => {
-                setIsExclusionPickerOpen((v) => !v);
-                setIsProjectPickerOpen(false);
-                setIsDivisionPickerOpen(false);
-              }}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
-                dashboardExcludedIds.size > 0
-                  ? 'border-amber-400 bg-amber-100 text-amber-950 hover:bg-amber-200/90'
-                  : 'border-stone-200 bg-white hover:bg-stone-50 text-stone-600',
-              )}
-              title="대시보드 집계에서 뺄 프로젝트 선택 (이 브라우저에만 저장)"
-            >
-              <Ban size={12} className="shrink-0" />
-              프로젝트 선택
-              {dashboardExcludedIds.size > 0 && (
-                <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-bold tabular-nums">
-                  {dashboardExcludedIds.size}
-                </span>
-              )}
-            </button>
-            {isExclusionPickerOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-80 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
-                <p className="px-2 pb-2 text-[11px] text-stone-500 leading-snug border-b border-stone-100 mb-1">
-                  체크한 프로젝트는 대시보드 요약·목록·카드·부서 집계·투입 현황에 포함되지 않습니다. (표시 필터와 별개, 이 기기에만 저장)
-                </p>
-                <div className="flex items-center justify-end gap-2 px-2 py-1.5">
-                  <button
-                    type="button"
-                    onClick={() => clearDashboardExcluded()}
-                    className="text-[11px] text-amber-700 hover:text-amber-900 font-medium"
-                    title="집계 제외 목록 비우기"
-                  >
-                    제외 전체 해제
-                  </button>
-                </div>
-                {projectsForExclusionPicker.length === 0 ? (
-                  <p className="px-3 py-4 text-xs text-stone-400 text-center">프로젝트가 없습니다.</p>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {projectsForExclusionPicker.map((p) => {
-                      const excluded = dashboardExcludedIds.has(p.id);
-                      return (
-                        <li key={p.id}>
-                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
-                            <span
-                              className={cn(
-                                'inline-flex items-center justify-center w-4 h-4 rounded border shrink-0',
-                                excluded ? 'bg-amber-500 border-amber-500 text-white' : 'border-stone-300 bg-white',
-                              )}
-                            >
-                              {excluded && <Check size={11} strokeWidth={3} />}
-                            </span>
-                            <input type="checkbox" checked={excluded} onChange={() => toggleDashboardExcluded(p.id)} className="sr-only" />
-                            <span
-                              className="text-sm text-stone-700 break-words min-w-0"
-                              title={formatProjectDisplayName(p.name, p.projectKind)}
-                            >
-                              {formatProjectDisplayName(p.name, p.projectKind)}
-                            </span>
-                            <span className="ml-auto text-[10px] text-amber-700/80 shrink-0 font-medium whitespace-nowrap">
-                              {excluded ? '집계 제외' : ''}
-                            </span>
-                          </label>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
       </div>,
       dashboardToolbarHost,
     );
@@ -1307,6 +1459,10 @@ export function Dashboard({
     },
     [onNavigate],
   );
+
+  const openAllocationOverview = useCallback(() => {
+    onNavigate?.('allocation', { projectId: 'all', status: 'all', assignee: '' });
+  }, [onNavigate]);
 
   const openIssueTaskDetailPopup = useCallback((t: Task) => {
     setIssueTaskDetailModal(t);
@@ -1671,13 +1827,14 @@ export function Dashboard({
                     {actionTasks.map((t) => {
                       const proj = projectMap.get(t.projectId);
                       const done = isActionTaskCompleted(t);
+                      const dueState = resolveActionDueVisualState(t.endDate, done);
                       return (
                         <div
                           key={t.id}
                           className={cn(
                             'rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition-colors',
                             'cursor-pointer hover:border-teal-200 hover:bg-teal-50/30 active:scale-[0.99]',
-                            done && 'bg-teal-50/45',
+                            actionDueSurfaceClassName(dueState, 'card'),
                           )}
                           role="button"
                           tabIndex={0}
@@ -1704,7 +1861,10 @@ export function Dashboard({
                                     updateTask(t.id, { status: todoStatusId, progress: 0 });
                                   }
                                 }}
-                                className="rounded border-stone-300 text-teal-600 focus:ring-teal-500 h-5 w-5"
+                                className={cn(
+                                  'rounded border-stone-300 focus:ring-teal-500 h-5 w-5',
+                                  dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
+                                )}
                                 title={done ? '완료 해제' : '완료 표시'}
                                 aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
                               />
@@ -1712,13 +1872,20 @@ export function Dashboard({
                             <div className="min-w-0 flex-1 space-y-2">
                               <p
                                 className={cn(
-                                  'font-semibold text-[15px] leading-snug break-words flex items-start gap-1.5',
+                                  'font-semibold text-[15px] leading-snug break-words flex items-start gap-1.5 flex-wrap',
                                   done ? 'line-through text-stone-500' : 'text-stone-900',
                                 )}
                               >
-                                <ListChecks size={16} className="text-teal-600 shrink-0 mt-0.5" aria-hidden />
+                                <ListChecks
+                                  size={16}
+                                  className={cn('shrink-0 mt-0.5', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
+                                  aria-hidden
+                                />
                                 <span>{t.name || '(이름 없음)'}</span>
-                                {done && <Check size={14} className="text-teal-600 shrink-0 mt-1" strokeWidth={3} aria-hidden />}
+                                {dueState === 'completed' && (
+                                  <Check size={14} className="text-teal-600 shrink-0 mt-1" strokeWidth={3} aria-hidden />
+                                )}
+                                <ActionDueStatusBadge state={dueState} />
                               </p>
                               <dl className="space-y-1.5 text-sm text-stone-600">
                                 <div className="flex justify-between gap-3">
@@ -1735,7 +1902,9 @@ export function Dashboard({
                                 </div>
                                 <div className="flex justify-between gap-3">
                                   <dt className="text-stone-400 shrink-0">기한날짜</dt>
-                                  <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
+                                  <dd className="text-right">
+                                    <ActionDueDateCell endDate={t.endDate} isCompleted={done} showBadge={false} />
+                                  </dd>
                                 </div>
                               </dl>
                             </div>
@@ -1760,10 +1929,14 @@ export function Dashboard({
                         {actionTasks.map((t) => {
                           const proj = projectMap.get(t.projectId);
                           const done = isActionTaskCompleted(t);
+                          const dueState = resolveActionDueVisualState(t.endDate, done);
                           return (
                             <tr
                               key={t.id}
-                              className={cn('border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer', done && 'bg-teal-50/30')}
+                              className={cn(
+                                'border-t border-stone-100 cursor-pointer',
+                                actionDueSurfaceClassName(dueState, 'row') || 'hover:bg-stone-50/60',
+                              )}
                               onClick={() => openActionTaskDetailPopup(t)}
                               title="클릭하여 액션 상세"
                             >
@@ -1780,18 +1953,26 @@ export function Dashboard({
                                       updateTask(t.id, { status: todoStatusId, progress: 0 });
                                     }
                                   }}
-                                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                                  className={cn(
+                                    'rounded border-stone-300 focus:ring-teal-500',
+                                    dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
+                                  )}
                                   title={done ? '완료 해제' : '완료 표시'}
                                   aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
                                 />
                               </td>
                               <td className="px-3 py-2 text-stone-800">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                                <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                  <ListChecks
+                                    size={12}
+                                    className={cn('shrink-0', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
+                                    aria-hidden
+                                  />
                                   <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
-                                  {done && (
+                                  {dueState === 'completed' && (
                                     <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />
                                   )}
+                                  <ActionDueStatusBadge state={dueState} />
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-stone-600 break-words">
@@ -1800,7 +1981,9 @@ export function Dashboard({
                               <td className="px-3 py-2 text-stone-600 truncate">
                                 {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                               </td>
-                              <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                              <td className="px-3 py-2">
+                                <ActionDueDateCell endDate={t.endDate} isCompleted={done} showBadge={false} />
+                              </td>
                             </tr>
                           );
                         })}
@@ -1820,51 +2003,83 @@ export function Dashboard({
                     사업부·부서별 현황
                     <span className="text-sm font-normal text-stone-500 ml-1">
                       ({displayDivisionStats.length}
-                      {(divisionVisibleIds || showMyDivisionOnly) && divisionStats.length !== displayDivisionStats.length
-                        ? ` / ${divisionStats.length}`
-                        : ''}
-                      개)
+                      {showActiveDivisionsOnly && divisionStatsAfterVisibility.length !== displayDivisionStats.length
+                        ? ` / ${divisionStatsAfterVisibility.length}`
+                        : (divisionVisibleIds || showMyDivisionOnly) && divisionStats.length !== divisionStatsAfterVisibility.length
+                          ? ` / ${divisionStats.length}`
+                          : ''}
+                      개
+                      {showActiveDivisionsOnly && divisionStatsAfterVisibility.length > displayDivisionStats.length && (
+                        <span className="text-stone-400">
+                          {' '}
+                          · 비활성 {divisionStatsAfterVisibility.length - displayDivisionStats.length}개 숨김
+                        </span>
+                      )}
+                      )
                     </span>
                   </h2>
-                  {!mobileReadabilityMode && (
-                    <div
-                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                      role="group"
-                      aria-label="사업부·부서별 현황 표 또는 카드 보기"
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={toggleShowActiveDivisionsOnly}
+                      className={cn(
+                        'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors inline-flex items-center gap-1',
+                        showActiveDivisionsOnly
+                          ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
+                          : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                      )}
+                      title="프로젝트·작업이 있는 부서만 표시"
+                      aria-pressed={showActiveDivisionsOnly}
                     >
-                      <button
-                        type="button"
-                        onClick={() => persistDashboardSectionLayout('divisions', 'table')}
-                        className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                        )}
-                        title="표로 보기"
+                      활성 부서만
+                      {showActiveDivisionsOnly && <Check size={11} strokeWidth={3} aria-hidden />}
+                    </button>
+                    {!mobileReadabilityMode && (
+                      <div
+                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                        role="group"
+                        aria-label="사업부·부서별 현황 표 또는 카드 보기"
                       >
-                        <Table2 size={12} aria-hidden />표
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => persistDashboardSectionLayout('divisions', 'card')}
-                        className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                        )}
-                        title="카드로 보기"
-                      >
-                        <LayoutGrid size={12} aria-hidden />
-                        카드
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardSectionLayout('divisions', 'table')}
+                          className={cn(
+                            'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                            dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          )}
+                          title="표로 보기"
+                        >
+                          <Table2 size={12} aria-hidden />표
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardSectionLayout('divisions', 'card')}
+                          className={cn(
+                            'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                            dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          )}
+                          title="카드로 보기"
+                        >
+                          <LayoutGrid size={12} aria-hidden />
+                          카드
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
+                <p className="text-sm text-stone-500 mb-3 m-0 leading-relaxed">
+                  카드나 행을 누르면 등록 프로젝트·진척·담당 작업을 상세로 볼 수 있습니다. 상세 안내 버튼으로 아래「사업부별 작업
+                  투입공수」으로 이어가면, 그 사업부 소속 인원만 자동으로 걸러 봅니다.
+                </p>
                 {displayDivisionStats.length === 0 ? (
                   <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
                     {divisionStats.length === 0
                       ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
                       : showMyDivisionOnly
                         ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
-                        : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
+                        : showActiveDivisionsOnly && divisionStatsAfterVisibility.length > 0
+                          ? '프로젝트·작업이 있는 활성 부서가 없습니다. 상단 또는 「활성 부서만」을 해제하면 전체 부서를 볼 수 있습니다.'
+                          : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
                   </div>
                 ) : dashboardSectionLayout.divisions === 'card' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -1890,6 +2105,15 @@ export function Dashboard({
                           <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5">
                             <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">등록 프로젝트</div>
                             <div className="text-[1.65rem] font-bold text-sky-600 tabular-nums leading-tight mt-0.5">{d.projectCount}</div>
+                            {d.registeredProjects.length > 0 && (
+                              <ul className="mt-2 pt-2 border-t border-sky-100/90 space-y-1 max-h-[7.5rem] overflow-y-auto text-[11px] font-medium text-sky-900/90 leading-snug">
+                                {d.registeredProjects.map((rp) => (
+                                  <li key={rp.id} className="truncate" title={rp.label}>
+                                    {rp.label}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
                           <div>
                             <div className="flex items-baseline justify-between gap-2 mb-1.5">
@@ -1959,7 +2183,23 @@ export function Dashboard({
                             <td className="px-3 py-2 font-medium text-stone-800 max-w-[14rem] truncate" title={d.name}>
                               {d.name}
                             </td>
-                            <td className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold">{d.projectCount}</td>
+                            <td
+                              className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold max-w-[12rem]"
+                              title={
+                                d.registeredProjects.length > 0
+                                  ? `등록 프로젝트 (${d.projectCount}개)\n${d.registeredProjects.map((r) => r.label).join('\n')}`
+                                  : undefined
+                              }
+                            >
+                              <div className="flex flex-col items-end gap-0.5 min-w-0">
+                                <span>{d.projectCount}</span>
+                                {d.registeredProjects.length > 0 && (
+                                  <span className="text-[10px] font-normal text-sky-600/90 text-left w-full line-clamp-2 break-words hyphens-auto">
+                                    {d.registeredProjects.map((r) => r.label).join(' · ')}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">
                               {formatPercent1(d.progress)}%
                             </td>
@@ -1978,15 +2218,32 @@ export function Dashboard({
             )}
 
             {showDashSection('allocation') && (
-              <DashboardPersonAllocationSection
-                projects={displayProjectsForAllocation}
-                allTasks={displayTasksForAllocation}
-                profileMap={profileMap}
-                registeredMemberDisplayNames={registeredMemberDisplayNames}
-                showFilterHint={dashboardFiltersActive}
-                onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
-                narrowScreenLayout={mobileReadabilityMode}
-              />
+              <section id="dashboard-allocation" ref={allocationScrollAnchorRef} className="scroll-mt-4">
+                <DashboardPersonAllocationSection
+                  projects={displayProjectsForAllocation}
+                  allTasks={displayTasksForAllocation}
+                  profileMap={profileMap}
+                  registeredMemberDisplayNames={registeredMemberDisplayNames}
+                  showFilterHint={dashboardFiltersActive}
+                  assigneeTopDivisionIdByName={memberToDivisionId}
+                  topLevelDivisions={topLevelDivisions.map((d) => ({ id: d.id, name: d.name }))}
+                  allocationFocusDivisionId={allocationFocusDivisionId}
+                  allocationFocusDivisionLabel={allocationFocusDivisionLabel}
+                  onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
+                  onOpenAllocationOverview={onNavigate ? openAllocationOverview : undefined}
+                  allocationDivisionInfer={{
+                    memberToDivisionId,
+                    departmentNameToDivisionId,
+                    profileMap,
+                    ownerDepartmentByUserId,
+                  }}
+                  narrowScreenLayout={mobileReadabilityMode}
+                  sectionLayout={mobileReadabilityMode ? 'card' : dashboardSectionLayout.allocation}
+                  onSectionLayoutChange={(mode) => persistDashboardSectionLayout('allocation', mode)}
+                  showSectionLayoutToggle={!mobileReadabilityMode}
+                  variant="dashboard"
+                />
+              </section>
             )}
 
             {/* Milestones */}
@@ -2105,39 +2362,65 @@ export function Dashboard({
                   <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
                     <Briefcase className="text-[var(--color-accent)]" size={24} />
                     프로젝트별 상태
-                    <span className="text-sm font-normal text-stone-500 ml-1">({displayProjectStats.length}개)</span>
+                    <span className="text-sm font-normal text-stone-500 ml-1">
+                      ({displayProjectStats.length}개
+                      {showUndeterminedPeriodProjectsOnly && projectsWithUndeterminedPeriod.length !== displayProjectStats.length
+                        ? ` / 기간 미정 ${projectsWithUndeterminedPeriod.length}`
+                        : ''}
+                      )
+                    </span>
                   </h2>
-                  {!mobileReadabilityMode && (
-                    <div
-                      className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                      role="group"
-                      aria-label="프로젝트별 상태 표 또는 카드 보기"
-                    >
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {projectsWithUndeterminedPeriod.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => persistDashboardSectionLayout('projects', 'table')}
+                        onClick={() => setShowUndeterminedPeriodProjectsOnly((v) => !v)}
                         className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.projects === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors inline-flex items-center gap-1',
+                          showUndeterminedPeriodProjectsOnly
+                            ? 'bg-violet-600 border-violet-600 text-white hover:bg-violet-700'
+                            : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
                         )}
-                        title="표로 보기"
+                        title="시작일 또는 종료일이 비어 있는 프로젝트만 표시"
+                        aria-pressed={showUndeterminedPeriodProjectsOnly}
                       >
-                        <Table2 size={12} aria-hidden />표
+                        <Calendar size={12} aria-hidden />
+                        기간 미정만
+                        {showUndeterminedPeriodProjectsOnly && <Check size={11} strokeWidth={3} aria-hidden />}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => persistDashboardSectionLayout('projects', 'card')}
-                        className={cn(
-                          'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                          dashboardSectionLayout.projects === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                        )}
-                        title="카드로 보기"
+                    )}
+                    {!mobileReadabilityMode && (
+                      <div
+                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                        role="group"
+                        aria-label="프로젝트별 상태 표 또는 카드 보기"
                       >
-                        <LayoutGrid size={12} aria-hidden />
-                        카드
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardSectionLayout('projects', 'table')}
+                          className={cn(
+                            'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                            dashboardSectionLayout.projects === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          )}
+                          title="표로 보기"
+                        >
+                          <Table2 size={12} aria-hidden />표
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => persistDashboardSectionLayout('projects', 'card')}
+                          className={cn(
+                            'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                            dashboardSectionLayout.projects === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                          )}
+                          title="카드로 보기"
+                        >
+                          <LayoutGrid size={12} aria-hidden />
+                          카드
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <p className="text-xs text-stone-500 -mt-1 mb-1">
                   {dashboardSectionLayout.projects === 'card'
@@ -2149,17 +2432,19 @@ export function Dashboard({
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                       {displayProjectStats.length === 0 ? (
                         <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                          {projects.length > 0 && projectsEligibleForDashboard.length === 0
-                            ? dashboardIncludedKinds.size === 0
-                              ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
-                              : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
-                            : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
-                              ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
-                              : visibleProjectStats.length === 0
-                                ? '작업이 있는 프로젝트가 없습니다.'
-                                : showMyOnly
-                                  ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
-                                  : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
+                          {showUndeterminedPeriodProjectsOnly
+                            ? '현재 필터 조건에서 기간 미지정 프로젝트가 없습니다. 「기간 미정만」을 해제하거나 다른 필터를 확인해 주세요.'
+                            : projects.length > 0 && projectsEligibleForDashboard.length === 0
+                              ? dashboardIncludedKinds.size === 0
+                                ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
+                                : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
+                              : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
+                                ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
+                                : visibleProjectStats.length === 0
+                                  ? '작업이 있는 프로젝트가 없습니다.'
+                                  : showMyOnly
+                                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                                    : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
                         </div>
                       ) : (
                         displayProjectStats.map((project) => (
@@ -2178,17 +2463,19 @@ export function Dashboard({
                     <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
                       {displayProjectStats.length === 0 ? (
                         <div className="text-sm text-stone-400 p-6 text-center">
-                          {projects.length > 0 && projectsEligibleForDashboard.length === 0
-                            ? dashboardIncludedKinds.size === 0
-                              ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
-                              : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
-                            : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
-                              ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
-                              : visibleProjectStats.length === 0
-                                ? '작업이 있는 프로젝트가 없습니다.'
-                                : showMyOnly
-                                  ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
-                                  : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
+                          {showUndeterminedPeriodProjectsOnly
+                            ? '현재 필터 조건에서 기간 미지정 프로젝트가 없습니다. 「기간 미정만」을 해제하거나 다른 필터를 확인해 주세요.'
+                            : projects.length > 0 && projectsEligibleForDashboard.length === 0
+                              ? dashboardIncludedKinds.size === 0
+                                ? '대시보드 상단「구분」에서 집계에 넣을 구분을 하나 이상 선택해 주세요.'
+                                : '집계에 포함되는 프로젝트가 없습니다. 프로젝트 설정의「대시보드에 반영」을 켜거나, 상단「구분」에서 해당 구분을 포함해 주세요.'
+                              : projectsEligibleForDashboard.length > 0 && projectsForDashboard.length === 0
+                                ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
+                                : visibleProjectStats.length === 0
+                                  ? '작업이 있는 프로젝트가 없습니다.'
+                                  : showMyOnly
+                                    ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
+                                    : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
                         </div>
                       ) : (
                         <table className="w-full text-sm min-w-[720px]">
@@ -2350,11 +2637,11 @@ export function Dashboard({
                                   <td className="px-3 py-2 text-stone-600 text-xs truncate max-w-[8rem]" title={poDisplay || undefined}>
                                     {poDisplay || <span className="text-stone-400">—</span>}
                                   </td>
-                                  <td className="px-3 py-2 text-xs tabular-nums text-stone-600 whitespace-nowrap">
-                                    {project.startDate || '—'}
+                                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                    <ProjectPeriodDateText date={project.startDate} className="text-stone-600" />
                                   </td>
-                                  <td className="px-3 py-2 text-xs tabular-nums text-stone-600 whitespace-nowrap">
-                                    {project.endDate || '—'}
+                                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                    <ProjectPeriodDateText date={project.endDate} className="text-stone-600" />
                                   </td>
                                   <td className="px-2 py-2 text-right tabular-nums text-stone-700">{s.assigneeCount}</td>
                                   <td className="px-3 py-2">
@@ -2409,6 +2696,9 @@ export function Dashboard({
                 onOpenProjectTasks={(projectId) => {
                   onNavigate?.('table', { projectId, status: 'all', assignee: '' });
                 }}
+                onOpenAllocationForDivision={
+                  divisionDetailStat ? () => openDashboardAllocationForDivision(divisionDetailStat.id) : undefined
+                }
                 mobileReadabilityMode={mobileReadabilityMode}
               />
             ) : (
@@ -2448,6 +2738,7 @@ export function Dashboard({
               onOpenProjectTable={onNavigate ? openTableProject : undefined}
               onOpenTaskInTable={onOpenTaskInTable}
               onOpenAllTasksTable={onNavigate ? openTableAll : undefined}
+              onOpenAllocationOverview={onNavigate ? openAllocationOverview : undefined}
               projectsForDashboard={projectsForDashboard}
               allTasksForDashboard={allTasksForDashboard}
               projectMap={projectMap}
@@ -2475,6 +2766,7 @@ export function Dashboard({
               isActionTaskCompleted={isActionTaskCompleted}
               dashboardExcludedCount={dashboardExcludedIds.size}
               totalProjectsInAccount={projects.length}
+              ownerDepartmentByUserId={ownerDepartmentByUserId}
             />
           </div>
         )}
@@ -2768,10 +3060,11 @@ function ProjectCard({
           <Clock size={11} className="text-slate-300 shrink-0 mt-0.5" aria-hidden />
           <div className="min-w-0 flex flex-col gap-0.5 leading-snug">
             <span>
-              시작: <span className="tabular-nums text-slate-500">{project.startDate ? project.startDate : '미정'}</span>
+              시작:{' '}
+              <ProjectPeriodDateText date={project.startDate} className="text-slate-500" emptyClassName="text-amber-700 font-medium" />
             </span>
             <span>
-              종료: <span className="tabular-nums text-slate-500">{project.endDate ? project.endDate : '미정'}</span>
+              종료: <ProjectPeriodDateText date={project.endDate} className="text-slate-500" emptyClassName="text-amber-700 font-medium" />
             </span>
           </div>
         </div>

@@ -53,6 +53,13 @@ export function formatAllocationPercentSumForDisplay(totalPercent: number, unit:
   return `${formatNum2(allocationPercentSumToManMonths(totalPercent))} M/M`;
 }
 
+/** WBS 공수(M/D) 합을 M/M 또는 M/D 문자열로 표시 */
+export function formatEffortFromManDays(md: number, unit: 'mm' | 'md'): string {
+  if (!Number.isFinite(md) || md <= 0) return '—';
+  if (unit === 'md') return `${formatNum2(md)} M/D`;
+  return `${formatNum2(manDaysToManMonths(md))} M/M`;
+}
+
 /** UI·프로젝트 설정 선택지 */
 export const WORK_EFFORT_UNIT_OPTIONS: { value: WorkEffortUnit; label: string }[] = [
   { value: 'minute', label: '분' },

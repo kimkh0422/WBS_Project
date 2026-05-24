@@ -1,10 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronDown, ChevronUp, LayoutGrid, ListChecks, Flag, Bug, Users, Briefcase, BarChart3, Search } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  LayoutGrid,
+  ListChecks,
+  Flag,
+  Bug,
+  Users,
+  Briefcase,
+  BarChart3,
+  Search,
+  Network,
+  Table2,
+} from 'lucide-react';
 import { getDailyVisitors, getDailyVisitCounts, getVisitorRanking, type DailyVisitorRow, type VisitorRankingRow } from '../lib/db';
 import { cn, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectPeriodDate } from '../lib/projectPeriod';
 import type { ActionDueDateFilter } from '../lib/actionItemDueFilter';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -13,6 +29,15 @@ import { DashboardVisitTrendChart } from './DashboardVisitTrendChart';
 import { ProjectNameLabel } from './ProjectNameLabel';
 import { BaseModal } from './Base/Modal';
 import { ActionItemDetailModalBody } from './ActionItemDetailModalBody';
+import { ActionDueDateCell, ActionDueStatusBadge, actionDueSurfaceClassName, resolveActionDueVisualState } from './ActionItemDueDisplay';
+import { useOrganization } from '../context/OrganizationContext';
+import type { OrgNode } from '../data/organization';
+import {
+  buildOrgChartProjectListBlocks,
+  collectOrgExpandKeysForBlocks,
+  countProjectsInOrgBranch,
+  type OrgChartGroupBranch,
+} from '../lib/projectListOrgGrouping';
 
 export type DashboardDetailKind =
   | 'projects'
@@ -30,6 +55,57 @@ interface ProjectStats {
   statusCounts: Record<string, number>;
   progress: number;
   assigneeCount: number;
+}
+
+type ProjectStatRow = Project & { stats: ProjectStats };
+
+const DASHBOARD_REGISTERED_PROJECTS_LAYOUT_KEY = 'wbs-dashboard-registered-projects-layout';
+type RegisteredProjectsLayoutMode = 'flat' | 'org';
+
+function rollupOrgSubtreeStats(
+  branch: OrgChartGroupBranch,
+  rowsById: Map<string, ProjectStatRow>,
+): { nProj: number; taskSum: number; pw: number } {
+  let nProj = branch.projects.length;
+  let taskSum = 0;
+  let pw = 0;
+  for (const p of branch.projects) {
+    const row = rowsById.get(p.id);
+    if (row) {
+      const t = row.stats.total;
+      taskSum += t;
+      pw += t * row.stats.progress;
+    }
+  }
+  for (const c of branch.children) {
+    const sub = rollupOrgSubtreeStats(c, rowsById);
+    nProj += sub.nProj;
+    taskSum += sub.taskSum;
+    pw += sub.pw;
+  }
+  return { nProj, taskSum, pw };
+}
+
+function compareProjectStatRows(a: ProjectStatRow, b: ProjectStatRow, key: DashboardProjectsSortKey, dir: 'asc' | 'desc'): number {
+  let cmp = 0;
+  switch (key) {
+    case 'name':
+      cmp = a.name.localeCompare(b.name, 'ko');
+      break;
+    case 'tasks':
+      cmp = a.stats.total - b.stats.total;
+      break;
+    case 'progress':
+      cmp = a.stats.progress - b.stats.progress;
+      break;
+    case 'assignees':
+      cmp = a.stats.assigneeCount - b.stats.assigneeCount;
+      break;
+    default:
+      break;
+  }
+  if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
+  return a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id);
 }
 
 type DashboardProjectsSortKey = 'name' | 'tasks' | 'progress' | 'assignees';
@@ -66,6 +142,7 @@ export function DashboardDetailPage({
   projectId,
   onBack,
   onOpenProjectTable,
+  onOpenAllocationOverview,
   onOpenTaskInTable,
   onOpenAllTasksTable,
   projectsForDashboard,
@@ -95,12 +172,15 @@ export function DashboardDetailPage({
   isActionTaskCompleted,
   dashboardExcludedCount,
   totalProjectsInAccount,
+  ownerDepartmentByUserId,
 }: {
   kind: DashboardDetailKind;
   projectId?: string | null;
   onBack: () => void;
   /** 모바일 등에서 미제공 시 작업 표 이동 버튼이 비활성화됩니다. */
   onOpenProjectTable?: (projectId: string) => void;
+  /** 제공 시 투입 상세 모달 안에서도「투입현황」전체 화면으로 이동 */
+  onOpenAllocationOverview?: () => void;
   /** 제공 시「열기」가 해당 작업 행으로 스크롤하는 표 이동을 수행합니다. */
   onOpenTaskInTable?: (taskId: string, projectId: string) => void;
   onOpenAllTasksTable?: () => void;
@@ -132,6 +212,8 @@ export function DashboardDetailPage({
   isActionTaskCompleted: (t: Task) => boolean;
   dashboardExcludedCount: number;
   totalProjectsInAccount: number;
+  /** PM이 없을 때 조직도 매칭에 사용하는 소유자 프로필 부서 */
+  ownerDepartmentByUserId?: Record<string, string | null | undefined>;
 }) {
   const [dailyLoading, setDailyLoading] = useState(false);
   const [dailyList, setDailyList] = useState<DailyVisitorRow[]>([]);
@@ -152,6 +234,89 @@ export function DashboardDetailPage({
     key: DashboardProjectsSortKey;
     dir: 'asc' | 'desc';
   }>({ key: 'name', dir: 'asc' });
+
+  const [registeredProjectsLayout, setRegisteredProjectsLayout] = useState<RegisteredProjectsLayoutMode>(() => {
+    try {
+      const v = localStorage.getItem(DASHBOARD_REGISTERED_PROJECTS_LAYOUT_KEY);
+      if (v === 'flat' || v === 'org') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'org';
+  });
+
+  const persistRegisteredProjectsLayout = (mode: RegisteredProjectsLayoutMode) => {
+    setRegisteredProjectsLayout(mode);
+    try {
+      localStorage.setItem(DASHBOARD_REGISTERED_PROJECTS_LAYOUT_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const { orgTree, orgMembers } = useOrganization();
+  const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
+
+  const memberToDivisionId = useMemo(() => {
+    const m = new Map<string, string>();
+    const collect = (node: OrgNode, divisionId: string) => {
+      const deptSet = new Set(node.departments ?? []);
+      for (const member of orgMembers) {
+        if (deptSet.has(member.department) && !m.has(member.name)) m.set(member.name, divisionId);
+      }
+      for (const child of node.children ?? []) collect(child, divisionId);
+    };
+    for (const division of topLevelDivisions) collect(division, division.id);
+    return m;
+  }, [topLevelDivisions, orgMembers]);
+
+  const departmentNameToDivisionId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const division of topLevelDivisions) {
+      const walk = (node: OrgNode) => {
+        for (const d of node.departments ?? []) {
+          const key = d.trim();
+          if (key.length > 0 && !m.has(key)) m.set(key, division.id);
+        }
+        for (const child of node.children ?? []) walk(child);
+      };
+      walk(division);
+    }
+    return m;
+  }, [topLevelDivisions]);
+
+  const orgLayoutAvailable = topLevelDivisions.length > 0;
+  const showRegisteredProjectsOrgLayout = registeredProjectsLayout === 'org' && orgLayoutAvailable;
+
+  const projectStatsRowById = useMemo(() => {
+    const m = new Map<string, ProjectStatRow>();
+    for (const r of projectStatsRows) m.set(r.id, r);
+    return m;
+  }, [projectStatsRows]);
+
+  const orgChartListModel = useMemo(
+    () => buildOrgChartProjectListBlocks(projectStatsRows, orgTree, orgMembers, ownerDepartmentByUserId),
+    [projectStatsRows, orgTree, orgMembers, ownerDepartmentByUserId],
+  );
+
+  const [expandedOrgNodeKeys, setExpandedOrgNodeKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (kind !== 'projects' || !showRegisteredProjectsOrgLayout) return;
+    const { blocks, unmapped } = orgChartListModel;
+    const next = new Set(collectOrgExpandKeysForBlocks(blocks));
+    if (unmapped.length > 0) next.add('org:__unmapped__');
+    setExpandedOrgNodeKeys(next);
+  }, [kind, showRegisteredProjectsOrgLayout, orgChartListModel]);
+
+  const toggleOrgExpanded = (key: string) => {
+    setExpandedOrgNodeKeys((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  };
 
   useEffect(() => {
     if (kind !== 'visitors') return;
@@ -208,27 +373,7 @@ export function DashboardDetailPage({
   const registeredProjectsSorted = useMemo(() => {
     const rows = [...projectStatsRows];
     const { key, dir } = registeredProjectsSort;
-    rows.sort((a, b) => {
-      let cmp = 0;
-      switch (key) {
-        case 'name':
-          cmp = a.name.localeCompare(b.name, 'ko');
-          break;
-        case 'tasks':
-          cmp = a.stats.total - b.stats.total;
-          break;
-        case 'progress':
-          cmp = a.stats.progress - b.stats.progress;
-          break;
-        case 'assignees':
-          cmp = a.stats.assigneeCount - b.stats.assigneeCount;
-          break;
-        default:
-          break;
-      }
-      if (cmp !== 0) return dir === 'asc' ? cmp : -cmp;
-      return a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id);
-    });
+    rows.sort((a, b) => compareProjectStatRows(a, b, key, dir));
     return rows;
   }, [projectStatsRows, registeredProjectsSort]);
 
@@ -277,12 +422,76 @@ export function DashboardDetailPage({
       case 'milestones':
         return '마일스톤 전체';
       case 'allocation':
-        return '인원·프로젝트 투입 상세';
+        return '사업부별 작업 투입공수 상세';
       case 'project':
         return projectDetailRow ? formatProjectDisplayName(projectDetailRow.name, projectDetailRow.projectKind) : '프로젝트 상세';
       default:
         return '상세';
     }
+  };
+
+  const renderOrgBranchRows = (divisionId: string, branch: OrgChartGroupBranch): React.ReactNode[] => {
+    const sub = countProjectsInOrgBranch(branch);
+    if (sub === 0) return [];
+    const ek = `org:${divisionId}:${branch.nodeId}`;
+    const expanded = expandedOrgNodeKeys.has(ek);
+    const rollup = rollupOrgSubtreeStats(branch, projectStatsRowById);
+    const branchProgress = rollup.taskSum > 0 ? rollup.pw / rollup.taskSum : 0;
+    const sortedLeafProjects = [...branch.projects]
+      .map((proj) => projectStatsRowById.get(proj.id))
+      .filter((x): x is ProjectStatRow => Boolean(x))
+      .sort((a, b) => compareProjectStatRows(a, b, registeredProjectsSort.key, registeredProjectsSort.dir));
+
+    const nodeRow = (
+      <tr key={ek} className="bg-teal-50/40 border-t border-stone-100">
+        <td colSpan={5} className="p-0">
+          <button
+            type="button"
+            onClick={() => toggleOrgExpanded(ek)}
+            className="w-full text-left px-3 py-2.5 flex flex-wrap items-center gap-2 hover:bg-teal-50/80 transition-colors"
+            style={{ paddingLeft: Math.min(12 + branch.depth * 14, 56) }}
+          >
+            {expanded ? (
+              <ChevronDown size={16} className="shrink-0 text-stone-500" aria-hidden />
+            ) : (
+              <ChevronRight size={16} className="shrink-0 text-stone-500" aria-hidden />
+            )}
+            <Network size={14} className="text-teal-600 shrink-0" aria-hidden />
+            <span className="font-semibold text-stone-800 flex-1 min-w-0 break-words">{branch.title}</span>
+            <span className="text-[11px] tabular-nums text-stone-500 shrink-0">
+              프로젝트 {rollup.nProj} · 작업 {rollup.taskSum}
+              {rollup.taskSum > 0 ? ` · 진척 ${formatPercent1(branchProgress)}%` : ''}
+            </span>
+          </button>
+        </td>
+      </tr>
+    );
+
+    if (!expanded) return [nodeRow];
+
+    const childRows = branch.children.flatMap((c) => renderOrgBranchRows(divisionId, c));
+    const projRows = sortedLeafProjects.map((p) => (
+      <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
+        <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
+          <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+        </td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">{formatPercent1(p.stats.progress)}%</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+        <td className="px-3 py-2.5 text-right">
+          <button
+            type="button"
+            disabled={!onOpenProjectTable}
+            title={!onOpenProjectTable ? '모바일에서는 작업 표로 이동할 수 없습니다.' : undefined}
+            onClick={() => onOpenProjectTable?.(p.id)}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            열기
+          </button>
+        </td>
+      </tr>
+    ));
+    return [nodeRow, ...childRows, ...projRows];
   };
 
   return (
@@ -302,6 +511,47 @@ export function DashboardDetailPage({
 
         {kind === 'projects' && (
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div
+                className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5"
+                role="tablist"
+                aria-label="프로젝트 목록 표시 방식"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={showRegisteredProjectsOrgLayout}
+                  disabled={!orgLayoutAvailable}
+                  title={!orgLayoutAvailable ? '조직 트리 데이터가 없습니다.' : undefined}
+                  onClick={() => persistRegisteredProjectsLayout('org')}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
+                    showRegisteredProjectsOrgLayout
+                      ? 'bg-white text-teal-900 shadow-sm border border-stone-200/80'
+                      : 'text-stone-600 hover:text-stone-900 disabled:opacity-40 disabled:cursor-not-allowed',
+                  )}
+                >
+                  <Network size={14} aria-hidden />
+                  조직도
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!showRegisteredProjectsOrgLayout}
+                  onClick={() => persistRegisteredProjectsLayout('flat')}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
+                    !showRegisteredProjectsOrgLayout
+                      ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                      : 'text-stone-600 hover:text-stone-900',
+                  )}
+                >
+                  <Table2 size={14} aria-hidden />
+                  목록
+                </button>
+              </div>
+              {!orgLayoutAvailable ? <p className="text-xs text-stone-500">조직 트리가 없어 목록으로만 표시합니다.</p> : null}
+            </div>
             <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-stone-50 border-b border-stone-200">
@@ -426,34 +676,117 @@ export function DashboardDetailPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {registeredProjectsSorted.map((p) => (
-                    <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
-                      <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
-                        <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">
-                        {formatPercent1(p.stats.progress)}%
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <button
-                          type="button"
-                          disabled={!onOpenProjectTable}
-                          title={!onOpenProjectTable ? '모바일에서는 작업 표로 이동할 수 없습니다.' : undefined}
-                          onClick={() => onOpenProjectTable?.(p.id)}
-                          className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:pointer-events-none"
-                        >
-                          열기
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {showRegisteredProjectsOrgLayout
+                    ? (() => {
+                        const { blocks, unmapped } = orgChartListModel;
+                        const rows: React.ReactNode[] = [];
+                        for (const b of blocks) {
+                          if (b.totalInBlock === 0) continue;
+                          rows.push(
+                            <tr key={`org-div-${b.division.id}`} className="bg-stone-100/90 border-t border-stone-200">
+                              <td colSpan={5} className="px-4 py-2 text-xs font-bold text-stone-700 tracking-wide">
+                                {b.division.name}
+                              </td>
+                            </tr>,
+                          );
+                          rows.push(...renderOrgBranchRows(b.division.id, b.branch));
+                        }
+                        const unmappedRows = unmapped
+                          .map((proj) => projectStatsRowById.get(proj.id))
+                          .filter((x): x is ProjectStatRow => Boolean(x))
+                          .sort((a, b) => compareProjectStatRows(a, b, registeredProjectsSort.key, registeredProjectsSort.dir));
+                        if (unmappedRows.length > 0) {
+                          const umKey = 'org:__unmapped__';
+                          const umEx = expandedOrgNodeKeys.has(umKey);
+                          rows.push(
+                            <tr key="org-unmapped-head" className="bg-amber-50/60 border-t border-stone-200">
+                              <td colSpan={5} className="p-0">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleOrgExpanded(umKey)}
+                                  className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-amber-50/90 transition-colors"
+                                >
+                                  {umEx ? (
+                                    <ChevronDown size={16} className="shrink-0 text-stone-500" aria-hidden />
+                                  ) : (
+                                    <ChevronRight size={16} className="shrink-0 text-stone-500" aria-hidden />
+                                  )}
+                                  <Network size={14} className="text-amber-700 shrink-0" aria-hidden />
+                                  <span className="font-semibold text-stone-800 flex-1 min-w-0">조직 미매칭</span>
+                                  <span className="text-[11px] text-stone-500 tabular-nums shrink-0">{unmappedRows.length}</span>
+                                </button>
+                              </td>
+                            </tr>,
+                          );
+                          if (umEx) {
+                            for (const p of unmappedRows) {
+                              rows.push(
+                                <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
+                                  <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
+                                    <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">
+                                    {formatPercent1(p.stats.progress)}%
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    <button
+                                      type="button"
+                                      disabled={!onOpenProjectTable}
+                                      title={!onOpenProjectTable ? '모바일에서는 작업 표로 이동할 수 없습니다.' : undefined}
+                                      onClick={() => onOpenProjectTable?.(p.id)}
+                                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:pointer-events-none"
+                                    >
+                                      열기
+                                    </button>
+                                  </td>
+                                </tr>,
+                              );
+                            }
+                          }
+                        }
+                        if (rows.length === 0 && projectStatsRows.length > 0) {
+                          rows.push(
+                            <tr key="org-empty-hint">
+                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-amber-950 bg-amber-50/35">
+                                조직도에 매칭할 수 있는 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 맞추거나, 소유자 프로필 부서가
+                                조직도 부서명과 일치하는지 확인해 주세요.
+                              </td>
+                            </tr>,
+                          );
+                        }
+                        return rows;
+                      })()
+                    : registeredProjectsSorted.map((p) => (
+                        <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
+                          <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
+                            <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">
+                            {formatPercent1(p.stats.progress)}%
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+                          <td className="px-3 py-2.5 text-right">
+                            <button
+                              type="button"
+                              disabled={!onOpenProjectTable}
+                              title={!onOpenProjectTable ? '모바일에서는 작업 표로 이동할 수 없습니다.' : undefined}
+                              onClick={() => onOpenProjectTable?.(p.id)}
+                              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:pointer-events-none"
+                            >
+                              열기
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
             <p className="text-xs text-stone-500">
               요약 카드의 숫자와 동일하게, 대시보드 집계 범위(제외·필터)에 맞춘 프로젝트만 표시합니다.
+              {orgLayoutAvailable ? ' 조직도 보기에서는 PM(또는 소유자)의 부서를 조직 트리 부서명과 맞춰 하위 조직별로 묶습니다.' : null}
             </p>
           </div>
         )}
@@ -838,10 +1171,14 @@ export function DashboardDetailPage({
                     {actionTasksAll.map((t) => {
                       const proj = projectMap.get(t.projectId);
                       const done = isActionTaskCompleted(t);
+                      const dueState = resolveActionDueVisualState(t.endDate, done);
                       return (
                         <tr
                           key={t.id}
-                          className={cn('border-t border-stone-100 hover:bg-teal-50/35 cursor-pointer', done && 'bg-teal-50/25')}
+                          className={cn(
+                            'border-t border-stone-100 cursor-pointer',
+                            actionDueSurfaceClassName(dueState, 'row') || 'hover:bg-teal-50/35',
+                          )}
                           onClick={() => setActionDetailTask(t)}
                           title="클릭하여 액션 상세"
                         >
@@ -854,15 +1191,23 @@ export function DashboardDetailPage({
                                 if (checked) updateTask(t.id, { status: doneStatusId, progress: 100 });
                                 else updateTask(t.id, { status: todoStatusId, progress: 0 });
                               }}
-                              className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                              className={cn(
+                                'rounded border-stone-300 focus:ring-teal-500',
+                                dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
+                              )}
                               title={done ? '완료 해제' : '완료 표시'}
                               aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
                             />
                           </td>
                           <td className="px-3 py-2 text-stone-800">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
+                            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                              <ListChecks
+                                size={12}
+                                className={cn('shrink-0', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
+                                aria-hidden
+                              />
                               <span className={cn('break-words', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
+                              <ActionDueStatusBadge state={dueState} />
                             </div>
                           </td>
                           <td className="px-3 py-2 text-stone-600 break-words">
@@ -871,7 +1216,9 @@ export function DashboardDetailPage({
                           <td className="px-3 py-2 text-stone-600 truncate max-w-[10rem]">
                             {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                           </td>
-                          <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                          <td className="px-3 py-2">
+                            <ActionDueDateCell endDate={t.endDate} isCompleted={done} showBadge={false} />
+                          </td>
                           <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
@@ -944,7 +1291,8 @@ export function DashboardDetailPage({
         {kind === 'allocation' && (
           <div className="space-y-2">
             <p className="text-xs text-stone-500">
-              아래에서 투입율·작업 할당을 넓은 화면으로 조정할 수 있습니다. 프로젝트명을 누르면 해당 프로젝트 작업 표로 이동합니다.
+              WBS 작업에 입력된 투입공수(workEffort) 기준으로, 사업부(또는 소속)별 누가 어떤 프로젝트에 얼마나 올라가 있는지 요약합니다.
+              이름은 상세, 프로젝트는 작업 표로 이동합니다.
             </p>
             <DashboardPersonAllocationSection
               projects={displayProjectsForAllocation}
@@ -952,7 +1300,19 @@ export function DashboardDetailPage({
               profileMap={profileMap}
               registeredMemberDisplayNames={registeredMemberDisplayNames}
               showFilterHint={dashboardFiltersActive}
+              assigneeTopDivisionIdByName={memberToDivisionId}
+              topLevelDivisions={topLevelDivisions.map((d) => ({ id: d.id, name: d.name }))}
               onNavigateToWork={onOpenProjectTable}
+              onOpenAllocationOverview={onOpenAllocationOverview}
+              allocationDivisionInfer={{
+                memberToDivisionId,
+                departmentNameToDivisionId,
+                profileMap,
+                ownerDepartmentByUserId,
+              }}
+              sectionLayout="card"
+              showSectionLayoutToggle={false}
+              variant="embedded"
             />
           </div>
         )}
@@ -963,7 +1323,13 @@ export function DashboardDetailPage({
               <p className="text-sm text-stone-600 whitespace-pre-wrap break-words">{projectDetailRow.description || '설명 없음'}</p>
               <div className="flex flex-wrap gap-3 text-sm text-stone-600">
                 <span>
-                  시작일: <strong className="text-stone-900">{projectDetailRow.startDate || '미정'}</strong>
+                  시작일: <strong className="text-stone-900">{formatProjectPeriodDate(projectDetailRow.startDate)}</strong>
+                </span>
+                <span className="text-stone-300" aria-hidden>
+                  ·
+                </span>
+                <span>
+                  종료일: <strong className="text-stone-900">{formatProjectPeriodDate(projectDetailRow.endDate)}</strong>
                 </span>
                 <span className="text-stone-300" aria-hidden>
                   ·

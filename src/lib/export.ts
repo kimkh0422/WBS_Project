@@ -45,7 +45,6 @@ export function buildMarkdownFromTasks(
 
   for (const project of projects) {
     const projectTasks = tasks.filter((t) => t.projectId === project.id);
-    if (projectTasks.length === 0 && projects.length > 1) continue;
 
     const projectName = formatProjectDisplayName(project.name, project.projectKind) || projectIdToName.get(project.id) || '프로젝트';
     lines.push(`## ${projectName}`);

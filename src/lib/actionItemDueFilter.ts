@@ -43,3 +43,24 @@ export function sortActionTasksByEndDate(a: Task, b: Task): number {
   const c = ea.localeCompare(eb);
   return c !== 0 ? c : (a.name || '').localeCompare(b.name || '', 'ko');
 }
+
+/** 액션 항목 마감·완료 조합에 따른 UI 상태 */
+export type ActionDueVisualState = 'pending' | 'overdue' | 'completed' | 'completedLate';
+
+/** 마감일이 오늘 이전인지(완료 여부 무관) */
+export function isActionDueDatePast(endDate: string | undefined, now: Date = new Date()): boolean {
+  const due = parseTaskDueDay(endDate);
+  if (!due) return false;
+  return due < format(now, 'yyyy-MM-dd');
+}
+
+/** 완료 여부와 마감일로 액션 항목 시각 상태를 결정합니다. */
+export function resolveActionDueVisualState(
+  endDate: string | undefined,
+  isCompleted: boolean,
+  now: Date = new Date(),
+): ActionDueVisualState {
+  const pastDue = isActionDueDatePast(endDate, now);
+  if (isCompleted) return pastDue ? 'completedLate' : 'completed';
+  return pastDue ? 'overdue' : 'pending';
+}

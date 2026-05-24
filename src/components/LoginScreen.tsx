@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import { isAllowedSignupEmail, SIGNUP_DOMAIN_ERROR, ALLOWED_SIGNUP_DOMAIN } from '../lib/emailDomain';
 import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
+import { formatTodayKoLongWithWeekday } from '../lib/utils';
 
 /** Supabase 기본 영문 메시지를 한국어 안내로 보강 */
 function formatSignInErrorMessage(raw: string): string {
@@ -469,12 +470,12 @@ export function LoginScreen() {
 
             <p
               className="text-[11px] text-slate-500/80 pt-2"
-              title={`앱 버전 v${APP_VERSION} · 수정일 ${new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
+              title={`오늘 ${formatTodayKoLongWithWeekday()} (로컬) · 앱 v${APP_VERSION} · 릴리스 수정일 ${new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
             >
-              v{APP_VERSION}
+              <span className="text-slate-400/90">오늘 {formatTodayKoLongWithWeekday()}</span>
               <span className="text-slate-400/80">
                 {' '}
-                · 수정일{' '}
+                · v{APP_VERSION} · 수정일{' '}
                 {new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', {
                   year: 'numeric',
                   month: '2-digit',

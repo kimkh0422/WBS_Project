@@ -7,6 +7,7 @@ import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectPeriodRange } from '../lib/projectPeriod';
 import { getStatusColorProps } from '../lib/statusColor';
 import { DEFAULT_MAN_DAYS_PER_MAN_MONTH, manDaysToManMonths } from '../lib/workEffortUnits';
 import {
@@ -146,7 +147,7 @@ export function DashboardProjectCardDetailPanel({
     project.reportNameFull && `전체 과제명: ${project.reportNameFull}`,
   ].filter(Boolean) as string[];
 
-  const period = project.startDate || project.endDate ? `${project.startDate || '미정'} ~ ${project.endDate || '미정'}` : '기간 미정';
+  const period = formatProjectPeriodRange(project.startDate, project.endDate);
 
   const includeInDashboard = project.includeInDashboard !== false;
   const showDashboardFlags = onIncludeInDashboardChange != null || onToggleLocalDashboardAggregationExclude != null;

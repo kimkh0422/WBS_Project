@@ -171,7 +171,7 @@ export function ProjectAllocationDetailPanel({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
         <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">총 투입</div>
-          <div className={cn('text-lg font-bold tabular-nums mt-0.5', totalPercent > 100 ? 'text-amber-600' : 'text-orange-600')}>
+          <div className="text-lg font-bold tabular-nums mt-0.5 text-teal-800">
             {formatAllocationPercentSumForDisplay(totalPercent, effortDisplayUnit)}
           </div>
         </div>

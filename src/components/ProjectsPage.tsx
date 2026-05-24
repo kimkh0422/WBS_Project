@@ -23,12 +23,21 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Network,
 } from 'lucide-react';
 import { cn, formatNum2 } from '../lib/utils';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { manDaysToManMonths } from '../lib/workEffortUnits';
 import { Project } from '../types';
 import { getProjectListKindBadgeMeta, groupProjectsForKindListView, projectListKindSortRank } from '../lib/projectKind';
+import {
+  PROJECT_LIST_LAYOUT_LS_KEY,
+  buildOrgChartProjectListBlocks,
+  countProjectsInOrgBranch,
+  flattenOrgChartProjectsForMobile,
+  type OrgChartGroupBranch,
+  type ProjectListLayoutMode,
+} from '../lib/projectListOrgGrouping';
 import { PROJECT_CARD_SORT_LS_KEY, parseProjectCardSortKey, type ProjectCardSortKey } from '../lib/projectCardSort';
 import type { ProjectGroup } from '../lib/wbsSettings';
 import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
@@ -47,7 +56,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const { user } = useAuth();
   const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId, wbsSettings } = useWBS();
   const { push: pushToast } = useToast();
-  const { orgMembers } = useOrganization();
+  const { orgMembers, orgTree } = useOrganization();
 
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
@@ -136,6 +145,53 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       }
       return next;
     });
+  };
+
+  const ORG_SECTION_COLLAPSED_LS_KEY = 'wbs-projects-collapsed-org-sections';
+
+  const [collapsedOrgSectionKeys, setCollapsedOrgSectionKeys] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(ORG_SECTION_COLLAPSED_LS_KEY);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      /* ignore */
+    }
+    return new Set();
+  });
+
+  const toggleOrgSectionCollapsed = (key: string) => {
+    setCollapsedOrgSectionKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem(ORG_SECTION_COLLAPSED_LS_KEY, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  type ProjectListLayout = ProjectListLayoutMode;
+
+  const [projectListLayout, setProjectListLayout] = useState<ProjectListLayout>(() => {
+    try {
+      const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_LS_KEY);
+      if (nl === 'group' || nl === 'kind' || nl === 'org') return nl;
+      return 'kind';
+    } catch {
+      return 'kind';
+    }
+  });
+
+  const persistProjectListLayout = (next: ProjectListLayout) => {
+    setProjectListLayout(next);
+    try {
+      localStorage.setItem(PROJECT_LIST_LAYOUT_LS_KEY, next);
+    } catch {
+      /* ignore */
+    }
   };
 
   useEffect(() => {
@@ -440,6 +496,27 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     });
     return entries;
   }, [orderedProjects, user?.id, profileMap, profileDisplayById]);
+
+  const ownerDepartmentByUserId = useMemo(() => {
+    const m: Record<string, string | null> = {};
+    for (const p of profiles) {
+      const d = p.department != null ? String(p.department).trim() : '';
+      m[p.id] = d.length > 0 ? d : null;
+    }
+    return m;
+  }, [profiles]);
+
+  const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
+
+  const orgChartPageModel = useMemo(
+    () => buildOrgChartProjectListBlocks(orderedProjects, orgTree, orgMembers, ownerDepartmentByUserId),
+    [orderedProjects, orgTree, orgMembers, ownerDepartmentByUserId],
+  );
+
+  const mobileOrgFlat = useMemo(
+    () => flattenOrgChartProjectsForMobile(orgChartPageModel.blocks, orgChartPageModel.unmapped),
+    [orgChartPageModel],
+  );
 
   const handleSaveProject = (
     name: string,
@@ -1009,6 +1086,56 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 대시보드 미반영만
               </label>
             )}
+            {(sortedGroups.length > 0 || topLevelDivisions.length > 0) && (
+              <>
+                <div className="h-4 w-px bg-stone-200/80" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
+                  <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => persistProjectListLayout('kind')}
+                      className={cn(
+                        'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                        projectListLayout === 'kind'
+                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                          : 'text-stone-600 hover:bg-stone-100/90',
+                      )}
+                    >
+                      구분별
+                    </button>
+                    {sortedGroups.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => persistProjectListLayout('group')}
+                        className={cn(
+                          'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                          projectListLayout === 'group'
+                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                            : 'text-stone-600 hover:bg-stone-100/90',
+                        )}
+                      >
+                        그룹별
+                      </button>
+                    )}
+                    {topLevelDivisions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => persistProjectListLayout('org')}
+                        className={cn(
+                          'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                          projectListLayout === 'org'
+                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                            : 'text-stone-600 hover:bg-stone-100/90',
+                        )}
+                      >
+                        조직도별
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -1114,6 +1241,68 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 ))}
               </div>
             </div>
+            {(sortedGroups.length > 0 || topLevelDivisions.length > 0) && (
+              <>
+                <div className="h-4 w-px bg-stone-200/80" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Network size={14} className="text-stone-400 shrink-0" aria-hidden />
+                  <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
+                  <div
+                    className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
+                    role="radiogroup"
+                    aria-label="프로젝트 목록 묶음 방식"
+                    title="헤더의 프로젝트 목록과 동일한 설정이 로컬에 저장됩니다."
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={projectListLayout === 'kind'}
+                      onClick={() => persistProjectListLayout('kind')}
+                      className={cn(
+                        'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                        projectListLayout === 'kind'
+                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                          : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                      )}
+                    >
+                      구분별
+                    </button>
+                    {sortedGroups.length > 0 && (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={projectListLayout === 'group'}
+                        onClick={() => persistProjectListLayout('group')}
+                        className={cn(
+                          'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                          projectListLayout === 'group'
+                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                            : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                        )}
+                      >
+                        그룹별
+                      </button>
+                    )}
+                    {topLevelDivisions.length > 0 && (
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={projectListLayout === 'org'}
+                        onClick={() => persistProjectListLayout('org')}
+                        className={cn(
+                          'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                          projectListLayout === 'org'
+                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                            : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                        )}
+                      >
+                        조직도별
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
             {selectedProjectIds.size > 0 && (
               <button
                 onClick={() => setIsBulkDeleteConfirmOpen(true)}
@@ -1141,9 +1330,14 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               <p className="text-xs text-stone-500 px-0.5 leading-relaxed">
                 좁은 화면에서는 가로로 밀리지 않도록 카드 목록으로 표시합니다. 정렬·필터는 위 도구줄과 동일하게 적용됩니다.
               </p>
-              {orderedProjects.map((project) => (
-                <React.Fragment key={project.id}>{renderMobileProjectCard(project)}</React.Fragment>
-              ))}
+              {projectListLayout === 'org' && topLevelDivisions.length > 0
+                ? mobileOrgFlat.map(({ project, path }) => (
+                    <div key={project.id} className="space-y-1">
+                      <div className="text-[10px] font-semibold text-teal-800/90 px-0.5 leading-snug">{path}</div>
+                      {renderMobileProjectCard(project)}
+                    </div>
+                  ))
+                : orderedProjects.map((project) => <React.Fragment key={project.id}>{renderMobileProjectCard(project)}</React.Fragment>)}
             </div>
           ) : (
             <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
@@ -1161,6 +1355,83 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                         </tr>,
                         ...list.map((p) => renderProjectRow(p)),
                       ])}
+                    </>
+                  ) : projectListLayout === 'org' && topLevelDivisions.length > 0 ? (
+                    <>
+                      {(() => {
+                        const { blocks, unmapped } = orgChartPageModel;
+                        const rows: React.ReactNode[] = [];
+                        const appendBranch = (divisionId: string, branch: OrgChartGroupBranch) => {
+                          const sub = countProjectsInOrgBranch(branch);
+                          if (sub === 0) return;
+                          const key = `org:${divisionId}:${branch.nodeId}`;
+                          const collapsed = collapsedOrgSectionKeys.has(key);
+                          rows.push(
+                            <tr key={`org-h-${key}`} className="bg-teal-50/50">
+                              <td
+                                colSpan={tableColSpan}
+                                className="px-3 py-2 border-b border-stone-200"
+                                style={{ paddingLeft: 10 + branch.depth * 14 }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleOrgSectionCollapsed(key)}
+                                  className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-teal-800 font-bold text-sm w-full min-w-0"
+                                  aria-expanded={!collapsed}
+                                >
+                                  {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+                                  <Network size={18} className="text-teal-600 shrink-0" />
+                                  <span>{branch.title}</span>
+                                  <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {sub}개</span>
+                                </button>
+                              </td>
+                            </tr>,
+                          );
+                          if (!collapsed) {
+                            for (const c of branch.children) appendBranch(divisionId, c);
+                            for (const p of branch.projects) rows.push(renderProjectRow(p));
+                          }
+                        };
+                        for (const b of blocks) {
+                          if (b.totalInBlock === 0) continue;
+                          appendBranch(b.division.id, b.branch);
+                        }
+                        if (unmapped.length > 0) {
+                          const uk = 'org:__unmapped__';
+                          const uc = collapsedOrgSectionKeys.has(uk);
+                          rows.push(
+                            <tr key={`org-h-${uk}`} className="bg-stone-100/95">
+                              <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleOrgSectionCollapsed(uk)}
+                                  className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-stone-950 font-bold text-sm w-full min-w-0"
+                                  aria-expanded={!uc}
+                                >
+                                  {uc ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+                                  <Network size={18} className="text-stone-400 shrink-0" />
+                                  <span>조직 미매칭</span>
+                                  <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {unmapped.length}개</span>
+                                </button>
+                              </td>
+                            </tr>,
+                          );
+                          if (!uc) rows.push(...unmapped.map((p) => renderProjectRow(p)));
+                        }
+                        if (rows.length === 0) {
+                          rows.push(
+                            <tr key="org-empty-hint">
+                              <td
+                                colSpan={tableColSpan}
+                                className="px-3 py-6 text-xs text-stone-500 text-center border-b border-stone-100 bg-white"
+                              >
+                                조직도에 표시할 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 맞추거나 회원 부서 정보를 확인해 주세요.
+                              </td>
+                            </tr>,
+                          );
+                        }
+                        return rows;
+                      })()}
                     </>
                   ) : sortedGroups.length > 0 ? (
                     <>

@@ -23,6 +23,16 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+/** 브라우저 로컬 시간 기준 오늘 날짜(푸터·로그인 등 표시용) */
+export function formatTodayKoLongWithWeekday(): string {
+  return new Date().toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  });
+}
+
 /** 소수 2자리로 반올림 (저장·계산용) */
 export function round2(n: number): number {
   if (!Number.isFinite(n)) return n;

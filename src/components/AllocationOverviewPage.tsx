@@ -184,11 +184,11 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                   </div>
                 </div>
                 <div className="px-4 pb-4 pt-0">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                     {assignments.map((a) => (
                       <div
                         key={`${project.id}:${a.assignee}`}
-                        className="inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
+                        className="min-w-0 inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
                       >
                         <EditableAllocationBadge
                           projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationDisplayMetaByName)}
@@ -327,30 +327,33 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                   </div>
                 </div>
                 <div className="px-4 pb-4 pt-0">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                     {items.map(({ project, allocationPercent }) => {
                       const workEffortMd = personProjectWorkEffort.get(person)?.get(project.id) ?? 0;
                       return (
-                        <EditableAllocationBadge
-                          key={`${person}:${project.id}`}
-                          projectName={formatProjectDisplayName(project.name, project.projectKind)}
-                          allocationPercent={allocationPercent}
-                          workEffortMd={workEffortMd > 0 ? workEffortMd : undefined}
-                          disabled={person === '(미지정)'}
-                          onSave={(percent) => handleUpdatePersonAllocation(project.id, person, percent)}
-                          onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
-                          className="text-sm px-3 py-1.5 rounded-lg"
-                        />
+                        <div key={`${person}:${project.id}`} className="min-w-0">
+                          <EditableAllocationBadge
+                            projectName={formatProjectDisplayName(project.name, project.projectKind)}
+                            allocationPercent={allocationPercent}
+                            workEffortMd={workEffortMd > 0 ? workEffortMd : undefined}
+                            disabled={person === '(미지정)'}
+                            onSave={(percent) => handleUpdatePersonAllocation(project.id, person, percent)}
+                            onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                            className="text-sm px-3 py-1.5 rounded-lg"
+                          />
+                        </div>
                       );
                     })}
-                    <AddPersonProjectAllocation
-                      person={person}
-                      assignedProjectIds={new Set(items.map((i) => i.project.id))}
-                      availableProjects={projects}
-                      allocationSumPercent={totalPercent}
-                      disabled={person === '(미지정)'}
-                      onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}
-                    />
+                    <div className="col-span-full min-w-0">
+                      <AddPersonProjectAllocation
+                        person={person}
+                        assignedProjectIds={new Set(items.map((i) => i.project.id))}
+                        availableProjects={projects}
+                        allocationSumPercent={totalPercent}
+                        disabled={person === '(미지정)'}
+                        onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

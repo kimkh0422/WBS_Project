@@ -7,13 +7,19 @@ import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOp
 import { isAssigneeProjectPm, isAssigneeProjectPo, resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { getStatusColorProps } from '../lib/statusColor';
-import { formatAllocationPercentSumForDisplay, manDaysToManMonths } from '../lib/workEffortUnits';
+import { formatEffortFromManDays } from '../lib/workEffortUnits';
+import {
+  allocationAssigneeStorageKey,
+  formatPersonWorkEffortRowDisplay,
+  isUnassignedDivisionSplitPersonKey,
+} from '../lib/allocationDivisionInfer';
 import { mergeMonthlyAllocationsForAssignee, type PersonAllocationItem } from '../lib/personAllocations';
-
-function formatEffortFromManDays(md: number, unit: 'mm' | 'md'): string {
-  if (unit === 'md') return `${formatNum2(md)} M/D`;
-  return `${formatNum2(manDaysToManMonths(md))} M/M`;
-}
+import {
+  allocationEffortMismatchDetailTooltip,
+  allocationEffortMismatchMessage,
+  evaluateAllocationEffortIntegrity,
+} from '../lib/allocationEffortIntegrity';
+import { PersonAllocationEffortCell } from './PersonAllocationEffortCell';
 
 function workEffortUnitLabel(u: WorkEffortUnit | undefined): string {
   switch (u) {
@@ -44,6 +50,10 @@ export interface PersonAllocationDetailPanelProps {
   onNavigateToWork?: (projectId: string) => void;
   /** PM 미지정 시 소유자 표시명 */
   profileMap?: Record<string, string>;
+  /** `(미지정)::사업부` 가짜 행: 상세에 포함할 프로젝트만(담당 미지정 작업 필터) */
+  allocationProjectIdFilter?: Set<string>;
+  /** 사업부 추정 행 제목용(최상위 사업부 id → 이름) */
+  divisionNameById?: Map<string, string>;
 }
 
 export function PersonAllocationDetailPanel({
@@ -59,36 +69,64 @@ export function PersonAllocationDetailPanel({
   onClose,
   onNavigateToWork,
   profileMap,
+  allocationProjectIdFilter,
+  divisionNameById,
 }: PersonAllocationDetailPanelProps) {
-  const personDisplay = formatAssigneeDisplay(person, displayMetaByName);
-  const orgLabel = orgMemberLabelByName.get(person.trim()) ?? null;
+  const assigneeStorageKey = allocationAssigneeStorageKey(person);
+  const restrictUnassignedProjects =
+    isUnassignedDivisionSplitPersonKey(person) && allocationProjectIdFilter && allocationProjectIdFilter.size > 0
+      ? allocationProjectIdFilter
+      : null;
+
+  const personDisplay = useMemo(
+    () =>
+      divisionNameById
+        ? formatPersonWorkEffortRowDisplay(person, displayMetaByName, divisionNameById)
+        : formatAssigneeDisplay(person, displayMetaByName),
+    [person, displayMetaByName, divisionNameById],
+  );
+  const orgLabel = orgMemberLabelByName.get(assigneeStorageKey.trim()) ?? null;
   const totalPercent = allocationItems.reduce((s, i) => s + i.allocationPercent, 0);
-  const projEffort = personProjectWorkEffort.get(person);
+  const projEffortRaw = personProjectWorkEffort.get(assigneeStorageKey);
+  const projEffort = useMemo(() => {
+    if (!restrictUnassignedProjects || !projEffortRaw) return projEffortRaw;
+    const m = new Map<string, number>();
+    for (const [pid, v] of projEffortRaw) {
+      if (restrictUnassignedProjects.has(pid)) m.set(pid, v);
+    }
+    return m.size > 0 ? m : undefined;
+  }, [projEffortRaw, restrictUnassignedProjects]);
   const totalMd = projEffort ? [...projEffort.values()].reduce((s, v) => s + v, 0) : 0;
+  const effortIntegrity = evaluateAllocationEffortIntegrity(totalPercent, totalMd);
+  const effortIntegrityMessage = allocationEffortMismatchMessage(effortIntegrity);
 
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
   const tasksForPerson = useMemo(() => {
-    const target = (person || '').trim() || '(미지정)';
+    const target = (assigneeStorageKey || '').trim() || '(미지정)';
     return allTasks
-      .filter((t) => ((t.assignee || '').trim() || '(미지정)') === target)
+      .filter((t) => {
+        if (((t.assignee || '').trim() || '(미지정)') !== target) return false;
+        if (restrictUnassignedProjects) return restrictUnassignedProjects.has(t.projectId);
+        return true;
+      })
       .slice()
       .sort((a, b) => {
         const c = a.projectId.localeCompare(b.projectId, 'ko');
         if (c !== 0) return c;
         return (a.endDate || '').localeCompare(b.endDate || '', 'ko') || a.name.localeCompare(b.name, 'ko');
       });
-  }, [allTasks, person]);
+  }, [allTasks, assigneeStorageKey, restrictUnassignedProjects]);
 
   const pmProjects = useMemo(() => {
-    if (person === '(미지정)') return [];
+    if (assigneeStorageKey === '(미지정)') return [];
     return projects.filter((p) => isAssigneeProjectPm(person, p, profileMap));
-  }, [person, projects, profileMap]);
+  }, [person, assigneeStorageKey, projects, profileMap]);
 
   const poProjects = useMemo(() => {
-    if (person === '(미지정)') return [];
+    if (assigneeStorageKey === '(미지정)') return [];
     return projects.filter((p) => isAssigneeProjectPo(person, p));
-  }, [person, projects]);
+  }, [person, assigneeStorageKey, projects]);
 
   const statusNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -105,12 +143,12 @@ export function PersonAllocationDetailPanel({
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-11 h-11 rounded-full flex items-center justify-center font-bold shrink-0 text-sm bg-teal-100 text-teal-800">
-            {person.substring(0, 1)}
+            {personDisplay.charAt(0)}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <UserCircle className="text-stone-400 shrink-0" size={18} aria-hidden />
-              <h3 className="text-base font-bold text-stone-900 truncate">{personDisplay}</h3>
+              <h3 className="text-base font-bold text-stone-900 break-words min-w-0">{personDisplay}</h3>
             </div>
             {orgLabel && <p className="text-xs text-stone-500 mt-1">{orgLabel}</p>}
             <p className="text-[11px] text-stone-400 mt-1">행을 다시 클릭하거나 Esc로 접을 수 있습니다.</p>
@@ -126,18 +164,23 @@ export function PersonAllocationDetailPanel({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">총 투입</div>
-          <div className={cn('text-lg font-bold tabular-nums mt-0.5', totalPercent > 100 ? 'text-amber-600' : 'text-teal-700')}>
-            {formatAllocationPercentSumForDisplay(totalPercent, effortDisplayUnit)}
-          </div>
+      {effortIntegrity.hasMismatch && effortIntegrityMessage && (
+        <div
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2.5 text-sm text-amber-950 cursor-help"
+          title={allocationEffortMismatchDetailTooltip(effortIntegrity) ?? effortIntegrityMessage}
+        >
+          <span className="font-semibold">투입·공수 불일치</span> — {effortIntegrityMessage}
         </div>
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">WBS 공수 합</div>
-          <div className="text-lg font-bold tabular-nums text-stone-800 mt-0.5">
-            {totalMd > 0 ? formatEffortFromManDays(totalMd, effortDisplayUnit) : '—'}
-          </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
+        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm sm:col-span-2">
+          <PersonAllocationEffortCell
+            totalPercent={totalPercent}
+            totalWorkEffortMd={totalMd}
+            effortDisplayUnit={effortDisplayUnit}
+            align="left"
+          />
         </div>
         <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">투입 프로젝트</div>
@@ -214,8 +257,18 @@ export function PersonAllocationDetailPanel({
               <thead className="bg-stone-50 border-b border-stone-200 text-stone-500">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">프로젝트</th>
-                  <th className="text-right font-medium px-2 py-2 w-20">투입%</th>
-                  <th className="text-right font-medium px-2 py-2 w-28">공수(M/D·M/M)</th>
+                  <th
+                    className="text-right font-medium px-2 py-2 w-20 cursor-help"
+                    title="이 프로젝트에 등록한 해당 인원의 투입율(%)입니다. WBS 작업에 적힌 공수 합과는 별도 데이터이며, 투입율을 M/M·M/D로 환산한 값은 상단 요약과 동일한 규칙입니다."
+                  >
+                    투입%
+                  </th>
+                  <th
+                    className="text-right font-medium px-2 py-2 w-28 cursor-help"
+                    title="이 프로젝트에서 해당 인원이 담당자로 지정된 WBS 작업 공수를 합산한 값입니다. 작업별 단위는 프로젝트 설정을 따르며, 여기서는 M/D 및 M/M로 함께 표시합니다."
+                  >
+                    공수(M/D·M/M)
+                  </th>
                   <th className="text-left font-medium px-2 py-2 w-40">기간</th>
                   <th className="text-left font-medium px-2 py-2">월별 투입</th>
                   <th className="text-center font-medium px-2 py-2 w-24">작업</th>
@@ -224,18 +277,28 @@ export function PersonAllocationDetailPanel({
               <tbody>
                 {allocationItems.map(({ project, allocationPercent }) => {
                   const md = projEffort?.get(project.id) ?? 0;
-                  const monthly = mergeMonthlyAllocationsForAssignee(project, person);
+                  const rowIntegrity = evaluateAllocationEffortIntegrity(allocationPercent, md);
+                  const monthly = mergeMonthlyAllocationsForAssignee(project, assigneeStorageKey);
                   const period =
                     project.startDate || project.endDate ? `${project.startDate || '미정'} ~ ${project.endDate || '미정'}` : '미정';
                   return (
-                    <tr key={project.id} className="border-t border-stone-100 align-top">
+                    <tr
+                      key={project.id}
+                      className={cn('border-t border-stone-100 align-top', rowIntegrity.hasMismatch && 'bg-amber-50/40')}
+                      title={rowIntegrity.hasMismatch ? (allocationEffortMismatchDetailTooltip(rowIntegrity) ?? undefined) : undefined}
+                    >
                       <td className="px-3 py-2 font-medium text-stone-800 break-words max-w-[14rem]">
                         {formatProjectDisplayName(project.name, project.projectKind)}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">
                         {formatPercent1(allocationPercent)}%
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                      <td
+                        className={cn(
+                          'px-2 py-2 text-right tabular-nums',
+                          rowIntegrity.hasMismatch ? 'text-amber-800 font-semibold' : 'text-stone-600',
+                        )}
+                      >
                         {md > 0 ? formatEffortFromManDays(md, effortDisplayUnit) : '—'}
                       </td>
                       <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{period}</td>

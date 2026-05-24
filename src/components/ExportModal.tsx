@@ -35,16 +35,11 @@ export function ExportModal({
   const [scope, setScope] = useState<ExportScope>('all');
   const [selectedFormats, setSelectedFormats] = useState<ExportFormat[]>(['excel']);
 
-  // 모달이 열릴 때 기본 범위/선택을 현재 프로젝트 기준으로 세팅
+  // 모달이 열릴 때 기본은 전체보내기(모든 프로젝트·작업)
   useEffect(() => {
     if (!isOpen) return;
-    // 현재 프로젝트가 있으면 기본은 "프로젝트 선택"
-    if (currentProjectId && projects.some((p) => p.id === currentProjectId)) {
-      setScope('selected');
-    } else {
-      setScope('all');
-    }
-  }, [isOpen, currentProjectId, projects]);
+    setScope('all');
+  }, [isOpen]);
 
   // 모달 열 때/범위 변경 시 선택 초기화
   useEffect(() => {

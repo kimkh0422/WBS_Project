@@ -910,7 +910,6 @@ export const exportToExcel = (
 
   for (const project of projects) {
     const projectTasks = tasksByProject.get(project.id) ?? [];
-    if (projectTasks.length === 0 && projects.length > 1) continue; // 빈 프로젝트 시트 생략
 
     // 해당 프로젝트 작업만으로 WBS 맵 생성
     const exportWbsMap = new Map<string, string>();
@@ -931,7 +930,7 @@ export const exportToExcel = (
     };
     fillWbs(null);
 
-    const data = orderedTasks.map((task) => {
+    const rowFromTask = (task: Task) => {
       const wbsCode = exportWbsMap.get(task.id) || '';
       const level = wbsCode ? wbsCode.split('.').filter(Boolean).length : 1;
       const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
@@ -949,7 +948,27 @@ export const exportToExcel = (
         [HEADER_MAP.workEffort]: task.workEffort || 0,
         [HEADER_MAP.deliverables]: task.deliverables || '',
       };
-    });
+    };
+
+    const data =
+      orderedTasks.length > 0
+        ? orderedTasks.map(rowFromTask)
+        : [
+            {
+              [HEADER_MAP.wbsId]: '',
+              [HEADER_MAP.level]: '',
+              [HEADER_MAP.name]: '(작업 없음)',
+              [HEADER_MAP.startDate]: project.startDate ?? '',
+              [HEADER_MAP.endDate]: project.endDate ?? '',
+              [HEADER_MAP.progress]: '0%',
+              [HEADER_MAP.assignee]: '',
+              투입율: '',
+              [HEADER_MAP.status]: '',
+              [HEADER_MAP.dependencies]: '',
+              [HEADER_MAP.workEffort]: 0,
+              [HEADER_MAP.deliverables]: '',
+            },
+          ];
 
     const worksheet = XLSX.utils.json_to_sheet(data);
     // WBS번호·레벨 열을 텍스트로 고정해 엑셀에서 숫자로 변환되지 않도록 함 (1.2.1 → 1.21 방지)

@@ -67,7 +67,7 @@ import {
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useMatchMedia } from './hooks/useMatchMedia';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
-import { cn } from './lib/utils';
+import { cn, formatTodayKoLongWithWeekday } from './lib/utils';
 import { formatProjectDisplayName } from './lib/projectKind';
 import { useOrganization } from './context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
@@ -293,7 +293,6 @@ function WBSApp({
   // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
   // `VITE_PROJECT_STATUS_ONLY=true` 이면 표·간트·칸반·프로젝트 관리·마인드맵을 추가로 숨기고 대시보드(프로젝트 현황) 중심으로 둡니다.
   // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨). 마인드맵은 관리자 전용 유지.
-  // 투입현황: 현재는 화면에서 일괄 숨김(관리자 포함). 다시 살릴 때 이 줄 제거.
   const hiddenViews = React.useMemo(() => {
     const raw = import.meta.env.VITE_HIDDEN_VIEWS as string | undefined;
     const value = typeof raw === 'string' ? raw.trim() : '';
@@ -303,7 +302,6 @@ function WBSApp({
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    set.add('allocation');
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }
@@ -324,7 +322,7 @@ function WBSApp({
     const segment = segmentRaw && VALID_VIEWS.has(segmentRaw) ? segmentRaw : '';
 
     if (lockMobileToDashboard) {
-      if (segment && !hiddenViews.has(segment) && (segment === 'dashboard' || segment === 'projects')) {
+      if (segment && !hiddenViews.has(segment) && (segment === 'dashboard' || segment === 'projects' || segment === 'allocation')) {
         return segment as ViewType;
       }
       for (const v of ['dashboard', 'projects'] as const) {
@@ -516,6 +514,16 @@ function WBSApp({
     () => buildProfileDisplayById(profiles, orgMembers, ownerDisplayNames),
     [profiles, orgMembers, ownerDisplayNames],
   );
+
+  /** 프로젝트 목록 조직도 보기: 소유자 부서 보조 매칭 */
+  const ownerDepartmentByUserId = React.useMemo(() => {
+    const m: Record<string, string | null> = {};
+    for (const p of profiles) {
+      const d = p.department != null ? String(p.department).trim() : '';
+      m[p.id] = d.length > 0 ? d : null;
+    }
+    return m;
+  }, [profiles]);
 
   /** 필터·담당자 매칭·PM 기본값 등 저장/비교용 평문 표시명 */
   const currentUserPlainName = React.useMemo(() => {
@@ -1233,6 +1241,7 @@ function WBSApp({
           canOpenMembersManagement={canOpenMembersManagement}
           setIsAdminPasswordModalOpen={setIsAdminPasswordModalOpen}
           setIsAdminAccessRequestModalOpen={isSupabaseConfigured ? setIsAdminAccessRequestModalOpen : undefined}
+          ownerDepartmentByUserId={ownerDepartmentByUserId}
         />
       )}
 
@@ -1797,6 +1806,7 @@ function WBSApp({
                   currentUserDisplay={currentUserDisplay}
                   profileMap={profileMap}
                   currentUserId={user?.id}
+                  ownerDepartmentByUserId={ownerDepartmentByUserId}
                 />
               </ErrorBoundary>
             ) : view === 'projects' ? (
@@ -2280,9 +2290,13 @@ function WBSApp({
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-1.5">
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
             <div
-              className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap"
-              title={`버전 v${APP_VERSION} (수정일: ${formatCommitDate(APP_COMMIT_DATE)})`}
+              className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap flex-wrap justify-center md:justify-end"
+              title={`오늘 ${formatTodayKoLongWithWeekday()} (로컬) · 버전 v${APP_VERSION} · 릴리스 수정일 ${formatCommitDate(APP_COMMIT_DATE)}`}
             >
+              <span className="text-slate-500 tabular-nums">오늘 {formatTodayKoLongWithWeekday()}</span>
+              <span className="text-slate-300" aria-hidden>
+                ·
+              </span>
               <span>v{APP_VERSION}</span>
               <span className="text-slate-300" aria-hidden>
                 ·

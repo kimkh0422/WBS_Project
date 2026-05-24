@@ -1,6 +1,12 @@
 import { addMonths, eachMonthOfInterval, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import type { OrgMember } from '../data/organization';
 import type { Project, ProjectAssignment, Task } from '../types';
+import {
+  inferProjectTopDivisionId,
+  UNASSIGNED_DIVISION_SPLIT_PREFIX,
+  UNASSIGNED_PERSON_KEY,
+  type AllocationDivisionInferInput,
+} from './allocationDivisionInfer';
 import { formatProjectDisplayName, parseKindBracketPrefixForNewProject } from './projectKind';
 import { getEffectiveAllocationPercent } from './workload';
 
@@ -252,6 +258,94 @@ export function computePersonProjectWorkEffort(allTasks: Task[]): Map<string, Ma
     projMap.set(task.projectId, (projMap.get(task.projectId) ?? 0) + effort);
   });
   return map;
+}
+
+/** WBS 작업에 배정된 공수(M/D) 기준: 담당자별·프로젝트별 항목 */
+export type PersonWorkEffortItem = { project: Project; workEffortMd: number };
+
+export type PersonWorkEffortAllocation = {
+  person: string;
+  items: PersonWorkEffortItem[];
+  /** 담당자 전체 WBS 공수 합(M/D) */
+  totalMd: number;
+};
+
+/**
+ * 표시 대상 `projects` 범위의 작업만 집계합니다.
+ * `workEffort`가 0보다 큰 작업만 합산하며, 프로젝트당 공수 합이 큰 순으로 정렬합니다.
+ */
+export function computePersonWorkEffortAllocationsFromTasks(projects: Project[], allTasks: Task[]): PersonWorkEffortAllocation[] {
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const effortMap = computePersonProjectWorkEffort(allTasks);
+
+  return Array.from(effortMap.entries())
+    .map(([person, projMap]) => {
+      const items: PersonWorkEffortItem[] = [];
+      for (const [projectId, md] of projMap.entries()) {
+        const project = projectById.get(projectId);
+        if (!project || !Number.isFinite(md) || md <= 0) continue;
+        items.push({ project, workEffortMd: md });
+      }
+      items.sort((a, b) => b.workEffortMd - a.workEffortMd);
+      const totalMd = items.reduce((s, i) => s + i.workEffortMd, 0);
+      return { person, items, totalMd };
+    })
+    .filter((row) => row.items.length > 0)
+    .sort((a, b) => b.totalMd - a.totalMd);
+}
+
+/**
+ * `(미지정)` 담당 공수 행을, 프로젝트의 PM·PO·소유자 부서로 추정한 최상위 사업부별로 나눈다(표시·집계 전용, WBS 담당은 바꾸지 않음).
+ * 추론 불가 항목은 기존처럼 `(미지정)` 한 행에 남긴다.
+ */
+export function splitUnassignedPersonWorkEffortByInferredDivision(
+  rows: PersonWorkEffortAllocation[],
+  ctx: AllocationDivisionInferInput | undefined,
+): PersonWorkEffortAllocation[] {
+  if (!ctx) return rows;
+
+  const out: PersonWorkEffortAllocation[] = [];
+
+  for (const row of rows) {
+    if (row.person !== UNASSIGNED_PERSON_KEY) {
+      out.push(row);
+      continue;
+    }
+
+    const byDiv = new Map<string, PersonWorkEffortItem[]>();
+    const unknown: PersonWorkEffortItem[] = [];
+
+    for (const it of row.items) {
+      const did = inferProjectTopDivisionId(it.project, ctx);
+      if (!did) unknown.push(it);
+      else {
+        if (!byDiv.has(did)) byDiv.set(did, []);
+        byDiv.get(did)!.push(it);
+      }
+    }
+
+    const sortedEntries = [...byDiv.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ko'));
+    for (const [divId, items] of sortedEntries) {
+      items.sort((a, b) => b.workEffortMd - a.workEffortMd);
+      const totalMd = items.reduce((s, i) => s + i.workEffortMd, 0);
+      if (totalMd <= 0) continue;
+      out.push({
+        person: `${UNASSIGNED_DIVISION_SPLIT_PREFIX}${divId}`,
+        items,
+        totalMd,
+      });
+    }
+
+    if (unknown.length > 0) {
+      unknown.sort((a, b) => b.workEffortMd - a.workEffortMd);
+      const totalMd = unknown.reduce((s, i) => s + i.workEffortMd, 0);
+      if (totalMd > 0) {
+        out.push({ person: UNASSIGNED_PERSON_KEY, items: unknown, totalMd });
+      }
+    }
+  }
+
+  return out.sort((a, b) => b.totalMd - a.totalMd);
 }
 
 /** 담당자 → 프로젝트 ID → 할당 작업 수 */

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computePersonProjectTaskCounts,
   computePersonTaskAllocations,
+  computePersonWorkEffortAllocationsFromTasks,
   computeProjectTotalManMonths,
   countProjectPersonnel,
   getProjectMonthKeys,
@@ -128,5 +129,92 @@ describe('mergePersonTaskAllocationsWithOrgDirectory', () => {
     const org: OrgMember[] = [{ name: 'Kim', department: 'A', position: '', gender: '' }];
     const merged = mergePersonTaskAllocationsWithOrgDirectory(base, org);
     expect(merged.map((r) => r.person)).toEqual(['Kim', 'Outsider']);
+  });
+});
+
+describe('computePersonWorkEffortAllocationsFromTasks', () => {
+  it('담당자·프로젝트별 workEffort 합을 M/D로 묶고 공수 큰 순으로 정렬한다', () => {
+    const projects: Project[] = [
+      { id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' },
+      { id: 'p2', name: 'Beta', startDate: '', endDate: '', progress: 0, status: 'todo' },
+    ];
+    const tasks: Task[] = [
+      {
+        id: 't1',
+        projectId: 'p1',
+        parentId: null,
+        name: 'a',
+        startDate: '',
+        endDate: '',
+        progress: 0,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 10,
+      },
+      {
+        id: 't2',
+        projectId: 'p2',
+        parentId: null,
+        name: 'b',
+        startDate: '',
+        endDate: '',
+        progress: 0,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 30,
+      },
+      {
+        id: 't3',
+        projectId: 'p1',
+        parentId: null,
+        name: 'c',
+        startDate: '',
+        endDate: '',
+        progress: 0,
+        assignee: 'Lee',
+        status: 'todo',
+        workEffort: 5,
+      },
+    ];
+    const rows = computePersonWorkEffortAllocationsFromTasks(projects, tasks);
+    expect(rows.map((r) => r.person)).toEqual(['Kim', 'Lee']);
+    const kim = rows.find((r) => r.person === 'Kim')!;
+    expect(kim.totalMd).toBe(40);
+    expect(kim.items.map((i) => i.project.id)).toEqual(['p2', 'p1']);
+    expect(kim.items[0].workEffortMd).toBe(30);
+  });
+
+  it('projects 목록에 없는 프로젝트 작업은 제외한다', () => {
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' }];
+    const tasks: Task[] = [
+      {
+        id: 't1',
+        projectId: 'p1',
+        parentId: null,
+        name: 'a',
+        startDate: '',
+        endDate: '',
+        progress: 0,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 1,
+      },
+      {
+        id: 't2',
+        projectId: 'p99',
+        parentId: null,
+        name: 'x',
+        startDate: '',
+        endDate: '',
+        progress: 0,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 99,
+      },
+    ];
+    const rows = computePersonWorkEffortAllocationsFromTasks(projects, tasks);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].totalMd).toBe(1);
+    expect(rows[0].items).toHaveLength(1);
   });
 });
