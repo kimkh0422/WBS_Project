@@ -39,8 +39,16 @@ if exist "%VERSION_FILE%" (
 if "!NEW_VERSION!"=="" (
   set NEW_VERSION=unknown
 )
+
+rem --- Today's date (local) for console banner ---
+set "RELEASE_DATE="
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "(Get-Date).ToString('yyyy-MM-dd')"`) do set "RELEASE_DATE=%%D"
+set "RELEASE_DATE_KO="
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "(Get-Date).ToString('yyyy년 M월 d일', [Globalization.CultureInfo]::GetCultureInfo('ko-KR'))"`) do set "RELEASE_DATE_KO=%%D"
+
 echo ----------------------------------------
 echo Released version : v!NEW_VERSION!
+echo Release date     : !RELEASE_DATE! ^(!RELEASE_DATE_KO!^)
 echo ----------------------------------------
 
 rem --- Remove stale lock file if exists (e.g. from crashed git process) ---
@@ -62,7 +70,7 @@ git push origin main
 
 if %ERRORLEVEL% equ 0 (
     echo.
-    echo Successfully deployed v!NEW_VERSION!
+    echo Successfully deployed v!NEW_VERSION! ^(!RELEASE_DATE!^)
 ) else (
     echo Push failed.
 )

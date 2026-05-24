@@ -54,7 +54,7 @@ export function buildChildrenByParent(tasks: Task[]): Map<string | null, Task[]>
 }
 
 export function buildTaskIndex(tasks: Task[]): Map<string, Task> {
-  return new Map(tasks.map(task => [task.id, task] as const));
+  return new Map(tasks.map((task) => [task.id, task] as const));
 }
 
 export function buildParentSet(tasks: Task[]): Set<string> {
@@ -172,17 +172,38 @@ function createDepthGetter(taskMap: Map<string, Task>) {
   return getDepth;
 }
 
+/** 형제 노드 정렬: 컬럼 정렬 또는 WBS(선행작업·시작일) 순 — 필터/비필터 트리 순회 공통 */
+function orderSiblingsForTree(childrenByParent: Map<string | null, Task[]>, baseTasks: Task[], sortConfig: SortConfig) {
+  const compare = createTaskComparator(sortConfig);
+  const useWbsOrder = !sortConfig || sortConfig.key === 'wbs';
+  if (sortConfig && !useWbsOrder) {
+    for (const siblings of childrenByParent.values()) {
+      siblings.sort(compare);
+    }
+  } else {
+    const topoOrder = getTopologicalOrder(baseTasks);
+    const topoIndex = new Map<string, number>();
+    topoOrder.forEach((id, i) => topoIndex.set(id, i));
+    for (const siblings of childrenByParent.values()) {
+      siblings.sort((a, b) => {
+        const tiA = topoIndex.get(a.id) ?? 1e9;
+        const tiB = topoIndex.get(b.id) ?? 1e9;
+        if (tiA !== tiB) return tiA - tiB;
+        return (a.startDate || '').localeCompare(b.startDate || '');
+      });
+    }
+  }
+}
+
 export function buildVisibleTasks(
   tasks: Task[],
   filters: FilterState,
   sortConfig: SortConfig,
-  options?: { preserveDepthOnFiltered?: boolean }
+  options?: { preserveDepthOnFiltered?: boolean },
 ): TaskWithDepth[] {
   const preserveDepthOnFiltered = options?.preserveDepthOnFiltered ?? false;
   const baseTasks =
-    filters.projectIds === 'all'
-      ? tasks
-      : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId));
+    filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId));
   const hasFilters =
     filters.status !== 'all' ||
     filters.assignee ||
@@ -199,44 +220,77 @@ export function buildVisibleTasks(
   const compare = createTaskComparator(sortConfig);
 
   if (hasFilters) {
-    const filteredTasks = baseTasks.filter(task => matchesFilters(task, filters));
+    if (preserveDepthOnFiltered) {
+      // 표·간트: 필터 중에도 트리 + expanded·「레벨 N까지 펼치기」가 동작하도록 순회
+      const childrenByParent = buildChildrenByParent(baseTasks);
+      orderSiblingsForTree(childrenByParent, baseTasks, sortConfig);
+      const taskMap = buildTaskIndex(baseTasks);
+      const getDepth = createDepthGetter(taskMap);
 
-    const taskMap = buildTaskIndex(baseTasks);
-    const getDepth = createDepthGetter(taskMap);
+      const subtreeHasFilterMatch = new Map<string, boolean>();
+      const subtreeMatches = (taskId: string): boolean => {
+        const hit = subtreeHasFilterMatch.get(taskId);
+        if (hit !== undefined) return hit;
+        const t = taskMap.get(taskId);
+        if (!t) {
+          subtreeHasFilterMatch.set(taskId, false);
+          return false;
+        }
+        if (matchesFilters(t, filters)) {
+          subtreeHasFilterMatch.set(taskId, true);
+          return true;
+        }
+        for (const ch of childrenByParent.get(taskId) ?? []) {
+          if (subtreeMatches(ch.id)) {
+            subtreeHasFilterMatch.set(taskId, true);
+            return true;
+          }
+        }
+        subtreeHasFilterMatch.set(taskId, false);
+        return false;
+      };
 
-    let withDepth = preserveDepthOnFiltered
-      ? [...filteredTasks].sort(compare).map(task => ({ ...task, depth: getDepth(task.id) }))
-      : [...filteredTasks].sort(compare).map(task => ({ ...task, depth: 0 }));
+      const visibleTasks: TaskWithDepth[] = [];
+      const stack = [...(childrenByParent.get(null) ?? [])].reverse().map((task) => ({ task, depth: 0 }));
+
+      while (stack.length > 0) {
+        const current = stack.pop();
+        if (!current) continue;
+        if (!subtreeMatches(current.task.id)) continue;
+
+        const level = current.depth + 1;
+        if (!levelFilter || level === targetLevel) {
+          visibleTasks.push({ ...current.task, depth: getDepth(current.task.id) });
+        }
+
+        if (!current.task.expanded) continue;
+        const children = childrenByParent.get(current.task.id);
+        if (!children || children.length === 0) continue;
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          stack.push({ task: children[index], depth: current.depth + 1 });
+        }
+      }
+
+      return visibleTasks;
+    }
+
+    const filteredTasks = baseTasks.filter((task) => matchesFilters(task, filters));
+
+    let withDepth = [...filteredTasks].sort(compare).map((task) => ({ ...task, depth: 0 }));
 
     if (levelFilter) {
-      withDepth = withDepth.filter(t => t.depth + 1 === targetLevel);
+      const taskMap = buildTaskIndex(baseTasks);
+      const getDepth = createDepthGetter(taskMap);
+      withDepth = withDepth.map((t) => ({ ...t, depth: getDepth(t.id) })).filter((t) => t.depth + 1 === targetLevel);
     }
     return withDepth;
   }
 
   const childrenByParent = buildChildrenByParent(baseTasks);
-  const useWbsOrder = !sortConfig || sortConfig.key === 'wbs';
-  if (sortConfig && !useWbsOrder) {
-    for (const siblings of childrenByParent.values()) {
-      siblings.sort(compare);
-    }
-  } else {
-    // WBS 정렬(또는 정렬 없음): 선행작업 우선, 동일하면 시작일 빠른 순 (일정 순서에 맞는 WBS)
-    const topoOrder = getTopologicalOrder(baseTasks);
-    const topoIndex = new Map<string, number>();
-    topoOrder.forEach((id, i) => topoIndex.set(id, i));
-    for (const siblings of childrenByParent.values()) {
-      siblings.sort((a, b) => {
-        const tiA = topoIndex.get(a.id) ?? 1e9;
-        const tiB = topoIndex.get(b.id) ?? 1e9;
-        if (tiA !== tiB) return tiA - tiB;
-        return (a.startDate || '').localeCompare(b.startDate || '');
-      });
-    }
-  }
+  orderSiblingsForTree(childrenByParent, baseTasks, sortConfig);
 
   const visibleTasks: TaskWithDepth[] = [];
-  const stack = [...(childrenByParent.get(null) ?? [])].reverse().map(task => ({ task, depth: 0 }));
+  const stack = [...(childrenByParent.get(null) ?? [])].reverse().map((task) => ({ task, depth: 0 }));
 
   while (stack.length > 0) {
     const current = stack.pop();

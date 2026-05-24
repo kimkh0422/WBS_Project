@@ -401,9 +401,10 @@ src/
 ## 14. 빌드·릴리즈 흐름
 
 1. `npm run dev` — Vite dev server (HMR).
-2. 커밋 시 husky + lint-staged가 prettier + eslint --fix 적용 후 자동으로 `package.json` 패치 버전 bump + `CHANGELOG.md` 항목 추가 + `version.txt` 갱신 (pre-commit 훅).
-3. `npm run build` — Vite production build → `dist/`.
-4. 헤더 우측에서 `appVersion` / `appCommitDate`로 빌드 정보 노출.
+2. 커밋 시 simple-git-hooks + lint-staged가 prettier + eslint --fix 적용 후 자동으로 `package.json` 패치 버전 bump + `CHANGELOG.md`에 당일 날짜(`YYYY-MM-DD`) 섹션 추가 + `version.txt` 갱신 (pre-commit 훅, `scripts/bump-version.mjs` → `update-release.mjs`).
+3. `git push` 직전에 pre-push 훅이 `package.json` 버전과 오늘 날짜(로컬)를 콘솔에 한 줄 출력합니다 (`scripts/print-release-meta.mjs`). `push.bat`은 커밋 후 배포 버전·날짜를 추가로 표시합니다.
+4. `npm run build` — Vite production build → `dist/`.
+5. 헤더 우측에서 `appVersion` / `appCommitDate`로 빌드 정보 노출.
 
 ---
 

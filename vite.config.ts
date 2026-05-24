@@ -141,6 +141,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: true,
+      port: 3000,
+      /** 기본 포트가 사용 중이면 Vite가 다음 사용 가능 포트로 자동 전환 */
+      strictPort: false,
       // 내부망(사내 LAN)에서 IP/호스트네임/도메인 어떤 형태로 접속해도
       // Vite의 host 헤더 검증에 차단되지 않도록 모든 호스트 허용
       allowedHosts: true,
@@ -151,6 +154,7 @@ export default defineConfig(({ mode }) => {
     preview: {
       host: true,
       port: 3000,
+      strictPort: false,
       allowedHosts: true,
     },
   };

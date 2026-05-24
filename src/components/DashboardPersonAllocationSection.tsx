@@ -21,7 +21,7 @@ import {
 } from '../lib/personAllocations';
 import { buildOrgMemberLabelMap, buildOrgMemberDisplayMetaMap, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { compareAssigneeByPositionThenName } from '../lib/orgMemberSort';
-import { formatProjectDisplayName, resolveProjectKindOrDefault } from '../lib/projectKind';
+import { formatProjectDisplayName, getProjectKindBadgeClass, resolveProjectKindOrDefault } from '../lib/projectKind';
 import { PersonAllocationDetailPanel } from './PersonAllocationDetailPanel';
 import { BaseModal } from './Base/Modal';
 import type { Project, Task } from '../types';
@@ -94,6 +94,18 @@ function buildDivisionBriefBlocks(
     title: label,
     rows: sortAllocationRowsByPositionThenName(deptMap.get(label)!, displayMetaByName),
   }));
+}
+
+/** 카드 보기: 섹션 제목(사업부·부서)과 동일한 접두어는 한 줄에서 생략해 중복을 줄입니다. */
+function shortenPersonRowLabelForSection(fullLabel: string, sectionTitle: string): string {
+  const t = sectionTitle.trim();
+  if (!t) return fullLabel;
+  const prefixed = `${t} `;
+  if (fullLabel.startsWith(prefixed)) {
+    const rest = fullLabel.slice(prefixed.length).trim();
+    return rest.length > 0 ? rest : fullLabel;
+  }
+  return fullLabel;
 }
 
 interface DashboardPersonAllocationSectionProps {
@@ -373,12 +385,15 @@ export function DashboardPersonAllocationSection({
         </div>
       )}
 
-      <details className="group mb-4 rounded-xl border border-stone-200 bg-white px-4 py-3 shadow-sm">
+      <details className="group mb-4 rounded-xl border border-stone-200/90 bg-gradient-to-b from-stone-50/90 to-white px-4 py-3 shadow-sm">
         <summary className="cursor-pointer list-none text-sm font-semibold text-stone-800 [&::-webkit-details-marker]:hidden flex items-center gap-2.5 select-none">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-stone-50 ring-1 ring-stone-200/80">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-stone-200/80">
             <Info className="h-4 w-4 text-indigo-600 shrink-0" aria-hidden />
           </span>
-          표 읽는 법<span className="text-xs font-medium text-stone-400 group-open:hidden">(펼치기)</span>
+          표 읽는 법
+          <span className="ml-1 rounded-md bg-stone-200/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-stone-500 group-open:hidden">
+            펼치기
+          </span>
         </summary>
         <ul className="mt-3 space-y-2 pl-1 sm:pl-11 text-sm text-stone-600 leading-relaxed border-t border-stone-100 pt-3 list-none">
           {helpBullets.map((line, idx) => (
@@ -424,16 +439,30 @@ export function DashboardPersonAllocationSection({
                 </button>
                 {!collapsed && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
-                          <th className="text-left font-medium px-3 py-2">인원</th>
-                          <th className="text-right font-medium px-3 py-2 w-28 whitespace-nowrap">투입 합</th>
-                          <th className="text-left font-medium px-3 py-2 min-w-[12rem]">프로젝트·공수</th>
+                    <table className="w-full table-fixed text-sm min-w-[640px] border-collapse">
+                      <colgroup>
+                        <col className="min-w-0" />
+                        <col className="w-[7.5rem]" />
+                        <col className="min-w-[12rem]" />
+                      </colgroup>
+                      <thead className="border-b border-stone-200 bg-stone-100/95">
+                        <tr>
+                          <th className="px-3 pt-2.5 pb-1 text-left text-xs font-semibold text-stone-700">인원</th>
+                          <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">
+                            투입 합
+                          </th>
+                          <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-left text-xs font-semibold text-stone-700">
+                            프로젝트·공수
+                          </th>
+                        </tr>
+                        <tr className="text-[10px] font-normal text-stone-400">
+                          <th className="px-3 pb-2.5 pt-0 text-left font-normal">이름을 누르면 투입·작업 상세</th>
+                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
+                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
                         </tr>
                       </thead>
-                      <tbody>
-                        {block.rows.map(({ person, items, totalMd }) => {
+                      <tbody className="divide-y divide-stone-100">
+                        {block.rows.map(({ person, items, totalMd }, rowIdx) => {
                           const personDisplay = formatPersonWorkEffortRowDisplay(
                             person,
                             allocationDisplayMetaByName,
@@ -441,49 +470,67 @@ export function DashboardPersonAllocationSection({
                           );
                           const totalEffortLabel = formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT);
                           return (
-                            <tr key={person} className="border-t border-stone-100 hover:bg-stone-50/60">
-                              <td className="px-3 py-2 align-top">
+                            <tr
+                              key={person}
+                              className={cn('transition-colors hover:bg-indigo-50/35', rowIdx % 2 === 1 && 'bg-stone-50/50')}
+                            >
+                              <td className="px-3 py-2.5 align-top">
                                 <button
                                   type="button"
                                   onClick={() => setSelectedPerson((p) => (p === person ? null : person))}
+                                  title="투입·작업 상세"
+                                  aria-label={`${personDisplay}, 투입·작업 상세 열기`}
                                   className={cn(
-                                    'text-left font-medium text-stone-900 break-words [overflow-wrap:anywhere] rounded-md -m-0.5 p-0.5 transition-colors',
-                                    'hover:text-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-400',
-                                    selectedPerson === person && 'text-indigo-800',
+                                    'block w-full text-left font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] rounded-lg px-1 py-0.5 -mx-1 transition-colors',
+                                    'hover:bg-white/80 hover:text-indigo-900 hover:ring-1 hover:ring-stone-200/90',
+                                    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-400',
+                                    selectedPerson === person && 'text-indigo-900 ring-1 ring-indigo-200/90 bg-indigo-50/40',
                                   )}
                                 >
                                   {personDisplay}
                                 </button>
-                                <div className="text-[11px] text-stone-400 mt-0.5">클릭 · 상세</div>
                               </td>
-                              <td className="px-3 py-2 text-right align-top tabular-nums font-semibold text-indigo-700 whitespace-nowrap">
+                              <td className="border-l border-stone-100 px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold leading-snug text-indigo-700 whitespace-nowrap">
                                 {totalEffortLabel}
                               </td>
-                              <td className="px-3 py-2 align-top min-w-0">
-                                <ul className="space-y-1.5 m-0 p-0 list-none">
+                              <td className="border-l border-stone-100 px-3 py-2.5 align-top min-w-0">
+                                <ul className="m-0 flex flex-col gap-1 p-0 list-none">
                                   {items.map(({ project, workEffortMd }) => {
                                     const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
-                                    const name = formatProjectDisplayName(project.name, project.projectKind);
+                                    const kind = resolveProjectKindOrDefault(project);
+                                    const projectTitle =
+                                      (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
+                                    const fullLabel = formatProjectDisplayName(project.name, project.projectKind);
                                     return (
                                       <li
                                         key={project.id}
-                                        className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 min-w-0"
+                                        className="grid grid-cols-[auto_minmax(0,1fr)_5.25rem] items-center gap-x-2 gap-y-0 rounded-md border border-stone-100/90 bg-stone-50/40 px-2 py-1 min-w-0 hover:border-stone-200/90 hover:bg-white/90 transition-colors"
                                       >
+                                        <span
+                                          className={cn(
+                                            'inline-flex shrink-0 items-center justify-center self-center rounded px-1.5 py-0.5 text-[10px] font-bold leading-none ring-1 ring-inset',
+                                            getProjectKindBadgeClass(kind),
+                                          )}
+                                        >
+                                          [{kind}]
+                                        </span>
                                         {onNavigateToWork ? (
                                           <button
                                             type="button"
                                             onClick={() => onNavigateToWork(project.id)}
-                                            className="min-w-0 flex-1 text-left text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline break-words [overflow-wrap:anywhere]"
-                                            title={`${name} — 작업 표로 이동`}
+                                            className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-800 hover:text-indigo-800 hover:underline break-words [overflow-wrap:anywhere]"
+                                            title={`${fullLabel} — 작업 표로 이동`}
                                           >
-                                            {name}
+                                            {projectTitle}
                                           </button>
                                         ) : (
-                                          <span className="min-w-0 flex-1 text-xs font-medium text-stone-800 break-words [overflow-wrap:anywhere]">
-                                            {name}
+                                          <span className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-800 break-words [overflow-wrap:anywhere]">
+                                            {projectTitle}
                                           </span>
                                         )}
-                                        <span className="shrink-0 text-xs tabular-nums text-stone-500">{effortLabel}</span>
+                                        <span className="shrink-0 justify-self-end text-right text-xs tabular-nums font-medium leading-snug text-stone-600">
+                                          {effortLabel}
+                                        </span>
                                       </li>
                                     );
                                   })}
@@ -523,93 +570,97 @@ export function DashboardPersonAllocationSection({
                   </span>
                 </button>
                 {!collapsed && (
-                  <ul className="flex flex-col gap-2.5 p-3 sm:p-4 bg-[var(--color-surface)]/40">
+                  <ul className="m-0 list-none divide-y divide-stone-200/75 border-t border-stone-200/60 bg-[var(--color-surface)]/30 p-0">
                     {block.rows.map(({ person, items, totalMd }) => {
-                      const personDisplay = formatPersonWorkEffortRowDisplay(
+                      const personDisplayFull = formatPersonWorkEffortRowDisplay(
                         person,
                         allocationDisplayMetaByName,
                         divisionNameById.size > 0 ? divisionNameById : undefined,
                       );
+                      const personDisplay = shortenPersonRowLabelForSection(personDisplayFull, block.title);
                       const totalEffortLabel = formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT);
                       return (
-                        <li key={person}>
-                          <div
+                        <li
+                          key={person}
+                          className={cn(
+                            'px-3 py-2.5 sm:px-4 transition-colors',
+                            selectedPerson === person ? 'bg-violet-50/50' : 'hover:bg-stone-50/70',
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPerson((p) => (p === person ? null : person))}
+                            title="투입·작업 상세"
+                            aria-label={`${personDisplayFull}, 투입·작업 상세`}
                             className={cn(
-                              'rounded-xl border bg-white p-3.5 sm:p-4 shadow-sm transition-shadow',
-                              selectedPerson === person
-                                ? 'border-indigo-300 ring-2 ring-indigo-200/70 shadow-md'
-                                : 'border-stone-200 hover:border-stone-300 hover:shadow-md',
+                              'group/person flex w-full min-w-0 items-start gap-2.5 rounded-md text-left sm:gap-3',
+                              '-mx-0.5 px-0.5 py-0.5 transition-colors',
+                              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500',
                             )}
                           >
-                            <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_min(11rem,max-content)] lg:gap-x-6 lg:items-start">
-                              <div className="min-w-0 space-y-3">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedPerson((p) => (p === person ? null : person))}
-                                  className={cn(
-                                    'group/person flex w-full min-w-0 gap-3 rounded-lg text-left transition-colors sm:gap-4',
-                                    'hover:bg-stone-50/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400',
-                                  )}
-                                >
-                                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-base font-bold text-indigo-800 ring-2 ring-white ring-offset-1 ring-offset-stone-100">
-                                    {person.substring(0, 1)}
-                                  </div>
-                                  <div className="min-w-0 flex-1 pt-0.5">
-                                    <span className="block text-base font-semibold leading-snug text-stone-900 break-words [overflow-wrap:anywhere] group-hover/person:text-indigo-950">
-                                      {personDisplay}
-                                    </span>
-                                    <span className="mt-1 block text-xs font-medium text-stone-500 lg:hidden">
-                                      작업 공수 합 <span className="font-bold text-indigo-700 tabular-nums">{totalEffortLabel}</span>
-                                    </span>
-                                    <span className="mt-0.5 block text-[11px] text-stone-400">이름 클릭 · 투입·작업 상세</span>
-                                  </div>
-                                </button>
-                                <div className="min-w-0 lg:pl-[3.75rem]">
-                                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-stone-400">프로젝트별 공수</p>
-                                  <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-2">
-                                    {items.map(({ project, workEffortMd }) => {
-                                      const kind = resolveProjectKindOrDefault(project);
-                                      const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
-                                      return (
-                                        <button
-                                          key={`${person}:${project.id}`}
-                                          type="button"
-                                          disabled={!onNavigateToWork}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onNavigateToWork?.(project.id);
-                                          }}
-                                          className={cn(
-                                            'flex min-h-[4.25rem] min-w-0 flex-col items-stretch gap-1 rounded-xl border px-3 py-2.5 text-left transition-all [overflow-wrap:anywhere]',
-                                            onNavigateToWork
-                                              ? 'border-stone-200 bg-white shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:shadow-md active:scale-[0.99]'
-                                              : 'cursor-default border-stone-100 bg-stone-50 text-stone-500',
-                                          )}
-                                          title={
-                                            onNavigateToWork
-                                              ? `${formatProjectDisplayName(project.name, project.projectKind)} (${effortLabel}) 작업 보기`
-                                              : effortLabel
-                                          }
-                                        >
-                                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700/90">{kind}</span>
-                                          <span className="text-sm font-semibold leading-snug text-stone-800 break-words [overflow-wrap:anywhere]">
-                                            {formatProjectDisplayName(project.name, project.projectKind)}
-                                          </span>
-                                          <span className="mt-auto pt-1 text-xs font-bold tabular-nums text-indigo-800">{effortLabel}</span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="hidden min-w-0 shrink-0 flex-col items-stretch justify-center rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-center lg:flex">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800/80">작업 공수 합</span>
-                                <span className="mt-1.5 text-xl font-bold leading-none text-indigo-950 tabular-nums sm:text-2xl">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-stone-100 to-stone-200/90 text-xs font-bold text-stone-700 shadow-sm ring-1 ring-stone-300/50">
+                              {person.substring(0, 1)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                                <span className="text-sm font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] group-hover/person:text-violet-950">
+                                  {personDisplay}
+                                </span>
+                                <span className="shrink-0 rounded-md bg-violet-100/95 px-2 py-0.5 text-xs font-bold tabular-nums text-violet-900 ring-1 ring-violet-200/70">
                                   {totalEffortLabel}
                                 </span>
                               </div>
                             </div>
-                          </div>
+                          </button>
+                          {items.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 pl-0 sm:pl-10">
+                              {items.map(({ project, workEffortMd }) => {
+                                const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
+                                const kind = resolveProjectKindOrDefault(project);
+                                const projectTitle =
+                                  (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
+                                const fullLabel = formatProjectDisplayName(project.name, project.projectKind);
+                                const chipClassName = cn(
+                                  'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border py-0.5 pl-1 pr-2 text-[11px] leading-tight shadow-sm transition-colors [overflow-wrap:anywhere]',
+                                  onNavigateToWork
+                                    ? 'cursor-pointer border-stone-200/90 bg-white text-stone-800 hover:border-violet-300 hover:bg-violet-50/60'
+                                    : 'cursor-default border-stone-200/70 bg-stone-50/90 text-stone-600',
+                                );
+                                const inner = (
+                                  <>
+                                    <span
+                                      className={cn(
+                                        'inline-flex shrink-0 items-center justify-center rounded px-1 py-0.5 text-[9px] font-bold leading-none ring-1 ring-inset',
+                                        getProjectKindBadgeClass(kind),
+                                      )}
+                                    >
+                                      [{kind}]
+                                    </span>
+                                    <span className="min-w-0 truncate font-medium">{projectTitle}</span>
+                                    <span className="shrink-0 tabular-nums text-stone-500">{effortLabel}</span>
+                                  </>
+                                );
+                                return onNavigateToWork ? (
+                                  <button
+                                    key={`${person}:${project.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onNavigateToWork(project.id);
+                                    }}
+                                    className={chipClassName}
+                                    title={`${fullLabel} — 작업 표로 이동`}
+                                  >
+                                    {inner}
+                                  </button>
+                                ) : (
+                                  <span key={`${person}:${project.id}`} className={chipClassName} title={effortLabel}>
+                                    {inner}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </li>
                       );
                     })}

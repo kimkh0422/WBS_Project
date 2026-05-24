@@ -9,10 +9,12 @@ import {
   computePersonProjectWorkEffort,
   computeProjectAllocations,
   executePersonProjectAdd,
+  normalizeProjectAssignments,
   type PersonProjectAddPayload,
 } from '../lib/personAllocations';
 import { EditableAllocationBadge } from './EditableAllocationBadge';
 import { AddPersonProjectAllocation } from './AddPersonProjectAllocation';
+import { AddProjectPersonAllocation } from './AddProjectPersonAllocation';
 import { AddPersonAllocationControl } from './AddPersonAllocationControl';
 import {
   buildAssigneeCandidates,
@@ -90,8 +92,9 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
               프로젝트 투입 현황
             </h1>
             <p className="text-sm text-stone-500 mt-0.5">
-              프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다. 인원별 보기에서는 「인원 추가」로 새 담당자를
-              등록하고, 「프로젝트」에서 기존 프로젝트를 선택하거나 신규 프로젝트명을 입력해 투입을 추가할 수 있습니다.
+              프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다. 프로젝트별 보기에서도 각 카드의 「인원 추가」로 해당
+              프로젝트에 바로 투입할 수 있고, 인원별 보기에서는 「인원 추가」로 담당자를 등록한 뒤 「프로젝트」에서 기존·신규 프로젝트를
+              골라 투입을 넣을 수 있습니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -150,91 +153,126 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
           </div>
         ) : viewMode === 'by-project' ? (
           <div className="space-y-4">
-            {projectAllocations.map(({ project, assignments, totalPercent }) => (
-              <div
-                key={project.id}
-                className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center gap-4 p-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
-                      <span className="text-xs text-stone-400">총 {formatPercent1(totalPercent)}% 투입</span>
+            {projectAllocations.map(({ project, assignments, totalPercent }) => {
+              const assignedNameKeys = new Set(assignments.map((a) => (a.assignee || '').trim() || '(미지정)'));
+              return (
+                <div
+                  key={project.id}
+                  className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-center gap-4 p-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
+                        <span className="text-xs text-stone-400">총 {formatPercent1(totalPercent)}% 투입</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onEditProject && (
+                        <button
+                          onClick={() => onEditProject(project)}
+                          className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                          title="프로젝트 편집"
+                        >
+                          <Edit size={16} />
+                        </button>
+                      )}
+                      {onNavigateToWork && (
+                        <button
+                          onClick={() => onNavigateToWork(project.id)}
+                          className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+                          title="작업 보기"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {onEditProject && (
-                      <button
-                        onClick={() => onEditProject(project)}
-                        className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
-                        title="프로젝트 편집"
-                      >
-                        <Edit size={16} />
-                      </button>
-                    )}
-                    {onNavigateToWork && (
-                      <button
-                        onClick={() => onNavigateToWork(project.id)}
-                        className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
-                        title="작업 보기"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="px-4 pb-4 pt-0">
-                  <div className="grid grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                    {assignments.map((a) => (
-                      <div
-                        key={`${project.id}:${a.assignee}`}
-                        className="min-w-0 inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
-                      >
-                        <EditableAllocationBadge
-                          projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationDisplayMetaByName)}
-                          allocationPercent={a.allocationPercent}
-                          disabled={((a.assignee || '').trim() || '(미지정)') === '(미지정)'}
-                          onSave={(percent) => handleUpdatePersonAllocation(project.id, (a.assignee || '').trim() || '(미지정)', percent)}
-                          onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
-                          className="bg-teal-50 border-teal-100 text-sm"
+                  <div className="px-4 pb-4 pt-0">
+                    <div className="grid grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                      {assignments.map((a) => (
+                        <div
+                          key={`${project.id}:${a.assignee}`}
+                          className="min-w-0 inline-flex flex-col gap-0.5 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100 text-sm"
+                        >
+                          <EditableAllocationBadge
+                            projectName={formatAssigneeDisplay((a.assignee || '').trim() || '(미지정)', allocationDisplayMetaByName)}
+                            allocationPercent={a.allocationPercent}
+                            disabled={((a.assignee || '').trim() || '(미지정)') === '(미지정)'}
+                            onSave={(percent) => handleUpdatePersonAllocation(project.id, (a.assignee || '').trim() || '(미지정)', percent)}
+                            onNavigate={onNavigateToWork ? () => onNavigateToWork(project.id) : undefined}
+                            className="bg-teal-50 border-teal-100 text-sm"
+                          />
+                          {a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && (
+                            <div className="text-[10px] text-stone-500 flex flex-wrap gap-x-2 gap-y-0">
+                              {Object.entries(a.monthlyAllocations)
+                                .sort(([k1], [k2]) => k1.localeCompare(k2))
+                                .map(([ym, pct]) => (
+                                  <span key={ym}>
+                                    {ym} {formatPercent1(Number(pct))}%
+                                  </span>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <div className="col-span-full min-w-0 flex flex-wrap items-center gap-2 pt-0.5">
+                        <AddProjectPersonAllocation
+                          projectId={project.id}
+                          assigneeCandidates={allocationAssigneeCandidates}
+                          assignedNames={assignedNameKeys}
+                          allocationSumPercentOnProject={totalPercent}
+                          orgMemberLabelByName={allocationOrgLabelByName}
+                          onAdd={(person, percent) => handleAddPersonProject(person, { kind: 'existing', projectId: project.id }, percent)}
                         />
-                        {a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && (
-                          <div className="text-[10px] text-stone-500 flex flex-wrap gap-x-2 gap-y-0">
-                            {Object.entries(a.monthlyAllocations)
-                              .sort(([k1], [k2]) => k1.localeCompare(k2))
-                              .map(([ym, pct]) => (
-                                <span key={ym}>
-                                  {ym} {formatPercent1(Number(pct))}%
-                                </span>
-                              ))}
-                          </div>
-                        )}
                       </div>
-                    ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {projectsWithoutAllocation.length > 0 && (
               <div className="mt-6 pt-6 border-t border-stone-200">
                 <h3 className="text-sm font-semibold text-stone-500 mb-3">투입 정보 미설정 프로젝트</h3>
                 <div className="space-y-2">
-                  {projectsWithoutAllocation.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between px-4 py-2 rounded-lg bg-stone-50 border border-stone-100">
-                      <ProjectNameLabel
-                        project={p}
-                        name={p.name}
-                        className="text-sm text-stone-600"
-                        nameClassName="text-sm text-stone-600"
-                      />
-                      {onEditProject && (
-                        <button onClick={() => onEditProject(p)} className="text-xs text-teal-600 hover:text-teal-700 font-medium">
-                          투입 설정
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {projectsWithoutAllocation.map((p) => {
+                    const assignedNameKeys = new Set(
+                      normalizeProjectAssignments(p.assignments ?? []).map((a) => (a.assignee || '').trim() || '(미지정)'),
+                    );
+                    const sumOnProject = normalizeProjectAssignments(p.assignments ?? []).reduce(
+                      (s, a) => s + (a.allocationPercent || 0),
+                      0,
+                    );
+                    return (
+                      <div
+                        key={p.id}
+                        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-lg bg-stone-50 border border-stone-100"
+                      >
+                        <ProjectNameLabel
+                          project={p}
+                          name={p.name}
+                          className="text-sm text-stone-600 min-w-0"
+                          nameClassName="text-sm text-stone-600"
+                        />
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <AddProjectPersonAllocation
+                            projectId={p.id}
+                            assigneeCandidates={allocationAssigneeCandidates}
+                            assignedNames={assignedNameKeys}
+                            allocationSumPercentOnProject={sumOnProject}
+                            orgMemberLabelByName={allocationOrgLabelByName}
+                            onAdd={(person, percent) => handleAddPersonProject(person, { kind: 'existing', projectId: p.id }, percent)}
+                          />
+                          {onEditProject && (
+                            <button onClick={() => onEditProject(p)} className="text-xs text-teal-600 hover:text-teal-700 font-medium">
+                              투입 설정
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
