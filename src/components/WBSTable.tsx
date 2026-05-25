@@ -19,6 +19,7 @@ import {
   Link2,
   Edit2,
   Trash2,
+  Unlock,
 } from 'lucide-react';
 import { type TableColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard } from './hooks/useWbsTableKeyboard';
@@ -32,7 +33,7 @@ import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from '
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { SortableTaskRow } from './SortableTaskRow';
 import { ExcelGrid } from './ExcelGrid';
-import { Task } from '../types';
+import type { Project, Task } from '../types';
 import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
@@ -150,6 +151,13 @@ export function WBSTable({
   const bulkAssigneeLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
 
   const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
+  const projectScheduleByProjectId = useMemo(() => {
+    const m = new Map<string, Pick<Project, 'startDate' | 'endDate'>>();
+    for (const p of projects) {
+      m.set(p.id, { startDate: p.startDate, endDate: p.endDate });
+    }
+    return m;
+  }, [projects]);
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   const criticalPathSet = useMemo(() => {
     try {
@@ -722,8 +730,6 @@ export function WBSTable({
     projects,
     updateProject,
     linkSequentialPredecessors,
-    setSelection,
-    setLastSelectedId,
     pushToast,
   });
 
@@ -950,14 +956,33 @@ export function WBSTable({
       rangeAnchorRef.current = null;
       setAnchorTaskId(null);
     }
+
+    // 5. 삭제 확인 후 포커스가 모달 등 표 밖에 남으면 ↑/↓가 `data-wbs-table` 가드에 막힘 — 표 본문으로 복귀
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        tableScrollRef.current?.focus();
+      });
+    });
+
+    // 6. 편집 모드 셀 링이 삭제된 taskId를 가리키면 행 하이라이트와 키보드 기준 행이 어긋남
+    setFocusedCell((prev) => {
+      if (!prev || !deleteSet.has(prev.taskId)) return prev;
+      if (!nextSelectId) return null;
+      const col = editableColumnIds.includes(prev.columnId)
+        ? prev.columnId
+        : editableColumnIds.includes('name')
+          ? 'name'
+          : (editableColumnIds[0] ?? 'name');
+      return { taskId: nextSelectId, columnId: col };
+    });
   };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
   const summaryStats = useWbsSummaryStats(baseTasks, projects);
 
   const isSplitView = !!syncScrollRef;
-  /** 표만(분할 아님) + 스프레드시트 편집 모드: 헤더 클릭 정렬 비활성 — 열/너비 조작 시 의도치 않은 정렬 방지 */
-  const headerSortClickEnabled = isSplitView || !tableEditMode;
+  /** 헤더 클릭으로 정렬하지 않음(열 포커스·너비 조절과 혼동 방지). 정렬은 헤더 우클릭 →「이 컬럼으로 정렬」만 사용. */
+  const headerSortClickEnabled = false;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
 
   /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그.
@@ -992,7 +1017,6 @@ export function WBSTable({
         id={id}
         label={id.startsWith('custom:') ? customColumnNameById.get(id) : undefined}
         workEffortHeaderTitle={workEffortHeaderTitle}
-        sortConfig={sortConfig}
         headerSortClickEnabled={headerSortClickEnabled}
         onSort={onSort}
         resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
@@ -1302,6 +1326,7 @@ export function WBSTable({
                               otherFocusByCellKey={otherFocusByCellKey}
                               customColumnNameById={customColumnNameById}
                               projectEffortUnitByProjectId={projectEffortUnitByProjectId}
+                              projectScheduleByProjectId={projectScheduleByProjectId}
                               prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
                               rollupTooltipBaseTasks={baseTasks}
                             />
@@ -1885,8 +1910,6 @@ export function WBSTable({
                           onClick: () => {
                             const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
                             if (ordered.length >= 2) linkSequentialPredecessors(ordered);
-                            setSelection(new Set());
-                            setLastSelectedId(null);
                             setContextMenu(null);
                           },
                         },
@@ -1936,6 +1959,31 @@ export function WBSTable({
                           },
                         },
                       ]
+                    : []),
+                  ...(canEditCurrentProject && contextMenu.taskId
+                    ? (() => {
+                        const ctxTask = tasks.find((t) => t.id === contextMenu.taskId);
+                        const locks = ctxTask?.userLockedFields ?? [];
+                        if (locks.length === 0) return [];
+                        const idsToUnlock =
+                          selectedTaskIds.size > 1 && selectedTaskIds.has(contextMenu.taskId)
+                            ? Array.from(selectedTaskIds)
+                            : [contextMenu.taskId];
+                        return [
+                          { divider: true },
+                          {
+                            label: idsToUnlock.length > 1 ? `필드 잠금 전체 해제 (${idsToUnlock.length}개 작업)` : '필드 잠금 전체 해제',
+                            icon: <Unlock size={14} />,
+                            onClick: () => {
+                              idsToUnlock.forEach((tid) => updateTask(tid, { userLockedFields: undefined }));
+                              setEditingTask((prev) =>
+                                prev && idsToUnlock.includes(prev.id) ? { ...prev, userLockedFields: undefined } : prev,
+                              );
+                              setContextMenu(null);
+                            },
+                          },
+                        ] as ContextMenuAction[];
+                      })()
                     : []),
                   {
                     label: '컬럼 설정',

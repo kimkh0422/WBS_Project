@@ -17,8 +17,6 @@ interface UseWbsBulkEditOptions {
   projects: Project[];
   updateProject: (id: string, updates: Partial<Project>) => void;
   linkSequentialPredecessors: (orderedTaskIds: string[], options?: { bulkWorkEffort?: number; bulkAllocationPercent?: number }) => void;
-  setSelection: (next: Set<string>) => void;
-  setLastSelectedId: (id: string | null) => void;
   pushToast: (msg: string, opts?: { variant?: 'success' | 'warning' | 'error' }) => void;
 }
 
@@ -33,8 +31,6 @@ export function useWbsBulkEdit({
   projects,
   updateProject,
   linkSequentialPredecessors,
-  setSelection,
-  setLastSelectedId,
 }: UseWbsBulkEditOptions) {
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
   const [bulkAssignee, setBulkAssignee] = useState('');
@@ -171,7 +167,7 @@ export function useWbsBulkEdit({
       }
     }
 
-    resetBulkFields();
+    // 적용 후에도 선택·입력란을 유지해 연속 일괄 작업(선행 연결·추가 필드 적용 등)이 가능하도록 함
   }, [
     bulkStatus,
     bulkAssignee,
@@ -190,7 +186,6 @@ export function useWbsBulkEdit({
     projects,
     updateProject,
     pushToast,
-    resetBulkFields,
   ]);
 
   const executeBulkWorkEffort = useCallback(() => {
@@ -204,9 +199,7 @@ export function useWbsBulkEdit({
       updateTask(id, { workEffort: value, userLockedFields: [...locked] });
     }
     setBulkWorkEffort('');
-    setSelection(new Set());
-    setLastSelectedId(null);
-  }, [bulkWorkEffort, tasks, selectedTaskIds, updateTask, setSelection, setLastSelectedId]);
+  }, [bulkWorkEffort, tasks, selectedTaskIds, updateTask]);
 
   const executeBulkStatus = useCallback(() => {
     if (!bulkStatus) return;
@@ -220,9 +213,7 @@ export function useWbsBulkEdit({
     }
     updateTasksBulk(Array.from(selectedTaskIds), updates);
     setBulkStatus('');
-    setSelection(new Set());
-    setLastSelectedId(null);
-  }, [bulkStatus, wbsSettings, selectedTaskIds, updateTasksBulk, setSelection, setLastSelectedId]);
+  }, [bulkStatus, wbsSettings, selectedTaskIds, updateTasksBulk]);
 
   const executeBulkAssignee = useCallback(() => {
     const value = bulkAssignee.trim();
@@ -246,9 +237,7 @@ export function useWbsBulkEdit({
     }
     updateTasksBulk(Array.from(expanded), { assignee: value });
     setBulkAssignee('');
-    setSelection(new Set());
-    setLastSelectedId(null);
-  }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk, setSelection, setLastSelectedId]);
+  }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk]);
 
   const executeBulkClearDependencies = useCallback(() => {
     const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
@@ -258,9 +247,7 @@ export function useWbsBulkEdit({
       locked.add('dependencies');
       updateTask(id, { dependencies: [], userLockedFields: [...locked] });
     }
-    setSelection(new Set());
-    setLastSelectedId(null);
-  }, [tasks, selectedTaskIds, updateTask, setSelection, setLastSelectedId]);
+  }, [tasks, selectedTaskIds, updateTask]);
 
   /** 표에 보이는 순서대로 선택 행만 연쇄 선행(FS) 연결 */
   const executeBulkLinkSequentialPredecessors = useCallback(() => {
@@ -278,19 +265,7 @@ export function useWbsBulkEdit({
     }
 
     linkSequentialPredecessors(ordered, Object.keys(options).length > 0 ? options : undefined);
-    resetBulkFields();
-    setSelection(new Set());
-    setLastSelectedId(null);
-  }, [
-    visibleTasks,
-    selectedTaskIds,
-    bulkWorkEffort,
-    bulkAllocation,
-    linkSequentialPredecessors,
-    resetBulkFields,
-    setSelection,
-    setLastSelectedId,
-  ]);
+  }, [visibleTasks, selectedTaskIds, bulkWorkEffort, bulkAllocation, linkSequentialPredecessors]);
 
   return {
     bulkStatus,

@@ -5,6 +5,7 @@ import { WBSTable } from './components/WBSTable';
 import { TableGanttSplit } from './components/TableGanttSplit';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
+import { ShortcutsSidebar } from './components/ShortcutsSidebar';
 import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -219,6 +220,8 @@ function WBSApp({
     setIsSettingsModalOpen,
     isVersionHistoryOpen,
     setIsVersionHistoryOpen,
+    isShortcutsVisible,
+    setIsShortcutsVisible,
     isExportModalOpen,
     setIsExportModalOpen,
     exportSelectedProjectIds,
@@ -662,6 +665,7 @@ function WBSApp({
     redo,
     expandToLevel,
     setTreeExpandLevel,
+    setIsShortcutsVisible,
     canToggleAdminMemberView: (isAdmin || adminOverride) && !!user?.id,
     memberPreview,
     setMemberPreview,
@@ -1218,6 +1222,8 @@ function WBSApp({
           handleImportClick={handleImportClick}
           setIsExportModalOpen={setIsExportModalOpen}
           setIsSettingsModalOpen={setIsSettingsModalOpen}
+          isShortcutsVisible={isShortcutsVisible}
+          setIsShortcutsVisible={setIsShortcutsVisible}
           setIsMembersModalOpen={setIsMembersModalOpen}
           setIsResetConfirmOpen={setIsResetConfirmOpen}
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
@@ -1696,57 +1702,35 @@ function WBSApp({
             </div>
           }
         >
-          <div className="flex-1 min-h-0 min-w-0 h-full flex flex-col overflow-hidden relative bg-white">
-            {!effectiveIsAdmin &&
-            currentProjectId &&
-            currentProjectId !== 'all' &&
-            currentProject &&
-            currentProject.ownerId !== user?.id &&
-            !myMemberProjectIds.includes(currentProjectId) &&
-            !userApproved &&
-            (view === 'table' || view === 'tablegantt' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
-              <ProjectAccessRequestBanner
-                projectId={currentProjectId}
-                projectName={formatProjectDisplayName(currentProject.name, currentProject.projectKind)}
-                onRequestSent={() =>
-                  getMyProjectMemberProjectIds()
-                    .then(setMyMemberProjectIds)
-                    .catch(() => {})
-                }
-              />
-            ) : view === 'tablegantt' ? (
-              <ErrorBoundary viewName="표+간트">
-                <TableGanttSplit
-                  filters={effectiveFilters}
-                  sortConfig={sortConfig}
-                  onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                  onResetFilters={resetWbsFilters}
-                  scrollToTaskId={scrollToTaskId}
-                  sharedRowHeight={sharedRowHeight}
-                  onRowHeightChange={setSharedRowHeight}
-                  onSort={(key) => {
-                    setSortConfig((current) => {
-                      if (key === 'wbs' && current?.key === 'wbs') return null;
-                      if (current?.key === key) {
-                        if (current.direction === 'asc') return { key, direction: 'desc' };
-                        return null;
-                      }
-                      return { key, direction: 'asc' };
-                    });
-                  }}
+          <div className="flex flex-1 min-h-0 min-w-0 flex-row overflow-hidden">
+            <div className="flex-1 min-h-0 min-w-0 h-full flex flex-col overflow-hidden relative bg-white">
+              {!effectiveIsAdmin &&
+              currentProjectId &&
+              currentProjectId !== 'all' &&
+              currentProject &&
+              currentProject.ownerId !== user?.id &&
+              !myMemberProjectIds.includes(currentProjectId) &&
+              !userApproved &&
+              (view === 'table' || view === 'tablegantt' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
+                <ProjectAccessRequestBanner
+                  projectId={currentProjectId}
+                  projectName={formatProjectDisplayName(currentProject.name, currentProject.projectKind)}
+                  onRequestSent={() =>
+                    getMyProjectMemberProjectIds()
+                      .then(setMyMemberProjectIds)
+                      .catch(() => {})
+                  }
                 />
-              </ErrorBoundary>
-            ) : view === 'table' ? (
-              <ErrorBoundary viewName="표">
-                <div className="h-full overflow-hidden">
-                  <WBSTable
-                    fillHeight
-                    autoFitColumnsOnMount
+              ) : view === 'tablegantt' ? (
+                <ErrorBoundary viewName="표+간트">
+                  <TableGanttSplit
                     filters={effectiveFilters}
                     sortConfig={sortConfig}
                     onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                     onResetFilters={resetWbsFilters}
                     scrollToTaskId={scrollToTaskId}
+                    sharedRowHeight={sharedRowHeight}
+                    onRowHeightChange={setSharedRowHeight}
                     onSort={(key) => {
                       setSortConfig((current) => {
                         if (key === 'wbs' && current?.key === 'wbs') return null;
@@ -1758,103 +1742,128 @@ function WBSApp({
                       });
                     }}
                   />
-                </div>
-              </ErrorBoundary>
-            ) : view === 'gantt' ? (
-              <ErrorBoundary viewName="간트차트">
-                <GanttChart
-                  filters={effectiveFilters}
-                  sortConfig={sortConfig}
-                  rowHeight={sharedRowHeight}
-                  onRowHeightChange={setSharedRowHeight}
-                />
-              </ErrorBoundary>
-            ) : view === 'dashboard' ? (
-              <ErrorBoundary viewName="대시보드">
-                <Dashboard
-                  mobileReadabilityMode={lockMobileToDashboard}
-                  onNavigate={lockMobileToDashboard || hiddenViews.has('table') ? undefined : handleDashboardNavigate}
-                  onOpenTaskInTable={navigateToTask}
-                  registeredMemberDisplayNames={registeredMemberDisplayNames}
-                  // 비관리자(또는 회원 체험 모드)는 본인이 참여한 프로젝트만 표시.
-                  // 관리자는 undefined → 전체 표시.
-                  accessibleProjectIds={
-                    effectiveIsAdmin
-                      ? undefined
-                      : new Set([...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id), ...myMemberProjectIds])
-                  }
-                  // "내가 포함된 프로젝트" — owner이거나, 멤버이거나, 작업 담당자(이름 매칭)인 프로젝트.
-                  // 작업 담당자 비교는 평문 이름(currentUserPlainName) 기준. 비로그인 시 undefined.
-                  myInvolvedProjectIds={
-                    user?.id
-                      ? (() => {
-                          const ids = new Set<string>();
-                          for (const p of projects) {
-                            if (p.ownerId === user.id) ids.add(p.id);
+                </ErrorBoundary>
+              ) : view === 'table' ? (
+                <ErrorBoundary viewName="표">
+                  <div className="h-full overflow-hidden">
+                    <WBSTable
+                      fillHeight
+                      autoFitColumnsOnMount
+                      filters={effectiveFilters}
+                      sortConfig={sortConfig}
+                      onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                      onResetFilters={resetWbsFilters}
+                      scrollToTaskId={scrollToTaskId}
+                      onSort={(key) => {
+                        setSortConfig((current) => {
+                          if (key === 'wbs' && current?.key === 'wbs') return null;
+                          if (current?.key === key) {
+                            if (current.direction === 'asc') return { key, direction: 'desc' };
+                            return null;
                           }
-                          for (const id of myMemberProjectIds) ids.add(id);
-                          const myName = (currentUserPlainName || '').trim();
-                          if (myName) {
-                            for (const t of allTasks) {
-                              if (t.assignee && t.assignee.trim() === myName) ids.add(t.projectId);
-                            }
-                          }
-                          return ids;
-                        })()
-                      : undefined
-                  }
-                  currentUserDisplay={currentUserDisplay}
-                  profileMap={profileMap}
-                  currentUserId={user?.id}
-                  ownerDepartmentByUserId={ownerDepartmentByUserId}
-                />
-              </ErrorBoundary>
-            ) : view === 'projects' ? (
-              <ErrorBoundary viewName="프로젝트 관리">
-                <ProjectsPage
-                  onNavigateToWork={(projectId) => {
-                    if (projectId) setCurrentProjectId(projectId);
-                    if (lockMobileToDashboard || hiddenViews.has('table')) {
-                      pushToast(
-                        lockMobileToDashboard
-                          ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
-                          : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
-                        {
-                          variant: 'default',
-                          durationMs: 5000,
-                          id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
-                        },
-                      );
-                      setView('dashboard');
-                    } else {
-                      setView('table');
+                          return { key, direction: 'asc' };
+                        });
+                      }}
+                    />
+                  </div>
+                </ErrorBoundary>
+              ) : view === 'gantt' ? (
+                <ErrorBoundary viewName="간트차트">
+                  <GanttChart
+                    filters={effectiveFilters}
+                    sortConfig={sortConfig}
+                    rowHeight={sharedRowHeight}
+                    onRowHeightChange={setSharedRowHeight}
+                  />
+                </ErrorBoundary>
+              ) : view === 'dashboard' ? (
+                <ErrorBoundary viewName="대시보드">
+                  <Dashboard
+                    mobileReadabilityMode={lockMobileToDashboard}
+                    onNavigate={lockMobileToDashboard || hiddenViews.has('table') ? undefined : handleDashboardNavigate}
+                    onOpenTaskInTable={navigateToTask}
+                    registeredMemberDisplayNames={registeredMemberDisplayNames}
+                    // 비관리자(또는 회원 체험 모드)는 본인이 참여한 프로젝트만 표시.
+                    // 관리자는 undefined → 전체 표시.
+                    accessibleProjectIds={
+                      effectiveIsAdmin
+                        ? undefined
+                        : new Set([...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id), ...myMemberProjectIds])
                     }
-                  }}
-                />
-              </ErrorBoundary>
-            ) : view === 'allocation' ? (
-              <ErrorBoundary viewName="투입현황">
-                <AllocationOverviewPage
-                  registeredMemberDisplayNames={registeredMemberDisplayNames}
-                  onEditProject={(p) => {
-                    setEditingProject(p);
-                    setIsProjectModalOpen(true);
-                  }}
-                  onNavigateToWork={(projectId) => {
-                    setCurrentProjectId(projectId);
-                    setView(hiddenViews.has('table') ? 'dashboard' : 'table');
-                  }}
-                />
-              </ErrorBoundary>
-            ) : view === 'mindmap' ? (
-              <ErrorBoundary viewName="마인드맵">
-                <MindMapView filters={effectiveFilters} />
-              </ErrorBoundary>
-            ) : (
-              <ErrorBoundary viewName="칸반">
-                <KanbanBoard filters={effectiveFilters} />
-              </ErrorBoundary>
-            )}
+                    // "내가 포함된 프로젝트" — owner이거나, 멤버이거나, 작업 담당자(이름 매칭)인 프로젝트.
+                    // 작업 담당자 비교는 평문 이름(currentUserPlainName) 기준. 비로그인 시 undefined.
+                    myInvolvedProjectIds={
+                      user?.id
+                        ? (() => {
+                            const ids = new Set<string>();
+                            for (const p of projects) {
+                              if (p.ownerId === user.id) ids.add(p.id);
+                            }
+                            for (const id of myMemberProjectIds) ids.add(id);
+                            const myName = (currentUserPlainName || '').trim();
+                            if (myName) {
+                              for (const t of allTasks) {
+                                if (t.assignee && t.assignee.trim() === myName) ids.add(t.projectId);
+                              }
+                            }
+                            return ids;
+                          })()
+                        : undefined
+                    }
+                    currentUserDisplay={currentUserDisplay}
+                    profileMap={profileMap}
+                    currentUserId={user?.id}
+                    ownerDepartmentByUserId={ownerDepartmentByUserId}
+                  />
+                </ErrorBoundary>
+              ) : view === 'projects' ? (
+                <ErrorBoundary viewName="프로젝트 관리">
+                  <ProjectsPage
+                    onNavigateToWork={(projectId) => {
+                      if (projectId) setCurrentProjectId(projectId);
+                      if (lockMobileToDashboard || hiddenViews.has('table')) {
+                        pushToast(
+                          lockMobileToDashboard
+                            ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
+                            : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
+                          {
+                            variant: 'default',
+                            durationMs: 5000,
+                            id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+                          },
+                        );
+                        setView('dashboard');
+                      } else {
+                        setView('table');
+                      }
+                    }}
+                  />
+                </ErrorBoundary>
+              ) : view === 'allocation' ? (
+                <ErrorBoundary viewName="투입현황">
+                  <AllocationOverviewPage
+                    registeredMemberDisplayNames={registeredMemberDisplayNames}
+                    onEditProject={(p) => {
+                      setEditingProject(p);
+                      setIsProjectModalOpen(true);
+                    }}
+                    onNavigateToWork={(projectId) => {
+                      setCurrentProjectId(projectId);
+                      setView(hiddenViews.has('table') ? 'dashboard' : 'table');
+                    }}
+                  />
+                </ErrorBoundary>
+              ) : view === 'mindmap' ? (
+                <ErrorBoundary viewName="마인드맵">
+                  <MindMapView filters={effectiveFilters} />
+                </ErrorBoundary>
+              ) : (
+                <ErrorBoundary viewName="칸반">
+                  <KanbanBoard filters={effectiveFilters} />
+                </ErrorBoundary>
+              )}
+            </div>
+            {isShortcutsVisible && <ShortcutsSidebar view={view} onClose={() => setIsShortcutsVisible(false)} />}
           </div>
         </Suspense>
       </main>

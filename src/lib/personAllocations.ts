@@ -8,6 +8,7 @@ import {
   type AllocationDivisionInferInput,
 } from './allocationDivisionInfer';
 import { formatProjectDisplayName, parseKindBracketPrefixForNewProject } from './projectKind';
+import { round1 } from './utils';
 import { getEffectiveAllocationPercent } from './workload';
 
 /** 원시 assignments에서 해당 담당자의 월별 투입(%)을 합칩니다(동일 키는 마지막 값). */
@@ -260,15 +261,43 @@ export function computePersonProjectWorkEffort(allTasks: Task[]): Map<string, Ma
   return map;
 }
 
+/** 담당자 → 프로젝트 ID → workEffort×(진척%/100) 합(M/D) — 공수 가중 완료 반영량 */
+export function computePersonProjectEarnedEffort(allTasks: Task[]): Map<string, Map<string, number>> {
+  const map = new Map<string, Map<string, number>>();
+  for (const task of allTasks) {
+    const person = (task.assignee || '').trim() || '(미지정)';
+    const effort = Number(task.workEffort) || 0;
+    if (effort <= 0) continue;
+    const p = typeof task.progress === 'number' && Number.isFinite(task.progress) ? Math.min(100, Math.max(0, task.progress)) : 0;
+    const earned = effort * (p / 100);
+    if (!map.has(person)) map.set(person, new Map());
+    const projMap = map.get(person)!;
+    projMap.set(task.projectId, (projMap.get(task.projectId) ?? 0) + earned);
+  }
+  return map;
+}
+
 /** WBS 작업에 배정된 공수(M/D) 기준: 담당자별·프로젝트별 항목 */
-export type PersonWorkEffortItem = { project: Project; workEffortMd: number };
+export type PersonWorkEffortItem = { project: Project; workEffortMd: number; earnedEffortMd: number };
 
 export type PersonWorkEffortAllocation = {
   person: string;
   items: PersonWorkEffortItem[];
   /** 담당자 전체 WBS 공수 합(M/D) */
   totalMd: number;
+  /** Σ(workEffort×진척%/100), 공수 가중 완료 반영량(M/D) */
+  totalEarnedMd: number;
 };
+
+/**
+ * 공수 합 대비 완료 반영 비율(%). Σ(earned)/Σ(effort)×100.
+ */
+export function computePersonWorkEffortWeightedProgressPct(row: Pick<PersonWorkEffortAllocation, 'totalMd' | 'totalEarnedMd'>): number {
+  const t = row.totalMd;
+  if (!Number.isFinite(t) || t <= 0) return 0;
+  const raw = (row.totalEarnedMd / t) * 100;
+  return round1(Math.min(100, Math.max(0, raw)));
+}
 
 /**
  * 표시 대상 `projects` 범위의 작업만 집계합니다.
@@ -277,18 +306,23 @@ export type PersonWorkEffortAllocation = {
 export function computePersonWorkEffortAllocationsFromTasks(projects: Project[], allTasks: Task[]): PersonWorkEffortAllocation[] {
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const effortMap = computePersonProjectWorkEffort(allTasks);
+  const earnedMap = computePersonProjectEarnedEffort(allTasks);
 
   return Array.from(effortMap.entries())
     .map(([person, projMap]) => {
       const items: PersonWorkEffortItem[] = [];
+      const personEarned = earnedMap.get(person);
       for (const [projectId, md] of projMap.entries()) {
         const project = projectById.get(projectId);
         if (!project || !Number.isFinite(md) || md <= 0) continue;
-        items.push({ project, workEffortMd: md });
+        const earned = personEarned?.get(projectId);
+        const earnedEffortMd = typeof earned === 'number' && Number.isFinite(earned) ? earned : 0;
+        items.push({ project, workEffortMd: md, earnedEffortMd });
       }
       items.sort((a, b) => b.workEffortMd - a.workEffortMd);
       const totalMd = items.reduce((s, i) => s + i.workEffortMd, 0);
-      return { person, items, totalMd };
+      const totalEarnedMd = items.reduce((s, i) => s + i.earnedEffortMd, 0);
+      return { person, items, totalMd, totalEarnedMd };
     })
     .filter((row) => row.items.length > 0)
     .sort((a, b) => b.totalMd - a.totalMd);
@@ -329,10 +363,12 @@ export function splitUnassignedPersonWorkEffortByInferredDivision(
       items.sort((a, b) => b.workEffortMd - a.workEffortMd);
       const totalMd = items.reduce((s, i) => s + i.workEffortMd, 0);
       if (totalMd <= 0) continue;
+      const totalEarnedMd = items.reduce((s, i) => s + i.earnedEffortMd, 0);
       out.push({
         person: `${UNASSIGNED_DIVISION_SPLIT_PREFIX}${divId}`,
         items,
         totalMd,
+        totalEarnedMd,
       });
     }
 
@@ -340,7 +376,8 @@ export function splitUnassignedPersonWorkEffortByInferredDivision(
       unknown.sort((a, b) => b.workEffortMd - a.workEffortMd);
       const totalMd = unknown.reduce((s, i) => s + i.workEffortMd, 0);
       if (totalMd > 0) {
-        out.push({ person: UNASSIGNED_PERSON_KEY, items: unknown, totalMd });
+        const totalEarnedMd = unknown.reduce((s, i) => s + i.earnedEffortMd, 0);
+        out.push({ person: UNASSIGNED_PERSON_KEY, items: unknown, totalMd, totalEarnedMd });
       }
     }
   }

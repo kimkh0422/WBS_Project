@@ -14,6 +14,7 @@ import { getCriticalPathTaskIds } from '../lib/schedule';
 import { buildProjectEffortUnitMap } from '../lib/workEffortUnits';
 import { useToast } from './Toast';
 import { formatRange, formatEffort } from '../lib/ganttFormat';
+import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { isComposingKeyEvent } from '../lib/ime';
 import { ZOOM_LEVELS, type ViewMode } from './Gantt/ZOOM_LEVELS';
 import { useGanttViewport } from './hooks/useGanttViewport';
@@ -71,6 +72,14 @@ export function GanttChart({
     canEditCurrentProject,
     projects,
   } = useWBS();
+  const projectScheduleForTask = useCallback(
+    (t: Task) => {
+      const p = projects.find((pr) => pr.id === t.projectId);
+      if (!p) return null;
+      return getTaskScheduleOutsideProjectMessage(t, p);
+    },
+    [projects],
+  );
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
@@ -478,15 +487,19 @@ export function GanttChart({
       if (!t) return null;
       const wbs = displayWbsMap.get(t.id);
       const displayName = wbs ? `${wbs} ${t.name}` : t.name;
+      const schedulePopoverWarn = projectScheduleForTask(t);
       return (
         <div
           ref={barPopoverRef}
-          className="fixed z-50 bg-white border border-stone-200 rounded-lg shadow-lg p-3 text-sm max-w-[240px]"
+          className="fixed z-50 bg-white border border-stone-200 rounded-lg shadow-lg p-3 text-sm max-w-[280px]"
           style={{ left: tappedBar.x, top: tappedBar.y, transform: 'translate(-50%, 8px)' }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <div className="font-semibold text-stone-800 break-words">{displayName}</div>
           <div className="text-stone-600 mt-1 tabular-nums">{formatRange(t.startDate, t.endDate)}</div>
+          {schedulePopoverWarn ? (
+            <div className="text-amber-900 mt-2 text-xs leading-snug border-t border-amber-100 pt-2">{schedulePopoverWarn}</div>
+          ) : null}
           {t.assignee ? (
             <div className="text-stone-500 mt-1 break-words">{formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName)}</div>
           ) : null}
@@ -708,6 +721,7 @@ export function GanttChart({
                 const isCritical = effectiveCriticalPathSet.has(task.id);
                 const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                 const rowH = effectiveRowHeights[index];
+                const scheduleWarn = projectScheduleForTask({ ...task, startDate: effectiveStartDate, endDate: effectiveEndDate });
                 return (
                   <div
                     key={task.id}
@@ -749,7 +763,7 @@ export function GanttChart({
                         backgroundColor: levelGanttBarFill(level),
                         borderColor: isCritical ? '#dc2626' : levelBarBg(level),
                       }}
-                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
@@ -1021,7 +1035,9 @@ export function GanttChart({
                           paddingRight: 16,
                           borderLeftColor: levelBarBg(level),
                         }}
-                        title={displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ${t.name}` : t.name}
+                        title={[displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ${t.name}` : t.name, projectScheduleForTask(t)]
+                          .filter(Boolean)
+                          .join(' · ')}
                         onDoubleClick={() => setEditingTask(t)}
                       >
                         <div className="break-words min-w-0">
@@ -1107,6 +1123,7 @@ export function GanttChart({
                   const isDone = allLeafDoneById.get(task.id) === true;
                   const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                   const rowH = effectiveRowHeights[index] ?? ROW_HEIGHT;
+                  const scheduleWarn = projectScheduleForTask({ ...task, startDate: effectiveStartDate, endDate: effectiveEndDate });
 
                   return (
                     <div
@@ -1158,7 +1175,7 @@ export function GanttChart({
                                 borderColor: isCritical ? '#dc2626' : levelBarBg(level),
                               }
                         }
-                        title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}`}
+                        title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                       >
                         {!isMilestone && (
                           <>

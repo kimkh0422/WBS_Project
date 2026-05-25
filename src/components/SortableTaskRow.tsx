@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
+import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks, Lock, Unlock, AlertTriangle } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Task, type WorkEffortUnit } from '../types';
+import { Task, type Project, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatDate, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
@@ -17,10 +17,13 @@ import {
   buildOrgMemberLabelMap,
   buildOrgMemberDisplayMetaMap,
   formatAssigneeDisplay,
+  resolveAssigneeIfUniqueMatch,
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { type TableColumnId } from './wbsTableTypes';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
+import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
+import { USER_LOCKED_FIELD_LABELS, userLockedFieldsAfterRemove, type UserLockedField } from '../lib/taskLocks';
 
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
@@ -45,6 +48,7 @@ function getTaskDetailTooltip(
   isCritical?: boolean,
   projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
   displayMetaByName?: Map<string, PersonDisplayMeta>,
+  taskScheduleOutsideProjectNote?: string | null,
 ): string {
   if (!task) return '';
   const lines: string[] = [];
@@ -74,6 +78,9 @@ function getTaskDetailTooltip(
   if (deps && Array.isArray(deps) && deps.length > 0 && displayWbsMap) {
     const depLabels = deps.map((id) => (displayWbsMap.get(id) ? `#${displayWbsMap.get(id)}` : id));
     lines.push(`선행작업: ${depLabels.join(', ')}`);
+  }
+  if (taskScheduleOutsideProjectNote) {
+    lines.push(`경고: ${taskScheduleOutsideProjectNote}`);
   }
   return lines.join('\n');
 }
@@ -132,6 +139,8 @@ export interface SortableTaskRowProps {
   customColumnNameById: Map<string, string>;
   /** projectId → 작업 공수 숫자의 단위 */
   projectEffortUnitByProjectId: Map<string, WorkEffortUnit>;
+  /** projectId → 프로젝트 일정(시작·종료). 작업 일정이 벗어나면 경고 표시에 사용 */
+  projectScheduleByProjectId?: Map<string, Pick<Project, 'startDate' | 'endDate'>>;
   /** true면 작업명 컬럼에 표시용 WBS 접두(예: P1)를 붙여 표시 */
   prependDisplayWbsToTaskName?: boolean;
   /** 진척률 셀 툴팁(요약 바와 같은 범위의 작업 집합) */
@@ -178,10 +187,13 @@ function SortableTaskRowInner({
   otherFocusByCellKey,
   customColumnNameById,
   projectEffortUnitByProjectId,
+  projectScheduleByProjectId,
   prependDisplayWbsToTaskName = false,
   rollupTooltipBaseTasks,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
+  const projectSchedule = projectScheduleByProjectId?.get(task.projectId);
+  const taskScheduleOutsideProjectNote = projectSchedule != null ? getTaskScheduleOutsideProjectMessage(task, projectSchedule) : null;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const { orgMembers } = useOrganization();
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
@@ -338,6 +350,35 @@ function SortableTaskRowInner({
   const depth = task.depth || 0;
   const level = depth + 1;
 
+  const unlockUserField = (field: UserLockedField) => {
+    if (!canEdit) return;
+    updateTask(task.id, { userLockedFields: userLockedFieldsAfterRemove(task.userLockedFields, field) });
+  };
+
+  const renderLockBadge = (field: UserLockedField) => {
+    if (!(task.userLockedFields ?? []).includes(field)) return null;
+    const label = USER_LOCKED_FIELD_LABELS[field];
+    if (canEdit) {
+      return (
+        <button
+          type="button"
+          className="flex-shrink-0 p-0.5 -m-0.5 rounded text-amber-600 hover:bg-amber-100 hover:text-amber-900"
+          title={`${label} 잠금 해제(자동 일정·롤업이 다시 적용될 수 있음)`}
+          aria-label={`${label} 잠금 해제`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            unlockUserField(field);
+          }}
+        >
+          <Unlock size={11} aria-hidden />
+        </button>
+      );
+    }
+    return <Lock size={11} className="flex-shrink-0 text-amber-600" aria-hidden title={`${label} 고정`} />;
+  };
+
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   const zebraOverlay = rowIndex % 2 === 1 ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(2, 6, 23, 0.03)') : 'transparent';
 
@@ -437,7 +478,11 @@ function SortableTaskRowInner({
         onSetRowAnchor?.(task.id);
       }}
       tabIndex={0}
-      onDoubleClick={() => onEdit(task)}
+      onDoubleClick={() => {
+        // 대부분 셀이 더블클릭을 stopPropagation 하므로, 실질적으로는 WBS 등 일부 영역에서만 도달.
+        // 작업명은 아래 name 셀에서 직접 onEdit 호출.
+        onEdit(task);
+      }}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
       {dropIndicator && <div className="absolute inset-0 ring-2 ring-indigo-400 bg-indigo-50/40 pointer-events-none z-10" />}
@@ -466,7 +511,12 @@ function SortableTaskRowInner({
       </div>
       <div
         className="data-cell justify-center font-mono text-[10px] text-stone-500 tabular-nums"
-        onDoubleClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onFocusRow?.(task.id);
+          onSetRowAnchor?.(task.id);
+          onEdit(task);
+        }}
       >
         {rowIndex + 1}
       </div>
@@ -526,11 +576,12 @@ function SortableTaskRowInner({
                 beginEdit('name');
               }}
               onDoubleClick={(e) => {
-                // 작업명이 비어 있어 안쪽 span의 클릭 영역이 없어도, 셀 전체 더블클릭으로 인라인 편집 시작.
-                // (행의 onDoubleClick=상세 모달 열기로 버블되지 않도록 stopPropagation)
+                // 더블클릭: 상세(TaskModal). 작업명 인라인 편집은 F2(키보드)로 진입.
                 if (isInlineEditingName) return;
                 e.stopPropagation();
-                beginEditNow('name');
+                onFocusRow?.(task.id);
+                onSetRowAnchor?.(task.id);
+                onEdit(task);
               }}
               title={getTaskDetailTooltip(
                 task,
@@ -539,6 +590,7 @@ function SortableTaskRowInner({
                 criticalPathSet?.has(task.id),
                 projectEffortUnitByProjectId,
                 orgMemberDisplayMetaByName,
+                taskScheduleOutsideProjectNote,
               )}
             >
               {isInlineEditingName ? (
@@ -571,7 +623,9 @@ function SortableTaskRowInner({
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    beginEditNow('name');
+                    onFocusRow?.(task.id);
+                    onSetRowAnchor?.(task.id);
+                    onEdit(task);
                   }}
                   title={getTaskDetailTooltip(
                     task,
@@ -580,6 +634,7 @@ function SortableTaskRowInner({
                     criticalPathSet?.has(task.id),
                     projectEffortUnitByProjectId,
                     orgMemberDisplayMetaByName,
+                    taskScheduleOutsideProjectNote,
                   )}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
@@ -593,10 +648,18 @@ function SortableTaskRowInner({
                       크리티컬
                     </span>
                   )}
+                  {taskScheduleOutsideProjectNote && (
+                    <AlertTriangle
+                      size={14}
+                      className="flex-shrink-0 text-amber-600"
+                      aria-label="프로젝트 일정과 불일치"
+                      title={taskScheduleOutsideProjectNote}
+                    />
+                  )}
                   {tableNameLabel ? (
                     tableNameLabel
                   ) : (
-                    <span className="italic text-stone-400 font-normal select-none">(더블클릭 또는 F2로 작업명 입력)</span>
+                    <span className="italic text-stone-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
                   )}
                 </span>
               )}
@@ -622,6 +685,7 @@ function SortableTaskRowInner({
               className={cn(
                 'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
                 isFocused && 'ring-2 ring-blue-500 ring-inset',
+                taskScheduleOutsideProjectNote && 'bg-amber-50/55',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -674,9 +738,27 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     beginEdit('startDate');
                   }}
-                  title="클릭하여 시작일 수정"
+                  title={[
+                    (task.userLockedFields ?? []).includes('startDate')
+                      ? '시작일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
+                      : '클릭하여 시작일 수정',
+                    taskScheduleOutsideProjectNote,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 >
-                  {formatDate(task.startDate)}
+                  <span className="inline-flex items-center gap-0.5 min-w-0">
+                    {taskScheduleOutsideProjectNote && (
+                      <AlertTriangle
+                        size={12}
+                        className="flex-shrink-0 text-amber-600"
+                        aria-label="프로젝트 일정과 불일치"
+                        title={taskScheduleOutsideProjectNote}
+                      />
+                    )}
+                    {formatDate(task.startDate)}
+                    {renderLockBadge('startDate')}
+                  </span>
                 </button>
               )}
               {otherPrimary && (
@@ -699,6 +781,7 @@ function SortableTaskRowInner({
               className={cn(
                 'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
                 isFocusedEnd && 'ring-2 ring-blue-500 ring-inset',
+                taskScheduleOutsideProjectNote && 'bg-amber-50/55',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -749,9 +832,27 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     beginEdit('endDate');
                   }}
-                  title="클릭하여 종료일 수정"
+                  title={[
+                    (task.userLockedFields ?? []).includes('endDate')
+                      ? '종료일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
+                      : '클릭하여 종료일 수정',
+                    taskScheduleOutsideProjectNote,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 >
-                  {formatDate(task.endDate)}
+                  <span className="inline-flex items-center gap-0.5 min-w-0">
+                    {taskScheduleOutsideProjectNote && (
+                      <AlertTriangle
+                        size={12}
+                        className="flex-shrink-0 text-amber-600"
+                        aria-label="프로젝트 일정과 불일치"
+                        title={taskScheduleOutsideProjectNote}
+                      />
+                    )}
+                    {formatDate(task.endDate)}
+                    {renderLockBadge('endDate')}
+                  </span>
                 </button>
               )}
               {otherPrimary && (
@@ -824,9 +925,16 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     beginEdit('workEffort');
                   }}
-                  title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
+                  title={
+                    (task.userLockedFields ?? []).includes('workEffort')
+                      ? `공수 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다 (${workEffortUnitSuffixKo(effortUnitForTask)})`
+                      : `클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`
+                  }
                 >
-                  {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
+                  <span className="inline-flex items-center gap-0.5 min-w-0">
+                    {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
+                    {renderLockBadge('workEffort')}
+                  </span>
                 </button>
               )}
               {otherPrimary && (
@@ -967,7 +1075,10 @@ function SortableTaskRowInner({
                     beginEdit('progress');
                   }}
                 >
-                  {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
+                  <span className="inline-flex items-center gap-0.5 min-w-0">
+                    {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
+                    {renderLockBadge('progress')}
+                  </span>
                 </button>
               )}
             </div>
@@ -1014,7 +1125,14 @@ function SortableTaskRowInner({
                       setEditingCell(null);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      if (e.key === 'Enter') {
+                        const el = e.currentTarget;
+                        const opts = assigneeOptions.length > 0 ? assigneeOptions : allAssignees;
+                        const picked = resolveAssigneeIfUniqueMatch(el.value, opts);
+                        if (picked) el.value = picked;
+                        el.blur();
+                        e.preventDefault();
+                      }
                       if (e.key === 'Escape') {
                         setEditingCell(null);
                         e.preventDefault();
@@ -1456,7 +1574,10 @@ function SortableTaskRowInner({
                   }}
                   title="더블클릭 또는 F2로 선행작업 수정"
                 >
-                  {depsDisplayText}
+                  <span className="inline-flex items-center gap-0.5 min-w-0 truncate">
+                    <span className="truncate">{depsDisplayText}</span>
+                    {renderLockBadge('dependencies')}
+                  </span>
                 </button>
               )}
             </div>
@@ -1587,6 +1708,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.statusConfigs === next.statusConfigs &&
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
     prev.projectEffortUnitByProjectId === next.projectEffortUnitByProjectId &&
+    prev.projectScheduleByProjectId === next.projectScheduleByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&
     prev.allocationDisplayText === next.allocationDisplayText &&
     prev.displayWbsMap === next.displayWbsMap &&

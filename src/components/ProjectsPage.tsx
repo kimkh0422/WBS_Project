@@ -35,6 +35,7 @@ import {
   buildOrgChartProjectListBlocks,
   countProjectsInOrgBranch,
   flattenOrgChartProjectsForMobile,
+  groupProjectsByParticipantCount,
   type OrgChartGroupBranch,
   type ProjectListLayoutMode,
 } from '../lib/projectListOrgGrouping';
@@ -178,7 +179,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const [projectListLayout, setProjectListLayout] = useState<ProjectListLayout>(() => {
     try {
       const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_LS_KEY);
-      if (nl === 'group' || nl === 'kind' || nl === 'org') return nl;
+      if (nl === 'assignees' || nl === 'group' || nl === 'kind' || nl === 'org') return nl;
       return 'kind';
     } catch {
       return 'kind';
@@ -473,6 +474,20 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   }, [orderedProjects, sortedGroups]);
 
   const projectsByKindSections = useMemo(() => groupProjectsForKindListView(orderedProjects), [orderedProjects]);
+
+  const projectsByParticipantSections = useMemo(
+    () => groupProjectsByParticipantCount(orderedProjects, allTasks),
+    [orderedProjects, allTasks],
+  );
+
+  const assigneeSectionsMobileFlat = useMemo(() => {
+    const out: { project: Project; path: string }[] = [];
+    for (const s of projectsByParticipantSections) {
+      const path = s.participantCount === 0 ? '참여 인원 없음' : `참여 인원 ${s.participantCount}명`;
+      for (const p of s.projects) out.push({ project: p, path });
+    }
+    return out;
+  }, [projectsByParticipantSections]);
 
   const projectsGroupedByOwner = useMemo(() => {
     const map = new Map<string, Project[]>();
@@ -1086,56 +1101,67 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 대시보드 미반영만
               </label>
             )}
-            {(sortedGroups.length > 0 || topLevelDivisions.length > 0) && (
-              <>
-                <div className="h-4 w-px bg-stone-200/80" />
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
-                  <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5">
+            <>
+              <div className="h-4 w-px bg-stone-200/80" />
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
+                <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => persistProjectListLayout('kind')}
+                    className={cn(
+                      'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                      projectListLayout === 'kind'
+                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                        : 'text-stone-600 hover:bg-stone-100/90',
+                    )}
+                  >
+                    구분별
+                  </button>
+                  {sortedGroups.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => persistProjectListLayout('kind')}
+                      onClick={() => persistProjectListLayout('group')}
                       className={cn(
                         'px-2 py-1 text-xs font-medium rounded-md transition-colors',
-                        projectListLayout === 'kind'
+                        projectListLayout === 'group'
                           ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
                           : 'text-stone-600 hover:bg-stone-100/90',
                       )}
                     >
-                      구분별
+                      그룹별
                     </button>
-                    {sortedGroups.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => persistProjectListLayout('group')}
-                        className={cn(
-                          'px-2 py-1 text-xs font-medium rounded-md transition-colors',
-                          projectListLayout === 'group'
-                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                            : 'text-stone-600 hover:bg-stone-100/90',
-                        )}
-                      >
-                        그룹별
-                      </button>
+                  )}
+                  {topLevelDivisions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => persistProjectListLayout('org')}
+                      className={cn(
+                        'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                        projectListLayout === 'org'
+                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                          : 'text-stone-600 hover:bg-stone-100/90',
+                      )}
+                    >
+                      조직도별
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => persistProjectListLayout(projectListLayout === 'assignees' ? 'kind' : 'assignees')}
+                    className={cn(
+                      'px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                      projectListLayout === 'assignees'
+                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                        : 'text-stone-600 hover:bg-stone-100/90',
                     )}
-                    {topLevelDivisions.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => persistProjectListLayout('org')}
-                        className={cn(
-                          'px-2 py-1 text-xs font-medium rounded-md transition-colors',
-                          projectListLayout === 'org'
-                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                            : 'text-stone-600 hover:bg-stone-100/90',
-                        )}
-                      >
-                        조직도별
-                      </button>
-                    )}
-                  </div>
+                    title="투입 인원과 작업 담당자 이름을 합친 참여 인원 수로 묶습니다."
+                  >
+                    인원별
+                  </button>
                 </div>
-              </>
-            )}
+              </div>
+            </>
           </div>
         )}
 
@@ -1241,68 +1267,79 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 ))}
               </div>
             </div>
-            {(sortedGroups.length > 0 || topLevelDivisions.length > 0) && (
-              <>
-                <div className="h-4 w-px bg-stone-200/80" />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Network size={14} className="text-stone-400 shrink-0" aria-hidden />
-                  <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
-                  <div
-                    className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
-                    role="radiogroup"
-                    aria-label="프로젝트 목록 묶음 방식"
-                    title="헤더의 프로젝트 목록과 동일한 설정이 로컬에 저장됩니다."
+            <div className="h-4 w-px bg-stone-200/80" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Network size={14} className="text-stone-400 shrink-0" aria-hidden />
+              <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
+              <div
+                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
+                role="radiogroup"
+                aria-label="프로젝트 목록 묶음 방식"
+                title="헤더의 프로젝트 목록과 동일한 설정이 로컬에 저장됩니다."
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={projectListLayout === 'kind'}
+                  onClick={() => persistProjectListLayout('kind')}
+                  className={cn(
+                    'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                    projectListLayout === 'kind'
+                      ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                      : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                  )}
+                >
+                  구분별
+                </button>
+                {sortedGroups.length > 0 && (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={projectListLayout === 'group'}
+                    onClick={() => persistProjectListLayout('group')}
+                    className={cn(
+                      'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                      projectListLayout === 'group'
+                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                    )}
                   >
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={projectListLayout === 'kind'}
-                      onClick={() => persistProjectListLayout('kind')}
-                      className={cn(
-                        'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
-                        projectListLayout === 'kind'
-                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                          : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
-                      )}
-                    >
-                      구분별
-                    </button>
-                    {sortedGroups.length > 0 && (
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={projectListLayout === 'group'}
-                        onClick={() => persistProjectListLayout('group')}
-                        className={cn(
-                          'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
-                          projectListLayout === 'group'
-                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                            : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
-                        )}
-                      >
-                        그룹별
-                      </button>
+                    그룹별
+                  </button>
+                )}
+                {topLevelDivisions.length > 0 && (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={projectListLayout === 'org'}
+                    onClick={() => persistProjectListLayout('org')}
+                    className={cn(
+                      'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                      projectListLayout === 'org'
+                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
                     )}
-                    {topLevelDivisions.length > 0 && (
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={projectListLayout === 'org'}
-                        onClick={() => persistProjectListLayout('org')}
-                        className={cn(
-                          'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
-                          projectListLayout === 'org'
-                            ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                            : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
-                        )}
-                      >
-                        조직도별
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
+                  >
+                    조직도별
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={projectListLayout === 'assignees'}
+                  onClick={() => persistProjectListLayout(projectListLayout === 'assignees' ? 'kind' : 'assignees')}
+                  className={cn(
+                    'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+                    projectListLayout === 'assignees'
+                      ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
+                      : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                  )}
+                  title="투입 인원과 작업 담당자 이름을 합친 참여 인원 수로 묶습니다."
+                >
+                  인원별
+                </button>
+              </div>
+            </div>
             {selectedProjectIds.size > 0 && (
               <button
                 onClick={() => setIsBulkDeleteConfirmOpen(true)}
@@ -1337,7 +1374,14 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                       {renderMobileProjectCard(project)}
                     </div>
                   ))
-                : orderedProjects.map((project) => <React.Fragment key={project.id}>{renderMobileProjectCard(project)}</React.Fragment>)}
+                : projectListLayout === 'assignees'
+                  ? assigneeSectionsMobileFlat.map(({ project, path }) => (
+                      <div key={project.id} className="space-y-1">
+                        <div className="text-[10px] font-semibold text-violet-900/90 px-0.5 leading-snug">{path}</div>
+                        {renderMobileProjectCard(project)}
+                      </div>
+                    ))
+                  : orderedProjects.map((project) => <React.Fragment key={project.id}>{renderMobileProjectCard(project)}</React.Fragment>)}
             </div>
           ) : (
             <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
@@ -1432,6 +1476,28 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                         }
                         return rows;
                       })()}
+                    </>
+                  ) : projectListLayout === 'assignees' ? (
+                    <>
+                      {projectsByParticipantSections.flatMap(({ participantCount, projects: list }) => [
+                        <tr key={`sec-part-${participantCount}`} className={participantCount === 0 ? 'bg-amber-50/90' : 'bg-violet-50/90'}>
+                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border',
+                                participantCount === 0
+                                  ? 'bg-amber-50 border-amber-200 text-amber-950'
+                                  : 'bg-violet-50 border-violet-200 text-violet-950',
+                              )}
+                              title="투입 인원(assignments)과 작업 담당자(assignee) 표시명을 합친 서로 다른 이름 수입니다."
+                            >
+                              {participantCount === 0 ? '참여 인원 없음' : `참여 인원 ${participantCount}명`}
+                              <span className="text-xs font-medium opacity-80 tabular-nums">프로젝트 {list.length}개</span>
+                            </span>
+                          </td>
+                        </tr>,
+                        ...list.map((p) => renderProjectRow(p)),
+                      ])}
                     </>
                   ) : sortedGroups.length > 0 ? (
                     <>

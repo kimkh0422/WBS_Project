@@ -9,6 +9,7 @@ import {
   getHolidaysForTaskDates,
   getKoreanHolidaysSet,
 } from './calendar';
+import { applyMilestoneDateInvariant } from './milestoneDates';
 
 const ALLOCATION_STEP = 10;
 const MIN_ALLOCATION = 10;
@@ -280,6 +281,12 @@ export type ApplyDependencyScheduleOptions = {
    * 기본 true(옵션 생략 시): 기존처럼 workEffort 기준으로 endDate를 맞춤.
    */
   linkEffortToSchedule?: boolean;
+  /**
+   * true이고 linkEffortToSchedule이 true일 때만 적용.
+   * 선행 순차 연결 등: 선행이 있고 입력에 시작·종료가 모두 있으며 **저장 공수(MD)가 없을 때만** FS로 시작일을 맞춘 뒤 기존 영업일 기간을 유지한다.
+   * 공수가 있으면(>0 MD) 같은 옵션이어도 공수·투입률로 종료일을 산정한다.
+   */
+  chainLinkRespectBothDates?: boolean;
 };
 
 /**
@@ -287,6 +294,8 @@ export type ApplyDependencyScheduleOptions = {
  * 투입공수(workEffort)와 투입비율(assignments)로 완료일을 계상.
  * - 선행 작업 종료일 이후에만 시작.
  * - 기간 = 작업공수 / 총투입비율(영업일). 완료일 = 시작일 + 기간.
+ * - `chainLinkRespectBothDates`: 선행 순차 연결 시, 선행이 있고 시작·종료가 모두 있어도 **공수(MD)>0이면 공수로 종료일 산정**. 공수가 없을 때만 기존 영업일 기간 유지.
+ * - `userLockedFields`: `startDate`/`endDate` 잠금 시 해당 날짜를 바꾸지 않음. `workEffort` 잠금은 저장 공수 **값**이 자동으로 바뀌지 않도록 하는 용도이며, 종료일은 그 공수로 여전히 산정할 수 있음.
  * - 상위 작업은 하위 작업 구간으로 맞춤.
  */
 export function applyDependencySchedule(
@@ -298,6 +307,7 @@ export function applyDependencySchedule(
   options?: ApplyDependencyScheduleOptions,
 ): Task[] {
   const linkEffortToSchedule = options?.linkEffortToSchedule !== false;
+  const chainLinkRespectBothDates = options?.chainLinkRespectBothDates === true;
   const byId = new Map<string, Task>();
   const result = tasks.map((t) => {
     const copy = { ...t };
@@ -338,8 +348,25 @@ export function applyDependencySchedule(
 
     if (taskLocked.has('endDate')) continue;
 
+    const originalTask = tasks.find((t) => t.id === id);
+    let hadBothDatesOnInput = false;
+    if (originalTask?.startDate && originalTask?.endDate) {
+      const s0 = parseISO(originalTask.startDate);
+      const e0 = parseISO(originalTask.endDate);
+      hadBothDatesOnInput = isValid(s0) && isValid(e0) && originalTask.startDate <= originalTask.endDate;
+    }
+    /** 선행 순차 연결: 공수가 없을 때만 — 시작·종료가 모두 있으면 FS 후 기존 영업일 기간 유지. 공수(MD)>0이면 공수로 종료일 산정 */
+    const effortMdForChainRespect = taskStoredEffortAsManDays(originalTask ?? task, projectEffortUnitByProjectId);
+    const respectExistingSpanForChain =
+      chainLinkRespectBothDates &&
+      linkEffortToSchedule &&
+      hadBothDatesOnInput &&
+      predIds &&
+      predIds.length > 0 &&
+      !(effortMdForChainRespect > 0);
+
     const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
-    if (linkEffortToSchedule && workEffort != null) {
+    if (linkEffortToSchedule && workEffort != null && !respectExistingSpanForChain) {
       const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
       if (effortMd > 0) {
         const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
@@ -351,15 +378,12 @@ export function applyDependencySchedule(
       }
     }
 
-    if (startShifted) {
-      const originalTask = tasks.find((t) => t.id === id);
-      if (originalTask) {
-        const s = parseISO(originalTask.startDate);
-        const e = parseISO(originalTask.endDate);
-        if (isValid(s) && isValid(e)) {
-          const durationDays = Math.max(1, differenceInBusinessDaysEx(s, e, holidays));
-          task.endDate = format(addBusinessDaysEx(parseISO(task.startDate), durationDays - 1, holidays), 'yyyy-MM-dd');
-        }
+    if (startShifted && originalTask) {
+      const s = parseISO(originalTask.startDate);
+      const e = parseISO(originalTask.endDate);
+      if (isValid(s) && isValid(e)) {
+        const durationDays = Math.max(1, differenceInBusinessDaysEx(s, e, holidays));
+        task.endDate = format(addBusinessDaysEx(parseISO(task.startDate), durationDays - 1, holidays), 'yyyy-MM-dd');
       }
     }
   }
@@ -405,5 +429,5 @@ export function applyDependencySchedule(
     }
   }
 
-  return result;
+  return result.map(applyMilestoneDateInvariant);
 }

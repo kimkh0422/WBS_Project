@@ -1,10 +1,63 @@
 import type { OrgMember, OrgNode } from '../data/organization';
-import type { Project } from '../types';
+import type { Project, Task } from '../types';
 
 /** 헤더·프로젝트 관리 화면에서 동일 키로 목록 묶음 방식을 공유한다. */
 export const PROJECT_LIST_LAYOUT_LS_KEY = 'wbs-header-projects-list-layout';
 
-export type ProjectListLayoutMode = 'kind' | 'group' | 'org';
+export type ProjectListLayoutMode = 'kind' | 'group' | 'org' | 'assignees';
+
+/** 프로젝트 투입(assignments) + 소속 작업 담당자(assignee) 이름의 합집합 인원 수 */
+export function countProjectParticipantNames(project: Project, tasksInProject: Task[]): number {
+  const names = new Set<string>();
+  for (const a of project.assignments ?? []) {
+    const n = (a.assignee ?? '').trim();
+    if (n) names.add(n);
+  }
+  for (const t of tasksInProject) {
+    const n = (t.assignee ?? '').trim();
+    if (n) names.add(n);
+  }
+  return names.size;
+}
+
+export type ParticipantCountListSection = {
+  participantCount: number;
+  projects: Project[];
+};
+
+function sortProjectsByNameKo(a: Project, b: Project): number {
+  const na = a.name ?? '';
+  const nb = b.name ?? '';
+  const c = na.localeCompare(nb, 'ko');
+  if (c !== 0) return c;
+  return (a.id ?? '').localeCompare(b.id ?? '', 'ko');
+}
+
+/**
+ * 헤더·프로젝트 관리 목록의「인원별」: 참여 인원 수가 같은 프로젝트끼리 묶고, 인원 많은 구간을 위에 둔다.
+ */
+export function groupProjectsByParticipantCount(projects: Project[], allTasks: Task[]): ParticipantCountListSection[] {
+  const tasksByProjectId = new Map<string, Task[]>();
+  for (const t of allTasks) {
+    if (!t.projectId) continue;
+    if (!tasksByProjectId.has(t.projectId)) tasksByProjectId.set(t.projectId, []);
+    tasksByProjectId.get(t.projectId)!.push(t);
+  }
+  const byCount = new Map<number, Project[]>();
+  for (const p of projects) {
+    const c = countProjectParticipantNames(p, tasksByProjectId.get(p.id) ?? []);
+    if (!byCount.has(c)) byCount.set(c, []);
+    byCount.get(c)!.push(p);
+  }
+  for (const list of byCount.values()) {
+    list.sort(sortProjectsByNameKo);
+  }
+  const counts = [...byCount.keys()].sort((a, b) => b - a);
+  return counts.map((participantCount) => ({
+    participantCount,
+    projects: byCount.get(participantCount)!,
+  }));
+}
 
 /** 대시보드와 동일: 조직 트리에서 최상위 사업부·본부 등 나열용 자식 노드 */
 export function getDashboardTopLevelDivisions(orgTree: OrgNode): OrgNode[] {
@@ -66,14 +119,6 @@ export type OrgChartGroupBranch = {
   projects: Project[];
   children: OrgChartGroupBranch[];
 };
-
-function sortProjectsByNameKo(a: Project, b: Project): number {
-  const na = a.name ?? '';
-  const nb = b.name ?? '';
-  const c = na.localeCompare(nb, 'ko');
-  if (c !== 0) return c;
-  return (a.id ?? '').localeCompare(b.id ?? '', 'ko');
-}
 
 /**
  * 한 사업부(division) 루트 아래에서, 앵커가 해당 서브트리에 속한 프로젝트만으로 재귀 브랜치를 만든다.

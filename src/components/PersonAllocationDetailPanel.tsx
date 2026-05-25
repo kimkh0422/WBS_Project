@@ -13,7 +13,11 @@ import {
   formatPersonWorkEffortRowDisplay,
   isUnassignedDivisionSplitPersonKey,
 } from '../lib/allocationDivisionInfer';
-import { mergeMonthlyAllocationsForAssignee, type PersonAllocationItem } from '../lib/personAllocations';
+import {
+  computePersonWorkEffortWeightedProgressPct,
+  mergeMonthlyAllocationsForAssignee,
+  type PersonAllocationItem,
+} from '../lib/personAllocations';
 import {
   allocationEffortMismatchDetailTooltip,
   allocationEffortMismatchMessage,
@@ -117,6 +121,21 @@ export function PersonAllocationDetailPanel({
         return (a.endDate || '').localeCompare(b.endDate || '', 'ko') || a.name.localeCompare(b.name, 'ko');
       });
   }, [allTasks, assigneeStorageKey, restrictUnassignedProjects]);
+
+  /** 담당 WBS 작업 기준: 프로젝트별 총 공수·가중 진척용 earned 합 */
+  const workEffortEarnedByProjectForPerson = useMemo(() => {
+    const m = new Map<string, { totalMd: number; totalEarnedMd: number }>();
+    for (const t of tasksForPerson) {
+      const e = Number(t.workEffort) || 0;
+      if (e <= 0) continue;
+      const pr = typeof t.progress === 'number' && Number.isFinite(t.progress) ? Math.min(100, Math.max(0, t.progress)) : 0;
+      const cur = m.get(t.projectId) ?? { totalMd: 0, totalEarnedMd: 0 };
+      cur.totalMd += e;
+      cur.totalEarnedMd += e * (pr / 100);
+      m.set(t.projectId, cur);
+    }
+    return m;
+  }, [tasksForPerson]);
 
   const pmProjects = useMemo(() => {
     if (assigneeStorageKey === '(미지정)') return [];
@@ -264,10 +283,10 @@ export function PersonAllocationDetailPanel({
                     투입%
                   </th>
                   <th
-                    className="text-right font-medium px-2 py-2 w-28 cursor-help"
-                    title="이 프로젝트에서 해당 인원이 담당자로 지정된 WBS 작업 공수를 합산한 값입니다. 작업별 단위는 프로젝트 설정을 따르며, 여기서는 M/D 및 M/M로 함께 표시합니다."
+                    className="text-right font-medium px-2 py-2 w-32 cursor-help"
+                    title="이 프로젝트에서 해당 인원이 담당자로 지정된 WBS 작업 공수를 합산한 값입니다. 작업별 단위는 프로젝트 설정을 따르며, 여기서는 M/D 및 M/M로 함께 표시합니다. 진척률은 해당 프로젝트 작업만으로 공수 가중 평균을 계산합니다."
                   >
-                    공수(M/D·M/M)
+                    공수·진척
                   </th>
                   <th className="text-left font-medium px-2 py-2 w-40">기간</th>
                   <th className="text-left font-medium px-2 py-2">월별 투입</th>
@@ -277,6 +296,13 @@ export function PersonAllocationDetailPanel({
               <tbody>
                 {allocationItems.map(({ project, allocationPercent }) => {
                   const md = projEffort?.get(project.id) ?? 0;
+                  const agg = workEffortEarnedByProjectForPerson.get(project.id);
+                  const projectProgressPct =
+                    agg && agg.totalMd > 0
+                      ? computePersonWorkEffortWeightedProgressPct(agg)
+                      : md > 0
+                        ? computePersonWorkEffortWeightedProgressPct({ totalMd: md, totalEarnedMd: 0 })
+                        : 0;
                   const rowIntegrity = evaluateAllocationEffortIntegrity(allocationPercent, md);
                   const monthly = mergeMonthlyAllocationsForAssignee(project, assigneeStorageKey);
                   const period =
@@ -295,11 +321,20 @@ export function PersonAllocationDetailPanel({
                       </td>
                       <td
                         className={cn(
-                          'px-2 py-2 text-right tabular-nums',
+                          'px-2 py-2 text-right tabular-nums align-top',
                           rowIntegrity.hasMismatch ? 'text-amber-800 font-semibold' : 'text-stone-600',
                         )}
                       >
-                        {md > 0 ? formatEffortFromManDays(md, effortDisplayUnit) : '—'}
+                        {md > 0 ? (
+                          <div>
+                            <div className="font-medium">{formatEffortFromManDays(md, effortDisplayUnit)}</div>
+                            <div className="text-[10px] font-semibold text-indigo-700 mt-0.5">
+                              진척 {formatPercent1(projectProgressPct)}%
+                            </div>
+                          </div>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{period}</td>
                       <td className="px-2 py-2 text-stone-500">

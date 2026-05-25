@@ -1,6 +1,5 @@
 import React from 'react';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import type { Task, SortConfig } from '../../types';
+import type { Task } from '../../types';
 import type { BuiltInTableColumnId, TableColumnId } from '../wbsTableTypes';
 
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
@@ -22,37 +21,25 @@ export const PROGRESS_COLUMN_HELP_TEXT = [
 /** 컬럼 헤더 마우스 오버 시 툴팁 */
 export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   wbsId: 'WBS 식별자',
-  name: '작업명 (클릭하여 정렬)',
-  startDate: '시작일 (클릭하여 정렬)',
-  endDate: '종료일 (클릭하여 정렬)',
-  workEffort: '프로젝트 공수 단위(분·시간·일·주) (클릭하여 정렬)',
-  weight: `${WEIGHT_COLUMN_HELP_TEXT}\n클릭하여 정렬`,
-  assignee: '담당자 (클릭하여 정렬)',
+  name: '작업명',
+  startDate: '시작일',
+  endDate: '종료일',
+  workEffort: '프로젝트 공수 단위(분·시간·일·주)',
+  weight: WEIGHT_COLUMN_HELP_TEXT,
+  assignee: '담당자',
   allocation: '투입율 (%)',
-  status: '상태 (클릭하여 정렬)',
-  progress: `${PROGRESS_COLUMN_HELP_TEXT}\n클릭하여 정렬`,
+  status: '상태',
+  progress: PROGRESS_COLUMN_HELP_TEXT,
   deliverables: '산출물',
   dependencies: '선행작업(의존성)',
 };
-
-interface SortIconProps {
-  column: keyof Task | 'wbsId';
-  sortConfig: SortConfig;
-}
-
-export function SortIcon({ column, sortConfig }: SortIconProps) {
-  const isActive = sortConfig?.key === column || (column === 'wbsId' && sortConfig?.key === 'wbs');
-  if (!isActive) return <ArrowUpDown size={12} className="opacity-30" />;
-  return sortConfig!.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
-}
 
 interface HeaderCellProps {
   id: TableColumnId;
   label?: string;
   /** workEffort 컬럼 표시 텍스트(단일 프로젝트 표시 시 단위 포함) */
   workEffortHeaderTitle?: string;
-  sortConfig: SortConfig;
-  /** false면 헤더 클릭으로 정렬하지 않음(우클릭 메뉴 등은 그대로). 표만+편집 모드에서 열 조작 시 오정렬 방지 */
+  /** false면 헤더 클릭으로 정렬하지 않음(우클릭 메뉴 등은 그대로). 표+간트 분할·표만 편집 모드에서 열 조작·행 동기화 시 오정렬 방지 */
   headerSortClickEnabled?: boolean;
   onSort: (key: keyof Task | 'wbs') => void;
   resizeGrip: React.ReactNode;
@@ -64,7 +51,6 @@ export function HeaderCell({
   id,
   label,
   workEffortHeaderTitle,
-  sortConfig,
   headerSortClickEnabled = true,
   onSort,
   resizeGrip,
@@ -100,7 +86,7 @@ export function HeaderCell({
             headerSortClickEnabled ? 'WBS 순서 (클릭하여 정렬) · 더블클릭: 너비 자동' : 'WBS 순서 · 우클릭: 정렬·메뉴 · 더블클릭: 너비 자동'
           }
         >
-          WBS <SortIcon column="wbsId" sortConfig={sortConfig} />
+          WBS
           {resizeGrip}
         </div>
       );
@@ -113,7 +99,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.name : '작업명 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          작업명 <SortIcon column="name" sortConfig={sortConfig} />
+          작업명
           {resizeGrip}
         </div>
       );
@@ -126,7 +112,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.startDate : '시작일 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          시작일 <SortIcon column="startDate" sortConfig={sortConfig} />
+          시작일
           {resizeGrip}
         </div>
       );
@@ -139,7 +125,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.endDate : '종료일 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          종료일 <SortIcon column="endDate" sortConfig={sortConfig} />
+          종료일
           {resizeGrip}
         </div>
       );
@@ -152,7 +138,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.workEffort : '공수 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          {workEffortHeaderTitle ?? '공수'} <SortIcon column="workEffort" sortConfig={sortConfig} />
+          {workEffortHeaderTitle ?? '공수'}
           {resizeGrip}
         </div>
       );
@@ -165,7 +151,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.weight : '가중치 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          가중치 <SortIcon column={'weight' as keyof Task} sortConfig={sortConfig} />
+          가중치
           {resizeGrip}
         </div>
       );
@@ -178,7 +164,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.progress : '진척률 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          진척(%) <SortIcon column="progress" sortConfig={sortConfig} />
+          진척(%)
           {resizeGrip}
         </div>
       );
@@ -191,7 +177,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.assignee : '담당자 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          담당자 <SortIcon column="assignee" sortConfig={sortConfig} />
+          담당자
           {resizeGrip}
         </div>
       );
@@ -216,7 +202,7 @@ export function HeaderCell({
           onContextMenu={onColContextMenu}
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.status : '상태 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
-          상태 <SortIcon column="status" sortConfig={sortConfig} />
+          상태
           {resizeGrip}
         </div>
       );

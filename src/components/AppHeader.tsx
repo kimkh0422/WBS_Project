@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { useMatchMedia } from '../hooks/useMatchMedia';
 import {
@@ -35,6 +35,7 @@ import {
   Star,
   EyeOff,
   Network,
+  Keyboard,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -44,15 +45,20 @@ import {
   buildOrgChartProjectListBlocks,
   collectOrgExpandKeysForBlocks,
   countProjectsInOrgBranch,
+  groupProjectsByParticipantCount,
   type OrgChartGroupBranch,
   type ProjectListLayoutMode,
 } from '../lib/projectListOrgGrouping';
 import { useOrganization } from '../context/OrganizationContext';
+import { buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
 import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+
+/** 로고 클릭 시 이동할 경로와 App `MAIN_NAV_VIEW_ORDER`와 동일한 우선순위 */
+const LOGO_HOME_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'] as const;
 
 export interface AppHeaderProps {
   wbsSettings: WBSSettings;
@@ -122,6 +128,8 @@ export interface AppHeaderProps {
   handleImportClick: () => void;
   setIsExportModalOpen: (v: boolean) => void;
   setIsSettingsModalOpen: (v: boolean) => void;
+  isShortcutsVisible: boolean;
+  setIsShortcutsVisible: (v: boolean) => void;
   setIsMembersModalOpen: (v: boolean) => void;
   setIsResetConfirmOpen: (v: boolean) => void;
   setIsDeleteChoiceOpen: (v: boolean) => void;
@@ -209,6 +217,8 @@ export function AppHeader({
   handleImportClick,
   setIsExportModalOpen,
   setIsSettingsModalOpen,
+  isShortcutsVisible,
+  setIsShortcutsVisible,
   setIsMembersModalOpen,
   setIsResetConfirmOpen,
   setIsDeleteChoiceOpen,
@@ -271,6 +281,7 @@ export function AppHeader({
   const [projectListLayout, setProjectListLayout] = useState<ProjectListLayout>(() => {
     try {
       const nl = localStorage.getItem(PROJECT_LIST_LAYOUT_LS_KEY);
+      if (nl === 'assignees') return 'assignees';
       if (nl === 'org') return 'org';
       if (nl === 'group' || nl === 'kind') return 'kind';
       const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
@@ -290,6 +301,7 @@ export function AppHeader({
   const [expandedOrgNodeKeys, setExpandedOrgNodeKeys] = useState<Set<string>>(new Set());
 
   const { orgTree, orgMembers } = useOrganization();
+  const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const favoriteIds = useMemo(() => new Set(wbsSettings.favoriteProjectIds ?? []), [wbsSettings.favoriteProjectIds]);
 
   const persistListFilter = (next: ProjectListFilter) => {
@@ -351,6 +363,11 @@ export function AppHeader({
 
   const projectsByKindSections = useMemo(() => groupProjectsForKindListView(displayProjects), [displayProjects]);
 
+  const projectsByParticipantSections = useMemo(
+    () => groupProjectsByParticipantCount(displayProjects, allTasks),
+    [displayProjects, allTasks],
+  );
+
   const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
 
   const orgChartListModel = useMemo(
@@ -377,10 +394,11 @@ export function AppHeader({
     }
   }, [isProjectDropdownOpen, projectListLayout, topLevelDivisions.length, orgChartListModel]);
 
-  const ownerGroupLabel = (ownerKey: string) => {
-    if (ownerKey === '__none__') return '소유자 미지정';
-    if (user?.id && ownerKey === user.id) return '내 프로젝트';
-    return profileDisplayById[ownerKey] ?? profileMap[ownerKey] ?? `사용자 (${ownerKey.slice(0, 8)}…)`;
+  /** 헤더 프로젝트 목록 괄호 안: PM(조직도 기준 소속·직급 보조), 미입력 시 대시보드 카드와 동일하게「미지정」 */
+  const projectDropdownPmLabel = (project: Project) => {
+    const pm = (project.pmName ?? '').trim();
+    if (!pm) return '미지정';
+    return formatPersonDisplay(pm, { orgMetaByName: assigneeDisplayMetaByName });
   };
 
   // 권한 체크 헬퍼: 시스템 관리자 / 프로젝트 소유자만
@@ -427,7 +445,24 @@ export function AppHeader({
     return () => document.removeEventListener('mousedown', onDown);
   }, [isMoreMenuOpen, isUserMenuOpen, isProjectDropdownOpen, setIsMoreMenuOpen, setIsProjectDropdownOpen]);
 
-  const logoRefreshHint = '페이지 새로고침 (F5와 동일)';
+  const logoHomeView = useMemo(() => {
+    for (const v of LOGO_HOME_VIEW_ORDER) {
+      if (!hiddenViews.has(v)) return v;
+    }
+    return 'dashboard';
+  }, [hiddenViews]);
+
+  const logoRefreshHint = hiddenViews.has('dashboard') ? '홈 화면으로 이동하여 새로고침합니다' : '대시보드로 이동하여 새로고침합니다';
+
+  const handleLogoDashboardRefresh = useCallback(() => {
+    const targetPath = `/${logoHomeView}`;
+    const segment = window.location.pathname.replace(/^\//, '').split('/')[0] || '';
+    if (segment === logoHomeView) {
+      window.location.reload();
+    } else {
+      window.location.assign(targetPath);
+    }
+  }, [logoHomeView]);
 
   type MobileNavKey = 'dashboard' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
@@ -478,7 +513,7 @@ export function AppHeader({
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={handleLogoDashboardRefresh}
             className="shrink-0"
             title={logoRefreshHint}
             aria-label={logoRefreshHint}
@@ -516,11 +551,11 @@ export function AppHeader({
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity shrink-0"
             role="button"
             tabIndex={0}
-            onClick={() => window.location.reload()}
+            onClick={handleLogoDashboardRefresh}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                window.location.reload();
+                handleLogoDashboardRefresh();
               }
             }}
             title={logoRefreshHint}
@@ -623,7 +658,7 @@ export function AppHeader({
                     <div className="p-1">
                       <div
                         className="px-3 py-2 flex items-center justify-between gap-2"
-                        title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별은 조직 구조로 묶어 보거나, 다시 눌러 기본(항목 구분) 목록으로 돌아갑니다."
+                        title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별·인원별은 다시 누르면 기본(항목 구분) 목록으로 돌아갑니다."
                       >
                         <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
@@ -669,6 +704,28 @@ export function AppHeader({
                               조직도별
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              persistProjectListLayout(projectListLayout === 'assignees' ? 'kind' : 'assignees');
+                            }}
+                            className={cn(
+                              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                              projectListLayout === 'assignees'
+                                ? 'bg-violet-100 text-violet-900 border border-violet-200'
+                                : 'text-stone-400 hover:text-violet-800 border border-transparent hover:border-stone-200',
+                            )}
+                            title={
+                              projectListLayout === 'assignees'
+                                ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
+                                : '프로젝트 투입 인원과 작업 담당자 이름을 합쳐 참여 인원 수가 같은 프로젝트끼리 묶어 봅니다. (이름이 비어 있으면 제외)'
+                            }
+                            aria-pressed={projectListLayout === 'assignees'}
+                          >
+                            <Users size={10} />
+                            인원별
+                          </button>
                           {favoriteIds.size > 0 && (
                             <button
                               type="button"
@@ -765,7 +822,7 @@ export function AppHeader({
                       <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
                           const renderProjectRow = (project: Project) => {
-                            const ownerLabel = ownerGroupLabel(project.ownerId ?? '__none__');
+                            const pmLabel = projectDropdownPmLabel(project);
                             const isCurrentProject = currentProjectId === project.id;
                             return (
                               <div
@@ -808,7 +865,9 @@ export function AppHeader({
                                         현재
                                       </span>
                                     )}
-                                    <span className="text-[10px] text-stone-400">({ownerLabel})</span>
+                                    <span className="text-[10px] text-stone-400" title="프로젝트 PM">
+                                      ({pmLabel})
+                                    </span>
                                   </span>
                                   {(taskCountByProject[project.id] ?? 0) > 0 && (
                                     <span className="text-[10px] text-stone-400 ml-1">· {taskCountByProject[project.id]}개</span>
@@ -946,6 +1005,33 @@ export function AppHeader({
                               );
                             }
                             return nodes;
+                          }
+
+                          if (projectListLayout === 'assignees') {
+                            if (projectsByParticipantSections.length === 0) {
+                              return (
+                                <div className="px-3 py-2 text-[11px] text-stone-500 leading-relaxed">표시할 프로젝트가 없습니다.</div>
+                              );
+                            }
+                            return projectsByParticipantSections.map(({ participantCount, projects: list }) => (
+                              <section key={`part-${participantCount}`} className="mb-2 last:mb-0">
+                                <div
+                                  className={cn(
+                                    'sticky top-0 z-[1] flex items-center gap-2 px-2 py-1.5 mb-0.5 rounded-md border',
+                                    participantCount === 0
+                                      ? 'bg-amber-50 border-amber-100 text-amber-950'
+                                      : 'bg-violet-50 border-violet-100 text-violet-950',
+                                  )}
+                                  title="투입 인원(assignments)과 작업 담당자(assignee) 표시명을 합친 서로 다른 이름 수입니다."
+                                >
+                                  <span className="text-xs font-bold">
+                                    {participantCount === 0 ? '참여 인원 없음' : `참여 인원 ${participantCount}명`}
+                                  </span>
+                                  <span className="text-[10px] font-medium opacity-80 tabular-nums">({list.length}개)</span>
+                                </div>
+                                {list.map((p) => renderProjectRow(p))}
+                              </section>
+                            ));
                           }
 
                           return projectsByKindSections.map(({ sectionKey, headerLabel, headerBadgeClass, projects: list }) => (
@@ -1248,6 +1334,18 @@ export function AppHeader({
                     title="WBS 열 구성, 상태·진척도 규칙, 앱 제목, 프로젝트 그룹·관심 목록 등 전역 설정을 변경합니다."
                   >
                     <Settings2 size={14} /> 환경설정
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      setIsShortcutsVisible(!isShortcutsVisible);
+                      tipOnce?.('menu.shortcuts', '오른쪽에 키보드 단축키 패널을 엽니다. (입력란에 포커스가 없을 때 Shift+? 로도 토글)');
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    title="키보드 단축키 안내 패널을 열거나 닫습니다. Shift+? 로도 토글할 수 있습니다."
+                  >
+                    <Keyboard size={14} /> 단축키
                   </button>
 
                   {(allowMembersManagement || showSuperAdminDeleteMenu) && <div className="h-px bg-slate-100 my-1 mx-2" />}

@@ -180,8 +180,45 @@ describe('computePersonWorkEffortAllocationsFromTasks', () => {
     expect(rows.map((r) => r.person)).toEqual(['Kim', 'Lee']);
     const kim = rows.find((r) => r.person === 'Kim')!;
     expect(kim.totalMd).toBe(40);
+    expect(kim.totalEarnedMd).toBe(0);
     expect(kim.items.map((i) => i.project.id)).toEqual(['p2', 'p1']);
     expect(kim.items[0].workEffortMd).toBe(30);
+    expect(kim.items[0].earnedEffortMd).toBe(0);
+  });
+
+  it('진척률에 따라 earnedEffortMd와 가중 진척률을 반영한다', () => {
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' }];
+    const tasks: Task[] = [
+      {
+        id: 't1',
+        projectId: 'p1',
+        parentId: null,
+        name: 'a',
+        startDate: '',
+        endDate: '',
+        progress: 50,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 10,
+      },
+      {
+        id: 't2',
+        projectId: 'p1',
+        parentId: null,
+        name: 'b',
+        startDate: '',
+        endDate: '',
+        progress: 100,
+        assignee: 'Kim',
+        status: 'todo',
+        workEffort: 10,
+      },
+    ];
+    const rows = computePersonWorkEffortAllocationsFromTasks(projects, tasks);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].totalMd).toBe(20);
+    expect(rows[0].totalEarnedMd).toBe(15);
+    expect(rows[0].items[0].earnedEffortMd).toBe(15);
   });
 
   it('projects 목록에 없는 프로젝트 작업은 제외한다', () => {
@@ -215,6 +252,7 @@ describe('computePersonWorkEffortAllocationsFromTasks', () => {
     const rows = computePersonWorkEffortAllocationsFromTasks(projects, tasks);
     expect(rows).toHaveLength(1);
     expect(rows[0].totalMd).toBe(1);
+    expect(rows[0].totalEarnedMd).toBe(0);
     expect(rows[0].items).toHaveLength(1);
   });
 });

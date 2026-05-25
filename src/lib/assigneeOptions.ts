@@ -133,3 +133,20 @@ export function buildOrgMemberLabelMap(orgMembers: OrgMember[] | undefined): Map
   }
   return m;
 }
+
+/**
+ * datalist 자동완성에서 Enter로 확정할 때 사용한다.
+ * 입력이 후보 이름과 정확히 같거나, `startsWith`/`includes` 기준으로 단 한 명으로만 좁혀질 때 그 저장용 이름을 반환한다.
+ */
+export function resolveAssigneeIfUniqueMatch(query: string, candidates: readonly string[]): string | null {
+  const q = query.trim();
+  if (!q) return null;
+  const list = Array.from(new Set(candidates.map((c) => (c || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko'));
+  const byExact = list.filter((c) => c === q);
+  if (byExact.length === 1) return byExact[0]!;
+  const byStart = list.filter((c) => c.startsWith(q));
+  if (byStart.length === 1) return byStart[0]!;
+  const byInclude = list.filter((c) => c.includes(q));
+  if (byInclude.length === 1) return byInclude[0]!;
+  return null;
+}

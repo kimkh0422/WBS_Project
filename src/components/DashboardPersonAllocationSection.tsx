@@ -3,7 +3,7 @@ import { Briefcase, ChevronDown, ChevronRight, ExternalLink, Info, LayoutGrid, T
 import type { DashboardSectionLayoutMode } from '../lib/dashboardSectionLayout';
 import { useWBS } from '../context/WBSContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { cn } from '../lib/utils';
+import { cn, formatPercent1 } from '../lib/utils';
 import { formatEffortFromManDays } from '../lib/workEffortUnits';
 import {
   formatPersonWorkEffortRowDisplay,
@@ -15,6 +15,7 @@ import {
   computePersonAllocations,
   computePersonProjectWorkEffort,
   computePersonWorkEffortAllocationsFromTasks,
+  computePersonWorkEffortWeightedProgressPct,
   computeProjectAllocations,
   splitUnassignedPersonWorkEffortByInferredDivision,
   type PersonWorkEffortAllocation,
@@ -240,6 +241,7 @@ export function DashboardPersonAllocationSection({
   const helpBullets = useMemo(() => {
     const lines = [
       'WBS 작업에 담당으로 배정되고 투입공수(workEffort)가 0보다 큰 작업만 합산합니다. 프로젝트별·인원별 합계는 M/M(맨먼스)로 표시합니다.',
+      '진척률은 담당 작업의 공수(workEffort)로 진척%를 가중한 평균(Σ(공수×진척%)÷총 공수)입니다. 프로젝트별 줄에도 동일 방식으로 표시합니다.',
       '프로젝트 설정의「투입 인원」비율과는 별개이며, 작업에 적힌 공수 기준으로 표시합니다.',
       '이름을 누르면 투입·작업 상세를, 프로젝트를 누르면 해당 프로젝트 작업 표로 이동합니다.',
     ];
@@ -439,10 +441,11 @@ export function DashboardPersonAllocationSection({
                 </button>
                 {!collapsed && (
                   <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-sm min-w-[640px] border-collapse">
+                    <table className="w-full table-fixed text-sm min-w-[40rem] border-collapse">
                       <colgroup>
                         <col className="min-w-0" />
                         <col className="w-[7.5rem]" />
+                        <col className="w-[4.75rem]" />
                         <col className="min-w-[12rem]" />
                       </colgroup>
                       <thead className="border-b border-stone-200 bg-stone-100/95">
@@ -451,6 +454,12 @@ export function DashboardPersonAllocationSection({
                           <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">
                             투입 합
                           </th>
+                          <th
+                            className="border-l border-stone-200/90 px-2 pt-2.5 pb-1 text-right text-xs font-semibold text-stone-700 whitespace-nowrap"
+                            title="공수 가중 평균 진척률"
+                          >
+                            진척률
+                          </th>
                           <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-left text-xs font-semibold text-stone-700">
                             프로젝트·공수
                           </th>
@@ -458,17 +467,21 @@ export function DashboardPersonAllocationSection({
                         <tr className="text-[10px] font-normal text-stone-400">
                           <th className="px-3 pb-2.5 pt-0 text-left font-normal">이름을 누르면 투입·작업 상세</th>
                           <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
+                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-2 pb-2.5 pt-0 text-right font-normal leading-tight">
+                            공수 가중
+                          </th>
                           <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100">
-                        {block.rows.map(({ person, items, totalMd }, rowIdx) => {
+                        {block.rows.map(({ person, items, totalMd, totalEarnedMd }, rowIdx) => {
                           const personDisplay = formatPersonWorkEffortRowDisplay(
                             person,
                             allocationDisplayMetaByName,
                             divisionNameById.size > 0 ? divisionNameById : undefined,
                           );
                           const totalEffortLabel = formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT);
+                          const progressPct = computePersonWorkEffortWeightedProgressPct({ totalMd, totalEarnedMd });
                           return (
                             <tr
                               key={person}
@@ -493,10 +506,17 @@ export function DashboardPersonAllocationSection({
                               <td className="border-l border-stone-100 px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold leading-snug text-indigo-700 whitespace-nowrap">
                                 {totalEffortLabel}
                               </td>
+                              <td className="border-l border-stone-100 px-2 py-2.5 text-right align-top tabular-nums text-xs font-bold leading-snug text-indigo-900 whitespace-nowrap">
+                                {formatPercent1(progressPct)}%
+                              </td>
                               <td className="border-l border-stone-100 px-3 py-2.5 align-top min-w-0">
                                 <ul className="m-0 flex flex-col gap-1 p-0 list-none">
-                                  {items.map(({ project, workEffortMd }) => {
+                                  {items.map(({ project, workEffortMd, earnedEffortMd }) => {
                                     const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
+                                    const projectProgressPct = computePersonWorkEffortWeightedProgressPct({
+                                      totalMd: workEffortMd,
+                                      totalEarnedMd: earnedEffortMd,
+                                    });
                                     const kind = resolveProjectKindOrDefault(project);
                                     const projectTitle =
                                       (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
@@ -504,7 +524,7 @@ export function DashboardPersonAllocationSection({
                                     return (
                                       <li
                                         key={project.id}
-                                        className="grid grid-cols-[auto_minmax(0,1fr)_5.25rem] items-center gap-x-2 gap-y-0 rounded-md border border-stone-100/90 bg-stone-50/40 px-2 py-1 min-w-0 hover:border-stone-200/90 hover:bg-white/90 transition-colors"
+                                        className="grid grid-cols-[auto_minmax(0,1fr)_6.75rem] items-center gap-x-2 gap-y-0 rounded-md border border-stone-100/90 bg-stone-50/40 px-2 py-1 min-w-0 hover:border-stone-200/90 hover:bg-white/90 transition-colors"
                                       >
                                         <span
                                           className={cn(
@@ -519,18 +539,24 @@ export function DashboardPersonAllocationSection({
                                             type="button"
                                             onClick={() => onNavigateToWork(project.id)}
                                             className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-800 hover:text-indigo-800 hover:underline break-words [overflow-wrap:anywhere]"
-                                            title={`${fullLabel} — 작업 표로 이동`}
+                                            title={`${fullLabel} — ${effortLabel}, 진척 ${formatPercent1(projectProgressPct)}% · 작업 표로 이동`}
                                           >
-                                            {projectTitle}
+                                            <span className="block font-medium text-stone-800 truncate">{projectTitle}</span>
+                                            <span className="block font-semibold text-indigo-700">
+                                              진척 {formatPercent1(projectProgressPct)}%
+                                            </span>
                                           </button>
                                         ) : (
-                                          <span className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-800 break-words [overflow-wrap:anywhere]">
-                                            {projectTitle}
-                                          </span>
+                                          <div className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-700 break-words [overflow-wrap:anywhere]">
+                                            <span className="block font-medium text-stone-800 truncate">{projectTitle}</span>
+                                            <span className="block font-semibold text-indigo-700">
+                                              진척 {formatPercent1(projectProgressPct)}%
+                                            </span>
+                                          </div>
                                         )}
-                                        <span className="shrink-0 justify-self-end text-right text-xs tabular-nums font-medium leading-snug text-stone-600">
+                                        <div className="text-right tabular-nums text-xs font-bold text-stone-700 self-center whitespace-nowrap">
                                           {effortLabel}
-                                        </span>
+                                        </div>
                                       </li>
                                     );
                                   })}
@@ -571,7 +597,7 @@ export function DashboardPersonAllocationSection({
                 </button>
                 {!collapsed && (
                   <ul className="m-0 list-none divide-y divide-stone-200/75 border-t border-stone-200/60 bg-[var(--color-surface)]/30 p-0">
-                    {block.rows.map(({ person, items, totalMd }) => {
+                    {block.rows.map(({ person, items, totalMd, totalEarnedMd }) => {
                       const personDisplayFull = formatPersonWorkEffortRowDisplay(
                         person,
                         allocationDisplayMetaByName,
@@ -579,6 +605,7 @@ export function DashboardPersonAllocationSection({
                       );
                       const personDisplay = shortenPersonRowLabelForSection(personDisplayFull, block.title);
                       const totalEffortLabel = formatEffortFromManDays(totalMd, EFFORT_DISPLAY_UNIT);
+                      const progressPct = computePersonWorkEffortWeightedProgressPct({ totalMd, totalEarnedMd });
                       return (
                         <li
                           key={person}
@@ -606,16 +633,28 @@ export function DashboardPersonAllocationSection({
                                 <span className="text-sm font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] group-hover/person:text-violet-950">
                                   {personDisplay}
                                 </span>
-                                <span className="shrink-0 rounded-md bg-violet-100/95 px-2 py-0.5 text-xs font-bold tabular-nums text-violet-900 ring-1 ring-violet-200/70">
-                                  {totalEffortLabel}
-                                </span>
+                                <div className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 shrink-0">
+                                  <span className="rounded-md bg-violet-100/95 px-2 py-0.5 text-xs font-bold tabular-nums text-violet-900 ring-1 ring-violet-200/70">
+                                    {totalEffortLabel}
+                                  </span>
+                                  <span
+                                    className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-indigo-900 ring-1 ring-indigo-200/80"
+                                    title="진척률(공수 가중)"
+                                  >
+                                    진척 {formatPercent1(progressPct)}%
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </button>
                           {items.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5 pl-0 sm:pl-10">
-                              {items.map(({ project, workEffortMd }) => {
+                              {items.map(({ project, workEffortMd, earnedEffortMd }) => {
                                 const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
+                                const projectProgressPct = computePersonWorkEffortWeightedProgressPct({
+                                  totalMd: workEffortMd,
+                                  totalEarnedMd: earnedEffortMd,
+                                });
                                 const kind = resolveProjectKindOrDefault(project);
                                 const projectTitle =
                                   (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
@@ -637,7 +676,10 @@ export function DashboardPersonAllocationSection({
                                       [{kind}]
                                     </span>
                                     <span className="min-w-0 truncate font-medium">{projectTitle}</span>
-                                    <span className="shrink-0 tabular-nums text-stone-500">{effortLabel}</span>
+                                    <span className="shrink-0 tabular-nums text-stone-500">
+                                      {effortLabel}
+                                      <span className="text-indigo-700 font-semibold"> · 진척 {formatPercent1(projectProgressPct)}%</span>
+                                    </span>
                                   </>
                                 );
                                 return onNavigateToWork ? (
@@ -649,12 +691,16 @@ export function DashboardPersonAllocationSection({
                                       onNavigateToWork(project.id);
                                     }}
                                     className={chipClassName}
-                                    title={`${fullLabel} — 작업 표로 이동`}
+                                    title={`${fullLabel} — ${effortLabel}, 진척 ${formatPercent1(projectProgressPct)}% · 작업 표로 이동`}
                                   >
                                     {inner}
                                   </button>
                                 ) : (
-                                  <span key={`${person}:${project.id}`} className={chipClassName} title={effortLabel}>
+                                  <span
+                                    key={`${person}:${project.id}`}
+                                    className={chipClassName}
+                                    title={`${effortLabel} · 진척 ${formatPercent1(projectProgressPct)}%`}
+                                  >
                                     {inner}
                                   </span>
                                 );

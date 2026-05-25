@@ -23,7 +23,7 @@ interface UseGanttDragOptions {
       deferScheduleSync?: boolean;
     },
   ) => void;
-  /** drag.tasks.length > 1일 때 패치 후 한 번 호출 */
+  /** 간트 일정 패치 후 호출(단일·다중 행): 선행(FS) 정합 후 상위 롤업 */
   flushProjectTaskRollups?: (projectId: string) => void;
   pushToast: (msg: string, options?: { variant?: 'info' | 'success' | 'warning' | 'error'; durationMs?: number }) => void;
   dayWidth: number;
@@ -319,7 +319,7 @@ export function useGanttDrag({
               upd(t.taskId, { startDate: t.previewStartDate, endDate: t.previewEndDate }, { ...commonOpts, skipEffortScheduleLink: false });
             }
           }
-          if (batchDefer && anyDateChange) {
+          if (anyDateChange) {
             const flush = flushRollupsRef.current;
             if (flush) {
               for (const pid of projectIdsToFlush) flush(pid);

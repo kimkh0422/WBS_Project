@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks, AlertTriangle, Unlock } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
+import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { useOrganization } from '../context/OrganizationContext';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { randomUUID, cn, round1, round2 } from '../lib/utils';
@@ -24,6 +25,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { SupabaseYjsProvider } from '../lib/yjsSupabaseProvider';
+import { USER_LOCKED_FIELD_LABELS, type UserLockedField } from '../lib/taskLocks';
+import { resolveAssigneeIfUniqueMatch } from '../lib/assigneeOptions';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -205,6 +208,16 @@ export function TaskModal({
   const [depsFocused, setDepsFocused] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  /** 저장 시 제거할 필드 잠금(모달을 연 시점의 initialData 기준). */
+  const [removedFieldLocks, setRemovedFieldLocks] = useState<Set<UserLockedField>>(() => new Set());
+
+  const taskScheduleOutsideNote = useMemo(() => {
+    if (!taskProject) return null;
+    return getTaskScheduleOutsideProjectMessage(
+      { startDate: formData.startDate ?? '', endDate: formData.endDate ?? '' },
+      { startDate: taskProject.startDate, endDate: taskProject.endDate },
+    );
+  }, [taskProject, formData.startDate, formData.endDate]);
 
   // ─── CRDT: Y.Doc 생성 후 자식에서만 useEditor 호출 (null 전달 크래시 방지) ─
   const [descCollab, setDescCollab] = useState<{ doc: Y.Doc; provider: SupabaseYjsProvider } | null>(null);
@@ -258,6 +271,10 @@ export function TaskModal({
     );
     return (checklist || []).filter((item) => !childIds.has(item.id) && !childTitles.has(item.text.trim()));
   };
+
+  useEffect(() => {
+    setRemovedFieldLocks(new Set());
+  }, [initialData?.id, isOpen]);
 
   useEffect(() => {
     if (initialData) {
@@ -538,6 +555,7 @@ export function TaskModal({
     if (initialData?.id) {
       type LockedField = NonNullable<Task['userLockedFields']>[number];
       const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
+      removedFieldLocks.forEach((f) => locked.delete(f));
       if (formData.startDate !== initialData.startDate) locked.add('startDate');
       if (formData.endDate !== initialData.endDate) locked.add('endDate');
       const depA = (toMerge.dependencies ?? []).slice().sort();
@@ -843,6 +861,7 @@ export function TaskModal({
                 </span>
               </label>
               <input
+                id="task-modal-assignee-input"
                 type="text"
                 list="task-modal-assignees"
                 value={formData.assignee || ''}
@@ -852,6 +871,19 @@ export function TaskModal({
                   const allocationPercent = match?.allocationPercent ?? 100;
                   setFormData({ ...formData, assignee: v, allocationPercent });
                   setAllocationPercentInput(String(allocationPercent));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || readOnly) return;
+                  const picked = resolveAssigneeIfUniqueMatch(e.currentTarget.value, assigneeOptions);
+                  if (!picked) return;
+                  e.preventDefault();
+                  const match = projectAssignments.find((a) => (a.assignee || '').trim() === picked);
+                  const allocationPercent = match?.allocationPercent ?? 100;
+                  setFormData((prev) => ({ ...prev, assignee: picked, allocationPercent }));
+                  setAllocationPercentInput(String(allocationPercent));
+                  requestAnimationFrame(() => {
+                    document.getElementById('task-modal-work-effort-input')?.focus();
+                  });
                 }}
                 placeholder="선택 또는 입력"
                 className="input-field py-1.5 text-sm"
@@ -919,6 +951,43 @@ export function TaskModal({
               </div>
             ) : null}
 
+            {!readOnly &&
+              initialData?.id &&
+              (() => {
+                const activeLocks = (initialData.userLockedFields ?? []).filter((f) => !removedFieldLocks.has(f));
+                if (activeLocks.length === 0) return null;
+                return (
+                  <div className="col-span-full rounded-lg border border-amber-200/80 bg-amber-50/60 px-3 py-2">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="text-[11px] font-semibold text-amber-900">필드 잠금</span>
+                      <span className="text-[10px] text-amber-800/90 leading-snug">
+                        아래에서 해제한 항목은 저장 시 반영됩니다. 해제 후에는 자동 일정·롤업이 해당 항목에 다시 적용될 수 있습니다.
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      {activeLocks.map((field) => (
+                        <button
+                          key={field}
+                          type="button"
+                          onClick={() => setRemovedFieldLocks((prev) => new Set(prev).add(field))}
+                          className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                        >
+                          <Unlock size={12} className="text-amber-700 shrink-0" aria-hidden />
+                          {USER_LOCKED_FIELD_LABELS[field]}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setRemovedFieldLocks(new Set(initialData.userLockedFields ?? []))}
+                        className="text-[10px] font-semibold text-amber-800 hover:underline ml-1"
+                      >
+                        전부 해제
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
             {/* 일정 + 공수 - 한 줄 */}
             <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
               <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
@@ -956,6 +1025,15 @@ export function TaskModal({
                 disabled={readOnly}
               />
             </div>
+            {taskScheduleOutsideNote && (
+              <div
+                className="col-span-full flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950"
+                role="alert"
+              >
+                <AlertTriangle className="flex-shrink-0 mt-0.5 text-amber-600" size={16} aria-hidden />
+                <span>{taskScheduleOutsideNote}</span>
+              </div>
+            )}
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">진행률 %</label>
               <input
@@ -989,6 +1067,7 @@ export function TaskModal({
                   <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 ({taskEffortUnitLabel})</label>
                   <div className="flex gap-1.5 items-center">
                     <input
+                      id="task-modal-work-effort-input"
                       type="number"
                       min="0"
                       step={taskEffortUnit === 'minute' ? 1 : 0.5}
@@ -1052,7 +1131,15 @@ export function TaskModal({
                     setFormData((prev) => ({
                       ...prev,
                       isMilestone: checked,
-                      ...(checked && prev.startDate ? { endDate: prev.startDate, workEffort: 0 } : {}),
+                      ...(checked
+                        ? {
+                            ...(prev.startDate
+                              ? { endDate: prev.startDate, workEffort: 0 }
+                              : prev.endDate
+                                ? { startDate: prev.endDate, workEffort: 0 }
+                                : { workEffort: 0 }),
+                          }
+                        : {}),
                     }));
                   }}
                   className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30"

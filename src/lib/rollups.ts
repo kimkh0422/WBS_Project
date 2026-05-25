@@ -1,4 +1,5 @@
 import { Task } from '../types';
+import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 
@@ -459,7 +460,7 @@ export function recomputeProjectRollups(
     if (excludeParentIds?.has(pid)) continue;
     next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds, undefined);
   }
-  return next;
+  return next.map((t) => (t.projectId === projectId ? applyMilestoneDateInvariant(t) : t));
 }
 
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/진척률을 하위 작업 기준으로 롤업 */

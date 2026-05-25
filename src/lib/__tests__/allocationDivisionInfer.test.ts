@@ -33,10 +33,11 @@ describe('splitUnassignedPersonWorkEffortByInferredDivision', () => {
       {
         person: UNASSIGNED_PERSON_KEY,
         items: [
-          { project: pA, workEffortMd: 10 },
-          { project: pB, workEffortMd: 5 },
+          { project: pA, workEffortMd: 10, earnedEffortMd: 2 },
+          { project: pB, workEffortMd: 5, earnedEffortMd: 1 },
         ],
         totalMd: 15,
+        totalEarnedMd: 3,
       },
     ];
     const ctx = {
@@ -49,5 +50,7 @@ describe('splitUnassignedPersonWorkEffortByInferredDivision', () => {
     const keys = new Set(out.map((r) => r.person));
     expect(keys.has('(미지정)::d1')).toBe(true);
     expect(keys.has('(미지정)::d2')).toBe(true);
+    expect(out.find((r) => r.person === '(미지정)::d1')?.totalEarnedMd).toBe(2);
+    expect(out.find((r) => r.person === '(미지정)::d2')?.totalEarnedMd).toBe(1);
   });
 });
