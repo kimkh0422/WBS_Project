@@ -98,8 +98,12 @@ export interface WBSContextType {
   /** 화면 순서대로 선행작업 체인 연결 (각 작업의 선행은 목록에서 바로 위 작업만) */
   linkSequentialPredecessors: (orderedTaskIds: string[], options?: { bulkWorkEffort?: number; bulkAllocationPercent?: number }) => void;
   deleteTask: (id: string) => void;
-  /** 간트 일정 패치 후: 선행(FS) 일정 정합 + 프로젝트 상위 롤업 */
-  flushProjectTaskRollups: (projectId: string) => void;
+  /**
+   * 간트 등 연속 일정 패치 후 마무리.
+   * 기본: 선행(FS) 일정 정합(`applyDependencySchedule`) + 프로젝트 상위 롤업.
+   * `skipDependencySchedule`: 간트 막대 이동·리사이즈처럼 **해당 작업만** 날짜를 바꾸고 후행을 끌어당기지 않을 때 사용.
+   */
+  flushProjectTaskRollups: (projectId: string, options?: { skipDependencySchedule?: boolean }) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;
@@ -108,6 +112,10 @@ export interface WBSContextType {
   toggleExpand: (id: string) => void;
   expandToLevel: (level: number) => void;
   reorderTask: (id: string, overId: string) => void;
+  /** 다중 선택 루트 작업을 한 부모 아래로 옮김(히스토리 1회) */
+  reparentTaskRootsUnder: (newParentId: string, orderedRootIds: string[]) => void;
+  /** 루트 작업들을 대상 행과 같은 부모로 옮기고 표 순서만 before/after로 조정 */
+  moveTaskRootsSibling: (orderedRootIds: string[], overId: string, position: 'before' | 'after') => void;
   importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => Promise<void>;
   /** 로컬에서 삭제된 작업 id 로그(삭제 반영용) */
   deletedTaskIdsByProject: Record<string, string[]>;

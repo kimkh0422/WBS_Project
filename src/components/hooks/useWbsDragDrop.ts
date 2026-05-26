@@ -16,15 +16,31 @@ export type DropPosition = 'before' | 'inside' | 'after';
 
 interface UseWbsDragDropOptions {
   tasks: Task[];
-  updateTask: (id: string, updates: Partial<Task>) => void;
-  reorderTask: (draggedId: string, targetId: string) => void;
+  /** 체크박스·Ctrl/Shift 다중 선택과 동기화된 id 집합(그립 드래그 시 일괄 이동에 사용) */
+  selectedTaskIds?: ReadonlySet<string>;
+  reparentTaskRootsUnder: (newParentId: string, orderedRootIds: string[]) => void;
+  moveTaskRootsSibling: (orderedRootIds: string[], overId: string, position: 'before' | 'after') => void;
 }
 
-export function useWbsDragDrop({ tasks, updateTask, reorderTask }: UseWbsDragDropOptions) {
+/** 다중 선택에서 트리 루트만(선택된 상위가 있으면 제외) — 표 `tasks` 순서 유지 */
+function orderedSelectionRoots(tasks: Task[], projectId: string, selected: ReadonlySet<string>): string[] {
+  const ordered = tasks.filter((t) => t.projectId === projectId && selected.has(t.id)).map((t) => t.id);
+  return ordered.filter((id) => {
+    const t = tasks.find((x) => x.id === id);
+    const p = t?.parentId;
+    return !p || !selected.has(p);
+  });
+}
+
+export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder, moveTaskRootsSibling }: UseWbsDragDropOptions) {
   const [dndActiveId, setDndActiveId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ overId: string; position: DropPosition } | null>(null);
-  // 드래그 후 배치 옵션 팝업
-  const [dropMenu, setDropMenu] = useState<{ draggedId: string; overId: string; x: number; y: number } | null>(null);
+  const [dropMenu, setDropMenu] = useState<{
+    draggedRootIds: string[];
+    overId: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -55,7 +71,6 @@ export function useWbsDragDrop({ tasks, updateTask, reorderTask }: UseWbsDragDro
     setDndActiveId(null);
   }, []);
 
-  /** 드래그 종료 → 배치 옵션 팝업 표시 */
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setDndActiveId(null);
@@ -63,56 +78,69 @@ export function useWbsDragDrop({ tasks, updateTask, reorderTask }: UseWbsDragDro
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      const draggedId = active.id as string;
+      const activeId = active.id as string;
       const overId = over.id as string;
 
-      const draggedTask = tasks.find((t) => t.id === draggedId);
+      const sel = selectedTaskIds ?? new Set<string>();
+      const bulkDrag = sel.size > 1 && sel.has(activeId);
+      const dragSet: ReadonlySet<string> = bulkDrag ? sel : new Set([activeId]);
+
+      const draggedTask = tasks.find((t) => t.id === activeId);
       const overTask = tasks.find((t) => t.id === overId);
       if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) return;
 
-      // 순환 방지: over가 드래그한 작업의 자손이면 차단
-      const isDescendant = (ancestorId: string, checkId: string): boolean => {
-        let cur = tasks.find((t) => t.id === checkId);
-        while (cur?.parentId) {
-          if (cur.parentId === ancestorId) return true;
-          cur = tasks.find((t) => t.id === cur!.parentId);
+      const pid = draggedTask.projectId;
+      const draggedRootIds = orderedSelectionRoots(tasks, pid, dragSet);
+      if (draggedRootIds.length === 0) return;
+
+      const collectSubtreeIds = (rootId: string, list: Task[]): Set<string> => {
+        const acc = new Set<string>([rootId]);
+        const stack = [rootId];
+        while (stack.length) {
+          const id = stack.pop()!;
+          for (const t of list) {
+            if (t.parentId === id && t.projectId === pid && !acc.has(t.id)) {
+              acc.add(t.id);
+              stack.push(t.id);
+            }
+          }
         }
-        return false;
+        return acc;
       };
-      if (isDescendant(draggedId, overId)) return;
+
+      const forbidden = new Set<string>();
+      for (const rid of draggedRootIds) {
+        for (const id of collectSubtreeIds(rid, tasks)) forbidden.add(id);
+      }
+      if (forbidden.has(overId)) return;
 
       const el = document.getElementById(`task-row-${overId}`);
       const rect = el?.getBoundingClientRect();
-      // 시작일 칸 정도 위치 (행 왼쪽 + 약 350px)
       const x = rect ? rect.left + Math.min(450, rect.width * 0.38) : 450;
       const y = rect ? rect.bottom + 4 : window.innerHeight / 2;
-      setDropMenu({ draggedId, overId, x, y });
+      setDropMenu({ draggedRootIds, overId, x, y });
     },
-    [tasks],
+    [tasks, selectedTaskIds],
   );
 
-  /** 배치 옵션 선택 시 실행 */
   const executeDropAction = useCallback(
     (action: DropPosition) => {
       if (!dropMenu) return;
-      const { draggedId, overId } = dropMenu;
+      const { draggedRootIds, overId } = dropMenu;
       const overTask = tasks.find((t) => t.id === overId);
-      if (!overTask) {
+      if (!overTask || draggedRootIds.length === 0) {
         setDropMenu(null);
         return;
       }
 
       if (action === 'inside') {
-        updateTask(draggedId, { parentId: overId });
-        if (!overTask.expanded) updateTask(overId, { expanded: true });
+        reparentTaskRootsUnder(overId, draggedRootIds);
       } else {
-        const targetParentId = overTask.parentId ?? null;
-        updateTask(draggedId, { parentId: targetParentId });
-        reorderTask(draggedId, overId);
+        moveTaskRootsSibling(draggedRootIds, overId, action);
       }
       setDropMenu(null);
     },
-    [dropMenu, tasks, updateTask, reorderTask],
+    [dropMenu, tasks, reparentTaskRootsUnder, moveTaskRootsSibling],
   );
 
   return {

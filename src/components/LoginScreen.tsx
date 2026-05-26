@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, ArrowLeft, KeyRound, MailCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
-import { isAllowedSignupEmail, SIGNUP_DOMAIN_ERROR, ALLOWED_SIGNUP_DOMAIN } from '../lib/emailDomain';
+import { isAllowedSignupEmail, SIGNUP_EMAIL_FORMAT_ERROR } from '../lib/emailDomain';
 import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
 import { formatTodayKoLongWithWeekday } from '../lib/utils';
 
@@ -86,7 +86,7 @@ export function LoginScreen() {
         return;
       }
       if (!isAllowedSignupEmail(email)) {
-        setError(SIGNUP_DOMAIN_ERROR);
+        setError(SIGNUP_EMAIL_FORMAT_ERROR);
         return;
       }
       if (password.length < 6) {
@@ -225,7 +225,7 @@ export function LoginScreen() {
       case 'signIn':
         return '로그인하여 프로젝트를 관리하세요.';
       case 'signUp':
-        return `회사 메일(@${ALLOWED_SIGNUP_DOMAIN})로만 가입할 수 있어요.`;
+        return '사내 직원은 @gmtc.kr, 외주 파트너는 본인 업체 이메일로 가입할 수 있어요. 외주 계정은 초대·공유된 프로젝트만 열립니다.';
       case 'verifySignup':
         return '메일로 받은 인증 코드를 입력하세요.';
       case 'forgotEmail':
@@ -304,7 +304,7 @@ export function LoginScreen() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder={isSignUp ? `이메일 (@${ALLOWED_SIGNUP_DOMAIN})` : '이메일'}
+                  placeholder={isSignUp ? '이메일 (예: name@gmtc.kr 또는 name@partner.com)' : '이메일'}
                   className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
                   autoComplete="email"
                   disabled={loading}

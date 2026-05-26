@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { FilterState, Task } from '../types';
 import { TaskModal } from './TaskModal';
@@ -715,11 +715,28 @@ export function MindMapView({ filters }: MindMapViewProps) {
     if (!el || nodes.length === 0) return;
     const w = el.clientWidth;
     const h = el.clientHeight;
+    if (w < 8 || h < 8) return;
     const pad = 48;
     const s = Math.min(1.2, Math.max(0.4, Math.min((w - pad * 2) / width, (h - pad * 2) / height)));
     setScale(s);
     setPan({ x: (w - width * s) / 2, y: (h - height * s) / 2 });
   }, [width, height, nodes.length]);
+
+  /** 첫 진입·레이아웃 변경·패널 크기 변화 시 뷰포트에 맞춤 (수동 '화면에 맞추기'와 동일 기준) */
+  useLayoutEffect(() => {
+    if (scopedTasks.length === 0 || nodes.length === 0) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const run = () => {
+      requestAnimationFrame(() => fitView());
+    };
+    run();
+
+    const ro = new ResizeObserver(run);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width, height, layoutMode, scopedTasks.length, nodes.length, fitView]);
 
   const focusContainer = useCallback(() => {
     containerRef.current?.focus({ preventScroll: true });

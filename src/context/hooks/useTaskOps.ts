@@ -725,7 +725,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, projectsRef, wbsSettingsRef, setAllTasks],
   );
 
-  /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). */
+  /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). 잠금된 시작일·종료일은 applyDependencySchedule에서 그대로 유지된다. */
   const linkSequentialPredecessors = useCallback(
     (
       orderedTaskIds: string[],
@@ -806,9 +806,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
           if (idx == null) return t;
 
           const lockFields = new Set(t.userLockedFields ?? []);
-          // 선행 순차 연결은 FS·공수로 일정을 다시 깔 것이므로 날짜 잠금만 해제(종료일 잠금이 있으면 스케줄러가 조기 종료되어 막대 길이가 공수와 불일치함)
-          lockFields.delete('startDate');
-          lockFields.delete('endDate');
+          // 날짜 잠금은 유지한다. applyDependencySchedule가 userLockedFields를 존중해
+          // 잠금된 시작일/종료일은 FS·공수 재산출로 덮어쓰지 않는다(선행만 연결하고 일정은 사용자 고정 유지).
           if (idx > 0) {
             lockFields.add('dependencies');
           }
@@ -847,10 +846,15 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError],
   );
 
-  /** 간트 등에서 연속 패치(skipCascade) 후 호출: 선행(FS) 일정 정합 + 프로젝트 상위 롤업. */
+  /**
+   * 간트 등에서 연속 패치(skipCascade) 후 호출.
+   * 기본: 선행(FS) 일정 정합 + 프로젝트 상위 롤업.
+   * `skipDependencySchedule`: 의존성 재계산 없이 롤업만(간트에서 막대만 옮길 때 후행이 따라오지 않게).
+   */
   const flushProjectTaskRollups = useCallback(
-    (projectId: string) => {
+    (projectId: string, options?: { skipDependencySchedule?: boolean }) => {
       if (!projectId || projectId === 'all') return;
+      const skipDependencySchedule = options?.skipDependencySchedule === true;
       saveHistory();
       const doneStatusIds: Set<string> = new Set(
         ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
@@ -862,15 +866,18 @@ export function useTaskOps(deps: TaskOpsDeps) {
       setAllTasks((prev) => {
         const projectTasks = prev.filter((t) => t.projectId === projectId);
         if (projectTasks.length === 0) return prev;
-        const adjusted = applyDependencySchedule(
-          projectTasks,
-          projectAssignmentsByProjectId,
-          undefined,
-          projectEffortUnitByProjectId,
-          scheduleOpts,
-        );
-        const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
-        let result = prev.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
+        let result = prev;
+        if (!skipDependencySchedule) {
+          const adjusted = applyDependencySchedule(
+            projectTasks,
+            projectAssignmentsByProjectId,
+            undefined,
+            projectEffortUnitByProjectId,
+            scheduleOpts,
+          );
+          const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
+          result = prev.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
+        }
         result = recomputeProjectRollups(result, projectId, doneStatusIds);
         return result;
       });

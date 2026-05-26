@@ -23,8 +23,8 @@ interface UseGanttDragOptions {
       deferScheduleSync?: boolean;
     },
   ) => void;
-  /** 간트 일정 패치 후 호출(단일·다중 행): 선행(FS) 정합 후 상위 롤업 */
-  flushProjectTaskRollups?: (projectId: string) => void;
+  /** 간트 일정 패치 후 호출: 상위 롤업만(선행 FS 재계산은 생략해 이동한 막대만 반영) */
+  flushProjectTaskRollups?: (projectId: string, options?: { skipDependencySchedule?: boolean }) => void;
   pushToast: (msg: string, options?: { variant?: 'info' | 'success' | 'warning' | 'error'; durationMs?: number }) => void;
   dayWidth: number;
   minDate: Date;
@@ -322,7 +322,7 @@ export function useGanttDrag({
           if (anyDateChange) {
             const flush = flushRollupsRef.current;
             if (flush) {
-              for (const pid of projectIdsToFlush) flush(pid);
+              for (const pid of projectIdsToFlush) flush(pid, { skipDependencySchedule: true });
             }
           }
           if (anyDateChange) {

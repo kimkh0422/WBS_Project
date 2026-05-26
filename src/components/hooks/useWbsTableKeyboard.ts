@@ -145,6 +145,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       const inWbsTable = (target as HTMLElement).closest?.('[data-wbs-table]');
       const inQuickAdd = (target as HTMLElement).closest?.('[data-quick-add]');
+      /** 일괄 수정 바 등 표 밖 포커스에서도 Shift/Ctrl/Meta+↑↓ 로 범위·다중 선택 확장 (SELECT·간트 막대는 제외) */
+      const rangeArrowFromOutsideTable =
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        (e.shiftKey || e.ctrlKey || e.metaKey) &&
+        (lastSelectedId != null || selectedTaskIds.size > 0) &&
+        !(target as HTMLElement).closest?.('[data-gantt-task-bar]') &&
+        target.tagName !== 'SELECT';
 
       /** Tab/Insert/트리 단축키와 겹치지 않도록: 표 안 실제 입력/선택 포커스 (체크박스 등 제외) */
       const isWbsTableCellTypingTarget = (el: HTMLElement): boolean => {
@@ -164,8 +171,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // 새 작업 입력칸(하단/인라인)에서는 Enter가 폼 submit 되도록 전역 단축키 미동작
       if (inQuickAdd) return;
-      // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작
-      if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+      // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (범위 확장용 ↑↓+Shift/Ctrl/Meta 는 예외)
+      if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !rangeArrowFromOutsideTable) return;
 
       // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값만 커밋하고 같은 셀에 머무름.
       // 이 시점부터 ←/→로 자유 이동 가능. (Shift+Enter는 다음 행 같은 컬럼으로 포커스 이동)
@@ -649,8 +656,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
       // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
+      // Shift/Ctrl/Meta+↑↓ 는 일괄 수정 패널 등으로 포커스가 나가도 선택 범위 확장이 되도록 예외.
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
-        return;
+        if (!rangeArrowFromOutsideTable) return;
       }
 
       // If nothing is selected yet, allow arrow keys to move focus (체크는 변경하지 않음)
@@ -697,6 +705,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
       if (currentIndex === -1) return;
 
+      /** Shift 범위 확장 시 포커스 셀보다 '선택 블록의 끝' 기준으로 다음 행을 잡는다 (위쪽=최소 인덱스, 아래=최대) */
+      const extentIndexForShiftArrow = (dir: 'up' | 'down'): number => {
+        if (!e.shiftKey || selectedTaskIds.size === 0) return currentIndex;
+        const indices = visibleTasks.map((t, i) => (selectedTaskIds.has(t.id) ? i : -1)).filter((i) => i >= 0);
+        if (indices.length === 0) return currentIndex;
+        return dir === 'up' ? Math.min(...indices) : Math.max(...indices);
+      };
+
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (e.altKey) {
@@ -708,7 +724,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
         } else {
-          const prevTask = visibleTasks[currentIndex - 1];
+          const prevTask = visibleTasks[extentIndexForShiftArrow('up') - 1];
           if (prevTask) {
             if (e.ctrlKey || e.metaKey || e.shiftKey) {
               handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
@@ -735,7 +751,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
         } else {
-          const nextTask = visibleTasks[currentIndex + 1];
+          const nextTask = visibleTasks[extentIndexForShiftArrow('down') + 1];
           if (nextTask) {
             if (e.ctrlKey || e.metaKey || e.shiftKey) {
               handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);

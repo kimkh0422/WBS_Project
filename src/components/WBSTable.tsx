@@ -131,7 +131,8 @@ export function WBSTable({
     setActiveTaskId,
     refreshProjectSchedule,
     canEditCurrentProject,
-    reorderTask,
+    reparentTaskRootsUnder,
+    moveTaskRootsSibling,
     linkSequentialPredecessors,
     updateProject,
   } = useWBS();
@@ -363,7 +364,10 @@ export function WBSTable({
   const [rowHeightState, setRowHeightState] = useState<number>(20);
   const rowHeight = propRowHeight ?? rowHeightState;
 
-  // 드래그앤드롭 — extracted to useWbsDragDrop (declared below; reorderTask comes from context)
+  /** DnD 일괄 이동: 체크박스 다중 선택과 동기화(간트 등에서 빈 배열로 해제된 경우도 반영) */
+  const dndSelectedTaskIds = useMemo(() => new Set(sharedSelectedTaskIds ?? []), [sharedSelectedTaskIds]);
+
+  // 드래그앤드롭 — extracted to useWbsDragDrop
   const {
     dndActiveId,
     dropTarget,
@@ -375,7 +379,12 @@ export function WBSTable({
     handleDragCancel,
     handleDragEnd,
     executeDropAction,
-  } = useWbsDragDrop({ tasks, updateTask, reorderTask });
+  } = useWbsDragDrop({
+    tasks,
+    selectedTaskIds: dndSelectedTaskIds,
+    reparentTaskRootsUnder,
+    moveTaskRootsSibling,
+  });
 
   // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화
   // 작업명 인라인 편집 중에는 가상 스크롤 비활성화 — 스크롤/범위 변경 시 행이 언마운트되면
@@ -681,6 +690,8 @@ export function WBSTable({
     if (!activeTaskId) return;
     if (activeTaskId === lastSelectedId) return;
     setLastSelectedId(activeTaskId);
+    // 간트만 클릭해 포커스가 옮겨진 경우: 표의 Shift 범위 앵커가 옛 행을 가리키면 연속 선택이 깨지므로 동기화
+    syncRangeAnchorForKeyboardFocus(activeTaskId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTaskId]);
 
@@ -720,6 +731,7 @@ export function WBSTable({
     executeBulkAssignee,
     executeBulkClearDependencies,
     executeBulkLinkSequentialPredecessors,
+    executeBulkUnlockFieldLocks,
   } = useWbsBulkEdit({
     selectedTaskIds,
     tasks,
@@ -1192,7 +1204,7 @@ export function WBSTable({
                     <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
                       <div
                         className="col-header justify-center relative"
-                        title="드래그 · 더블클릭: 너비 초기화"
+                        title="행 아무 곳이나 잡고 드래그해 순서 변경 · 다른 작업의 위/아래/하위로 이동(드롭 후 메뉴)"
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           handleColumnHeaderDoubleClick('grip');
@@ -1710,7 +1722,7 @@ export function WBSTable({
                 type="button"
                 onClick={executeBulkLinkSequentialPredecessors}
                 className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다"
+                title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다. 시작일/종료일 잠금이 켜진 작업은 자동 일정 조정으로 날짜가 바뀌지 않습니다."
               >
                 <Link2 size={14} />
                 선행 순차 연결
@@ -1725,6 +1737,22 @@ export function WBSTable({
               <Unlink size={14} />
               선행작업 지우기
             </button>
+
+            {canEditCurrentProject && (
+              <button
+                type="button"
+                onClick={() => {
+                  executeBulkUnlockFieldLocks();
+                  setEditingTask((prev) => (prev && selectedTaskIds.has(prev.id) ? { ...prev, userLockedFields: undefined } : prev));
+                }}
+                disabled={!tasks.some((t) => selectedTaskIds.has(t.id) && (t.userLockedFields?.length ?? 0) > 0)}
+                className="flex items-center gap-2 text-violet-700 hover:text-violet-800 hover:bg-violet-50 disabled:opacity-40 disabled:pointer-events-none px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                title="선택한 작업의 필드 잠금(자동 재계산 제외)을 모두 해제합니다. 잠금이 없으면 비활성화됩니다."
+              >
+                <Unlock size={14} />
+                잠금 일괄 해제
+              </button>
+            )}
 
             <div className="h-4 w-px bg-stone-200" />
 
@@ -2013,8 +2041,8 @@ export function WBSTable({
       {dropMenu &&
         (() => {
           const overTask = tasks.find((t) => t.id === dropMenu.overId);
-          const draggedTask = tasks.find((t) => t.id === dropMenu.draggedId);
-          if (!overTask || !draggedTask) return null;
+          const n = dropMenu.draggedRootIds.length;
+          if (!overTask || n === 0) return null;
           const overName = overTask.name.length > 15 ? overTask.name.slice(0, 15) + '…' : overTask.name;
           return (
             <>
@@ -2024,7 +2052,7 @@ export function WBSTable({
                 style={{ left: Math.min(dropMenu.x - 100, window.innerWidth - 220), top: Math.min(dropMenu.y, window.innerHeight - 160) }}
               >
                 <div className="px-3 py-1.5 text-[10px] font-bold text-[var(--color-ink-muted)] uppercase tracking-wider border-b border-[var(--color-line)] mb-1 truncate">
-                  배치 위치 선택
+                  {n > 1 ? `${n}개 작업 배치` : '배치 위치 선택'}
                 </div>
                 <button
                   type="button"

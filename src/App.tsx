@@ -2370,7 +2370,8 @@ function AppWithProviders() {
       .then((status) => {
         if (status) {
           setIsAdmin(status.isAdmin);
-          setUserApproved(status.approved);
+          // 외주 계정은 승인(approved)이어도 멤버로 공유된 프로젝트만 열람·편집 (전사 탐색·조직도 UI 제외)
+          setUserApproved(status.approved && !status.isExternalPartner);
           setIsOrgScopedManager(status.isOrgScopeManager);
           setCurrentUserManagedOrgNodeId(status.managedOrgNodeId);
         }

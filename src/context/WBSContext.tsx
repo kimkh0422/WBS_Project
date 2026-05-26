@@ -1256,6 +1256,8 @@ export function WBSProvider({
       // Task movement
       moveTask: taskMovement.moveTask,
       reorderTask: taskMovement.reorderTask,
+      reparentTaskRootsUnder: taskMovement.reparentTaskRootsUnder,
+      moveTaskRootsSibling: taskMovement.moveTaskRootsSibling,
       indentTask: taskMovement.indentTask,
       outdentTask: taskMovement.outdentTask,
       indentTasks: taskMovement.indentTasks,

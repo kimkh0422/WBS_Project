@@ -194,7 +194,28 @@ function SortableTaskRowInner({
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const projectSchedule = projectScheduleByProjectId?.get(task.projectId);
   const taskScheduleOutsideProjectNote = projectSchedule != null ? getTaskScheduleOutsideProjectMessage(task, projectSchedule) : null;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    disabled: !canEdit,
+  });
+
+  /** 그립뿐 아니라 행(작업명·빈 영역 등)에서도 드래그 시작 — 입력·버튼·링크는 제외 */
+  const rowDragListeners = useMemo(() => {
+    if (!canEdit || !listeners) return undefined;
+    const raw = listeners as Record<string, unknown>;
+    const rawPd = raw.onPointerDown as ((e: React.PointerEvent<HTMLElement>) => void) | undefined;
+    if (!rawPd) return listeners;
+    return {
+      ...listeners,
+      onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+        if (t.closest('input, textarea, select, button, a, option, [role="listbox"], [role="option"], [data-deps-input="true"]')) return;
+        rawPd(e);
+      },
+    };
+  }, [canEdit, listeners]);
+
   const { orgMembers } = useOrganization();
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
 
@@ -448,8 +469,11 @@ function SortableTaskRowInner({
       ref={setNodeRef}
       style={style}
       id={`task-row-${task.id}`}
+      {...attributes}
+      {...(rowDragListeners ?? {})}
       className={cn(
-        'data-row group cursor-pointer outline-none transition-colors relative',
+        'data-row group outline-none transition-colors relative',
+        canEdit ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
         isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
@@ -487,10 +511,9 @@ function SortableTaskRowInner({
     >
       {dropIndicator && <div className="absolute inset-0 ring-2 ring-indigo-400 bg-indigo-50/40 pointer-events-none z-10" />}
       <div
-        className="data-cell justify-center cursor-grab active:cursor-grabbing text-stone-300 hover:text-stone-500"
-        onDoubleClick={(e) => e.stopPropagation()}
-        {...attributes}
-        {...listeners}
+        className="data-cell justify-center text-stone-300 hover:text-stone-500 select-none"
+        title={canEdit ? '행을 잡고 드래그해 다른 작업 위·아래·하위로 옮깁니다' : undefined}
+        aria-hidden
       >
         <GripVertical size={14} />
       </div>
@@ -523,6 +546,8 @@ function SortableTaskRowInner({
       <div className="data-cell justify-center" onDoubleClick={(e) => e.stopPropagation()}>
         {isTreeView && hasChildren && (
           <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               toggleExpand(task.id);
@@ -599,6 +624,7 @@ function SortableTaskRowInner({
                   autoFocus
                   defaultValue={task.name}
                   className="w-full min-h-[28px] text-sm font-bold bg-white text-blue-600 outline-none ring-1 ring-blue-500 rounded px-1"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value.trim() !== task.name) {
@@ -679,6 +705,11 @@ function SortableTaskRowInner({
         if (colId === 'startDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
+          const commitStartDateIfChanged = (raw: string) => {
+            const v = raw.trim();
+            if (!v || v === (task.startDate?.slice(0, 10) ?? '')) return;
+            updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
+          };
           return (
             <div
               key={colId}
@@ -700,11 +731,12 @@ function SortableTaskRowInner({
                   autoFocus
                   defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onChange={(e) => {
+                    // 일부 브라우저/환경에서 캘린더만 닫고 blur가 오지 않거나 순서가 꼬이면 값이 저장되지 않는 경우가 있어 change에서도 커밋한다.
+                    commitStartDateIfChanged(e.target.value);
+                  }}
                   onBlur={(e) => {
-                    const v = e.target.value;
-                    if (v && v !== (task.startDate?.slice(0, 10) ?? '')) {
-                      updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
-                    }
+                    commitStartDateIfChanged(e.target.value);
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {
@@ -714,52 +746,51 @@ function SortableTaskRowInner({
                       e.preventDefault();
                       e.stopPropagation();
                       e.nativeEvent.stopPropagation();
-                      const v = (e.target as HTMLInputElement).value;
-                      if (v && v !== (task.startDate?.slice(0, 10) ?? '')) {
-                        updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
-                      }
+                      commitStartDateIfChanged((e.target as HTMLInputElement).value);
                       setEditingCell(null);
                     } else if (e.key === 'Escape') setEditingCell(null);
                   }}
                 />
               ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('startDate');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('startDate');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('startDate');
-                  }}
-                  title={[
-                    (task.userLockedFields ?? []).includes('startDate')
-                      ? '시작일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
-                      : '클릭하여 시작일 수정',
-                    taskScheduleOutsideProjectNote,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                >
-                  <span className="inline-flex items-center gap-0.5 min-w-0">
-                    {taskScheduleOutsideProjectNote && (
-                      <AlertTriangle
-                        size={12}
-                        className="flex-shrink-0 text-amber-600"
-                        aria-label="프로젝트 일정과 불일치"
-                        title={taskScheduleOutsideProjectNote}
-                      />
-                    )}
-                    {formatDate(task.startDate)}
-                    {renderLockBadge('startDate')}
-                  </span>
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('startDate');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('startDate');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('startDate');
+                    }}
+                    title={[
+                      (task.userLockedFields ?? []).includes('startDate')
+                        ? '시작일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
+                        : '클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집',
+                      taskScheduleOutsideProjectNote,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  >
+                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                      {taskScheduleOutsideProjectNote && (
+                        <AlertTriangle
+                          size={12}
+                          className="flex-shrink-0 text-amber-600"
+                          aria-label="프로젝트 일정과 불일치"
+                          title={taskScheduleOutsideProjectNote}
+                        />
+                      )}
+                      {formatDate(task.startDate)}
+                    </span>
+                  </button>
+                  {renderLockBadge('startDate')}
+                </span>
               )}
               {otherPrimary && (
                 <div
@@ -775,6 +806,11 @@ function SortableTaskRowInner({
         if (colId === 'endDate') {
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
           const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
+          const commitEndDateIfChanged = (raw: string) => {
+            const v = raw.trim();
+            if (!v || v === (task.endDate?.slice(0, 10) ?? '')) return;
+            updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
+          };
           return (
             <div
               key={colId}
@@ -796,11 +832,11 @@ function SortableTaskRowInner({
                   autoFocus
                   defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  onChange={(e) => {
+                    commitEndDateIfChanged(e.target.value);
+                  }}
                   onBlur={(e) => {
-                    const v = e.target.value;
-                    if (v && v !== (task.endDate?.slice(0, 10) ?? '')) {
-                      updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
-                    }
+                    commitEndDateIfChanged(e.target.value);
                     setEditingCell(null);
                   }}
                   onKeyDown={(e) => {
@@ -808,52 +844,51 @@ function SortableTaskRowInner({
                       e.preventDefault();
                       e.stopPropagation();
                       e.nativeEvent.stopPropagation();
-                      const v = (e.target as HTMLInputElement).value;
-                      if (v && v !== (task.endDate?.slice(0, 10) ?? '')) {
-                        updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
-                      }
+                      commitEndDateIfChanged((e.target as HTMLInputElement).value);
                       setEditingCell(null);
                     } else if (e.key === 'Escape') setEditingCell(null);
                   }}
                 />
               ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('endDate');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('endDate');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('endDate');
-                  }}
-                  title={[
-                    (task.userLockedFields ?? []).includes('endDate')
-                      ? '종료일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
-                      : '클릭하여 종료일 수정',
-                    taskScheduleOutsideProjectNote,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                >
-                  <span className="inline-flex items-center gap-0.5 min-w-0">
-                    {taskScheduleOutsideProjectNote && (
-                      <AlertTriangle
-                        size={12}
-                        className="flex-shrink-0 text-amber-600"
-                        aria-label="프로젝트 일정과 불일치"
-                        title={taskScheduleOutsideProjectNote}
-                      />
-                    )}
-                    {formatDate(task.endDate)}
-                    {renderLockBadge('endDate')}
-                  </span>
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('endDate');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('endDate');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('endDate');
+                    }}
+                    title={[
+                      (task.userLockedFields ?? []).includes('endDate')
+                        ? '종료일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
+                        : '클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집',
+                      taskScheduleOutsideProjectNote,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  >
+                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                      {taskScheduleOutsideProjectNote && (
+                        <AlertTriangle
+                          size={12}
+                          className="flex-shrink-0 text-amber-600"
+                          aria-label="프로젝트 일정과 불일치"
+                          title={taskScheduleOutsideProjectNote}
+                        />
+                      )}
+                      {formatDate(task.endDate)}
+                    </span>
+                  </button>
+                  {renderLockBadge('endDate')}
+                </span>
               )}
               {otherPrimary && (
                 <div
@@ -910,32 +945,34 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('workEffort');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('workEffort');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('workEffort');
-                  }}
-                  title={
-                    (task.userLockedFields ?? []).includes('workEffort')
-                      ? `공수 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다 (${workEffortUnitSuffixKo(effortUnitForTask)})`
-                      : `클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`
-                  }
-                >
-                  <span className="inline-flex items-center gap-0.5 min-w-0">
-                    {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
-                    {renderLockBadge('workEffort')}
-                  </span>
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('workEffort');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('workEffort');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('workEffort');
+                    }}
+                    title={
+                      (task.userLockedFields ?? []).includes('workEffort')
+                        ? `공수 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다 (${workEffortUnitSuffixKo(effortUnitForTask)})`
+                        : `클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`
+                    }
+                  >
+                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                      {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
+                    </span>
+                  </button>
+                  {renderLockBadge('workEffort')}
+                </span>
               )}
               {otherPrimary && (
                 <div
@@ -1059,27 +1096,29 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-blue-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('progress');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('progress');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('progress');
-                  }}
-                >
-                  <span className="inline-flex items-center gap-0.5 min-w-0">
-                    {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
-                    {renderLockBadge('progress')}
-                  </span>
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-0.5">
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('progress');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('progress');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('progress');
+                    }}
+                  >
+                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                      {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
+                    </span>
+                  </button>
+                  {renderLockBadge('progress')}
+                </span>
               )}
             </div>
           );
@@ -1561,24 +1600,24 @@ function SortableTaskRowInner({
                   {renderDepsDropdown}
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80 font-mono"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('dependencies');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('dependencies');
-                  }}
-                  title="더블클릭 또는 F2로 선행작업 수정"
-                >
-                  <span className="inline-flex items-center gap-0.5 min-w-0 truncate">
-                    <span className="truncate">{depsDisplayText}</span>
-                    {renderLockBadge('dependencies')}
-                  </span>
-                </button>
+                <span className="flex w-full min-w-0 items-center gap-0.5 font-mono">
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 truncate text-left cursor-cell hover:bg-blue-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('dependencies');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('dependencies');
+                    }}
+                    title="더블클릭 또는 F2로 선행작업 수정"
+                  >
+                    <span className="block truncate">{depsDisplayText}</span>
+                  </button>
+                  {renderLockBadge('dependencies')}
+                </span>
               )}
             </div>
           );

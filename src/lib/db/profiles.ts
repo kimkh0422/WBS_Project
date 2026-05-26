@@ -449,6 +449,8 @@ export async function checkIsAdmin(): Promise<boolean> {
 export type LoginProfileStatus = {
   isAdmin: boolean;
   approved: boolean;
+  /** @gmtc.kr 이외 이메일(외주 등). 전사 프로젝트·조직도 접근 제한 */
+  isExternalPartner: boolean;
   /** 회원 계정 소속 부서 문자열 */
   department: string | null;
   /** 설정 시 해당 org 노드 subtree 소속 회원만 역할 수정 가능 */
@@ -463,6 +465,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
   const fallbackStatus = (): LoginProfileStatus => ({
     isAdmin: false,
     approved: true,
+    isExternalPartner: false,
     department: null,
     managedOrgNodeId: null,
     isOrgScopeManager: false,
@@ -473,6 +476,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       const result = data as {
         is_admin?: boolean;
         approved?: boolean;
+        is_external_partner?: boolean;
         managed_org_node_id?: string | null;
         department?: string | null;
         is_org_scope_manager?: boolean;
@@ -483,6 +487,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       return {
         isAdmin: result?.is_admin === true,
         approved: result?.approved !== false,
+        isExternalPartner: result?.is_external_partner === true,
         department: deptStr.length > 0 ? deptStr : null,
         managedOrgNodeId: managedStr.length > 0 ? managedStr : null,
         isOrgScopeManager: result?.is_org_scope_manager === true || managedStr.length > 0,
@@ -496,7 +501,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       const trySelectOrg = async () => {
         const { data: r, error: selErr } = await supabase!
           .from('profiles')
-          .select('is_admin, approved, department, managed_org_node_id')
+          .select('is_admin, approved, is_external_partner, department, managed_org_node_id')
           .eq('id', uid)
           .maybeSingle();
         if (!selErr) row = r as Record<string, unknown>;
@@ -515,6 +520,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       return {
         isAdmin: isAdminVal,
         approved: approvedVal,
+        isExternalPartner: r.is_external_partner === true,
         department: deptRaw.length > 0 ? deptRaw : null,
         managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
         isOrgScopeManager: managedRaw.length > 0,
@@ -539,6 +545,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       return {
         isAdmin: r.is_admin === true,
         approved: r.approved !== false,
+        isExternalPartner: r.is_external_partner === true,
         department: deptRaw.length > 0 ? deptRaw : null,
         managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
         isOrgScopeManager: managedRaw.length > 0,

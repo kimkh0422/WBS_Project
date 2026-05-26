@@ -61,19 +61,24 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
       }
 
       if (range) {
-        const anchorId = rangeAnchorRef.current ?? anchorTaskId ?? lastSelectedId;
-        if (anchorId) {
-          const anchorIndex = visibleTasks.findIndex((t) => t.id === anchorId);
+        // 앵커 후보: ref → state → 포커스 행 순. 표에 없는 ID(필터·접기·간트만 조작 후 옛 ref)는 건너뛰어
+        // anchorIndex === -1일 때 한 줄만 선택되는 간헐적 Shift 범위 실패를 막는다.
+        const anchorCandidates = [rangeAnchorRef.current, anchorTaskId, lastSelectedId].filter((id): id is string => Boolean(id));
+        let anchorIndex = -1;
+        for (const id of anchorCandidates) {
+          const idx = visibleTasks.findIndex((t) => t.id === id);
+          if (idx !== -1) {
+            anchorIndex = idx;
+            break;
+          }
+        }
 
-          if (currentIndex !== -1 && anchorIndex !== -1) {
-            const start = Math.min(currentIndex, anchorIndex);
-            const end = Math.max(currentIndex, anchorIndex);
+        if (currentIndex !== -1 && anchorIndex !== -1) {
+          const start = Math.min(currentIndex, anchorIndex);
+          const end = Math.max(currentIndex, anchorIndex);
 
-            for (let i = start; i <= end; i++) {
-              newSelected.add(visibleTasks[i].id);
-            }
-          } else {
-            newSelected.add(taskId);
+          for (let i = start; i <= end; i++) {
+            newSelected.add(visibleTasks[i].id);
           }
         } else {
           newSelected.add(taskId);
