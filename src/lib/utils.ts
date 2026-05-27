@@ -33,6 +33,20 @@ export function formatTodayKoLongWithWeekday(): string {
   });
 }
 
+/** 릴리스·빌드 날짜 표기 — 예: 2026. 05. 27 */
+export function formatReleaseDateDotKo(isoDate: string): string {
+  try {
+    const d = new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return isoDate;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}. ${m}. ${day}`;
+  } catch {
+    return isoDate;
+  }
+}
+
 /** 소수 2자리로 반올림 (저장·계산용) */
 export function round2(n: number): number {
   if (!Number.isFinite(n)) return n;

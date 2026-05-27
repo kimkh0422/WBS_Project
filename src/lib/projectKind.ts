@@ -2,7 +2,36 @@ import type { Project, ProjectKind } from '../types';
 
 export type { ProjectKind };
 
-export const PROJECT_KINDS: ProjectKind[] = ['상품', '연구', '용역', '유지', '제품', '내부', '기타'];
+export const PROJECT_KINDS: ProjectKind[] = ['상품', '연구', '용역', '유지', '제품', '내부', '연습', '개인', '기타'];
+
+/** 본인(소유자)에게만 노출되는 항목. 대시보드·목록·검색 등에서 타인에게 숨김 */
+export const PRIVATE_PROJECT_KINDS: readonly ProjectKind[] = ['연습', '개인'];
+
+export function isPrivateProjectKind(kind: string | null | undefined): boolean {
+  const k = normalizeProjectKind(kind);
+  return k === '연습' || k === '개인';
+}
+
+/**
+ * 연습·개인 프로젝트는 소유자 본인에게만 공유 뷰에 표시.
+ * ownerId가 없으면 구 데이터 호환으로 비공개 숨김을 적용하지 않음.
+ */
+export function isPrivateProjectHiddenFromViewer(
+  project: Pick<Project, 'projectKind' | 'ownerId'>,
+  viewerUserId: string | undefined,
+): boolean {
+  if (!isPrivateProjectKind(project.projectKind)) return false;
+  if (!viewerUserId) return true;
+  if (!project.ownerId) return false;
+  return project.ownerId !== viewerUserId;
+}
+
+export function filterProjectsVisibleToViewer<T extends Pick<Project, 'projectKind' | 'ownerId'>>(
+  projectList: readonly T[],
+  viewerUserId: string | undefined,
+): T[] {
+  return projectList.filter((p) => !isPrivateProjectHiddenFromViewer(p, viewerUserId));
+}
 
 /** DB·UI에서 구분이 비어 있을 때(기존 데이터 호환): 집계·표시용 기본값 */
 export const DEFAULT_PROJECT_KIND: ProjectKind = '기타';
@@ -44,6 +73,10 @@ export function getProjectKindBadgeClass(kind: ProjectKind): string {
       return 'bg-indigo-100 text-indigo-800 border-indigo-200/80';
     case '내부':
       return 'bg-slate-100 text-slate-800 border-slate-200/80';
+    case '연습':
+      return 'bg-amber-100 text-amber-900 border-amber-200/80';
+    case '개인':
+      return 'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200/80';
     case '기타':
       return 'bg-stone-100 text-stone-600 border-stone-200/80';
   }
@@ -82,7 +115,7 @@ export type ProjectKindGroup<T extends Pick<Project, 'projectKind'>> = {
   projects: T[];
 };
 
-/** 상품 → 연구 → 용역 → 유지 → 제품 → 내부 → 기타 순으로 프로젝트를 묶음. projectKind 미설정은 기타. */
+/** 상품 → 연구 → 용역 → 유지 → 제품 → 내부 → 연습 → 개인 → 기타 순으로 프로젝트를 묶음. projectKind 미설정은 기타. */
 export function groupProjectsByKind<T extends Pick<Project, 'projectKind'>>(
   projects: readonly T[],
   options?: { omitEmpty?: boolean },

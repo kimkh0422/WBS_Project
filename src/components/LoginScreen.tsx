@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import logo from '../assets/logo.png';
 import { isAllowedSignupEmail, SIGNUP_EMAIL_FORMAT_ERROR } from '../lib/emailDomain';
 import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
-import { formatTodayKoLongWithWeekday } from '../lib/utils';
+import { formatReleaseDateDotKo } from '../lib/utils';
 
 /** Supabase 기본 영문 메시지를 한국어 안내로 보강 */
 function formatSignInErrorMessage(raw: string): string {
@@ -256,235 +256,229 @@ export function LoginScreen() {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
+      className="fixed inset-0 z-[9999] flex flex-col overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)' }}
     >
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-500/8 rounded-full blur-[150px]" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-violet-500/8 rounded-full blur-[150px]" />
 
-      <div className="relative w-full max-w-md px-6">
-        <div
-          className="bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] rounded-3xl p-8 overflow-hidden group"
-          style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)' }}
-        >
-          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-indigo-400/60 to-transparent" />
-
-          <div className="flex flex-col items-center text-center space-y-7">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-8">
+          <div className="relative w-full max-w-md">
             <div
-              className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-500"
-              style={{ boxShadow: '0 8px 30px rgba(15,23,42,0.4)' }}
+              className="bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] rounded-3xl p-8 overflow-hidden group"
+              style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)' }}
             >
-              <img src={logo} alt="지엠티 스마트시트 로고" className="w-16 h-16 object-contain" />
-            </div>
+              <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-indigo-400/60 to-transparent" />
 
-            <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-white tracking-tight">{title}</h1>
-              <p className="text-slate-400 text-sm leading-relaxed">{subtitle}</p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="w-full space-y-3.5">
-              {/* 이름 입력: 가입 첫 단계 */}
-              {isSignUp && (
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="이름 (필수)"
-                  className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
-                  autoComplete="name"
-                  required
-                  disabled={loading}
-                  aria-label="이름"
-                />
-              )}
-
-              {/* 이메일 입력: 로그인/가입/비밀번호 찾기 첫 단계 */}
-              {(isSignIn || isSignUp || isForgotEmail) && (
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={isSignUp ? '이메일 (예: name@gmtc.kr 또는 name@partner.com)' : '이메일'}
-                  className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
-                  autoComplete="email"
-                  disabled={loading}
-                  aria-label="이메일"
-                />
-              )}
-
-              {/* 인증 코드 입력: 가입 OTP / 비밀번호 재설정 OTP */}
-              {(isVerifySignup || isForgotVerify) && (
-                <>
-                  <div className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-xs text-slate-300 text-left">
-                    <span className="text-slate-400">받는 메일: </span>
-                    <span className="font-medium text-white">{email}</span>
-                  </div>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={10}
-                    value={otpToken}
-                    onChange={(e) => setOtpToken(e.target.value.replace(/\D/g, ''))}
-                    placeholder="인증 코드"
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all text-center tracking-[0.3em] text-lg font-semibold"
-                    autoComplete="one-time-code"
-                    disabled={loading}
-                    aria-label="인증 코드"
-                  />
-                </>
-              )}
-
-              {/* 비밀번호 입력: 로그인/가입 첫 단계 */}
-              {(isSignIn || isSignUp) && (
-                <div className="relative w-full">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={isSignUp ? '비밀번호 (6자 이상)' : '비밀번호'}
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl pl-4 pr-12 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
-                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                    disabled={loading}
-                    aria-label="비밀번호"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
-                    title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
-                    disabled={loading}
-                    aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              )}
-
-              {/* 새 비밀번호 입력: 비밀번호 재설정 마지막 단계 */}
-              {isForgotReset && (
-                <div className="relative w-full">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="새 비밀번호 (6자 이상)"
-                    className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl pl-4 pr-12 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
-                    autoComplete="new-password"
-                    disabled={loading}
-                    aria-label="새 비밀번호"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
-                    title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
-                    disabled={loading}
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              )}
-
-              {error && (
-                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
-                  <p className="text-red-400 text-sm text-left">{error}</p>
-                </div>
-              )}
-              {success && (
-                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <MailCheck className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
-                  <p className="text-emerald-400 text-sm text-left">{success}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl hover:bg-slate-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group/btn disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                style={{ boxShadow: '0 4px 15px rgba(255,255,255,0.1)' }}
-              >
-                {loading ? '처리 중...' : submitLabel}
-                {!loading && <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />}
-              </button>
-            </form>
-
-            {/* 보조 링크들: 모드별 */}
-            <div className="w-full space-y-2">
-              {isSignIn && (
-                <div className="flex flex-col items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => goMode('forgotEmail')}
-                    className="text-xs text-slate-400 hover:text-white transition-colors flex items-center gap-1"
-                  >
-                    <KeyRound className="w-3 h-3" /> 비밀번호 찾기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goMode('signUp')}
-                    className="text-sm text-slate-500 hover:text-white transition-colors"
-                  >
-                    계정이 없으신가요? 회원가입
-                  </button>
-                </div>
-              )}
-              {isSignUp && (
-                <button
-                  type="button"
-                  onClick={() => goMode('signIn')}
-                  className="text-sm text-slate-500 hover:text-white transition-colors"
+              <div className="flex flex-col items-center text-center space-y-7">
+                <div
+                  className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-500"
+                  style={{ boxShadow: '0 8px 30px rgba(15,23,42,0.4)' }}
                 >
-                  이미 계정이 있으신가요? 로그인
-                </button>
-              )}
-              {isVerifySignup && (
-                <div className="flex flex-col items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleResendSignupOtp}
-                    disabled={loading}
-                    className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                  >
-                    코드 다시 받기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goMode('signUp')}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
-                  >
-                    <ArrowLeft className="w-3 h-3" /> 가입 정보 다시 입력
-                  </button>
+                  <img src={logo} alt="지엠티 스마트시트 로고" className="w-16 h-16 object-contain" />
                 </div>
-              )}
-              {(isForgotEmail || isForgotVerify || isForgotReset) && (
-                <button
-                  type="button"
-                  onClick={() => goMode('signIn')}
-                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1 mx-auto"
-                >
-                  <ArrowLeft className="w-3 h-3" /> 로그인으로 돌아가기
-                </button>
-              )}
-            </div>
 
-            <p
-              className="text-[11px] text-slate-500/80 pt-2"
-              title={`오늘 ${formatTodayKoLongWithWeekday()} (로컬) · 앱 v${APP_VERSION} · 릴리스 수정일 ${new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}`}
-            >
-              <span className="text-slate-400/90">오늘 {formatTodayKoLongWithWeekday()}</span>
-              <span className="text-slate-400/80">
-                {' '}
-                · v{APP_VERSION} · 수정일{' '}
-                {new Date(APP_COMMIT_DATE).toLocaleDateString('ko-KR', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit',
-                })}
-              </span>
-            </p>
+                <div className="space-y-2">
+                  <h1 className="text-2xl font-bold text-white tracking-tight">{title}</h1>
+                  <p className="text-slate-400 text-sm leading-relaxed">{subtitle}</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="w-full space-y-3.5">
+                  {/* 이름 입력: 가입 첫 단계 */}
+                  {isSignUp && (
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="이름 (필수)"
+                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
+                      autoComplete="name"
+                      required
+                      disabled={loading}
+                      aria-label="이름"
+                    />
+                  )}
+
+                  {/* 이메일 입력: 로그인/가입/비밀번호 찾기 첫 단계 */}
+                  {(isSignIn || isSignUp || isForgotEmail) && (
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={isSignUp ? '이메일 (예: name@gmtc.kr 또는 name@partner.com)' : '이메일'}
+                      className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
+                      autoComplete="email"
+                      disabled={loading}
+                      aria-label="이메일"
+                    />
+                  )}
+
+                  {/* 인증 코드 입력: 가입 OTP / 비밀번호 재설정 OTP */}
+                  {(isVerifySignup || isForgotVerify) && (
+                    <>
+                      <div className="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-xs text-slate-300 text-left">
+                        <span className="text-slate-400">받는 메일: </span>
+                        <span className="font-medium text-white">{email}</span>
+                      </div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={10}
+                        value={otpToken}
+                        onChange={(e) => setOtpToken(e.target.value.replace(/\D/g, ''))}
+                        placeholder="인증 코드"
+                        className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all text-center tracking-[0.3em] text-lg font-semibold"
+                        autoComplete="one-time-code"
+                        disabled={loading}
+                        aria-label="인증 코드"
+                      />
+                    </>
+                  )}
+
+                  {/* 비밀번호 입력: 로그인/가입 첫 단계 */}
+                  {(isSignIn || isSignUp) && (
+                    <div className="relative w-full">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder={isSignUp ? '비밀번호 (6자 이상)' : '비밀번호'}
+                        className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl pl-4 pr-12 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
+                        autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                        disabled={loading}
+                        aria-label="비밀번호"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+                        title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                        disabled={loading}
+                        aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                      >
+                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 새 비밀번호 입력: 비밀번호 재설정 마지막 단계 */}
+                  {isForgotReset && (
+                    <div className="relative w-full">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="새 비밀번호 (6자 이상)"
+                        className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl pl-4 pr-12 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
+                        autoComplete="new-password"
+                        disabled={loading}
+                        aria-label="새 비밀번호"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+                        title={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                        disabled={loading}
+                      >
+                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <p className="text-red-400 text-sm text-left">{error}</p>
+                    </div>
+                  )}
+                  {success && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <MailCheck className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
+                      <p className="text-emerald-400 text-sm text-left">{success}</p>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-white text-slate-900 font-bold py-3.5 rounded-xl hover:bg-slate-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group/btn disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                    style={{ boxShadow: '0 4px 15px rgba(255,255,255,0.1)' }}
+                  >
+                    {loading ? '처리 중...' : submitLabel}
+                    {!loading && <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />}
+                  </button>
+                </form>
+
+                {/* 보조 링크들: 모드별 */}
+                <div className="w-full space-y-2">
+                  {isSignIn && (
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => goMode('forgotEmail')}
+                        className="text-xs text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+                      >
+                        <KeyRound className="w-3 h-3" /> 비밀번호 찾기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goMode('signUp')}
+                        className="text-sm text-slate-500 hover:text-white transition-colors"
+                      >
+                        계정이 없으신가요? 회원가입
+                      </button>
+                    </div>
+                  )}
+                  {isSignUp && (
+                    <button
+                      type="button"
+                      onClick={() => goMode('signIn')}
+                      className="text-sm text-slate-500 hover:text-white transition-colors"
+                    >
+                      이미 계정이 있으신가요? 로그인
+                    </button>
+                  )}
+                  {isVerifySignup && (
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResendSignupOtp}
+                        disabled={loading}
+                        className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                      >
+                        코드 다시 받기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goMode('signUp')}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                      >
+                        <ArrowLeft className="w-3 h-3" /> 가입 정보 다시 입력
+                      </button>
+                    </div>
+                  )}
+                  {(isForgotEmail || isForgotVerify || isForgotReset) && (
+                    <button
+                      type="button"
+                      onClick={() => goMode('signIn')}
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1 mx-auto"
+                    >
+                      <ArrowLeft className="w-3 h-3" /> 로그인으로 돌아가기
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+
+        <footer className="shrink-0 border-t border-white/[0.06] bg-slate-950/35 px-4 py-3 text-center safe-bottom">
+          <p className="text-[10px] font-medium text-slate-400/95 tabular-nums tracking-tight">
+            v{APP_VERSION} ({formatReleaseDateDotKo(APP_COMMIT_DATE)})
+          </p>
+        </footer>
       </div>
     </div>
   );

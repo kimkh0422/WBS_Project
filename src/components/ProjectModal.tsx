@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Plus, Calendar } from 'lucide-react';
 import { Project, ProjectAssignment, type ProjectKind } from '../types';
-import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS } from '../lib/projectKind';
+import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS, isPrivateProjectKind } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
 import { cn, formatPercent1 } from '../lib/utils';
@@ -40,9 +40,19 @@ interface ProjectModalProps {
   allProjects?: Project[];
   /** 새 프로젝트일 때 PM 입력란 초기값(보통 생성자 표시명). 저장 전까지 수정 가능 */
   defaultPmNameForNewProject?: string;
+  /** 로그인 사용자 id. 소유자가 아닐 때「연습」「개인」항목은 선택 목록에서 제외 */
+  currentUserId?: string;
 }
 
-export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [], defaultPmNameForNewProject = '' }: ProjectModalProps) {
+export function ProjectModal({
+  isOpen,
+  onClose,
+  onSave,
+  project,
+  allProjects = [],
+  defaultPmNameForNewProject = '',
+  currentUserId,
+}: ProjectModalProps) {
   const { orgMembers } = useOrganization();
   const [name, setName] = useState('');
   const [projectKind, setProjectKind] = useState<ProjectKind>(DEFAULT_NEW_PROJECT_KIND);
@@ -76,6 +86,13 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
     [orgMembers, allProjects, assignments, pmName, poName],
   );
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
+
+  const projectKindOptions = useMemo(() => {
+    const isNew = !project;
+    const canPickPrivate = isNew || !project.ownerId || (!!currentUserId && project.ownerId === currentUserId);
+    if (canPickPrivate) return PROJECT_KINDS;
+    return PROJECT_KINDS.filter((k) => !isPrivateProjectKind(k));
+  }, [project, currentUserId]);
 
   /** 프로젝트 기간 기준 월 목록 (YYYY-MM). 기간 없으면 현재월 포함 12개월 */
   const projectMonths = useMemo(() => {
@@ -310,7 +327,7 @@ export function ProjectModal({ isOpen, onClose, onSave, project, allProjects = [
                   title={includeInDashboard ? undefined : '대시보드에 반영을 켜면 프로젝트 종류(항목)를 선택할 수 있습니다.'}
                   className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-stone-100/90 opacity-70')}
                 >
-                  {PROJECT_KINDS.map((k) => (
+                  {projectKindOptions.map((k) => (
                     <option key={k} value={k}>
                       {k}
                     </option>

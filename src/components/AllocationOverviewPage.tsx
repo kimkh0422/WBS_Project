@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
+import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
 import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
 import { cn, formatPercent1 } from '../lib/utils';
@@ -24,7 +25,7 @@ import {
 } from '../lib/assigneeOptions';
 import { Project } from '../types';
 import { ProjectNameLabel } from './ProjectNameLabel';
-import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectDisplayName, filterProjectsVisibleToViewer } from '../lib/projectKind';
 
 interface AllocationOverviewPageProps {
   /** 등록 회원 표시명 집합. 인원 추가 자동완성 후보에 포함 */
@@ -37,24 +38,26 @@ type ViewMode = 'by-project' | 'by-person';
 
 export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
   const { projects, allTasks, renameAssignee, updateProject, addProject } = useWBS();
+  const { user } = useAuth();
+  const visibleProjects = useMemo(() => filterProjectsVisibleToViewer(projects, user?.id), [projects, user?.id]);
   const { orgMembers } = useOrganization();
   const [viewMode, setViewMode] = useState<ViewMode>('by-project');
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
 
-  const projectAllocations = useMemo(() => computeProjectAllocations(projects), [projects]);
+  const projectAllocations = useMemo(() => computeProjectAllocations(visibleProjects), [visibleProjects]);
   const personProjectWorkEffort = useMemo(() => computePersonProjectWorkEffort(allTasks), [allTasks]);
   const personAllocations = useMemo(() => computePersonAllocations(projectAllocations), [projectAllocations]);
 
   // 투입 정보가 없는 프로젝트
   const projectsWithoutAllocation = useMemo(() => {
-    return projects.filter((p) => !p.assignments || p.assignments.length === 0);
-  }, [projects]);
+    return visibleProjects.filter((p) => !p.assignments || p.assignments.length === 0);
+  }, [visibleProjects]);
 
   const hasAnyAllocation = projectAllocations.length > 0;
 
   const handleUpdatePersonAllocation = (projectId: string, person: string, percent: number) => {
-    const project = projects.find((p) => p.id === projectId);
+    const project = visibleProjects.find((p) => p.id === projectId);
     if (!project) return;
     const nextAssignments = applyPersonProjectAllocation(project.assignments, person, percent);
     updateProject(projectId, {
@@ -74,10 +77,10 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
     () =>
       buildAssigneeCandidates({
         orgMembers,
-        projects,
+        projects: visibleProjects,
         extra: registeredMemberDisplayNames ? [...registeredMemberDisplayNames] : undefined,
       }),
-    [orgMembers, projects, registeredMemberDisplayNames],
+    [orgMembers, visibleProjects, registeredMemberDisplayNames],
   );
   const allocationOrgLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const allocationDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -124,7 +127,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
             </div>
             {viewMode === 'by-person' && (
               <AddPersonAllocationControl
-                availableProjects={projects}
+                availableProjects={visibleProjects}
                 assigneeCandidates={allocationAssigneeCandidates}
                 orgMemberLabelByName={allocationOrgLabelByName}
                 onAdd={handleAddPersonProject}
@@ -139,14 +142,17 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
             <p className="text-stone-600 font-medium">등록된 투입 정보가 없습니다.</p>
             <p className="text-sm text-stone-400">아래에서 인원·프로젝트·투입율을 바로 추가하거나, 프로젝트 편집에서 설정할 수 있습니다.</p>
             <AddPersonAllocationControl
-              availableProjects={projects}
+              availableProjects={visibleProjects}
               assigneeCandidates={allocationAssigneeCandidates}
               orgMemberLabelByName={allocationOrgLabelByName}
               onAdd={handleAddPersonProject}
               className="mx-auto"
             />
-            {onEditProject && projects.length > 0 && (
-              <button onClick={() => onEditProject(projects[0])} className="btn-secondary mt-2 flex items-center gap-2 mx-auto text-sm">
+            {onEditProject && visibleProjects.length > 0 && (
+              <button
+                onClick={() => onEditProject(visibleProjects[0])}
+                className="btn-secondary mt-2 flex items-center gap-2 mx-auto text-sm"
+              >
                 <Edit size={14} /> 프로젝트 편집
               </button>
             )}
@@ -279,11 +285,11 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
           </div>
         ) : (
           <div className="space-y-4">
-            {personAllocations.length === 0 && projects.length > 0 && (
+            {personAllocations.length === 0 && visibleProjects.length > 0 && (
               <div className="bg-white rounded-xl border border-stone-200 p-8 text-center space-y-4">
                 <p className="text-sm text-stone-500">투입 인원이 없습니다. 인원을 추가해 주세요.</p>
                 <AddPersonAllocationControl
-                  availableProjects={projects}
+                  availableProjects={visibleProjects}
                   assigneeCandidates={allocationAssigneeCandidates}
                   orgMemberLabelByName={allocationOrgLabelByName}
                   onAdd={handleAddPersonProject}
@@ -386,7 +392,7 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                       <AddPersonProjectAllocation
                         person={person}
                         assignedProjectIds={new Set(items.map((i) => i.project.id))}
-                        availableProjects={projects}
+                        availableProjects={visibleProjects}
                         allocationSumPercent={totalPercent}
                         disabled={person === '(미지정)'}
                         onAdd={(payload, percent) => handleAddPersonProject(person, payload, percent)}

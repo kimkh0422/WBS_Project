@@ -26,7 +26,13 @@ import {
 } from 'lucide-react';
 import { cn, randomUUID, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
-import { PROJECT_KINDS, formatProjectDisplayName, resolveProjectKindOrDefault, type ProjectKind } from '../lib/projectKind';
+import {
+  PROJECT_KINDS,
+  formatProjectDisplayName,
+  resolveProjectKindOrDefault,
+  isPrivateProjectHiddenFromViewer,
+  type ProjectKind,
+} from '../lib/projectKind';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import type { Task, Project } from '../types';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
@@ -175,10 +181,10 @@ export function Dashboard({
 }) {
   const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask, updateProject } = useWBS();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
-  const projects = useMemo(
-    () => (accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects),
-    [allProjects, accessibleProjectIds],
-  );
+  const projects = useMemo(() => {
+    const base = accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects;
+    return base.filter((p) => !isPrivateProjectHiddenFromViewer(p, currentUserId));
+  }, [allProjects, accessibleProjectIds, currentUserId]);
   const allTasks = useMemo(
     () => (accessibleProjectIds ? allTasksRaw.filter((t) => accessibleProjectIds.has(t.projectId)) : allTasksRaw),
     [allTasksRaw, accessibleProjectIds],

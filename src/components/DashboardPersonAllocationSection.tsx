@@ -22,7 +22,7 @@ import {
 } from '../lib/personAllocations';
 import { buildOrgMemberLabelMap, buildOrgMemberDisplayMetaMap, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { compareAssigneeByPositionThenName } from '../lib/orgMemberSort';
-import { formatProjectDisplayName, getProjectKindBadgeClass, resolveProjectKindOrDefault } from '../lib/projectKind';
+import { formatProjectDisplayName } from '../lib/projectKind';
 import { PersonAllocationDetailPanel } from './PersonAllocationDetailPanel';
 import { BaseModal } from './Base/Modal';
 import type { Project, Task } from '../types';
@@ -240,27 +240,15 @@ export function DashboardPersonAllocationSection({
 
   const helpBullets = useMemo(() => {
     const lines = [
-      'WBS 작업에 담당으로 배정되고 투입공수(workEffort)가 0보다 큰 작업만 합산합니다. 프로젝트별·인원별 합계는 M/M(맨먼스)로 표시합니다.',
-      '진척률은 담당 작업의 공수(workEffort)로 진척%를 가중한 평균(Σ(공수×진척%)÷총 공수)입니다. 프로젝트별 줄에도 동일 방식으로 표시합니다.',
-      '프로젝트 설정의「투입 인원」비율과는 별개이며, 작업에 적힌 공수 기준으로 표시합니다.',
-      '이름을 누르면 투입·작업 상세를, 프로젝트를 누르면 해당 프로젝트 작업 표로 이동합니다.',
+      '담당·공수(workEffort>0)가 있는 WBS만 M/M로 합산합니다. 이름은 상세, 프로젝트는 작업 표로 이동합니다.',
+      '진척률은 공수 가중 평균(Σ공수×진척%÷Σ공수)입니다. 프로젝트「투입 인원」비율과는 별개입니다.',
     ];
     if (allocationDivisionInfer && assigneeTopDivisionIdByName?.size) {
-      lines.splice(
-        1,
-        0,
-        '담당이 비어 있는 작업은 프로젝트 PM·PO 또는 소유자 프로필 부서를 기준으로 사업부를 자동 추정해 각 사업부 블록에 나누어 보여 줍니다(WBS 담당 필드는 바꾸지 않습니다).',
-      );
-    }
-    if (assigneeTopDivisionIdByName?.size) {
-      lines.push('「사업부·부서별 현황」에서 이 블록으로 내려오면, 선택한 사업부 소속 인원만 보도록 필터가 걸릴 수 있습니다.');
-    }
-    if (onOpenAllocationOverview) {
-      lines.push('메뉴「투입현황」화면에서는 프로젝트별 투입과「투입 인원」비율 편집까지 할 수 있습니다.');
+      lines.push('담당 미지정 공수는 PM·PO·소유자 부서로 사업부만 추정 분할합니다(담당 필드는 그대로).');
     }
     const tail = filterHintSuffix.trim();
     return tail ? [...lines, tail] : lines;
-  }, [assigneeTopDivisionIdByName, allocationDivisionInfer, filterHintSuffix, onOpenAllocationOverview]);
+  }, [assigneeTopDivisionIdByName, allocationDivisionInfer, filterHintSuffix]);
 
   const toggleBlockCollapsed = (key: string) => {
     setCollapsedBlockKeys((prev) => {
@@ -297,7 +285,7 @@ export function DashboardPersonAllocationSection({
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
               <Briefcase className="text-[var(--color-accent)] shrink-0" size={24} aria-hidden />
-              인원·사업부별 작업 투입공수
+              인원·사업부 투입공수
               <span className="text-sm font-normal text-stone-500 ml-1 tabular-nums">({totalPeople}명)</span>
             </h2>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -345,9 +333,6 @@ export function DashboardPersonAllocationSection({
               ) : null}
             </div>
           </div>
-          <p className="text-sm text-stone-500 mb-3 m-0 leading-relaxed max-w-3xl">
-            WBS 작업에 배정된 공수(M/M)를 인원·사업부 단위로 묶어 보여 줍니다. 이름을 누르면 상세를, 프로젝트를 누르면 작업 표로 이동합니다.
-          </p>
         </>
       )}
       {variant === 'embedded' && onOpenAllocationOverview ? (
@@ -370,12 +355,8 @@ export function DashboardPersonAllocationSection({
           role="status"
         >
           <p className="m-0 min-w-0 leading-snug">
-            <span className="font-semibold">사업부 범위</span>
-            <span className="text-teal-900/90">
-              {' '}
-              · {personAllocationQuickFilter.label?.trim() || '선택한 사업부'} 소속으로 매핑된 인원만 표시합니다. (대시보드「사업부·부서별
-              현황」과 동일한 기준)
-            </span>
+            <span className="font-semibold">{personAllocationQuickFilter.label?.trim() || '선택 사업부'}</span>
+            <span className="text-teal-900/90"> 소속 인원만 · 「사업부·부서별 현황」과 동일 매핑</span>
           </p>
           <button
             type="button"
@@ -387,22 +368,15 @@ export function DashboardPersonAllocationSection({
         </div>
       )}
 
-      <details className="group mb-4 rounded-xl border border-stone-200/90 bg-gradient-to-b from-stone-50/90 to-white px-4 py-3 shadow-sm">
-        <summary className="cursor-pointer list-none text-sm font-semibold text-stone-800 [&::-webkit-details-marker]:hidden flex items-center gap-2.5 select-none">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-stone-200/80">
-            <Info className="h-4 w-4 text-indigo-600 shrink-0" aria-hidden />
-          </span>
-          표 읽는 법
-          <span className="ml-1 rounded-md bg-stone-200/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-stone-500 group-open:hidden">
-            펼치기
-          </span>
+      <details className="group mb-3 rounded-lg border border-stone-200/80 bg-stone-50/50 px-3 py-2 text-[13px]">
+        <summary className="cursor-pointer list-none text-stone-700 [&::-webkit-details-marker]:hidden flex items-center gap-2 select-none font-medium">
+          <Info className="h-3.5 w-3.5 text-indigo-500 shrink-0" aria-hidden />
+          집계 안내
+          <span className="text-[10px] font-semibold text-stone-400 group-open:hidden">▼</span>
         </summary>
-        <ul className="mt-3 space-y-2 pl-1 sm:pl-11 text-sm text-stone-600 leading-relaxed border-t border-stone-100 pt-3 list-none">
+        <ul className="mt-2 space-y-1 pl-5 text-stone-600 leading-snug border-t border-stone-200/60 pt-2 list-disc text-[12px] marker:text-indigo-400">
           {helpBullets.map((line, idx) => (
-            <li
-              key={`allocation-help-${idx}`}
-              className="relative pl-4 before:absolute before:left-0 before:top-[0.55em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-indigo-400/90"
-            >
+            <li key={`allocation-help-${idx}`} className="pl-0.5">
               {line}
             </li>
           ))}
@@ -423,6 +397,8 @@ export function DashboardPersonAllocationSection({
         <div className={cn('space-y-4', narrowScreenLayout && 'max-w-full')}>
           {divisionBlocks.map((block) => {
             const collapsed = collapsedBlockKeys.has(block.key);
+            const blockTotalMd = block.rows.reduce((s, r) => s + r.totalMd, 0);
+            const blockTotalLabel = formatEffortFromManDays(blockTotalMd, EFFORT_DISPLAY_UNIT);
             return (
               <div key={block.key} className="card-elevated overflow-hidden">
                 <button
@@ -437,40 +413,35 @@ export function DashboardPersonAllocationSection({
                     <ChevronDown className="shrink-0 text-stone-500" size={18} aria-hidden />
                   )}
                   <span className="min-w-0 flex-1 text-sm font-semibold text-stone-900 break-words">{block.title}</span>
+                  <span className="shrink-0 text-xs font-bold tabular-nums text-indigo-700" title="이 사업부(또는 부서) 블록 공수 합">
+                    {blockTotalLabel}
+                  </span>
                   <span className="shrink-0 text-xs font-semibold text-stone-500 tabular-nums">{block.rows.length}명</span>
                 </button>
                 {!collapsed && (
                   <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-sm min-w-[40rem] border-collapse">
+                    <table className="w-full table-fixed text-sm min-w-[36rem] border-collapse">
                       <colgroup>
                         <col className="min-w-0" />
-                        <col className="w-[7.5rem]" />
-                        <col className="w-[4.75rem]" />
-                        <col className="min-w-[12rem]" />
+                        <col className="w-[6.5rem]" />
+                        <col className="w-[4.25rem]" />
+                        <col className="min-w-[11rem]" />
                       </colgroup>
                       <thead className="border-b border-stone-200 bg-stone-100/95">
                         <tr>
-                          <th className="px-3 pt-2.5 pb-1 text-left text-xs font-semibold text-stone-700">인원</th>
-                          <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">
-                            투입 합
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-stone-700">인원</th>
+                          <th className="border-l border-stone-200/90 px-3 py-2 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">
+                            합
                           </th>
                           <th
-                            className="border-l border-stone-200/90 px-2 pt-2.5 pb-1 text-right text-xs font-semibold text-stone-700 whitespace-nowrap"
+                            className="border-l border-stone-200/90 px-2 py-2 text-right text-xs font-semibold text-stone-700 whitespace-nowrap"
                             title="공수 가중 평균 진척률"
                           >
-                            진척률
+                            진척
                           </th>
-                          <th className="border-l border-stone-200/90 px-3 pt-2.5 pb-1 text-left text-xs font-semibold text-stone-700">
-                            프로젝트·공수
+                          <th className="border-l border-stone-200/90 px-3 py-2 text-left text-xs font-semibold text-stone-700">
+                            프로젝트
                           </th>
-                        </tr>
-                        <tr className="text-[10px] font-normal text-stone-400">
-                          <th className="px-3 pb-2.5 pt-0 text-left font-normal">이름을 누르면 투입·작업 상세</th>
-                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
-                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-2 pb-2.5 pt-0 text-right font-normal leading-tight">
-                            공수 가중
-                          </th>
-                          <th className="border-l border-stone-200/90 bg-stone-100/95 px-3 pb-2.5 pt-0" aria-hidden />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100">
@@ -509,54 +480,38 @@ export function DashboardPersonAllocationSection({
                               <td className="border-l border-stone-100 px-2 py-2.5 text-right align-top tabular-nums text-xs font-bold leading-snug text-indigo-900 whitespace-nowrap">
                                 {formatPercent1(progressPct)}%
                               </td>
-                              <td className="border-l border-stone-100 px-3 py-2.5 align-top min-w-0">
-                                <ul className="m-0 flex flex-col gap-1 p-0 list-none">
+                              <td className="border-l border-stone-100 px-3 py-2 align-top min-w-0">
+                                <ul className="m-0 flex flex-col gap-0.5 p-0 list-none">
                                   {items.map(({ project, workEffortMd, earnedEffortMd }) => {
                                     const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
                                     const projectProgressPct = computePersonWorkEffortWeightedProgressPct({
                                       totalMd: workEffortMd,
                                       totalEarnedMd: earnedEffortMd,
                                     });
-                                    const kind = resolveProjectKindOrDefault(project);
                                     const projectTitle =
                                       (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
                                     const fullLabel = formatProjectDisplayName(project.name, project.projectKind);
+                                    const rowTitle = `${fullLabel} · ${effortLabel} (진척 ${formatPercent1(projectProgressPct)}%)`;
                                     return (
                                       <li
                                         key={project.id}
-                                        className="grid grid-cols-[auto_minmax(0,1fr)_6.75rem] items-center gap-x-2 gap-y-0 rounded-md border border-stone-100/90 bg-stone-50/40 px-2 py-1 min-w-0 hover:border-stone-200/90 hover:bg-white/90 transition-colors"
+                                        className="flex min-w-0 items-center justify-between gap-2 rounded border border-transparent px-1 py-0.5 hover:border-stone-200/80 hover:bg-stone-50/80"
                                       >
-                                        <span
-                                          className={cn(
-                                            'inline-flex shrink-0 items-center justify-center self-center rounded px-1.5 py-0.5 text-[10px] font-bold leading-none ring-1 ring-inset',
-                                            getProjectKindBadgeClass(kind),
-                                          )}
-                                        >
-                                          [{kind}]
-                                        </span>
                                         {onNavigateToWork ? (
                                           <button
                                             type="button"
                                             onClick={() => onNavigateToWork(project.id)}
-                                            className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-800 hover:text-indigo-800 hover:underline break-words [overflow-wrap:anywhere]"
-                                            title={`${fullLabel} — ${effortLabel}, 진척 ${formatPercent1(projectProgressPct)}% · 작업 표로 이동`}
+                                            className="min-w-0 flex-1 truncate text-left text-xs font-medium text-stone-800 hover:text-indigo-800 hover:underline"
+                                            title={`${rowTitle} · 작업 표`}
                                           >
-                                            <span className="block font-medium text-stone-800 truncate">{projectTitle}</span>
-                                            <span className="block font-semibold text-indigo-700">
-                                              진척 {formatPercent1(projectProgressPct)}%
-                                            </span>
+                                            {projectTitle}
                                           </button>
                                         ) : (
-                                          <div className="min-w-0 text-left text-xs font-semibold leading-snug text-stone-700 break-words [overflow-wrap:anywhere]">
-                                            <span className="block font-medium text-stone-800 truncate">{projectTitle}</span>
-                                            <span className="block font-semibold text-indigo-700">
-                                              진척 {formatPercent1(projectProgressPct)}%
-                                            </span>
-                                          </div>
+                                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-stone-700" title={rowTitle}>
+                                            {projectTitle}
+                                          </span>
                                         )}
-                                        <div className="text-right tabular-nums text-xs font-bold text-stone-700 self-center whitespace-nowrap">
-                                          {effortLabel}
-                                        </div>
+                                        <span className="shrink-0 tabular-nums text-xs font-bold text-indigo-700">{effortLabel}</span>
                                       </li>
                                     );
                                   })}
@@ -577,6 +532,8 @@ export function DashboardPersonAllocationSection({
         <div className={cn('space-y-4', narrowScreenLayout && 'max-w-full')}>
           {divisionBlocks.map((block) => {
             const collapsed = collapsedBlockKeys.has(block.key);
+            const blockTotalMd = block.rows.reduce((s, r) => s + r.totalMd, 0);
+            const blockTotalLabel = formatEffortFromManDays(blockTotalMd, EFFORT_DISPLAY_UNIT);
             return (
               <div key={block.key} className="card-elevated overflow-hidden">
                 <button
@@ -591,7 +548,10 @@ export function DashboardPersonAllocationSection({
                     <ChevronDown className="shrink-0 text-stone-500" size={18} aria-hidden />
                   )}
                   <span className="min-w-0 flex-1 text-sm font-semibold text-stone-900 break-words">{block.title}</span>
-                  <span className="shrink-0 rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-stone-600 tabular-nums ring-1 ring-stone-200/80">
+                  <span className="shrink-0 text-xs font-bold tabular-nums text-indigo-700" title="블록 공수 합">
+                    {blockTotalLabel}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-stone-600 tabular-nums ring-1 ring-stone-200/80">
                     {block.rows.length}명
                   </span>
                 </button>
@@ -610,7 +570,7 @@ export function DashboardPersonAllocationSection({
                         <li
                           key={person}
                           className={cn(
-                            'px-3 py-2.5 sm:px-4 transition-colors',
+                            'px-3 py-2 sm:px-4 transition-colors',
                             selectedPerson === person ? 'bg-violet-50/50' : 'hover:bg-stone-50/70',
                           )}
                         >
@@ -620,68 +580,57 @@ export function DashboardPersonAllocationSection({
                             title="투입·작업 상세"
                             aria-label={`${personDisplayFull}, 투입·작업 상세`}
                             className={cn(
-                              'group/person flex w-full min-w-0 items-start gap-2.5 rounded-md text-left sm:gap-3',
+                              'group/person flex w-full min-w-0 items-start gap-2 rounded-md text-left sm:gap-2.5',
                               '-mx-0.5 px-0.5 py-0.5 transition-colors',
                               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500',
                             )}
                           >
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-stone-100 to-stone-200/90 text-xs font-bold text-stone-700 shadow-sm ring-1 ring-stone-300/50">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-stone-100 to-stone-200/90 text-[11px] font-bold text-stone-700 shadow-sm ring-1 ring-stone-300/50">
                               {person.substring(0, 1)}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
                                 <span className="text-sm font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] group-hover/person:text-violet-950">
                                   {personDisplay}
                                 </span>
-                                <div className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 shrink-0">
-                                  <span className="rounded-md bg-violet-100/95 px-2 py-0.5 text-xs font-bold tabular-nums text-violet-900 ring-1 ring-violet-200/70">
+                                <div className="flex flex-wrap items-center justify-end gap-x-1 shrink-0">
+                                  <span className="rounded bg-violet-100/95 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-violet-900 ring-1 ring-violet-200/70">
                                     {totalEffortLabel}
                                   </span>
                                   <span
-                                    className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-indigo-900 ring-1 ring-indigo-200/80"
+                                    className="rounded bg-indigo-50 px-1 py-0.5 text-[10px] font-bold tabular-nums text-indigo-900 ring-1 ring-indigo-200/80"
                                     title="진척률(공수 가중)"
                                   >
-                                    진척 {formatPercent1(progressPct)}%
+                                    {formatPercent1(progressPct)}%
                                   </span>
                                 </div>
                               </div>
                             </div>
                           </button>
                           {items.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5 pl-0 sm:pl-10">
+                            <div className="mt-1.5 flex flex-wrap gap-1 pl-0 sm:pl-9">
                               {items.map(({ project, workEffortMd, earnedEffortMd }) => {
                                 const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
                                 const projectProgressPct = computePersonWorkEffortWeightedProgressPct({
                                   totalMd: workEffortMd,
                                   totalEarnedMd: earnedEffortMd,
                                 });
-                                const kind = resolveProjectKindOrDefault(project);
                                 const projectTitle =
                                   (project.name ?? '').trim() || formatProjectDisplayName(project.name, project.projectKind);
                                 const fullLabel = formatProjectDisplayName(project.name, project.projectKind);
                                 const chipClassName = cn(
-                                  'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border py-0.5 pl-1 pr-2 text-[11px] leading-tight shadow-sm transition-colors [overflow-wrap:anywhere]',
+                                  'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] leading-tight transition-colors',
                                   onNavigateToWork
                                     ? 'cursor-pointer border-stone-200/90 bg-white text-stone-800 hover:border-violet-300 hover:bg-violet-50/60'
                                     : 'cursor-default border-stone-200/70 bg-stone-50/90 text-stone-600',
                                 );
                                 const inner = (
                                   <>
-                                    <span
-                                      className={cn(
-                                        'inline-flex shrink-0 items-center justify-center rounded px-1 py-0.5 text-[9px] font-bold leading-none ring-1 ring-inset',
-                                        getProjectKindBadgeClass(kind),
-                                      )}
-                                    >
-                                      [{kind}]
-                                    </span>
                                     <span className="min-w-0 truncate font-medium">{projectTitle}</span>
-                                    <span className="shrink-0 tabular-nums text-stone-500">
-                                      {effortLabel}
-                                      <span className="text-indigo-700 font-semibold"> · 진척 {formatPercent1(projectProgressPct)}%</span>
-                                    </span>
+                                    <span className="shrink-0 tabular-nums font-bold text-indigo-700">{effortLabel}</span>
                                   </>
                                 );
+                                const tip = `${fullLabel} · ${effortLabel} (진척 ${formatPercent1(projectProgressPct)}%) · 작업 표`;
                                 return onNavigateToWork ? (
                                   <button
                                     key={`${person}:${project.id}`}
@@ -691,16 +640,12 @@ export function DashboardPersonAllocationSection({
                                       onNavigateToWork(project.id);
                                     }}
                                     className={chipClassName}
-                                    title={`${fullLabel} — ${effortLabel}, 진척 ${formatPercent1(projectProgressPct)}% · 작업 표로 이동`}
+                                    title={tip}
                                   >
                                     {inner}
                                   </button>
                                 ) : (
-                                  <span
-                                    key={`${person}:${project.id}`}
-                                    className={chipClassName}
-                                    title={`${effortLabel} · 진척 ${formatPercent1(projectProgressPct)}%`}
-                                  >
+                                  <span key={`${person}:${project.id}`} className={chipClassName} title={tip}>
                                     {inner}
                                   </span>
                                 );

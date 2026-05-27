@@ -18,7 +18,7 @@ import {
 import { resetDashboardSectionLayout } from '../lib/dashboardSectionLayout';
 import { ColorPicker } from './ColorPicker';
 import { ProjectNameLabel } from './ProjectNameLabel';
-import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectDisplayName, filterProjectsVisibleToViewer } from '../lib/projectKind';
 import { TaskStatus } from '../types';
 
 interface WBSSettingsModalProps {
@@ -92,6 +92,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   // 프로젝트별 일정은 본인이 만든 프로젝트(소유자)이거나 관리자일 때만 수정 가능.
   const canEditGlobal = isAdmin;
   const canEditProject = (ownerId?: string | null) => isAdmin || (!!user?.id && ownerId === user.id);
+
+  const projectsShownInSettings = useMemo(() => filterProjectsVisibleToViewer(projects, user?.id), [projects, user?.id]);
 
   const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
@@ -947,7 +949,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">대시보드에 표시할 항목</h3>
                   <p className="text-xs text-stone-500 leading-relaxed">
                     체크한 블록만 대시보드에 나타납니다. 처음에는 <strong className="font-semibold text-stone-600">전체 현황 요약</strong>,{' '}
-                    <strong className="font-semibold text-stone-600">인원·사업부별 작업 투입공수</strong>,{' '}
+                    <strong className="font-semibold text-stone-600">인원·사업부 투입공수</strong>,{' '}
                     <strong className="font-semibold text-stone-600">프로젝트별 상태</strong>가 켜져 있고, 부서·마일스톤·이슈·액션 등은
                     필요할 때 여기서 켜 주시면 됩니다. 이 기기(브라우저)에만 저장되며, 아래 버튼으로 앱 기본값으로 되돌릴 수 있습니다.
                   </p>
@@ -994,7 +996,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 <div className="space-y-4">
                   <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-stone-200 pb-2">프로젝트 시작·종료일 관리</h3>
                   <div className="space-y-2 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
-                    {projects.map((p) => {
+                    {projectsShownInSettings.map((p) => {
                       const editable = canEditProject(p.ownerId);
                       return (
                         <div

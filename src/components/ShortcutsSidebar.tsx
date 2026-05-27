@@ -130,9 +130,11 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
           chords: ['Tab', ['Shift', 'Tab']],
         },
         {
-          label: '형제 아래 · 위 추가',
+          label: '형제 아래 · 위 새 작업',
           chords: ['Enter', ['Shift', 'Enter']],
+          hint: '작업명 인라인 입력 중이 아닐 때',
         },
+        { label: '작업명 편집 저장·닫기', chords: ['Enter'], hint: 'F2 인라인 편집 중' },
         { label: '인라인 수정', chords: ['F2'] },
         { label: '삭제', chords: ['Del'] },
         { label: '편집 · 선택 해제', chords: ['Esc'] },

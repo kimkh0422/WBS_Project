@@ -634,9 +634,17 @@ function SortableTaskRowInner({
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
                       e.currentTarget.blur();
+                      requestAnimationFrame(() => {
+                        document.getElementById(`task-row-${task.id}`)?.focus();
+                      });
                     } else if (e.key === 'Escape') {
                       setInlineEditingNameId(null);
+                    } else if (e.key === ' ') {
+                      // 전역 표 단축키(Space=체크 토글)가 bubble되면 띄어쓰기가 막힐 수 있음
+                      e.stopPropagation();
                     }
                   }}
                 />

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, FileText, FolderOpen, ArrowRight, Hash } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
+import { useAuth } from '../context/AuthContext';
 import { cn, formatPercent1 } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { isComposingKeyEvent } from '../lib/ime';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
-import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from '../lib/projectKind';
 
 interface SearchModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ interface SearchResult {
 
 export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: SearchModalProps) {
   const { allTasks, projects, wbsMap, wbsSettings } = useWBS();
+  const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const [query, setQuery] = useState('');
@@ -44,12 +46,15 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
     }
   }, [isOpen]);
 
+  const visibleProjects = useMemo(() => projects.filter((p) => !isPrivateProjectHiddenFromViewer(p, user?.id)), [projects, user?.id]);
+  const visibleProjectIdSet = useMemo(() => new Set(visibleProjects.map((p) => p.id)), [visibleProjects]);
+
   // 프로젝트 이름 맵
   const projectNameMap = useMemo(() => {
     const m = new Map<string, string>();
-    projects.forEach((p) => m.set(p.id, formatProjectDisplayName(p.name, p.projectKind)));
+    visibleProjects.forEach((p) => m.set(p.id, formatProjectDisplayName(p.name, p.projectKind)));
     return m;
-  }, [projects]);
+  }, [visibleProjects]);
 
   // 상태 이름 맵
   const statusNameMap = useMemo(() => {
@@ -66,7 +71,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
     const items: SearchResult[] = [];
 
     // 프로젝트 검색
-    for (const p of projects) {
+    for (const p of visibleProjects) {
       const display = formatProjectDisplayName(p.name, p.projectKind);
       if (p.name.toLowerCase().includes(q) || display.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q)) {
         items.push({
@@ -81,6 +86,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
 
     // 작업 검색
     for (const t of allTasks) {
+      if (!visibleProjectIdSet.has(t.projectId)) continue;
       const nameMatch = t.name.toLowerCase().includes(q);
       const assigneeMatch = (t.assignee ?? '').toLowerCase().includes(q);
       const wbsCode = wbsMap.get(t.id) ?? '';
@@ -101,7 +107,7 @@ export function SearchModal({ isOpen, onClose, onSelectTask, onSelectProject }: 
     }
 
     return items.slice(0, 50); // 최대 50개
-  }, [query, projects, allTasks, wbsMap, projectNameMap, statusNameMap, assigneeDisplayMetaByName]);
+  }, [query, visibleProjects, visibleProjectIdSet, allTasks, wbsMap, projectNameMap, statusNameMap, assigneeDisplayMetaByName]);
 
   // 선택 인덱스 범위 유지
   useEffect(() => {

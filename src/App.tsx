@@ -68,8 +68,8 @@ import {
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useMatchMedia } from './hooks/useMatchMedia';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
-import { cn, formatTodayKoLongWithWeekday } from './lib/utils';
-import { formatProjectDisplayName } from './lib/projectKind';
+import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
+import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
 import { useOrganization } from './context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
@@ -125,37 +125,6 @@ function viteEnvTruthy(key: string): boolean {
 }
 
 const VITE_PROJECT_STATUS_ONLY = viteEnvTruthy('VITE_PROJECT_STATUS_ONLY');
-
-function formatCommitDate(value: string) {
-  try {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-  } catch {
-    return value;
-  }
-}
-
-function formatCommitDateDateOnly(value: string) {
-  try {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleDateString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-  } catch {
-    return value;
-  }
-}
 
 interface WBSAppProps {
   isAdmin: boolean;
@@ -571,11 +540,12 @@ function WBSApp({
   const uniqueProjects = React.useMemo(() => {
     const seen = new Set<string>();
     return projects.filter((p) => {
+      if (isPrivateProjectHiddenFromViewer(p, user?.id)) return false;
       if (seen.has(p.id)) return false;
       seen.add(p.id);
       return true;
     });
-  }, [projects]);
+  }, [projects, user?.id]);
 
   // 권한 등급과 무관하게 동일한 목록: 소유자 그룹 없이 이름순 단일 목록 (이름 같으면 id로 2차 정렬해 순서 고정)
   const projectsSortedByName = React.useMemo(() => {
@@ -1168,10 +1138,6 @@ function WBSApp({
           setIsHeaderCollapsed={setIsHeaderCollapsed}
           requestRefresh={requestRefresh}
           logo={logo}
-          appVersion={APP_VERSION}
-          formatCommitDate={formatCommitDate}
-          formatCommitDateDateOnly={formatCommitDateDateOnly}
-          appCommitDate={APP_COMMIT_DATE}
           isProjectDropdownOpen={isProjectDropdownOpen}
           setIsProjectDropdownOpen={setIsProjectDropdownOpen}
           currentProjectId={currentProjectId}
@@ -1916,6 +1882,7 @@ function WBSApp({
           project={editingProject}
           allProjects={projects}
           defaultPmNameForNewProject={currentUserPlainName}
+          currentUserId={user?.id}
         />
       )}
       <Suspense fallback={null}>
@@ -2300,17 +2267,15 @@ function WBSApp({
             <p className="text-[11px] font-semibold text-slate-500">지엠티 운영기술개발실</p>
             <div
               className="flex items-center gap-2 text-[10px] text-slate-400 whitespace-nowrap flex-wrap justify-center md:justify-end"
-              title={`오늘 ${formatTodayKoLongWithWeekday()} (로컬) · 버전 v${APP_VERSION} · 릴리스 수정일 ${formatCommitDate(APP_COMMIT_DATE)}`}
+              title={`오늘 ${formatTodayKoLongWithWeekday()} (로컬) · v${APP_VERSION} (${formatReleaseDateDotKo(APP_COMMIT_DATE)})`}
             >
               <span className="text-slate-500 tabular-nums">오늘 {formatTodayKoLongWithWeekday()}</span>
               <span className="text-slate-300" aria-hidden>
                 ·
               </span>
-              <span>v{APP_VERSION}</span>
-              <span className="text-slate-300" aria-hidden>
-                ·
+              <span className="text-slate-600 font-medium tabular-nums">
+                v{APP_VERSION} ({formatReleaseDateDotKo(APP_COMMIT_DATE)})
               </span>
-              <span>수정일 {formatCommitDateDateOnly(APP_COMMIT_DATE)}</span>
               <span className="text-slate-300" aria-hidden>
                 ·
               </span>

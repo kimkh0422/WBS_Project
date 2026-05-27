@@ -15,7 +15,7 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
   issues: '이슈 작업',
   actions: '액션 항목',
   divisions: '사업부·부서별 현황',
-  allocation: '인원·사업부별 작업 투입공수',
+  allocation: '인원·사업부 투입공수',
   milestones: '마일스톤',
   projects: '프로젝트별 상태',
 };

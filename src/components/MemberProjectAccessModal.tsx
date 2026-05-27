@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import type { Project } from '../types';
 import type { ProjectMemberRow } from '../lib/supabase';
-import { formatProjectDisplayName } from '../lib/projectKind';
+import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from '../lib/projectKind';
 import { fetchProjectMembershipsByUser, removeProjectMember, setProjectMemberRole, upsertProjectMember } from '../lib/db';
 import { cn } from '../lib/utils';
 import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
@@ -60,18 +60,20 @@ export function MemberProjectAccessModal({
 
   const rows = useMemo(() => {
     const uid = member?.id ?? '';
-    const list = projects.map((p) => {
-      const isOwner = !!uid && p.ownerId === uid;
-      const membership = membershipByProjectId.get(p.id);
-      const role: RoleUi = isOwner ? 'owner' : (membership?.role ?? 'none');
-      return {
-        projectId: p.id,
-        projectName: formatProjectDisplayName(p.name, p.projectKind),
-        projectOwnerId: p.ownerId ?? null,
-        role,
-        membership,
-      };
-    });
+    const list = projects
+      .filter((p) => !isPrivateProjectHiddenFromViewer(p, uid || undefined))
+      .map((p) => {
+        const isOwner = !!uid && p.ownerId === uid;
+        const membership = membershipByProjectId.get(p.id);
+        const role: RoleUi = isOwner ? 'owner' : (membership?.role ?? 'none');
+        return {
+          projectId: p.id,
+          projectName: formatProjectDisplayName(p.name, p.projectKind),
+          projectOwnerId: p.ownerId ?? null,
+          role,
+          membership,
+        };
+      });
     return list.sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'));
   }, [projects, membershipByProjectId, member?.id]);
 

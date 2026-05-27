@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronRight,
-  Tag,
   Plus,
   Download,
   Upload,
@@ -66,10 +65,6 @@ export interface AppHeaderProps {
   setIsHeaderCollapsed: (v: boolean) => void;
   requestRefresh: () => void;
   logo: string;
-  appVersion: string;
-  formatCommitDate: (d: string) => string;
-  formatCommitDateDateOnly: (d: string) => string;
-  appCommitDate: string;
   isProjectDropdownOpen: boolean;
   setIsProjectDropdownOpen: (v: boolean) => void;
   currentProjectId: string;
@@ -163,10 +158,6 @@ export function AppHeader({
   setIsHeaderCollapsed,
   requestRefresh,
   logo,
-  appVersion,
-  formatCommitDate,
-  formatCommitDateDateOnly,
-  appCommitDate,
   isProjectDropdownOpen,
   setIsProjectDropdownOpen,
   currentProjectId,
@@ -522,12 +513,6 @@ export function AppHeader({
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
-            <span
-              className="text-[10px] font-mono text-slate-400 shrink-0 tabular-nums"
-              title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
-            >
-              v{appVersion}
-            </span>
           </div>
         </div>
         <button
@@ -566,26 +551,6 @@ export function AppHeader({
           <div className="min-w-0">
             <div className="flex items-baseline gap-1.5 flex-wrap">
               <h1 className="text-lg font-bold tracking-tight leading-tight">{wbsSettings.appTitle}</h1>
-              {/* 모바일: 프로젝트 선택 없이 앱 버전만 공통 표시 */}
-              <span
-                className="md:hidden text-[10px] font-mono text-slate-400 px-2 py-0.5 inline-flex items-center gap-1.5"
-                title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
-              >
-                <Tag size={10} className="text-slate-300" />
-                <span>v{appVersion}</span>
-              </span>
-              {effectiveIsAdmin && (
-                <span
-                  className="hidden md:inline-flex text-[10px] font-mono text-slate-400 px-2 py-0.5 items-center gap-1.5"
-                  title={`버전 ${appVersion} (수정일: ${formatCommitDate(appCommitDate)})`}
-                >
-                  <Tag size={10} className="text-slate-300" />
-                  <span>v{appVersion}</span>
-                  <span className="hidden 2xl:inline text-[10px] text-slate-300 font-medium">
-                    · 수정일 {formatCommitDateDateOnly(appCommitDate)}
-                  </span>
-                </span>
-              )}
             </div>
 
             <div className="relative mt-0.5 group hidden md:block" ref={projectDropdownRef}>

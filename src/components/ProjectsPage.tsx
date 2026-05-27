@@ -29,7 +29,12 @@ import { cn, formatNum2 } from '../lib/utils';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { manDaysToManMonths } from '../lib/workEffortUnits';
 import { Project } from '../types';
-import { getProjectListKindBadgeMeta, groupProjectsForKindListView, projectListKindSortRank } from '../lib/projectKind';
+import {
+  getProjectListKindBadgeMeta,
+  groupProjectsForKindListView,
+  projectListKindSortRank,
+  isPrivateProjectHiddenFromViewer,
+} from '../lib/projectKind';
 import {
   PROJECT_LIST_LAYOUT_LS_KEY,
   buildOrgChartProjectListBlocks,
@@ -314,6 +319,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return projects.filter((p) => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
+      if (isPrivateProjectHiddenFromViewer(p, user?.id)) return false;
       if (showMyOnly && user?.id && p.ownerId !== user.id) return false;
       if (showDashboardExcludedOnly && p.includeInDashboard !== false) return false;
       return true;
@@ -1575,6 +1581,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         project={editingProject}
         allProjects={projects}
         defaultPmNameForNewProject={currentUserPlainName}
+        currentUserId={user?.id}
       />
       <ShareModal
         isOpen={!!shareProjectId}

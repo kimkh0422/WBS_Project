@@ -183,7 +183,7 @@ export function DashboardDivisionDetail({
             className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100/90 transition-colors"
           >
             <Users className="shrink-0 text-teal-600" size={18} aria-hidden />
-            사업부별 작업 투입공수로 (이 사업부 소속만)
+            사업부 투입공수 (소속만)
           </button>
         </div>
       )}

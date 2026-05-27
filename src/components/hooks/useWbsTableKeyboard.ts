@@ -208,91 +208,25 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // 작업명(name) 편집 중 Enter: 빠른 입력 패턴 유지 — 같은 레벨(형제) 새 작업을 현재 행 아래에 추가하고 계속 편집.
-      // Shift+Enter: 현재 행 바로 "위"에 같은 레벨(형제) 새 작업 추가.
+      // 작업명(name) 인라인 편집 중 Enter: blur로 커밋(onBlur) 후 편집만 종료 — 같은 레벨 새 작업 추가는 표 포커스에서 Enter(793행대)로 수행
       if (e.key === 'Enter' && inlineEditingNameId && inWbsTable) {
         e.preventDefault();
-        // 편집 권한 없으면 새 작업 추가 비활성화 (현재 셀 편집 종료만)
+        const currentTaskId = inlineEditingNameId;
         if (!canEditCurrentProject) {
           (document.activeElement as HTMLElement | null)?.blur?.();
           return;
         }
-        const currentTaskId = inlineEditingNameId;
-        const columnId: TableColumnId = 'name';
-        const currentIndex = visibleTasks.findIndex((t) => t.id === currentTaskId);
-        const insertAbove = e.shiftKey;
-
-        // 1) 먼저 blur로 현재 입력을 커밋 (onBlur에서 updateTask 수행)
         (document.activeElement as HTMLElement | null)?.blur?.();
-
-        // 2) 새 작업으로 이동
-        const moveToTaskId = (nextId: string) => {
-          setLastSelectedId(nextId);
-          maybeSyncShiftRangeAnchor(nextId);
-          setFocusedCell({ taskId: nextId, columnId });
-          if (columnId === 'name') {
-            setInlineEditingNameId(nextId);
-            setEditingCell(null);
-          } else {
-            setEditingCell({ taskId: nextId, columnId });
-            setInlineEditingNameId(null);
-          }
-          document.getElementById(`task-row-${nextId}`)?.scrollIntoView({ block: 'nearest' });
-          requestAnimationFrame(() => {
-            document.getElementById(`wbs-edit-${nextId}-${columnId}`)?.focus();
-          });
-        };
-
         window.setTimeout(() => {
-          // 현재 행 위/아래에 같은 레벨(형제) 새 작업 추가
-          const base = tasks.find((t) => t.id === currentTaskId);
-          const pid = base?.projectId || currentProjectId;
-          const proj = projects.find((p) => p.id === pid);
-          const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-          // 위에 추가: 현재 행 바로 직전의 표시 행 다음에 삽입 → 결과적으로 현재 행 위에 위치
-          const insertAfterId = insertAbove ? (currentIndex > 0 ? visibleTasks[currentIndex - 1].id : undefined) : currentTaskId;
-          const newId = addTask(
-            {
-              name: '',
-              startDate: filters.startDate || defaultDate,
-              endDate: filters.endDate || defaultDate,
-              progress: 0,
-              workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
-              assignee: filters.assignee || '',
-              status: 'todo',
-              parentId: base?.parentId ?? null,
-              expanded: true,
-            },
-            insertAfterId,
-          );
-          moveToTaskId(newId);
+          setInlineEditingNameId(null);
+          setEditingCell(null);
+          setFocusedCell({ taskId: currentTaskId, columnId: 'name' });
+          setLastSelectedId(currentTaskId);
+          maybeSyncShiftRangeAnchor(currentTaskId);
+          requestAnimationFrame(() => {
+            tableScrollRef.current?.focus();
+          });
         }, 0);
-        return;
-      }
-
-      // 인라인 작업명 편집 중 ↑/↓: 편집을 종료하고 인접 행으로 포커스만 이동.
-      // (Enter로 새 작업 추가 직후처럼 작업명 편집이 시작된 상태에서, 위/아래 키로
-      //  계속 다른 행의 편집 모드로 끌려가지 않고 단순히 행 선택만 옮긴다.)
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && inlineEditingNameId && !editingCell && target.closest('[data-wbs-table]')) {
-        const currentIndex = visibleTasks.findIndex((t) => t.id === inlineEditingNameId);
-        if (currentIndex >= 0) {
-          const nextRowIdx = e.key === 'ArrowUp' ? Math.max(0, currentIndex - 1) : Math.min(visibleTasks.length - 1, currentIndex + 1);
-          const nextTask = visibleTasks[nextRowIdx];
-          if (nextTask && nextTask.id !== inlineEditingNameId) {
-            e.preventDefault();
-            (document.activeElement as HTMLElement | null)?.blur?.();
-            setInlineEditingNameId(null);
-            setEditingCell(null);
-            setLastSelectedId(nextTask.id);
-            maybeSyncShiftRangeAnchor(nextTask.id);
-            // inline 편집 종료 후에도 F2 기준 셀이 이전 행에 남지 않도록 포커스를 현재 행으로 동기화
-            setFocusedCell({ taskId: nextTask.id, columnId: 'name' });
-            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-            requestAnimationFrame(() => {
-              tableScrollRef.current?.focus();
-            });
-          }
-        }
         return;
       }
 
@@ -456,7 +390,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 셀 입력 중이면 행 선택·트리·붙여넣기 등 표 단축키 비활성화 (선행작업 input 등은 editingCell 없음)
-      if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
+      // `e.target`만 보면 포커스는 텍스트 input인데 target이 행 등으로 잡혀 Space가 체크 토글로 가는 경우가 있어 activeElement도 함께 본다.
+      const activeEl = document.activeElement as HTMLElement | null;
+      const typingInWbsCell = isWbsTableCellTypingTarget(target) || (!!activeEl && isWbsTableCellTypingTarget(activeEl));
+      if (editingCell || inlineEditingNameId || typingInWbsCell) return;
       const inWbsTableFallback = (target as HTMLElement).closest?.('[data-wbs-table]');
       if (!inWbsTableFallback) {
         // 표 밖의 일반 입력/셀렉트는 기본 동작 유지 (검색창 등)

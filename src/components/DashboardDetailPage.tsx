@@ -422,7 +422,7 @@ export function DashboardDetailPage({
       case 'milestones':
         return '마일스톤 전체';
       case 'allocation':
-        return '사업부별 작업 투입공수 상세';
+        return '투입공수 상세';
       case 'project':
         return projectDetailRow ? formatProjectDisplayName(projectDetailRow.name, projectDetailRow.projectKind) : '프로젝트 상세';
       default:
@@ -1290,9 +1290,8 @@ export function DashboardDetailPage({
 
         {kind === 'allocation' && (
           <div className="space-y-2">
-            <p className="text-xs text-stone-500">
-              WBS 작업에 입력된 투입공수(workEffort) 기준으로, 사업부(또는 소속)별 누가 어떤 프로젝트에 얼마나 올라가 있는지 요약합니다.
-              이름은 상세, 프로젝트는 작업 표로 이동합니다.
+            <p className="text-xs text-stone-500 m-0">
+              WBS 담당 공수(M/M)를 인원·사업부로 묶은 요약입니다. 이름은 상세, 프로젝트는 작업 표로 이동합니다.
             </p>
             <DashboardPersonAllocationSection
               projects={displayProjectsForAllocation}
