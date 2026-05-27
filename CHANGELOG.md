@@ -219,6 +219,15 @@
 
 
 
+
+## v0.6.20 (2026-05-27)
+- 버전 업데이트
+## v0.6.19 (2026-05-27)
+- Supabase: `project_access_requests` RLS(대기 중 viewer/editor 변경, 보기 승인 후 편집 권한 재요청).
+- 승인된 viewer 멤버도 `get_user_editable_project_ids`로 작업·프로젝트 메타 편집 가능.
+- 사내 전사 탐색 회원(`can_browse_all_company_projects`) 편집 범위와 `projects_delete` 정책 정리.
+- 임시: `is_admin_user()`를 인증 세션 기준으로 완화하는 마이그레이션(정상 복구 절차는 파일 주석 참고).
+
 ## v0.6.18 (2026-05-27)
 - 버전 업데이트
 ## v0.6.17 (2026-05-26)

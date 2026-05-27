@@ -49,7 +49,7 @@ export async function removeProjectMember(projectId: string, userId: string): Pr
   if (error) throw error;
 }
 
-/** 프로젝트 멤버 권한 설정(추가 또는 변경). 관리자 또는 프로젝트 소유자만 가능. role은 'editor'(편집) 또는 'viewer'(보기). */
+/** 프로젝트 멤버 권한 설정(추가 또는 변경). 관리자 또는 프로젝트 소유자만 가능. role은 DB상 viewer/editor(승인 후 편집 권한은 동일). */
 export async function upsertProjectMember(
   projectId: string,
   userId: string,
@@ -116,18 +116,89 @@ export async function createProjectAccessRequest(
   }
 }
 
-/** 거절된 요청을 다시 pending으로 재요청. */
-export async function rerequestProjectAccess(requestId: string): Promise<{ success: boolean; error?: string }> {
+/** 거절된 요청을 다시 pending으로 재요청. `requestedRole`이 있으면 함께 갱신(예: 편집으로 재요청). */
+export async function rerequestProjectAccess(
+  requestId: string,
+  requestedRole?: 'viewer' | 'editor',
+): Promise<{ success: boolean; error?: string }> {
   requireSupabase();
   try {
-    const { error } = await supabase!
-      .from('project_access_requests')
-      .update({ status: 'pending', reviewed_at: null, reviewed_by: null })
-      .eq('id', requestId);
+    const patch: Record<string, unknown> = {
+      status: 'pending',
+      reviewed_at: null,
+      reviewed_by: null,
+    };
+    if (requestedRole) patch.requested_role = requestedRole;
+    const { error } = await supabase!.from('project_access_requests').update(patch).eq('id', requestId);
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : '재요청에 실패했습니다.' };
+  }
+}
+
+/**
+ * 현재 프로젝트에 대한 편집(editor) 권한 요청을 보냅니다.
+ * - 요청 이력 없음 → INSERT
+ * - pending + editor → 이미 대기 중
+ * - pending + viewer → editor로 상향
+ * - rejected → 재요청 + editor
+ * - approved + viewer → pending + editor(재승인 필요)
+ */
+export async function requestProjectEditorAccess(
+  projectId: string,
+): Promise<{ success: boolean; error?: string; state?: 'sent' | 'already_pending' | 'upgraded' }> {
+  requireSupabase();
+  try {
+    const {
+      data: { user },
+    } = await supabase!.auth.getUser();
+    if (!user?.id) return { success: false, error: '로그인이 필요합니다.' };
+
+    const row = await getMyProjectAccessRequest(projectId);
+    if (!row) {
+      const r = await createProjectAccessRequest(projectId, 'editor');
+      return r.success ? { success: true, state: 'sent' } : { success: false, error: r.error };
+    }
+    if (row.status === 'pending' && row.requested_role === 'editor') {
+      return { success: true, state: 'already_pending' };
+    }
+    if (row.status === 'pending' && row.requested_role === 'viewer') {
+      const { error } = await supabase!
+        .from('project_access_requests')
+        .update({ requested_role: 'editor' })
+        .eq('id', row.id)
+        .eq('user_id', user.id);
+      if (error) return { success: false, error: error.message };
+      return { success: true, state: 'upgraded' };
+    }
+    if (row.status === 'rejected') {
+      const r = await rerequestProjectAccess(row.id, 'editor');
+      return r.success ? { success: true, state: 'sent' } : { success: false, error: r.error };
+    }
+    if (row.status === 'approved' && row.requested_role === 'viewer') {
+      const { error } = await supabase!
+        .from('project_access_requests')
+        .update({
+          status: 'pending',
+          requested_role: 'editor',
+          reviewed_at: null,
+          reviewed_by: null,
+        })
+        .eq('id', row.id)
+        .eq('user_id', user.id);
+      if (error) return { success: false, error: error.message };
+      return { success: true, state: 'sent' };
+    }
+    if (row.status === 'approved' && row.requested_role === 'editor') {
+      return {
+        success: false,
+        error: '이미 편집 권한이 승인된 요청입니다. 동기화 또는 새로고침 후에도 편집이 안 되면 관리자에게 문의하세요.',
+      };
+    }
+    return { success: false, error: '처리할 수 없는 권한 요청 상태입니다.' };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '요청에 실패했습니다.' };
   }
 }
 
@@ -305,7 +376,7 @@ export async function getMyProjectMemberProjectIds(): Promise<string[]> {
   return ((data ?? []) as { project_id: string }[]).map((r) => r.project_id);
 }
 
-/** 편집 가능한 프로젝트 ID 목록 (소유자 또는 editor 권한이 부여된 프로젝트). 승인 사용자는 모든 프로젝트를 보지만 편집은 이 목록만. */
+/** 편집 가능한 프로젝트 ID 목록 (소유자 또는 승인된 멤버: viewer/editor 포함). DB RPC와 동일. */
 export async function getMyEditableProjectIds(): Promise<string[]> {
   requireSupabase();
   const { data, error } = await supabase!.rpc('get_user_editable_project_ids');

@@ -59,6 +59,7 @@ const WBSContext = createContext<WBSContextType | undefined>(undefined);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+/** `clientProjectAllowlist`: 외주 등 — `project_members`에 포함된 ID만 유지(RLS 누락·로컬 캐시 시에도 UI·상태 일치). 미전달 시 필터 없음 */
 export function WBSProvider({
   children,
   useLocalOnly = false,
@@ -66,6 +67,7 @@ export function WBSProvider({
   onDbError,
   editableProjectIds,
   isAdmin = false,
+  clientProjectAllowlist,
 }: {
   children: React.ReactNode;
   useLocalOnly?: boolean;
@@ -73,6 +75,7 @@ export function WBSProvider({
   onDbError?: (message: string) => void;
   editableProjectIds?: string[];
   isAdmin?: boolean;
+  clientProjectAllowlist?: string[];
 }) {
   const { user } = useAuth();
   const handleDbError = React.useCallback(
@@ -141,6 +144,50 @@ export function WBSProvider({
   const ownerId = user?.id ?? undefined;
   const ownerIdRef = useRef<string | undefined>(undefined);
   ownerIdRef.current = ownerId;
+
+  /** 외주 계정: 멤버십 ID가 확정된 뒤·DB 목록이 갱신될 때마다 상태를 한 번 더 좁힘 */
+  useEffect(() => {
+    if (clientProjectAllowlist === undefined) return;
+    const allow = new Set(clientProjectAllowlist);
+    setProjects((prev) => {
+      const next = prev.filter((p) => allow.has(p.id));
+      if (next.length === prev.length) {
+        let same = true;
+        for (let i = 0; i < next.length; i++) {
+          if (prev[i]?.id !== next[i]?.id) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+    setAllTasks((prev) => {
+      const next = prev.filter((t) => allow.has(t.projectId));
+      if (next.length === prev.length) {
+        let same = true;
+        for (let i = 0; i < next.length; i++) {
+          if (prev[i]?.id !== next[i]?.id) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+    setCurrentProjectId((cur) => {
+      if (allow.size === 0) {
+        if (cur === 'all' || cur === '') return cur;
+        return '';
+      }
+      if (cur === 'all') return cur;
+      if (!cur) return allow.size === 1 ? [...allow][0]! : 'all';
+      if (allow.has(cur)) return cur;
+      return allow.size === 1 ? [...allow][0]! : 'all';
+    });
+  }, [clientProjectAllowlist, projects.length, allTasks.length]);
 
   const creatorDisplayNameRef = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -1203,8 +1250,8 @@ export function WBSProvider({
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
   // 권한 모델: 다음 중 하나면 편집 가능 — (1) 시스템 관리자, (2) 프로젝트 소유자,
-  // (3) editor 권한으로 공유받은 멤버. RPC `get_user_editable_project_ids()`가
-  // owner + editor 멤버 프로젝트 ID 목록을 반환하며, DB RLS도 동일 기준으로 시행됨.
+  // (3) RPC `get_user_editable_project_ids()`에 포함된 프로젝트(멤버 viewer 포함·사내 승인 시 전사).
+  // DB RLS는 `get_user_editable_project_ids`와 `can_browse_all_company_projects()` 등으로 동일하게 시행됨.
   const currentProjectObj = projects.find((p) => p.id === currentProjectId);
   const canEditCurrentProject = (() => {
     if (!currentProjectId || currentProjectId === 'all') return false;

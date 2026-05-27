@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, Edit3, Loader2 } from 'lucide-react';
-import {
-  createProjectAccessRequest,
-  getMyProjectAccessRequest,
-  rerequestProjectAccess,
-} from '../lib/db';
+import { createProjectAccessRequest, getMyProjectAccessRequest, rerequestProjectAccess } from '../lib/db';
 import type { ProjectAccessRequestRow } from '../lib/supabase';
 
 interface ProjectAccessRequestBannerProps {
@@ -13,11 +9,7 @@ interface ProjectAccessRequestBannerProps {
   onRequestSent?: () => void;
 }
 
-export function ProjectAccessRequestBanner({
-  projectId,
-  projectName,
-  onRequestSent,
-}: ProjectAccessRequestBannerProps) {
+export function ProjectAccessRequestBanner({ projectId, projectName, onRequestSent }: ProjectAccessRequestBannerProps) {
   const [request, setRequest] = useState<ProjectAccessRequestRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -36,7 +28,9 @@ export function ProjectAccessRequestBanner({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   const handleRequest = async (role: 'viewer' | 'editor') => {
@@ -93,16 +87,13 @@ export function ProjectAccessRequestBanner({
   return (
     <div className="h-full flex items-center justify-center p-6 bg-slate-50/50">
       <div className="max-w-md w-full rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-medium text-slate-700 mb-1">
-          이 프로젝트의 내용을 보려면 권한이 필요합니다.
-        </p>
+        <p className="text-sm font-medium text-slate-700 mb-1">이 프로젝트의 내용을 보려면 권한이 필요합니다.</p>
         <p className="text-xs text-slate-500 mb-4">
-          관리자 또는 프로젝트 소유자가 승인하면 내용을 볼 수 있습니다.
+          관리자 또는 프로젝트 소유자가 승인하면 내용을 볼 수 있고, <strong>보기·편집 요청 모두 승인 후에는 동일하게</strong> 작업을 수정할
+          수 있습니다.
         </p>
 
-        {error && (
-          <p className="text-xs text-red-600 mb-3 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
-        )}
+        {error && <p className="text-xs text-red-600 mb-3 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
 
         {!request && (
           <div className="flex flex-wrap gap-2">
@@ -129,15 +120,14 @@ export function ProjectAccessRequestBanner({
 
         {request?.status === 'pending' && (
           <p className="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
-            <strong>{request.requested_role === 'editor' ? '편집' : '보기'}</strong> 권한 요청 대기 중입니다. 승인 후 새로고침하면 내용을 볼 수 있습니다.
+            <strong>{request.requested_role === 'editor' ? '편집' : '보기'}</strong> 권한 요청 대기 중입니다. 승인 후 새로고침하면 내용을 볼
+            수 있습니다.
           </p>
         )}
 
         {request?.status === 'rejected' && (
           <div className="space-y-2">
-            <p className="text-sm text-slate-600">
-              요청이 거절되었습니다. 필요 시 다른 권한으로 다시 요청할 수 있습니다.
-            </p>
+            <p className="text-sm text-slate-600">요청이 거절되었습니다. 필요 시 다른 권한으로 다시 요청할 수 있습니다.</p>
             <button
               type="button"
               disabled={actionLoading}
@@ -150,9 +140,7 @@ export function ProjectAccessRequestBanner({
           </div>
         )}
 
-        <p className="text-[11px] text-slate-400 mt-4">
-          프로젝트: {projectName}
-        </p>
+        <p className="text-[11px] text-slate-400 mt-4">프로젝트: {projectName}</p>
       </div>
     </div>
   );

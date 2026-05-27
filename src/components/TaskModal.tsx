@@ -146,7 +146,18 @@ export function TaskModal({
   defaultStartDate,
   defaultEndDate,
 }: TaskModalProps) {
-  const { wbsMap, displayWbsMap, addTask, updateTask, wbsSettings, projects, currentProjectId, isAdmin, updateProject } = useWBS();
+  const {
+    wbsMap,
+    displayWbsMap,
+    addTask,
+    updateTask,
+    wbsSettings,
+    projects,
+    currentProjectId,
+    isAdmin,
+    updateProject,
+    editableProjectIds,
+  } = useWBS();
   const { orgMembers } = useOrganization();
   const taskProjectId = initialData?.projectId ?? currentProjectId;
   const taskProject = projects.find((p) => p.id === taskProjectId);
@@ -158,10 +169,13 @@ export function TaskModal({
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
   const taskEffortUnit = normalizeWorkEffortUnit(taskProject?.workEffortUnit);
   const taskEffortUnitLabel = workEffortUnitSuffixKo(taskEffortUnit);
-  // 권한 모델: 프로젝트를 만든 사람(소유자)과 시스템 관리자만 편집 가능.
-  // editor 멤버여도 읽기 전용. DB RLS도 동일 정책으로 시행됨.
-  const isOwnerOfTaskProject = !!currentUserId && taskProject?.ownerId === currentUserId;
-  const readOnly = readOnlyProp ?? !(isAdmin || isOwnerOfTaskProject);
+  // 권한 모델: WBSContext·RLS와 동일 — 관리자, 해당 프로젝트 소유자, 또는 승인 멤버(viewer/editor)
+  // 로 `get_user_editable_project_ids`에 포함된 프로젝트면 편집 가능.
+  const canEditTaskProject =
+    !!taskProjectId &&
+    taskProjectId !== 'all' &&
+    (isAdmin || (!!currentUserId && taskProject?.ownerId === currentUserId) || (editableProjectIds?.includes(taskProjectId) ?? false));
+  const readOnly = readOnlyProp ?? !canEditTaskProject;
   const projectAssignments = (taskProject?.assignments ?? []).map((a) => ({
     assignee: a.assignee,
     allocationPercent: a.allocationPercent,

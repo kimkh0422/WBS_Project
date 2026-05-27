@@ -23,6 +23,7 @@ export function useModalStates() {
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
   const [isAdminAccessRequestModalOpen, setIsAdminAccessRequestModalOpen] = useState(false);
+  const [isProjectEditAccessRequestModalOpen, setIsProjectEditAccessRequestModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isWeeklyReportOpen, setIsWeeklyReportOpen] = useState(false);
   const [isOrganizationOpen, setIsOrganizationOpen] = useState(false);
@@ -115,6 +116,8 @@ export function useModalStates() {
     setIsAdminPasswordModalOpen,
     isAdminAccessRequestModalOpen,
     setIsAdminAccessRequestModalOpen,
+    isProjectEditAccessRequestModalOpen,
+    setIsProjectEditAccessRequestModalOpen,
     isResetConfirmOpen,
     setIsResetConfirmOpen,
     isWeeklyReportOpen,

@@ -95,6 +95,7 @@ import { MembersModal } from './components/MembersModal';
 import { ProjectAccessRequestBanner } from './components/ProjectAccessRequestBanner';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
 import { AdminAccessRequestModal } from './components/AdminAccessRequestModal';
+import { ProjectEditAccessRequestModal } from './components/ProjectEditAccessRequestModal';
 import type { ExportScope, ExportFormat } from './components/ExportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
@@ -142,6 +143,8 @@ interface WBSAppProps {
   isOrgScopedManager: boolean;
   currentUserManagedOrgNodeId: string | null;
   onMembersUpdated?: () => void;
+  /** Supabase `get_user_editable_project_ids` 재조회 (권한 요청 후) */
+  onEditableProjectIdsRefresh?: () => void;
 }
 
 function WBSApp({
@@ -155,6 +158,7 @@ function WBSApp({
   isOrgScopedManager,
   currentUserManagedOrgNodeId,
   onMembersUpdated,
+  onEditableProjectIdsRefresh,
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
   const { orgMembers } = useOrganization();
@@ -219,6 +223,8 @@ function WBSApp({
     setIsAdminPasswordModalOpen,
     isAdminAccessRequestModalOpen,
     setIsAdminAccessRequestModalOpen,
+    isProjectEditAccessRequestModalOpen,
+    setIsProjectEditAccessRequestModalOpen,
     isResetConfirmOpen,
     setIsResetConfirmOpen,
     isWeeklyReportOpen,
@@ -1213,6 +1219,7 @@ function WBSApp({
           canOpenMembersManagement={canOpenMembersManagement}
           setIsAdminPasswordModalOpen={setIsAdminPasswordModalOpen}
           setIsAdminAccessRequestModalOpen={isSupabaseConfigured ? setIsAdminAccessRequestModalOpen : undefined}
+          setIsProjectEditAccessRequestModalOpen={isSupabaseConfigured ? setIsProjectEditAccessRequestModalOpen : undefined}
           ownerDepartmentByUserId={ownerDepartmentByUserId}
         />
       )}
@@ -1813,6 +1820,10 @@ function WBSApp({
                       setEditingProject(p);
                       setIsProjectModalOpen(true);
                     }}
+                    onCreateProject={() => {
+                      setEditingProject(null);
+                      setIsProjectModalOpen(true);
+                    }}
                     onNavigateToWork={(projectId) => {
                       setCurrentProjectId(projectId);
                       setView(hiddenViews.has('table') ? 'dashboard' : 'table');
@@ -2214,6 +2225,28 @@ function WBSApp({
             }}
           />
         )}
+        {isSupabaseConfigured &&
+          isProjectEditAccessRequestModalOpen &&
+          currentProjectId &&
+          currentProjectId !== 'all' &&
+          currentProject && (
+            <ProjectEditAccessRequestModal
+              isOpen
+              projectId={currentProjectId}
+              projectName={formatProjectDisplayName(currentProject.name, currentProject.projectKind)}
+              onClose={() => setIsProjectEditAccessRequestModalOpen(false)}
+              onSubmitted={(state) => {
+                onEditableProjectIdsRefresh?.();
+                if (state === 'already_pending') {
+                  pushToast('이미 편집 권한 요청이 대기 중입니다.', { variant: 'info' });
+                } else if (state === 'upgraded') {
+                  pushToast('요청을 편집 권한으로 변경했습니다. 승인을 기다려 주세요.', { variant: 'success' });
+                } else {
+                  pushToast('편집 권한 요청을 보냈습니다. 소유자 또는 관리자 승인 후 편집할 수 있습니다.', { variant: 'success' });
+                }
+              }}
+            />
+          )}
         {isAdminPasswordModalOpen && (
           <AdminPasswordModal
             isOpen
@@ -2293,6 +2326,7 @@ function AppWithProviders() {
   const { push: pushToast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [userApproved, setUserApproved] = useState(false);
+  const [isExternalPartner, setIsExternalPartner] = useState(false);
   /** 관리자 비밀번호로 임시 관리자 모드에 진입한 상태 (sessionStorage 기반) */
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   /** 관리자가 회원 화면을 체험 중인 상태 (sessionStorage 기반). 켜져 있으면 관리자라도 화면상 비관리자처럼 동작. */
@@ -2320,6 +2354,13 @@ function AppWithProviders() {
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
+  const refreshEditableProjectIds = useCallback(() => {
+    if (!user?.id) return;
+    void getMyEditableProjectIds()
+      .then((ids) => setMyEditableProjectIds(ids))
+      .catch(() => setMyEditableProjectIds(undefined));
+  }, [user?.id]);
+
   const [isOrgScopedManager, setIsOrgScopedManager] = useState(false);
   const [currentUserManagedOrgNodeId, setCurrentUserManagedOrgNodeId] = useState<string | null>(null);
 
@@ -2327,6 +2368,7 @@ function AppWithProviders() {
     if (!user?.id) {
       setIsAdmin(false);
       setUserApproved(false);
+      setIsExternalPartner(false);
       setIsOrgScopedManager(false);
       setCurrentUserManagedOrgNodeId(null);
       return;
@@ -2335,6 +2377,7 @@ function AppWithProviders() {
       .then((status) => {
         if (status) {
           setIsAdmin(status.isAdmin);
+          setIsExternalPartner(status.isExternalPartner);
           // 외주 계정은 승인(approved)이어도 멤버로 공유된 프로젝트만 열람·편집 (전사 탐색·조직도 UI 제외)
           setUserApproved(status.approved && !status.isExternalPartner);
           setIsOrgScopedManager(status.isOrgScopeManager);
@@ -2343,6 +2386,49 @@ function AppWithProviders() {
       })
       .catch(() => {});
   }, [user?.id]);
+
+  /** 외주: 공유(project_members) 프로젝트 ID — RLS/캐시와 무관하게 클라이언트에서 목록·상태를 한 번 더 제한 */
+  const [externalPartnerBrowseIds, setExternalPartnerBrowseIds] = useState<string[] | undefined>(undefined);
+  const [externalPartnerBrowseLoaded, setExternalPartnerBrowseLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setExternalPartnerBrowseIds(undefined);
+      setExternalPartnerBrowseLoaded(false);
+      return;
+    }
+    if (!isExternalPartner || effectiveIsAdminGlobal) {
+      setExternalPartnerBrowseIds(undefined);
+      setExternalPartnerBrowseLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    setExternalPartnerBrowseLoaded(false);
+    getMyProjectMemberProjectIds()
+      .then((ids) => {
+        if (!cancelled) {
+          setExternalPartnerBrowseIds(ids);
+          setExternalPartnerBrowseLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExternalPartnerBrowseIds([]);
+          setExternalPartnerBrowseLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isExternalPartner, effectiveIsAdminGlobal]);
+
+  const externalBrowseKey = externalPartnerBrowseIds === undefined ? '' : [...externalPartnerBrowseIds].sort().join(',');
+
+  const clientProjectAllowlist = useMemo(() => {
+    if (!isExternalPartner || effectiveIsAdminGlobal) return undefined;
+    if (!externalPartnerBrowseLoaded) return undefined;
+    return externalPartnerBrowseIds ?? [];
+  }, [isExternalPartner, effectiveIsAdminGlobal, externalPartnerBrowseLoaded, externalBrowseKey]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -2431,6 +2517,7 @@ function AppWithProviders() {
       onDbError={handleProviderDbError}
       editableProjectIds={myEditableProjectIds}
       isAdmin={effectiveIsAdminGlobal}
+      clientProjectAllowlist={clientProjectAllowlist}
     >
       <WBSApp
         isAdmin={isAdmin}
@@ -2443,6 +2530,7 @@ function AppWithProviders() {
         isOrgScopedManager={isOrgScopedManager}
         currentUserManagedOrgNodeId={currentUserManagedOrgNodeId}
         onMembersUpdated={() => {}}
+        onEditableProjectIdsRefresh={refreshEditableProjectIds}
       />
     </WBSProvider>
   );

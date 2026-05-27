@@ -178,7 +178,7 @@ export function MemberProjectAccessModal({
                               onChange={(e) => setRole(r.projectId, e.target.value as RoleUi)}
                               disabled={saving}
                               className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
-                              title="권한: 없음/보기/편집"
+                              title="승인된 보기·편집 멤버 모두 동일하게 작업 편집 가능(라벨 구분)"
                             >
                               <option value="none">없음</option>
                               <option value="viewer">보기</option>

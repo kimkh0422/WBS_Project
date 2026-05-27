@@ -14,7 +14,6 @@ import {
   Shield,
   ThumbsUp,
   ThumbsDown,
-  AlertTriangle,
 } from 'lucide-react';
 import {
   fetchProfiles,
@@ -90,19 +89,6 @@ export function MembersModal({
   const [memberToDelete, setMemberToDelete] = useState<ProfileRow | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // 본인 제외 전체 삭제 (관리자 전용 위험 작업)
-  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
-  const [bulkConfirmText, setBulkConfirmText] = useState('');
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; currentName?: string }>({
-    done: 0,
-    total: 0,
-  });
-  const [bulkResults, setBulkResults] = useState<{
-    ok: { id: string; name: string }[];
-    fail: { id: string; name: string; error: string }[];
-  } | null>(null);
-
   const { orgTree, orgMembers } = useOrganization();
   const orgDeptByName = useMemo(() => buildOrgDepartmentByNameMap(orgMembers), [orgMembers]);
   const memberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -110,7 +96,6 @@ export function MembersModal({
   membersRef.current = members;
   const [savingOrgId, setSavingOrgId] = useState<string | null>(null);
   const effectiveIsAdmin = dbIsAdmin || adminOverride;
-  const BULK_CONFIRM_PHRASE = '전체삭제';
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -464,56 +449,6 @@ export function MembersModal({
     }
   };
 
-  /** 본인 제외 모든 회원을 순차적으로 삭제. Edge Function이 caller.id 본인 차단을 강제하므로 서버 측 안전장치 유지. */
-  const handleBulkDelete = async () => {
-    if (!effectiveIsAdmin) return;
-    if (bulkConfirmText !== BULK_CONFIRM_PHRASE) return;
-
-    const targets = members.filter((m) => m.id !== currentUserId);
-    if (targets.length === 0) {
-      setBulkConfirmOpen(false);
-      setBulkConfirmText('');
-      return;
-    }
-
-    setBulkRunning(true);
-    setBulkResults(null);
-    setBulkProgress({ done: 0, total: targets.length });
-    setError(null);
-
-    const usePasswordBypass = adminOverride && !dbIsAdmin;
-    const ok: { id: string; name: string }[] = [];
-    const fail: { id: string; name: string; error: string }[] = [];
-
-    for (let i = 0; i < targets.length; i++) {
-      const m = targets[i];
-      const displayName = m.full_name || m.email || m.id;
-      setBulkProgress({ done: i, total: targets.length, currentName: displayName });
-      const r = await deleteMemberAsAdmin(m.id, {
-        wbsAdminPassword: usePasswordBypass ? WBS_ADMIN_PASSWORD : undefined,
-      });
-      if (r.success) ok.push({ id: m.id, name: displayName });
-      else fail.push({ id: m.id, name: displayName, error: r.error ?? '알 수 없는 오류' });
-    }
-
-    setBulkProgress({ done: targets.length, total: targets.length });
-    setBulkResults({ ok, fail });
-    setBulkRunning(false);
-    setBulkConfirmText('');
-    if (ok.length > 0) {
-      onDeleted?.();
-      loadMembers();
-    }
-  };
-
-  const closeBulkModal = () => {
-    if (bulkRunning) return;
-    setBulkConfirmOpen(false);
-    setBulkConfirmText('');
-    setBulkResults(null);
-    setBulkProgress({ done: 0, total: 0 });
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -529,22 +464,6 @@ export function MembersModal({
             회원 관리
           </h2>
           <div className="flex items-center gap-2">
-            {effectiveIsAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  setBulkResults(null);
-                  setBulkConfirmText('');
-                  setBulkConfirmOpen(true);
-                }}
-                disabled={loading || members.filter((m) => m.id !== currentUserId).length === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                title="본인 계정을 제외한 모든 회원을 삭제합니다."
-              >
-                <AlertTriangle size={14} />
-                본인 제외 전체 삭제
-              </button>
-            )}
             <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-lg text-stone-500 transition-colors">
               <X size={18} />
             </button>
@@ -1207,111 +1126,6 @@ export function MembersModal({
         profileMap={profileMap}
         profileDisplayById={profileDisplayById}
       />
-
-      {bulkConfirmOpen && (
-        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[60]')} onClick={closeBulkModal}>
-          <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-lg overflow-hidden')} onClick={(e) => e.stopPropagation()}>
-            <div className="p-5 border-b border-[var(--color-line)] bg-red-50/50">
-              <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
-                <AlertTriangle size={20} />
-                본인 제외 전체 삭제
-              </h3>
-              {!bulkResults && !bulkRunning && (
-                <p className="mt-2 text-sm text-stone-700 leading-relaxed">
-                  현재 본인(
-                  <strong>
-                    {members.find((m) => m.id === currentUserId)
-                      ? formatPersonDisplay((members.find((m) => m.id === currentUserId)?.full_name || '').trim(), {
-                          orgMetaByName: memberDisplayMetaByName,
-                          fallbackDepartment: members.find((m) => m.id === currentUserId)?.department,
-                        }) ||
-                        members.find((m) => m.id === currentUserId)?.email ||
-                        '본인'
-                      : '본인'}
-                  </strong>
-                  ) 계정을 제외한 <strong className="text-red-700">{members.filter((m) => m.id !== currentUserId).length}명</strong>의
-                  회원이 모두 삭제됩니다.
-                  <br />이 작업은 <strong>되돌릴 수 없으며</strong>, 각 회원의 인증 계정과 모든 프로필 데이터가 삭제됩니다.
-                </p>
-              )}
-            </div>
-
-            {!bulkResults && !bulkRunning && (
-              <div className="p-5 space-y-4">
-                <div className="text-xs text-stone-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  계속하려면 아래 칸에 <strong className="text-amber-800">{BULK_CONFIRM_PHRASE}</strong> 라고 정확히 입력하세요.
-                </div>
-                <input
-                  type="text"
-                  value={bulkConfirmText}
-                  onChange={(e) => setBulkConfirmText(e.target.value)}
-                  placeholder={BULK_CONFIRM_PHRASE}
-                  className="w-full px-3 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                  autoFocus
-                />
-              </div>
-            )}
-
-            {bulkRunning && (
-              <div className="p-5 space-y-3">
-                <div className="text-sm text-stone-700">
-                  삭제 중... <span className="font-mono">{bulkProgress.done}</span> /{' '}
-                  <span className="font-mono">{bulkProgress.total}</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-stone-100 overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 transition-all duration-200"
-                    style={{ width: bulkProgress.total > 0 ? `${(bulkProgress.done / bulkProgress.total) * 100}%` : '0%' }}
-                  />
-                </div>
-                {bulkProgress.currentName && <div className="text-xs text-stone-500 truncate">현재: {bulkProgress.currentName}</div>}
-              </div>
-            )}
-
-            {bulkResults && (
-              <div className="p-5 space-y-3 max-h-[50vh] overflow-y-auto">
-                <div className="flex gap-2 text-sm">
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">성공 {bulkResults.ok.length}</span>
-                  <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-medium">실패 {bulkResults.fail.length}</span>
-                </div>
-                {bulkResults.fail.length > 0 && (
-                  <div className="border border-red-200 rounded-lg overflow-hidden">
-                    <div className="px-3 py-2 bg-red-50 text-xs font-semibold text-red-700">실패 목록</div>
-                    <ul className="divide-y divide-red-100 text-xs">
-                      {bulkResults.fail.map((f) => (
-                        <li key={f.id} className="px-3 py-2">
-                          <div className="font-medium text-stone-800">{f.name}</div>
-                          <div className="text-red-600 mt-0.5 break-words">{f.error}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="p-4 border-t border-[var(--color-line)] flex justify-end gap-2 bg-stone-50/50">
-              <button
-                onClick={closeBulkModal}
-                disabled={bulkRunning}
-                className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {bulkResults ? '닫기' : '취소'}
-              </button>
-              {!bulkResults && (
-                <button
-                  onClick={handleBulkDelete}
-                  disabled={bulkRunning || bulkConfirmText !== BULK_CONFIRM_PHRASE}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {bulkRunning ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                  {bulkRunning ? '삭제 중...' : '전체 삭제 실행'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

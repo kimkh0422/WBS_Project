@@ -50,7 +50,7 @@ export interface WBSContextType {
   editableProjectIds?: string[];
   /** 시스템 관리자 여부 (관리자 비밀번호 임시 진입 포함) */
   isAdmin: boolean;
-  /** 현재 선택된 프로젝트에 편집 권한이 있는지. 본인이 만든 프로젝트(소유자)이거나 관리자일 때만 true */
+  /** 현재 선택된 프로젝트에 편집 권한이 있는지. 소유자·관리자·승인 멤버(viewer 포함) */
   canEditCurrentProject: boolean;
   currentProjectId: string;
   setCurrentProjectId: (id: string) => void;

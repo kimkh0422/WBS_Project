@@ -378,8 +378,8 @@ export function ShareModal({
             </button>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-[var(--color-ink-muted)]">
-            소유자·관리자가 멤버를 초대하고 권한을 줄 수 있습니다. <strong className="text-[var(--color-ink)]">보기</strong>는 담당자별
-            조회만, <strong className="text-[var(--color-ink)]">편집</strong>은 작업·일정 수정이 가능합니다.
+            소유자·관리자가 멤버를 초대하고 권한을 줄 수 있습니다. 승인된 멤버는 <strong className="text-[var(--color-ink)]">보기</strong>·
+            <strong className="text-[var(--color-ink)]">편집</strong> 모두 동일하게 작업·일정을 수정할 수 있으며, 라벨은 구분용입니다.
           </p>
         </div>
 
@@ -729,9 +729,9 @@ export function ShareModal({
                       value={addRole}
                       onChange={(e) => setAddRole(e.target.value as 'editor' | 'viewer')}
                       className="min-w-[10rem] flex-1 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/25 sm:flex-initial"
-                      title="선택 사용자에게 부여할 권한: 보기=담당자별 보기만, 편집=수정 가능"
+                      title="승인된 멤버는 '보기'·'편집' 모두 동일하게 작업을 수정할 수 있습니다. 라벨은 관리 기록용입니다."
                     >
-                      <option value="viewer">보기 (담당자별 보기)</option>
+                      <option value="viewer">보기</option>
                       <option value="editor">편집</option>
                     </select>
                     <button

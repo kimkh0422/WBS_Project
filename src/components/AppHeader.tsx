@@ -148,6 +148,8 @@ export interface AppHeaderProps {
   setIsAdminPasswordModalOpen?: (v: boolean) => void;
   /** DB 시스템 관리자 권한 요청 모달 */
   setIsAdminAccessRequestModalOpen?: (v: boolean) => void;
+  /** 현재 프로젝트 편집(editor) 권한 요청 모달 */
+  setIsProjectEditAccessRequestModalOpen?: (v: boolean) => void;
   /** 프로젝트 소유자 id → profiles.department. PM이 조직 인원과 매칭되지 않을 때 조직도 분류 보조 */
   ownerDepartmentByUserId?: Record<string, string | null | undefined>;
 }
@@ -224,6 +226,7 @@ export function AppHeader({
   canOpenMembersManagement,
   setIsAdminPasswordModalOpen,
   setIsAdminAccessRequestModalOpen,
+  setIsProjectEditAccessRequestModalOpen,
   ownerDepartmentByUserId,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
@@ -1415,6 +1418,30 @@ export function AppHeader({
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                     </>
                   )}
+                  {user?.id &&
+                    !isAdmin &&
+                    setIsProjectEditAccessRequestModalOpen &&
+                    currentProjectId &&
+                    currentProjectId !== 'all' &&
+                    !canEditCurrentProject &&
+                    currentProject &&
+                    currentProject.ownerId &&
+                    currentProject.ownerId !== user.id && (
+                      <>
+                        <button
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            setIsProjectEditAccessRequestModalOpen(true);
+                          }}
+                          title="프로젝트 소유자 또는 시스템 관리자가 회원 관리에서 승인하면 편집할 수 있습니다."
+                        >
+                          <Edit size={14} /> 프로젝트 편집 권한 요청…
+                        </button>
+                        <div className="h-px bg-slate-100 my-1 mx-2" />
+                      </>
+                    )}
                   {user?.id && !isAdmin && setIsAdminAccessRequestModalOpen && (
                     <>
                       <button

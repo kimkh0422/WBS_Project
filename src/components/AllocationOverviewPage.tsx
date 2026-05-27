@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { useOrganization } from '../context/OrganizationContext';
-import { Briefcase, Users, Edit, ChevronRight } from 'lucide-react';
+import { Briefcase, Users, Edit, ChevronRight, FolderPlus } from 'lucide-react';
 import { cn, formatPercent1 } from '../lib/utils';
 import {
   applyPersonProjectAllocation,
@@ -31,12 +31,19 @@ interface AllocationOverviewPageProps {
   /** 등록 회원 표시명 집합. 인원 추가 자동완성 후보에 포함 */
   registeredMemberDisplayNames?: Set<string>;
   onEditProject?: (project: Project) => void;
+  /** 제공 시 상단·목록 하단에서 신규 프로젝트 등록 모달을 엽니다 */
+  onCreateProject?: () => void;
   onNavigateToWork?: (projectId: string) => void;
 }
 
 type ViewMode = 'by-project' | 'by-person';
 
-export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditProject, onNavigateToWork }: AllocationOverviewPageProps) {
+export function AllocationOverviewPage({
+  registeredMemberDisplayNames,
+  onEditProject,
+  onCreateProject,
+  onNavigateToWork,
+}: AllocationOverviewPageProps) {
   const { projects, allTasks, renameAssignee, updateProject, addProject } = useWBS();
   const { user } = useAuth();
   const visibleProjects = useMemo(() => filterProjectsVisibleToViewer(projects, user?.id), [projects, user?.id]);
@@ -125,6 +132,16 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                 <Users size={14} /> 인원별
               </button>
             </div>
+            {onCreateProject && (
+              <button
+                type="button"
+                onClick={onCreateProject}
+                className="btn-primary flex items-center gap-1.5 text-xs sm:text-sm px-3 py-1.5 sm:py-2"
+                title="새 프로젝트를 등록합니다"
+              >
+                <FolderPlus size={16} />새 프로젝트
+              </button>
+            )}
             {viewMode === 'by-person' && (
               <AddPersonAllocationControl
                 availableProjects={visibleProjects}
@@ -141,6 +158,11 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
             <Users className="mx-auto text-stone-300" size={48} />
             <p className="text-stone-600 font-medium">등록된 투입 정보가 없습니다.</p>
             <p className="text-sm text-stone-400">아래에서 인원·프로젝트·투입율을 바로 추가하거나, 프로젝트 편집에서 설정할 수 있습니다.</p>
+            {onCreateProject && (
+              <button type="button" onClick={onCreateProject} className="btn-primary inline-flex items-center gap-2 mx-auto">
+                <FolderPlus size={16} />새 프로젝트
+              </button>
+            )}
             <AddPersonAllocationControl
               availableProjects={visibleProjects}
               assigneeCandidates={allocationAssigneeCandidates}
@@ -281,6 +303,17 @@ export function AllocationOverviewPage({ registeredMemberDisplayNames, onEditPro
                   })}
                 </div>
               </div>
+            )}
+            {onCreateProject && (
+              <button
+                type="button"
+                onClick={onCreateProject}
+                className="w-full flex flex-col sm:flex-row items-center justify-center gap-2 py-8 px-4 rounded-xl border-2 border-dashed border-stone-200 bg-white/60 text-stone-500 hover:border-teal-300 hover:bg-teal-50/40 hover:text-teal-800 transition-colors"
+                title="새 프로젝트를 등록합니다"
+              >
+                <FolderPlus size={22} className="text-teal-600 shrink-0" />
+                <span className="text-sm font-semibold">여기를 눌러 새 프로젝트 추가</span>
+              </button>
             )}
           </div>
         ) : (

@@ -459,9 +459,30 @@ export type LoginProfileStatus = {
   isOrgScopeManager: boolean;
 };
 
+/** 임시 운영: VITE_FORCE_EVERYONE_ADMIN=true 이면 로그인 사용자 전원 UI상 관리자·사내 승인처럼 동작 */
+function isForceEveryoneAdminEnv(): boolean {
+  const v = String(import.meta.env.VITE_FORCE_EVERYONE_ADMIN ?? '')
+    .toLowerCase()
+    .trim();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
 /** 로그인 사용자의 프로필 상태(관리자·승인·조직 책임자 범위). 미승인 시 로컬 전용 사용. */
 export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
   requireSupabase();
+  if (isForceEveryoneAdminEnv()) {
+    const { data: authData } = await supabase!.auth.getUser();
+    const uid = authData?.user?.id;
+    if (!uid) return null;
+    return {
+      isAdmin: true,
+      approved: true,
+      isExternalPartner: false,
+      department: null,
+      managedOrgNodeId: null,
+      isOrgScopeManager: false,
+    };
+  }
   const fallbackStatus = (): LoginProfileStatus => ({
     isAdmin: false,
     approved: true,
@@ -535,7 +556,7 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       if (!uid) return fallbackStatus();
       const { data: row, error: selErr } = await supabase!
         .from('profiles')
-        .select('is_admin, approved, department, managed_org_node_id')
+        .select('is_admin, approved, is_external_partner, department, managed_org_node_id')
         .eq('id', uid)
         .maybeSingle();
       if (selErr || !row) return fallbackStatus();
