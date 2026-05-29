@@ -7,5 +7,7 @@ coverage/
 .env*
 !.env.example
 !.env.production
+!.env.new.example
+!.env.test.example
 
 .vercel

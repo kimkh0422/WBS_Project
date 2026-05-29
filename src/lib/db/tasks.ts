@@ -9,6 +9,19 @@ import type { AuditAction } from './audit';
 /** Supabase/PostgREST 기본 행 제한(1000). 이 이상은 페이지네이션으로 가져옴. */
 const TASKS_PAGE_SIZE = 1000;
 
+/** 목록·초기 로드용 전체 컬럼 */
+const TASK_LIST_COLUMNS =
+  'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
+
+/**
+ * 동기화 업로드 비교용 — created_at 제외(지문에 미사용). pullAfter 전체 교체 시에는 fetchTaskRows 사용.
+ */
+export const TASK_SYNC_COMPARE_COLUMNS =
+  'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,updated_at';
+
+const TASK_UPSERT_EXISTING_SELECT =
+  'id,name,start_date,end_date,progress,assignee,status,work_effort,description,is_milestone,is_issue,is_action_item';
+
 export const TASKS_UPSERT_BATCH_SIZE = 50;
 
 export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
@@ -135,31 +148,36 @@ export async function fetchTaskDetail(
   };
 }
 
-export async function fetchTaskRows(): Promise<TaskRow[]> {
+type TaskPageQuery = {
+  order?: { column: string; ascending: boolean };
+  gte?: { column: string; value: string };
+};
+
+async function paginateTaskSelect(initialColumns: string, query?: TaskPageQuery): Promise<TaskRow[]> {
   requireSupabase();
   const all: TaskRow[] = [];
   let offset = 0;
-  // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
-  // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
-  let taskListColumns =
-    'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
+  let taskListColumns = initialColumns;
+  const orderCol = query?.order?.column ?? 'sort_order';
+  const orderAsc = query?.order?.ascending ?? true;
+
   while (true) {
-    let { data, error } = await supabase!
-      .from('tasks')
-      .select(taskListColumns)
-      .order('sort_order', { ascending: true })
-      .range(offset, offset + TASKS_PAGE_SIZE - 1);
+    let builder = supabase!.from('tasks').select(taskListColumns).order(orderCol, { ascending: orderAsc });
+    if (query?.gte) {
+      builder = builder.gte(query.gte.column, query.gte.value);
+    }
+    let { data, error } = await builder.range(offset, offset + TASKS_PAGE_SIZE - 1);
     for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
       const missing = getMissingColumnNameFromPgrst204(error);
       if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
       const nextCols = stripSelectListColumn(taskListColumns, missing);
       if (nextCols === taskListColumns) break;
       taskListColumns = nextCols;
-      const retry = await supabase!
-        .from('tasks')
-        .select(taskListColumns)
-        .order('sort_order', { ascending: true })
-        .range(offset, offset + TASKS_PAGE_SIZE - 1);
+      let retryBuilder = supabase!.from('tasks').select(taskListColumns).order(orderCol, { ascending: orderAsc });
+      if (query?.gte) {
+        retryBuilder = retryBuilder.gte(query.gte.column, query.gte.value);
+      }
+      const retry = await retryBuilder.range(offset, offset + TASKS_PAGE_SIZE - 1);
       data = retry.data as unknown as typeof data;
       error = retry.error;
     }
@@ -172,10 +190,77 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
   return all;
 }
 
+export async function fetchTaskRows(): Promise<TaskRow[]> {
+  return paginateTaskSelect(TASK_LIST_COLUMNS);
+}
+
+/** DB 동기화 업로드 비교 — 전체 tasks 스캔 대신 지문에 필요한 컬럼만 조회 */
+export async function fetchTaskRowsForSyncCompare(): Promise<TaskRow[]> {
+  return paginateTaskSelect(TASK_SYNC_COMPARE_COLUMNS);
+}
+
+/** 증분 pull: updated_at 기준 변경분만 조회 */
+export async function fetchTaskRowsUpdatedSince(sinceIso: string): Promise<TaskRow[]> {
+  return paginateTaskSelect(TASK_LIST_COLUMNS, {
+    order: { column: 'updated_at', ascending: true },
+    gte: { column: 'updated_at', value: sinceIso },
+  });
+}
+
+export type TaskIdManifestEntry = { id: string; project_id: string };
+
+/** 삭제 감지용 id·project_id만 페이지 조회(디스크 I/O 최소) */
+const TASK_FETCH_BY_IDS_BATCH = 100;
+
+/** 로컬에 없는 서버 작업 id만 조회(pullAfter·증분 보완). */
+export async function fetchTaskRowsByIds(ids: string[]): Promise<TaskRow[]> {
+  if (ids.length === 0) return [];
+  requireSupabase();
+  const unique = [...new Set(ids.filter(Boolean))];
+  const out: TaskRow[] = [];
+  for (let i = 0; i < unique.length; i += TASK_FETCH_BY_IDS_BATCH) {
+    const chunk = unique.slice(i, i + TASK_FETCH_BY_IDS_BATCH);
+    let columns = TASK_LIST_COLUMNS;
+    let { data, error } = await supabase!.from('tasks').select(columns).in('id', chunk);
+    for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
+      const missing = getMissingColumnNameFromPgrst204(error);
+      if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
+      const nextCols = stripSelectListColumn(columns, missing);
+      if (nextCols === columns) break;
+      columns = nextCols;
+      const retry = await supabase!.from('tasks').select(columns).in('id', chunk);
+      data = retry.data;
+      error = retry.error;
+    }
+    if (error) throw error;
+    out.push(...((data ?? []) as unknown as TaskRow[]));
+  }
+  return out;
+}
+
+export async function fetchTaskIdManifest(): Promise<TaskIdManifestEntry[]> {
+  requireSupabase();
+  const all: TaskIdManifestEntry[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase!
+      .from('tasks')
+      .select('id, project_id')
+      .order('id', { ascending: true })
+      .range(offset, offset + TASKS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as TaskIdManifestEntry[];
+    all.push(...page);
+    if (page.length < TASKS_PAGE_SIZE) break;
+    offset += TASKS_PAGE_SIZE;
+  }
+  return all;
+}
+
 /** 단일 작업 저장. 동시 수정 시 conflict: true 반환(낙관적 잠금). */
 export async function upsertTask(task: Task, sortOrder: number): Promise<{ conflict?: boolean }> {
   requireSupabase();
-  const existing = await supabase!.from('tasks').select('*').eq('id', task.id).maybeSingle();
+  const existing = await supabase!.from('tasks').select(TASK_UPSERT_EXISTING_SELECT).eq('id', task.id).maybeSingle();
   const existingRow = (existing.data ?? null) as TaskRow | null;
   const row = toTaskRow(task, sortOrder);
   if (task.updatedAt != null && task.updatedAt !== '') {

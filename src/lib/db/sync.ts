@@ -216,3 +216,65 @@ export function mergeTasksDelta(
   }
   return { merged: out, replacedFromServer: Object.values(replacedByProject).reduce((a, b) => a + b, 0), replacedByProject };
 }
+
+/** 서버 id 매니페스트에 없는 작업 = DB에서 삭제된 것으로 간주(권한 있는 프로젝트만). */
+export function deletedTaskIdsFromManifest(
+  local: Task[],
+  manifest: { id: string; project_id: string }[],
+  serverProjectIds: Set<string>,
+): Set<string> {
+  const serverIds = new Set(manifest.map((m) => m.id));
+  const deleted = new Set<string>();
+  for (const t of local) {
+    if (!t.projectId || !serverProjectIds.has(t.projectId)) continue;
+    if (!serverIds.has(t.id)) deleted.add(t.id);
+  }
+  return deleted;
+}
+
+/**
+ * 증분 pull: 변경된 행만 반영하고, manifest 기준 삭제 id는 로컬에서 제거.
+ * 로컬 배열 순서는 유지하고, 서버에만 있는 신규 id는 끝에 추가한다.
+ */
+export function mergeTasksIncrementalDelta(
+  local: Task[],
+  changedRows: TaskRow[],
+  deletedIds: Set<string>,
+): { merged: Task[]; replacedFromServer: number } {
+  if (changedRows.length === 0 && deletedIds.size === 0) {
+    return { merged: local, replacedFromServer: 0 };
+  }
+  const changedById = new Map(changedRows.map((r) => [r.id, r]));
+  let replacedFromServer = 0;
+  const out: Task[] = [];
+  const seen = new Set<string>();
+
+  for (const lt of local) {
+    if (deletedIds.has(lt.id)) continue;
+    const row = changedById.get(lt.id);
+    if (!row) {
+      out.push(lt);
+      seen.add(lt.id);
+      continue;
+    }
+    changedById.delete(lt.id);
+    const st = fromTaskRow(row);
+    const contentMatch = taskContentFingerprint(toTaskRow(lt, row.sort_order)) === taskContentFingerprint(row);
+    if (contentMatch) {
+      out.push(lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined });
+    } else {
+      out.push({ ...st, expanded: lt.expanded });
+      replacedFromServer += 1;
+    }
+    seen.add(lt.id);
+  }
+
+  for (const row of changedById.values()) {
+    if (deletedIds.has(row.id)) continue;
+    out.push(fromTaskRow(row));
+    replacedFromServer += 1;
+    seen.add(row.id);
+  }
+
+  return { merged: out, replacedFromServer };
+}
