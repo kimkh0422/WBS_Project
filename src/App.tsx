@@ -2468,19 +2468,16 @@ function AppWithProviders() {
       sessionStorage.setItem('wbs-visit-session-id', sessionId);
     }
     const sid = sessionId;
-    void (async () => {
-      try {
-        await supabase.rpc('record_visit', { p_session_id: sid });
-      } catch {
-        // best-effort; ignore visit logging failures
-      }
-      try {
-        await supabase.rpc('pulse_presence', { p_session_id: sid });
-      } catch {
-        // best-effort; DB에 마이그레이션 전이면 무시
-      }
-    })();
-    const intervalId = window.setInterval(() => {
+    // get_online_presence_count의 온라인 판정 창이 180초이므로 그 절반인 90초면
+    // 보이는 탭은 계속 온라인으로 유지되면서 쓰기 횟수는 절반으로 준다.
+    // 백그라운드(숨김) 탭은 하트비트를 보내지 않아 불필요한 DB 쓰기를 없앤다.
+    const PULSE_INTERVAL_MS = 90_000;
+    let lastPulseAt = 0;
+    const pulse = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastPulseAt < PULSE_INTERVAL_MS - 1000) return;
+      lastPulseAt = now;
       void (async () => {
         try {
           await supabase.rpc('pulse_presence', { p_session_id: sid });
@@ -2488,8 +2485,30 @@ function AppWithProviders() {
           /* ignore */
         }
       })();
-    }, 45_000);
-    return () => window.clearInterval(intervalId);
+    };
+    void (async () => {
+      try {
+        await supabase.rpc('record_visit', { p_session_id: sid });
+      } catch {
+        // best-effort; ignore visit logging failures
+      }
+      lastPulseAt = Date.now();
+      try {
+        await supabase.rpc('pulse_presence', { p_session_id: sid });
+      } catch {
+        // best-effort; DB에 마이그레이션 전이면 무시
+      }
+    })();
+    const intervalId = window.setInterval(pulse, PULSE_INTERVAL_MS);
+    // 백그라운드에서 돌아오면 즉시 한 번 갱신(스로틀 적용)
+    const onPresenceVisible = () => {
+      if (document.visibilityState === 'visible') pulse();
+    };
+    document.addEventListener('visibilitychange', onPresenceVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onPresenceVisible);
+    };
   }, [user?.id]);
 
   if (!isSupabaseConfigured) {

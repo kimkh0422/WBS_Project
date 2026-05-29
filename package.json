@@ -1,7 +1,7 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.6.20",
+  "version": "0.6.21",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,6 +23,10 @@
     "db:visits-setup-open": "node scripts/open-visits-setup-in-browser.mjs",
     "db:report-fields-open": "node scripts/open-report-fields-migration.mjs",
     "db:share-profiles-open": "node scripts/open-share-profiles-migration.mjs",
+    "db:tasks-indexes": "node scripts/run-tasks-io-indexes.mjs",
+    "db:setup-new": "node scripts/setup-new-supabase-project.mjs",
+    "db:open-new-project": "start https://supabase.com/dashboard/new-project",
+    "dev:test": "vite --mode test",
     "supabase:deploy-functions": "supabase functions deploy admin-delete-user",
     "preview": "vite preview",
     "clean": "rm -rf dist",

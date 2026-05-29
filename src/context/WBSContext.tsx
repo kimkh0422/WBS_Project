@@ -15,7 +15,7 @@ import {
   fetchTasks,
   fetchSettings,
   fetchSettingsRow,
-  fetchTaskRows,
+  fetchTaskRowsForSyncCompare,
   fromTaskRow,
   fromProjectRow,
   fromSettingsRow,
@@ -25,10 +25,13 @@ import {
   serverTaskRowMatchesLocalTask,
   mergeProjectsDelta,
   mergeTasksDelta,
+  mergeTasksIncrementalDelta,
   deleteProjectFromDB,
   deleteTasksFromDB,
   restoreBackupToDB,
 } from '../lib/db';
+import { pullTaskRowsFromServer, pullTaskRowsAfterSync } from '../lib/db/taskPull';
+import { getLastTaskPullAt, setLastTaskPullAt } from '../lib/db/pullState';
 import {
   type PersistKey,
   loadJsonWithIdbFallback,
@@ -367,7 +370,18 @@ export function WBSProvider({
             const pendingDeletedProjIdSet = new Set(Array.isArray(savedDeletedProjIds) ? savedDeletedProjIds : []);
             const pendingDeletedTaskIdSet = new Set(Object.values(pendingDeletedTasks).flat());
 
-            const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
+            const dbFetchTimeoutMs = 45_000;
+            const withDbTimeout = <T,>(p: Promise<T>, label: string) =>
+              Promise.race([
+                p,
+                new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} 요청 시간 초과`)), dbFetchTimeoutMs)),
+              ]);
+            const [dbProjects, dbTasks, dbSettings] = await Promise.all([
+              withDbTimeout(fetchProjects(), '프로젝트'),
+              withDbTimeout(fetchTasks(), '작업'),
+              withDbTimeout(fetchSettings(), '설정'),
+            ]);
+            setLastTaskPullAt(new Date().toISOString());
             setDeletedTaskIdsByProject(pendingDeletedTasks);
             setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');
@@ -669,7 +683,7 @@ export function WBSProvider({
     if (useLocalOnly || !isSupabaseConfigured || !supabase || !user?.id) return;
     if (hasLocalChangesSinceSyncRef.current) return;
     try {
-      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
+      const [dbProjects, dbSettings] = await Promise.all([fetchProjects(), fetchSettings()]);
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
 
@@ -682,12 +696,15 @@ export function WBSProvider({
         setProjects(mergedProjects);
       }
 
-      // Tasks: 변경분만 교체. 동일하면 setAllTasks 스킵.
+      // Tasks: 증분 pull(가능 시) + 주기적 id 매니페스트로 삭제 반영 — 전체 tasks 스캔 최소화
       const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
       const prevTasks = allTasksRef.current;
       const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
-      const rows = Array.isArray(dbTaskRows) ? dbTaskRows : [];
-      const { merged: mergedTasks, replacedFromServer: tReplaced } = mergeTasksDelta(prevTasks, rows, serverPidSet);
+      const taskPull = await pullTaskRowsFromServer(getLastTaskPullAt(), prevTasks, serverPidSet);
+      const { merged: mergedTasks, replacedFromServer: tReplaced } =
+        taskPull.mode === 'full'
+          ? mergeTasksDelta(prevTasks, taskPull.rows, serverPidSet)
+          : mergeTasksIncrementalDelta(prevTasks, taskPull.rows, taskPull.deletedIds);
       // 아직 DB에 반영 안 된 삭제 목록을 풀 결과에서도 제외 (미완료 삭제가 풀로 되살아나지 않도록)
       const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
       const finalMergedTasks = pendingDelIdSet.size > 0 ? mergedTasks.filter((t) => !pendingDelIdSet.has(t.id)) : mergedTasks;
@@ -719,6 +736,7 @@ export function WBSProvider({
         const valid = dbProjects.find((p) => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
         if (valid) setCurrentProjectId(valid);
       }
+      setLastTaskPullAt(new Date().toISOString());
     } catch {
       /* 다음 주기 재시도 */
     }
@@ -735,8 +753,10 @@ export function WBSProvider({
   useEffect(() => {
     if (isLoading || useLocalOnly || !isSupabaseConfigured || !user?.id) return;
     const MIN_GAP_MS = 60000; // 최소 풀 간격 60초 (기존 12초)
-    const INTERVAL_MS = 300000; // 주기적 풀 5분 (기존 25초)
+    const INTERVAL_MS = 480000; // 주기적 풀 8분 — 증분 pull과 함께 I/O 예산 절약
     const run = () => {
+      // 백그라운드(숨김) 탭은 폴링하지 않는다. 탭 복귀 시 아래 visibilitychange 핸들러가 한 번 당겨온다.
+      if (document.hidden) return;
       if (hasLocalChangesSinceSyncRef.current) return;
       const now = Date.now();
       if (now - lastServerPullAtRef.current < MIN_GAP_MS) return;
@@ -776,6 +796,7 @@ export function WBSProvider({
     const pullAfter = opts?.pullAfter !== false;
     const skipAutoPrune = opts?.skipAutoPrune === true;
     const syncEpochStart = dirtyEpochRef.current;
+    const syncStartedAt = new Date().toISOString();
     const report = (pct: number, message: string) => {
       try {
         onProgress?.(Math.min(99, Math.max(0, Math.round(pct))), message);
@@ -859,7 +880,11 @@ export function WBSProvider({
       }
 
       report(3, '서버와 비교하는 중…');
-      const [preProjects, preTaskRows, preSettingsRow] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettingsRow()]);
+      const [preProjects, preTaskRows, preSettingsRow] = await Promise.all([
+        fetchProjects(),
+        fetchTaskRowsForSyncCompare(),
+        fetchSettingsRow(),
+      ]);
       const serverProjectById = new Map(preProjects.map((p) => [p.id, p]));
 
       let uploadError: unknown = null;
@@ -1030,7 +1055,7 @@ export function WBSProvider({
       }
 
       report(84, '서버에서 최신 데이터 받는 중…');
-      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
+      const [dbProjects, dbSettings] = await Promise.all([fetchProjects(), fetchSettings()]);
       let appliedP = 0;
       let appliedT = 0;
       report(93, 'DB 데이터 로컬에 반영 중…');
@@ -1050,9 +1075,16 @@ export function WBSProvider({
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
         snapshotProjects = dbProjects;
         const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
-        snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow), effectiveSettings.statusConfigs);
+        const serverPidSet = new Set(dbProjects.map((p) => p.id));
+        const taskPull = await pullTaskRowsAfterSync(syncStartedAt, workingTasks, serverPidSet);
+        const { merged: mergedAfterSync, replacedFromServer } = mergeTasksIncrementalDelta(
+          workingTasks,
+          taskPull.rows,
+          taskPull.deletedIds,
+        );
+        snapshotTasks = applyRollupsToTasks(mergedAfterSync, effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
-        appliedT = snapshotTasks.length;
+        appliedT = replacedFromServer + taskPull.deletedIds.size;
         replacedProjectIds = snapshotProjects.map((p) => p.id);
         replacedByProject = snapshotTasks.reduce<Record<string, number>>((acc, t) => {
           const pid = t.projectId ?? '';
@@ -1107,7 +1139,7 @@ export function WBSProvider({
         uploadedTaskDeletions: uniqueDeletionIds.length,
         uploadedProjectDeletions: nDelProj,
         downloadedProjects: dbProjects?.length ?? 0,
-        downloadedTasks: dbTaskRows.length,
+        downloadedTasks: appliedT,
         downloadedSettings: dbSettings != null,
         appliedProjectsFromServer: appliedP,
         appliedTasksFromServer: appliedT,
@@ -1122,6 +1154,7 @@ export function WBSProvider({
       }
       clearInitBlankSessionFlag();
       if (dirtyEpochRef.current === syncEpochStart) setHasLocalChangesSinceSync(false);
+      setLastTaskPullAt(new Date().toISOString());
       return { projects: snapshotProjects!, allTasks: snapshotTasks!, summary };
     } catch (e) {
       throw toUserFacingDbError(e);
