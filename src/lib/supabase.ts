@@ -26,18 +26,40 @@ function createInProcessAuthLock() {
   };
 }
 
+/** auth/v1 네트워크·CORS 실패 시 AuthContext가 로컬 세션을 정리하도록 알림 */
+export const WBS_AUTH_NETWORK_ERROR = 'wbs-auth-network-error';
+
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 /**
  * 모든 REST 요청에 apikey 헤더를 보장하는 커스텀 fetch.
  * 클라이언트가 apikey를 정상적으로 포함하지 못하는 엣지케이스(세션 갱신 타이밍,
  * 브라우저 확장 등)를 방어적으로 처리한다.
  */
 function makeApikeyGuardedFetch(anonKey: string) {
-  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
     if (!headers.has('apikey')) {
       headers.set('apikey', anonKey);
     }
-    return fetch(input, { ...init, headers });
+    const url = requestUrl(input);
+    const isAuth = /\/auth\/v1\//.test(url);
+    try {
+      const res = await fetch(input, { ...init, headers });
+      if (isAuth && res.status >= 500) {
+        window.dispatchEvent(new CustomEvent(WBS_AUTH_NETWORK_ERROR));
+      }
+      return res;
+    } catch (err) {
+      if (isAuth) {
+        window.dispatchEvent(new CustomEvent(WBS_AUTH_NETWORK_ERROR));
+      }
+      throw err;
+    }
   };
 }
 

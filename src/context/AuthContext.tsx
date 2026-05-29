@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, WBS_AUTH_NETWORK_ERROR } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -32,6 +32,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Supabase 과부하·네트워크 장애 시 getSession이 끝나지 않아 화면이 멈추는 것 방지 */
+const AUTH_SESSION_TIMEOUT_MS = 20_000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -59,20 +62,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    const client = supabase;
+    let settled = false;
+
+    const settle = (nextSession: Session | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
       setLoading(false);
-    });
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      if (import.meta.env.DEV) {
+        console.warn('[auth] 세션 확인 시간 초과 — Supabase 응답 없음');
+      }
+      void client.auth.signOut({ scope: 'local' });
+      settle(null);
+    }, AUTH_SESSION_TIMEOUT_MS);
+
+    void client.auth
+      .getSession()
+      .then(({ data: { session }, error }) => {
+        if (error) {
+          if (import.meta.env.DEV) console.warn('[auth] getSession:', error.message);
+          void client.auth.signOut({ scope: 'local' });
+          settle(null);
+          return;
+        }
+        settle(session);
+      })
+      .catch((err) => {
+        if (import.meta.env.DEV) console.warn('[auth] getSession failed:', err);
+        void client.auth.signOut({ scope: 'local' });
+        settle(null);
+      });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = client.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      if (!settled) settle(session);
     });
 
-    return () => subscription.unsubscribe();
+    const onAuthNetworkError = () => {
+      void client.auth.signOut({ scope: 'local' });
+      settle(null);
+    };
+    window.addEventListener(WBS_AUTH_NETWORK_ERROR, onAuthNetworkError);
+
+    return () => {
+      settled = true;
+      window.clearTimeout(timeoutId);
+      subscription.unsubscribe();
+      window.removeEventListener(WBS_AUTH_NETWORK_ERROR, onAuthNetworkError);
+    };
   }, []);
 
   const signInWithEmail = async (email: string, password: string) => {
