@@ -286,12 +286,12 @@ export function DashboardPersonAllocationSection({
             <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
               <Briefcase className="text-[var(--color-accent)] shrink-0" size={20} aria-hidden />
               인원·사업부 투입공수
-              <span className="text-sm font-normal text-stone-500 ml-1 tabular-nums">({totalPeople}명)</span>
+              <span className="text-sm font-normal text-slate-500 ml-1 tabular-nums">({totalPeople}명)</span>
             </h2>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {canShowLayoutToggle && (
                 <div
-                  className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                  className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shrink-0"
                   role="group"
                   aria-label="투입공수 표 또는 카드 보기"
                 >
@@ -300,7 +300,7 @@ export function DashboardPersonAllocationSection({
                     onClick={() => onSectionLayoutChange?.('table')}
                     className={cn(
                       'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                      sectionLayout === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      sectionLayout === 'table' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
                     )}
                     title="표로 보기"
                   >
@@ -311,7 +311,7 @@ export function DashboardPersonAllocationSection({
                     onClick={() => onSectionLayoutChange?.('card')}
                     className={cn(
                       'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                      sectionLayout === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                      sectionLayout === 'card' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
                     )}
                     title="카드로 보기"
                   >
@@ -324,7 +324,7 @@ export function DashboardPersonAllocationSection({
                 <button
                   type="button"
                   onClick={onOpenAllocationOverview}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50 transition-colors"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                   title="프로젝트별·인원별 투입 비율을 편집하고 한눈에 보려면"
                 >
                   <ExternalLink size={12} className="shrink-0 opacity-80" aria-hidden />
@@ -340,7 +340,7 @@ export function DashboardPersonAllocationSection({
           <button
             type="button"
             onClick={onOpenAllocationOverview}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
             title="투입현황 화면으로 이동"
           >
             <ExternalLink size={12} aria-hidden />
@@ -368,13 +368,13 @@ export function DashboardPersonAllocationSection({
         </div>
       )}
 
-      <details className="group mb-3 rounded-lg border border-stone-200/80 bg-stone-50/50 px-3 py-2 text-[13px]">
-        <summary className="cursor-pointer list-none text-stone-700 [&::-webkit-details-marker]:hidden flex items-center gap-2 select-none font-medium">
+      <details className="group mb-3 rounded-lg border border-slate-200/80 bg-slate-50/50 px-3 py-2 text-[13px]">
+        <summary className="cursor-pointer list-none text-slate-700 [&::-webkit-details-marker]:hidden flex items-center gap-2 select-none font-medium">
           <Info className="h-3.5 w-3.5 text-indigo-500 shrink-0" aria-hidden />
           집계 안내
-          <span className="text-[10px] font-semibold text-stone-400 group-open:hidden">▼</span>
+          <span className="text-[10px] font-semibold text-slate-400 group-open:hidden">▼</span>
         </summary>
-        <ul className="mt-2 space-y-1 pl-5 text-stone-600 leading-snug border-t border-stone-200/60 pt-2 list-disc text-[12px] marker:text-indigo-400">
+        <ul className="mt-2 space-y-1 pl-5 text-slate-600 leading-snug border-t border-slate-200/60 pt-2 list-disc text-[12px] marker:text-indigo-400">
           {helpBullets.map((line, idx) => (
             <li key={`allocation-help-${idx}`} className="pl-0.5">
               {line}
@@ -384,13 +384,13 @@ export function DashboardPersonAllocationSection({
       </details>
 
       {personWorkEffortAllocations.length === 0 ? (
-        <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+        <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
           {projects.length === 0
             ? '표시할 프로젝트가 없습니다.'
             : '표시 중인 프로젝트 작업에 투입공수(workEffort)가 입력된 담당 배정이 없습니다.'}
         </div>
       ) : divisionBlocks.length === 0 ? (
-        <div className="text-sm text-stone-500 bg-white border border-stone-200 rounded-xl p-6 text-center">
+        <div className="text-sm text-slate-500 bg-white border border-slate-200 rounded-xl p-6 text-center">
           이 범위에 해당하는 인원이 없습니다.
         </div>
       ) : sectionLayout === 'table' ? (
@@ -403,20 +403,20 @@ export function DashboardPersonAllocationSection({
               <div key={block.key} className="card-elevated overflow-hidden">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5 text-left hover:bg-stone-100/80 transition-colors"
+                  className="flex w-full items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left hover:bg-slate-100/80 transition-colors"
                   aria-expanded={!collapsed}
                   onClick={() => toggleBlockCollapsed(block.key)}
                 >
                   {collapsed ? (
-                    <ChevronRight className="shrink-0 text-stone-500" size={18} aria-hidden />
+                    <ChevronRight className="shrink-0 text-slate-500" size={18} aria-hidden />
                   ) : (
-                    <ChevronDown className="shrink-0 text-stone-500" size={18} aria-hidden />
+                    <ChevronDown className="shrink-0 text-slate-500" size={18} aria-hidden />
                   )}
-                  <span className="min-w-0 flex-1 text-sm font-semibold text-stone-900 break-words">{block.title}</span>
+                  <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900 break-words">{block.title}</span>
                   <span className="shrink-0 text-xs font-bold tabular-nums text-indigo-700" title="이 사업부(또는 부서) 블록 공수 합">
                     {blockTotalLabel}
                   </span>
-                  <span className="shrink-0 text-xs font-semibold text-stone-500 tabular-nums">{block.rows.length}명</span>
+                  <span className="shrink-0 text-xs font-semibold text-slate-500 tabular-nums">{block.rows.length}명</span>
                 </button>
                 {!collapsed && (
                   <div className="overflow-x-auto">
@@ -427,24 +427,24 @@ export function DashboardPersonAllocationSection({
                         <col className="w-[4.25rem]" />
                         <col className="min-w-[11rem]" />
                       </colgroup>
-                      <thead className="border-b border-stone-200 bg-stone-100/95">
+                      <thead className="border-b border-slate-200 bg-slate-100/95">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-stone-700">인원</th>
-                          <th className="border-l border-stone-200/90 px-3 py-2 text-right text-xs font-semibold text-stone-700 whitespace-nowrap">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">인원</th>
+                          <th className="border-l border-slate-200/90 px-3 py-2 text-right text-xs font-semibold text-slate-700 whitespace-nowrap">
                             합
                           </th>
                           <th
-                            className="border-l border-stone-200/90 px-2 py-2 text-right text-xs font-semibold text-stone-700 whitespace-nowrap"
+                            className="border-l border-slate-200/90 px-2 py-2 text-right text-xs font-semibold text-slate-700 whitespace-nowrap"
                             title="공수 가중 평균 진척률"
                           >
                             진척
                           </th>
-                          <th className="border-l border-stone-200/90 px-3 py-2 text-left text-xs font-semibold text-stone-700">
+                          <th className="border-l border-slate-200/90 px-3 py-2 text-left text-xs font-semibold text-slate-700">
                             프로젝트
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-stone-100">
+                      <tbody className="divide-y divide-slate-100">
                         {block.rows.map(({ person, items, totalMd, totalEarnedMd }, rowIdx) => {
                           const personDisplay = formatPersonWorkEffortRowDisplay(
                             person,
@@ -456,7 +456,7 @@ export function DashboardPersonAllocationSection({
                           return (
                             <tr
                               key={person}
-                              className={cn('transition-colors hover:bg-indigo-50/35', rowIdx % 2 === 1 && 'bg-stone-50/50')}
+                              className={cn('transition-colors hover:bg-indigo-50/35', rowIdx % 2 === 1 && 'bg-slate-50/50')}
                             >
                               <td className="px-3 py-2.5 align-top">
                                 <button
@@ -465,8 +465,8 @@ export function DashboardPersonAllocationSection({
                                   title="투입·작업 상세"
                                   aria-label={`${personDisplay}, 투입·작업 상세 열기`}
                                   className={cn(
-                                    'block w-full text-left font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] rounded-lg px-1 py-0.5 -mx-1 transition-colors',
-                                    'hover:bg-white/80 hover:text-indigo-900 hover:ring-1 hover:ring-stone-200/90',
+                                    'block w-full text-left font-medium leading-snug text-slate-900 break-words [overflow-wrap:anywhere] rounded-lg px-1 py-0.5 -mx-1 transition-colors',
+                                    'hover:bg-white/80 hover:text-indigo-900 hover:ring-1 hover:ring-slate-200/90',
                                     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-400',
                                     selectedPerson === person && 'text-indigo-900 ring-1 ring-indigo-200/90 bg-indigo-50/40',
                                   )}
@@ -474,13 +474,13 @@ export function DashboardPersonAllocationSection({
                                   {personDisplay}
                                 </button>
                               </td>
-                              <td className="border-l border-stone-100 px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold leading-snug text-indigo-700 whitespace-nowrap">
+                              <td className="border-l border-slate-100 px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold leading-snug text-indigo-700 whitespace-nowrap">
                                 {totalEffortLabel}
                               </td>
-                              <td className="border-l border-stone-100 px-2 py-2.5 text-right align-top tabular-nums text-xs font-bold leading-snug text-indigo-900 whitespace-nowrap">
+                              <td className="border-l border-slate-100 px-2 py-2.5 text-right align-top tabular-nums text-xs font-bold leading-snug text-indigo-900 whitespace-nowrap">
                                 {formatPercent1(progressPct)}%
                               </td>
-                              <td className="border-l border-stone-100 px-3 py-2 align-top min-w-0">
+                              <td className="border-l border-slate-100 px-3 py-2 align-top min-w-0">
                                 <ul className="m-0 flex flex-col gap-0.5 p-0 list-none">
                                   {items.map(({ project, workEffortMd, earnedEffortMd }) => {
                                     const effortLabel = formatEffortFromManDays(workEffortMd, EFFORT_DISPLAY_UNIT);
@@ -495,19 +495,19 @@ export function DashboardPersonAllocationSection({
                                     return (
                                       <li
                                         key={project.id}
-                                        className="flex min-w-0 items-center justify-between gap-2 rounded border border-transparent px-1 py-0.5 hover:border-stone-200/80 hover:bg-stone-50/80"
+                                        className="flex min-w-0 items-center justify-between gap-2 rounded border border-transparent px-1 py-0.5 hover:border-slate-200/80 hover:bg-slate-50/80"
                                       >
                                         {onNavigateToWork ? (
                                           <button
                                             type="button"
                                             onClick={() => onNavigateToWork(project.id)}
-                                            className="min-w-0 flex-1 truncate text-left text-xs font-medium text-stone-800 hover:text-indigo-800 hover:underline"
+                                            className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-800 hover:text-indigo-800 hover:underline"
                                             title={`${rowTitle} · 작업 표`}
                                           >
                                             {projectTitle}
                                           </button>
                                         ) : (
-                                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-stone-700" title={rowTitle}>
+                                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-700" title={rowTitle}>
                                             {projectTitle}
                                           </span>
                                         )}
@@ -538,25 +538,25 @@ export function DashboardPersonAllocationSection({
               <div key={block.key} className="card-elevated overflow-hidden">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5 text-left hover:bg-stone-100/80 transition-colors"
+                  className="flex w-full items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left hover:bg-slate-100/80 transition-colors"
                   aria-expanded={!collapsed}
                   onClick={() => toggleBlockCollapsed(block.key)}
                 >
                   {collapsed ? (
-                    <ChevronRight className="shrink-0 text-stone-500" size={18} aria-hidden />
+                    <ChevronRight className="shrink-0 text-slate-500" size={18} aria-hidden />
                   ) : (
-                    <ChevronDown className="shrink-0 text-stone-500" size={18} aria-hidden />
+                    <ChevronDown className="shrink-0 text-slate-500" size={18} aria-hidden />
                   )}
-                  <span className="min-w-0 flex-1 text-sm font-semibold text-stone-900 break-words">{block.title}</span>
+                  <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900 break-words">{block.title}</span>
                   <span className="shrink-0 text-xs font-bold tabular-nums text-indigo-700" title="블록 공수 합">
                     {blockTotalLabel}
                   </span>
-                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-stone-600 tabular-nums ring-1 ring-stone-200/80">
+                  <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600 tabular-nums ring-1 ring-slate-200/80">
                     {block.rows.length}명
                   </span>
                 </button>
                 {!collapsed && (
-                  <ul className="m-0 list-none divide-y divide-stone-200/75 border-t border-stone-200/60 bg-[var(--color-surface)]/30 p-0">
+                  <ul className="m-0 list-none divide-y divide-slate-200/75 border-t border-slate-200/60 bg-[var(--color-surface)]/30 p-0">
                     {block.rows.map(({ person, items, totalMd, totalEarnedMd }) => {
                       const personDisplayFull = formatPersonWorkEffortRowDisplay(
                         person,
@@ -571,7 +571,7 @@ export function DashboardPersonAllocationSection({
                           key={person}
                           className={cn(
                             'px-3 py-2 sm:px-4 transition-colors',
-                            selectedPerson === person ? 'bg-violet-50/50' : 'hover:bg-stone-50/70',
+                            selectedPerson === person ? 'bg-violet-50/50' : 'hover:bg-slate-50/70',
                           )}
                         >
                           <button
@@ -585,12 +585,12 @@ export function DashboardPersonAllocationSection({
                               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-violet-500',
                             )}
                           >
-                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-stone-100 to-stone-200/90 text-[11px] font-bold text-stone-700 shadow-sm ring-1 ring-stone-300/50">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-100 to-slate-200/90 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-300/50">
                               {person.substring(0, 1)}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                                <span className="text-sm font-medium leading-snug text-stone-900 break-words [overflow-wrap:anywhere] group-hover/person:text-violet-950">
+                                <span className="text-sm font-medium leading-snug text-slate-900 break-words [overflow-wrap:anywhere] group-hover/person:text-violet-950">
                                   {personDisplay}
                                 </span>
                                 <div className="flex flex-wrap items-center justify-end gap-x-1 shrink-0">
@@ -621,8 +621,8 @@ export function DashboardPersonAllocationSection({
                                 const chipClassName = cn(
                                   'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] leading-tight transition-colors',
                                   onNavigateToWork
-                                    ? 'cursor-pointer border-stone-200/90 bg-white text-stone-800 hover:border-violet-300 hover:bg-violet-50/60'
-                                    : 'cursor-default border-stone-200/70 bg-stone-50/90 text-stone-600',
+                                    ? 'cursor-pointer border-slate-200/90 bg-white text-slate-800 hover:border-violet-300 hover:bg-violet-50/60'
+                                    : 'cursor-default border-slate-200/70 bg-slate-50/90 text-slate-600',
                                 );
                                 const inner = (
                                   <>

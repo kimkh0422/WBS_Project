@@ -54,8 +54,8 @@ export function ActionDueDateCell({
           'tabular-nums',
           state === 'overdue' && 'text-red-600 font-semibold',
           state === 'completedLate' && 'text-amber-700',
-          state === 'completed' && 'text-stone-500',
-          state === 'pending' && 'text-stone-700',
+          state === 'completed' && 'text-slate-500',
+          state === 'pending' && 'text-slate-700',
         )}
       >
         {display}

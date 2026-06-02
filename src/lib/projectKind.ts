@@ -78,7 +78,7 @@ export function getProjectKindBadgeClass(kind: ProjectKind): string {
     case '개인':
       return 'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200/80';
     case '기타':
-      return 'bg-stone-100 text-stone-600 border-stone-200/80';
+      return 'bg-slate-100 text-slate-600 border-slate-200/80';
   }
 }
 

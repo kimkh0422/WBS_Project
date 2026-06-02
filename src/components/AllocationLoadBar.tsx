@@ -40,7 +40,7 @@ export function AllocationLoadBar({
     <div className={cn('flex items-center gap-2 min-w-0', className)} title={chipTitle}>
       <div
         className={cn(
-          'flex-1 bg-stone-100 rounded-full overflow-hidden ring-1 ring-stone-200/40',
+          'flex-1 bg-slate-100 rounded-full overflow-hidden ring-1 ring-slate-200/40',
           size === 'sm' ? 'h-2 min-w-[3rem]' : 'h-2.5 min-w-[4rem]',
         )}
       >

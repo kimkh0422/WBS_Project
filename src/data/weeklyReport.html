@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>__WEEKLY_META_TITLE__</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<style>
+  :root{
+    /* 호스트 WBS 앱(src/index.css)과 톤 통일: slate 중립 + indigo 액센트 */
+    --navy:#0f172a; --navy2:#1e293b; --blue:#4f46e5; --sky:#6366f1; --teal:#0d9488;
+    --bg:#eef2f8; --bg2:#f8fafc; --card:#ffffff; --line:#e2e8f0; --line2:#f1f5f9;
+    --ink:#0f172a; --ink2:#334155; --muted:#64748b; --faint:#94a3b8;
+    --ok:#10b981; --okbg:#ecfdf5; --prog:#4f46e5; --progbg:#eef2ff;
+    --wait:#f59e0b; --waitbg:#fffbeb; --bad:#ef4444; --badbg:#fef2f2;
+    --idle:#64748b; --idlebg:#f1f5f9; --purple:#7c3aed; --purplebg:#f5f3ff;
+    --shadow-sm:0 1px 2px rgba(15,23,42,.05);
+    --shadow:0 1px 3px rgba(15,23,42,.06),0 10px 30px -12px rgba(15,23,42,.12);
+    --shadow-nav:0 1px 3px rgba(15,23,42,.05),0 10px 30px -12px rgba(15,23,42,.10);
+    --radius:16px; --radius-sm:10px; --radius-pill:999px;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    min-height:100vh;
+    color:var(--ink);
+    font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic','Segoe UI',Roboto,sans-serif;
+    font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    background:var(--bg2);
+    background-image:
+      radial-gradient(ellipse 120% 80% at 50% -20%, rgba(79,70,229,.07), transparent 55%),
+      linear-gradient(180deg, var(--bg2) 0%, var(--bg) 38%, var(--bg) 100%);
+  }
+  a{color:inherit}
+  .wrap{max-width:1500px; margin:0 auto; padding:0 24px 8px}
+
+  /* 상단 메타 바 */
+  .subtop{padding:22px 0 0}
+  .subtop-inner{
+    display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px;
+    background:var(--card);
+    border:1px solid rgba(220,228,238,.95);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:16px 20px 16px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+  .subtop-inner::before{
+    content:""; position:absolute; left:0; right:0; top:0; height:4px;
+    background:linear-gradient(90deg,var(--navy) 0%,var(--blue) 42%,var(--teal) 100%);
+    border-radius:var(--radius) var(--radius) 0 0;
+  }
+  .subtop-title{
+    font-size:17px; font-weight:800; color:var(--navy);
+    letter-spacing:-.35px; margin-right:6px; line-height:1.25;
+  }
+  .subtop .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    background:linear-gradient(180deg,#f8fafd,var(--line2));
+    border:1px solid var(--line); padding:7px 14px; border-radius:var(--radius-pill);
+    font-size:12.5px; font-weight:600; color:var(--ink2);
+    box-shadow:var(--shadow-sm);
+  }
+  .subtop .pill b{color:var(--navy); font-weight:700}
+
+  /* ===== charts row ===== */
+  .panels{display:grid;grid-template-columns:1.25fr 1fr 1.25fr;gap:16px;margin-top:16px}
+  .panel{background:var(--card);border-radius:var(--radius);padding:16px 18px 14px;box-shadow:var(--shadow);border:1px solid var(--line)}
+  .panel h3{margin:0 0 12px;font-size:14px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:7px}
+  .panel h3 .tag{font-size:11px;color:var(--muted);font-weight:600;margin-left:auto}
+
+  /* bar chart (org) */
+  .barrow{display:flex;align-items:center;gap:10px;margin:7px 0}
+  .barrow .nm{width:118px;font-size:11.5px;color:var(--ink2);text-align:right;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .barrow .track{flex:1;background:var(--line2);border-radius:6px;height:16px;overflow:hidden}
+  .barrow .fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--sky));border-radius:6px;min-width:2px;transition:width .8s}
+  .barrow .vv{font-size:11.5px;font-weight:700;color:var(--ink2);width:24px}
+
+  /* donut */
+  .donutwrap{display:flex;align-items:center;gap:16px}
+  .donut{width:140px;height:140px;border-radius:50%;flex-shrink:0;position:relative}
+  .donut::after{content:"";position:absolute;inset:26px;background:var(--card);border-radius:50%;box-shadow:inset 0 0 0 1px var(--line)}
+  .donut .ctr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2}
+  .donut .ctr b{font-size:24px;color:var(--navy);line-height:1}
+  .donut .ctr span{font-size:10.5px;color:var(--muted)}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:12px;flex:1}
+  .legend .li{display:flex;align-items:center;gap:7px}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex-shrink:0}
+  .legend .nm{color:var(--ink2)} .legend .vv{margin-left:auto;font-weight:700;color:var(--ink)}
+
+  /* progress list */
+  .prow{display:flex;align-items:center;gap:9px;margin:6px 0}
+  .prow .nm{width:150px;font-size:11.3px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+  .prow .track{flex:1;background:var(--line2);border-radius:6px;height:14px;position:relative;overflow:hidden}
+  .prow .plan{position:absolute;left:0;top:0;height:100%;background:repeating-linear-gradient(45deg,#cfe0f3,#cfe0f3 5px,#dfeaf7 5px,#dfeaf7 10px);border-radius:6px}
+  .prow .act{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,var(--teal),#23c0a0);border-radius:6px}
+  .prow .vv{font-size:11px;font-weight:700;color:var(--ink2);width:40px;text-align:right}
+
+  /* ===== layout: nav + content ===== */
+  .layout{
+    display:grid; grid-template-columns:minmax(220px,260px) minmax(0,1fr);
+    gap:24px; margin:24px 0 64px; align-items:start;
+  }
+  main{min-width:0}
+  nav.side{
+    position:sticky; top:18px;
+    background:var(--card);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow-nav);
+    border:1px solid rgba(220,228,238,.9);
+    padding:14px 12px 16px;
+    max-height:calc(100vh - 36px);
+    overflow:auto;
+  }
+  nav.side::before{
+    content:"보고 조직"; display:block;
+    font-size:11px; font-weight:800; color:var(--muted);
+    letter-spacing:.04em; text-transform:uppercase;
+    padding:4px 10px 10px; margin-bottom:2px;
+    border-bottom:1px solid var(--line2);
+  }
+  nav.side .ngroup{
+    font-size:10.5px; font-weight:800; color:var(--faint);
+    text-transform:uppercase; letter-spacing:.55px;
+    margin:14px 8px 6px; padding-top:10px;
+    border-top:1px solid var(--line2);
+  }
+  nav.side .ngroup:first-child{border-top:none; margin-top:0; padding-top:0}
+  nav.side a.nav{
+    display:flex; align-items:center; gap:8px;
+    padding:9px 11px; margin:2px 0;
+    border-radius:var(--radius-sm);
+    font-size:13px; color:var(--ink2);
+    text-decoration:none; cursor:pointer;
+    transition:background .15s var(--ease), color .15s, box-shadow .15s;
+    border-left:3px solid transparent;
+  }
+  nav.side a.nav:hover{background:var(--line2); color:var(--ink)}
+  nav.side a.nav.active{
+    background:linear-gradient(90deg,var(--progbg),#fff);
+    color:var(--navy); font-weight:700;
+    border-left-color:var(--blue);
+    box-shadow:var(--shadow-sm);
+  }
+  nav.side a.nav .cnt{
+    margin-left:auto; font-size:10.5px; color:var(--muted);
+    background:var(--line2); border-radius:var(--radius-pill);
+    padding:2px 8px; font-weight:700; min-width:1.5em; text-align:center;
+  }
+  nav.side a.nav.active .cnt{background:var(--blue); color:#fff}
+
+  /* search */
+  .toolbar{
+    background:var(--card);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    border:1px solid rgba(220,228,238,.95);
+    padding:12px 14px 12px 16px;
+    display:flex; gap:12px; align-items:center;
+    margin-bottom:20px; flex-wrap:wrap;
+  }
+  .toolbar input{
+    flex:1; min-width:200px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-sm);
+    padding:11px 14px; font-size:14px;
+    font-family:inherit; color:var(--ink);
+    background:var(--bg2);
+    outline:none;
+    transition:border-color .15s, box-shadow .15s, background .15s;
+  }
+  .toolbar input::placeholder{color:var(--faint)}
+  .toolbar input:focus{
+    border-color:var(--blue);
+    background:var(--card);
+    box-shadow:0 0 0 3px var(--progbg);
+  }
+  .toolbar .res{font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap}
+  .toolbar .btn2{
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:var(--card);
+    color:var(--ink2);
+    padding:9px 14px;
+    border-radius:var(--radius-sm);
+    font-size:12.5px; font-weight:700;
+    transition:border-color .15s, color .15s, background .15s, transform .12s;
+    white-space:nowrap;
+  }
+  .toolbar .btn2:hover{
+    border-color:var(--blue); color:var(--blue); background:var(--progbg);
+  }
+  .toolbar .btn2:active{transform:scale(.98)}
+
+  /* report section */
+  section.report{
+    background:var(--card);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow-sm);
+    border:1px solid rgba(220,228,238,.85);
+    margin-bottom:20px;
+    overflow:hidden;
+    scroll-margin-top:20px;
+    transition:box-shadow .2s var(--ease), border-color .2s;
+  }
+  section.report:hover{box-shadow:var(--shadow); border-color:var(--line)}
+  .rhead{
+    display:flex; align-items:center; gap:14px;
+    padding:17px 20px;
+    cursor:pointer;
+    background:linear-gradient(135deg,#f8fafc 0%,#fcfdfe 48%,#fff 100%);
+    border-bottom:1px solid var(--line2);
+  }
+  .rhead:hover{background:linear-gradient(135deg,#f1f5f9 0%,#f8fafc 55%,#fff 100%)}
+  .rhead .ic{
+    width:42px; height:42px; border-radius:12px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:15px; color:#fff;
+    background:linear-gradient(145deg,var(--navy) 0%,var(--navy2) 40%,var(--blue) 100%);
+    box-shadow:0 4px 12px rgba(26,111,212,.28);
+  }
+  .rhead .tt{flex:1; min-width:0}
+  .rhead .tt h2{margin:0; font-size:17px; font-weight:800; color:var(--navy); letter-spacing:-.35px; line-height:1.25}
+  .rhead .tt .meta{font-size:12.5px; color:var(--muted); margin-top:4px; line-height:1.45}
+  .rhead .tt .meta b{color:var(--ink2); font-weight:600}
+  .rhead .rstat{display:flex; gap:7px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end; max-width:300px}
+  .rhead .chev{
+    flex-shrink:0; color:var(--muted);
+    width:28px; height:28px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--line2);
+    transition:transform .22s var(--ease), background .15s;
+    font-size:12px;
+  }
+  .rhead:hover .chev{background:var(--line); color:var(--ink2)}
+  section.report.collapsed .chev{transform:rotate(-90deg)}
+  section.report.collapsed .rbody{display:none}
+  .rbody{padding:8px 20px 22px}
+
+  .block{margin-top:18px}
+  .block:first-of-type{margin-top:12px}
+  .block > .bh{
+    display:flex; align-items:center; gap:9px;
+    margin:0 0 11px; font-size:13px; font-weight:800; color:var(--navy2);
+  }
+  .block > .bh .bar{width:4px; height:16px; border-radius:3px; background:var(--blue)}
+  .block.iss > .bh .bar{background:var(--bad)} .block.strat > .bh .bar{background:var(--purple)}
+  .block.sales > .bh .bar{background:var(--teal)} .block.next > .bh .bar{background:var(--wait)}
+  .block .bh .c{font-size:11px; color:var(--muted); font-weight:600}
+
+  /* tables */
+  .tbl{
+    width:100%; border-collapse:separate; border-spacing:0;
+    font-size:12.5px;
+    border:1px solid var(--line);
+    border-radius:var(--radius-sm);
+    overflow:hidden;
+    box-shadow:var(--shadow-sm);
+  }
+  .tbl th{
+    background:linear-gradient(180deg,#f1f5f9,#e7edf5);
+    color:var(--ink2); font-weight:800; text-align:left;
+    padding:10px 12px; font-size:11.5px;
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;
+    letter-spacing:-.01em;
+  }
+  .tbl td{padding:11px 12px; border-bottom:1px solid var(--line2); vertical-align:top; color:var(--ink)}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tbody tr{transition:background .12s}
+  .tbl tbody tr:hover{background:#f5f9fd}
+  .tbl .pname{font-weight:800;color:var(--navy);line-height:1.45}
+  .tbl .pname .sm{display:block;font-weight:500;color:var(--muted);font-size:11px;margin-top:3px}
+  .tbl ul{margin:0;padding-left:16px}
+  .tbl ul li{margin:3px 0;color:var(--ink2);line-height:1.5}
+  .tbl ul ul{padding-left:15px;margin:2px 0}
+  .tbl ul ul li{color:var(--muted);font-size:11.5px}
+  .nowrap{white-space:nowrap}
+  .ctr-td{text-align:center;white-space:nowrap;color:var(--ink2)}
+  .scroll{overflow-x:auto;border-radius:var(--radius-sm)}
+
+  /* badges */
+  .bdg{
+    display:inline-flex;align-items:center;gap:4px;
+    padding:3px 10px;border-radius:var(--radius-pill);
+    font-size:11px;font-weight:700;white-space:nowrap;line-height:1.45;
+    border:1px solid transparent;
+  }
+  .bdg.t-do{background:var(--progbg);color:var(--prog);border-color:rgba(26,111,212,.12)}
+  .bdg.t-mt{background:var(--okbg);color:var(--ok);border-color:rgba(15,154,106,.12)}
+  .bdg.t-bid{background:var(--purplebg);color:var(--purple);border-color:rgba(107,79,201,.12)}
+  .bdg.t-prop{background:#fdeef6;color:#b8326e;border-color:rgba(192,57,138,.1)}
+  .bdg.t-plan{background:var(--waitbg);color:var(--wait);border-color:rgba(184,122,14,.15)}
+  .bdg.t-prod{background:#eaf3ff;color:#2563c4;border-color:rgba(37,99,196,.12)}
+  .bdg.t-rnd{background:#eafbf2;color:#0c8a5a;border-color:rgba(12,138,90,.12)}
+  .bdg.t-etc{background:var(--idlebg);color:var(--idle);border-color:rgba(108,125,146,.12)}
+  .st{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:3px 10px;border-radius:var(--radius-sm);
+    font-size:11px;font-weight:700;white-space:nowrap;
+    border:1px solid transparent;
+  }
+  .st.open{background:var(--badbg);color:var(--bad);border-color:rgba(209,61,52,.12)}
+  .st.new{background:var(--waitbg);color:var(--wait);border-color:rgba(184,122,14,.12)}
+  .st.closed{background:var(--okbg);color:var(--ok);border-color:rgba(15,154,106,.12)}
+  .st.prog{background:var(--progbg);color:var(--prog);border-color:rgba(26,111,212,.12)}
+  .chip{
+    display:inline-block;background:var(--line2);color:var(--ink2);
+    border-radius:var(--radius-sm);padding:3px 9px;font-size:11px;font-weight:700;
+    margin:2px 3px 2px 0;border:1px solid var(--line);
+  }
+
+  /* mini progress in cell */
+  .pcell{min-width:100px}
+  .pcell .pp{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);font-weight:600;margin-bottom:4px}
+  .pcell .pp b{color:var(--teal)}
+  .pcell .tk{background:var(--line2);height:8px;border-radius:var(--radius-pill);overflow:hidden;position:relative}
+  .pcell .pl{position:absolute;left:0;top:0;height:100%;background:#dbe3ff;border-radius:var(--radius-pill)}
+  .pcell .ac{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,var(--teal),#1eb89a);border-radius:var(--radius-pill)}
+  .pcell .txt{font-size:11.5px;font-weight:700;color:var(--ink2);text-align:center;white-space:nowrap}
+
+  /* nested matrix table */
+  .matrix{margin-top:10px}
+  .matrix summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--blue);padding:6px 0;outline:none;border-radius:6px}
+  .matrix summary:hover{color:var(--navy);text-decoration:underline}
+  .mtbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;border-radius:8px;overflow:hidden}
+  .mtbl th,.mtbl td{border:1px solid var(--line);padding:5px 7px;text-align:center;white-space:nowrap}
+  .mtbl th{background:#eef2f7;color:var(--ink2);font-weight:800}
+  .mtbl td.l{text-align:left}
+  .mtbl .hb{background:#eef2ff;font-weight:800;color:var(--navy)}
+
+  .empty{color:var(--faint);font-size:13px;font-style:italic;padding:12px 4px;text-align:center;background:var(--line2);border-radius:var(--radius-sm)}
+  .hl{background:linear-gradient(180deg,transparent 60%,#fff0a8 60%);border-radius:2px;padding:0 2px}
+  ::selection{background:rgba(26,111,212,.14);color:var(--ink)}
+
+  .page-footer{
+    max-width:720px;margin:0 auto;
+    color:var(--muted);font-size:12.5px;text-align:center;
+    line-height:1.65;padding:28px 16px 48px;
+    border-top:1px solid var(--line);
+  }
+  .page-footer b{color:var(--ink2);font-weight:700}
+
+  /* responsive */
+  @media(max-width:1100px){
+    .panels{grid-template-columns:1fr}
+    .layout{grid-template-columns:1fr; gap:18px; margin-top:18px}
+    nav.side{position:static;max-height:none; padding:12px}
+    nav.side::before{padding-bottom:8px}
+  }
+  @media(max-width:620px){
+    .wrap{padding:0 14px}
+    .subtop-title{width:100%}
+    .toolbar .btn2{flex:1; justify-content:center}
+  }
+
+  @media print{
+    body{background:#fff!important;background-image:none!important;color:#000}
+    .toolbar,nav.side{display:none!important}
+    .subtop-inner{box-shadow:none;border:1px solid #ccc}
+    .subtop-inner::before{display:none}
+    .layout{grid-template-columns:1fr;margin:12px 0 0}
+    section.report{
+      box-shadow:none!important;border:1px solid #bbb!important;
+      break-inside:avoid;
+    }
+    section.report:hover{box-shadow:none!important;border-color:#bbb!important}
+    section.report.collapsed .rbody{display:block}
+    .rhead{background:#f5f5f5!important;border-bottom:1px solid #ccc}
+    .panel{box-shadow:none;border:1px solid #ccc}
+    .page-footer{border-top-color:#ddd;color:#555}
+  }
+
+  /* ===== 톤 통일 폴리시: 스크롤바·focus·줄무늬·모션감소 (호스트 앱과 일치) ===== */
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:var(--radius-pill);border:2px solid var(--bg2);background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+  *{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
+  a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{
+    outline:2px solid rgba(79,70,229,.5); outline-offset:2px; border-radius:8px;
+  }
+  /* 표 줄무늬(가독성) + 호버 우선 */
+  .tbl tbody tr:nth-child(2n) > td{background:#f8fafc}
+  .tbl tbody tr:hover > td{background:#eef2ff}
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="subtop">
+    <div class="subtop-inner">
+      <span class="subtop-title">지엠티(GMT) 주간업무보고 통합</span>
+      <span class="pill">보고기간 <b>__WEEKLY_META_PERIOD__</b></span>
+      <span class="pill">기준일 <b>__WEEKLY_META_BASELINE__</b></span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="side" id="nav"></nav>
+    <main>
+      <div class="toolbar">
+        <input id="search" type="text" placeholder="🔍 프로젝트·발주처·담당자·키워드 검색 (예: GICOMS, 해상풍력, 페루함, 김태식)" />
+        <span class="res" id="searchRes"></span>
+        <button class="btn2" onclick="toggleAll(true)">전체 펼치기</button>
+        <button class="btn2" onclick="toggleAll(false)">전체 접기</button>
+      </div>
+      <div id="content"></div>
+    </main>
+  </div>
+
+  <footer class="page-footer">
+    본 페이지는 <b>『지엠티 주간보고 통합』</b> 문서를 표준화하여 시각화한 대시보드입니다 · __WEEKLY_META_ORG_COUNT__개 보고 조직 통합 ·
+    __WEEKLY_META_FOOTER_NOTE__
+  </footer>
+</div>
+
+<script>
+/* ===== reports-data.js (inlined for self-contained portability) ===== */
+/* =====================================================================
+   【양식 고정 · 내용만 변경】
+   · 레이아웃·차트·표 렌더러: 본 HTML의 <style>·아래 스크립트는 수정하지 않습니다.
+   · 주차·기준일·푸터 조직 수·문서 제목: 앱에서 `weeklyReportMeta.ts` 한 곳만 수정합니다(subtop·title 등).
+   · 부서별 보고 본문: 아래 `const REPORTS = [ ... ]` 배열만 교체·갱신합니다(표준 스키마 준수).
+   --------------------------------------------------------------------
+   데이터 스키마 요약(상세는 docs/주간보고_양식_통일_가이드.md 및 weeklyReportTypes.ts):
+     { id, org, reporter, recipient, group, icon,
+       strategy:[{div,content,start,plan,end,action,status}],
+       issues:[{title,content[],plan[],result[],status,note}],
+       projects:[{ name,subtitle,type,period,po,pm,pl,ba,
+                  prog:{plan,actual,text},content[],tables[],issue,note}],
+       sales:[{div,client,project,amount,when,stage,rate,rateText,content[],note}],
+       research:[{name,org,period,lead,fund,exec,content[]}],
+       nextWeek:[ string | ... ] }
+   ===================================================================== */
+const REPORTS = [
+
+/* ===== 0. 전략기획실 (김창민) ===== */
+{
+  id:"r-strategy", group:"경영·전략기획", icon:"전략",
+  org:"전략기획실", reporter:"김창민", recipient:"문병욱 대표이사",
+  strategy:[
+    { div:"공통", content:["사업부간 협업 회의 내용 정리 및 단기·중기 협업 프로세스 방안 도출하여 보고"],
+      start:"3.27", plan:"3.29 / 4.30 / 6.08", end:"",
+      action:["1차(3.29): 각 사업부/실 내용 취합 보고(첨부 참조)","2차(5.15): 협업 프로세스(안) 대표 서면 보고 예정","3차(6월중): 전략회의 안건 산정/조정 후 시행"], status:"" }
+  ],
+  issues:[
+    { title:"글로벌산업기술협력센터사업", content:["1차 약식 제안서 접수"], plan:["제안서 작성 및 제출 완료"], result:[], note:"주관 지엠티45% / 공동 단국대15% / 협력 토론토대40%" },
+    { title:"해경 정보통신과 정보화 사업", content:["GMDSS 고도화 사업"], plan:["LG CNS 컨소협력 논의","사전규격 공고 후 재차 협상 예정"], result:[], note:"w/항해통신사업부" },
+    { title:"해경 정보통신과 (27년 신규)", content:["27년 정보화 신규 사업"], plan:["AI 2차 예산안 작성 제출 완료"], result:[], note:"" },
+    { title:"해경 관제과 사업", content:["VTS 전국망 통합"], plan:["담당자 변경, 예산 확보 등 후속 조치 계획 확인 예정"], result:[], note:"w/솔루션사업부" },
+    { title:"해경 중기 사업", content:["피지컬 AI"], plan:["경찰청과 이견으로 해경 철회 의견 전달","차주 후속조치 논의 예정"], result:[], note:"w/항해통신사업부" },
+    { title:"육군 AI-X 사업", content:["사전 설계 지원"], plan:[], result:[], note:"" }
+  ],
+  projects:[
+    { name:"[KIMST] CDX 연구과제", type:"연구과제(2년차/3년)", period:"'25.4~'27.12", po:"김창민", pm:"김창민",
+      prog:{plan:44,actual:42},
+      content:["해경 지휘부 서비스 시연 대응(6월 중순): 기관별 중간점검","GPU 과기부 2서버(16장) 사용: 각 연구기관 사용계획 수립/실시","CDX 2차년도 중간보고 후속조치: To-Do List 준비 및 대응","추정손익 보고 완료: 앤트랩·텔렛웨어 등 외주 발주 중"] },
+    { name:"GMDRT 연구과제", type:"연구과제(1년차/2단계)", period:"'26.1~'28.12", po:"김창민", pm:"김창민",
+      prog:{plan:42,actual:40}, content:["월간회의","추정손익 보고 완료"] },
+    { name:"글로벌산업기술협력센터사업 AI ECDIS", subtitle:"100억 / 5년", type:"제안", period:"'26.2~'26.5.29", po:"이섬결", pm:"양승호",
+      prog:{text:"제출 완료"}, content:["약식 사업계획서 작성 / 제출완료(5.29)","1차 서면 심사 결과에 따라 본 사업계획서 제출 예정(6월 중)"] },
+    { name:"KIMST AI응용제품 상용화 사업", subtitle:"19억 / 과제당", type:"제안", period:"'26.3.19~'26.4.20", po:"이섬결", pm:"정기현",
+      prog:{text:"결과 대기"}, content:["결과 대기 중: 금주 초 중 결과 통보 예정"], note:"w/모빌리티 사업부" },
+    { name:"해경 GMDSS 사업", subtitle:"100억", type:"제안", period:"'26.4.30~'26.5.30", po:"김창민",
+      prog:{text:"검토 중"}, content:["입찰공고 모니터링, LG CNS 협력 검토 중"], note:"w/항통" },
+    { name:"B국 해군 SBSS Project 감시시스템", type:"제안", period:"'26.1~'26.4.2", po:"박상규", pm:"김영훈",
+      prog:{text:"결과 대기"}, content:["입찰 결과 대기 중"] },
+    { name:"필리핀 사업", type:"기획", period:"-", po:"박상규", pm:"박상규(이섬결)",
+      prog:{text:"공고 모니터링"}, content:["공고 모니터링: 6월 초 입찰 공고 예상","컨소구성 및 R&R 확정: 주관 AIVN, GMT, 올포랜드","IMO 현지 동향 파악: 필리핀 마켓 리서치 정리 완료(6개 업체)"] },
+    { name:"[기타 업무]", type:"기타", period:"-",
+      content:["Kpler 업무 협력 검토 회의(5.26): 차주 상세 협의 예정","VTS CDX 현지 훈련 참관, 학술대회 참석(5.27~30)"] }
+  ],
+  nextWeek:["CDX: 월간회의(6.2) / 외주 발주 협의 / 중간보고 후속조치 계속","DBE 착수 보고회(6.5) 참석"]
+},
+
+/* ===== 1. 사업기획·영업 (이권우) ===== */
+{
+  id:"r-bizplan", group:"경영·전략기획", icon:"기획",
+  org:"사업기획·영업", reporter:"이권우", recipient:"문병욱 대표이사",
+  projects:[
+    { name:"[해수부] FIS 고도화", type:"기획", period:"~'26.05", po:"이권우", pm:"황준호", prog:{text:"수주지원"},
+      content:["HW개선 및 DR구축: 입찰공고-유찰(무응찰)","현황 - 해수부: 입찰 재공고 검토 중","현황 - 당사: SW개발 범위 수협/당사 협의 중"], note:"수주지원" },
+    { name:"MOB 보급사업", type:"기획", period:"~'26.06", po:"신현빈", pm:"-", prog:{text:"수주지원"},
+      content:["해양수산 AI 응용제품 신속 상용화 지원과제로 추진","현황 - KIMST: 발표평가 진행(5/19), 결과 대기"], note:"수주지원" },
+    { name:"[인천공항] ASDE 국산화 개발 설계", type:"기획", period:"~'26.10", po:"이권우", pm:"미정", prog:{text:"-"},
+      content:["'26년 입찰 예정","레이더 표적 트래킹 기술 개발 방안 수립을 위한 후속 검토회의 예정"] },
+    { name:"[해외] 말레이시아 해안경계시스템 구축", type:"입찰", period:"~'26.12", po:"이권우", pm:"미정", prog:{text:"재공고 예상"},
+      content:["입찰 재공고 예상(연내)","말레이시아 정부 군 입찰 업무 재개"] },
+    { name:"[LG-CNS] 방글라데시 해군 SBSS", type:"입찰", period:"~'26.06", po:"박상규", pm:"김영훈", prog:{actual:90},
+      content:["입찰 공고('26.04.12) 마감, 선정 결과 2~3개월 소요","기술 평가 중: 6월 1~2주차 Short List 업체(2개) 선정 후 가격 개찰 or 발표 평가"] },
+    { name:"[IITP] AI응용제품 신속상용화 지원사업(국방)", type:"입찰", period:"~'26.06", po:"이권우", pm:"미정", prog:{actual:15},
+      content:["입찰 공고('26.06.01 마감)","주관업체 미확보로 미참여"] },
+    { name:"[국과연] 육군 해상복합감시체계-II 사전개념연구", type:"기획", period:"~'26.06", po:"이권우", pm:"한규혁", prog:{text:"-"},
+      content:["개념연구 완료 후 '27년 신속획득사업 또는 선행연구 예정","후속 업무 일정 및 주요 연구 내용 확인 예정"] },
+    { name:"[국기연] 육군 지작사 해안경계작전 체계 선행연구", type:"기획", period:"~'26.04", po:"이권우", pm:"한규혁", prog:{text:"-"},
+      content:["'26년 말 ISP 용역 발주 예정","당사 vs 협력 업체간 NDA 및 MOU 체결","KRIT: 선행 연구 완료"] },
+    { name:"[해외] INFORM사 공항사업 협력", type:"기획", period:"지속", po:"이권우", pm:"-", prog:{text:"-"},
+      content:["공항 지상조업 관리시스템 양사간 협력","INFORM사의 요구 데이터 검토 중","인천공항 해외사업팀 진행사항 공유 예정(작성 중)"] },
+    { name:"[기타 업무]", type:"기타", period:"-",
+      content:["[IIAC] IoT기반 탑승교 시설관리 고도화: 당사·협력사 RnR 협의 미팅(6/1~2) 예정","[해경] GMDSS 노후개량: 협력사 참여 구도 및 과업 협의(5/26)","[LIG D&A] 아르헨티나 VTS/해안감시 '27년 예산 보완 작성/송부(5/28~29)","[경남테크노파크] 해양오염물질 처리 기술개발 RnD: 진행사항 없음"] }
+  ]
+},
+
+/* ===== 2. 항행관제사업부 (양승호) ===== */
+{
+  id:"r-hanggwan", group:"항행·항공 관제", icon:"항행",
+  org:"항행관제사업부", reporter:"양승호 사업부장", recipient:"문병욱 대표이사",
+  issues:[
+    { title:"[인천국제공항공사/미래항공팀] 스마트 계류장관제플랫폼 기술지원 용역",
+      content:["하자처리 지연 예상","항공기 헤딩 방향 개선, 충돌위험 알림, 콜사인 오류"],
+      plan:["하자처리 관련 공항공사와 회의(04/30)"],
+      result:["6월 중순 2차 하자검사 전까지 조치완료로 협의"], note:"" }
+  ],
+  projects:[
+    { name:"[인천국제공항공사] 관제통신 AI 모니터링 시스템 구축", type:"기획", period:"미정", po:"양승호", pm:"김일웅", prog:{text:"기획"},
+      content:["사업관련 자료 작성 및 제출","시스템 아키텍처 설계","제안요청서 ECR 부분 작성지원","산출 내역서 검토 (예산: 약 16~17억원)"] },
+    { name:"[인천국제공항공사] IOT 기반 탑승교 시설관리 고도화", type:"입찰", period:"계약 후 15개월", po:"양승호", pm:"양승호", prog:{text:"입찰"},
+      content:["조달입찰공고(05/25) → 제안서 제출마감(07/08)","사업금액: 약 78.4억원","사업설명회(06/10 14:00)","입찰참여 컨소시엄 구성 협의(06/01)"] },
+    { name:"[인천국제공항공사] 디지털관제시스템 유지관리 및 기술지원 용역", type:"입찰", period:"계약 후 24개월", po:"양승호", pm:"김일웅", prog:{text:"사전규격"},
+      content:["과업내용서 사전규격 공개(05/04) → 등록의견 없음","제안요청서 사전규격 공개: 공사 감사실 검토 중"] },
+    { name:"[인천국제공항공사] 디지털관제시스템 구축", type:"입찰", period:"계약 후 24개월", po:"양승호", pm:"송용학", prog:{text:"개찰완료"},
+      content:["개찰완료(05/22)","입찰참가자격 등 위배사항 검토"] },
+    { name:"[인천국제공항공사/미래항공팀] 스마트 계류장관제플랫폼 기술지원 용역", type:"수행", period:"'25.08.21~'26.08.20", po:"양승호", pm:"김현근", prog:{plan:76.7,actual:76.7},
+      content:["일일/주간 점검(계속)",
+        {t:"산출물", sub:["[작업계획서] 위치정보융합 SW 기능 개선","파노라마·주기장 영상·디지털 트윈 SW 배포 작업계획서 작성 중","기술지원 처리현황/하자관리대장 제출(05/29)","월간 운영보고서(05월) 작성 완료"]},
+        {t:"시스템 관리", sub:["파노라마뷰 SW 수정 작업(05/26~29)","파노라마·주기장 영상·추적용·디지털 트윈 SW(ver.1.4) 모니터링(계속)"]},
+        "6월초까지 하자처리 6건 조치 및 검증(개발본부 조치 중)",
+        {t:"인력/보안 관리", sub:["차량출입증 신청(05/29)","국토부 보안 업데이트 권고(진행 중)","리눅스 커널 보안 업데이트 권고(05.15~)"]}] },
+    { name:"[인천국제공항공사/공항정보팀] 주기장 AI 영상분석시스템 시범구축", type:"수행", period:"'25.12.02~'26.12.02", po:"양승호", pm:"김일웅", prog:{plan:63.7,actual:61.6},
+      content:[
+        {t:"[사업관리]", sub:["05월 4주차 주간/월간 공정보고서 제출(05/29)","예정공정표(WBS) Rev.3 수정(시험일정변경) 감독관 검토","단위시험 절차서 보완 작성(95%)"]},
+        {t:"[인프라]", sub:["자재 입고 검수 결과서 작성(90%)","시공결과서 작성(30%)","설치결과서 초안 작성(5%)","ICT센터 201↔301호 운영 서버팜 연계 회선 확인 요청(05/27)","ICT센터 3층 시스템실 장비 전원인가 작업신고서 작성(05/27)"]},
+        {t:"[품질관리]", sub:["품질관리 계획서 감독관 검토 중"]},
+        {t:"[SW개발]", sub:["응용시스템(80.9%): 구현(98.8%)","웹서비스 구축(91.6%): 구현(94.7%)","AI 개발(65.7%) - 영상학습(81.5%)/영상분석(76.4%)/영상수치분석(67.3%)"]}] },
+    { name:"[인천국제공항공사] 항공기지상이동(GAM) 메시지 개발 (하자보증)", type:"수행", period:"'25.12.15~'26.12.14", po:"양승호", pm:"김현근", prog:{plan:45.2,actual:45.2},
+      content:["진행사항 없음"] },
+    { name:"[LIGNEX1] 페루함 전술체계 연동 및 모의 SW 개발", type:"수행", period:"'25.03.13~'27.01.18", po:"송용학", pm:"송용학", prog:{plan:65.5,actual:65.5},
+      content:["분석/설계/개발(27종 장비): Function Spec, 연동SW, HCI, 시뮬레이터","비디오 환경 등 패치","Pre-Linking 지원 계약 협의(조정중)","추가개발 및 기술지원 계약 협의(조정중): 산출내역 조정"] },
+    { name:"[TF Project] 전자해도표시시스템(ECDIS) 정부형식승인 (KG)", type:"수행", period:"'26.01.01~'26.07.31", po:"양승호", pm:"양승호(HW/QA), 양재훈(S/W)", prog:{plan:69.8,actual:69.8},
+      content:[
+        {t:"[사업관리/QA] 내부 테스트 614건 중 201건 통과 / 불합격 10건", sub:[]},
+        {t:"[S/W개발] 인증규정 기준 개발현황(73%)", sub:["S64 TDS(79%)","IEC 62288(98%) / ANNEX.A(89%)","IEC 62923-1·2(0%)","IEC 61162-1(100%)/2(0%)/450(68%)","IEC 61174(36%)","1차 UI(100%) → 2차 UI(50%)"]},
+        {t:"[H/W] ECDIS PC IEC 60945시험(90%)", sub:["건조고온·온습도·저온·전압보호·진동·소음·가청소음 완료","과도한 조건(전압) 진행중 / 신뢰성시험 일정수립 중"]},
+        {t:"[H/W] 모니터·패널PC IEC 60945시험(90%)", sub:["극한 전원조건·고온건조·저온·전압보호 완료","과도한 조건(전압) 진행중 / 신뢰성시험 일정 수립중"]},
+        "기술 매뉴얼 작성중(20%) / 운영 매뉴얼(0%)",
+        "2026년도 해양 연구 시설·장비 사용료 지원사업 바우처(990만원) 승인"] },
+    { name:"[기타 업무]", type:"기타", period:"-",
+      content:["공군 제10전투비행단(수원) 관제통신 AI 모니터링 시스템 방문 협의"] }
+  ]
+},
+
+/* ===== 3. 항공관제사업팀 (김일웅) ===== */
+{
+  id:"r-aircontrol", group:"항행·항공 관제", icon:"항공",
+  org:"항공관제사업팀", reporter:"김일웅 팀장", recipient:"양승호 이사",
+  projects:[
+    { name:"[인천국제공항공사] 주기장 AI영상분석 시스템 시범구축사업", type:"수행", period:"'25.12.02~'26.12.02", prog:{plan:63.66,actual:61.59},
+      content:[
+        {t:"[사업관리]", sub:["05월 4주차 주간/월간 공정보고서 제출(05/29)","예정공정표(WBS) Rev.3 수정(시험일정변경) 감독관 검토요청(05/29)"]},
+        {t:"[산출물/서식]", sub:["단위시험 절차서 보완(95%)","자재 입고 검수 결과서(90%)","시공결과서(30%)","설치결과서 초안(5%)"]},
+        {t:"[품질관리]", sub:["품질관리 계획서 감독관 검토 중(지연)","이슈관리: IP 발급 지연 위험 요소 추적관리"]},
+        {t:"[시공관리]", sub:["ICT센터 201↔301호 운영 서버팜 연계 회선 재요청(05/27)","ICT센터 3층 시스템실 장비 전원인가 작업신고서 작성(05/27)"]},
+        {t:"[개발관리] 응용시스템(80.85%)·구현(98.78%)", sub:["조업상황분석: 조업현황 정보/스케줄/주기장별 조업상황 전송","로그관리: 백업·복구 정책","통계관리: 통계 데이터 가공/조회쿼리/집계 배치 스케줄러"]},
+        {t:"[개발관리] 웹서비스(91.62%)·구현(94.68%)", sub:["대시보드/조업현황/조업이력 UI, 운영정보 관리, 시스템 설정","API: 주기장 스케줄 간트차트, 알림정보 조회, 통계 다운로드 라이브러리 테스트"]},
+        {t:"[개발관리] AI 개발(65.70%)", sub:["영상학습(81.48%): Yolov5 모델 추가 학습","영상분석(76.35%): POBT 산출용 ATVAS 디버깅, 개발망 이전테스트","영상수치분석(67.25%): POBT 데이터셋 수집 구현·테스트"]}] },
+    { name:"[인천국제공항공사] 스마트 계류장관제플랫폼 기술지원용역", type:"수행", period:"'25.08.21~'26.08.20", po:"양승호", pm:"김현근", prog:{text:"실적 75.04% (41/52주)"},
+      content:["유지보수 일일 점검",
+        {t:"산출물", sub:["[작업계획서] 위치정보융합 SW 기능 개선","파노라마·주기장 영상·디지털 트윈 SW 배포 작업계획서 작성 중","기술지원 처리현황/하자관리대장 제출(05/29)","월간 운영보고서(05월) 완료"]},
+        {t:"시스템 관리", sub:["파노라마뷰 SW 수정(05/26~29): 푸시백·정지 항공기 심볼 변경 → 테스트 후 운영 반영 예정","SW(ver.1.4) 모니터링 계속"]},
+        {t:"보안관리", sub:["국토부 보안 업데이트 권고(진행 중)","리눅스 커널 보안 업데이트 권고(05.15~): 작업 일정 조율 중"]}] },
+    { name:"[기타] 인천국제공항공사 관제통신 AI 모니터링 시스템 구축", type:"기획", period:"-", prog:{text:"초안"},
+      content:["사업 초안 자료 작성 및 전달(05/27): 시스템 아키텍처 설계, RFP 지원_ECR, 산출 내역 검토"] }
+  ],
+  nextWeek:["주기장 AI영상분석: ICT센터 서버랙·서버·방화벽 입전(06/01~), 서버·네트워크·방화벽 설정, 품질관리 계획서 공문 제출","스마트 계류장관제: 일일·주간 점검","관제통신 AI 모니터링 구축: 아키텍처 설계 지원, 과업내용서 작성 지원, 산출내역 지원"]
+},
+
+/* ===== 4. ICT사업부 · 개발 (전인호) ===== */
+{
+  id:"r-ict-dev", group:"해양 ICT 사업", icon:"ICT",
+  org:"ICT사업부 · 개발", reporter:"전인호", recipient:"김민엽 상무",
+  projects:[
+    { name:"[중앙해양안전심판원] AI기반 해양사고 분석시스템 구축 사업", type:"개발", period:"26.04.28~26.12.24", pm:"배석", pl:"전인호", ba:"양이레", prog:{plan:9.0,actual:9.0}, note:"공수 2.2",
+      content:["전체 5 / 완료 5 / 진행 0 / 미착수 0",
+        {t:"산출물", sub:["개발표준정의서(완료 05/26)","요구사항정의서(완료 05/27)","메뉴구조도 검수 완료 확정(05/26)"]},
+        {t:"업무 처리", sub:["테일러링 내역서 RAG검색 부문(슈어소프트) 취합(05/27)","벡터DB·학습용 1차 원시자료(재결서/재결요약서) pdf 변환(05/29)","고객 인터뷰 질의서 작성(05/28) → 인터뷰 06/01(월) 14:00 중해심(세종)","AI OCR 솔루션 개발환경 부산사무소 구축 협의(05/28)","주간업무현황보고서(1~3주차) 제출(05/28)"]}] },
+    { name:"[KMC] IMO-KOREA 홈페이지 시스템 개선 및 관리 운영 사업", type:"개발", period:"26.05.12~26.12.31", pm:"양이레", pl:"전인호", ba:"배석", prog:{plan:6.0,actual:6.0}, note:"공수 0.4",
+      content:["전체 5 / 완료 5 / 진행 0 / 미착수 0","요구사항정의서(완료 05/27)",
+        {t:"업무 처리", sub:["사업 착수 보고(05/27) → 컨퍼런스 관련 사이트(3개) 유지보수 F/U 요청 수령","선금 청구 및 세금계산서 발행(05/28)"]}] },
+    { name:"[선박플랜트연구소] 항로표지 정보서비스 운영시스템 유지보수", type:"유지보수(무상)", period:"26.01.01~26.12.31", pm:"김민엽", pl:"이정호", ba:"장민규", prog:{plan:40.4,actual:40.4}, note:"공수 0.8",
+      content:["전체 17(신규7) / 완료 4 / 진행 13 / 미착수 0",
+        {t:"완료", sub:["생태환경서비스 이미지 미표출(05/26)","파고분석서비스 이미지 미표출(05/26)","생태환경 이미지 분석일시_촬영일시 표출(05/28)","대기환경 의심선박 맵 표출 이상(05/28)"]},
+        {t:"업무 처리", sub:["현안 이슈 공유 및 대응방안 회의(05/26): 해수부(이대범 사무관) 시연 및 점검 간 식별 이슈 대응","시급도·우선순위 선정, 1차 06/02(화) 대응 가능 건 식별 공유","SW부문 담당자별 SR관리대장 관리 요청(05/28)","사용자서비스 매뉴얼 현행화 작성 지원(05/29)"]}] },
+    { name:"[새만금산업단지사업단] 분양정보시스템 유지보수 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"배석", pl:"전인호(D)", ba:"N/A", prog:{plan:40.4,actual:40.4},
+      content:["전체 17(신규4) / 완료 14 / 진행 1 / 미착수 3","토지관리 첫행 고정(완료 05/26)","토지관리 엑셀 다운로드 기능 추가(진행 60%)"] },
+    { name:"[해양수산부] 선박 전자증서 발급시스템 유지보수 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"배석", pl:"전인호(E)", ba:"이준영", prog:{plan:40.4,actual:40.4},
+      content:["전체 14 / 완료 14 / 진행 0 / 미착수 0"] },
+    { name:"[해양수산부] IUU 어업 공동단속시스템 유지보수 용역", type:"유지보수", period:"26.01.01~26.12.31", pm:"정태창", pl:"박정훈", ba:"오재권", prog:{plan:40.4,actual:40.4},
+      content:["전체 15 / 완료 15 / 진행 0 / 미착수 0"] },
+    { name:"[해양경찰청] 해양오염방제통합시스템 유지보수 용역", type:"유지보수", period:"26.01.01~26.12.31", pm:"김완호", pl:"박정훈", ba:"배성희", prog:{plan:40.4,actual:40.4},
+      content:["전체 20(신규4) / 완료 17 / 진행 3 / 미착수 0","선박 관리 목록 조회(완료 05/28)"] },
+    { name:"[관세청] 통합항만감시시스템(IN-POSS) 유지보수 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"김민엽", pl:"전인호(D)", ba:"양이레·장민규", prog:{plan:40.4,actual:40.4},
+      content:["전체 3 / 완료 1 / 진행 2 / 미착수 0","실시간 분석 프로그램 안정화(진행 90%)","과거 분석 프로그램 오류로그 수령 분석 및 대응(진행 40%)",
+        {t:"업무 처리", sub:["5월 유지보수 대금 청구(05/27)","5월 정기점검 보고서 제출(05/27)"]}] },
+    { name:"[KMC] 한국해사협력센터(KMC) 유지보수 사업(IMO-KOREA)", type:"유지보수", period:"26.01.01~26.12.31", pm:"양이레", pl:"박정훈", ba:"전인호(D)", prog:{plan:40.4,actual:40.4},
+      content:["전체 13(신규1) / 완료 13 / 진행 0 / 미착수 0","국제 해사안전분야 정책설명회 팝업 게시(완료 05/28)",
+        {t:"업무 처리", sub:["IMO 통계 데이터 생성 매뉴얼 작성(진행 80%)","인수인계 매뉴얼 작성(진행 80%)"]}] },
+    { name:"[중앙해양안전심판원] 해양사고 조사분석실 운영관리 용역", type:"유지보수", period:"26.01.01~26.12.31", pm:"양이레", prog:{plan:40.4,actual:40.4},
+      content:["전체 0 / 완료 0 / 진행 0 / 미착수 0"] },
+    { name:"[중앙해양안전심판원] 해양안전심판원 정보화시스템 유지보수 용역", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", prog:{plan:40.4,actual:40.4},
+      content:["전체 1 / 완료 1 / 진행 0 / 미착수 0"] },
+    { name:"[강원특별자치도] 선박조난자스마트위치추적시스템 통합(2년) 유지보수(원격지 기술지원)", type:"유지보수", period:"26.01.01~26.12.31", pm:"전인호", prog:{plan:40.4,actual:40.4},
+      content:["전체 1 / 완료 1 / 진행 0 / 미착수 0"] },
+    { name:"[공통-업무]", type:"기타", period:"-", note:"공수 0.6",
+      content:["OJT 풀스택 개발자 교육(진행 24.6%): 웹 프로그래밍 기초 JAVA(10.1%)","공군 실증목적 GPU서버(총 5대) 견적서 수령(인디넷) 부서·HNC/고도윈 공유(05/28)","벡터DB(텍스트·표·이미지) 구축 및 RAG 검색: 비교 견적서 수령(데브짓수) 부서 공유(05/28)","1차 부서 내부 세미나(05/28): GICOMS 매뉴얼(조영은), 부산 해수부 종합상황실 H/W(장민규), 네트워크 운영/장애 대응(장민규)","2차 부서 내부 세미나 공지(05/28): V-World 3D 북극항로 선박 모니터링 프로토타입, Cesium.js 활용","2027년 GICOMS 고도화 - 3D 선박 관제 프로토타입(진행 99.46%): 실수심·북극 해빙 분포·이동경로 표출 목표, 소개자료 작성(05/28)","폐쇄망 멀티 에이전트 기반 바이브코딩 환경 구축 및 테스트(진행 32.21%)"] }
+  ],
+  nextWeek:["중해심 해양사고 분석시스템 1차 고객 인터뷰(06/01 14:00)","KMC IMO-KOREA 디자인 시안 수령 검토(06/03)","2차 부서 내부 세미나(06/04 16:00)","2026.05 실적 보고서 작성"]
+},
+
+/* ===== 5. ICT사업부 · 운영/유지보수 (고석영) ===== */
+{
+  id:"r-ict-ops", group:"해양 ICT 사업", icon:"운영",
+  org:"ICT사업부 · 운영/유지보수", reporter:"고석영", recipient:"김민엽 상무",
+  projects:[
+    { name:"[해양수산부] 해양안전종합정보시스템(GICOMS) 유지보수 및 운영", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"양이레", prog:{plan:40.4,actual:40.4}, note:"공수 1.5",
+      content:["전체 22 / 완료 9 / 진행 13 / 미착수 0",
+        {t:"진행 주요", sub:["(04/03~) GMS/ADR 모니터 세팅(50%): 서버실→유지보수실, VMS PC-교연장치서버 통신 불가","(04/29~) SAMP 이리듐 단말기 양식 기능 개선(90%): BTS-2336 등록, Cancellation 예외처리(50%)","(05/06~) VMS 국적선 LRIT 이리듐 위성망 입력란 추가(50%)","(05/06~) LRIT 국적선·BBCHP 데이터 현행화(40%): 국적선(80%)/BBCHP(0%)","(05/07~) WEB VMS 기상정보 미갱신 조치(50%)","(05/20~) 홈페이지 안전투시공시 게시판 수정(70%)","(05/20~) 포탈 VMS 위성망 통신사업자 mapsea 추가(50%)"]},
+        {t:"완료 주요", sub:["IP 관리 대장 현행화(05/29)","MTSI_IRM 등급제 현황 증빙 생성(05/14)","한국해사컨설팅 항적 재추출(05/26)","위치정보 연계 표준협정서 검토·회신(05/27)","ADR/GMS 웹취약점 조치(80%)","여행금지국가 아이맵 표출 이상 조치(BTS-2351, 05/28~29)","GICOMS 서버 보안취약점 지원(05/28)"]},
+        "(04/06~) 이란-미국 전쟁 대응 중동지역 선박리스트 제출: 전쟁 종료까지 지속 대응"] },
+    { name:"[해양수산부] GICOMS 기능개선", type:"용역", period:"26.05.08~26.11.03", pm:"양이레", pl:"김선화", prog:{text:"-"},
+      content:["전체 3 / 완료 2 / 진행 1","2026 GICOMS 기능개선 선금신청(완료 05/21~28)","WBS 검토(완료 05/29)","기상상태별 출항통제선박 분석 설명자료(진행 30%, 05/29)"] },
+    { name:"[해양수산부] 해사안전감독 업무정보 시스템 유지보수 운영(2차)", type:"유지보수", period:"26.01.01~26.12.31", pm:"양이레", pl:"김선화", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[해양수산부] 25~26년 선박장거리위치추적시스템(LRIT) 위탁운영", type:"유지보수", period:"26.01.01~26.12.31", pm:"김민엽", pl:"고석영", prog:{plan:40.4,actual:40.4}, note:"공수 0.25",
+      content:["전체 1 / 완료 1","(05/27) 25~27년 LRIT 정보이용료 증액 필요 금액 현황 작성·제출(완료)"] },
+    { name:"[해양수산부] 26~27년 청해부대 선박모니터링시스템 유지보수 및 노후화 교체", type:"유지보수", period:"26.01.01~26.12.31", pm:"장민규", pl:"고석영", prog:{plan:40.4,actual:40.4},
+      content:["전체 2 / 완료 1 / 진행 1","(05/29) 노후화 교체 대상 HW 수령(완료)","(05/29) 노후화 교체 HW 세팅(10%): 전체 시스템 테스트 환경 구성 및 AP 이전설치"] },
+    { name:"[해양수산부] 지능형 해양수산재난정보체계 운영 및 유지관리", type:"유지보수", period:"26.01.01~26.12.31", pm:"배석", pl:"이준영", prog:{plan:40.4,actual:40.4},
+      content:["전체 2 / 완료 2","(05/28) 5월 3주차 BBC선박 갱신작업(완료)","(05/28) DB증설 관련 국자원 컨택: 담당 주무관 변경으로 시간 필요 회신"] },
+    { name:"[중앙해양안전심판원] 해양안전심판원 정보화시스템 유지보수 용역", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", prog:{plan:40.4,actual:40.4},
+      content:["전체 6 / 완료 2 / 진행 4","중해심 대표 홈페이지 업로드 게시판(10%)","2026년 공공데이터 개방(95%): 개방 5건/검토 대기 5건","해양사고 정보시스템 업무 과중 증빙자료(80%)","정보화시스템 매뉴얼 보완(80%)","2027년 예산 요구 자료(완료)","23'~25' 정보화 메뉴 변경 건수 조사(완료)"] },
+    { name:"[중앙해양안전심판원] 해양사고 조사분석실 위탁운영", type:"유지보수", period:"26.01.01~26.12.31", pm:"양이레", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[중앙해양안전심판원] AI기반 해양사고 분석시스템 개발", type:"용역", period:"26.04.28~26.12.24", pm:"배석", pl:"양이레", prog:{text:"-"},
+      content:["전체 3 / 완료 2 / 진행 1","(05/18~) AI용 하드웨어 세팅(30%): 고성능 PC 2대 결합, 그래픽카드 인식 성공(05/27), 리눅스 버전 정의 중","(05/27) 인터뷰 계획서 작성·일정 수립(완료): 06/01 인터뷰 예정","(05/26~27) 인터뷰 질의서 작성(완료)"] },
+    { name:"[한국해양안전교통공단] 선박모니터링시스템 유지보수 용역(2026)", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"장민규", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[굿어스] K사 상황실 통합유지보수", type:"유지보수", period:"-", prog:{text:"-"}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[메사] 리오정보기술원 25~26년 시스템 유지보수(2차)", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"장민규", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[케이엘넷] 해운항만물류정보시스템 위탁운영(2026) 내 선박저속운항", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"장민규", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[올포랜드] 해양수산정보 공동활용체계 구축 유지보수 사업(1차)", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"장민규", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[국립공원공단] 선박모니터링시스템(VMS) 유지보수", type:"유지보수", period:"26.01.01~26.12.31", pm:"고석영", pl:"장민규", prog:{plan:40.4,actual:40.4},
+      content:["전체 2 / 완료 2","(05/26) 점검방법 논의(완료): 27년 8월까지 방문 3회·원격 12회 합의, 5개월 간격 방문(26/10, 27/03, 27/08)","(05/27) 정보시스템 안정성 등급 산정 증빙자료 제출(완료)"] },
+    { name:"[수협중앙회] 어선안전조업관리시스템 유지보수(2026)", type:"유지보수", period:"26.01.01~26.12.31", pm:"이준혁", prog:{plan:40.4,actual:40.4}, content:["전체 0 / 완료 0 / 진행 0"] },
+    { name:"[공통-업무]", type:"기타", period:"-", note:"공수 2.25",
+      content:["전체 10 / 완료 9 / 진행 1","KMC IMO 통계 데이터 매뉴얼 작성(완료, 04/20~05/26)","중해심 27년도 AI 해양사고 분석시스템 예산 산출 대응(완료 05/26)","개인 발표 준비(완료 05/26~28): 해수부 부산 종합상황실 케이블링, 인천청 트러블슈팅 네트워크 실무교육","KOMSA 26년도 기능개선 요구사항·산출물 적정성 검토(완료 05/27)","27년 정보화 유지보수(220백만원)/기능개선(146백만원) 산출계산식 작성·제출(완료 05/27)","26년 KOMSA 기능개선 RFP 최종 검토·회신(완료 05/27~28)","사업부-개발센터 BTS 업무 프로세스 2차 초안 공유(05/28)","GICOMS 홈페이지 개발 업무범위 공유(05/28)","ICT사업부 내부세미나 참석(05/28)"] }
+  ],
+  nextWeek:["국군수송사령부 박태룡 중령 부산지점 방문 예정(6월 1주차): 6월 3주차 훈련 기간 VMS 홍보 사전 방문"]
+},
+
+/* ===== 6. 기술개발본부 (김현) ===== */
+{
+  id:"r-techdev", group:"솔루션·기술개발", icon:"기술",
+  org:"기술개발본부", reporter:"김현", recipient:"문병욱 대표이사",
+  strategy:[
+    { div:"기술개발본부 / MC 솔루션", content:["세부 개발 계획 수립 및 보고"], start:"03/27", plan:"04/24", end:"",
+      action:["시스템 분석 진행 중 → 사업부/기술개발본부 제안서 작업으로 일시 보류","04월4주차 상세계획 작성 및 보고","(with 에너지사업부) 로드맵 검토 후 상세계획 수립 협의"], status:"New" }
+  ],
+  projects:[
+    { name:"[솔루션] MC (마린코디네이션)", type:"솔루션", period:"-", po:"이덕수", pm:"김현", prog:{text:"-"},
+      content:["MC 세부 개발 계획 수립 진행 중"] },
+    { name:"[LS전선] LS시너지 통합자산관리솔루션", type:"솔루션", period:"~24.06.28", po:"이덕수", pm:"김현", prog:{text:"-"},
+      content:["데이터 수집/API 서버 기능개선","시스템 구조 안정화(React)(41%)"] },
+    { name:"[LS전선] LG화학 청주/BCM", type:"구축", period:"-", po:"이덕수", pm:"김현", prog:{text:"-"}, content:["진행사항 없음"] },
+    { name:"[한국에너지기술연구원] 대규모 해상풍력단지 선박감시 및 통합운영 솔루션 도입 용역", type:"수행", period:"~25.12.31", po:"이덕수", pm:"최재연", prog:{text:"완료"}, content:["진행사항 없음"] },
+    { name:"[수협중앙회] 통합유지보수", type:"유지보수", period:"-", po:"한규혁", pm:"황준호", prog:{text:"-"},
+      content:["수협 시스템 통합 유지보수 (w/항해통신사업부)","FIS, 조업정보알리미, D-MF/HF, VHF-DSC, 어선안전조업국 광역화","조업정보알리미앱 유지보수"] },
+    { name:"[LIG넥스원] 페루함 전술체계 개발", type:"사업", period:"-", po:"송용학", pm:"송용학", prog:{plan:92.53,actual:59.29},
+      content:["센서별 설계문서 분석 중: S/W ICD, Cover ICD, Functional Spec Doc","LBTS 시뮬레이터 UI 연동 DLL 개발 진행 중","3.5차 관찰사항 개발","IDL 최신화 및 전체시스템 구동테스트(부하테스트)","연동SW CI/CD 환경(LBTS실) 구축 완료"],
+      tables:[{title:"센서별 진척 매트릭스(27종)", headers:["구분","센서별","설계","HCI","연동SW","LBTS"],
+        rows:[["전체","59.29%","68.45%","64.72%","52.78%","62.10%"],
+          ["2DR(SPS-732)","16.59%","50.00%","5.30%","3.00%","12.00%"],["TRS(NA-25X)","77.49%","74.00%","80.30%","71.80%","88.00%"],
+          ["76mmGUN","16.80%","22.50%","0.00%","12.50%","36.00%"],["40mmGUN","69.48%","80.30%","67.20%","52.30%","88.00%"],
+          ["RCWS","77.67%","78.50%","90.00%","67.50%","80.00%"],["PASEO-XLR","85.58%","93.80%","82.20%","88.10%","75.30%"],
+          ["VIGY4","90.35%","97.50%","92.60%","88.50%","82.40%"],["IRST","87.73%","96.00%","94.60%","71.00%","98.20%"],
+          ["SAM","55.53%","86.50%","58.10%","40.30%","41.20%"],["SSM","67.13%","88.00%","67.40%","64.00%","47.00%"],
+          ["HMS","66.32%","73.00%","57.40%","62.10%","75.50%"],["VDS","66.32%","73.00%","57.40%","62.10%","75.50%"],
+          ["DLS","43.72%","51.50%","63.60%","46.20%","7.90%"],["TLS","21.64%","51.50%","41.40%","26.10%","0.00%"],
+          ["MFR","15.41%","50.00%","2.40%","2.00%","11.00%"],["RESM","88.24%","70.00%","100.00%","90.00%","94.00%"],
+          ["CESM","85.94%","70.00%","100.00%","89.10%","84.00%"],["TDL","16.94%","47.80%","17.60%","4.60%","0.00%"],
+          ["2DR(SCANTER)","78.20%","64.50%","80.00%","75.00%","98.00%"],["DDU","67.38%","100.00%","68.40%","70.00%","81.00%"],
+          ["S-Band","55.99%","62.00%","89.50%","45.00%","80.00%"],["X-Band","55.99%","62.00%","89.50%","45.00%","80.00%"],
+          ["ADS-B","74.56%","70.00%","83.40%","62.70%","90.00%"],["AIS","62.86%","70.00%","83.40%","62.70%","90.00%"],
+          ["ACR","66.04%","62.00%","89.50%","45.00%","80.00%"]]}] },
+    { name:"[NIPA] 공공AX_Deep Blue Eye", type:"사업", period:"04/06~12/31", po:"김창민", pm:"한규혁/김현", prog:{text:"WBS 수립 중"},
+      content:["요구사항 분석(50%)","화면 설계서 개발(80%)","아키텍처 설계서 작성(30%): AI 탐지/식별 항목·기준 정의","WBS 검토 진행 중","1차 자문위원회 자문 수행(05/28): 전탐사 인터뷰·요구사항 분석","기술검토: Jetson Thor 보드·리눅스 환경 이슈 검토"] },
+    { name:"[KIMST] VDES 2차년도", type:"연구과제", period:"-", pm:"김현", prog:{text:"-"},
+      content:["아키텍처·인터페이스 설계","EyeVDES_LSS: Binary 메시지 인/디코더 모듈(50%)","MKD 개발: 진행 현황 및 일정 수립","내부 킥오프 미팅(05/26)"] },
+    { name:"[ITEA4] Optimal-LOADS", type:"연구과제", period:"-", pm:"송용학", prog:{text:"전략기획실 관리"},
+      content:["중간보고용 기능 개선 및 동영상 개발"] },
+    { name:"[기타 업무]", type:"기타", period:"-",
+      content:[{t:"기술개발본부", sub:["[KRISO] 항로표지정보서비스_정보관리시스템 기능보완(Feature 정보 초기화)","[육군본부] 해안경계통합시스템 확장기술 실증_TRR회의(05/27)","[육군본부] 26-육-99 해안경계통합 유지보수_SW 점검교육(05/26)","[해경] GIS위치정보시스템 통합구축_투입인력/공수 산정 및 기술협상서 검토(05/29)","[KIMST] CDX_기술세미나 ActionItem 회의(05/26)"]},
+        {t:"기타", sub:["(수주지원) [KRISO] eLoran 제안서 작성(~05/27)","(수주지원) [중기청] DCP 제안 평가 참석(05/26, 코엑스 마곡)","[LIG D&A] 해양사업부 미팅(05/26)","[인천공항] 디지털관제 고객요청사항 대응","소스형상관리(Git)/파일서버 클라우드 이전 개발자 테스트(~05/31)","석가탄신일 휴무(05/25)"]}] }
+  ],
+  nextWeek:["[솔루션] MC: 아키텍처/화면/DB 설계","[LS전선] LS시너지: React 컨버전, 통합테스트 기반 개선, IMR 온라인 미팅(06/04)","[LS전선] LG화학 청주/BCM: PDMS 기능분석·기초 세팅","[인천공항] 스마트계류장·주기장AI 수행","[수협] 통합유지보수","[해수부] 지능형 해상교통/GICOMS/바다내비 친환경 - 기능요구 개발·기술협상(06/04)","[해경] GIS 통합구축 기술협상(06/02)","[LIG넥스원] 페루함: 센서별 설계분석, LBTS CI/CD 구축(06/04~05)","[KRISO] 스마트항로표지 운영시스템","[NIPA] Deep Blue Eye: 전탐사 인터뷰(06/02 김포항공단)","연구과제: VDES·Optimal-LOADS·CDX(월간회의 06/02)·GMDRT·디지털VTS","Kpler APAC 미팅"]
+},
+
+/* ===== 7. 솔루션사업부 (정태창) ===== */
+{
+  id:"r-solution", group:"솔루션·기술개발", icon:"솔루",
+  org:"솔루션사업부", reporter:"정태창", recipient:"문병욱 대표이사",
+  issues:[
+    { title:"[해경] GIS 위치정보시스템 통합 구축", content:["우선협상대상자 확정. 기술협상 단계"], plan:["기술협상 내용 사전 검토 회의(5/29)","차주 기술협상 예정(6/2)"], result:[], status:"진행" },
+    { title:"[해경] 해양오염방제통합시스템 클라우드 네이티브 전환", content:["클라우드 네이티브 전환 사업기획"], plan:["사업기획 관련 해경 담당자 협의 예정","전략기획실 전담 담당자 지정 필요(사업부 김완호)"], result:[], status:"" },
+    { title:"[해경] 유지보수 사업", content:["27년도 유지보수 사업 전체 예산 10% 삭감"], plan:["기재부 예산 삭감에 따라 27년 유지보수 예산 감소 예정","부서별 미사용기능 유지보수 제외 검토 중"], result:[], status:"" },
+    { title:"[해수부] 선박자동식별시스템(AIS) 기능개선", content:["입찰마감: 6/9(화) 10시 나라장터 온라인"], plan:["제안서 작성 중"], result:[], status:"" },
+    { title:"[경찰청] 해안경계 관제시스템 고도화", content:["사전규격공고 대기"], plan:["사전규격공고 대기중"], result:[], status:"" },
+    { title:"[경찰청] 지능형 해안경계시스템", content:["노후교체 및 기능개선 예산안 검토"], plan:["합참 최재철 준위 제주경비대 현장방문 시 동행 예정","중기예산 경찰청 본청으로 사업계획서 작성 예정"], result:[], status:"" },
+    { title:"[해군] 통합선박정보관리체계(IVIMS) 기능개선 및 AI 실증", content:["선박항적 기반 이상패턴 분석 실증(12개월)"], plan:["사업계획서 제출 완료","RFP 초안 작성 지원","노세원 소령 회의 예정"], result:[], status:"" }
+  ],
+  projects:[
+    { name:"[육군본부] 해안경계통합시스템 선박연동정보 확장기술 실증", type:"용역", period:"25.07.30~26.09.30", po:"정태창", pm:"정태창(오재권)", prog:{actual:94},
+      content:["TRR 회의 진행(5/27)","시험평가 계획/절차서 세부 논의(평가 일정 6/24~25)"] },
+    { name:"[KRISO] 한국형 위성항법시스템 센티미터급 임무제어국 상세설계 분석", type:"용역", period:"25.06.09~26.09.11", po:"이상재", pm:"김요셉", prog:{text:"-"},
+      content:["설계 완료에 따른 개발 예산 작업중(이상재)"] },
+    { name:"[이엔지소프트] 신안우이 V-PASS 수신기 구매설치", type:"납품설치", period:"26.05.19~26.06.30", po:"김요셉", pm:"김요셉", prog:{actual:30},
+      content:["IP, PORT 정보 전달 완료","현장 납품 설치준비 진행"] },
+    { name:"[필라넷] AI기반 해상감시 시스템 구축", type:"구축", period:"25.08.29~26.03.31", po:"이덕수", pm:"김요셉", prog:{actual:70}, content:["진행사항 없음"] },
+    { name:"[한국항공우주산업] 25년 KUH 통합선발주", type:"납품", period:"26.04.15~31.03.01", po:"양승훈", pm:"양승훈", prog:{text:"-"}, content:["장비입고 대기"] },
+    { name:"[KAI] 항공기 AIS 납품 4식", type:"납품", period:"25.09.11~26.06.17", po:"양승훈", pm:"양승훈", prog:{actual:100}, content:["세금계산서 역발행 완료"] },
+    { name:"[LS전선] LG화학 청주 154kV 지중선로공사 - PDMS 납품·설치", type:"납품", period:"24.11.11~25.01.31", po:"이덕수", pm:"김요셉", prog:{actual:100}, content:["진행사항 없음"] },
+    { name:"[해경] 차세대 디지털 VTS 국제표준 서비스 및 장비개발", type:"연구과제", period:"25.04.01~29.12.31", po:"김창민", pm:"정태창(양승훈)", prog:{text:"-"}, content:["상세설계서 보완 작성"] },
+    { name:"[국방과학연구소] 해군 레이더기지 해상감시장비 원격·통합화 사전개념연구", type:"연구", period:"25.08.01~25.12.31", po:"김창민", pm:"김창민(정태창)", prog:{text:"-"}, content:["진행사항 없음"] },
+    { name:"[글로벌시스템스] 2026년 지능형 해안경계시스템 유지보수", type:"유지보수", period:"26.01.27~27.01.26", po:"정태창", pm:"양승훈", prog:{actual:25}, content:["수동표적·표적종류 변경 기능 개발팀 수정 완료"] },
+    { name:"[서해어업관리단] 2026년 IUU어업 공동단속시스템 유지보수", type:"유지보수", period:"26.01.01~26.12.31", po:"정태창", pm:"오재권", prog:{actual:42},
+      content:["전자해도 중국어선 미표출 증상 개발팀 확인 중","국정원 보안장비 점검 사항 조치","전산실 선로 정리 및 미사용 UPS 탈거"] },
+    { name:"[엔티에스] 2026년 가거 해안경계 과학화 시스템 유지보수", type:"유지보수", period:"26.01.01~26.12.31", po:"정태창", pm:"양승훈", prog:{actual:25}, content:["2분기 점검 일정 수립(6월 2주차)"] },
+    { name:"[해양경찰청] 2026년 종합상황실 유지 관리 용역", type:"유지보수", period:"26.01.01~26.12.31", po:"마상권", pm:"마상권", prog:{actual:42}, content:["장애문의 접수 처리"] },
+    { name:"[해양경찰청] 2026년 통합상황관리 유지 관리 용역", type:"유지보수", period:"26.01.01~26.12.31", po:"양승훈", pm:"김완호", prog:{actual:42}, content:["MGPS 송수신기 교체 작업 예정(위니텍)"] },
+    { name:"[해양경찰청] 2026년 해양오염방제통합시스템 유지관리 용역", type:"유지보수", period:"26.01.01~26.12.31", po:"양승훈", pm:"김완호", prog:{actual:42}, content:["DB 서버 이벤트 로그 발생 원인분석 방문 일정 수립(6/12)"] },
+    { name:"[해양경찰청] 2026년 선박장거리위치추적시스템(LRIT) 유지관리 용역", type:"유지보수", period:"26.01.01~26.12.31", po:"양승훈", pm:"김완호", prog:{actual:42}, content:["월간점검 및 1분기 보고서 제출"] },
+    { name:"[해양경찰청] 2026년 선박운항정보시스템 유지 관리 용역", type:"유지보수", period:"26.01.01~26.12.31", po:"양승훈", pm:"김완호", prog:{actual:42}, content:["특이사항 없음"] },
+    { name:"[한국해상풍력] 24~25년도 실증단지 ICT설비 유지관리 위탁용역", type:"유지보수", period:"24.05.13~26.11.12", po:"김요셉", pm:"김요셉", prog:{text:"-"}, content:["연장계약 완료(26.05.12→26.11.12)","계약금액 상승(₩16,366,484 추가)"] },
+    { name:"[해양경찰청] 2026년 원거리 감시추적시스템 유지보수", type:"상주근무 업무지원", period:"26.01.01~26.12.31", po:"한규혁", pm:"박상일", prog:{text:"-"}, content:["정보통신과 요청 저활용 메뉴 조사 자료 작성"] },
+    { name:"[해양경찰청] 2026년 V-PASS 유지보수", type:"상주근무 업무지원", period:"26.01.01~26.12.31", po:"한규혁", pm:"박상일", prog:{text:"-"}, content:["정보통신과 요청 저활용 메뉴 조사 자료 작성"] },
+    { name:"[해양경찰청] 2026년 항공기 AIS 유지보수", type:"상주근무 업무지원", period:"26.01.01~26.12.31", po:"한규혁", pm:"박상일", prog:{text:"-"}, content:["특이사항 없음"] },
+    { name:"[글로벌시스템스] 차량용 TOD 구매사업", type:"하자보수", period:"-", po:"정태창", pm:"양승훈", prog:{text:"-"}, content:["-"] },
+    { name:"[해군] AI기반 레이더 표적식별 기술실증", type:"실증", period:"-", po:"정태창", pm:"서원택(정태창)", prog:{text:"-"}, content:["예방점검 실시(5/28)","학습용 라벨링 작업 실시"] },
+    { name:"[MTCS] 무선국 준공검사", type:"검사", period:"-", po:"김요셉", pm:"김요셉", prog:{text:"-"}, content:["레이더 무선국 준공검사 증명서 발행 완료"] },
+    { name:"[기타사항]", type:"기타", period:"-", content:["김요셉 책임 해상풍력 GWO 갱신 교육 완료","양승훈 책임 정보통신기술자 특급 인정 교육 완료"] }
+  ],
+  nextWeek:["[육군본부] 해안경계통합 이나브 연계: 시험평가 절차서 수정","[경찰청] 26년 지능형 해안경계 이나브 연계: 사전규격공고 대기","[해수부] 26년 AIS 기능개선: 제안서 작성","[해경] GIS 위치정보시스템 통합 구축: 기술협상","[해군] AI 기반 선박항적 이상패턴 분석 실증: RFP 초안 작성","[에너지사업] 유지보수 수행","[연구과제] 차세대 디지털 VTS: 상세설계 기반 S/W 개발준비"]
+},
+
+/* ===== 8. 응용기술개발센터 (박성규) ===== */
+{
+  id:"r-apptech", group:"솔루션·기술개발", icon:"응용",
+  org:"응용기술개발센터", reporter:"박성규", recipient:"김현 본부장",
+  projects:[
+    { name:"[해양수산과학기술진흥원] 해양 디지털항로 실증기술 개발사업 (23-28) 3세부(3차년도)", type:"수행", period:"26.01.01~26.12.31", po:"김창민", pm:"김창민", prog:{plan:42.3,actual:42.3},
+      content:[{t:"[설계 및 개발]", sub:["gmdrt_ms9(Hospital Clinic): S131 표준 적용","gmdrt_ms6(Port pilotage): S131 표준 적용","gmdrt_ms10(Maritime assistance): S131 표준 적용","gmdrt_ms1-3(80%): 변경 업무 프로세스 적용","gmdrt_ms7(0%): 변경 업무 프로세스 적용"]}] },
+    { name:"[해양경찰청] AI기반 해양재난 대응체계 CDX 기술개발", type:"수행", period:"26.01.01~26.12.31", po:"김창민", pm:"김창민", prog:{plan:42.3,actual:42.3},
+      content:["연계 데이터셋 및 CDX 표준화 설계(~5/29, 65%): 대상 테이블 67/104","기술세미나 ActionItem 도출 회의(5/26)","CDX 표준화 분석 및 대상 도출(~6/12, 20%)","공개·비공개 데이터 구분 설계 및 관리체계 개발(~6/1, 60%)"] },
+    { name:"[KRISO] 차세대 디지털 VTS 국제표준 서비스 및 장비 개발", type:"수행", period:"26.01.01~26.12.31", po:"정태창", pm:"정태창", prog:{plan:42.3,actual:42.3},
+      content:[{t:"[설계 및 개발]", sub:["통항승인서비스(TCS): 개발환경 구축"]}] },
+    { name:"[해양수산부] '26년 지능형 해상교통정보서비스 운영시스템 - 안정화", type:"수행", period:"-", po:"김태식", pm:"김태식", prog:{plan:28,actual:28},
+      content:["기술협상 항목 내부회의(5/27)",
+        {t:"** SV00 운영시스템(backend, 서비스) **", sub:["DSP","전자해도 타일링 이미지 생성(EyeSMT)","사고상황관리(EyeAS_ASM)","서비스 통계·단말기 상태 분석(EyeAS_SAS_ECS)(~5/27, 95%)","LTE-M 위치정보 제공","항적 정보 제공","파일서버(~6/5, 70%): 구조 설계"]}] },
+    { name:"[해양수산부] GICOMS 기능개선", type:"수행", period:"26.05.07~26.11.03", po:"김민엽", pm:"고석영", prog:{plan:0,actual:0},
+      content:[{t:"[설계 및 개발]", sub:["위성망 연계 시스템(LGS): 설계"]}] },
+    { name:"[육군본부] 해안경계통합시스템 선박연동정보 확장기술 실증", type:"수행", period:"25.07.30~26.07.29", po:"정태창", pm:"정태창", prog:{plan:95,actual:95},
+      content:["TRR 회의(5/27)",{t:"[설계 및 개발]", sub:["항적 저장 SW(EyeAS_TSS_LTE-M) 오류 보완(~5/26, 95%): 배치 insert 실패 처리 로직 추가"]}] },
+    { name:"[해양경찰청] GIS 위치정보시스템 통합구축", type:"수행", period:"-", po:"정태창", pm:"정태창", prog:{text:"-"},
+      content:["제안서 검토 및 투입공수 산정","기술협상 사전 회의(5/29)"] },
+    { name:"[해양수산부] '26~'27년 지능형 해상교통정보서비스 운영시스템 유지관리", type:"수행", period:"26.01.01~26.12.31", po:"김태식", pm:"김태식", prog:{plan:42.3,actual:42.3},
+      content:["통상항로 알고리즘 프로토타입 개발(~6/30, 62%): 격자기반 항로 생성 로직 테스트","SV40 서비스(EUS,EDS) 테스트·보완(~6/3, 95%)","바다내비 앱(badanavi): 마크 랜더링 개선"] },
+    { name:"[기타] e-Nav 단말기", type:"수행", period:"26.01.01~26.12.01", po:"신현빈", pm:"신현빈", prog:{text:"요구 9건"},
+      content:["총 요구사항 9건 / 완료 5건 / 진행 2건 / 착수 전 2건","AM 텔레콤 송수신기 연동(~5/15, 30%)","업데이트 런처 개선(~5/29, 80%)","알람 TTS 영문 버전 구현(5/26, 100%)","통항금지구역 알람 개선(~5/28, 100%)"] },
+    { name:"[STX엔진] 해안2 생산 시험장비 납품", type:"수행", period:"25.06.25~25.10.24", po:"신희용", pm:"신희용", prog:{text:"-"},
+      content:["EyeGW_300_CtoS: License Key 확인 기능 추가","MCS_Lite: License Key 확인 기능 수정","MakeAccessKey: Key 생성 로직 MAC주소 기반으로 수정"] },
+    { name:"[해양수산부] GICOMS 유지보수 및 운영", type:"수행", period:"26.01.01~26.12.31", po:"김민엽", pm:"고석영", prog:{plan:42.3,actual:42.3},
+      content:["[BTS 2건/2건] 0002340: SAMP 이리듐 cancellation 메일 DB 저장 개선 → 수정본 배포","0002351: 아이맵 여행금지 국가 표출 이상 수정 → 수정본 배포"] },
+    { name:"[육군본부] 26-육-99 해안경계통합시스템 유지보수", type:"수행", period:"26.04.22~26.10.22", po:"한규혁", pm:"김정호", prog:{plan:21,actual:21}, content:["육군 사이트 별 S/W 및 점검 교육(5/26)"] },
+    { name:"[기타업무]", type:"기타", period:"-", content:["[KRISO] eLoran 항법단말기 제작 실증 연구 제안서 작성(~5/27)"] }
+  ],
+  nextWeek:["[해수부] 바다내비 친환경/안정화: 기능요구사항 개발·기술협상(6/4)","[기타] e-Nav 단말기: 10·13인치 실선 테스트 준비","[해수부] GICOMS 기능개선: 수행계획보고서 검토 회의(6/1)","[해경] CDX: 표준화 설계, 월간회의(6/2)","해양 디지털항로(GMDRT): 연계 테스트(w/메타빌드)"]
+},
+
+/* ===== 9. 개발센터 (신동훈) ===== */
+{
+  id:"r-devcenter", group:"솔루션·기술개발", icon:"개발",
+  org:"개발센터", reporter:"신동훈", recipient:"박성규 센터장",
+  projects:[
+    { name:"[해양수산부] 2026년 지능형 해상교통정보시스템 안정화 사업", type:"수행", period:"26.04.23~26.07.23", po:"김태식", pm:"김태식", prog:{text:"-"}, note:"기술협의 이후 진행 예정",
+      content:["기술협의 항목 내부회의(5/27)",{t:"[설계 및 개발]", sub:["품질관리용 전자해도(EyeMap_eNav)(~5/20, 33%)","바다내비 전자해도서비스(eNavGIS)(~5/20, 80%)","시스템 운영현황 모니터링(eNav_SSM)(~5/7, 50%)"]}] },
+    { name:"[해양수산부] 바다내비 활용 친환경 및 해상풍력 특화 서비스 연구·개발", type:"수행", period:"26.05.06~26.07.24", po:"김태식", pm:"김태식", prog:{text:"-"}, note:"기술협의 이후 진행 예정",
+      content:["품질관리용 전자해도(EyeMap_eNav)(~5/13, 35%): 해상풍력단지 관리 기능 개발"] },
+    { name:"[KIMST] AI기반 해양재난 대응체계 CDX 기술개발", type:"수행", period:"25.01.01~25.12.31", po:"김창민", pm:"김창민", prog:{text:"-"}, note:"'연계 데이터셋…' 우선순위 조정으로 진행사항 없음",
+      content:["연계 데이터셋 및 CDX 표준화 설계(~5/29, 65%): 대상 테이블 67/104","기술세미나 ActionItem 도출 회의(5/26)","CDX 표준화 분석 및 대상 도출(~6/12, 20%)","공개·비공개 데이터 구분 설계 및 관리체계(~6/1, 60%): 시스템 요구사항(90%)/기능 요구사항(50%)/문서(10%)"] },
+    { name:"[해양수산부] GICOMS 기능개선", type:"수행", period:"26.05.06~26.11.03", po:"고석영", pm:"양이레", prog:{text:"-"}, note:"Iridium 프로토콜 확보 후 진행 예정",
+      content:["선박 모니터링(EyeMap_GICOMS_New)(~5/15, 90%)"] },
+    { name:"[KIMST] [1-2차년도] 디지털 VTS 서비스 및 장비개발", type:"수행", period:"26.01.01~26.12.31", po:"정태창", pm:"양승훈", prog:{text:"-"},
+      content:["통항승인서비스(TCS)(~6/30, 20%): 개발 환경 구축(100%), 필수 컴포넌트·라이브러리 설치(100%), GMDRT 기반 공통 모듈 이식(100%)"] },
+    { name:"[국군재정관리단] 해안경계통합시스템 선박연동정보 확장기술 실증", type:"수행", period:"25.07.30~26.09.30", po:"정태창", pm:"정태창", prog:{text:"-"}, content:["TRR 회의 참석(5/27)"] },
+    { name:"[해양수산부] GICOMS 유지보수 및 운영", type:"수행", period:"26.01.01~26.12.31", po:"김민엽", pm:"고석영", prog:{text:"-"},
+      content:["[BTS 1건/1건] 0002351: 아이맵 여행금지 국가 표출 이상 수정본 배포(5/28, 100%)"] },
+    { name:"[육군본부] 26-육-99 해안경계통합시스템 유지보수", type:"수행", period:"26.04.22~26.10.22", po:"한규혁", pm:"한규혁", prog:{text:"-"}, content:["육군 사이트 별 S/W 및 점검 교육(5/26)"] },
+    { name:"[기타] 2025년 13인치 단말기 개발 및 생산·판매", type:"수행", period:"26.01.01~26.12.31", po:"신현빈", pm:"신현빈", prog:{text:"-"}, note:"AM텔레콤 라우터 연동 업체 확인 후 일정 조정 / 모빌리티 사업1팀 협의 중",
+      content:["eNav 단말기(BadaGiljabi): AM텔레콤 LTE-M 라우터 연동(~5/8, 30%)","업데이트 분기 처리 기능개발(~5/29, 80%): 실선테스트(일정 미정)","알람 TTS 영문 버전 구현(5/26, 100%)","통항금지구역 알람 개선(~5/28, 100%)"] },
+    { name:"[개인휴가 및 교육 / 기획]", type:"기타", period:"-",
+      content:["개인휴가: 신원지(5/28 0.5D), 오헌경(5/29 1D), 신동훈(5/29 0.25D)",{t:"[기획]", sub:["해경 통합 GIS 사업 개발항목 분석 회의(5/28)","[KRISO] eLoran 항법단말기 제작 실증 연구 제안서 작성(100%)","[해경] 해안경계 관제시스템 고도화(예정) 기술적용계획표 작성"]}] }
+  ],
+  nextWeek:["[기타] 13인치 단말기: 10·13인치 SW 실환경 테스트 섭외","[KIMST] CDX: 5월 월간회의(6/2)","[해수부] 지능형 해상교통 안정화: 기술협의(6/4)","[해수부] GICOMS 기능개선: 수행계획보고서 검토 및 내부 회의(6/1)"]
+},
+
+/* ===== 10. AI개발실 (서원택) ===== */
+{
+  id:"r-ailab", group:"솔루션·기술개발", icon:"AI",
+  org:"AI개발실", reporter:"서원택", recipient:"문병욱 대표이사",
+  projects:[
+    { name:"[인천국제공항공사] SACP", type:"유지보수", period:"2026.1.1~2026.12.31", po:"양승호", pm:"김현근", prog:{text:"-"},
+      content:["기술 지원(유지보수): 복명복창 프로그램 개선 방향 수립중"] },
+    { name:"[연구과제] CDX 과제", type:"수행", period:"2025.06~2027.12", pm:"김창민", prog:{text:"-"}, content:["개발: 진행사항 없음"] },
+    { name:"[사업] 중해심 AI 해양사고 분석 시스템", type:"수행", period:"2025.05~2025.12", pm:"배석", prog:{text:"설계"},
+      content:["설계: 테일러링 리스트 확정","데이터 구축 관련 리서치 및 파인튜닝 방안 리서치","인터뷰 계획서 작성"] },
+    { name:"[사업] 주기장 AI 시범 구축사업", type:"수행", period:"2025.08~2025.09", po:"양승호", pm:"김일웅/서원택", prog:{text:"구현"},
+      content:["구현단계: POBT 데이터 구축 프로그램 디버깅","단위테스트 내용 보완","객체 탐지 데이터 라벨 검수","POBT 예측 AI 모델 훈련 프로그램 작성","영상모델 재학습 진행"] },
+    { name:"[기타]", type:"기타", period:"-", content:["디지털 관제사업 후속조치 논의","해군 AI 제안관련 내용 검토","해군 AI 유지보수(라벨링) 지원","AI 개발실 주간회의"] }
+  ],
+  nextWeek:["[주기장 AI] 시뮬레이터 업데이트, POBT 데이터 구축 프로그램 수정·데이터 수집, POBT 예측 모델 학습코드 작성, 월간 진도보고회의","[스마트계류장] 복명복창 프로그램 개선방향 수립","[CDX 연구과제] 진행사항 없음","[중해심 해양사고 AI] 인터뷰 진행(6/1), LLM 모델·학습 리서치, 설계 진행"]
+},
+
+/* ===== 11. 개발팀 (정민환) ===== */
+{
+  id:"r-dev-jmh", group:"솔루션·기술개발", icon:"개발",
+  org:"개발팀 (정민환)", reporter:"정민환", recipient:"김현 본부장",
+  projects:[
+    { name:"[LIG] 체계연동 및 모의 SW (페루 신조함 CMS 개발)", type:"구축", period:"-", prog:{actual:59.29},
+      content:["분석/설계 - 공통: ICD 분석, 요구사항 분석, DDS 설계","개발 - 사용자 요구사항 기능 개발(HCI, 연동SW, LBTS), 3.5차 관찰사항, LBTS 공통 UI 적용, 시스템 부하 테스트 기능","테스트 - IDL 최신화 및 전체 시스템 구동 테스트","기타 - 연동S/W 자동 배포 구축 완료"],
+      tables:[{title:"센서별 진척 매트릭스(27종)", headers:["구분","센서별","설계","HCI","연동SW","LBTS"],
+        rows:[["전체","59.29%","68.45%","64.72%","52.78%","62.10%"],
+          ["2DR(SPS-732)","16.59%","50.00%","5.30%","3.00%","12.00%"],["TRS(NA-25X)","77.49%","74.00%","80.30%","71.80%","88.00%"],
+          ["76mmGUN","16.80%","22.50%","0.00%","12.50%","36.00%"],["40mmGUN","69.48%","80.30%","67.20%","52.30%","88.00%"],
+          ["RCWS","77.67%","78.50%","90.00%","67.50%","80.00%"],["PASEO-XLR","85.58%","93.80%","82.20%","88.10%","75.30%"],
+          ["VIGY4","90.35%","97.50%","92.60%","88.50%","82.40%"],["IRST","87.73%","96.00%","94.60%","71.00%","98.20%"],
+          ["SAM","55.53%","86.50%","58.10%","40.30%","41.20%"],["SSM","67.13%","88.00%","67.40%","64.00%","47.00%"],
+          ["HMS/VDS","66.32%","73.00%","57.40%","62.10%","75.50%"],["DLS","43.72%","51.50%","63.60%","46.20%","7.90%"],
+          ["TLS","21.64%","51.50%","41.40%","26.10%","0.00%"],["MFR","15.41%","50.00%","2.40%","2.00%","11.00%"],
+          ["RESM","88.24%","70.00%","100.00%","90.00%","94.00%"],["CESM","85.94%","70.00%","100.00%","89.10%","84.00%"],
+          ["TDL","16.94%","47.80%","17.60%","4.60%","0.00%"],["2DR(SCANTER)","78.20%","64.50%","80.00%","75.00%","98.00%"],
+          ["DDU","67.38%","100.00%","68.40%","70.00%","81.00%"],["S/X-Band","55.99%","62.00%","89.50%","45.00%","80.00%"],
+          ["ADS-B","74.56%","70.00%","83.40%","62.70%","90.00%"],["AIS","62.86%","70.00%","83.40%","62.70%","90.00%"],["ACR","66.04%","62.00%","89.50%","45.00%","80.00%"]]}] },
+    { name:"[LS전선] LS시너지 통합자산관리솔루션(1차)_전남해상풍력", type:"구축", period:"-", prog:{text:"-"},
+      content:["개발 - API 서버: DTS/CTM 초기데이터 로드(100%), O&M 변경 GaugeChart 연동(100%), HTTP 응답코드 정리(15%)","CAMS React(41%): Dropzone·PDF 공통(100%), O&M Activities(100%), SpareParts(80%), Document(100%), 헬스인덱스(50%)"] },
+    { name:"[해양경찰청] 항공 채증영상 기반 AI Deep Blue Eye 개발 및 실증", type:"구축", period:"-", prog:{text:"WBS 수립전"},
+      content:["기획/설계 - 화면설계서(30%), 지오매핑 기술 분석(90%), 아키텍처 설계서(30%), 선종 분류·불법 판단 자료 정리","기타 - 자문위원회 자료 작성·검토, 외근(광명 5/28 자문위원회): 선종·불법판단 기준 협의, 전탐사 인터뷰·운영 SW UX 협의","기술검토 - Jetson Thor 보드 및 리눅스 환경 이슈 검토"] },
+    { name:"[중기청] DCP 연구과제", type:"제안", period:"-", prog:{text:"-"}, content:["연구과제 평가 참석: 05.26 / 코엑스마곡"] },
+    { name:"[휴가 및 기타]", type:"기타", period:"-",
+      content:["휴가: 박은성 연차(5/26 1D), 임서율 연차(5/26 0.75D)","휴일근무: 이승하·이남규(5.30), 김재현(5.31)"] }
+  ],
+  nextWeek:["[LS전선] CAMS 리뉴얼: 육·해상 변전소 단지 정보 생성, 기능개선 기술검토, IMR 온라인 미팅(06.04 10시)","[LIG] 페루함: 요구·ICD 분석, Topic 설계, LBTS 공통 UI 설계, SAFRAN 3종 UI 개선, 3.5차 사전 테스트, LBTS 시뮬레이터 자동 배포(6.4~5)","[인천공항] 주기장 AI: 디자인 퍼블리싱·api 적용 예정","[해경] Deep Blue Eye: 설계 문서 작성, 6/2 외근(김포항공단) 선종 판단 기준 인터뷰"]
+},
+
+/* ===== 12. 개발팀 (박준호) ===== */
+{
+  id:"r-dev-pjh", group:"솔루션·기술개발", icon:"개발",
+  org:"개발팀 (박준호)", reporter:"박준호", recipient:"김현 본부장",
+  issues:[
+    { title:"[현대마린솔루션] H3359~3363호선 5척 ISCS 납품설치 — 안정화 지연 클레임",
+      content:["ISCS 장비의 반복적 재구동 및 안정화 지연에 따른 선주/HMS 측 불만","HMS: 품질보증기간 5년 연장 및 구체적 안정화 계획 요구"],
+      plan:["본사 내 통신장비(6대) 구성 후 테스트","HMS 전달 S/W별 최신패치 적용 여부 확인","3월부터 부산 입항 선박별 방선 후 장애 원인 분석·조치"],
+      result:["본사 6대+서버환경 1주 이상 테스트 — 장애현상 없음","HHI3361(03/08), 3360(03/09~10), 3359(03/13), 3363(03/20), 3362(04/16) 방선·패치 진행 — 정상구동 확인","장애원인: 선박별 S/W 최신 패치 미적용 / ISS 통신장애 관련 Rest Server 오류","신규 클레임: HHI3359 일부 전화기 장애 및 VoIP 서버 장애 — 6월 2주차 방선 점검 예정"], status:"진행" }
+  ],
+  projects:[
+    { name:"[인천공항공사] 주기장 AI영상분석 시스템 구축", type:"사업", period:"26.01~26.12", po:"양승호", pm:"서원택", prog:{text:"-"},
+      content:["설계 - 단위시험절차서 보완(지상조업 모니터링·사용자 관리 테스트 케이스 세분화), CCTV 영상 반출 기능 검토(포딕스 반출시스템 API 분석)","개발 - 데이터 연계(EAI 수신 데이터 분석), 통계 전처리(샘플 데이터·SW 40%)","조업상황 분석 SW - 분석 서비스 플로우/스케줄 뷰/상태 모델 단순화/예외 경로 처리","조업정보 모니터링(API) - 대시보드·조업현황 완료, 조업상세 정의, 조업이력 목록 진행","조업정보 모니터링(Web) - Figma 적용, 대시보드 UI/UX, 반응형, CCTV PIP, 공통 컴포넌트","로그관리 - 로깅 데이터 플로우","기타 - 조업상세·알림 표출 항목 재정의(정진성 과장 검토 요청)"] },
+    { name:"[한국에너지기술연구원] 대규모 해상풍력단지 선박감시 및 통합운영 솔루션 도입 용역", type:"사업", period:"2025.07~2025.12", po:"이덕수", pm:"김현", prog:{text:"-"}, content:["-"] },
+    { name:"[LS전선] FOMS 3.0 SW MOM연동", type:"사업", period:"25.06~25.07", po:"이선호", pm:"이선호", prog:{text:"-"}, content:["-"] },
+    { name:"[해양경찰청] MGPS V-PASS 전자해도 연계 표출", type:"사업", period:"-", po:"박상일", pm:"박상일", prog:{text:"-"}, content:["-"] },
+    { name:"[KRISO] 항로표지정보서비스 운영시스템 구축", type:"사업", period:"-", po:"김민엽", pm:"김민엽", prog:{text:"-"},
+      content:["개발 - 정보관리시스템(C05) feature 정보 초기화 기능 수정","EyeBridgeR: 상세 step 로그 추가, Netty ByteBuf leak 수정","EyeRestGW: 상세 step 로그 추가"] },
+    { name:"[인천공항] 스마트 계류장관제플랫폼 기술지원용역", type:"유지보수", period:"-", po:"양승호", pm:"김현근", prog:{text:"-"},
+      content:["[공통] 작업환경 정리(운영환경 내 테스트 작업본·미사용 코드 정리)","[Back-end] 위치정보융합(개선 반영·운영 배포), 상황인지분석SW(충돌분석 개선 테스트 환경·배포), DB(데이터블럭 뷰 수정)","[Front-End] 파노라마 뷰(정지항공기 표출 기준·활주로 영상 데이터블록), 주기장 뷰(225·231 주변 주기장 표출 로직)"] },
+    { name:"[인천공항사] 항공기 지상이동메시지(GAM) 개발용역", type:"유지보수", period:"-", po:"양승호", pm:"김현근", prog:{text:"-"}, content:["-"] },
+    { name:"[수협] 어선안전조업국 1차/2차 광역화 구축사업", type:"유지보수", period:"23.12~24.10", po:"한규혁", pm:"황준호", prog:{plan:100,actual:100}, content:["-"] },
+    { name:"[수협] 조업정보알리미 앱 유지보수", type:"유지보수", period:"22.09.19~24.09.18", po:"한규혁", pm:"황준호", prog:{text:"-"}, content:["-"] },
+    { name:"[수협] 24년 해상 디지털통신망 유지보수", type:"유지보수", period:"-", prog:{text:"-"}, content:["-"] },
+    { name:"[해양수산부] 24년 어선안전관리시스템 유지보수 용역", type:"유지보수", period:"-", po:"한규혁", pm:"황준호", prog:{text:"-"}, content:["-"] },
+    { name:"[현대마린솔루션] H3359~3363호선 5척 ISCS 납품설치", type:"유지보수", period:"23.03~25.09", po:"한영석", pm:"송우진", prog:{plan:100,actual:100}, content:["상단 이슈 참조"] },
+    { name:"[해양경찰청] 2025년 V-Pass시스템 유지관리 용역", type:"유지보수", period:"25.01.01~25.12.31", po:"김태민", pm:"박상일", prog:{actual:100}, content:["-"] },
+    { name:"[인천공항공사] 디지털관제시스템 구축", type:"제안/기획", period:"-", po:"송용학", pm:"송용학", prog:{text:"-"}, content:["제안서 검토"] },
+    { name:"[KIMST] VDES 국제공동개발 및 협력실증 (3차년도)", type:"연구과제", period:"25.01.01~25.12.31", pm:"김현", prog:{text:"-"},
+      content:["개발 - EyeVDES_LSS: Binary Message 인/디코더 모듈, 기지국 장비 테스트(saab 직결 R60-R6 송수신), MKD(현황·일정, 구현 기능·프로토콜 목록)","기타 - 내부 킥오프(5.26 판교), SW 배치 다이어그램, VDES 메시지 프로토콜 처리 구현 리스트"] },
+    { name:"[ITEA4] Optimal-LOADS", type:"연구과제", period:"25.01.01~25.12.31", pm:"송용학", prog:{text:"-"}, content:["개발 - 중간보고용 기능 개선 및 동영상 촬영"] },
+    { name:"[연구과제] 해양 디지털항로 실증기술 개발 GMDRT 1내역", type:"연구과제", period:"26.01.01~26.12.31", pm:"송용학", prog:{text:"-"}, content:["-"] },
+    { name:"[개인휴가]", type:"기타", period:"-", content:["석가탄신일: 2026년 5월 25일(월)"] }
+  ],
+  nextWeek:["[인천공항] 주기장 AI: 통계 전처리 SW, 조업상황 분석 테스트, 지상조업모니터링 API/Web","[KRISO] 항로표지: EyeBridgeR·EyeRestGW 배포·테스트","[인천공항] 스마트 계류장 / 디지털관제 제안","[연구과제] VDES(MKD·EyeVDES-LSS MTCS TBB 인터페이스), ITEA4 Optimal-LOADS"]
+},
+
+/* ===== 13. 항해통신사업부 (한규혁) ===== */
+{
+  id:"r-navcomm", group:"항해통신", icon:"항통",
+  org:"항해통신사업부", reporter:"한규혁 부장", recipient:"문병욱 대표이사",
+  strategy:[
+    { div:"[해경] 항공 채증영상 기반 AI Deep Blue Eye 실증", content:["세부 사업 수행 방안 보고"], start:"3/27", plan:"4/10", end:"4/10",
+      action:["4/1 NIPA 기술 협상(범위·금액 확정)","추정손익 및 WBS 작성(협력사 소싱)","NIPA 사업협약 4/13 완료, R&R 회의(4/17)","착수보고회 5월말~6월초, NIPA 일정 계획 수립 중","5/11 NIPA 사전점검 현장방문 후 추정손익 보고"], status:"OPEN" }
+  ],
+  issues:[
+    { title:"해수부 어선안전조업관리 시스템", content:["사업 미참여에 대한 해수부 및 수협의 우려(사업비용 전액 불용처리에 대한 걱정·불안감 전달)"],
+      plan:["어선안전정책과장 양호섭 과장 부임","기능개선 사업 및 DR구축 사업 관련 내부 검토(영업/수행 추정 손익보고서 작성)"], result:[], status:"OPEN" }
+  ],
+  projects:[
+    { name:"[수협] 조업정보알리미 앱 유지보수", subtitle:"■ 이월 사업", type:"수행", period:"24.09.24~26.09.23", pm:"이준혁(전)", prog:{plan:84,actual:84},
+      content:["보안취약점 검사 예외 보고서 제출(종료)","금주 특이사항 없음","통합유지보수 관련 견적(안) 기획 진행 중"] },
+    { name:"[수협] 광역 통신망 시스템 구축(1,2차)", subtitle:"■ 이월 사업", type:"사업종료", period:"24.05.30~24.11.29", pm:"송유신(수)", prog:{plan:100,actual:100}, content:["하자검수 완료"] },
+    { name:"[수협중앙회] 25년 VHF-DSC 유지보수", subtitle:"■ 이월 사업", type:"사업종료", period:"24.02.28~25.02.27", pm:"박상일(수)", prog:{plan:100,actual:100}, content:["사업종료"] },
+    { name:"[수협] 26년 어선안전조업관리(FIS)시스템 유지보수 [4064]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.02.24~26.12.31", pm:"이준혁(전)", pl:"DXL", prog:{plan:31,actual:31},
+      content:["해수부/어업관리단 입·출항 정보 장애(해경시스템) — 작업 후 정상화","저궤도 정보 연계 장애 복구 완료","6월 말 해수부(수협 운용 저궤도 정보 동일 적용) 일정 확정"] },
+    { name:"[수협] 26년 해상디지털 통신망(D-MF/HF) 운영시스템 유지보수 [4010]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"김주영(전)", pl:"DXL", prog:{plan:39,actual:39},
+      content:["운용SW 통계기능 개선(채종일)","대시보드 작업 지속","울진 안전국 CCTV 간헐적 끊김 외 특이사항 없음","울릉안전국 D-MF/HF 도동중계소 이전 계약 완료"] },
+    { name:"[㈜LG씨엔에스] 2026년 한국해운조합 유지보수", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"이준혁(전)", prog:{plan:40,actual:40},
+      content:["LG CNS 월간보고 요청내역 회신","금주 특이사항 없음(6월 점검 예정)"] },
+    { name:"[해경] 26년 V-Pass 시스템 유지관리 용역 [4022]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"박상일(수)", prog:{plan:46,actual:41},
+      content:["전체 수행 679 / 487(반기)","금주 특이사항 없음"] },
+    { name:"[해경] 26년 원거리감시추적시스템 유지관리 용역 [4036]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"이강호(책)", prog:{plan:46,actual:41},
+      content:["전체 수행 111 / 85회(반기)","금주 특이사항 없음"] },
+    { name:"[해경] 26년 항공기 위치정보 시스템(AIS) 유지보수 용역 [4018]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"고병용(전)", prog:{plan:46,actual:39},
+      content:["전체 수행률 96 / 23회","1분기 운영콘솔 11/11(완), 2분기 11/02, 상반기 항공기 26/10","항공기 V-PASS 테스트 완료(05/22)"] },
+    { name:"[해양수산부] 26년 선박자동식별시스템(AIS) 유지보수 [4033]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"박상일(수)", prog:{plan:46,actual:46},
+      content:["5월(55/55회) 부산·인천·목포·군산·울산 권역 점검","기타 특이사항 없음"] },
+    { name:"[경북경찰청] 26년 독도경비대 어선안전모니터링 시스템 유지보수 [4040]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"강동석(수)", prog:{plan:50,actual:50}, content:["상반기 점검 완료"] },
+    { name:"[해경] 원거리감시추적시스템 구매설치(6건 완료) + 경비함정 노후 CVMS 교체(서귀포/목포)", subtitle:"■ 진행 사업", type:"물품", period:"26.01.28~26.07.10", pm:"박상일(수)", prog:{plan:90,actual:85},
+      content:["속초·통영·제주·창원·사천·서특단 구매설치 완료","사천서 납품 설치 완료 및 대금 청구","6월 내 목포서·서귀포서 납품 설치 완료 예정"] },
+    { name:"[해경] 육상용 위치발신장치 추가 표출 SW 구매 [4063]", subtitle:"■ 진행 사업", type:"용역(사업종료)", period:"26.02.23~26.04.24", pm:"박상일(수)", prog:{plan:100,actual:100}, content:["사업 종료"] },
+    { name:"[해경] 울릉 천부출장소 V-Pass 송수신기 이전 설치 공사 [4077]", subtitle:"■ 진행 사업", type:"용역(사업종료)", period:"26.03.23~26.04.21", pm:"박상일(수)", prog:{plan:100,actual:100}, content:["사업 종료"] },
+    { name:"[해경] 항공 채증영상 기반 분석 AI Deep Blue Eye 실증", subtitle:"■ 진행 사업", type:"용역", period:"26.04.13~27.12.31", pm:"한규혁(수)/신진우(선)", prog:{plan:8,actual:7},
+      content:["지텔 방문(기구설계 견적 요청 회의)","착수보고회(6/5) 자료 NIPA 제출 완료","자문위원회 회의 참석","NIPA 사업관리 대응(스텔라비전 협약 변경 승인 검토)","해양안전대전(6/17~19): 동영상 제작 시나리오 보드 최종 검토, 6월 1주차 영상 검토 예정"] },
+    { name:"[수협] 26년 수협중앙회 광역원격제어통신망 유지보수 사업 [4099]", subtitle:"■ 진행 사업", type:"유지보수", period:"26.04.24~26.12.31", pm:"송유신(수)", prog:{plan:5,actual:5},
+      content:["동해 어선안전국, 인천(백령도·연평도) 중계소 점검 완료","체크리스트(유지보수 양식) 내부 검토 중"] },
+    { name:"[육군] 26년 해안경계통합시스템 유지보수", subtitle:"■ 진행 사업", type:"유지보수", period:"26.04.22~26.10.22", pm:"신진우(선)", prog:{plan:10,actual:10},
+      content:["금주 세종 개발자 미팅(전체 시스템 교육)","AIS/V-Pass 수신서버(포항 철거분) 고흥 RD사이트 발송"] },
+    { name:"회사 내 타부서 지원 업무", subtitle:"■ 진행 사업", type:"유지보수", period:"26.01.01~26.12.31", pm:"항해통신사업2팀", prog:{text:"-"}, content:["KAI 관련(4.5D), KOMSA 관련(9.1D)"] },
+    { name:"[해경] 2026년 V-PASS 송수신기 구매(3차)", subtitle:"■ 진행 사업", type:"용역", period:"26.05.12~26.10.09", pm:"박상일(수)", prog:{plan:0,actual:0},
+      content:["계약 완료(41 EA)","4차 사업관련 191 EA 추진 중이나 기재부 반응 미온적"] },
+    { name:"[수협] 울릉안전국 중계소(저동) 이설 공사 (4121)", subtitle:"■ 진행 사업", type:"용역", period:"26.05.26~26.08.25", pm:"김주영(전)", prog:{plan:0,actual:0}, content:["수의 계약 완료","자재 발주 진행 중"] },
+    { name:"[수협] 울릉안전국 중계소(도동) 이설 공사 (4122)", subtitle:"■ 진행 사업", type:"용역", period:"26.05.26~26.08.25", pm:"송유신(수)", prog:{plan:0,actual:0}, content:["수의 계약 완료","자재 발주 진행 중"] },
+    { name:"[포윈] 울릉도 어선안전조업국 도동 중계소 옥외기지국 함체 구매", subtitle:"■ 진행 사업", type:"제품", period:"26.05.26~26.08.25", pm:"김주영(전)", prog:{plan:0,actual:0}, content:["계약서 대체 발주서 수신(6백만원)","TR시스템즈 발주 예정"] },
+    { name:"[NIPA] 26년 AI바우처 지원 사업", subtitle:"■ 진행 사업", type:"용역", period:"26.05.21~26.11.30", pm:"황준호(수)", pl:"노재원(전)", prog:{plan:0,actual:0}, content:["영업이익 4천만원(스텔라비전 우회 지급) 예정"] },
+    { name:"[해양수산부] 2026년 어선사고징후 모니터링 시스템 (FIS고도화)", subtitle:"■ 예정 사업 · 14.5억 · 입찰공고 중", type:"입찰(HW)", period:"-", pm:"황준호(수)", prog:{text:"불용 가능성"},
+      content:["서버를 워크스테이션으로 변경 적용 가능 시 사업비 검토 예정","영업/수행 추정손익보고서 작성 내부 검토 후 참여 결정"] },
+    { name:"[해양수산부] FIS 기능개선(A사업)", subtitle:"■ 예정 사업 · 3.6억 · 입찰공고 예정", type:"입찰(SW)", period:"-", pm:"황준호(수)", prog:{actual:100},
+      content:["기능개선: SFR항목 조정 협의 중(RFP 삭제 불가, 내용 변경 구축>설계)","추정손익보고서 작성 후 참여 결정"] },
+    { name:"[수협] 조업정보알리미 앱 유지보수(A사업)", subtitle:"■ 예정 사업 · 0.2억 · 자체평가", type:"유지보수", period:"-", pm:"황준호(수)", prog:{actual:100},
+      content:["26년 9~12월(27년 통합유지보수 포함 예정)","사업비용 2천만원 수의계약 예정"] },
+    { name:"[수협] 조업정보알리미 앱 고도화 사업(A사업)", subtitle:"■ 예정 사업 · 1.2억 · 자체평가", type:"용역", period:"-", pm:"황준호(수)", prog:{actual:100},
+      content:["사업범위 관련 기능요구사항 협의 중(내부 개발자 검토), 예산 1.2억 FIX"] },
+    { name:"[육군] 5군단 원격사격통제 체계(A사업)", subtitle:"■ 예정 사업 · 1.5억 · 수의계약", type:"제품", period:"-", pm:"신진우(선)", prog:{actual:100},
+      content:["군 요구사항 맞춤형 장비 개발(나비온 샘플 실증장비)","6월 상반기 테스트 진행 가능","지텔 견적 요청"] },
+    { name:"[수협] 2026년 제주안전국 원격제어통신망 이전 구축(A사업)", subtitle:"■ 예정 사업 · 4억 · 자체평가", type:"용역", period:"-", pm:"송유신(수)", prog:{actual:100},
+      content:["제주어선안전조업국 신축공사 설계용역 착수(나우 건축사사무소)","26년 예산 계약 연내 시행, 통신공사 착공·수행 27년 예정"] },
+    { name:"[육군] 해안경계작전체계_지작사", subtitle:"■ 미정 사업 · 380억 · 조달평가", type:"미정", period:"-", pm:"한규혁(수)", prog:{text:"270점(54%)"},
+      content:["국방진흥연구원 현장 실사 및 연구 용역 진행 중","26년 9월 사업 공고 게시 예상"] },
+    { name:"[해외] 스리랑카 Golle항 VTS시스템 구축", subtitle:"■ 미정 사업 · 60억 · 27년 예정", type:"미정", period:"-", pm:"한규혁(수)", prog:{text:"340점(68%)"},
+      content:["항로표지기술원 김기담 팀장(해수부 예산 편성 중)","현지 수요처 GMT기획안 만족","27년 해수부(항로표지기술원) 입찰공고 예정"] },
+    { name:"[해외] 말레이시아 해안경계시스템 구축(가제)", subtitle:"■ 미정 사업 · 50억 · 미확인", type:"미정", period:"-", pm:"한규혁(수)", prog:{text:"260점(52%)"},
+      content:["영업대표를 통한 사업현황 파악","입찰 재공고('25.11.17 마감) / 평가결과 대기중"] },
+    { name:"[해외] 방글라데시 해군 해안경계 시스템 구축(LGCNS)", subtitle:"■ 미정 사업 · 30억 · 국제입찰", type:"미정", period:"-", pm:"한규혁(수)", prog:{text:"230점(46%)"},
+      content:["입찰참여 6업체(한국1, 터키4, 프랑스1)","현장실사 2개사(LGCNS·프랑스 탈레스)","LGCNS 전략 영업 중 수주가능성 70%"] },
+    { name:"[육군] 해안경계작전체계(2차)_2작전사", subtitle:"■ 미정 사업 · 미확정 · 조달평가", type:"미정", period:"-", pm:"한규혁(수)", prog:{text:"220점(42%)"},
+      content:["1차 업체(GDL·희망에어텍) 시평단 6~8월 평가 예정","1차 평가에 따라 2차 사업 방향 결정"] }
+  ],
+  nextWeek:["[항해통신] NIPA AI 바우처 협약 진행/착수보고, NIPA DBE 통합 착수보고회 6/5 누리꿈스퀘어, 수협 FIS 기능개선·DR구축 원가 분석 회의","[해경] V-PASS 송수신기 교체 착수계 제출, 부산·인천·김포 항공대 방문(DBE AI모델 협의), 정기·긴급 점검, 원거리·V-PASS 보안교육","[수협중앙회] 광역화 통합유지보수: 정기·긴급점검, 디지털 중단파 점검","[해수부] AIS 유지보수: 5월 결과 보고, FIS 기능개선·DR 추정손익 보고서 작성"]
+},
+
+/* ===== 14. 해상교통정보팀 (김태식) ===== */
+{
+  id:"r-mtraffic", group:"해상교통·바다내비", icon:"해교",
+  org:"해상교통정보팀 (바다내비)", reporter:"김태식", recipient:"문병욱 대표이사",
+  projects:[
+    { name:"[MOF] 바다내비 센터 이전 및 정보통신실 기반시설 구축 용역-기술지원", type:"입찰", period:"26.06", po:"김태식", pm:"김태식", prog:{text:"-"},
+      content:["본 사업자(코넥컨소시엄) 수주/착수보고회(06.04)","발주처 이전예정일(06.28~30) 불가 → 8월 중순 일정 사업수행계획서 제출","발주처 이행 공문발송 및 전문가 자문위원회 대응(06.04) / 참석","현 이슈 해소 후 기술지원 범위 협상 예정"] },
+    { name:"[KRISO] eLoran 항법·시각 수신모듈 연동 항법단말기 제작 및 실증 연구", type:"입찰", period:"26.06", po:"김태식", pm:"김영실", prog:{text:"유찰"},
+      content:["1차입찰(05.29, 200,000,000원) 유찰","2차공고 대기"] },
+    { name:"[KRISO] A-eLoran DB 및 운영제어시스템 SW 구축", type:"입찰", period:"26.06", po:"김태식", pm:"김영실", prog:{text:"제안 중"},
+      content:["입찰공고(~06.30, 310,000,000원) / 제안(중)","1차리뷰(06.09)"] },
+    { name:"[MOF] 2026-27년 지능형해상교통정보시스템 운영 및 유지보수", type:"수행", period:"26.01.01~26.12.31", po:"김태식", pm:"김태식", prog:{plan:1.9,actual:36.2}, note:"금주 1.9% / 누적 36.2%",
+      content:[{t:"사업관리", sub:["포탈 웹접근성 인증 갱신(WA): 유효일(~07.25), 6월초 신청","5월 월간보고(05.29)"]},
+        {t:"사업수행", sub:["상시업무(민원, 시스템 점검)","보안점검: 26년 기반시설취약점 수검(05.13~3주간) 질의·즉시조치 대응","정보연계: '25년 사업기준 meta Data 현행화 2차 제출","바다내비 단말기 업데이트: 지정선박 테스트 지연, 개발센터와 일정 재협의","위치정보 직수신체계 전환: 송수신기 펌웨어 업데이트 대기","전용회선 장비 교체 중앙·권역 이중화: 2차 작업(06.04) 대산 권역 테스트","기타: 대국민 포털 지연 모니터링, DMZ#2 LTE-M DB 이중화 미구성 조치"]}] },
+    { name:"[MOF] 2026년 지능형 해상교통정보시스템 안정화 사업", type:"수행", period:"26.05.21~08.20", po:"김태식", pm:"김태식", prog:{plan:5.0,actual:5.0},
+      content:["최종계약(05.27)","사업관리: 착수계 제출(05.29) / 착수보고회(06.04 14:00)","고객 담당자(김윤종 주무관) 지정 및 일정 협의(05.27)","사업수행: 바다내비 단말기 전원관리상태 관리 기능 개발(~06.30)"] },
+    { name:"[MOF] 바다내비 활용 친환경 및 해상풍력 특화 서비스 개발", type:"수행", period:"26.05.21~08.20", po:"김태식", pm:"김태식", prog:{plan:5.0,actual:5.0},
+      content:["최종계약(05.27)","착수계 제출(05.29) / 착수보고회(06.04 14:00)","고객 담당자(이남성 주무관) 지정","사업수행: 목포항내 속력제한 구역 표기 및 영문 알람 방송 기능 개발(~06.30)"] },
+    { name:"[KRISO] 해상교통 데이터 융합 기반 상호작용 샘플 제작", type:"수행", period:"26.04.30~26.12.25", po:"김태식", pm:"김영실", prog:{plan:0,actual:13.0}, content:["사업관리 / 사업수행"] },
+    { name:"[측위원] 항로표지 정보서비스센터 운영시스템 구축 설계 용역", type:"수행", period:"26.04.23~26.09.19", po:"김태식", pm:"김태식", prog:{plan:12.7,actual:29.6},
+      content:["사업관리: WBS 작성/제출","진도보고 및 NIA 예산 사업계획서 작성 제출(~06.04)"] },
+    { name:"[측위원] 선박 내 LTE-M 라우터에서 해양 고정밀 장비 연동 방안 협의", type:"기획", period:"26.10", po:"김태식", prog:{text:"-"}, content:["정보연계 서비스 개발 관련 기술문의 대응"] },
+    { name:"[KRISO] 북극항로 관련 R&D · 안전정보제공 및 AI 기반 상황관리시스템", type:"기획", period:"'27", po:"김태식", prog:{text:"-"}, content:["-"] },
+    { name:"[MOF] 지능형해상교통정보시스템 안정화 및 유지보수 (사업 종료 후 잔여)", type:"수행", period:"-", prog:{text:"-"},
+      content:["추천항로 관련 통상항로 재개발 및 구축: 설계(w.이재훈), 1차 개발(~6/30, 60%)","제안 및 타 사업으로 개발 지연","시연요청 관련 고객과 일정 조율(중)"] },
+    { name:"[기타]", type:"기타", period:"-", content:["[KMC] 고객방문 및 업무협의(05.28)"] }
+  ],
+  nextWeek:["(입찰) A-eLoran DB·IOCS+ 제안 / eLoran 2차 입찰 대기 / 바다내비 센터 이전 기술자문회 참석(06.04)","(수행) 유지보수·측위원·해상교통 데이터융합 / 안정화·친환경 착수보고(06.04)","(기획) [KRISO] 신규연구과제 요청·대응","(기타-외부) [MOF] 차세대 전자해도 기술회의(06.02, 부산)"]
+},
+
+/* ===== 15. 모빌리티 사업부 (신현빈) ===== */
+{
+  id:"r-mobility", group:"모빌리티·제품", icon:"모빌",
+  org:"모빌리티 사업부", reporter:"신현빈", recipient:"문병욱 대표이사",
+  strategy:[
+    { div:"V-Pass 단말기", content:["7인치 DP 단종에 따른 대책 마련"], start:"1/04", plan:"2/09", end:"2/09",
+      action:["원가비교(지텔·중국), 메인보드 Artwork 검토","개발본부 협업 회의 완료(1/20)","기구 기존유지·회로 Android 변경하여 금년도 개발 진행"], status:"Closed" },
+    { div:"어선원 조난발신장치 개발", content:["1/9 행안부 주관 회의 결과 후속 진행계획 수립"], start:"1/11", plan:"2/09", end:"",
+      action:["TFT 가동(팀장 신현빈), 행안부 제출자료 작성","행안부 내부 심사 부결 → KIMST 해양수산 AI 신속 상용화 지원 제안","1차(서류) 합격, 발표자료 제출(5/15)·발표(5/19)","6월 1주차 결과발표 대기"], status:"New" }
+  ],
+  issues:[
+    { title:"단말기 판매 — 바다내비(e-Nav)", content:["26년 목표 350척 / 누적 269척(77%) – 금주 0척","수주 988,143,993원(81%) / 청구 146,537,174원(12%)","보급사업(8차): 금주 0척 / 누적 228척, 수주 810,600,000 / 매출 7,000,000","보급외: 금주 2척 / 누적 41척, 수주 149,955,400 / 매출 119,500,000","A/S·부자재: 수주 22,168,666 / 청구 20,117,174","산eng 물량 처리 회의(5/26)"], plan:[], result:[], note:"" },
+    { title:"단말기 판매 — V-PASS", content:["26년 목표 DP 300식 / RC 400식","누적 DP 227식(76%) / RC 301식(75%), 당주 DP 9 / RC 11","수주 227,841,000원(58%) / 청구 96,140,728원(25%)"], plan:[], result:[], note:"" },
+    { title:"단말기 운영/관리 — 현장 장애", content:["누적 262 / 처리완료 204 / 미처리 55 (26년 기준 처리율 78%)","지속 조치 진행"], plan:[], result:[], note:"" },
+    { title:"인증 현황 — ECDIS H/W 60945", content:["전도시험: PASS(노이즈 필터 교체)","방사시험: PASS","내성시험: 진행 중","환경시험: 진행 중"], plan:[], result:[], note:"" }
+  ],
+  projects:[
+    { name:"[제품] 2026년 e-Nav 단말기 판매", subtitle:"12.25억", type:"수행", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{actual:13}, content:["수주 9.9억 / 매출 1.5억"] },
+    { name:"[제품] 2026년 어선용 V-Pass 판매", subtitle:"3.9억", type:"수행", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{actual:25}, content:["수주 2.3억 / 매출 0.9억"] },
+    { name:"[제품] 2026년도 기타 항통장비", subtitle:"1.0억", type:"기획", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{actual:0}, content:["수주 0.0억 / 매출 0.0억","금호마린 AIS 0.24억·KIOST AIS 0.1억 제외"] },
+    { name:"[제품] 금호마린 AIS Class B 200대", type:"완료", period:"2026.02~2026.03", po:"신현빈", pm:"은준우", prog:{actual:100}, content:["수주 0.24억 / 매출 0.24억"] },
+    { name:"[제품] 강남조선(DK엠텍) 200톤급 10척 ECDIS", subtitle:"2.4억", type:"수행", period:"2026.01~2027.09", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["수주 2.4억 / 매출 0.0억","납기 장비/부품 발주"] },
+    { name:"[제품] 강남조선(GSN) 200톤급 10척 CVMS/원거리", subtitle:"2.4억", type:"기획", period:"2026.01~2027.09", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["수주목표 3.6억 / 매출 1.8억"] },
+    { name:"[제품] DK엠텍 ECDIS 관공선 10척", subtitle:"0.77억", type:"수행", period:"2026.01~2026.12", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["수주 0.1억 / 매출 0.0억"] },
+    { name:"[제품] HJ중공업 해군 PKG-Batch II 13~16번함 4척", subtitle:"1.2억", type:"수행", period:"2026.03~2029.06", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["수주 1.2억 / 매출 0.0억"] },
+    { name:"[제품] GMT eng 어업지도선 FIS 5척", type:"수행", period:"2026.01~2026.12", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["수주목표 3.0억, 수주 0.73억 / 매출 0.73억"] },
+    { name:"[상품] CARIS 전자해도 판매", subtitle:"4.5억", type:"기획", period:"2026.01~2026.12", po:"김영훈", pm:"송우진", prog:{actual:0}, content:["수주 0.0억 / 매출 0.0억"] },
+    { name:"[상품] 해군 원격의료 지원체계 LTE-M 납품설치", subtitle:"1.4억", type:"기획", period:"2026.04~2026.12", po:"신현빈", pm:"은준우", prog:{actual:0}, content:["수주 0.0억 / 매출 0.0억"] },
+    { name:"[상품] 해경 SSPA 레이다 교체", subtitle:"6.2억", type:"제안", period:"2026.04~2026.12", po:"신현빈", pm:"송우진", prog:{actual:0}, content:["수주목표 6.8억"] },
+    { name:"[용역] 6,000톤급 친환경 전기추진선 – LAN SYSTEM", subtitle:"5.0억", type:"미정", period:"2026.08~2028.12", po:"신현빈", pm:"정기현", prog:{actual:0}, content:["수주목표 10억"] },
+    { name:"[제품] 해군 ECDIS 15척 교체설치", type:"미정", period:"2026.07~2026.12", po:"신현빈", pm:"정기현", prog:{actual:0}, content:["수주목표 2.5억"] },
+    { name:"[제품] DK엠텍 해경200톤급 경비함 4척 ECDIS&CVMS", type:"이월", period:"2025.01~2026.05", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["예정매출 0.25억 / 누적매출 1.2억(100%)"] },
+    { name:"[제품] 삼원중공업(DK엠텍) ECDIS 해경800톤급 LNG 유류방제함 1척", type:"이월", period:"2025.05~2026.02", po:"신현빈", pm:"한영석", prog:{actual:0}, content:["예정매출 0.18억 / 누적 0.0억"] },
+    { name:"[제품] HJ중공업 V-Pass/CVMS 해경3,000톤급 1척", type:"이월", period:"2024.11~2026.07", po:"신현빈", pm:"송우진", prog:{actual:50}, content:["예정매출 0.096억"] },
+    { name:"[제품] HJ중공업 S210 3,000톤급 원거리감시추적", type:"이월", period:"2025.05~2026.02", po:"신현빈", pm:"송우진", prog:{actual:50}, content:["예정매출 0.35억"] },
+    { name:"[제품] HJ중공업 해군PKG Batch II 1~4번함 4척 ECDIS", type:"유지", period:"2025.10~2026.06", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["승조원 교육"] },
+    { name:"[제품] HJ중공업 해군PKG-B Batch II 5~8번함 4척 ECDIS", type:"이월", period:"2025.10~2026.06", po:"신현빈", pm:"송우진", prog:{actual:25}, content:["예정매출 1.1억 / 누적 0.28억(25%)"] },
+    { name:"[제품] HJ중공업 해군PKG-B Batch II 9~12번함 4척 ECDIS", type:"이월", period:"2025.10~2027.06", po:"신현빈", pm:"송우진", prog:{actual:0}, content:["예정매출 없음(27년 매출 발생)"] },
+    { name:"[상품] 25년도 해군 전자해도표시시스템 구매", subtitle:"0.93억", type:"이월", period:"2025.07", po:"신현빈", pm:"한영석", prog:{actual:88}, content:["예정매출 0.93억","설치 16/16척(100%), 준공 10/16척(62%)"] },
+    { name:"[상품] 중앙해양중공업 LAN System", subtitle:"0.75억", type:"이월", period:"2023.12~2025.06", po:"신현빈", pm:"은준우", prog:{actual:100}, content:["누적매출 0.754억(100%)"] },
+    { name:"[상품] 25년 해군 원격의료감시체계", subtitle:"0.77억", type:"이월", period:"2025.06~2026.02", po:"신현빈", pm:"은준우", prog:{actual:90}, content:["예정매출 0.77억"] },
+    { name:"[기타 업무]", type:"기타", period:"-", content:["국립해양조사원 온바다호 S-100 실증시험 테스트(5/28)","지엠티엔지니어링 협력 계약 회의(5/29)","HJ중공업 항통장비 영업회의(5/27)"] }
+  ],
+  nextWeek:["[제안] 동해청 1513함 SSPA 레이더 온라인 평가(6/01 13:30~15:10)","[입찰] 제주청 3003함 SSPA 레이더 교체 재공고 투찰(6/05 10:00), 입찰참가등록(6/04 18:00)","[기타] KIMST AI 신속 상용화 지원 사업 결과발표(차주 중)"]
+},
+
+/* ===== 16. 모빌리티사업2팀 (정기현) ===== */
+{
+  id:"r-mobility2", group:"모빌리티·제품", icon:"모2",
+  org:"모빌리티사업2팀", reporter:"정기현", recipient:"신현빈 사업부장",
+  issues:[
+    { title:"ECDIS 인증 — ECDIS PC", content:["ECDIS PC 시험 진행 중"], plan:["전자파시험 완료","환경시험(~6/02): 건조고온·온습도·저온·전압보호·진동·소음·가청소음 완료, 과도조건(전압) 진행중","신뢰성 시험: 일정 수립중"], result:[], status:"진행" },
+    { title:"ECDIS 인증 — 모니터", content:[], plan:["환경시험 진행 중(~6/02): 극한 전원조건·고온건조·저온·전압보호 완료, 과도조건(전압) 진행중","신뢰성시험: 일정 수립중"], result:[], status:"진행" },
+    { title:"ECDIS 인증 — 패널PC", content:[], plan:["환경시험 진행 중(~6/02): 극한 전원조건·고온건조·저온·전압보호 완료, 과도조건(전압) 진행중","신뢰성시험: 일정 수립중"], result:[], status:"진행" }
+  ],
+  projects:[
+    { name:"[제품] 2026년 e-Nav 단말기 판매", subtitle:"12.25억", type:"수행", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{actual:13},
+      content:["판매목표 350척 / 누적 269척(77%) – 금주 0척","수주목표 12.25억 / 누적 988,143,993원(81%)","청구목표 12.25억 / 누적 146,617,147원(12%)","8차 보급사업: 금주 -2척 / 누적 228척, 수주 810,600,000 / 매출 7,000,000 (금주 취소 2건 반영)","보급 外: 금주 2척 / 누적 41척, 수주 158,155,400 / 매출 119,500,000","A/S·부자재: 수주 22,168,666 / 청구 20,117,174","설치현황: 금주 12척 / 누적 190척, 콤사 형식검정 누적 300ea 완료"],
+      tables:[
+        {title:"e-Nav 재고현황", headers:["구분","전주재고","금주입고","금주출고","재고"],
+          rows:[["10inch","2","-","-","2"],["13inch(일반)","732","-","5","727"],["13inch(어탐)","-","-","-","-"],["라우터(신형)","212","-","2","210"],["라우터(구형)","10","-","-","10"]]},
+        {title:"e-Nav 유지보수 처리현황", headers:["구분","누적","처리완료","미처리/확인중","처리율"],
+          rows:[["24년","1233","1232","1","100%"],["25년","781","759","22","97%"],["26년","213","165","48","77%"]]}] },
+    { name:"[제품] 2026년 어선용 V-Pass 판매", subtitle:"3.9억", type:"기획", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{actual:25},
+      content:["목표 DP 300식 / RC 400식","누적 DP 227식(76%) / RC 301식(75%), 금주 DP 9 / RC 11","수주목표 3.9억 / 누적 227,841,000원(58%)","청구목표 3.9억 / 누적 96,140,728원(25%)","수행: V-Pass 기자재 견적서 송부, 무선국 업무, 기자재 계약 구비서류·등록 품목 처리"],
+      tables:[
+        {title:"V-Pass 재고현황 (괄호: 생산가능)", headers:["구분","전주재고","금주생산","금주출고","재고"],
+          rows:[["DP","72","22","9","85 (218)"],["RC","54","-","11","43 (126)"]]},
+        {title:"V-Pass 유지보수 처리현황", headers:["구분","누적","처리완료","미처리/확인중","처리율"],
+          rows:[["24년","196","196","0","100%"],["25년","168","163","5","97%"],["26년","46","39","7","85%"]]}] },
+    { name:"[제품] 2026년도 기타 항통장비", subtitle:"1.0억", type:"기획", period:"2026.01~2026.12", po:"신현빈", pm:"정기현", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] 강남조선(DK엠텍) 200톤급 10척 ECDIS", subtitle:"2.4억", type:"기획", period:"2026.01~2027.09", po:"신현빈", pm:"한영석", prog:{text:"-"},
+      content:["ECDIS H/W 형상 변경으로 제작규격서 신규 작성·제출","ECDIS 제작규격서 도면 수정 후 제출 완료","V-Pass 규격 변경 및 안테나 설치 협의","ECDIS/레이더 연동 협의(씨넷)","원거리 제작규격서·도면 수정 후 제출"] },
+    { name:"[제품] 강남조선(GSN) 200톤급 10척 CVMS/원거리", subtitle:"2.4억", type:"기획", period:"2026.01~2027.09", po:"신현빈", pm:"한영석", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] DK엠텍 ECDIS 관공선 10척", subtitle:"0.77억", type:"기획", period:"2026.01~2026.12", po:"신현빈", pm:"한영석", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] HJ중공업 해군 PKG-Batch II 13~16번함 4척", subtitle:"1.2억", type:"기획", period:"2026.03~2029.06", po:"신현빈", pm:"한영석", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] GMT eng 어업지도선 FIS 5척", type:"기획", period:"2026.01~2026.12", po:"신현빈", pm:"한영석", prog:{text:"-"}, content:["-"] },
+    { name:"[상품] CARIS 전자해도 판매", subtitle:"4.5억", type:"기획", period:"2026.01~2026.12", po:"김영훈", pm:"송우진", prog:{text:"-"}, content:["-"] },
+    { name:"[상품] 해군 원격의료 지원체계 LTE-M 납품설치", subtitle:"1.4억", type:"기획", period:"2026.04~2026.12", po:"신현빈", pm:"은준우", prog:{text:"-"}, content:["-"] },
+    { name:"[상품] 해경 SSPA 레이다 교체", subtitle:"6.8억", type:"기획", period:"2026.04~2026.12", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["-"] },
+    { name:"[용역] 6,000톤급 친환경 전기추진선 – LAN SYSTEM", subtitle:"5.0억", type:"미정", period:"2026.08~2028.12", po:"신현빈", pm:"정기현", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] 해군 ECDIS/AIS 교체설치", subtitle:"2.5억", type:"미정", period:"2026.07~2026.12", po:"신현빈", pm:"정기현", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] DK엠텍 해경200톤급 경비함 4척 ECDIS&CVMS", type:"이월", period:"2025.01~2026.05", po:"신현빈", pm:"한영석", prog:{text:"-"},
+      content:["원거리: 코멘트 협의 중, 1~4호정 원거리 FAT 완료, 구성 변경 제작규격서 수정, 1호정 원거리 S.T.W 완료","ECDIS: 1~2호정 설치 완료, 정비지침 매뉴얼 작성·제출","1번함: ECDIS·원거리 커미셔닝 및 공식 검사 완료, 추가 연계 필요"] },
+    { name:"[제품] 삼원중공업(DK엠텍) ECDIS 해경800톤급 LNG 유류방제함 1척", type:"이월", period:"2025.05~2026.02", po:"신현빈", pm:"한영석", prog:{text:"-"}, content:["ECDIS 제작규격서 제출","제작규격서·도면 수정 후 제출"] },
+    { name:"[제품] HJ중공업 V-Pass/CVMS 해경3,000톤급 1척", type:"이월", period:"2024.11~2026.07", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] HJ중공업 S210 3,000톤급 원거리감시추적", type:"이월", period:"2025.05~2026.02", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["원거리: V-Pass 코멘트 협의중, DGPS·Radar 연동합의서 제출"] },
+    { name:"[제품] HJ중공업 해군PKG-B Batch II 1~4번함 4척 ECDIS", type:"이월", period:"2025.10~2026.06", po:"신현빈", pm:"송우진", prog:{text:"-"},
+      content:["공통: 4차 검토결과 기술교범 수정","1번함: ECDIS→VDR 연동검사 완료, 레이더 오버레이 완료, 항해시운전 평가 완료, 승조원 교육","2번함: 커미셔닝·검사 완료, 추가 검사 예정, 승조원 교육","3번함: STW·커미셔닝·평가 진행, 승조원 교육","4번함: S.T.W·커미셔닝·공식평가, 승조원 교육"] },
+    { name:"[제품] HJ중공업 해군PKG-B Batch II 5~8번함 4척 ECDIS", type:"이월", period:"2025.10~2026.06", po:"신현빈", pm:"송우진", prog:{text:"-"},
+      content:["공통: 형상변경 제작규격서·도면 수정 제출, 기술교범 수정, 야드케이블 납품","5번함: ECDIS 납품 점검, FAT 및 납품 완료","6번함: ECDIS FAT 완료"] },
+    { name:"[제품] HJ중공업 해군PKG-B Batch II 9~12번함 4척 ECDIS", type:"이월", period:"2025.10~2027.06", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["-"] },
+    { name:"[상품] 25년도 해군 전자해도표시시스템 구매", subtitle:"4.93억", type:"이월", period:"2025.07", po:"신현빈", pm:"한영석", prog:{text:"-"},
+      content:["평택 을지문덕함 교육·레이더 오버레이","진해 양만춘함 오버레이·운용자 교육 완료·장애 대응","진해 고준봉함·성인봉함 ECDIS 장애 대응","아-76/바-611호정 교육·정박시운전평가·기술검사 완료","동해 이병철함 검사 완료, 강원함 ARPA 연동(진행)","아-901호정 검사 완료"] },
+    { name:"[상품] 중앙해양중공업 LAN System", subtitle:"0.75억", type:"이월", period:"2023.12~2025.06", po:"신현빈", pm:"은준우", prog:{text:"-"}, content:["고객사 요청 조치 및 ECDIS 차트 업데이트·설치 교육"] },
+    { name:"[상품] 25년 해군 원격의료감시체계", subtitle:"0.77억", type:"이월", period:"2025.06~2026.02", po:"신현빈", pm:"은준우", prog:{text:"-"}, content:["-"] },
+    { name:"[제품] 강남조선 해경 3000톤급 1 CVMS 및 대공레이더 연동", type:"이월", period:"2025.04~2026.03", po:"신현빈", pm:"송우진", prog:{text:"-"},
+      content:["원거리: 승조원 교육 완료","대공레이더: SW 재설치·연동 시험 완료, 해경 감독관·감리 검사 완료"] },
+    { name:"[제품] 현대중공업 P179호선 해경 3000톤급 1척 CVMS 납품", type:"이월", period:"2025.04~2026.03", po:"신현빈", pm:"송우진", prog:{text:"-"}, content:["FAT 준비·실시, 납품완료, MR카드 작성"] },
+    { name:"[기타]", type:"기타", period:"-",
+      content:["제주 KIOST AIS 장애 대응 / 3006함 레이더 무선국 검사 완료 / 1005함 요구사항·교육 완료 / 3012함 ECDIS 설치 검사·교육","평택 해양호 ECDIS 장애대응·전자해도 설치","부산 HJ중공업 라-8호정 ECDIS 보증수리"] }
+  ],
+  nextWeek:["[출장] 평택 을지문덕함 ECDIS 레이더 오버레이·콘솔 결선(6/1, 송우진/하정효)","[출장] 동해 김수현함 ECDIS 장애대응(6/2, 송우진/하정효)","[출장] VDES 연구과제 테스트베드 실사·회의(6/2, 울산, 정기현)","[출장] 울산 현대중공업 P179 원거리 S.T.W·커미셔닝(6/4, 송우진/하정효)","[출장] 제주 3012함 ECDIS 승조원 교육(6/5, 송우진/하정효)","휴가현황: 정기현 잔여 19.5D, 송우진 12.0D, 하정효 11.0D 외"]
+},
+
+/* ===== 17. ECDIS·GMDRT 개발 (양재훈) ===== */
+{
+  id:"r-ecdis", group:"모빌리티·제품", icon:"ECD",
+  org:"ECDIS·GMDRT 개발", reporter:"양재훈", recipient:"기술개발본부",
+  projects:[
+    { name:"ECDIS 인증 (SW개발 부문)", type:"수행", period:"26-03~26-05", po:"양승호", pm:"양승호", prog:{actual:79},
+      content:["잔여업무 리스크 공유 및 검토 (기준일 26-05-20)"],
+      tables:[{title:"ECDIS 인증 항목별 진척(계획/실적)", headers:["항목","작업량(주)","완료예정","계획","실적"],
+        rows:[["S-64 테스트데이터셋","8","3월 말","100%","100%"],["IEC-62288 항행정보디스플레이","5","4월 말","100%","90%"],
+          ["IEC-62923 알람","1","5월 2주차","33%","0%"],["IEC-61162 디지털인터페이스","1","5월 3주차","33%","57%"],
+          ["IEC-61174 ECDIS시험 준비","1","5월 말","33%","33%"],["프로젝트(전체)","16","5월 말","94%","84%"]]}] },
+    { name:"[GMDRT]", type:"수행", period:"26-04~26-07", po:"송용학", pm:"송용학", prog:{text:"개발 중"},
+      content:["2026-07-01(수) ECDIS 개발 부분 시연 예정","향후 개발 고려: IEC-61162 450(이더넷)·460(안전보안) 인증, S-164 및 IEC-61174 인증 준비, S-100 시리즈 판올림 적용"],
+      tables:[{title:"MMS 서비스 ECDIS 구현 현황", headers:["서비스ID","한국명","개발사","인증년도","Data Product","ECDIS"],
+        rows:[["MS 01-3","통항 허가 서비스","지엠티","2025","S-212","개통 대기(공인IP)"],["MS 04","Port Call Message","케이엘넷","2025","S-211","-"],
+          ["MS 05","해사안전정보","지엠티","2025","S-124","-"],["MS 14","해양기상정보","지엠티","2025","S-412/413/414","O"],
+          ["MS 15","실시간 수로·환경정보","지엠티","2025","S-102/104/111","O"],["SJU(S-421)","저탄소 운항 지원","세종대","2025","S-421","-"],
+          ["MS 01-1","주변선박정보","지엠티","2026","ASM","O"],["MS 08","EPC 부분구현","케이엘넷","2026","EPC","-"],
+          ["MS 12","수로도서지","지엠티","2026","S-122/123/127","O"],["MS 16","해양 탐색구조 지원","에이브노틱스","2025","S-421","-"],
+          ["MS 01-2","항로 주변 위험 정보","지엠티","2026","S-421","진행중(공인IP)"],["MS 01-3","Slow speed regulation","케이엘넷","2026","S-127","-"],
+          ["MS 06","도선 정보","지엠티","2026","S-127/131","O (S-131 신규)"],["?1","AI ETD 예측","선박해양플랜트","2027","S-211","-"],
+          ["?2","CII 속도·엔진","세종대","2027","SVD/S-421","-"],["MS 04","ISPS Validity","케이엘넷","2027","S-127","-"],
+          ["MS 07","예선정보","지엠티","2027","ASM","O"],["MS 09","의료지원","지엠티","2027","S-131","신규(geojson)"],
+          ["MS 10","MRCC&MRSC 정보","지엠티","2027","S-123/131","O / S-131 신규"],["MS 11","ENC update","지엠티","2027","S-128","신규개발필요"],
+          ["MS 13","Ice information","에이브노틱스","2027","S-421/124/411","-"]]}] },
+    { name:"[LSC] 케이블모니터링", type:"수행", period:"26-01~26-08", po:"이덕수", pm:"김현", prog:{text:"-"}, content:["이슈사항 없음"] },
+    { name:"[기타업무]", type:"기타", period:"-", content:["[바다내비] S-100 시리즈 판올림 체크"] }
+  ],
+  nextWeek:["[ECDIS 인증] 알람 처리 진행 점검","[바다내비] 06-02 진도 점검 회의 준비"]
+},
+
+/* ===== 18. 에너지사업부 (이덕수) ===== */
+{
+  id:"r-energy", group:"에너지 (해상풍력)", icon:"에너",
+  org:"에너지사업부", reporter:"이덕수", recipient:"문병욱 대표이사",
+  issues:[
+    { title:"주요업무 — 영업·기획", content:["영광안마: 입찰 지연/사업 중단(민원·군·지분), 한화오션 사업인수 검토중","전남: 31사 민원 공동대응 자료 송부(영광 야월)","신안우이: MTCS/BCMS Technical 최종 견적 입찰(5/27) 결과 대기, 케이블 규격자료 송부(5/29)","압해: 공정표·레이더 안테나 추가 견적 송부(한국전력기술)","완도금일: 설치 위치 정보 송부","영광야월: 육군 민원 송부용 공문 작성","전북서남권(800W): 공공주도 사업 설명회 참석","KT국제해저: 1차년도 예산기준 과업조정 요청","중기청 DCP: 발표평가(~5/26), 차주 결과 발표 예정","LSC 시너지: 전시회 리뉴얼 회의, 태국 KOH SAMUI Kongsberg LOA, 태안 케이블모니터링 견적 수정"], plan:[], result:[] },
+    { title:"주요업무 — 설계·수행 / 기타", content:["에기연: 진행사항 없음","MTCS 컨설팅: 주간회의, MTCS Architecture Concept·Block Diagram 제출, 조류충돌예방 설계 과업 추가 검토","전남풍력산업협회: 회원사 홍보자료 작성 송부","용원진화: 한국법인 자사 내방(6/1 15시), 오션윈즈(한반도해상풍력) 미팅"], plan:[], result:[] }
+  ],
+  sales:[
+    { div:"시너지", client:"IMR추진단", project:"공통업무", amount:"-", when:"-", stage:"-", rateText:"-", content:["태국 KOH SAMUI 콩스버그 LOA 송부","전시회 관련 회의 요청"] },
+    { div:"시너지", client:"IMR추진단", project:"영광안마(해상)", amount:"20억", when:"27년~", stage:"고객부여", rate:20, content:["진행사항 없음"] },
+    { div:"시너지", client:"IMR추진단", project:"신안우이", amount:"20억", when:"27년~", stage:"고객부여", rate:20, content:["진행사항 없음"] },
+    { div:"시너지", client:"IMR추진단", project:"태안(해상)", amount:"38억", when:"28년~", stage:"고객부여", rate:20, content:["견적서 수정 송부(6% 하향조정)"] },
+    { div:"시너지", client:"해상풍력 TFT", project:"종합모니터링(가칭)", amount:"-", when:"28년~", stage:"고객발굴", rate:5, content:["진행사항 없음"] },
+    { div:"시너지", client:"연구소", project:"FOMS", amount:"-", when:"27년~", stage:"고객부여", rate:24, content:["FOMS 3.0 추가제작 요청 1세트"] },
+    { div:"에너지", client:"전남해상풍력", project:"군 시스템 보완", amount:"17억+@", when:"27년~", stage:"고객니즈", rate:35, content:["STX 미팅(3/23)","군 최종 협상 대기중"], note:"SK" },
+    { div:"에너지", client:"전남해상풍력", project:"JOWP 2단지", amount:"-", when:"29년~", stage:"고객부여", rate:20, content:["2,3단지 사업 통합 추진 원가절감 검토 요청"], note:"SK" },
+    { div:"에너지", client:"영광안마해상풍력", project:"MTSA", amount:"13억", when:"27년~", stage:"협상/견적", rate:70, content:["군 영상정보 연계 기술·비용 검토요청","입찰 지연중"], note:"에퀴스" },
+    { div:"에너지", client:"영광안마해상풍력", project:"레이더 타워 SCADA", amount:"3.8억", when:"27년~", stage:"고객부여", rate:25, content:["사업입찰지연(투자·민원·군)"], note:"SKOP" },
+    { div:"에너지", client:"신안우이해상풍력", project:"BCMS", amount:"23.5억", when:"26년 5월", stage:"협상/견적", rate:92, content:["Technical 견적(price) 최종 제출 / 결과 대기중"], note:"한화" },
+    { div:"에너지", client:"신안우이해상풍력", project:"MTCS", amount:"46억", when:"26년 5월", stage:"협상/견적", rate:92, content:["Technical 견적(price) 최종 제출 / 결과 대기중"], note:"한화" },
+    { div:"에너지", client:"영광야월해상풍력", project:"해상감시, ICT", amount:"25억+@", when:"27년~", stage:"고객부여", rate:20, content:["군 민원 공문 작성 지원"], note:"두산" },
+    { div:"에너지", client:"완도금일해상풍력", project:"해상감시, ICT", amount:"35억+@", when:"28년~", stage:"고객부여", rate:20, content:["아이템별 설치 위치 자료 송부"], note:"한국전력기술" },
+    { div:"에너지", client:"압해해상풍력", project:"해상감시, ICT", amount:"20억+@", when:"28년~", stage:"고객부여", rate:21, content:["공정표 송부(한기)"], note:"우리기술" },
+    { div:"에너지", client:"고창해상풍력", project:"해상감시, ICT", amount:"14억+@", when:"27년~", stage:"고객니즈", rate:40, content:["ICT 설계 물량 조정 검토 및 회신"], note:"등촌(DNI)" },
+    { div:"에너지", client:"태안해상풍력", project:"MTCS", amount:"-", when:"28년~", stage:"고객니즈", rate:30, content:["설계 진행중"], note:"뷔나에너지" },
+    { div:"에너지", client:"전남신안해상풍력", project:"해상감시, ICT", amount:"-", when:"29년~", stage:"고객발굴", rate:5, content:["변전자동화 및 예방진단 단가 송부"], note:"드림" },
+    { div:"에너지", client:"완도장보고해상풍력", project:"해상감시, ICT", amount:"-", when:"29년~", stage:"고객발굴", rate:5, content:["NDA 체결 / 상반기 고장단기 입찰 지원"], note:"코오롱" },
+    { div:"에너지", client:"굴업도해상풍력", project:"해상감시, ICT", amount:"-", when:"28년~", stage:"고객발굴", rate:5, content:["NDA 체결 / 상반기 고장단기 입찰 지원"], note:"대우ENC" },
+    { div:"에너지", client:"KT국제해저", project:"통신해저케이블감시", amount:"3억", when:"27년~", stage:"고객니즈", rate:45, content:["예산내 과업범위 조정 자료 요청"] },
+    { div:"에너지", client:"기타업무", project:"공통업무", amount:"-", when:"-", stage:"-", rateText:"-", content:["중기청 과제 발표평가(5/26)","해상풍력 홍보자료 송부(전남풍력산업협)"] },
+    { div:"수행 · 에너지", client:"한국에너지기술연구원", project:"대규모 해상풍력단지 솔루션", amount:"11.5억", when:"~27년3월", stage:"수행", rateText:"98%/100%", content:["진행사항 없음"], note:"기술지원 확약(~5월)" },
+    { div:"수행 · 에너지", client:"삼안엔지니어링", project:"고창 ICT 설계", amount:"0.5억", when:"~27년6월", stage:"수행", rateText:"100%/100%", content:["ICT 설계 물량 조정 검토 및 회신"] },
+    { div:"수행 · 에너지", client:"태안해상풍력", project:"MTCS 컨설팅", amount:"0.2억", when:"~26년9월", stage:"수행", rateText:"-", content:["주간회의","MTCS Architecture Concept·다이어그램 제출","조류충돌예방 설계 추가과업 검토"] },
+    { div:"수행 · 에너지", client:"ENG 소프트", project:"신안우이 V-pass 연계", amount:"0.45억", when:"~26년9월", stage:"수행", rateText:"-", content:["수행업무 이관"] },
+    { div:"협업/하자", client:"LS전선", project:"LG 청주화학 PDMS 납품", amount:"3.3억", when:"~26년", stage:"수행", rateText:"-", content:["계약 변경 완"] },
+    { div:"협업/하자", client:"LS전선", project:"FOMS, 헬스인덱스", amount:"0.89억", when:"~25년", stage:"하자", rateText:"-", content:["진행사항 없음"] },
+    { div:"협업/하자", client:"한림해상풍력", project:"MTCS", amount:"-", when:"-", stage:"하자", rateText:"-", content:["진행사항 없음"] },
+    { div:"협업/하자", client:"전남해상풍력", project:"MTCS", amount:"-", when:"-", stage:"하자", rateText:"-", content:["진행사항 없음"] },
+    { div:"협업/하자", client:"필라넷", project:"AI기반 해상감시", amount:"2.1억", when:"~27년2Q", stage:"수행", rateText:"-", content:["V-pass 설치 및 테스트 진행"] }
+  ]
+},
+
+/* ===== 19. 에너지사업부 영업·기획 (주현석) ===== */
+{
+  id:"r-energy-biz", group:"에너지 (해상풍력)", icon:"영업",
+  org:"에너지사업부 · 영업/기획", reporter:"주현석", recipient:"이덕수 사업부장",
+  issues:[
+    { title:"주요업무 — 영업현황", content:["신안우이해상풍력: MTCS/BCMS 최종 견적 및 우협선정 결과 발표 대기중","한국해상풍력: LS전선-한전KDN 전북 서남권 시범단지(400MW) 설계, 해저 이중외장 단독 광케이블 포설 견적 요청","한반도해상풍력: 오션윈즈, 26~27 환경영향평가→28 고정가격계약 입찰→29~31 구축·상업발전, MTCS 구축사례 Q&A","인천하늬바람해상풍력: 동서발전-중앙해상풍력, RWE>동서발전 지분 인수, 해저지질탐사·주민수용성 협의","영광해마해상풍력: EDFR-서해에너지, 전기사업허가 위한 풍황계측·지질탐사 초기 개발 단계"], plan:[], result:[] },
+    { title:"주요업무 — 수행지원 / 기타", content:["신안우이: 이엔지소프트, MCS-V-PASS 수신기를 작업선에 추가 설치 필요성 파악","전라북도: 서남권 해상풍력 확산단지2(부안1GW) 설명회 참석(5/26 전주, w/중부·서부·남부발전·도화엔지니어링)","용원진화(중국 EPC): 지사장 내방(6/1 15:00 판교), MTCS·풍력단지 DT 구현 Demo 예정"], plan:[], result:[] }
+  ],
+  sales:[
+    { div:"해상풍력", client:"전남", project:"JOWP 1단지, 육군 시스템 보완(TOD)", amount:"17억", when:"27년~", stage:"고객니즈", rate:35, content:["STX 미팅(3/23)","군 최종 협상 대기중"], note:"SK Innovation E&S w/필라넷" },
+    { div:"해상풍력", client:"전남", project:"JOWP 2단지, MTCS", amount:"-", when:"29년~", stage:"고객부여", rate:20, content:["PF를 위한 투자자 현장 방문(6/26)"], note:"SK Innovation E&S" },
+    { div:"해상풍력", client:"안마", project:"MTSA", amount:"13억", when:"27년~", stage:"협상/견적", rate:70, content:["에퀴스-CIP 지분 인수 결렬 / 입찰 지연"], note:"에퀴스/CS윈드/대명" },
+    { div:"해상풍력", client:"안마", project:"레이더 타워 SCADA", amount:"3.8억", when:"27년~", stage:"고객부여", rate:25, content:["사업 착수 지연"], note:"w/SKOP" },
+    { div:"해상풍력", client:"신안우이", project:"BCMS", amount:"23.5억", when:"26.06", stage:"협상/견적", rate:92, content:["Technical 견적(price) 최종 제출 / 결과 대기중"], note:"한화오션/중부/현대건설" },
+    { div:"해상풍력", client:"신안우이", project:"MTCS", amount:"46억", when:"26.06", stage:"협상/견적", rate:92, content:["Technical 견적(price) 최종 제출 / 결과 대기중"], note:"한화오션/중부/현대건설" },
+    { div:"해상풍력", client:"야월", project:"해상감시, ICT", amount:"25억", when:"27년~", stage:"고객부여", rate:20, content:["군 민원 공문 작성 지원"], note:"DGITX/두산지오 w/위우너스(공군)" },
+    { div:"해상풍력", client:"완도금일", project:"해상감시, ICT", amount:"35억", when:"28년~", stage:"고객부여", rate:20, content:["장비 설치 위치 자료 송부"], note:"남동발전 w/한국전력기술" },
+    { div:"해상풍력", client:"압해", project:"해상감시, ICT", amount:"20억", when:"28년~", stage:"고객부여", rate:20, content:["공정표 송부(한국전력기술)"], note:"우리기술/씨지오 w/한국전력기술" },
+    { div:"해상풍력", client:"고창", project:"해상감시, ICT", amount:"14억", when:"27년~", stage:"고객니즈", rate:40, content:["26년 하반기 ICT/MTCS 입찰 가능성 파악"], note:"동촌/DNI-언브로 w/필라넷" },
+    { div:"해상풍력", client:"태안", project:"MTCS", amount:"0.28억", when:"28년~", stage:"고객니즈", rate:30, content:["설계 진행중"], note:"뷔나/CIP-피크윈드" },
+    { div:"해상풍력", client:"전남신안", project:"해상감시, ICT", amount:"-", when:"29년~", stage:"고객발굴", rate:5, content:["변전자동화 및 예방진단 단가 송부"], note:"w/드림엔지니어링" },
+    { div:"해상풍력", client:"완도장보고", project:"해상감시, ICT", amount:"-", when:"29년~", stage:"고객발굴", rate:5, content:["NDA 체결 / 고정가격계약 입찰 지원"], note:"코오롱글로벌" },
+    { div:"해상풍력", client:"굴업도", project:"해상감시, ICT", amount:"-", when:"28년~", stage:"고객발굴", rate:5, content:["NDA 체결 / 고정가격계약 입찰 지원"], note:"대우건설" }
+  ]
+},
+
+/* ===== 20. 연구개발 R&D (송용학) ===== */
+{
+  id:"r-rnd", group:"연구개발 (R&D)", icon:"R&D",
+  org:"R&D지원 (연구과제)", reporter:"송용학", recipient:"경영진",
+  strategy:[
+    { div:"R&D지원 / 공통", content:["26년 연구과제 수행 추정손익 보고"], start:"3/15", plan:"5/15 → 5/29", end:"",
+      action:["과제별 연구책임자 추정손익 작성 중","완료 후 취합 보고"], status:"New" }
+  ],
+  research:[
+    { name:"[2026] 해양에너지 연계 고정식 그린수소 생산기술 개발", org:"해수부/KIMST", period:"2025.01.01~2026.12.31", lead:"이상재", fund:"130,000", exec:85.9, content:["-"] },
+    { name:"[2026] 방파제 연계형 파력발전 상용보급을 위한 성능 고도화", org:"해수부/KIMST", period:"2026.01.01~2026.12.31", lead:"이덕수", fund:"300,000", exec:20.4, content:["-"] },
+    { name:"[2026] 선박항해통합장비 테스트베드 구축", org:"해수부/KIMST", period:"2026.01.01~2026.12.31", lead:"송용학", fund:"110,740", exec:35.5, content:["시험 인증용 샘플 제작_(주)레이든(11,200천원)"] },
+    { name:"[2026] 선박항해통합장비 국제표준 모델 개발", org:"해수부/KIMST", period:"2026.01.01~2026.12.31", lead:"김창민", fund:"90,000", exec:33.6, content:["외부 전문가 자문비_김영습(500천원)"] },
+    { name:"[2026] 국제표준기반 지상파 위성 통합 VDES 체계", org:"해수부/KIMST", period:"2026.01.01~2026.12.31", lead:"김현", fund:"230,000", exec:23.7, content:["-"] },
+    { name:"[2026] 최적 물류 운영과 분석을 위한 데이터 스페이스 구축", org:"산업통상부/KIAT", period:"2026.01.01~2026.12.31", lead:"송용학", fund:"106,000", exec:26.5, content:["-"] },
+    { name:"[2026] AI기반 해양재난 대응체계 CDX 기술개발", org:"해양경찰청/KIMST", period:"2026.01.01~2026.12.31", lead:"김창민", fund:"183,900", exec:35.3, content:["5월 사무용품비_드림디포(500천원)","외주용역_클레이웍스(207,900천원)"] },
+    { name:"[2026] 디지털 VTS 서비스 및 장비개발", org:"해양경찰청/KIMST", period:"2026.01.01~2026.12.31", lead:"정태창", fund:"45,455", exec:22.7, content:["외주 지급 방안 검토"] },
+    { name:"[2026] 고하중 장조장 해저 케이블 생산 디지털 트윈 AI팩토리 기술 개발", org:"산업통상부/KEIT", period:"2025.09.01~2028.12.31", lead:"이상재", fund:"267,000", exec:84.6, content:["-"] },
+    { name:"[2026] 항공 채증영상 기반 AI 「Deep Blue Eye」 개발 및 실증", org:"과기부", period:"2026.04.01~2026.12.31", lead:"한규혁", fund:"750,000", exec:19.5, content:["2D 대시보드 저작용 디자인 1차 외주_(주)리플랩(18,000천원)","SCADA HMI 2D 대시보드 저작기능 1차 구현 외주_(주)라라소프트(20,000천원)","제어자동화 시험 시스템 구축·운영관리 용역_(주)두신기술(23,000천원)"] }
+  ],
+  projects:[
+    { name:"[공통] 요청사항(연구책임자·연구원)", type:"기타", period:"-", content:["추정손익 제출 요청"] },
+    { name:"[기타]", type:"기타", period:"-",
+      content:[{t:"과제", sub:["GMDRT 1세부 1단계 정산/보완","AI바우처 현물 인건비 재산정","GTICC 신규 과제 예산 분배"]},
+        {t:"비용", sub:["5월 4주차 대금지급(5/29)","5월 카드대금 정산","딥블루 4월분 부가세 환원","연구실운영비(사무용품비) 정산"]},
+        {t:"휴가/교육", sub:["휴가: 김은정(5/15, 반반차)"]}] }
+  ],
+  nextWeek:["[과제] VDES SW 구매 건 소명, GMDRT 1세부 1단계 정산 보완 소명, 산자부 자율운항 경상기술료 납부 계획서 준비","[비용관리] 5월 카드결제 집행현황 반영, 6/12 대금지급 준비, 5월 실적자료 보고준비","[과제관리 규정 개정] 연구 추정손익 검토/취합"]
+}
+
+/* ==CHUNK-3-END== */
+];
+
+</script>
+<script>
+/* ============ helpers ============ */
+const $ = (s,r=document)=>r.querySelector(s);
+const ce=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* 사업 구분 → 표준 카테고리 + 배지 클래스 */
+function typeCat(t){
+  t=(t||'').replace(/\s/g,'');
+  if(/유지|운영|상주/.test(t)) return ['유지보수','t-mt'];
+  if(/입찰|개찰|조달/.test(t)) return ['입찰','t-bid'];
+  if(/제안/.test(t)) return ['제안','t-prop'];
+  if(/기획|미정|발굴|예정/.test(t)) return ['기획','t-plan'];
+  if(/연구|과제/.test(t)) return ['연구과제','t-rnd'];
+  if(/제품|상품|물품|납품|판매/.test(t)) return ['제품/상품','t-prod'];
+  if(/이월|완료|종료|하자|유지$/.test(t)) return ['이월/완료','t-etc'];
+  if(/수행|구축|개발|용역|사업|솔루션/.test(t)) return ['수행/구축','t-do'];
+  if(!t) return ['-','t-etc'];
+  return [t,'t-do'];
+}
+function typeBadge(t){const[lab,cls]=typeCat(t); return `<span class="bdg ${cls}">${esc(t||'-')}</span>`;}
+function statusBadge(s){
+  if(!s) return '';
+  const k=s.toUpperCase();
+  let c='prog';
+  if(/OPEN/.test(k))c='open'; else if(/NEW/.test(k))c='new';
+  else if(/CLOSE|완료|종료/.test(k))c='closed';
+  return `<span class="st ${c}">${esc(s)}</span>`;
+}
+
+/* 진척률 셀: 숫자면 막대, 아니면 텍스트 */
+function progressCell(p){
+  if(!p) return '<span class="ctr-td" style="color:var(--faint)">-</span>';
+  const plan = (p.plan!=null)?p.plan:null;
+  const act  = (p.actual!=null)?p.actual:null;
+  if(act==null && plan==null){
+    return `<div class="pcell"><div class="txt">${esc(p.text||'-')}</div></div>`;
+  }
+  const a = act!=null?act:plan, pl = plan!=null?plan:act;
+  return `<div class="pcell">
+    <div class="pp"><span>계획 ${pl!=null?pl+'%':'-'}</span><span>실적 <b>${act!=null?act+'%':'-'}</b></span></div>
+    <div class="tk"><div class="pl" style="width:${Math.min(pl||0,100)}%"></div><div class="ac" style="width:${Math.min(a||0,100)}%"></div></div>
+  </div>`;
+}
+
+/* 내용 bullet 배열 → ul (객체 {t, sub:[]} 지원) */
+function bullets(arr){
+  if(!arr||!arr.length) return '<span style="color:var(--faint)">-</span>';
+  const li=arr.map(it=>{
+    if(typeof it==='string') return `<li>${esc(it)}</li>`;
+    let s=`<li>${esc(it.t)}`;
+    if(it.sub&&it.sub.length) s+=`<ul>${it.sub.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+    return s+'</li>';
+  }).join('');
+  return `<ul>${li}</ul>`;
+}
+function matrixHtml(m){
+  if(!m) return '';
+  const head=`<tr>${m.headers.map((h,i)=>`<th${i===0?' class="l"':''}>${esc(h)}</th>`).join('')}</tr>`;
+  const body=m.rows.map(r=>{
+    const isTot=/전체|합계|총/.test(r[0]||'');
+    return `<tr${isTot?' class="hb"':''}>${r.map((c,i)=>`<td class="${i===0?'l':''}${isTot?' hb':''}">${esc(c)}</td>`).join('')}</tr>`;
+  }).join('');
+  return `<details class="matrix"><summary>📋 ${esc(m.title||'세부 내역 보기')} (${m.rows.length}행)</summary>
+    <div class="scroll"><table class="mtbl">${head}${body}</table></div></details>`;
+}
+
+/* ============ build project content cell ============ */
+function contentCell(p){
+  let h='';
+  if(p.content) h+=bullets(p.content);
+  if(p.tables) p.tables.forEach(m=>h+=matrixHtml(m));
+  if(p.issue){ h+=`<div style="margin-top:6px;font-size:11.5px;color:var(--bad)"><b>⚠ 이슈/향후:</b> ${esc(p.issue)}</div>`; }
+  return h||'<span style="color:var(--faint)">-</span>';
+}
+
+/* ============ render report ============ */
+function pmLine(p){
+  const parts=[];
+  if(p.po) parts.push(`PO ${p.po}`);
+  if(p.pm) parts.push(`PM ${p.pm}`);
+  if(p.pl) parts.push(`PL ${p.pl}`);
+  if(p.ba) parts.push(`BA ${p.ba}`);
+  return parts.join('<br>')||'-';
+}
+
+function renderProjects(projects){
+  const rows=projects.map(p=>`
+    <tr class="prow-data" data-txt="${esc((p.name||'')+' '+(p.po||'')+' '+(p.pm||'')+' '+(p.pl||'')+' '+(p.type||'')+' '+JSON.stringify(p.content||'')+' '+(p.issue||'')).toLowerCase()}">
+      <td><div class="pname">${esc(p.name)}${p.subtitle?`<span class="sm">${esc(p.subtitle)}</span>`:''}</div></td>
+      <td class="nowrap">${typeBadge(p.type)}</td>
+      <td class="ctr-td" style="font-size:11.5px">${esc(p.period||'-')}</td>
+      <td class="ctr-td" style="font-size:11.5px">${pmLine(p)}</td>
+      <td class="pcell">${progressCell(p.prog)}</td>
+      <td>${contentCell(p)}</td>
+      <td style="font-size:11.5px;color:var(--muted)">${esc(p.note||'')||'-'}</td>
+    </tr>`).join('');
+  return `<div class="scroll"><table class="tbl">
+    <thead><tr>
+      <th style="min-width:190px">프로젝트명</th><th>구분</th><th>기간</th><th>담당(PO/PM/PL)</th>
+      <th style="min-width:104px">진척률</th><th style="min-width:300px">업무 내용</th><th>비고</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderIssues(issues){
+  const rows=issues.map(i=>`
+    <tr class="prow-data" data-txt="${esc((i.title||'')+' '+JSON.stringify(i.content||'')+' '+JSON.stringify(i.plan||'')).toLowerCase()}">
+      <td style="min-width:150px"><div class="pname" style="color:var(--bad)">${esc(i.title)}</div></td>
+      <td>${bullets(i.content)}</td>
+      <td>${bullets(i.plan)}</td>
+      <td>${bullets(i.result)}</td>
+      <td class="nowrap">${i.status?statusBadge(i.status):(esc(i.note||'')||'-')}</td>
+    </tr>`).join('');
+  return `<div class="scroll"><table class="tbl">
+    <thead><tr><th>제목 / 사업명</th><th>이슈 내용</th><th>조치 계획</th><th>조치 결과</th><th>상태/비고</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function renderStrategy(rows){
+  const r=rows.map(s=>`<tr>
+      <td class="nowrap"><b>${esc(s.div||'-')}</b></td>
+      <td>${bullets(Array.isArray(s.content)?s.content:[s.content])}</td>
+      <td class="ctr-td" style="font-size:11px">${esc(s.start||'-')}<br>→ ${esc(s.plan||'-')}<br>${s.end?'완료 '+esc(s.end):''}</td>
+      <td>${bullets(s.action)}</td>
+      <td class="nowrap">${statusBadge(s.status)}</td>
+    </tr>`).join('');
+  return `<div class="scroll"><table class="tbl">
+    <thead><tr><th>구분</th><th>내용</th><th>일정(시작→계획/완료)</th><th>조치 계획 및 결과</th><th>상태</th></tr></thead>
+    <tbody>${r}</tbody></table></div>`;
+}
+
+function renderSales(rows){
+  const r=rows.map(s=>`<tr class="prow-data" data-txt="${esc((s.client||'')+' '+(s.project||'')+' '+JSON.stringify(s.content||'')+' '+(s.note||'')).toLowerCase()}">
+      <td class="nowrap" style="font-size:11.5px"><b>${esc(s.div||'')}</b></td>
+      <td class="nowrap" style="font-size:11.5px">${esc(s.client||'-')}</td>
+      <td><div class="pname" style="font-size:12.5px">${esc(s.project||'-')}</div></td>
+      <td class="ctr-td nowrap">${esc(s.amount||'-')}</td>
+      <td class="ctr-td nowrap" style="font-size:11px">${esc(s.when||'-')}<br><span class="chip">${esc(s.stage||'-')}</span></td>
+      <td class="pcell">${s.rate!=null?progressCell({actual:s.rate}):(esc(s.rateText||'-'))}</td>
+      <td>${bullets(s.content)}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(s.note||'')||'-'}</td>
+    </tr>`).join('');
+  return `<div class="scroll"><table class="tbl">
+    <thead><tr><th>구분</th><th>발주처</th><th>프로젝트</th><th>금액</th><th>시기/단계</th><th>진행률</th><th>업무 내용</th><th>비고</th></tr></thead>
+    <tbody>${r}</tbody></table></div>`;
+}
+
+function renderResearch(rows){
+  const r=rows.map(s=>`<tr class="prow-data" data-txt="${esc((s.name||'')+' '+(s.lead||'')+' '+(s.org||'')).toLowerCase()}">
+      <td><div class="pname" style="font-size:12.5px">${esc(s.name)}</div></td>
+      <td class="ctr-td nowrap" style="font-size:11.5px">${esc(s.org||'-')}</td>
+      <td class="ctr-td nowrap" style="font-size:11px">${esc(s.period||'-')}</td>
+      <td class="ctr-td nowrap">${esc(s.lead||'-')}</td>
+      <td class="ctr-td nowrap">${esc(s.fund||'-')}</td>
+      <td class="pcell">${s.exec!=null?progressCell({actual:s.exec}):'-'}</td>
+      <td>${bullets(s.content)}</td>
+    </tr>`).join('');
+  return `<div class="scroll"><table class="tbl">
+    <thead><tr><th>과제명</th><th>전문/주관기관</th><th>기간</th><th>연구책임자</th><th>정부출연금(천원)</th><th>집행률</th><th>진행사항</th></tr></thead>
+    <tbody>${r}</tbody></table></div>`;
+}
+
+function block(cls,title,count,bodyHtml){
+  const c = count!=null?`<span class="c">${count}건</span>`:'';
+  return `<div class="block ${cls}"><div class="bh"><span class="bar"></span>${title}${c}</div>${bodyHtml}</div>`;
+}
+
+function renderReport(r,idx){
+  const sec=ce('section','report'+(idx>0?' collapsed':''));
+  sec.id=r.id;
+  // status summary chips on header (project type counts)
+  const allItems=(r.projects||[]).length+(r.sales||[]).length+(r.research||[]).length;
+  const issN=(r.issues||[]).length;
+  let chips='';
+  if(issN) chips+=`<span class="st open">이슈 ${issN}</span>`;
+  chips+=`<span class="chip">보고 ${allItems}건</span>`;
+  let body='';
+  if(r.strategy&&r.strategy.length) body+=block('strat','전략회의',r.strategy.length,renderStrategy(r.strategy));
+  if(r.issues&&r.issues.length) body+=block('iss','이슈 보고',r.issues.length,renderIssues(r.issues));
+  if(r.projects&&r.projects.length) body+=block('proj','업무 보고',r.projects.length,renderProjects(r.projects));
+  if(r.sales&&r.sales.length) body+=block('sales','영업 / 기획',r.sales.length,renderSales(r.sales));
+  if(r.research&&r.research.length) body+=block('proj','연구과제',r.research.length,renderResearch(r.research));
+  if(r.nextWeek&&r.nextWeek.length) body+=block('next','차주 주요 업무 계획',null,`<div class="tbl" style="padding:11px 13px">${bullets(r.nextWeek)}</div>`);
+  if(!body) body='<div class="empty">표준 양식만 제출(세부 보고 내용 없음)</div>';
+
+  sec.innerHTML=`
+    <div class="rhead" onclick="this.parentElement.classList.toggle('collapsed')">
+      <div class="ic">${esc(r.icon||r.org.slice(0,2))}</div>
+      <div class="tt">
+        <h2>${esc(r.org)}</h2>
+        <div class="meta">보고자 <b>${esc(r.reporter)}</b> · 수신 <b>${esc(r.recipient||'-')}</b></div>
+      </div>
+      <div class="rstat">${chips}</div>
+      <div class="chev">▼</div>
+    </div>
+    <div class="rbody">${body}</div>`;
+  return sec;
+}
+
+/* ============ nav ============ */
+function buildNav(){
+  const groups={};
+  REPORTS.forEach((r,i)=>{(groups[r.group]=groups[r.group]||[]).push({r,i});});
+  let html='';
+  Object.entries(groups).forEach(([g,items])=>{
+    html+=`<div class="ngroup">${esc(g)}</div>`;
+    items.forEach(({r,i})=>{
+      const n=(r.projects||[]).length+(r.sales||[]).length+(r.research||[]).length;
+      html+=`<a class="nav" data-target="${r.id}" onclick="goto('${r.id}')">${esc(r.org)}<span class="cnt">${n}</span></a>`;
+    });
+  });
+  $('#nav').innerHTML=html;
+}
+function goto(id){
+  const sec=document.getElementById(id);
+  if(sec){sec.classList.remove('collapsed'); sec.scrollIntoView({behavior:'smooth',block:'start'});}
+}
+function toggleAll(open){document.querySelectorAll('section.report').forEach(s=>s.classList.toggle('collapsed',!open));}
+
+/* ============ search ============ */
+function doSearch(q){
+  q=q.trim().toLowerCase();
+  const rows=document.querySelectorAll('.prow-data');
+  let shown=0;
+  const secHit={};
+  rows.forEach(tr=>{
+    const hit = !q || (tr.dataset.txt||'').includes(q);
+    tr.style.display = hit?'':'none';
+    if(hit){shown++; const sec=tr.closest('section.report'); if(sec)secHit[sec.id]=true;}
+  });
+  document.querySelectorAll('section.report').forEach(sec=>{
+    if(!q){sec.style.display='';}
+    else{
+      const hit=secHit[sec.id];
+      sec.style.display=hit?'':'none';
+      if(hit)sec.classList.remove('collapsed');
+    }
+  });
+  $('#searchRes').textContent = q?`${shown}건 일치`:'';
+}
+
+/* ============ scroll spy ============ */
+function spy(){
+  const links=document.querySelectorAll('nav.side a.nav');
+  const secs=[...document.querySelectorAll('section.report')];
+  let cur=secs[0]?.id;
+  const y=window.scrollY+120;
+  for(const s of secs){ if(s.offsetTop<=y) cur=s.id; }
+  links.forEach(a=>a.classList.toggle('active',a.dataset.target===cur));
+}
+
+/* ============ init ============ */
+function init(){
+  if(typeof REPORTS==='undefined'){ $('#content').innerHTML='<div class="empty">데이터(reports-data.js)를 불러오지 못했습니다.</div>'; return; }
+  buildNav();
+  const c=$('#content'); REPORTS.forEach((r,i)=>c.appendChild(renderReport(r,i)));
+  $('#search').addEventListener('input',e=>doSearch(e.target.value));
+  window.addEventListener('scroll',spy,{passive:true}); spy();
+}
+document.addEventListener('DOMContentLoaded',init);
+</script>
+</body>
+</html>

@@ -36,6 +36,8 @@ import {
   Network,
   Keyboard,
   FileDown,
+  TrendingUp,
+  FileText,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -524,7 +526,7 @@ export function AppHeader({
         </div>
         <button
           onClick={() => setIsHeaderCollapsed(false)}
-          className="p-2.5 -mr-1 rounded-lg hover:bg-stone-100 text-stone-500 shrink-0"
+          className="p-2.5 -mr-1 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0"
           title="메뉴 펼치기"
           aria-label="메뉴 펼치기"
         >
@@ -582,7 +584,7 @@ export function AppHeader({
                         '프로젝트 선택'
                       )}
                       {currentProjectId !== 'all' && currentProject && (taskCountByProject[currentProjectId] ?? 0) > 0 && (
-                        <span className="text-stone-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
+                        <span className="text-slate-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
                       )}
                     </span>
                     <ChevronDown
@@ -632,7 +634,7 @@ export function AppHeader({
                         className="px-3 py-2 flex items-center justify-between gap-2"
                         title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별·인원별은 다시 누르면 기본(항목 구분) 목록으로 돌아갑니다."
                       >
-                        <span className="text-[10px] font-bold uppercase text-stone-400 tracking-wider">프로젝트 목록</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">프로젝트 목록</span>
                         <div className="flex items-center gap-2">
                           {!!user?.id && (
                             <button
@@ -645,7 +647,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'my'
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                  : 'text-stone-400 hover:text-emerald-600 border border-transparent hover:border-stone-200',
+                                  : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-slate-200',
                               )}
                               title={listFilter === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
                             >
@@ -663,7 +665,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 projectListLayout === 'org'
                                   ? 'bg-teal-100 text-teal-800 border border-teal-200'
-                                  : 'text-stone-400 hover:text-teal-700 border border-transparent hover:border-stone-200',
+                                  : 'text-slate-400 hover:text-teal-700 border border-transparent hover:border-slate-200',
                               )}
                               title={
                                 projectListLayout === 'org'
@@ -686,7 +688,7 @@ export function AppHeader({
                               'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                               projectListLayout === 'assignees'
                                 ? 'bg-violet-100 text-violet-900 border border-violet-200'
-                                : 'text-stone-400 hover:text-violet-800 border border-transparent hover:border-stone-200',
+                                : 'text-slate-400 hover:text-violet-800 border border-transparent hover:border-slate-200',
                             )}
                             title={
                               projectListLayout === 'assignees'
@@ -709,7 +711,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'favorites'
                                   ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                  : 'text-stone-400 hover:text-amber-600 border border-transparent hover:border-stone-200',
+                                  : 'text-slate-400 hover:text-amber-600 border border-transparent hover:border-slate-200',
                               )}
                               title={listFilter === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
                             >
@@ -728,7 +730,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'dashboardOn'
                                   ? 'bg-sky-100 text-sky-900 border border-sky-200'
-                                  : 'text-stone-400 hover:text-sky-800 border border-transparent hover:border-stone-200',
+                                  : 'text-slate-400 hover:text-sky-800 border border-transparent hover:border-slate-200',
                               )}
                               title={listFilter === 'dashboardOn' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함된 프로젝트만 보기'}
                             >
@@ -736,7 +738,7 @@ export function AppHeader({
                               {listFilter === 'dashboardOn' ? `반영 ${dashboardIncludedInListCount}개` : '반영만'}
                             </button>
                           )}
-                          <span className="text-[10px] text-stone-400 shrink-0">{displayProjects.length}개</span>
+                          <span className="text-[10px] text-slate-400 shrink-0">{displayProjects.length}개</span>
                         </div>
                       </div>
                       {projectsSortedByName.length >= 25 && (
@@ -756,7 +758,7 @@ export function AppHeader({
                           'px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border',
                           currentProjectId === 'all'
                             ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
-                            : 'text-stone-600 hover:bg-stone-50 border-transparent',
+                            : 'text-slate-600 hover:bg-slate-50 border-transparent',
                         )}
                         onClick={() => {
                           selectProject('all');
@@ -779,7 +781,7 @@ export function AppHeader({
                             </span>
                           )}
                         </span>
-                        {allTasks.length > 0 && <span className="text-[10px] text-stone-400 shrink-0">({allTasks.length}개)</span>}
+                        {allTasks.length > 0 && <span className="text-[10px] text-slate-400 shrink-0">({allTasks.length}개)</span>}
                       </div>
                       {orphanAndUnassignedTaskCount > 0 && (
                         <div
@@ -790,7 +792,7 @@ export function AppHeader({
                           <span className="text-amber-700/90"> (전체 합계와 목록만 합산 시 숫자가 달라질 수 있음)</span>
                         </div>
                       )}
-                      <div className="h-px bg-stone-100 my-1 mx-2" />
+                      <div className="h-px bg-slate-100 my-1 mx-2" />
                       <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
                           const renderProjectRow = (project: Project) => {
@@ -805,7 +807,7 @@ export function AppHeader({
                                   'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border gap-1',
                                   isCurrentProject
                                     ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
-                                    : 'text-stone-600 hover:bg-stone-50 border-transparent',
+                                    : 'text-slate-600 hover:bg-slate-50 border-transparent',
                                 )}
                                 onClick={() => {
                                   selectProject(project.id);
@@ -820,7 +822,7 @@ export function AppHeader({
                                   }}
                                   className={cn(
                                     'shrink-0 p-0.5 rounded transition-colors',
-                                    favoriteIds.has(project.id) ? 'text-amber-500' : 'text-stone-300 hover:text-amber-400',
+                                    favoriteIds.has(project.id) ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400',
                                   )}
                                   title={favoriteIds.has(project.id) ? '관심 해제' : '관심 프로젝트로 등록'}
                                 >
@@ -837,12 +839,12 @@ export function AppHeader({
                                         현재
                                       </span>
                                     )}
-                                    <span className="text-[10px] text-stone-400" title="프로젝트 PM">
+                                    <span className="text-[10px] text-slate-400" title="프로젝트 PM">
                                       ({pmLabel})
                                     </span>
                                   </span>
                                   {(taskCountByProject[project.id] ?? 0) > 0 && (
-                                    <span className="text-[10px] text-stone-400 ml-1">· {taskCountByProject[project.id]}개</span>
+                                    <span className="text-[10px] text-slate-400 ml-1">· {taskCountByProject[project.id]}개</span>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
@@ -853,7 +855,7 @@ export function AppHeader({
                                         setIsShareOpen(true);
                                         setIsProjectDropdownOpen(false);
                                       }}
-                                      className="text-stone-400 hover:text-teal-600 p-1 rounded"
+                                      className="text-slate-400 hover:text-teal-600 p-1 rounded"
                                       title="프로젝트 공유"
                                       aria-label="프로젝트 공유"
                                     >
@@ -867,7 +869,7 @@ export function AppHeader({
                                       setIsCopyProjectConfirmOpen(true);
                                       setIsProjectDropdownOpen(false);
                                     }}
-                                    className="text-stone-400 hover:text-blue-600 p-1 rounded"
+                                    className="text-slate-400 hover:text-blue-600 p-1 rounded"
                                     title="프로젝트 복사 (내 프로젝트로 복사본 생성)"
                                     aria-label="프로젝트 복사"
                                   >
@@ -881,7 +883,7 @@ export function AppHeader({
                                         setIsProjectModalOpen(true);
                                         setIsProjectDropdownOpen(false);
                                       }}
-                                      className="text-stone-400 hover:text-[var(--color-ink)] p-1 rounded"
+                                      className="text-slate-400 hover:text-[var(--color-ink)] p-1 rounded"
                                       title="프로젝트 편집"
                                       aria-label="프로젝트 편집"
                                     >
@@ -896,7 +898,7 @@ export function AppHeader({
                                         setIsProjectDropdownOpen(false);
                                         setIsDeleteProjectConfirmOpen(true);
                                       }}
-                                      className="text-stone-400 hover:text-red-500 p-1 rounded"
+                                      className="text-slate-400 hover:text-red-500 p-1 rounded"
                                       title="프로젝트 삭제"
                                       aria-label="프로젝트 삭제"
                                     >
@@ -920,16 +922,16 @@ export function AppHeader({
                                   <button
                                     type="button"
                                     onClick={() => toggleOrgExpanded(ek)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-stone-600 hover:bg-stone-50"
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-600 hover:bg-slate-50"
                                     style={{ paddingLeft: 8 + branch.depth * 10 }}
                                   >
                                     {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                                     <Network size={12} className="text-teal-600 shrink-0" />
                                     <span className="text-xs font-semibold flex-1 text-left">{branch.title}</span>
-                                    <span className="text-[10px] text-stone-400">{sub}</span>
+                                    <span className="text-[10px] text-slate-400">{sub}</span>
                                   </button>
                                   {expanded && (
-                                    <div className={branch.depth === 0 ? 'mt-0.5' : 'pl-2 ml-3 border-l border-stone-100'}>
+                                    <div className={branch.depth === 0 ? 'mt-0.5' : 'pl-2 ml-3 border-l border-slate-100'}>
                                       {branch.children.map((c) => renderOrgBranch(divisionId, c))}
                                       {branch.projects.map((p) => renderProjectRow(p))}
                                     </div>
@@ -955,22 +957,22 @@ export function AppHeader({
                                   <button
                                     type="button"
                                     onClick={() => toggleOrgExpanded(umKey)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-stone-600 hover:bg-stone-50"
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-600 hover:bg-slate-50"
                                   >
                                     {umEx ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                                    <Network size={12} className="text-stone-400 shrink-0" />
+                                    <Network size={12} className="text-slate-400 shrink-0" />
                                     <span className="text-xs font-semibold flex-1 text-left">조직 미매칭</span>
-                                    <span className="text-[10px] text-stone-400">{unmapped.length}</span>
+                                    <span className="text-[10px] text-slate-400">{unmapped.length}</span>
                                   </button>
                                   {umEx && (
-                                    <div className="pl-7 border-l border-stone-100 ml-2">{unmapped.map((p) => renderProjectRow(p))}</div>
+                                    <div className="pl-7 border-l border-slate-100 ml-2">{unmapped.map((p) => renderProjectRow(p))}</div>
                                   )}
                                 </div>,
                               );
                             }
                             if (nodes.length === 0) {
                               return (
-                                <div className="px-3 py-2 text-[11px] text-stone-500 leading-relaxed">
+                                <div className="px-3 py-2 text-[11px] text-slate-500 leading-relaxed">
                                   조직도에 표시할 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 동일하게 맞추거나, 회원 프로필의 부서가
                                   조직도 부서명과 맞는지 확인해 주세요.
                                 </div>
@@ -982,7 +984,7 @@ export function AppHeader({
                           if (projectListLayout === 'assignees') {
                             if (projectsByParticipantSections.length === 0) {
                               return (
-                                <div className="px-3 py-2 text-[11px] text-stone-500 leading-relaxed">표시할 프로젝트가 없습니다.</div>
+                                <div className="px-3 py-2 text-[11px] text-slate-500 leading-relaxed">표시할 프로젝트가 없습니다.</div>
                               );
                             }
                             return projectsByParticipantSections.map(({ participantCount, projects: list }) => (
@@ -1041,7 +1043,7 @@ export function AppHeader({
                               setIsProjectDropdownOpen(false);
                               setView('projects');
                             }}
-                            className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:bg-stone-50 rounded-lg flex items-center gap-2 transition-colors"
+                            className="w-full text-left px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors"
                             title="프로젝트 관리 페이지로 이동합니다."
                           >
                             <Briefcase size={14} /> 프로젝트 관리
@@ -1103,6 +1105,26 @@ export function AppHeader({
                 label="투입현황"
                 title="투입 인원·투입 비율·프로젝트별 WBS 공수를 확인·편집합니다."
                 tourId="tour-nav-allocation"
+              />
+            )}
+            {!hiddenViews.has('outlook') && (
+              <NavButton
+                active={view === 'outlook'}
+                onClick={() => navigateWithTip('outlook')}
+                icon={<TrendingUp size={14} />}
+                label="영업 아웃룩"
+                title="사업부별 수주·청구 계획과 매출장을 업로드해 조회·집계합니다. (@gmtc.kr 사내 회원 전용)"
+                tourId="tour-nav-outlook"
+              />
+            )}
+            {!hiddenViews.has('weekreport') && (
+              <NavButton
+                active={view === 'weekreport'}
+                onClick={() => navigateWithTip('weekreport')}
+                icon={<FileText size={14} />}
+                label="주간업무보고"
+                title="지엠티 주간업무보고 통합 대시보드. (@gmtc.kr 사내 회원 전용)"
+                tourId="tour-nav-weekreport"
               />
             )}
             {!hiddenViews.has('table') && (
@@ -1515,7 +1537,7 @@ export function AppHeader({
 
           <button
             onClick={() => setIsHeaderCollapsed(true)}
-            className="md:hidden p-2 rounded-lg text-stone-500 hover:bg-stone-100 transition-colors"
+            className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
             title="메뉴 접어서 표 넓게 보기"
             aria-label="메뉴 접어서 표 넓게 보기"
           >

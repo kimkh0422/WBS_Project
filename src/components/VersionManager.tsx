@@ -191,20 +191,20 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
         className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-4xl overflow-hidden flex flex-col max-h-[85vh]')}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
               <History size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-stone-800">버전 히스토리</h2>
-              <p className="text-[11px] text-stone-400 font-medium">현재 버전: v{currentVersion}</p>
-              <p className="text-[11px] text-stone-400 font-medium" title={commitDateFullText}>
+              <h2 className="text-lg font-bold text-slate-800">버전 히스토리</h2>
+              <p className="text-[11px] text-slate-400 font-medium">현재 버전: v{currentVersion}</p>
+              <p className="text-[11px] text-slate-400 font-medium" title={commitDateFullText}>
                 수정일: {commitDateText}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-stone-200 rounded-full text-stone-400 transition-colors" aria-label="닫기">
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors" aria-label="닫기">
             <X size={20} />
           </button>
         </div>
@@ -215,7 +215,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
             return (
               <div key={item.version} className="relative pl-8">
                 {/* Timeline Connector */}
-                {index !== historySorted.length - 1 && <div className="absolute left-[11px] top-6 bottom-[-32px] w-[2px] bg-stone-100" />}
+                {index !== historySorted.length - 1 && <div className="absolute left-[11px] top-6 bottom-[-32px] w-[2px] bg-slate-100" />}
 
                 {/* Version Point */}
                 <div
@@ -241,7 +241,7 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
                         현재
                       </span>
                     )}
-                    <div className="flex items-center gap-1.5 text-stone-400">
+                    <div className="flex items-center gap-1.5 text-slate-400">
                       <Clock size={12} />
                       <span className="text-xs font-medium">{item.date}</span>
                     </div>
@@ -249,8 +249,8 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
 
                   <ul className="space-y-2.5">
                     {item.changes.map((change, cIndex) => (
-                      <li key={cIndex} className="flex items-start gap-2.5 text-stone-600 text-[13px] leading-relaxed group">
-                        <CheckCircle2 size={14} className="mt-0.5 text-stone-200 group-hover:text-emerald-400 transition-colors shrink-0" />
+                      <li key={cIndex} className="flex items-start gap-2.5 text-slate-600 text-[13px] leading-relaxed group">
+                        <CheckCircle2 size={14} className="mt-0.5 text-slate-200 group-hover:text-emerald-400 transition-colors shrink-0" />
                         <span>{change.replace(/\*\*(.*?)\*\*/g, '$1')}</span>
                       </li>
                     ))}
@@ -261,10 +261,10 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
           })}
         </div>
 
-        <div className="p-4 bg-stone-50 border-t border-stone-100 flex justify-end">
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-stone-800 hover:bg-stone-900 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-lg shadow-stone-200"
+            className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-lg shadow-slate-200"
           >
             확인
           </button>

@@ -82,8 +82,8 @@ function defaultScreenshotCardTitle(): string {
 const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
   {
     id: 'todo',
-    color: 'bg-stone-100 border-stone-200',
-    icon: <Circle className="w-4 h-4 text-stone-500" />,
+    color: 'bg-slate-100 border-slate-200',
+    icon: <Circle className="w-4 h-4 text-slate-500" />,
   },
   {
     id: 'in-progress',
@@ -125,7 +125,7 @@ function getLevelStyle(level: number) {
     case 3:
       return { badge: '3레벨', dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-l-emerald-400' };
     default:
-      return { badge: `${level}레벨`, dot: 'bg-stone-400', text: 'text-stone-600', bg: 'bg-stone-50', border: 'border-l-stone-300' };
+      return { badge: `${level}레벨`, dot: 'bg-slate-400', text: 'text-slate-600', bg: 'bg-slate-50', border: 'border-l-stone-300' };
   }
 }
 
@@ -172,14 +172,14 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
   };
 
   if (isDragging && !isOverlay) {
-    return <div ref={setNodeRef} style={style} className="bg-stone-50 border-2 border-stone-200 rounded-lg h-[100px] opacity-50" />;
+    return <div ref={setNodeRef} style={style} className="bg-slate-50 border-2 border-slate-200 rounded-lg h-[100px] opacity-50" />;
   }
 
   return (
     <div
       ref={isOverlay ? undefined : setNodeRef}
       className={cn(
-        'bg-white p-3 rounded-lg shadow-sm border border-stone-200 border-l-4 hover:shadow-md transition-shadow group relative',
+        'bg-white p-3 rounded-lg shadow-sm border border-slate-200 border-l-4 hover:shadow-md transition-shadow group relative',
         isOverlay ? 'shadow-xl rotate-2 cursor-grabbing border-l-blue-500 z-50 w-[264px]' : 'cursor-grab active:cursor-grabbing',
         !isOverlay && lvStyle.border,
         isRenaming && 'ring-2 ring-blue-400',
@@ -194,7 +194,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
       }}
     >
       {coverUrl && (
-        <div className="mb-2 -mt-0.5 rounded-md overflow-hidden border border-stone-100 bg-stone-50">
+        <div className="mb-2 -mt-0.5 rounded-md overflow-hidden border border-slate-100 bg-slate-50">
           <img
             src={coverUrl}
             alt=""
@@ -223,9 +223,9 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
             />
           ) : (
             <>
-              <h3 className="font-medium text-sm text-stone-800 line-clamp-2 leading-tight">{task.name}</h3>
+              <h3 className="font-medium text-sm text-slate-800 line-clamp-2 leading-tight">{task.name}</h3>
               {parentWbsLabel && (
-                <p className="text-[10px] text-stone-500 mt-0.5 truncate" title={parentWbsLabel}>
+                <p className="text-[10px] text-slate-500 mt-0.5 truncate" title={parentWbsLabel}>
                   상위: {parentWbsLabel}
                 </p>
               )}
@@ -259,7 +259,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
                 <Trash2 size={12} />
               </button>
             )}
-            <div className="p-1 text-stone-300 hover:text-stone-500 cursor-grab drag-handle" title="드래그하여 이동">
+            <div className="p-1 text-slate-300 hover:text-slate-500 cursor-grab drag-handle" title="드래그하여 이동">
               <GripVertical size={14} />
             </div>
           </div>
@@ -289,16 +289,16 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
                 ACTION
               </span>
             )}
-            {wbsId && <span className="text-[9px] font-mono text-stone-400">{wbsId}</span>}
+            {wbsId && <span className="text-[9px] font-mono text-slate-400">{wbsId}</span>}
           </div>
         )}
-        <div className="flex items-center gap-2 text-xs text-stone-500">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
           <User size={12} />
           <span className="truncate max-w-[140px]">{formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '미배정'}</span>
         </div>
 
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-stone-500">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
             <Calendar size={12} />
             <span>{task.endDate ? new Date(task.endDate).toLocaleDateString() : '-'}</span>
           </div>
@@ -464,18 +464,18 @@ function KanbanColumn({
               onChange={(e) => setColumnName(e.target.value)}
               onBlur={handleRenameSubmit}
               onKeyDown={handleRenameKeyDown}
-              className="text-sm font-bold text-stone-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none shadow-sm"
+              className="text-sm font-bold text-slate-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none shadow-sm"
             />
           ) : (
             <span
-              className="font-bold text-stone-700 cursor-text"
+              className="font-bold text-slate-700 cursor-text"
               title="더블 클릭하여 그룹명 수정"
               onDoubleClick={() => setIsRenaming(true)}
             >
               {column.name}
             </span>
           )}
-          <span className="bg-white/50 px-2 py-0.5 rounded-full text-[10px] font-bold text-stone-500 border border-black/5">
+          <span className="bg-white/50 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-500 border border-black/5">
             {tasks.length}
           </span>
           {typeof column.progress === 'number' && (
@@ -528,7 +528,7 @@ function KanbanColumn({
               onChange={(e) => setNewCardTitle(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="제목 입력 또는 이미지 붙여넣기 (Ctrl+V)…"
-              className="w-full text-sm resize-none outline-none text-stone-800 placeholder:text-stone-400 min-h-[60px]"
+              className="w-full text-sm resize-none outline-none text-slate-800 placeholder:text-slate-400 min-h-[60px]"
               rows={3}
             />
             <div className="flex items-center gap-2 mt-2">
@@ -540,7 +540,7 @@ function KanbanColumn({
               </button>
               <button
                 onClick={() => setIsAdding(false)}
-                className="text-stone-500 hover:text-stone-700 p-1 rounded hover:bg-stone-100"
+                className="text-slate-500 hover:text-slate-700 p-1 rounded hover:bg-slate-100"
                 title="취소"
                 aria-label="취소"
               >
@@ -551,7 +551,7 @@ function KanbanColumn({
         ) : canEdit ? (
           <button
             onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 text-stone-500 hover:text-stone-700 hover:bg-black/5 p-2 rounded-lg text-sm font-medium transition-colors text-left"
+            className="flex items-center gap-2 text-slate-500 hover:text-slate-700 hover:bg-black/5 p-2 rounded-lg text-sm font-medium transition-colors text-left"
             title="이 컬럼에 새 카드 추가"
           >
             <Plus size={16} />
@@ -638,8 +638,8 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
       const template = COLUMNS.find((c) => c.id === config.id);
       return {
         ...config,
-        icon: template?.icon || <Circle className="w-4 h-4 text-stone-400" />,
-        color: config.color || template?.color || 'bg-stone-50 border-stone-100',
+        icon: template?.icon || <Circle className="w-4 h-4 text-slate-400" />,
+        color: config.color || template?.color || 'bg-slate-50 border-slate-100',
       };
     });
   }, [wbsSettings.statusConfigs]);

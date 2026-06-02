@@ -49,9 +49,9 @@ export function PersonAllocationEffortCell({
 
   const allocatedBlock = (
     <div className="cursor-help">
-      <div className={cn('text-[10px] font-medium text-stone-400', compact && 'sr-only')} title={allocatedTip}>
+      <div className={cn('text-[10px] font-medium text-slate-400', compact && 'sr-only')} title={allocatedTip}>
         할당 투입
-        {!compact && <span className="block text-[9px] font-normal text-stone-400/90 normal-case tracking-normal">(투입율 → 공수)</span>}
+        {!compact && <span className="block text-[9px] font-normal text-slate-400/90 normal-case tracking-normal">(투입율 → 공수)</span>}
       </div>
       <div
         className={cn('font-bold tabular-nums cursor-help', compact ? 'text-base' : 'text-base', presentation.percentTextClass)}
@@ -82,17 +82,17 @@ export function PersonAllocationEffortCell({
       )}
       {totalWorkEffortMd > 0 && (
         <div className="cursor-help mt-1">
-          <div className={cn('text-[10px] font-medium text-stone-400', compact && 'sr-only')} title={wbsTip}>
+          <div className={cn('text-[10px] font-medium text-slate-400', compact && 'sr-only')} title={wbsTip}>
             WBS 공수
             {!compact && (
-              <span className="block text-[9px] font-normal text-stone-400/90 normal-case tracking-normal">(담당 작업 추정 합)</span>
+              <span className="block text-[9px] font-normal text-slate-400/90 normal-case tracking-normal">(담당 작업 추정 합)</span>
             )}
           </div>
           <div
             className={cn(
               'tabular-nums font-semibold cursor-help',
               compact ? 'text-xs' : 'text-sm',
-              integrity.hasMismatch ? 'text-amber-800' : 'text-stone-600',
+              integrity.hasMismatch ? 'text-amber-800' : 'text-slate-600',
             )}
             title={wbsTip}
           >

@@ -90,7 +90,7 @@ export function PersonProjectAllocationDetailModal({
   const title = (
     <span className="flex flex-col gap-0.5 min-w-0">
       <span className="text-base font-bold text-[var(--color-ink)] break-words leading-snug">{personDisplay}</span>
-      <span className="text-sm font-semibold text-stone-500 break-words leading-snug">{projectTitle}</span>
+      <span className="text-sm font-semibold text-slate-500 break-words leading-snug">{projectTitle}</span>
     </span>
   );
 
@@ -119,7 +119,7 @@ export function PersonProjectAllocationDetailModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-lg bg-stone-800 px-3 py-2 text-sm font-semibold text-white hover:bg-stone-700"
+            className="inline-flex items-center justify-center rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
           >
             닫기
           </button>
@@ -128,26 +128,26 @@ export function PersonProjectAllocationDetailModal({
     >
       <div className="space-y-5">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-          <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">이 프로젝트 투입</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">이 프로젝트 투입</div>
             <div className={cn('text-lg font-bold tabular-nums mt-0.5', allocationPercent > 100 ? 'text-amber-600' : 'text-teal-700')}>
               {formatPercent1(allocationPercent)}%
             </div>
           </div>
-          <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">WBS 공수 합</div>
-            <div className="text-lg font-bold tabular-nums text-stone-800 mt-0.5">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">WBS 공수 합</div>
+            <div className="text-lg font-bold tabular-nums text-slate-800 mt-0.5">
               {workEffortMd > 0 ? formatEffortFromManDays(workEffortMd, effortDisplayUnit) : '—'}
             </div>
           </div>
-          <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3 col-span-2 sm:col-span-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">담당 작업</div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 col-span-2 sm:col-span-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">담당 작업</div>
             <div className="text-lg font-bold tabular-nums text-violet-700 mt-0.5">{tasksHere.length}건</div>
           </div>
         </div>
 
         {(orgLabel || isPmOnProject) && (
-          <div className="rounded-xl border border-stone-100 bg-white px-3 py-2.5 text-sm text-stone-700 space-y-1">
+          <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-sm text-slate-700 space-y-1">
             {orgLabel && <p className="break-words">{orgLabel}</p>}
             {isPmOnProject && (
               <p className="text-indigo-900 font-medium flex items-center gap-1.5">
@@ -158,17 +158,17 @@ export function PersonProjectAllocationDetailModal({
         )}
 
         <div>
-          <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
             <Briefcase size={14} aria-hidden />
             프로젝트 기간
           </h4>
-          <p className="text-sm text-stone-700 tabular-nums">{period}</p>
+          <p className="text-sm text-slate-700 tabular-nums">{period}</p>
         </div>
 
         <div>
-          <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1.5">월별 투입</h4>
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">월별 투입</h4>
           {monthly ? (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-stone-700">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-700">
               {Object.entries(monthly)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([ym, pct]) => (
@@ -178,20 +178,20 @@ export function PersonProjectAllocationDetailModal({
                 ))}
             </div>
           ) : (
-            <p className="text-sm text-stone-500">월별 값이 없으면 프로젝트 전체 기간에 동일 비율로 적용됩니다.</p>
+            <p className="text-sm text-slate-500">월별 값이 없으면 프로젝트 전체 기간에 동일 비율로 적용됩니다.</p>
           )}
         </div>
 
         <div>
-          <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
             <ListTodo size={14} aria-hidden />이 프로젝트에서 담당한 WBS 작업 ({tasksHere.length}건)
           </h4>
           {tasksHere.length === 0 ? (
-            <p className="text-sm text-stone-500 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">할당된 작업이 없습니다.</p>
+            <p className="text-sm text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">할당된 작업이 없습니다.</p>
           ) : (
-            <div className="overflow-x-auto max-h-[min(380px,45vh)] overflow-y-auto rounded-xl border border-stone-200 bg-white">
+            <div className="overflow-x-auto max-h-[min(380px,45vh)] overflow-y-auto rounded-xl border border-slate-200 bg-white">
               <table className="w-full text-xs sm:text-sm min-w-[560px]">
-                <thead className="sticky top-0 z-[1] bg-stone-50 border-b border-stone-200 text-stone-500">
+                <thead className="sticky top-0 z-[1] bg-slate-50 border-b border-slate-200 text-slate-500">
                   <tr>
                     <th className="text-left font-medium px-3 py-2">작업명</th>
                     <th className="text-center font-medium px-1 py-2 w-14">유형</th>
@@ -210,9 +210,9 @@ export function PersonProjectAllocationDetailModal({
                     const unit = workEffortUnitLabel(project.workEffortUnit);
                     const we = task.workEffort;
                     return (
-                      <tr key={task.id} className="border-t border-stone-100 hover:bg-stone-50/60 align-top">
-                        <td className="px-3 py-2 font-medium text-stone-900 break-words max-w-[18rem]">{task.name}</td>
-                        <td className="px-1 py-2 text-center text-[10px] text-stone-500">
+                      <tr key={task.id} className="border-t border-slate-100 hover:bg-slate-50/60 align-top">
+                        <td className="px-3 py-2 font-medium text-slate-900 break-words max-w-[18rem]">{task.name}</td>
+                        <td className="px-1 py-2 text-center text-[10px] text-slate-500">
                           {task.isMilestone && <span className="block text-amber-700 font-semibold">M</span>}
                           {task.isIssue && <span className="block text-red-700 font-semibold">이슈</span>}
                           {task.isActionItem && <span className="block text-violet-700 font-semibold">액션</span>}
@@ -226,12 +226,12 @@ export function PersonProjectAllocationDetailModal({
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                        <td className="px-2 py-2 text-right tabular-nums text-slate-700">{formatPercent1(task.progress)}%</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                           {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                         </td>
-                        <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{task.startDate || '—'}</td>
-                        <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{task.endDate || '—'}</td>
+                        <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{task.startDate || '—'}</td>
+                        <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{task.endDate || '—'}</td>
                       </tr>
                     );
                   })}
@@ -241,7 +241,7 @@ export function PersonProjectAllocationDetailModal({
           )}
         </div>
 
-        <p className="text-[11px] text-stone-400 leading-relaxed">
+        <p className="text-[11px] text-slate-400 leading-relaxed">
           이름이나 투입율 숫자를 누르면 작업 표 이동·투입율 수정이 됩니다. 카드의 빈 영역을 누르면 이 창이 열립니다.
         </p>
       </div>

@@ -3,7 +3,7 @@ import { Database } from 'lucide-react';
 
 export function SupabaseSetupScreen() {
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-stone-900 overflow-hidden">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900 overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-amber-500/10 rounded-full blur-[120px] animate-pulse" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-orange-500/10 rounded-full blur-[120px] animate-pulse delay-700" />
 
@@ -18,16 +18,16 @@ export function SupabaseSetupScreen() {
 
             <div className="space-y-2">
               <h1 className="text-2xl font-bold text-white tracking-tight">Supabase 설정 필요</h1>
-              <p className="text-stone-400 text-sm">이 앱은 Supabase를 사용합니다. 환경 변수를 설정한 뒤 앱을 다시 시작하세요.</p>
+              <p className="text-slate-400 text-sm">이 앱은 Supabase를 사용합니다. 환경 변수를 설정한 뒤 앱을 다시 시작하세요.</p>
             </div>
 
-            <div className="w-full text-left bg-stone-800/50 rounded-xl p-5 font-mono text-sm text-stone-300 space-y-3">
+            <div className="w-full text-left bg-slate-800/50 rounded-xl p-5 font-mono text-sm text-slate-300 space-y-3">
               <p className="text-amber-400 font-semibold">프로젝트 루트에 .env 파일을 만들고 다음을 추가하세요:</p>
               <pre className="whitespace-pre-wrap break-all">
-{`VITE_SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
+                {`VITE_SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
 VITE_SUPABASE_ANON_KEY="YOUR_ANON_KEY"`}
               </pre>
-              <p className="text-stone-500 text-xs pt-2">
+              <p className="text-slate-500 text-xs pt-2">
                 Supabase 대시보드 → Project Settings → API 에서 Project URL과 anon public 키를 확인할 수 있습니다.
               </p>
             </div>
@@ -40,7 +40,6 @@ VITE_SUPABASE_ANON_KEY="YOUR_ANON_KEY"`}
             >
               Supabase 대시보드 열기 →
             </a>
-
           </div>
         </div>
       </div>

@@ -141,7 +141,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: true,
-      port: 3000,
+      // PORT 환경변수가 있으면 그 포트를 사용(프리뷰가 빈 포트를 할당). 없으면 기존대로 3000.
+      port: process.env.PORT ? Number(process.env.PORT) : 3000,
       /** 기본 포트가 사용 중이면 Vite가 다음 사용 가능 포트로 자동 전환 */
       strictPort: false,
       // 내부망(사내 LAN)에서 IP/호스트네임/도메인 어떤 형태로 접속해도

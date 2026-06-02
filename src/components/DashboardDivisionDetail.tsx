@@ -86,12 +86,12 @@ export function DashboardDivisionDetail({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors"
         >
           <ChevronLeft size={18} className="shrink-0" aria-hidden />
           사업부별 현황
         </button>
-        <span className="text-xs text-stone-400 hidden sm:inline">Esc로 목록</span>
+        <span className="text-xs text-slate-400 hidden sm:inline">Esc로 목록</span>
       </div>
 
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -105,18 +105,18 @@ export function DashboardDivisionDetail({
             >
               {stats.name}
             </h1>
-            <p className="text-sm text-stone-500 mt-1">
+            <p className="text-sm text-slate-500 mt-1">
               이 사업부로 분류된 프로젝트(PM·PO·소유자 부서 추론, 없으면 프로젝트 그룹명)와 그 프로젝트에 등록된 작업·투입·담당 현황입니다.
             </p>
           </div>
         </div>
-        <span className="text-sm text-stone-400 tabular-nums shrink-0 text-right">
+        <span className="text-sm text-slate-400 tabular-nums shrink-0 text-right">
           프로젝트 {stats.projectCount} · Task {stats.total} · 투입 {stats.assignmentPersonCount} · 담당 {stats.assigneeCount} · 소속{' '}
           {stats.memberCount}명
         </span>
       </header>
 
-      <div className="bg-white border border-stone-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
         <div className="grid grid-cols-2 gap-2 mb-4">
           <div className="rounded-xl border-2 border-sky-200 bg-sky-50/90 px-3 py-3 text-center shadow-sm">
             <div className="text-[11px] font-bold text-sky-900">프로젝트</div>
@@ -162,54 +162,54 @@ export function DashboardDivisionDetail({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <div className="flex items-baseline justify-between gap-2 mb-1.5">
-              <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">계획율</span>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">계획율</span>
               <span className={cn('font-bold text-amber-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
                 {formatPercent1(stats.planned)}%
               </span>
             </div>
-            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
               <div className="h-full bg-amber-500 transition-all" style={{ width: `${Math.min(100, stats.planned)}%` }} />
             </div>
           </div>
           <div>
             <div className="flex items-baseline justify-between gap-2 mb-1.5">
-              <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">진척율</span>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">진척율</span>
               <span className={cn('font-bold text-indigo-600 tabular-nums', mobileReadabilityMode ? 'text-xl' : 'text-2xl')}>
                 {formatPercent1(stats.progress)}%
               </span>
             </div>
-            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
               <div className="h-full bg-indigo-500 transition-all" style={{ width: `${Math.min(100, stats.progress)}%` }} />
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-stone-100 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-center">
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">소속</div>
-            <div className={cn('font-bold text-stone-800 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
+            <div className="text-[10px] text-slate-500 mb-0.5">소속</div>
+            <div className={cn('font-bold text-slate-800 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
               {stats.memberCount}
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">투입</div>
+            <div className="text-[10px] text-slate-500 mb-0.5">투입</div>
             <div className={cn('font-bold text-teal-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
               {stats.assignmentPersonCount}
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">담당</div>
+            <div className="text-[10px] text-slate-500 mb-0.5">담당</div>
             <div className={cn('font-bold text-indigo-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
               {stats.assigneeCount}
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">진행 중</div>
+            <div className="text-[10px] text-slate-500 mb-0.5">진행 중</div>
             <div className={cn('font-bold text-violet-600 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
               {stats.inProgressCount}
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11px] text-stone-500 pt-2 border-t border-stone-100">
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500 pt-2 border-t border-slate-100">
           <span>
             완료 <span className="text-emerald-600 font-semibold tabular-nums">{stats.doneCount}</span>
           </span>
@@ -236,32 +236,32 @@ export function DashboardDivisionDetail({
         <h2 className={cn('font-bold text-[var(--color-ink)] mb-3 flex items-center gap-2', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
           <Users className="text-violet-500 shrink-0" size={22} />
           조직 인원
-          <span className="text-sm font-normal text-stone-500">({members.length}명)</span>
+          <span className="text-sm font-normal text-slate-500">({members.length}명)</span>
         </h2>
         {members.length === 0 ? (
-          <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+          <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
             조직도에서 이 사업부에 매칭된 인원이 없습니다.
           </div>
         ) : mobileReadabilityMode ? (
           <ul className="space-y-2">
             {members.map((m) => (
-              <li key={`${m.name}-${m.department}`} className="bg-white border border-stone-200 rounded-xl px-4 py-3 text-sm">
-                <div className="text-stone-800 font-medium break-words">{orgMemberLine(m)}</div>
+              <li key={`${m.name}-${m.department}`} className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm">
+                <div className="text-slate-800 font-medium break-words">{orgMemberLine(m)}</div>
               </li>
             ))}
           </ul>
         ) : (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-stone-50 border-b border-stone-200">
-                <tr className="text-xs text-stone-500">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-xs text-slate-500">
                   <th className="text-left font-medium px-4 py-2">소속 · 이름 · 직급</th>
                 </tr>
               </thead>
               <tbody>
                 {members.map((m) => (
-                  <tr key={`${m.name}-${m.department}`} className="border-t border-stone-100">
-                    <td className="px-4 py-2 min-w-0 text-stone-800 font-medium break-words">{orgMemberLine(m)}</td>
+                  <tr key={`${m.name}-${m.department}`} className="border-t border-slate-100">
+                    <td className="px-4 py-2 min-w-0 text-slate-800 font-medium break-words">{orgMemberLine(m)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -274,23 +274,23 @@ export function DashboardDivisionDetail({
         <h2 className={cn('font-bold text-[var(--color-ink)] mb-3 flex items-center gap-2', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
           <Briefcase className="text-indigo-500 shrink-0" size={22} />
           연결 프로젝트
-          <span className="text-sm font-normal text-stone-500">({projects.length}개)</span>
+          <span className="text-sm font-normal text-slate-500">({projects.length}개)</span>
         </h2>
         {projects.length === 0 ? (
-          <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+          <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
             이 사업부로 분류되는 프로젝트가 없습니다. PM·PO·소유자 부서 또는 프로젝트 그룹명이 조직도와 맞는지 확인해 주세요.
           </div>
         ) : (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-hidden divide-y divide-stone-100">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
             {projects.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => onOpenProjectTasks(p.id)}
-                className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-stone-50/80 transition-colors"
+                className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
               >
-                <span className="font-medium text-stone-800 break-words min-w-0">{formatProjectDisplayName(p.name, p.projectKind)}</span>
-                <span className="text-xs text-stone-400 shrink-0 tabular-nums">프로젝트 내 Task {projectTaskCounts[p.id] ?? 0}건</span>
+                <span className="font-medium text-slate-800 break-words min-w-0">{formatProjectDisplayName(p.name, p.projectKind)}</span>
+                <span className="text-xs text-slate-400 shrink-0 tabular-nums">프로젝트 내 Task {projectTaskCounts[p.id] ?? 0}건</span>
               </button>
             ))}
           </div>
@@ -306,12 +306,12 @@ export function DashboardDivisionDetail({
         >
           <ListChecks className="text-teal-600 shrink-0" size={22} />
           연결 프로젝트의 작업
-          <span className="text-sm font-normal text-stone-500">
+          <span className="text-sm font-normal text-slate-500">
             ({tasks.length}건{tasks.length > TASK_TABLE_LIMIT ? `, 상위 ${TASK_TABLE_LIMIT}건만 표시` : ''})
           </span>
         </h2>
         {tableTasks.length === 0 ? (
-          <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+          <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
             이 사업부로 분류된 프로젝트에 등록된 작업이 없습니다.
           </div>
         ) : mobileReadabilityMode ? (
@@ -325,10 +325,10 @@ export function DashboardDivisionDetail({
                   <button
                     type="button"
                     onClick={() => onOpenProjectTasks(t.projectId)}
-                    className="w-full text-left bg-white border border-stone-200 rounded-xl px-4 py-3 hover:border-indigo-200 hover:bg-indigo-50/20 transition-colors"
+                    className="w-full text-left bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-indigo-200 hover:bg-indigo-50/20 transition-colors"
                   >
-                    <div className="font-medium text-stone-800 line-clamp-2">{t.name || '(이름 없음)'}</div>
-                    <div className="text-xs text-stone-500 mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                    <div className="font-medium text-slate-800 line-clamp-2">{t.name || '(이름 없음)'}</div>
+                    <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-2 gap-y-1">
                       <span>{proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}</span>
                       <span>·</span>
                       <span>{formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}</span>
@@ -347,10 +347,10 @@ export function DashboardDivisionDetail({
             })}
           </ul>
         ) : (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-stone-50 border-b border-stone-200">
-                <tr className="text-xs text-stone-500">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr className="text-xs text-slate-500">
                   <th className="text-left font-medium px-3 py-2">작업명</th>
                   <th className="text-left font-medium px-3 py-2 w-36">프로젝트</th>
                   <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
@@ -366,23 +366,23 @@ export function DashboardDivisionDetail({
                   return (
                     <tr
                       key={t.id}
-                      className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                      className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer"
                       onClick={() => onOpenProjectTasks(t.projectId)}
                       title="작업 보기로 이동"
                     >
-                      <td className="px-3 py-2 text-stone-800">
+                      <td className="px-3 py-2 text-slate-800">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <ListChecks size={12} className="text-teal-600 shrink-0" aria-hidden />
                           <span className="truncate">{t.name || '(이름 없음)'}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-stone-600 break-words">
+                      <td className="px-3 py-2 text-slate-600 break-words">
                         {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
                       </td>
-                      <td className="px-3 py-2 text-stone-600 truncate">
+                      <td className="px-3 py-2 text-slate-600 truncate">
                         {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                       </td>
-                      <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 tabular-nums">{t.endDate || '—'}</td>
                       <td className="px-3 py-2 text-right">
                         <span
                           className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full border inline-block', colorProps.className)}

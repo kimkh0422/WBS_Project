@@ -125,7 +125,7 @@ export function EditableAllocationBadge({
   const effortSuffix =
     workEffortMd != null && workEffortMd > 0 ? (
       <span
-        className="text-stone-500 text-[10px] font-medium tabular-nums shrink-0 cursor-help"
+        className="text-slate-500 text-[10px] font-medium tabular-nums shrink-0 cursor-help"
         title={allocationEffortWbsSumTooltip(workEffortMd, effortDisplayUnit, { aggregate: 'single_project' })}
       >
         {effortDisplayUnit === 'md' ? `${formatNum2(workEffortMd)} M/D` : `${formatNum2(manDaysToManMonths(workEffortMd))} M/M`}
@@ -151,7 +151,7 @@ export function EditableAllocationBadge({
           <span className={cn('inline-flex items-start gap-1.5 min-w-0 flex-wrap', chipLayout === 'stacked' && 'flex-1')}>
             <span
               className={cn(
-                'text-stone-700',
+                'text-slate-700',
                 chipLayout === 'stacked'
                   ? 'text-sm font-semibold leading-snug break-words min-w-0'
                   : 'text-sm font-medium leading-snug break-words whitespace-normal min-w-0',
@@ -189,7 +189,7 @@ export function EditableAllocationBadge({
           </span>
         </div>
         {chipLayout === 'stacked' && subtitle ? (
-          <span className="text-[11px] text-stone-500 leading-tight break-words">{subtitle}</span>
+          <span className="text-[11px] text-slate-500 leading-tight break-words">{subtitle}</span>
         ) : null}
         {chipLayout === 'stacked' && effortSuffix ? <div className="text-[11px]">{effortSuffix}</div> : null}
         {chipLayout === 'inline' && effortSuffix}
@@ -203,8 +203,8 @@ export function EditableAllocationBadge({
         className={cn(
           'inline-flex flex-col gap-1 px-2.5 py-2 rounded-lg border text-left min-w-[11rem] max-w-[min(100%,22rem)]',
           onNavigate
-            ? 'border-stone-200/90 bg-stone-50/90 hover:bg-teal-50/50 hover:border-teal-200'
-            : 'border-stone-200/90 bg-stone-50/90',
+            ? 'border-slate-200/90 bg-slate-50/90 hover:bg-teal-50/50 hover:border-teal-200'
+            : 'border-slate-200/90 bg-slate-50/90',
           onOpenDetail && 'cursor-pointer',
           effortIntegrityWarning && 'border-amber-300/90 bg-amber-50/70 ring-1 ring-amber-200/60',
           className,
@@ -228,7 +228,7 @@ export function EditableAllocationBadge({
               }}
               disabled={!onNavigate}
               className={cn(
-                'text-left text-sm font-semibold text-stone-800 leading-snug break-words min-w-0',
+                'text-left text-sm font-semibold text-slate-800 leading-snug break-words min-w-0',
                 onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
               )}
               title={onNavigate ? `${projectName} 작업 보기` : projectName}
@@ -254,7 +254,7 @@ export function EditableAllocationBadge({
             {formatPercent1(allocationPercent)}%
           </button>
         </div>
-        {subtitle ? <span className="text-[11px] text-stone-500 leading-snug break-words">{subtitle}</span> : null}
+        {subtitle ? <span className="text-[11px] text-slate-500 leading-snug break-words">{subtitle}</span> : null}
         {effortSuffix}
       </span>
     );
@@ -264,7 +264,7 @@ export function EditableAllocationBadge({
     <span
       className={cn(
         'inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-2 py-1 rounded-md border text-xs max-w-full',
-        onNavigate ? 'border-stone-100 bg-stone-50 hover:bg-teal-50/60 hover:border-teal-100' : 'border-stone-100 bg-stone-50',
+        onNavigate ? 'border-slate-100 bg-slate-50 hover:bg-teal-50/60 hover:border-teal-100' : 'border-slate-100 bg-slate-50',
         onOpenDetail && 'cursor-pointer',
         effortIntegrityWarning && 'border-amber-300/90 bg-amber-50/70 ring-1 ring-amber-200/60',
         className,
@@ -281,7 +281,7 @@ export function EditableAllocationBadge({
           }}
           disabled={!onNavigate}
           className={cn(
-            'text-stone-700 text-left break-words whitespace-normal leading-snug min-w-0 max-w-[min(100%,22rem)]',
+            'text-slate-700 text-left break-words whitespace-normal leading-snug min-w-0 max-w-[min(100%,22rem)]',
             onNavigate ? 'hover:text-teal-800 cursor-pointer' : 'cursor-default',
           )}
           title={onNavigate ? `${projectName} 작업 보기` : projectName}

@@ -21,6 +21,7 @@ function maxIsoDate(a: string | undefined, b: string | undefined): string | unde
  * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID. 본인이면 갱신을 건너뛰되,
  *                        조상 롤업 재귀는 계속 진행한다(상위 영향은 따로 반영).
  * @param skipWorkEffortRollupParentIds 이 ID의 부모 행은 공수만 자식 합으로 덮어쓰지 않음(해당 행에서 공수를 직접 저장한 경우).
+ * @param skipScheduleRollup true면 부모의 시작일·종료일을 자식 min/max로 맞추지 않음(진척·공수 롤업은 그대로).
  */
 export function syncParentRollups(
   allTasks: Task[],
@@ -29,13 +30,22 @@ export function syncParentRollups(
   _forceProgress = false,
   excludeParentIds?: Set<string>,
   skipWorkEffortRollupParentIds?: Set<string>,
+  skipScheduleRollup?: boolean,
 ): Task[] {
   if (!parentId) return allTasks;
   // 사용자가 막 편집한 부모는 자식 min/max로 덮어쓰지 않는다. 조상은 계속 롤업.
   if (excludeParentIds?.has(parentId)) {
     const parent = allTasks.find((t) => t.id === parentId);
     if (!parent) return allTasks;
-    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, _forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
+    return syncParentRollups(
+      allTasks,
+      parent.parentId,
+      doneStatusIds,
+      _forceProgress,
+      excludeParentIds,
+      skipWorkEffortRollupParentIds,
+      skipScheduleRollup,
+    );
   }
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
@@ -84,14 +94,16 @@ export function syncParentRollups(
   // 부모 일정: 하위가 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장). 하위가 짧아져도 상위는 자동으로 줄이지 않음.
   let alignedStart = parent.startDate;
   let alignedEnd = parent.endDate;
-  if (minStart !== undefined) {
-    alignedStart = minIsoDate(parent.startDate, minStart) ?? minStart;
-  }
-  if (maxEnd !== undefined) {
-    alignedEnd = maxIsoDate(parent.endDate, maxEnd) ?? maxEnd;
-  }
-  if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
-    alignedEnd = alignedStart;
+  if (!skipScheduleRollup) {
+    if (minStart !== undefined) {
+      alignedStart = minIsoDate(parent.startDate, minStart) ?? minStart;
+    }
+    if (maxEnd !== undefined) {
+      alignedEnd = maxIsoDate(parent.endDate, maxEnd) ?? maxEnd;
+    }
+    if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
+      alignedEnd = alignedStart;
+    }
   }
   const prevEffortForCompare = round2(typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : 0);
   const effortRollupChanged = !skipEffortRollup && prevEffortForCompare !== sumChildEffort;
@@ -115,7 +127,15 @@ export function syncParentRollups(
       )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, _forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
+  return syncParentRollups(
+    updatedTasks,
+    parent.parentId,
+    doneStatusIds,
+    _forceProgress,
+    excludeParentIds,
+    skipWorkEffortRollupParentIds,
+    skipScheduleRollup,
+  );
 }
 
 /** 진척률 셀·툴팁용: syncParentRollups와 동일한 가중 규칙으로 설명 문구 생성 */
@@ -414,12 +434,14 @@ export function redistributeWeightsDown(tasks: Task[], parentId: string, parentW
 }
 
 /** 특정 프로젝트의 모든 부모 작업을 자식 기준으로 롤업 재계산.
- * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID들. 이 ID들은 롤업을 건너뛴다(자식 min/max로 덮어쓰지 않음). */
+ * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID들. 이 ID들은 롤업을 건너뛴다(자식 min/max로 덮어쓰지 않음).
+ * @param skipScheduleRollup true면 부모 시작일·종료일을 자식 기간에 맞추지 않음. */
 export function recomputeProjectRollups(
   allTasks: Task[],
   projectId: string,
   doneStatusIds?: Set<string>,
   excludeParentIds?: Set<string>,
+  skipScheduleRollup?: boolean,
 ): Task[] {
   if (!projectId || projectId === 'all') return allTasks;
   const projectTasks = allTasks.filter((t) => t.projectId === projectId);
@@ -452,7 +474,7 @@ export function recomputeProjectRollups(
     // 사용자가 직접 편집한 부모는 자식 min/max로 덮어쓰지 않음.
     // syncParentRollups에도 excludeParentIds를 전달해 자식 쪽에서의 재귀 롤업도 막는다.
     if (excludeParentIds?.has(pid)) continue;
-    next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds, undefined);
+    next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds, undefined, skipScheduleRollup);
   }
   return next.map((t) => (t.projectId === projectId ? applyMilestoneDateInvariant(t) : t));
 }

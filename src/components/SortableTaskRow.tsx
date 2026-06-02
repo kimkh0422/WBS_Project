@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks, AlertTriangle } from 'lucide-react';
+import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
@@ -24,7 +24,6 @@ import {
 } from '../lib/assigneeOptions';
 import { type TableColumnId } from './wbsTableTypes';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
-import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
@@ -49,7 +48,6 @@ function getTaskDetailTooltip(
   isCritical?: boolean,
   projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
   displayMetaByName?: Map<string, PersonDisplayMeta>,
-  taskScheduleOutsideProjectNote?: string | null,
 ): string {
   if (!task) return '';
   const lines: string[] = [];
@@ -79,9 +77,6 @@ function getTaskDetailTooltip(
   if (deps && Array.isArray(deps) && deps.length > 0 && displayWbsMap) {
     const depLabels = deps.map((id) => (displayWbsMap.get(id) ? `#${displayWbsMap.get(id)}` : id));
     lines.push(`선행작업: ${depLabels.join(', ')}`);
-  }
-  if (taskScheduleOutsideProjectNote) {
-    lines.push(`경고: ${taskScheduleOutsideProjectNote}`);
   }
   return lines.join('\n');
 }
@@ -190,14 +185,12 @@ function SortableTaskRowInner({
   otherFocusByCellKey,
   customColumnNameById,
   projectEffortUnitByProjectId,
-  projectScheduleByProjectId,
+  projectScheduleByProjectId: _projectScheduleByProjectId,
   prependDisplayWbsToTaskName = false,
   rollupTooltipBaseTasks,
   plannedProgress,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
-  const projectSchedule = projectScheduleByProjectId?.get(task.projectId);
-  const taskScheduleOutsideProjectNote = projectSchedule != null ? getTaskScheduleOutsideProjectMessage(task, projectSchedule) : null;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     disabled: !canEdit,
@@ -453,7 +446,7 @@ function SortableTaskRowInner({
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
         isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
         isFocused && !isSelected && (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-900'),
-        isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-stone-500'),
+        isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-slate-500'),
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
       )}
@@ -486,7 +479,7 @@ function SortableTaskRowInner({
     >
       {dropIndicator && <div className="absolute inset-0 ring-2 ring-indigo-400 bg-indigo-50/40 pointer-events-none z-10" />}
       <div
-        className="data-cell justify-center text-stone-300 hover:text-stone-500 select-none"
+        className="data-cell justify-center text-slate-300 hover:text-slate-500 select-none"
         title={canEdit ? '행을 잡고 드래그해 다른 작업 위·아래·하위로 옮깁니다' : undefined}
         aria-hidden
       >
@@ -495,7 +488,7 @@ function SortableTaskRowInner({
       <div className="data-cell justify-center" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
-          className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
           checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
@@ -508,7 +501,7 @@ function SortableTaskRowInner({
         />
       </div>
       <div
-        className="data-cell justify-center font-mono text-[10px] text-stone-500 tabular-nums"
+        className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
         onDoubleClick={(e) => {
           e.stopPropagation();
           onFocusRow?.(task.id);
@@ -527,7 +520,7 @@ function SortableTaskRowInner({
               e.stopPropagation();
               toggleExpand(task.id);
             }}
-            className="rounded p-0.5 text-xs font-mono tabular-nums transition-colors hover:bg-stone-200 text-stone-600"
+            className="rounded p-0.5 text-xs font-mono tabular-nums transition-colors hover:bg-slate-200 text-slate-600"
             title={task.expanded ? '접기' : '펼치기'}
           >
             {task.expanded ? '▣' : '□'}
@@ -543,7 +536,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-[10px] text-stone-400 cursor-pointer"
+              className="data-cell font-mono text-[10px] text-slate-400 cursor-pointer"
               onClick={() => {
                 // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
                 const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
@@ -590,7 +583,6 @@ function SortableTaskRowInner({
                 criticalPathSet?.has(task.id),
                 projectEffortUnitByProjectId,
                 orgMemberDisplayMetaByName,
-                taskScheduleOutsideProjectNote,
               )}
             >
               {isInlineEditingName ? (
@@ -643,7 +635,6 @@ function SortableTaskRowInner({
                     criticalPathSet?.has(task.id),
                     projectEffortUnitByProjectId,
                     orgMemberDisplayMetaByName,
-                    taskScheduleOutsideProjectNote,
                   )}
                 >
                   {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
@@ -657,24 +648,16 @@ function SortableTaskRowInner({
                       크리티컬
                     </span>
                   )}
-                  {taskScheduleOutsideProjectNote && (
-                    <AlertTriangle
-                      size={14}
-                      className="flex-shrink-0 text-amber-600"
-                      aria-label="프로젝트 일정과 불일치"
-                      title={taskScheduleOutsideProjectNote}
-                    />
-                  )}
                   {tableNameLabel ? (
                     tableNameLabel
                   ) : (
-                    <span className="italic text-stone-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
+                    <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
                   )}
                 </span>
               )}
               {otherPrimary && (
                 <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none"
+                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                   style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
                   title={othersHere.map((o) => o.displayName).join(', ')}
                 >
@@ -697,9 +680,8 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
+                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                 isFocused && 'ring-2 ring-blue-500 ring-inset',
-                taskScheduleOutsideProjectNote && 'bg-amber-50/55',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -751,26 +733,17 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('startDate');
                     }}
-                    title={['클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집', taskScheduleOutsideProjectNote].filter(Boolean).join(' · ')}
+                    title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">
-                      {taskScheduleOutsideProjectNote && (
-                        <AlertTriangle
-                          size={12}
-                          className="flex-shrink-0 text-amber-600"
-                          aria-label="프로젝트 일정과 불일치"
-                          title={taskScheduleOutsideProjectNote}
-                        />
-                      )}
-                      {formatDate(task.startDate)}
-                    </span>
+                    <span className="inline-flex items-center gap-0.5 min-w-0">{formatDate(task.startDate)}</span>
                   </button>
                 </span>
               )}
               {otherPrimary && (
                 <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none"
+                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                   style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                  title={othersHere.map((o) => o.displayName).join(', ')}
                 >
                   {otherPrimary.displayName}
                 </div>
@@ -790,9 +763,8 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
+                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                 isFocusedEnd && 'ring-2 ring-blue-500 ring-inset',
-                taskScheduleOutsideProjectNote && 'bg-amber-50/55',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -841,26 +813,17 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('endDate');
                     }}
-                    title={['클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집', taskScheduleOutsideProjectNote].filter(Boolean).join(' · ')}
+                    title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">
-                      {taskScheduleOutsideProjectNote && (
-                        <AlertTriangle
-                          size={12}
-                          className="flex-shrink-0 text-amber-600"
-                          aria-label="프로젝트 일정과 불일치"
-                          title={taskScheduleOutsideProjectNote}
-                        />
-                      )}
-                      {formatDate(task.endDate)}
-                    </span>
+                    <span className="inline-flex items-center gap-0.5 min-w-0">{formatDate(task.endDate)}</span>
                   </button>
                 </span>
               )}
               {otherPrimary && (
                 <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none"
+                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                   style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                  title={othersHere.map((o) => o.displayName).join(', ')}
                 >
                   {otherPrimary.displayName}
                 </div>
@@ -876,7 +839,7 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell relative font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
+                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                 isFocusedWE && 'ring-2 ring-blue-500 ring-inset',
               )}
               style={otherRingStyle}
@@ -938,7 +901,7 @@ function SortableTaskRowInner({
               )}
               {otherPrimary && (
                 <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-stone-200 shadow-sm pointer-events-none"
+                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                   style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
                 >
                   {otherPrimary.displayName}
@@ -954,7 +917,7 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell font-mono text-xs text-stone-600 flex items-center gap-1 min-w-0',
+                'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                 isFocusedW && 'ring-2 ring-blue-500 ring-inset',
               )}
               onClick={(e) => {
@@ -1018,7 +981,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs text-stone-600 min-w-0', isFocusedProg && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-blue-500 ring-inset')}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1091,7 +1054,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-xs text-stone-500 min-w-0 cursor-help"
+              className="data-cell font-mono text-xs text-slate-500 min-w-0 cursor-help"
               title={
                 computable
                   ? plannedProgressDataCellTitle(plannedFmt)
@@ -1108,7 +1071,7 @@ function SortableTaskRowInner({
           const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
           const variance = progressVariance(actual, planned);
           const rounded = round1(variance);
-          const color = !computable ? 'text-stone-400' : rounded < 0 ? 'text-red-600' : rounded > 0 ? 'text-emerald-600' : 'text-stone-500';
+          const color = !computable ? 'text-slate-400' : rounded < 0 ? 'text-red-600' : rounded > 0 ? 'text-emerald-600' : 'text-slate-500';
           const sign = rounded > 0 ? '+' : '';
           const label = rounded < 0 ? '계획 대비 지연' : rounded > 0 ? '계획보다 앞섬' : '계획대로';
           const actFmt = formatPercent1(actual);
@@ -1139,7 +1102,7 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell text-xs text-stone-600 relative overflow-visible group/assignee',
+                'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
                 isFocusedAssignee && 'ring-2 ring-blue-500 ring-inset',
               )}
               onClick={(e) => {
@@ -1193,10 +1156,10 @@ function SortableTaskRowInner({
                 </>
               ) : (
                 <>
-                  <div className={cn('w-full px-1 py-0.5 truncate', task.assignee ? 'text-stone-600' : 'text-stone-400')}>
+                  <div className={cn('w-full px-1 py-0.5 truncate', task.assignee ? 'text-slate-600' : 'text-slate-400')}>
                     {formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 ...'}
                   </div>
-                  <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-stone-400 group-hover/assignee:text-stone-600">
+                  <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-slate-400 group-hover/assignee:text-slate-600">
                     <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                       <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
                     </svg>
@@ -1228,7 +1191,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs text-stone-600 min-w-0', isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('allocation');
@@ -1359,7 +1322,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell text-xs text-stone-600 min-w-0', isFocusedDel && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('deliverables');
@@ -1528,7 +1491,7 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn(
-                'data-cell text-xs text-stone-600 font-mono flex items-center gap-1 min-w-0 relative',
+                'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
                 depsMenuOpen && 'z-20 overflow-visible',
                 isFocusedDep && 'ring-2 ring-blue-500 ring-inset rounded',
               )}
@@ -1630,7 +1593,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell text-xs text-stone-600 min-w-0', isFocusedCustom && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-blue-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit(colId);
@@ -1839,7 +1802,7 @@ function DepsPortalDropdown({
         overflowY: 'auto',
         zIndex: 9999,
       }}
-      className="rounded-md border border-stone-200 dark:border-stone-600 bg-white dark:bg-slate-900 shadow-lg py-0.5"
+      className="rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 shadow-lg py-0.5"
     >
       {items.map((t, i) => {
         const rowNum = taskIdToSeqNum.get(t.id);
@@ -1849,15 +1812,15 @@ function DepsPortalDropdown({
               type="button"
               className={cn(
                 'w-full text-left px-2 py-1 text-[12px] leading-snug flex gap-1.5 items-baseline',
-                i === pickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-stone-50 dark:hover:bg-slate-800',
+                i === pickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800',
               )}
               onMouseDown={(ev) => ev.preventDefault()}
               onMouseEnter={() => setPickIdx(i)}
               onClick={() => onPick(t.id)}
             >
-              {rowNum != null && <span className="text-stone-400 tabular-nums shrink-0">{rowNum}.</span>}
+              {rowNum != null && <span className="text-slate-400 tabular-nums shrink-0">{rowNum}.</span>}
               <span className="min-w-0">
-                {displayWbsMap.get(t.id) && <span className="text-stone-400 tabular-nums mr-0.5">{displayWbsMap.get(t.id)}</span>}
+                {displayWbsMap.get(t.id) && <span className="text-slate-400 tabular-nums mr-0.5">{displayWbsMap.get(t.id)}</span>}
                 <span className="break-words">{t.name || '이름 없음'}</span>
               </span>
             </button>

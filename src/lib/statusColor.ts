@@ -13,11 +13,11 @@ export function getStatusColorProps(value: string): {
   className?: string;
   style?: CSSProperties;
 } {
-  if (!value) return { className: 'bg-stone-50 border-stone-100' };
+  if (!value) return { className: 'bg-slate-50 border-slate-100' };
   if (!isCustomStatusColor(value)) return { className: value };
   const bgM = value.match(/bg-\[(#?[a-fA-F0-9]{6})\]/);
   const borderM = value.match(/border-\[(#?[a-fA-F0-9]{6})\]/);
-  if (!bgM || !borderM) return { className: 'bg-stone-50 border-stone-100' };
+  if (!bgM || !borderM) return { className: 'bg-slate-50 border-slate-100' };
   return {
     className: 'border',
     style: { backgroundColor: bgM[1], borderColor: borderM[1] },

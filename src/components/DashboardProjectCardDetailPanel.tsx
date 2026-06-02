@@ -171,21 +171,21 @@ export function DashboardProjectCardDetailPanel({
               <Briefcase className="text-indigo-500 shrink-0" size={20} aria-hidden />
               <h3 className="text-lg font-bold text-[var(--color-ink)] break-words">{title}</h3>
             </div>
-            {projectGroupName && <p className="text-xs text-stone-500 mt-1">그룹: {projectGroupName}</p>}
-            <p className="text-xs text-stone-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            {projectGroupName && <p className="text-xs text-slate-500 mt-1">그룹: {projectGroupName}</p>}
+            <p className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="inline-flex items-center gap-1">
-                <CalendarClock size={12} className="text-stone-400 shrink-0" aria-hidden />
+                <CalendarClock size={12} className="text-slate-400 shrink-0" aria-hidden />
                 {period}
               </span>
-              <span className="text-stone-300">·</span>
+              <span className="text-slate-300">·</span>
               <span>
                 <span className="text-violet-700 font-semibold">PM</span>{' '}
-                <span className={cn(!pmDisplay && 'text-stone-400')}>{pmDisplay || '미지정'}</span>
+                <span className={cn(!pmDisplay && 'text-slate-400')}>{pmDisplay || '미지정'}</span>
               </span>
-              <span className="text-stone-300">·</span>
+              <span className="text-slate-300">·</span>
               <span>
                 <span className="text-amber-800 font-semibold">PO</span>{' '}
-                <span className={cn(!poDisplay && 'text-stone-400')}>{poDisplay || '—'}</span>
+                <span className={cn(!poDisplay && 'text-slate-400')}>{poDisplay || '—'}</span>
               </span>
             </p>
           </div>
@@ -214,7 +214,7 @@ export function DashboardProjectCardDetailPanel({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-600 hover:bg-stone-50"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
             <X size={14} aria-hidden />
             닫기
@@ -224,26 +224,26 @@ export function DashboardProjectCardDetailPanel({
 
       <div className="px-4 py-4 sm:px-5 sm:py-5 space-y-4 max-h-[min(85vh,1200px)] overflow-y-auto">
         {project.description?.trim() && (
-          <div className="rounded-lg border border-stone-100 bg-stone-50/60 px-3 py-2.5">
-            <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1">설명</div>
-            <p className="text-sm text-stone-800 whitespace-pre-wrap break-words">{project.description.trim()}</p>
+          <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">설명</div>
+            <p className="text-sm text-slate-800 whitespace-pre-wrap break-words">{project.description.trim()}</p>
           </div>
         )}
 
         {onIncludeInDashboardChange && (
-          <div className="rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2.5 space-y-2">
-            <h4 className="text-[11px] font-bold text-stone-600">대시보드 반영</h4>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 space-y-2">
+            <h4 className="text-[11px] font-bold text-slate-600">대시보드 반영</h4>
             <label className="flex gap-2 cursor-pointer items-start">
               <input
                 type="checkbox"
                 checked={includeInDashboard}
                 onChange={(e) => onIncludeInDashboardChange(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
-              <span className="min-w-0 text-sm text-stone-800">
+              <span className="min-w-0 text-sm text-slate-800">
                 조직 대시보드·요약에 포함
                 <span
-                  className="block text-[11px] text-stone-500 font-normal mt-0.5"
+                  className="block text-[11px] text-slate-500 font-normal mt-0.5"
                   title="끄면 집계·카드·목록에서 제외됩니다. WBS·간트는 그대로입니다."
                 >
                   끄면 집계·카드에서만 제외 (WBS 유지)
@@ -253,12 +253,12 @@ export function DashboardProjectCardDetailPanel({
           </div>
         )}
 
-        <div className="rounded-xl border border-stone-200 bg-white px-3 py-3 sm:px-4">
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <div className="flex min-w-[7rem] items-center gap-2">
-              <span className="text-xs font-medium text-stone-500 shrink-0">진척</span>
+              <span className="text-xs font-medium text-slate-500 shrink-0">진척</span>
               <div className="flex flex-1 items-center gap-2 min-w-[5rem]">
-                <div className="h-2 flex-1 max-w-[6rem] rounded-full bg-stone-100 overflow-hidden">
+                <div className="h-2 flex-1 max-w-[6rem] rounded-full bg-slate-100 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
                     style={{ width: `${Math.min(100, s.progress)}%` }}
@@ -267,26 +267,26 @@ export function DashboardProjectCardDetailPanel({
                 <span className="text-base font-bold tabular-nums text-indigo-700 shrink-0">{formatPercent1(s.progress)}%</span>
               </div>
             </div>
-            <span className="hidden sm:inline text-stone-200">|</span>
+            <span className="hidden sm:inline text-slate-200">|</span>
             <div className="tabular-nums">
-              <span className="text-xs text-stone-500">작업</span> <strong className="text-stone-900">{s.total}</strong>
+              <span className="text-xs text-slate-500">작업</span> <strong className="text-slate-900">{s.total}</strong>
             </div>
-            <span className="text-stone-200">|</span>
+            <span className="text-slate-200">|</span>
             <div className="tabular-nums">
-              <span className="text-xs text-stone-500">팀원</span> <strong className="text-stone-900">{s.assigneeCount}</strong>
+              <span className="text-xs text-slate-500">팀원</span> <strong className="text-slate-900">{s.assigneeCount}</strong>
             </div>
-            <span className="text-stone-200">|</span>
+            <span className="text-slate-200">|</span>
             <div className="tabular-nums" title={effortDisplayUnit === 'mm' ? `1 M/M = ${DEFAULT_MAN_DAYS_PER_MAN_MONTH} M/D` : undefined}>
-              <span className="text-xs text-stone-500">WBS 공수</span>{' '}
-              <strong className="text-stone-900">{totalMd > 0 ? formatMdMm(totalMd, effortDisplayUnit) : '—'}</strong>
+              <span className="text-xs text-slate-500">WBS 공수</span>{' '}
+              <strong className="text-slate-900">{totalMd > 0 ? formatMdMm(totalMd, effortDisplayUnit) : '—'}</strong>
             </div>
-            <span className="text-stone-200">|</span>
+            <span className="text-slate-200">|</span>
             <div className="tabular-nums">
               <span className="text-xs text-amber-800/90">기한 초과</span>{' '}
-              <strong className={cn(overdueCount > 0 ? 'text-amber-700' : 'text-stone-400')}>{overdueCount}</strong>
+              <strong className={cn(overdueCount > 0 ? 'text-amber-700' : 'text-slate-400')}>{overdueCount}</strong>
             </div>
-            <span className="text-stone-200">|</span>
-            <div className="flex flex-wrap items-center gap-x-2 text-xs text-stone-600">
+            <span className="text-slate-200">|</span>
+            <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-600">
               <span className="inline-flex items-center gap-0.5">
                 <Flag size={12} className="text-amber-600 shrink-0" aria-hidden /> {milestoneCount}
               </span>
@@ -298,24 +298,24 @@ export function DashboardProjectCardDetailPanel({
               </span>
             </div>
           </div>
-          <p className="mt-2 text-[11px] text-stone-500 border-t border-stone-100 pt-2 m-0">
-            공수 단위: <strong className="text-stone-700">{workEffortUnitLabel(project.workEffortUnit)}</strong>
+          <p className="mt-2 text-[11px] text-slate-500 border-t border-slate-100 pt-2 m-0">
+            공수 단위: <strong className="text-slate-700">{workEffortUnitLabel(project.workEffortUnit)}</strong>
             {project.minWorkEffortDays != null && project.minWorkEffortDays > 0 && (
               <>
                 {' '}
-                · 최소 <strong className="tabular-nums text-stone-700">{project.minWorkEffortDays}일</strong>
+                · 최소 <strong className="tabular-nums text-slate-700">{project.minWorkEffortDays}일</strong>
               </>
             )}
           </p>
         </div>
 
         {reportBits.length > 0 && (
-          <details className="rounded-lg border border-stone-100 bg-stone-50/60 px-3 py-2 text-xs text-stone-700 group/rpt">
-            <summary className="cursor-pointer list-none font-semibold text-stone-600 [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2">
+          <details className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-xs text-slate-700 group/rpt">
+            <summary className="cursor-pointer list-none font-semibold text-slate-600 [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2">
               보고·부가 정보
-              <span className="text-[10px] font-normal text-stone-400 group-open/rpt:hidden">펼치기</span>
+              <span className="text-[10px] font-normal text-slate-400 group-open/rpt:hidden">펼치기</span>
             </summary>
-            <div className="mt-2 space-y-0.5 border-t border-stone-200/80 pt-2">
+            <div className="mt-2 space-y-0.5 border-t border-slate-200/80 pt-2">
               {reportBits.map((line) => (
                 <p key={line} className="m-0">
                   {line}
@@ -326,12 +326,12 @@ export function DashboardProjectCardDetailPanel({
         )}
 
         <div>
-          <h4 className="text-xs font-bold text-stone-600 mb-2 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
             <ListTodo size={14} aria-hidden />
             상태별 작업
           </h4>
           {statusRowsWithCount.length === 0 ? (
-            <p className="text-sm text-stone-500 m-0 rounded-lg border border-stone-100 bg-white px-3 py-2">
+            <p className="text-sm text-slate-500 m-0 rounded-lg border border-slate-100 bg-white px-3 py-2">
               집계된 작업이 없거나 상태가 비어 있습니다.
             </p>
           ) : (
@@ -357,13 +357,13 @@ export function DashboardProjectCardDetailPanel({
         </div>
 
         <div>
-          <h4 className="text-xs font-bold text-stone-600 mb-2 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
             <Users size={14} aria-hidden />
             담당자별 작업·공수
           </h4>
-          <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="w-full text-xs sm:text-sm min-w-[280px]">
-              <thead className="bg-stone-50 border-b border-stone-200 text-stone-500">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">담당자</th>
                   <th className="text-right font-medium px-2 py-2 w-16">작업</th>
@@ -376,12 +376,12 @@ export function DashboardProjectCardDetailPanel({
                   const org = orgMemberLabelByName.get(name.trim()) ?? '';
                   const displayName = formatAssigneeDisplay(name, assigneeDisplayMetaByName);
                   return (
-                    <tr key={name} className="border-t border-stone-100">
-                      <td className="px-3 py-2 font-medium text-stone-900" title={org ? `조직: ${org}` : undefined}>
+                    <tr key={name} className="border-t border-slate-100">
+                      <td className="px-3 py-2 font-medium text-slate-900" title={org ? `조직: ${org}` : undefined}>
                         {displayName}
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-800">{count}</td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-800">{count}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                         {md > 0 ? formatMdMm(md, effortDisplayUnit) : '—'}
                       </td>
                     </tr>
@@ -392,21 +392,21 @@ export function DashboardProjectCardDetailPanel({
           </div>
         </div>
 
-        <details className="rounded-lg border border-stone-200 bg-white overflow-hidden group/alloc">
-          <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-semibold text-stone-800 bg-stone-50/90 [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2 hover:bg-stone-100/90 transition-colors">
+        <details className="rounded-lg border border-slate-200 bg-white overflow-hidden group/alloc">
+          <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-semibold text-slate-800 bg-slate-50/90 [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2 hover:bg-slate-100/90 transition-colors">
             <span className="inline-flex items-center gap-1.5">
-              <Briefcase size={15} className="text-stone-500 shrink-0" aria-hidden />
+              <Briefcase size={15} className="text-slate-500 shrink-0" aria-hidden />
               투입 비율·월별
             </span>
-            <span className="text-[10px] font-normal text-stone-400 group-open/alloc:hidden">펼치기</span>
+            <span className="text-[10px] font-normal text-slate-400 group-open/alloc:hidden">펼치기</span>
           </summary>
-          <div className="px-3 pb-3 pt-1 border-t border-stone-100">
+          <div className="px-3 pb-3 pt-1 border-t border-slate-100">
             {normalizedAssignments.length === 0 ? (
-              <p className="text-sm text-stone-500 m-0 py-2">등록된 투입 비율이 없습니다.</p>
+              <p className="text-sm text-slate-500 m-0 py-2">등록된 투입 비율이 없습니다.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full text-xs sm:text-sm min-w-[480px]">
-                  <thead className="bg-stone-50 border-b border-stone-200 text-stone-500">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                     <tr>
                       <th className="text-left font-medium px-3 py-2">담당자</th>
                       <th className="text-right font-medium px-2 py-2 w-20">투입%</th>
@@ -419,17 +419,17 @@ export function DashboardProjectCardDetailPanel({
                       const md = assigneeWorkMd.get(a.assignee) ?? 0;
                       const monthly = mergeMonthlyAllocationsForAssignee(project, a.assignee);
                       return (
-                        <tr key={a.assignee} className="border-t border-stone-100 align-top">
-                          <td className="px-3 py-2 font-medium text-stone-900">
+                        <tr key={a.assignee} className="border-t border-slate-100 align-top">
+                          <td className="px-3 py-2 font-medium text-slate-900">
                             {formatAssigneeDisplay(a.assignee, assigneeDisplayMetaByName)}
                           </td>
                           <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">
                             {formatPercent1(a.allocationPercent)}%
                           </td>
-                          <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                             {md > 0 ? formatMdMm(md, effortDisplayUnit) : '—'}
                           </td>
-                          <td className="px-2 py-2 text-stone-500 text-[11px]">
+                          <td className="px-2 py-2 text-slate-500 text-[11px]">
                             {monthly ? (
                               <div className="flex flex-wrap gap-x-2 gap-y-0.5 max-w-[24rem]">
                                 {Object.entries(monthly)
@@ -441,7 +441,7 @@ export function DashboardProjectCardDetailPanel({
                                   ))}
                               </div>
                             ) : (
-                              <span className="text-stone-400">동일 비율</span>
+                              <span className="text-slate-400">동일 비율</span>
                             )}
                           </td>
                         </tr>
@@ -455,13 +455,13 @@ export function DashboardProjectCardDetailPanel({
         </details>
 
         <div>
-          <h4 className="text-xs font-bold text-stone-600 mb-2">작업 목록 ({sortedTasks.length}건)</h4>
+          <h4 className="text-xs font-bold text-slate-600 mb-2">작업 목록 ({sortedTasks.length}건)</h4>
           {sortedTasks.length === 0 ? (
-            <p className="text-sm text-stone-500 bg-white border border-stone-100 rounded-lg px-3 py-2 m-0">작업이 없습니다.</p>
+            <p className="text-sm text-slate-500 bg-white border border-slate-100 rounded-lg px-3 py-2 m-0">작업이 없습니다.</p>
           ) : (
-            <div className="overflow-x-auto max-h-[min(380px,45vh)] overflow-y-auto rounded-lg border border-stone-200 bg-white">
+            <div className="overflow-x-auto max-h-[min(380px,45vh)] overflow-y-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full text-xs sm:text-sm min-w-[520px]">
-                <thead className="sticky top-0 z-[1] bg-stone-50 border-b border-stone-200 text-stone-500">
+                <thead className="sticky top-0 z-[1] bg-slate-50 border-b border-slate-200 text-slate-500">
                   <tr>
                     <th className="text-left font-medium px-3 py-2">작업명</th>
                     <th className="text-left font-medium px-2 py-2 w-24">담당</th>
@@ -482,15 +482,15 @@ export function DashboardProjectCardDetailPanel({
                     const assigneeLabel = formatAssigneeDisplay((task.assignee || '').trim() || '(미지정)', assigneeDisplayMetaByName);
                     const typeBits = [task.isMilestone && 'M', task.isIssue && '이슈', task.isActionItem && '액션'].filter(Boolean);
                     return (
-                      <tr key={task.id} className={cn('border-t border-stone-100 align-top', overdue && 'bg-amber-50/50')}>
-                        <td className="px-3 py-2 font-medium text-stone-900 break-words max-w-[18rem]">
+                      <tr key={task.id} className={cn('border-t border-slate-100 align-top', overdue && 'bg-amber-50/50')}>
+                        <td className="px-3 py-2 font-medium text-slate-900 break-words max-w-[18rem]">
                           <span className="block">{task.name}</span>
                           {typeBits.length > 0 && (
-                            <span className="mt-0.5 inline-block text-[10px] font-semibold text-stone-500">{typeBits.join(' · ')}</span>
+                            <span className="mt-0.5 inline-block text-[10px] font-semibold text-slate-500">{typeBits.join(' · ')}</span>
                           )}
                           {overdue && <span className="ml-1 text-[10px] font-semibold text-amber-700 whitespace-nowrap">기한초과</span>}
                         </td>
-                        <td className="px-2 py-2 text-stone-700 text-[11px] truncate max-w-[6rem]" title={assigneeLabel}>
+                        <td className="px-2 py-2 text-slate-700 text-[11px] truncate max-w-[6rem]" title={assigneeLabel}>
                           {assigneeLabel}
                         </td>
                         <td className="px-2 py-2">
@@ -501,11 +501,11 @@ export function DashboardProjectCardDetailPanel({
                             >
                               {statusLabel}
                             </span>
-                            <span className="text-[10px] tabular-nums text-stone-500">{formatPercent1(task.progress)}%</span>
+                            <span className="text-[10px] tabular-nums text-slate-500">{formatPercent1(task.progress)}%</span>
                           </div>
                         </td>
-                        <td className="px-2 py-2 text-stone-600 whitespace-nowrap tabular-nums text-[11px]">{task.endDate || '—'}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                        <td className="px-2 py-2 text-slate-600 whitespace-nowrap tabular-nums text-[11px]">{task.endDate || '—'}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                           {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                         </td>
                         <td className="px-2 py-2 text-center">
@@ -518,7 +518,7 @@ export function DashboardProjectCardDetailPanel({
                               표
                             </button>
                           ) : (
-                            <span className="text-stone-300">—</span>
+                            <span className="text-slate-300">—</span>
                           )}
                         </td>
                       </tr>

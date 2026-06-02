@@ -172,7 +172,7 @@ export function TableGanttSplit({
         type="button"
         aria-label="표와 간트 영역 너비 조절"
         title="드래그하여 표·간트 너비 조절"
-        className="hidden md:block shrink-0 w-2 self-stretch cursor-col-resize touch-none z-[35] border-0 p-0 bg-stone-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
+        className="hidden md:block shrink-0 w-2 self-stretch cursor-col-resize touch-none z-[35] border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
         onMouseDown={handleSplitterMouseDown}
       />
 

@@ -36,11 +36,11 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
             <Lock size={18} />
             관리자 모드 전환
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-lg text-stone-500 transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
             <X size={18} />
           </button>
         </div>
-        <p className="text-sm text-stone-500 mb-4">비밀번호를 입력하세요.</p>
+        <p className="text-sm text-slate-500 mb-4">비밀번호를 입력하세요.</p>
         <form onSubmit={handleSubmit}>
           <input
             type="password"
@@ -50,8 +50,8 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
               setError(false);
             }}
             placeholder="비밀번호"
-            className={`w-full px-4 py-3 rounded-xl border text-[var(--color-ink)] placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
-              error ? 'border-red-500 bg-red-50' : 'border-[var(--color-line)] bg-stone-50'
+            className={`w-full px-4 py-3 rounded-xl border text-[var(--color-ink)] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+              error ? 'border-red-500 bg-red-50' : 'border-[var(--color-line)] bg-slate-50'
             }`}
             autoFocus
           />
@@ -60,7 +60,7 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-medium text-sm"
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium text-sm"
             >
               취소
             </button>

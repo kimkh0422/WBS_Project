@@ -92,7 +92,7 @@ export function DashboardVisitTrendChart({
   }, []);
 
   const cardShellClass = cn(
-    'rounded-xl border border-stone-200 bg-white p-4 md:p-5 overflow-hidden',
+    'rounded-xl border border-slate-200 bg-white p-4 md:p-5 overflow-hidden',
     onOpenDetail &&
       'cursor-pointer hover:border-sky-300/90 hover:shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 transition-shadow',
   );
@@ -116,9 +116,9 @@ export function DashboardVisitTrendChart({
         }
         title={onOpenDetail ? '클릭하여 접속자 상세' : undefined}
       >
-        <div className="text-sm font-bold text-stone-800 mb-1">{title}</div>
-        {subtitle && <p className="text-xs text-stone-500 mb-3">{subtitle}</p>}
-        <div className="h-[140px] flex items-center justify-center text-sm text-stone-400">불러오는 중…</div>
+        <div className="text-sm font-bold text-slate-800 mb-1">{title}</div>
+        {subtitle && <p className="text-xs text-slate-500 mb-3">{subtitle}</p>}
+        <div className="h-[140px] flex items-center justify-center text-sm text-slate-400">불러오는 중…</div>
       </div>
     );
   }
@@ -142,9 +142,9 @@ export function DashboardVisitTrendChart({
         }
         title={onOpenDetail ? '클릭하여 접속자 상세' : undefined}
       >
-        <div className="text-sm font-bold text-stone-800 mb-1">{title}</div>
-        {subtitle && <p className="text-xs text-stone-500 mb-2">{subtitle}</p>}
-        <p className="text-sm text-stone-500 py-6 text-center">표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.</p>
+        <div className="text-sm font-bold text-slate-800 mb-1">{title}</div>
+        {subtitle && <p className="text-xs text-slate-500 mb-2">{subtitle}</p>}
+        <p className="text-sm text-slate-500 py-6 text-center">표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.</p>
       </div>
     );
   }
@@ -182,17 +182,17 @@ export function DashboardVisitTrendChart({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
         <div>
-          <div className="text-sm font-bold text-stone-800">{title}</div>
-          {subtitle && <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>}
+          <div className="text-sm font-bold text-slate-800">{title}</div>
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
-        <span className="text-xs text-stone-400 tabular-nums">
+        <span className="text-xs text-slate-400 tabular-nums">
           최대 <span className="font-semibold text-sky-700">{max}</span>
         </span>
       </div>
 
       {hoverIndex !== null && points[hoverIndex] && (
         <div
-          className="fixed z-50 pointer-events-none rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 shadow-lg text-left max-w-[min(280px,calc(100vw-24px)))]"
+          className="fixed z-50 pointer-events-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-lg text-left max-w-[min(280px,calc(100vw-24px)))]"
           style={(() => {
             const vw = typeof window !== 'undefined' ? window.innerWidth : 800;
             const vh = typeof window !== 'undefined' ? window.innerHeight : 600;
@@ -203,10 +203,10 @@ export function DashboardVisitTrendChart({
           })()}
           role="tooltip"
         >
-          <div className="text-[11px] font-semibold text-stone-800 leading-snug">{fmtLongKo(points[hoverIndex].visitDate)}</div>
-          <div className="text-[11px] text-stone-600 tabular-nums mt-0.5">
+          <div className="text-[11px] font-semibold text-slate-800 leading-snug">{fmtLongKo(points[hoverIndex].visitDate)}</div>
+          <div className="text-[11px] text-slate-600 tabular-nums mt-0.5">
             세션 <span className="font-semibold text-sky-700">{points[hoverIndex].count}</span>건
-            <span className="text-stone-400"> · 최대 대비 {formatPercent1(max > 0 ? (points[hoverIndex].count / max) * 100 : 0)}%</span>
+            <span className="text-slate-400"> · 최대 대비 {formatPercent1(max > 0 ? (points[hoverIndex].count / max) * 100 : 0)}%</span>
           </div>
         </div>
       )}
@@ -226,7 +226,7 @@ export function DashboardVisitTrendChart({
             return (
               <g key={yv}>
                 <line x1={padL} x2={padL + innerW} y1={y} y2={y} stroke="#e7e5e4" strokeWidth={0.5} vectorEffect="non-scaling-stroke" />
-                <text x={padL - 4} y={y + 3} textAnchor="end" className="fill-stone-400 text-[9px] font-medium tabular-nums">
+                <text x={padL - 4} y={y + 3} textAnchor="end" className="fill-slate-400 text-[9px] font-medium tabular-nums">
                   {yv}
                 </text>
               </g>
@@ -280,7 +280,7 @@ export function DashboardVisitTrendChart({
                 x={cx}
                 y={H - 6}
                 textAnchor="middle"
-                className="fill-stone-500 text-[8px] font-medium tabular-nums pointer-events-none"
+                className="fill-slate-500 text-[8px] font-medium tabular-nums pointer-events-none"
               >
                 {fmtShort(p.visitDate)}
               </text>

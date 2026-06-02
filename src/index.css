@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* 다크모드를 앱 토글([data-theme="dark"])에 바인딩 — 기본 dark: 변형이 OS 설정(prefers-color-scheme)에 묶이던 문제 교정 */
+@custom-variant dark ([data-theme="dark"] &);
+
 /* Design tokens: use :root to avoid Tailwind v4 @theme parser issues (500 on dev server) */
 :root {
   --font-sans: "Pretendard Variable", Pretendard, "Inter", -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
@@ -277,6 +280,22 @@
   .to-indigo-50 { --tw-gradient-to: #1E1B4B !important; }
   [class*="to-violet-50"] { --tw-gradient-to: #1E1338 !important; }
   .via-slate-200 { --tw-gradient-via: var(--color-line) !important; }
+
+  /* ── 디자인 통일 보강: slate/indigo 다크 변형 (stone→slate·blue→indigo 스윕 안착용) ── */
+  .text-slate-200 { color: #E2E8F0 !important; }
+  .hover\:bg-slate-200:hover { background-color: #1E293B !important; }
+  .hover\:bg-slate-800:hover { background-color: #0F1729 !important; }
+  .group:hover .group-hover\:bg-slate-700 { background-color: #1E293B !important; }
+  .hover\:text-slate-300:hover { color: #CBD5E1 !important; }
+  .hover\:text-slate-600:hover, .hover\:text-slate-900:hover { color: #E2E8F0 !important; }
+  .ring-slate-200 { --tw-ring-color: var(--color-line) !important; }
+  .ring-slate-300 { --tw-ring-color: #3D4D63 !important; }
+  .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+  .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--color-line) !important; }
+  /* indigo 경량 음영·hover (blue→indigo 전환 안착) */
+  .text-indigo-400, .text-indigo-600 { color: #A5B4FC !important; }
+  .bg-indigo-500 { background-color: #4F46E5 !important; }
+  .hover\:bg-indigo-700:hover { background-color: #4338CA !important; }
 
   /* ── Logo: 다크모드에서 밝기 낮추고 배경 투명하게 ── */
   .dark-logo {

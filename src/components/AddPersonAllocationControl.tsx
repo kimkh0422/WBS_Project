@@ -108,7 +108,7 @@ export function AddPersonAllocationControl({
           }
         }}
         placeholder="담당자 이름"
-        className="w-36 px-2 py-1 text-xs border border-stone-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300"
+        className="w-36 px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300"
         title="조직 회원에서 선택하거나 직접 입력"
       />
       <datalist id={personDatalistId}>
@@ -131,7 +131,7 @@ export function AddPersonAllocationControl({
           }
         }}
         placeholder="프로젝트명"
-        className="max-w-[12rem] px-2 py-1 text-xs border border-stone-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300 truncate"
+        className="max-w-[12rem] px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300 truncate"
         title="기존 프로젝트 선택 또는 신규 프로젝트명 입력"
       />
       <datalist id={projectDatalistId}>
@@ -174,7 +174,7 @@ export function AddPersonAllocationControl({
       <button
         type="button"
         onClick={reset}
-        className="px-2.5 py-1 text-xs font-semibold rounded-lg text-stone-600 border border-stone-200 hover:bg-stone-50"
+        className="px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-600 border border-slate-200 hover:bg-slate-50"
       >
         취소
       </button>

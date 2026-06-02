@@ -315,7 +315,7 @@ export function ProjectModal({
             </h3>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-x-5">
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-project-kind">
+                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-project-kind">
                   항목 <span className="font-normal text-red-600">*</span>
                 </label>
                 <select
@@ -325,7 +325,7 @@ export function ProjectModal({
                   disabled={!includeInDashboard}
                   required={includeInDashboard}
                   title={includeInDashboard ? undefined : '대시보드에 반영을 켜면 프로젝트 종류(항목)를 선택할 수 있습니다.'}
-                  className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-stone-100/90 opacity-70')}
+                  className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-slate-100/90 opacity-70')}
                 >
                   {projectKindOptions.map((k) => (
                     <option key={k} value={k}>
@@ -334,11 +334,11 @@ export function ProjectModal({
                   ))}
                 </select>
                 {!includeInDashboard && (
-                  <p className="text-xs leading-relaxed text-stone-600">항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.</p>
+                  <p className="text-xs leading-relaxed text-slate-600">항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.</p>
                 )}
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-name">
+                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-name">
                   프로젝트 이름 <span className="font-normal text-red-600">*</span>
                 </label>
                 <input
@@ -355,7 +355,7 @@ export function ProjectModal({
             </div>
             <div className="grid grid-cols-1 gap-5 border-t border-amber-200/50 pt-5 sm:grid-cols-2 sm:gap-x-5">
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-pm">
+                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-pm">
                   프로젝트 PM <span className="font-normal text-red-600">*</span>
                 </label>
                 <input
@@ -369,13 +369,13 @@ export function ProjectModal({
                   placeholder="이름 입력 또는 조직 회원에서 선택"
                   title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
                 />
-                <p className="text-xs leading-relaxed text-stone-600 max-w-prose">
+                <p className="text-xs leading-relaxed text-slate-600 max-w-prose">
                   과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
                 </p>
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-po">
-                  프로젝트 PO <span className="text-stone-500 font-normal">(선택)</span>
+                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-po">
+                  프로젝트 PO <span className="text-slate-500 font-normal">(선택)</span>
                 </label>
                 <input
                   id="project-modal-po"
@@ -387,7 +387,7 @@ export function ProjectModal({
                   placeholder="예: 제품 책임자 이름"
                   title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
                 />
-                <p className="text-xs leading-relaxed text-stone-600 max-w-prose">
+                <p className="text-xs leading-relaxed text-slate-600 max-w-prose">
                   요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
                 </p>
               </div>
@@ -401,16 +401,16 @@ export function ProjectModal({
           </section>
 
           {/* 선택: 기본 정보 */}
-          <section className="rounded-xl border border-stone-200/90 bg-slate-50/50 p-5 shadow-sm space-y-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-stone-500 px-1.5 text-[11px] font-bold text-white">
+          <section className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-5 shadow-sm space-y-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white">
                 선택
               </span>
               기본 정보 (선택)
             </h3>
             <div className="grid grid-cols-1 gap-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-description">
+                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-description">
                   설명
                 </label>
                 <textarea
@@ -423,7 +423,7 @@ export function ProjectModal({
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-start">
+                  <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-start">
                     프로젝트 시작일
                   </label>
                   <input
@@ -435,7 +435,7 @@ export function ProjectModal({
                   />
                 </div>
                 <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-stone-800" htmlFor="project-modal-end">
+                  <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-end">
                     프로젝트 종료일
                   </label>
                   <input
@@ -447,22 +447,22 @@ export function ProjectModal({
                   />
                 </div>
               </div>
-              <p className="text-xs leading-relaxed text-stone-600 -mt-1">
+              <p className="text-xs leading-relaxed text-slate-600 -mt-1">
                 WBS 작업 일정은 이 기간을 벗어날 수 없습니다. (미입력 시 기간 제한 없음)
               </p>
-              <div className="flex gap-3 rounded-lg border border-stone-200/80 bg-white/60 p-3.5">
+              <div className="flex gap-3 rounded-lg border border-slate-200/80 bg-white/60 p-3.5">
                 <input
                   id="project-modal-include-dashboard"
                   type="checkbox"
                   checked={includeInDashboard}
                   onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-stone-300 text-indigo-600 focus:ring-indigo-500"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
                 <div className="min-w-0 flex-1">
-                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-stone-900">
+                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-slate-900">
                     대시보드에 반영
                   </label>
-                  <p className="mt-1 text-xs leading-relaxed text-stone-600">
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
                     켜면 요약·집계·프로젝트 카드에 포함될 수 있습니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로
                     표시됩니다.
                   </p>
@@ -470,7 +470,7 @@ export function ProjectModal({
                     <summary className="cursor-pointer list-none text-xs font-medium text-indigo-700 hover:text-indigo-800 [&::-webkit-details-marker]:hidden">
                       <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
                     </summary>
-                    <p className="mt-2 border-l-2 border-stone-200 pl-3 text-xs leading-relaxed text-stone-600">
+                    <p className="mt-2 border-l-2 border-slate-200 pl-3 text-xs leading-relaxed text-slate-600">
                       대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할
                       수 있습니다.
                     </p>
@@ -481,20 +481,20 @@ export function ProjectModal({
           </section>
 
           {/* 선택: 투입인원 */}
-          <section className="rounded-xl border border-stone-200/90 bg-slate-50/50 p-5 shadow-sm space-y-4">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-stone-500 px-1.5 text-[11px] font-bold text-white">
+          <section className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-5 shadow-sm space-y-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white">
                 선택
               </span>
               프로젝트 투입인원 (투입비율)
             </h3>
             <div>
-              <p className="mb-3 text-xs leading-relaxed text-stone-600 max-w-prose">
+              <p className="mb-3 text-xs leading-relaxed text-slate-600 max-w-prose">
                 투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수 있습니다.
               </p>
               <div className="space-y-2">
                 {assignments.map((a, i) => (
-                  <div key={i} className="border border-stone-100 rounded-lg p-2.5 space-y-2">
+                  <div key={i} className="border border-slate-100 rounded-lg p-2.5 space-y-2">
                     <div className="flex items-center gap-2">
                       <input
                         ref={(el) => {
@@ -525,7 +525,7 @@ export function ProjectModal({
                         type="text"
                         inputMode="numeric"
                         disabled={!a.assignee.trim()}
-                        className={cn('input-field w-20 py-2 text-sm', !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-stone-50')}
+                        className={cn('input-field w-20 py-2 text-sm', !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-slate-50')}
                         value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
                         placeholder="%"
                         onChange={(e) => {
@@ -574,20 +574,20 @@ export function ProjectModal({
                         type="button"
                         onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
                         className={cn(
-                          'p-2 rounded text-stone-500 hover:bg-stone-100 transition-colors',
+                          'p-2 rounded text-slate-500 hover:bg-slate-100 transition-colors',
                           monthlyExpandedIndex === i && 'bg-teal-50 text-teal-600',
                         )}
                         title="기간별 월별 투입비율 설정"
                       >
                         <Calendar size={14} />
                       </button>
-                      <button type="button" onClick={() => removeAssignment(i)} className="p-2 text-stone-400 hover:text-red-500 rounded">
+                      <button type="button" onClick={() => removeAssignment(i)} className="p-2 text-slate-400 hover:text-red-500 rounded">
                         <X size={14} />
                       </button>
                     </div>
                     {monthlyExpandedIndex === i && (
-                      <div className="pt-2 border-t border-stone-100">
-                        <p className="mb-2 text-xs font-medium text-stone-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
+                      <div className="pt-2 border-t border-slate-100">
+                        <p className="mb-2 text-xs font-medium text-slate-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
                         <div className="flex flex-wrap gap-2">
                           {projectMonths.map((ym) => {
                             const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
@@ -596,7 +596,7 @@ export function ProjectModal({
                             );
                             return (
                               <div key={ym} className="flex items-center gap-1">
-                                <span className="text-[10px] text-stone-500 w-12">{ym}</span>
+                                <span className="text-[10px] text-slate-500 w-12">{ym}</span>
                                 <select
                                   value={displayNum}
                                   onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}

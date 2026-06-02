@@ -77,7 +77,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           if (t.id === newParent.id) return { ...t, expanded: true };
           return t;
         });
-        return recomputeProjectRollups([...otherTasks, ...updated], cpi);
+        return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],
@@ -95,7 +95,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const parent = projectTasks.find((t) => t.id === task.parentId);
         if (!parent) return prev;
         const updated = projectTasks.map((t) => (t.id === id ? { ...t, parentId: parent.parentId } : t));
-        return recomputeProjectRollups([...otherTasks, ...updated], cpi);
+        return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],
@@ -123,7 +123,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
             });
           }
         }
-        return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi);
+        return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],
@@ -144,7 +144,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           if (!parent) continue;
           projectTasks = projectTasks.map((t) => (t.id === taskId ? { ...t, parentId: parent.parentId } : t));
         }
-        return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi);
+        return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],
@@ -195,7 +195,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           if (t.id === newParentId) return { ...t, expanded: true };
           return t;
         });
-        return recomputeProjectRollups([...otherTasks, ...updated], cpi);
+        return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],
@@ -244,7 +244,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         if (insertIdx < 0) return prev;
         if (position === 'after') insertIdx += 1;
         const merged = [...withoutRoots.slice(0, insertIdx), ...rootsOrdered, ...withoutRoots.slice(insertIdx)];
-        return recomputeProjectRollups([...otherTasks, ...merged], cpi);
+        return recomputeProjectRollups([...otherTasks, ...merged], cpi, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, currentProjectIdRef],

@@ -21,8 +21,8 @@ export function GanttGrid({ viewMode, dayWidth, minDate, maxDate, days, months, 
           <div
             key={`grid-${day.toISOString()}`}
             className={cn(
-              'flex-shrink-0 border-r border-stone-100 h-full',
-              ['토', '일'].includes(format(day, 'EEE', { locale: ko })) && 'bg-stone-50/30',
+              'flex-shrink-0 border-r border-slate-100 h-full',
+              ['토', '일'].includes(format(day, 'EEE', { locale: ko })) && 'bg-slate-50/30',
             )}
             style={{ width: dayWidth }}
           />
@@ -39,7 +39,7 @@ export function GanttGrid({ viewMode, dayWidth, minDate, maxDate, days, months, 
           const daysInWeek = differenceInDays(weekEnd, weekStart) + 1;
           const width = daysInWeek * dayWidth;
           return (
-            <div key={`grid-week-${week.toISOString()}`} className="flex-shrink-0 border-r border-stone-100 h-full" style={{ width }} />
+            <div key={`grid-week-${week.toISOString()}`} className="flex-shrink-0 border-r border-slate-100 h-full" style={{ width }} />
           );
         })}
       </>
@@ -53,7 +53,7 @@ export function GanttGrid({ viewMode, dayWidth, minDate, maxDate, days, months, 
         const daysInMonth = differenceInDays(monthEnd, monthStart) + 1;
         const width = daysInMonth * dayWidth;
         return (
-          <div key={`grid-month-${month.toISOString()}`} className="flex-shrink-0 border-r border-stone-100 h-full" style={{ width }} />
+          <div key={`grid-month-${month.toISOString()}`} className="flex-shrink-0 border-r border-slate-100 h-full" style={{ width }} />
         );
       })}
     </>

@@ -125,11 +125,11 @@ export function MemberProjectAccessModal({
         <div className="flex items-center justify-between p-5 border-b border-[var(--color-line)]">
           <div className="min-w-0">
             <h2 className="text-lg font-bold text-[var(--color-ink)] truncate">프로젝트 권한</h2>
-            <p className="text-xs text-stone-500 mt-1 truncate" title={memberLabel}>
+            <p className="text-xs text-slate-500 mt-1 truncate" title={memberLabel}>
               회원: {memberLabel}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-lg text-stone-500 transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -138,19 +138,19 @@ export function MemberProjectAccessModal({
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
           {loading ? (
-            <div className="flex items-center justify-center py-12 gap-2 text-stone-500">
+            <div className="flex items-center justify-center py-12 gap-2 text-slate-500">
               <Loader2 size={24} className="animate-spin" />
               <span>로딩 중...</span>
             </div>
           ) : rows.length === 0 ? (
-            <p className="text-stone-500 text-center py-12">프로젝트가 없습니다.</p>
+            <p className="text-slate-500 text-center py-12">프로젝트가 없습니다.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-line)]">
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트</th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">소유자</th>
-                  <th className="text-left py-3 px-2 font-semibold text-stone-600">권한</th>
+                  <th className="text-left py-3 px-2 font-semibold text-slate-600">프로젝트</th>
+                  <th className="text-left py-3 px-2 font-semibold text-slate-600">소유자</th>
+                  <th className="text-left py-3 px-2 font-semibold text-slate-600">권한</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,30 +161,30 @@ export function MemberProjectAccessModal({
                   const saving = savingKey === `${r.projectId}:${member.id}`;
                   const roleValue: RoleUi = r.role;
                   return (
-                    <tr key={r.projectId} className="border-b border-stone-100 hover:bg-stone-50">
+                    <tr key={r.projectId} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-2 text-[var(--color-ink)]">
                         <span className="font-medium">{r.projectName}</span>
                       </td>
-                      <td className="py-3 px-2 text-stone-500 truncate" title={ownerLabel}>
+                      <td className="py-3 px-2 text-slate-500 truncate" title={ownerLabel}>
                         {ownerLabel}
                       </td>
                       <td className="py-3 px-2">
                         {roleValue === 'owner' ? (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-stone-100 text-stone-700">소유자</span>
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">소유자</span>
                         ) : (
                           <div className="flex items-center gap-2">
                             <select
                               value={roleValue}
                               onChange={(e) => setRole(r.projectId, e.target.value as RoleUi)}
                               disabled={saving}
-                              className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                              className="text-xs font-medium px-2 py-1 rounded border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
                               title="승인된 보기·편집 멤버 모두 동일하게 작업 편집 가능(라벨 구분)"
                             >
                               <option value="none">없음</option>
                               <option value="viewer">보기</option>
                               <option value="editor">편집</option>
                             </select>
-                            {saving && <Loader2 size={14} className="animate-spin text-stone-400" />}
+                            {saving && <Loader2 size={14} className="animate-spin text-slate-400" />}
                           </div>
                         )}
                       </td>
@@ -196,8 +196,8 @@ export function MemberProjectAccessModal({
           )}
         </div>
 
-        <div className="p-4 border-t border-[var(--color-line)] bg-stone-50/50">
-          <p className="text-xs text-stone-500">변경 사항은 즉시 저장됩니다. (없음 = 해당 프로젝트 멤버에서 제거)</p>
+        <div className="p-4 border-t border-[var(--color-line)] bg-slate-50/50">
+          <p className="text-xs text-slate-500">변경 사항은 즉시 저장됩니다. (없음 = 해당 프로젝트 멤버에서 제거)</p>
         </div>
       </div>
     </>

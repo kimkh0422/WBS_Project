@@ -27,7 +27,7 @@ export function GanttTopHeader({ viewMode, dayWidth, minDate, maxDate, months }:
           return (
             <div
               key={month.toISOString()}
-              className="flex items-center px-3 text-[10px] font-bold tracking-wider text-stone-500 border-r border-stone-200 overflow-hidden"
+              className="flex items-center px-3 text-[10px] font-bold tracking-wider text-slate-500 border-r border-slate-200 overflow-hidden"
               style={{ width }}
             >
               {format(month, width > 40 ? 'yyyy년 M월' : 'yy년 M월', { locale: ko })}
@@ -49,7 +49,7 @@ export function GanttTopHeader({ viewMode, dayWidth, minDate, maxDate, months }:
         return (
           <div
             key={year}
-            className="flex items-center px-3 text-[10px] font-bold tracking-wider text-stone-500 border-r border-stone-200 overflow-hidden"
+            className="flex items-center px-3 text-[10px] font-bold tracking-wider text-slate-500 border-r border-slate-200 overflow-hidden"
             style={{ width }}
           >
             {year}년
@@ -71,8 +71,8 @@ export function GanttBottomHeader({ viewMode, dayWidth, minDate, maxDate, days, 
             <div
               key={day.toISOString()}
               className={cn(
-                'flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono',
-                ['토', '일'].includes(format(day, 'EEE', { locale: ko })) ? 'bg-stone-50 text-stone-400' : 'text-stone-600',
+                'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono',
+                ['토', '일'].includes(format(day, 'EEE', { locale: ko })) ? 'bg-slate-50 text-slate-400' : 'text-slate-600',
                 isToday && 'bg-red-500 text-white font-bold',
               )}
               style={{ width: dayWidth }}
@@ -103,7 +103,7 @@ export function GanttBottomHeader({ viewMode, dayWidth, minDate, maxDate, days, 
             <div
               key={week.toISOString()}
               className={cn(
-                'flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
+                'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
                 isCurrentWeek ? 'bg-red-500 text-white font-bold' : '',
               )}
               style={{ width }}
@@ -128,7 +128,7 @@ export function GanttBottomHeader({ viewMode, dayWidth, minDate, maxDate, days, 
           <div
             key={month.toISOString()}
             className={cn(
-              'flex-shrink-0 border-r border-stone-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
+              'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
               isCurrentMonth ? 'bg-red-500 text-white font-bold' : '',
             )}
             style={{ width }}

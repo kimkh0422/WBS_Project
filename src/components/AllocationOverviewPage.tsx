@@ -93,7 +93,7 @@ export function AllocationOverviewPage({
   const allocationDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
   return (
-    <div className="h-full overflow-auto bg-stone-50/50">
+    <div className="h-full overflow-auto bg-slate-50/50">
       <div className="max-w-5xl mx-auto p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
@@ -101,7 +101,7 @@ export function AllocationOverviewPage({
               <Users className="text-teal-600" size={24} />
               투입 현황
             </h1>
-            <p className="text-sm text-stone-500 mt-0.5">
+            <p className="text-sm text-slate-500 mt-0.5">
               투입 인원·프로젝트별 투입 비율·인원별 WBS 공수(M/D)를 이 화면에서 확인하고 편집합니다. 프로젝트별 보기에서는 각 카드의 「인원
               추가」로 해당 프로젝트에 바로 투입할 수 있고, 인원별 보기에서는 「인원 추가」로 담당자를 등록한 뒤 「프로젝트」에서 기존·신규
               프로젝트를 골라 투입을 넣을 수 있습니다.
@@ -115,7 +115,7 @@ export function AllocationOverviewPage({
                   'px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5',
                   viewMode === 'by-project'
                     ? 'bg-teal-600 text-white border-teal-600'
-                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50',
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <Briefcase size={14} /> 프로젝트별
@@ -126,7 +126,7 @@ export function AllocationOverviewPage({
                   'px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5',
                   viewMode === 'by-person'
                     ? 'bg-teal-600 text-white border-teal-600'
-                    : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50',
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <Users size={14} /> 인원별
@@ -154,10 +154,10 @@ export function AllocationOverviewPage({
         </div>
 
         {!hasAnyAllocation ? (
-          <div className="bg-white rounded-xl border border-stone-200 p-12 text-center space-y-4">
-            <Users className="mx-auto text-stone-300" size={48} />
-            <p className="text-stone-600 font-medium">등록된 투입 정보가 없습니다.</p>
-            <p className="text-sm text-stone-400">아래에서 인원·프로젝트·투입율을 바로 추가하거나, 프로젝트 편집에서 설정할 수 있습니다.</p>
+          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-4">
+            <Users className="mx-auto text-slate-300" size={48} />
+            <p className="text-slate-600 font-medium">등록된 투입 정보가 없습니다.</p>
+            <p className="text-sm text-slate-400">아래에서 인원·프로젝트·투입율을 바로 추가하거나, 프로젝트 편집에서 설정할 수 있습니다.</p>
             {onCreateProject && (
               <button type="button" onClick={onCreateProject} className="btn-primary inline-flex items-center gap-2 mx-auto">
                 <FolderPlus size={16} />새 프로젝트
@@ -186,20 +186,20 @@ export function AllocationOverviewPage({
               return (
                 <div
                   key={project.id}
-                  className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                  className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-center gap-4 p-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <ProjectNameLabel project={project} name={project.name} nameClassName="font-semibold text-[var(--color-ink)]" />
-                        <span className="text-xs text-stone-400">총 {formatPercent1(totalPercent)}% 투입</span>
+                        <span className="text-xs text-slate-400">총 {formatPercent1(totalPercent)}% 투입</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {onEditProject && (
                         <button
                           onClick={() => onEditProject(project)}
-                          className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                          className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors"
                           title="프로젝트 편집"
                         >
                           <Edit size={16} />
@@ -208,7 +208,7 @@ export function AllocationOverviewPage({
                       {onNavigateToWork && (
                         <button
                           onClick={() => onNavigateToWork(project.id)}
-                          className="p-2 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+                          className="p-2 rounded-lg text-slate-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
                           title="작업 보기"
                         >
                           <ChevronRight size={16} />
@@ -232,7 +232,7 @@ export function AllocationOverviewPage({
                             className="bg-teal-50 border-teal-100 text-sm"
                           />
                           {a.monthlyAllocations && Object.keys(a.monthlyAllocations).length > 0 && (
-                            <div className="text-[10px] text-stone-500 flex flex-wrap gap-x-2 gap-y-0">
+                            <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-2 gap-y-0">
                               {Object.entries(a.monthlyAllocations)
                                 .sort(([k1], [k2]) => k1.localeCompare(k2))
                                 .map(([ym, pct]) => (
@@ -261,8 +261,8 @@ export function AllocationOverviewPage({
             })}
 
             {projectsWithoutAllocation.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-stone-200">
-                <h3 className="text-sm font-semibold text-stone-500 mb-3">투입 정보 미설정 프로젝트</h3>
+              <div className="mt-6 pt-6 border-t border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-500 mb-3">투입 정보 미설정 프로젝트</h3>
                 <div className="space-y-2">
                   {projectsWithoutAllocation.map((p) => {
                     const assignedNameKeys = new Set(
@@ -275,13 +275,13 @@ export function AllocationOverviewPage({
                     return (
                       <div
                         key={p.id}
-                        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-lg bg-stone-50 border border-stone-100"
+                        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-lg bg-slate-50 border border-slate-100"
                       >
                         <ProjectNameLabel
                           project={p}
                           name={p.name}
-                          className="text-sm text-stone-600 min-w-0"
-                          nameClassName="text-sm text-stone-600"
+                          className="text-sm text-slate-600 min-w-0"
+                          nameClassName="text-sm text-slate-600"
                         />
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <AddProjectPersonAllocation
@@ -308,7 +308,7 @@ export function AllocationOverviewPage({
               <button
                 type="button"
                 onClick={onCreateProject}
-                className="w-full flex flex-col sm:flex-row items-center justify-center gap-2 py-8 px-4 rounded-xl border-2 border-dashed border-stone-200 bg-white/60 text-stone-500 hover:border-teal-300 hover:bg-teal-50/40 hover:text-teal-800 transition-colors"
+                className="w-full flex flex-col sm:flex-row items-center justify-center gap-2 py-8 px-4 rounded-xl border-2 border-dashed border-slate-200 bg-white/60 text-slate-500 hover:border-teal-300 hover:bg-teal-50/40 hover:text-teal-800 transition-colors"
                 title="새 프로젝트를 등록합니다"
               >
                 <FolderPlus size={22} className="text-teal-600 shrink-0" />
@@ -319,8 +319,8 @@ export function AllocationOverviewPage({
         ) : (
           <div className="space-y-4">
             {personAllocations.length === 0 && visibleProjects.length > 0 && (
-              <div className="bg-white rounded-xl border border-stone-200 p-8 text-center space-y-4">
-                <p className="text-sm text-stone-500">투입 인원이 없습니다. 인원을 추가해 주세요.</p>
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-4">
+                <p className="text-sm text-slate-500">투입 인원이 없습니다. 인원을 추가해 주세요.</p>
                 <AddPersonAllocationControl
                   availableProjects={visibleProjects}
                   assigneeCandidates={allocationAssigneeCandidates}
@@ -333,7 +333,7 @@ export function AllocationOverviewPage({
             {personAllocations.map(({ person, items, totalPercent }) => (
               <div
                 key={person}
-                className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center gap-4 p-4">
                   <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold shrink-0">
@@ -345,7 +345,7 @@ export function AllocationOverviewPage({
                         <input
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="w-full sm:w-64 px-3 py-1.5 text-sm rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:ring-teal-200"
+                          className="w-full sm:w-64 px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-200"
                           placeholder="투입 인원 이름"
                           autoFocus
                         />
@@ -366,7 +366,7 @@ export function AllocationOverviewPage({
                               setEditingPerson(null);
                               setEditingName('');
                             }}
-                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-stone-600 border border-stone-200 hover:bg-stone-50 transition-colors"
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-colors"
                           >
                             취소
                           </button>
@@ -383,7 +383,7 @@ export function AllocationOverviewPage({
                               setEditingPerson(person);
                               setEditingName(person);
                             }}
-                            className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors"
                             title="이름 변경"
                           >
                             <Edit size={14} />
@@ -391,7 +391,7 @@ export function AllocationOverviewPage({
                         )}
                       </div>
                     )}
-                    <div className="text-xs text-stone-500">
+                    <div className="text-xs text-slate-500">
                       {items.length}개 프로젝트 · 총 {formatPercent1(totalPercent)}% 투입
                       {(() => {
                         const totalMd = [...(personProjectWorkEffort.get(person)?.values() ?? [])].reduce(

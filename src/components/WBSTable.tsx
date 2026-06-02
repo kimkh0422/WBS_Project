@@ -1044,7 +1044,7 @@ export function WBSTable({
    * 좌측(border-l)에 두면 stripe가 grid cell 끝에서 grip 너비(12px)만큼 안쪽에 그려져 본문과 어긋나 보임. */
   const resizeGrip = (col: keyof typeof columnWidths) => (
     <div
-      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-r-2 border-stone-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-20 shrink-0 border-r-2 border-slate-200 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 transition-colors"
       title="컬럼 너비 조절 (드래그)"
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -1163,7 +1163,7 @@ export function WBSTable({
               >
                 <input
                   type="checkbox"
-                  className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                   onChange={handleSelectAll}
                 />
@@ -1189,7 +1189,7 @@ export function WBSTable({
                 }}
                 onContextMenu={(e) => handleHeaderContextMenu(e)}
               >
-                <span className="text-stone-300">▾</span>
+                <span className="text-slate-300">▾</span>
                 {resizeGrip('expand')}
               </div>
               {visibleColumnIds.map(renderHeaderCell)}
@@ -1267,7 +1267,7 @@ export function WBSTable({
                       >
                         <input
                           type="checkbox"
-                          className="rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                           checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                           onChange={handleSelectAll}
                         />
@@ -1293,7 +1293,7 @@ export function WBSTable({
                         }}
                         onContextMenu={(e) => handleHeaderContextMenu(e)}
                       >
-                        <span className="text-stone-300">▾</span>
+                        <span className="text-slate-300">▾</span>
                         {resizeGrip('expand')}
                       </div>
                       {visibleColumnIds.map(renderHeaderCell)}
@@ -1490,12 +1490,12 @@ export function WBSTable({
                 </DndContext>
 
                 {visibleTasks.length === 0 && tasks.length === 0 && (
-                  <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+                  <div className="p-12 text-center text-slate-400 italic font-serif bg-slate-50/30">
                     등록된 작업이 없습니다. 새 작업을 추가해 보세요.
                   </div>
                 )}
                 {visibleTasks.length === 0 && tasks.length > 0 && (
-                  <div className="flex flex-col items-center justify-center py-16 text-stone-400 gap-3">
+                  <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
                     <p className="text-sm">필터 조건에 맞는 작업이 없습니다.</p>
                     <button type="button" onClick={() => onResetFilters?.()} className="text-xs text-[var(--color-accent)] hover:underline">
                       필터 초기화
@@ -1544,7 +1544,7 @@ export function WBSTable({
             </div>
             {/* 표+간트: 간트 하단 수평 스크롤바(12px)와 세로 뷰포트·스크롤 범위를 맞춤 */}
             {isSplitView && !excelView && (
-              <div className="flex-shrink-0 border-t border-stone-200 overflow-x-hidden" style={{ height: 12 }} aria-hidden />
+              <div className="flex-shrink-0 border-t border-slate-200 overflow-x-hidden" style={{ height: 12 }} aria-hidden />
             )}
           </div>
         )}
@@ -1589,13 +1589,13 @@ export function WBSTable({
               <div className="px-4 py-3 pb-4 flex flex-wrap items-end gap-3">
                 {/* 상태 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">상태</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">상태</label>
                   <select
                     value={bulkStatus}
                     onChange={(e) => setBulkStatus(e.target.value)}
                     className={cn(
                       'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer',
-                      bulkStatus ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                      bulkStatus ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   >
                     <option value="">변경 없음</option>
@@ -1609,14 +1609,14 @@ export function WBSTable({
 
                 {/* 작업 유형(마일스톤·이슈·액션) */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">유형</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">유형</label>
                   <select
                     value={bulkTaskKind}
                     onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
                     title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
                     className={cn(
                       'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer min-w-[8.5rem]',
-                      bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                      bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   >
                     <option value="">변경 없음</option>
@@ -1629,7 +1629,7 @@ export function WBSTable({
 
                 <div className="flex items-center gap-2">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">담당자</label>
+                    <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">담당자</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -1638,7 +1638,7 @@ export function WBSTable({
                         onChange={(e) => setBulkAssignee(e.target.value)}
                         placeholder="조직 회원에서 검색 또는 직접 입력"
                         title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
-                        className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
+                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') executeBulkAssignee();
                         }}
@@ -1655,7 +1655,7 @@ export function WBSTable({
 
                 {/* 공수 — 프로젝트 단위에 맞게 입력 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">
                     {workEffortHeaderTitle}
                   </label>
                   <input
@@ -1665,13 +1665,13 @@ export function WBSTable({
                     value={bulkWorkEffort}
                     onChange={(e) => setBulkWorkEffort(e.target.value)}
                     placeholder={`${workEffortHeaderTitle} 일괄`}
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
                   />
                 </div>
 
                 {/* 진척율(%) — 0~100 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">진척율(%)</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">진척율(%)</label>
                   <input
                     type="number"
                     min="0"
@@ -1687,13 +1687,13 @@ export function WBSTable({
                       '',
                       '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
                     ].join('\n')}
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
                   />
                 </div>
 
                 {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">가중치</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">가중치</label>
                   <input
                     type="number"
                     min="0"
@@ -1702,41 +1702,41 @@ export function WBSTable({
                     onChange={(e) => setBulkWeight(e.target.value)}
                     placeholder="가중치 일괄 지정..."
                     title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
                   />
                 </div>
 
                 {/* 시작일 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">시작일</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">시작일</label>
                   <input
                     type="date"
                     value={bulkStartDate}
                     onChange={(e) => setBulkStartDate(e.target.value)}
                     className={cn(
                       'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                      bulkStartDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                      bulkStartDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   />
                 </div>
 
                 {/* 완료일(종료일) */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">완료일</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">완료일</label>
                   <input
                     type="date"
                     value={bulkEndDate}
                     onChange={(e) => setBulkEndDate(e.target.value)}
                     className={cn(
                       'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                      bulkEndDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                      bulkEndDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   />
                 </div>
 
                 {/* 투입율(%) — 0~100 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">투입율(%)</label>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">투입율(%)</label>
                   <input
                     type="number"
                     min="0"
@@ -1746,7 +1746,7 @@ export function WBSTable({
                     onChange={(e) => setBulkAllocation(e.target.value)}
                     placeholder="0~100"
                     title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
                   />
                 </div>
 
@@ -1791,7 +1791,7 @@ export function WBSTable({
                   선행작업 지우기
                 </button>
 
-                <div className="h-4 w-px bg-stone-200" />
+                <div className="h-4 w-px bg-slate-200" />
 
                 {canEditCurrentProject && (
                   <button
@@ -1805,7 +1805,7 @@ export function WBSTable({
                 )}
                 <button
                   onClick={() => setSelection(new Set())}
-                  className="p-1.5 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
+                  className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <X size={14} />
                 </button>

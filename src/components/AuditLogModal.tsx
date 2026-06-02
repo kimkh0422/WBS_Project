@@ -59,14 +59,14 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
   return (
     <div className={MODAL_BACKDROP_CLASS} onClick={onClose}>
       <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-3xl max-h-[85vh] flex flex-col rounded-xl')} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-stone-200">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <History className="w-5 h-5 text-stone-500" />
-            <h2 className="text-lg font-semibold text-stone-800">변경 이력</h2>
+            <History className="w-5 h-5 text-slate-500" />
+            <h2 className="text-lg font-semibold text-slate-800">변경 이력</h2>
             {isAllMode ? (
               <span className="text-sm text-amber-700 font-medium">— 전체 프로젝트</span>
             ) : projectName ? (
-              <span className="text-sm text-stone-500 break-words" title={projectName}>
+              <span className="text-sm text-slate-500 break-words" title={projectName}>
                 — {projectName}
               </span>
             ) : null}
@@ -74,7 +74,7 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
             aria-label="닫기"
           >
             <X className="w-5 h-5" />
@@ -83,25 +83,25 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
 
         <div className="flex-1 overflow-auto min-h-0 px-4 py-3">
           {loading ? (
-            <div className="flex items-center justify-center py-12 text-stone-500">
+            <div className="flex items-center justify-center py-12 text-slate-500">
               <Loader2 className="w-8 h-8 animate-spin mr-2" />
               <span>이력 불러오는 중…</span>
             </div>
           ) : entries.length === 0 ? (
-            <div className="text-center py-12 text-stone-500 text-sm">기록된 변경 이력이 없습니다.</div>
+            <div className="text-center py-12 text-slate-500 text-sm">기록된 변경 이력이 없습니다.</div>
           ) : (
             <table className="w-full text-sm border-collapse">
-              <thead className="sticky top-0 bg-stone-50 border-b border-stone-200">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">일시</th>
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">사용자</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">일시</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">사용자</th>
                   {isAllMode && (
-                    <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">프로젝트</th>
+                    <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">프로젝트</th>
                   )}
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">구분</th>
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">대상</th>
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">작업</th>
-                  <th className="text-left py-2 px-2 text-xs font-semibold text-stone-500 uppercase tracking-wider">변경 내용</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">구분</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">대상</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">작업</th>
+                  <th className="text-left py-2 px-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">변경 내용</th>
                 </tr>
               </thead>
               <tbody>
@@ -113,30 +113,30 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
                     ? (projectNameMap?.[entry.project_id] ?? `(${entry.project_id.slice(0, 8)}…)`)
                     : '—';
                   return (
-                    <tr key={entry.id} className="border-b border-stone-100 hover:bg-stone-50/50">
-                      <td className="py-2 px-2 text-stone-600 whitespace-nowrap" title={createdAtFull}>
+                    <tr key={entry.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <td className="py-2 px-2 text-slate-600 whitespace-nowrap" title={createdAtFull}>
                         {createdAtFull}
                       </td>
-                      <td className="py-2 px-2 text-stone-700">{entry.user_display ?? '—'}</td>
+                      <td className="py-2 px-2 text-slate-700">{entry.user_display ?? '—'}</td>
                       {isAllMode && (
-                        <td className="py-2 px-2 text-stone-700 break-words" title={projectLabel}>
+                        <td className="py-2 px-2 text-slate-700 break-words" title={projectLabel}>
                           {projectLabel}
                         </td>
                       )}
-                      <td className="py-2 px-2 text-stone-600">{ENTITY_LABEL[entry.entity_type]}</td>
-                      <td className="py-2 px-2 text-stone-700 max-w-[180px] truncate" title={entry.entity_name ?? undefined}>
+                      <td className="py-2 px-2 text-slate-600">{ENTITY_LABEL[entry.entity_type]}</td>
+                      <td className="py-2 px-2 text-slate-700 max-w-[180px] truncate" title={entry.entity_name ?? undefined}>
                         {entry.entity_name ?? (entry.action === 'bulk_update' ? '—' : '—')}
                       </td>
                       <td className="py-2 px-2">
                         <span
                           className={
-                            entry.action === 'delete' ? 'text-red-600' : entry.action === 'create' ? 'text-green-600' : 'text-stone-700'
+                            entry.action === 'delete' ? 'text-red-600' : entry.action === 'create' ? 'text-green-600' : 'text-slate-700'
                           }
                         >
                           {ACTION_LABEL[entry.action]}
                         </span>
                       </td>
-                      <td className="py-2 px-2 text-stone-500 text-xs max-w-[160px] truncate" title={changeSummary ?? undefined}>
+                      <td className="py-2 px-2 text-slate-500 text-xs max-w-[160px] truncate" title={changeSummary ?? undefined}>
                         {changeSummary ?? '—'}
                       </td>
                     </tr>
@@ -147,7 +147,7 @@ export function AuditLogModal({ isOpen, onClose, projectId, projectName, project
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-stone-200 text-xs text-stone-400">
+        <div className="px-4 py-2 border-t border-slate-200 text-xs text-slate-400">
           누가 언제 무엇을 생성·수정·삭제했는지 표시합니다. 최근 100건까지 조회됩니다.
         </div>
       </div>

@@ -117,7 +117,7 @@ function defaultSortDirForProjectsColumn(key: DashboardProjectsSortKey): 'asc' |
 
 function DetailBackBar({ title, onBack, subtitle }: { title: string; onBack: () => void; subtitle?: string }) {
   return (
-    <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-stone-200/90 bg-[var(--color-bg)]/95 backdrop-blur-md px-0.5 pb-4 pt-1 -mt-1">
+    <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-200/90 bg-[var(--color-bg)]/95 backdrop-blur-md px-0.5 pb-4 pt-1 -mt-1">
       <button
         type="button"
         onClick={onBack}
@@ -131,7 +131,7 @@ function DetailBackBar({ title, onBack, subtitle }: { title: string; onBack: () 
       <div className="flex items-start gap-3 min-w-0">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-ink)] tracking-tight break-words">{title}</h1>
-          {subtitle && <p className="text-sm text-stone-500 mt-1">{subtitle}</p>}
+          {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
         </div>
       </div>
     </div>
@@ -366,7 +366,7 @@ export function DashboardDetailPage({
     return (
       <div className={cn('max-w-7xl mx-auto space-y-6')}>
         <DetailBackBar title="프로젝트 상세" onBack={onBack} subtitle="요청한 프로젝트를 찾을 수 없습니다." />
-        <div className="rounded-xl border border-stone-200 bg-white p-8 text-center text-stone-600">
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-600">
           표시 범위에 해당하는 프로젝트가 없거나 삭제되었습니다.
         </div>
       </div>
@@ -439,7 +439,7 @@ export function DashboardDetailPage({
       .sort((a, b) => compareProjectStatRows(a, b, registeredProjectsSort.key, registeredProjectsSort.dir));
 
     const nodeRow = (
-      <tr key={ek} className="bg-teal-50/40 border-t border-stone-100">
+      <tr key={ek} className="bg-teal-50/40 border-t border-slate-100">
         <td colSpan={5} className="p-0">
           <button
             type="button"
@@ -448,13 +448,13 @@ export function DashboardDetailPage({
             style={{ paddingLeft: Math.min(12 + branch.depth * 14, 56) }}
           >
             {expanded ? (
-              <ChevronDown size={16} className="shrink-0 text-stone-500" aria-hidden />
+              <ChevronDown size={16} className="shrink-0 text-slate-500" aria-hidden />
             ) : (
-              <ChevronRight size={16} className="shrink-0 text-stone-500" aria-hidden />
+              <ChevronRight size={16} className="shrink-0 text-slate-500" aria-hidden />
             )}
             <Network size={14} className="text-teal-600 shrink-0" aria-hidden />
-            <span className="font-semibold text-stone-800 flex-1 min-w-0 break-words">{branch.title}</span>
-            <span className="text-[11px] tabular-nums text-stone-500 shrink-0">
+            <span className="font-semibold text-slate-800 flex-1 min-w-0 break-words">{branch.title}</span>
+            <span className="text-[11px] tabular-nums text-slate-500 shrink-0">
               프로젝트 {rollup.nProj} · 작업 {rollup.taskSum}
               {rollup.taskSum > 0 ? ` · 진척 ${formatPercent1(branchProgress)}%` : ''}
             </span>
@@ -467,13 +467,13 @@ export function DashboardDetailPage({
 
     const childRows = branch.children.flatMap((c) => renderOrgBranchRows(divisionId, c));
     const projRows = sortedLeafProjects.map((p) => (
-      <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
-        <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
-          <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+      <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+        <td className="px-4 py-2.5 font-medium text-slate-800 break-words">
+          <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-slate-800" />
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
-        <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">{formatPercent1(p.stats.progress)}%</td>
-        <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.total}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 font-semibold">{formatPercent1(p.stats.progress)}%</td>
+        <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.assigneeCount}</td>
         <td className="px-3 py-2.5 text-right">
           <button
             type="button"
@@ -510,7 +510,7 @@ export function DashboardDetailPage({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <div
-                  className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5"
+                  className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
                   role="tablist"
                   aria-label="프로젝트 목록 표시 방식"
                 >
@@ -524,8 +524,8 @@ export function DashboardDetailPage({
                     className={cn(
                       'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
                       showRegisteredProjectsOrgLayout
-                        ? 'bg-white text-teal-900 shadow-sm border border-stone-200/80'
-                        : 'text-stone-600 hover:text-stone-900 disabled:opacity-40 disabled:cursor-not-allowed',
+                        ? 'bg-white text-teal-900 shadow-sm border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed',
                     )}
                   >
                     <Network size={14} aria-hidden />
@@ -539,15 +539,15 @@ export function DashboardDetailPage({
                     className={cn(
                       'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
                       !showRegisteredProjectsOrgLayout
-                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                        : 'text-stone-600 hover:text-stone-900',
+                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900',
                     )}
                   >
                     <Table2 size={14} aria-hidden />
                     목록
                   </button>
                 </div>
-                {!orgLayoutAvailable ? <p className="text-xs text-stone-500">조직 트리가 없어 목록으로만 표시합니다.</p> : null}
+                {!orgLayoutAvailable ? <p className="text-xs text-slate-500">조직 트리가 없어 목록으로만 표시합니다.</p> : null}
               </div>
               <button
                 type="button"
@@ -557,7 +557,7 @@ export function DashboardDetailPage({
                 className={cn(
                   'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors',
                   pdfExporting
-                    ? 'border-stone-200 bg-stone-100 text-stone-400 cursor-not-allowed'
+                    ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
                     : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 hover:border-rose-300',
                 )}
               >
@@ -565,10 +565,10 @@ export function DashboardDetailPage({
                 {pdfExporting ? 'PDF 생성 중…' : 'PDF 리포트'}
               </button>
             </div>
-            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-stone-50 border-b border-stone-200">
-                  <tr className="text-xs text-stone-500">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-xs text-slate-500">
                     <th
                       className="text-left font-medium p-0"
                       aria-sort={
@@ -584,14 +584,14 @@ export function DashboardDetailPage({
                               : { key: 'name', dir: defaultSortDirForProjectsColumn('name') },
                           )
                         }
-                        className="w-full text-left px-4 py-2.5 inline-flex items-center gap-1 font-medium text-stone-500 hover:text-stone-800 hover:bg-stone-100/80 transition-colors"
+                        className="w-full text-left px-4 py-2.5 inline-flex items-center gap-1 font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 transition-colors"
                       >
                         프로젝트
                         {registeredProjectsSort.key === 'name' &&
                           (registeredProjectsSort.dir === 'asc' ? (
-                            <ChevronUp size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronUp size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ) : (
-                            <ChevronDown size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronDown size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ))}
                       </button>
                     </th>
@@ -614,14 +614,14 @@ export function DashboardDetailPage({
                               : { key: 'tasks', dir: defaultSortDirForProjectsColumn('tasks') },
                           )
                         }
-                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-stone-500 hover:text-stone-800 hover:bg-stone-100/80 transition-colors"
+                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 transition-colors"
                       >
                         작업 수
                         {registeredProjectsSort.key === 'tasks' &&
                           (registeredProjectsSort.dir === 'asc' ? (
-                            <ChevronUp size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronUp size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ) : (
-                            <ChevronDown size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronDown size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ))}
                       </button>
                     </th>
@@ -644,14 +644,14 @@ export function DashboardDetailPage({
                               : { key: 'progress', dir: defaultSortDirForProjectsColumn('progress') },
                           )
                         }
-                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-stone-500 hover:text-stone-800 hover:bg-stone-100/80 transition-colors"
+                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 transition-colors"
                       >
                         진척률
                         {registeredProjectsSort.key === 'progress' &&
                           (registeredProjectsSort.dir === 'asc' ? (
-                            <ChevronUp size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronUp size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ) : (
-                            <ChevronDown size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronDown size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ))}
                       </button>
                     </th>
@@ -674,14 +674,14 @@ export function DashboardDetailPage({
                               : { key: 'assignees', dir: defaultSortDirForProjectsColumn('assignees') },
                           )
                         }
-                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-stone-500 hover:text-stone-800 hover:bg-stone-100/80 transition-colors"
+                        className="w-full px-3 py-2.5 inline-flex items-center justify-end gap-1 font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100/80 transition-colors"
                       >
                         담당자 수
                         {registeredProjectsSort.key === 'assignees' &&
                           (registeredProjectsSort.dir === 'asc' ? (
-                            <ChevronUp size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronUp size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ) : (
-                            <ChevronDown size={14} className="shrink-0 text-stone-600" aria-hidden />
+                            <ChevronDown size={14} className="shrink-0 text-slate-600" aria-hidden />
                           ))}
                       </button>
                     </th>
@@ -696,8 +696,8 @@ export function DashboardDetailPage({
                         for (const b of blocks) {
                           if (b.totalInBlock === 0) continue;
                           rows.push(
-                            <tr key={`org-div-${b.division.id}`} className="bg-stone-100/90 border-t border-stone-200">
-                              <td colSpan={5} className="px-4 py-2 text-xs font-bold text-stone-700 tracking-wide">
+                            <tr key={`org-div-${b.division.id}`} className="bg-slate-100/90 border-t border-slate-200">
+                              <td colSpan={5} className="px-4 py-2 text-xs font-bold text-slate-700 tracking-wide">
                                 {b.division.name}
                               </td>
                             </tr>,
@@ -712,7 +712,7 @@ export function DashboardDetailPage({
                           const umKey = 'org:__unmapped__';
                           const umEx = expandedOrgNodeKeys.has(umKey);
                           rows.push(
-                            <tr key="org-unmapped-head" className="bg-amber-50/60 border-t border-stone-200">
+                            <tr key="org-unmapped-head" className="bg-amber-50/60 border-t border-slate-200">
                               <td colSpan={5} className="p-0">
                                 <button
                                   type="button"
@@ -720,13 +720,13 @@ export function DashboardDetailPage({
                                   className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-amber-50/90 transition-colors"
                                 >
                                   {umEx ? (
-                                    <ChevronDown size={16} className="shrink-0 text-stone-500" aria-hidden />
+                                    <ChevronDown size={16} className="shrink-0 text-slate-500" aria-hidden />
                                   ) : (
-                                    <ChevronRight size={16} className="shrink-0 text-stone-500" aria-hidden />
+                                    <ChevronRight size={16} className="shrink-0 text-slate-500" aria-hidden />
                                   )}
                                   <Network size={14} className="text-amber-700 shrink-0" aria-hidden />
-                                  <span className="font-semibold text-stone-800 flex-1 min-w-0">조직 미매칭</span>
-                                  <span className="text-[11px] text-stone-500 tabular-nums shrink-0">{unmappedRows.length}</span>
+                                  <span className="font-semibold text-slate-800 flex-1 min-w-0">조직 미매칭</span>
+                                  <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{unmappedRows.length}</span>
                                 </button>
                               </td>
                             </tr>,
@@ -734,15 +734,15 @@ export function DashboardDetailPage({
                           if (umEx) {
                             for (const p of unmappedRows) {
                               rows.push(
-                                <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
-                                  <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
-                                    <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+                                <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                                  <td className="px-4 py-2.5 font-medium text-slate-800 break-words">
+                                    <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-slate-800" />
                                   </td>
-                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
-                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.total}</td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 font-semibold">
                                     {formatPercent1(p.stats.progress)}%
                                   </td>
-                                  <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+                                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.assigneeCount}</td>
                                   <td className="px-3 py-2.5 text-right">
                                     <button
                                       type="button"
@@ -772,15 +772,15 @@ export function DashboardDetailPage({
                         return rows;
                       })()
                     : registeredProjectsSorted.map((p) => (
-                        <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50/70">
-                          <td className="px-4 py-2.5 font-medium text-stone-800 break-words">
-                            <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-stone-800" />
+                        <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                          <td className="px-4 py-2.5 font-medium text-slate-800 break-words">
+                            <ProjectNameLabel project={p} name={p.name} nameClassName="font-medium text-slate-800" />
                           </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.total}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-700 font-semibold">
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.total}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 font-semibold">
                             {formatPercent1(p.stats.progress)}%
                           </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-stone-600">{p.stats.assigneeCount}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{p.stats.assigneeCount}</td>
                           <td className="px-3 py-2.5 text-right">
                             <button
                               type="button"
@@ -797,7 +797,7 @@ export function DashboardDetailPage({
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-stone-500">
+            <p className="text-xs text-slate-500">
               요약 카드의 숫자와 동일하게, 대시보드 집계 범위(제외·필터)에 맞춘 프로젝트만 표시합니다.
               {orgLayoutAvailable ? ' 조직도 보기에서는 PM(또는 소유자)의 부서를 조직 트리 부서명과 맞춰 하위 조직별로 묶습니다.' : null}
             </p>
@@ -807,17 +807,17 @@ export function DashboardDetailPage({
         {kind === 'tasks' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-stone-200 bg-white p-5">
-                <div className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1">총 작업 수</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">총 작업 수</div>
                 <div className="text-3xl font-bold text-[var(--color-ink)] tabular-nums">{summary.totalTasks}</div>
               </div>
-              <div className="rounded-xl border border-stone-200 bg-white p-5">
-                <div className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1">프로젝트 수</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">프로젝트 수</div>
                 <div className="text-3xl font-bold text-sky-700 tabular-nums">{summary.totalProjects}</div>
               </div>
             </div>
-            <div className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
-              <h3 className="text-sm font-bold text-stone-700 flex items-center gap-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+              <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                 <BarChart3 size={16} className="text-violet-600" aria-hidden />
                 상태별 작업 수
               </h3>
@@ -825,27 +825,27 @@ export function DashboardDetailPage({
                 {(wbsSettings.statusConfigs ?? []).map((c) => (
                   <li
                     key={c.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs"
                   >
-                    <span className="font-semibold text-stone-700">{c.name}</span>
-                    <span className="tabular-nums font-bold text-stone-900">{statusBreakdown[c.id] ?? 0}</span>
+                    <span className="font-semibold text-slate-700">{c.name}</span>
+                    <span className="tabular-nums font-bold text-slate-900">{statusBreakdown[c.id] ?? 0}</span>
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-              <div className="px-4 py-3 border-b border-stone-100 text-sm font-bold text-stone-700">프로젝트별 작업 수</div>
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-700">프로젝트별 작업 수</div>
               <table className="w-full text-sm">
-                <thead className="bg-stone-50 border-b border-stone-200">
-                  <tr className="text-xs text-stone-500">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-xs text-slate-500">
                     <th className="text-left font-medium px-4 py-2">프로젝트</th>
                     <th className="text-right font-medium px-3 py-2 w-28">작업 수</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tasksByProjectRows.map(({ project, count }) => (
-                    <tr key={project.id} className="border-t border-stone-100 hover:bg-stone-50/70">
-                      <td className="px-4 py-2 text-stone-800 break-words">
+                    <tr key={project.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="px-4 py-2 text-slate-800 break-words">
                         {formatProjectDisplayName(project.name, project.projectKind)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
@@ -889,38 +889,38 @@ export function DashboardDetailPage({
                   <div className="text-xs font-bold uppercase tracking-wide text-violet-800/90">승인된 프로필 기준</div>
                   <div className="mt-1 text-3xl font-bold tabular-nums text-[var(--color-ink)]">
                     {memberCount}
-                    <span className="text-lg font-bold text-stone-500 ml-1">명</span>
+                    <span className="text-lg font-bold text-slate-500 ml-1">명</span>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="rounded-2xl border border-stone-200/90 bg-white shadow-sm overflow-hidden flex flex-col max-h-[min(70vh,560px)]">
-              <div className="shrink-0 border-b border-stone-100 bg-stone-50/80 px-3 py-2.5 sm:px-4">
+            <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden flex flex-col max-h-[min(70vh,560px)]">
+              <div className="shrink-0 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:px-4">
                 <label className="sr-only" htmlFor="dashboard-member-search">
                   회원 이름 검색
                 </label>
                 <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" aria-hidden />
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden />
                   <input
                     id="dashboard-member-search"
                     type="search"
                     value={memberSearchQuery}
                     onChange={(e) => setMemberSearchQuery(e.target.value)}
                     placeholder="이름·부서·직함으로 검색…"
-                    className="w-full rounded-xl border border-stone-200 bg-white py-2 pl-9 pr-3 text-sm text-stone-800 placeholder:text-stone-400 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 shadow-inner focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
                   />
                 </div>
               </div>
               <ul className="overflow-y-auto p-2 sm:p-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {memberNamesSorted.length === 0 ? (
-                  <li className="col-span-full px-4 py-8 text-center text-sm text-stone-500">표시할 회원 표시명이 없습니다.</li>
+                  <li className="col-span-full px-4 py-8 text-center text-sm text-slate-500">표시할 회원 표시명이 없습니다.</li>
                 ) : memberNamesFiltered.length === 0 ? (
-                  <li className="col-span-full px-4 py-8 text-center text-sm text-stone-500">검색 결과가 없습니다.</li>
+                  <li className="col-span-full px-4 py-8 text-center text-sm text-slate-500">검색 결과가 없습니다.</li>
                 ) : (
                   memberNamesFiltered.map((name) => (
                     <li
                       key={name}
-                      className="rounded-xl border border-transparent px-3 py-2.5 text-sm text-stone-800 flex items-center gap-2.5 hover:border-violet-100 hover:bg-violet-50/40 transition-colors"
+                      className="rounded-xl border border-transparent px-3 py-2.5 text-sm text-slate-800 flex items-center gap-2.5 hover:border-violet-100 hover:bg-violet-50/40 transition-colors"
                     >
                       <span className="w-2 h-2 rounded-full bg-violet-500 shrink-0 shadow-sm shadow-violet-400/50" aria-hidden />
                       <span className="break-words min-w-0">{formatAssigneeDisplay(name, assigneeDisplayMetaByName) || name}</span>
@@ -936,32 +936,32 @@ export function DashboardDetailPage({
           <div className="space-y-4">
             <DashboardVisitTrendChart points={visitTrend} loading={dailyLoading} subtitle="세션당 하루 1회 집계" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-stone-200 bg-white p-5">
-                <div className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1">금일 접속(세션)</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">금일 접속(세션)</div>
                 <div className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</div>
               </div>
-              <div className="rounded-xl border border-stone-200 bg-white p-5">
-                <div className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-1">누적 접속(세션)</div>
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">누적 접속(세션)</div>
                 <div className="text-3xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</div>
               </div>
             </div>
-            <div className="rounded-xl border border-stone-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,480px)]">
-              <div className="px-4 py-3 border-b border-stone-100 text-sm font-bold text-stone-800 shrink-0">금일 접속자 명단</div>
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,480px)]">
+              <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-800 shrink-0">금일 접속자 명단</div>
               <div className="p-4 overflow-y-auto flex-1 text-sm">
                 {dailyLoading ? (
-                  <p className="text-stone-500 text-center py-8">불러오는 중…</p>
+                  <p className="text-slate-500 text-center py-8">불러오는 중…</p>
                 ) : dailyList.length === 0 ? (
-                  <p className="text-stone-500 text-center py-6 text-sm">
+                  <p className="text-slate-500 text-center py-6 text-sm">
                     표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.
                   </p>
                 ) : (
                   <ul className="space-y-2">
                     {dailyList.map((row) => (
-                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-stone-100 last:border-0">
-                        <span className="font-medium text-stone-800 break-words min-w-0">
+                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
+                        <span className="font-medium text-slate-800 break-words min-w-0">
                           {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
                         </span>
-                        <span className="text-xs text-stone-500 tabular-nums shrink-0 whitespace-nowrap">
+                        <span className="text-xs text-slate-500 tabular-nums shrink-0 whitespace-nowrap">
                           {row.visitedAt
                             ? (() => {
                                 const d = new Date(row.visitedAt);
@@ -977,23 +977,23 @@ export function DashboardDetailPage({
                 )}
               </div>
             </div>
-            <div className="rounded-xl border border-stone-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,520px)]">
-              <div className="px-4 py-3 border-b border-stone-100 shrink-0">
-                <div className="text-sm font-bold text-stone-800">누적 접속 순위</div>
-                <div className="text-xs text-stone-500 mt-0.5">세션당 하루 1회 집계 · 접속 횟수 많은 순</div>
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,520px)]">
+              <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+                <div className="text-sm font-bold text-slate-800">누적 접속 순위</div>
+                <div className="text-xs text-slate-500 mt-0.5">세션당 하루 1회 집계 · 접속 횟수 많은 순</div>
               </div>
               <div className="p-4 overflow-y-auto flex-1 text-sm">
                 {dailyLoading ? (
-                  <p className="text-stone-500 text-center py-8">불러오는 중…</p>
+                  <p className="text-slate-500 text-center py-8">불러오는 중…</p>
                 ) : visitorRanking.length === 0 ? (
-                  <p className="text-stone-500 text-center py-6 text-sm">
-                    표시할 기록이 없거나 DB 함수 <code className="text-xs bg-stone-100 px-1 rounded">get_visitor_ranking</code>이 아직
+                  <p className="text-slate-500 text-center py-6 text-sm">
+                    표시할 기록이 없거나 DB 함수 <code className="text-xs bg-slate-100 px-1 rounded">get_visitor_ranking</code>이 아직
                     배포되지 않았을 수 있습니다.
                   </p>
                 ) : (
                   <ul className="space-y-2">
                     {visitorRanking.map((row, index) => (
-                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-stone-100 last:border-0">
+                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
                         <div className="flex items-start gap-2 min-w-0">
                           <span
                             className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-50 text-purple-800 text-xs font-bold tabular-nums shrink-0"
@@ -1001,13 +1001,13 @@ export function DashboardDetailPage({
                           >
                             {index + 1}
                           </span>
-                          <span className="font-medium text-stone-800 break-words pt-0.5">
+                          <span className="font-medium text-slate-800 break-words pt-0.5">
                             {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
                           </span>
                         </div>
                         <div className="text-right shrink-0 space-y-0.5">
                           <div className="text-sm font-bold text-purple-700 tabular-nums">{row.visitCount}회</div>
-                          <div className="text-[11px] text-stone-500 tabular-nums whitespace-nowrap">
+                          <div className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
                             마지막{' '}
                             {row.lastVisitedAt
                               ? (() => {
@@ -1034,9 +1034,9 @@ export function DashboardDetailPage({
         )}
 
         {kind === 'issues' && (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-stone-100 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-bold text-stone-800">총 {issueTasksAll.length}건</span>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-bold text-slate-800">총 {issueTasksAll.length}건</span>
               <button
                 type="button"
                 disabled={!onOpenAllTasksTable}
@@ -1049,8 +1049,8 @@ export function DashboardDetailPage({
             </div>
             <div className="overflow-x-auto max-h-[min(75vh,640px)] overflow-y-auto">
               <table className="w-full text-sm min-w-[640px]">
-                <thead className="bg-stone-50 border-b border-stone-200 sticky top-0 z-[1]">
-                  <tr className="text-xs text-stone-500">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-[1]">
+                  <tr className="text-xs text-slate-500">
                     <th className="text-left font-medium px-3 py-2">작업명</th>
                     <th className="text-left font-medium px-3 py-2 w-44">프로젝트</th>
                     <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
@@ -1063,21 +1063,21 @@ export function DashboardDetailPage({
                   {issueTasksAll.map((t) => {
                     const proj = projectMap.get(t.projectId);
                     return (
-                      <tr key={t.id} className="border-t border-stone-100 hover:bg-rose-50/40">
-                        <td className="px-3 py-2 text-stone-800">
+                      <tr key={t.id} className="border-t border-slate-100 hover:bg-rose-50/40">
+                        <td className="px-3 py-2 text-slate-800">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <Bug size={12} className="text-rose-500 shrink-0" aria-hidden />
                             <span className="break-words">{t.name || '(이름 없음)'}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-stone-600 break-words">
+                        <td className="px-3 py-2 text-slate-600 break-words">
                           {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
                         </td>
-                        <td className="px-3 py-2 text-stone-600 truncate max-w-[10rem]">
+                        <td className="px-3 py-2 text-slate-600 truncate max-w-[10rem]">
                           {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                         </td>
-                        <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                        <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
+                        <td className="px-3 py-2 text-slate-500 tabular-nums">{t.endDate || '—'}</td>
+                        <td className="px-3 py-2 text-right text-slate-600 tabular-nums">
                           {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : '—'}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -1110,17 +1110,17 @@ export function DashboardDetailPage({
         )}
 
         {kind === 'actions' && (
-          <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-stone-100 flex flex-wrap items-center justify-between gap-2">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2 min-w-0">
-                <span className="text-sm font-bold text-stone-800 shrink-0">
+                <span className="text-sm font-bold text-slate-800 shrink-0">
                   {actionTasksAll.length}건 표시
                   {actionTasksWithDueDateCount > 0 && actionTasksAll.length !== actionTasksWithDueDateCount && (
-                    <span className="text-stone-500 font-normal"> / 마감일 지정 {actionTasksWithDueDateCount}건</span>
+                    <span className="text-slate-500 font-normal"> / 마감일 지정 {actionTasksWithDueDateCount}건</span>
                   )}
                 </span>
                 <div
-                  className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-stone-50/80 p-0.5 shrink-0"
+                  className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-slate-50/80 p-0.5 shrink-0"
                   role="group"
                   aria-label="액션 항목 마감일 구간"
                 >
@@ -1137,7 +1137,7 @@ export function DashboardDetailPage({
                       onClick={() => onActionDueDateFilterChange(id)}
                       className={cn(
                         'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                        actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-white',
+                        actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-slate-600 hover:bg-white',
                       )}
                     >
                       {label}
@@ -1156,13 +1156,13 @@ export function DashboardDetailPage({
               </button>
             </div>
             {actionTasksWithDueDateCount === 0 ? (
-              <div className="px-4 py-10 text-sm text-stone-500 text-center leading-relaxed">
+              <div className="px-4 py-10 text-sm text-slate-500 text-center leading-relaxed">
                 마감일(종료일)이 지정된 액션 항목이 없습니다.
                 <br />
                 작업 편집에서「액션 항목」을 켜고 종료일을 입력해 주세요.
               </div>
             ) : actionTasksAll.length === 0 ? (
-              <div className="px-4 py-10 text-sm text-stone-500 text-center leading-relaxed">
+              <div className="px-4 py-10 text-sm text-slate-500 text-center leading-relaxed">
                 선택한 구간(
                 {actionDueDateFilter === 'today' ? '금일' : actionDueDateFilter === 'thisWeek' ? '금주' : '기한초과'}
                 )에 해당하는 액션 항목이 없습니다.
@@ -1170,8 +1170,8 @@ export function DashboardDetailPage({
             ) : (
               <div className="overflow-x-auto max-h-[min(75vh,640px)] overflow-y-auto">
                 <table className="w-full text-sm min-w-[560px]">
-                  <thead className="bg-stone-50 border-b border-stone-200 sticky top-0 z-[1]">
-                    <tr className="text-xs text-stone-500">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-[1]">
+                    <tr className="text-xs text-slate-500">
                       <th className="text-center font-medium px-2 py-2 w-14">완료</th>
                       <th className="text-left font-medium px-3 py-2">액션명</th>
                       <th className="text-left font-medium px-3 py-2 w-44">프로젝트</th>
@@ -1189,7 +1189,7 @@ export function DashboardDetailPage({
                         <tr
                           key={t.id}
                           className={cn(
-                            'border-t border-stone-100 cursor-pointer',
+                            'border-t border-slate-100 cursor-pointer',
                             actionDueSurfaceClassName(dueState, 'row') || 'hover:bg-teal-50/35',
                           )}
                           onClick={() => setActionDetailTask(t)}
@@ -1205,28 +1205,28 @@ export function DashboardDetailPage({
                                 else updateTask(t.id, { status: todoStatusId, progress: 0 });
                               }}
                               className={cn(
-                                'rounded border-stone-300 focus:ring-teal-500',
+                                'rounded border-slate-300 focus:ring-teal-500',
                                 dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
                               )}
                               title={done ? '완료 해제' : '완료 표시'}
                               aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
                             />
                           </td>
-                          <td className="px-3 py-2 text-stone-800">
+                          <td className="px-3 py-2 text-slate-800">
                             <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                               <ListChecks
                                 size={12}
                                 className={cn('shrink-0', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
                                 aria-hidden
                               />
-                              <span className={cn('break-words', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
+                              <span className={cn('break-words', done && 'line-through text-slate-500')}>{t.name || '(이름 없음)'}</span>
                               <ActionDueStatusBadge state={dueState} />
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-stone-600 break-words">
+                          <td className="px-3 py-2 text-slate-600 break-words">
                             {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
                           </td>
-                          <td className="px-3 py-2 text-stone-600 truncate max-w-[10rem]">
+                          <td className="px-3 py-2 text-slate-600 truncate max-w-[10rem]">
                             {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
                           </td>
                           <td className="px-3 py-2">
@@ -1278,7 +1278,7 @@ export function DashboardDetailPage({
                       const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
                       return (
                         <span
-                          className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-stone-700')}
+                          className={cn('text-xs font-medium px-2.5 py-1 rounded-full border', colorProps.className, 'text-slate-700')}
                           style={colorProps.style}
                         >
                           {sc?.name ?? task.status}
@@ -1303,51 +1303,51 @@ export function DashboardDetailPage({
 
         {kind === 'project' && projectDetailRow && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
-              <p className="text-sm text-stone-600 whitespace-pre-wrap break-words">{projectDetailRow.description || '설명 없음'}</p>
-              <div className="flex flex-wrap gap-3 text-sm text-stone-600">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+              <p className="text-sm text-slate-600 whitespace-pre-wrap break-words">{projectDetailRow.description || '설명 없음'}</p>
+              <div className="flex flex-wrap gap-3 text-sm text-slate-600">
                 <span>
-                  시작일: <strong className="text-stone-900">{formatProjectPeriodDate(projectDetailRow.startDate)}</strong>
+                  시작일: <strong className="text-slate-900">{formatProjectPeriodDate(projectDetailRow.startDate)}</strong>
                 </span>
-                <span className="text-stone-300" aria-hidden>
+                <span className="text-slate-300" aria-hidden>
                   ·
                 </span>
                 <span>
-                  종료일: <strong className="text-stone-900">{formatProjectPeriodDate(projectDetailRow.endDate)}</strong>
+                  종료일: <strong className="text-slate-900">{formatProjectPeriodDate(projectDetailRow.endDate)}</strong>
                 </span>
-                <span className="text-stone-300" aria-hidden>
+                <span className="text-slate-300" aria-hidden>
                   ·
                 </span>
                 <span>
-                  작업 수: <strong className="text-stone-900 tabular-nums">{projectDetailRow.stats.total}</strong>
+                  작업 수: <strong className="text-slate-900 tabular-nums">{projectDetailRow.stats.total}</strong>
                 </span>
-                <span className="text-stone-300" aria-hidden>
+                <span className="text-slate-300" aria-hidden>
                   ·
                 </span>
                 <span>
-                  담당자 수: <strong className="text-stone-900 tabular-nums">{projectDetailRow.stats.assigneeCount}</strong>
+                  담당자 수: <strong className="text-slate-900 tabular-nums">{projectDetailRow.stats.assigneeCount}</strong>
                 </span>
               </div>
               <div>
                 <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                  <span className="text-xs font-bold text-stone-500 uppercase tracking-wide">전체 진척률</span>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">전체 진척률</span>
                   <span className="text-2xl font-bold text-indigo-600 tabular-nums">
                     {formatPercent1(projectDetailRow.stats.progress)}%
                   </span>
                 </div>
-                <div className="h-2.5 bg-stone-100 rounded-full overflow-hidden">
+                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
                     style={{ width: `${Math.min(100, projectDetailRow.stats.progress)}%` }}
                   />
                 </div>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-stone-500 pt-2 border-t border-stone-100">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 pt-2 border-t border-slate-100">
                 {(wbsSettings.statusConfigs ?? []).map((config, i) => (
                   <span key={config.id} className="whitespace-nowrap">
-                    {i > 0 && <span className="text-stone-300 mr-2">·</span>}
+                    {i > 0 && <span className="text-slate-300 mr-2">·</span>}
                     {config.name}{' '}
-                    <span className="tabular-nums font-semibold text-stone-700">{projectDetailRow.stats.statusCounts[config.id] || 0}</span>
+                    <span className="tabular-nums font-semibold text-slate-700">{projectDetailRow.stats.statusCounts[config.id] || 0}</span>
                   </span>
                 ))}
               </div>
@@ -1375,7 +1375,7 @@ export function DashboardDetailPage({
             <button
               type="button"
               onClick={() => setActionDetailTask(null)}
-              className="px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+              className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
             >
               닫기
             </button>

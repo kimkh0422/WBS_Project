@@ -70,6 +70,7 @@ import { useMatchMedia } from './hooks/useMatchMedia';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
 import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
+import { isInternalCompanyEmail } from './lib/emailDomain';
 import { useOrganization } from './context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
 import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
@@ -109,6 +110,8 @@ const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then((
 const AllocationOverviewPage = React.lazy(() =>
   import('./components/AllocationOverviewPage').then((m) => ({ default: m.AllocationOverviewPage })),
 );
+const SalesOutlookPage = React.lazy(() => import('./components/SalesOutlookPage').then((m) => ({ default: m.SalesOutlookPage })));
+const WeeklyReportPage = React.lazy(() => import('./components/WeeklyReportPage').then((m) => ({ default: m.WeeklyReportPage })));
 const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
 const VersionManager = React.lazy(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
 const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
@@ -165,10 +168,42 @@ function WBSApp({
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
   // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
-  type ViewType = 'table' | 'tablegantt' | 'gantt' | 'kanban' | 'mindmap' | 'dashboard' | 'projects' | 'allocation';
-  const VALID_VIEWS = new Set<string>(['table', 'tablegantt', 'gantt', 'kanban', 'mindmap', 'dashboard', 'projects', 'allocation']);
+  type ViewType =
+    | 'table'
+    | 'tablegantt'
+    | 'gantt'
+    | 'kanban'
+    | 'mindmap'
+    | 'dashboard'
+    | 'projects'
+    | 'allocation'
+    | 'outlook'
+    | 'weekreport';
+  const VALID_VIEWS = new Set<string>([
+    'table',
+    'tablegantt',
+    'gantt',
+    'kanban',
+    'mindmap',
+    'dashboard',
+    'projects',
+    'allocation',
+    'outlook',
+    'weekreport',
+  ]);
   /** 숨김 뷰 보정·기본 경로에 사용: 앞쪽부터 첫 미숨김 뷰 */
-  const MAIN_NAV_VIEW_ORDER: ViewType[] = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
+  const MAIN_NAV_VIEW_ORDER: ViewType[] = [
+    'dashboard',
+    'projects',
+    'allocation',
+    'outlook',
+    'weekreport',
+    'table',
+    'tablegantt',
+    'gantt',
+    'kanban',
+    'mindmap',
+  ];
   function pickFirstVisibleView(hidden: Set<string>): ViewType {
     for (const v of MAIN_NAV_VIEW_ORDER) {
       if (!hidden.has(v)) return v;
@@ -269,7 +304,7 @@ function WBSApp({
     return window.matchMedia('(max-width: 767px)').matches;
   });
   // 메뉴(탭) 숨김: `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭도 숨김.
-  // 기본으로 표+간트(`tablegantt`)·칸반(`kanban`)은 항상 숨김(표만·간트만·대시보드 등은 그대로).
+  // 기본으로 표+간트(`tablegantt`)·칸반(`kanban`)·영업 아웃룩(`outlook`)은 항상 숨김.
   // `VITE_PROJECT_STATUS_ONLY=true` 이면 표·간트·칸반·프로젝트 관리·마인드맵을 추가로 숨기고 대시보드(프로젝트 현황) 중심으로 둡니다.
   // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨). 마인드맵은 관리자 전용 유지.
   const hiddenViews = React.useMemo(() => {
@@ -283,8 +318,13 @@ function WBSApp({
     );
     set.add('tablegantt');
     set.add('kanban');
+    set.add('outlook');
     if (!effectiveIsAdmin) {
       set.add('mindmap');
+    }
+    // 주간업무보고: @gmtc.kr 사내 회원에게만 노출 (미로그인·외부 도메인은 숨김 → 내비·라우팅·딥링크 모두 차단)
+    if (!isInternalCompanyEmail(user?.email ?? '')) {
+      set.add('weekreport');
     }
     if (VITE_PROJECT_STATUS_ONLY) {
       for (const v of ['table', 'tablegantt', 'gantt', 'kanban', 'projects', 'mindmap'] as const) {
@@ -292,7 +332,7 @@ function WBSApp({
       }
     }
     return set;
-  }, [effectiveIsAdmin]);
+  }, [effectiveIsAdmin, user?.email]);
 
   /** 768px 미만: 대시보드 중심 읽기 전용(표·간트 등 숨김). 대시보드가 env로 숨겨진 경우는 기존 동작 유지 */
   const isMobileLayout = useMatchMedia('(max-width: 767px)');
@@ -1290,7 +1330,7 @@ function WBSApp({
             <button
               type="button"
               onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] text-left"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all min-w-[140px] text-left"
               title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
             >
               <span className="flex-1 break-words">
@@ -1317,7 +1357,7 @@ function WBSApp({
                     Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
                   return (
                     <>
-                      <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
+                      <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
                         <input
                           ref={(el) => {
                             (projectFilterAllCheckboxRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
@@ -1346,7 +1386,7 @@ function WBSApp({
                         return (
                           <label
                             key={p.id}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-stone-700 hover:bg-slate-50 cursor-pointer"
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer"
                           >
                             <input
                               type="checkbox"
@@ -1872,6 +1912,14 @@ function WBSApp({
                       }}
                     />
                   </ErrorBoundary>
+                ) : view === 'outlook' ? (
+                  <ErrorBoundary viewName="영업 아웃룩">
+                    <SalesOutlookPage />
+                  </ErrorBoundary>
+                ) : view === 'weekreport' ? (
+                  <ErrorBoundary viewName="주간업무보고">
+                    <WeeklyReportPage />
+                  </ErrorBoundary>
                 ) : view === 'mindmap' ? (
                   <ErrorBoundary viewName="마인드맵">
                     <MindMapView filters={effectiveFilters} />
@@ -1882,7 +1930,12 @@ function WBSApp({
                   </ErrorBoundary>
                 ))}
             </div>
-            {isShortcutsVisible && <ShortcutsSidebar view={view} onClose={() => setIsShortcutsVisible(false)} />}
+            {isShortcutsVisible && (
+              <ShortcutsSidebar
+                view={view === 'outlook' || view === 'weekreport' ? 'dashboard' : view}
+                onClose={() => setIsShortcutsVisible(false)}
+              />
+            )}
           </div>
         </Suspense>
       </main>

@@ -1242,12 +1242,12 @@ export function Dashboard({
           <button
             type="button"
             onClick={() => setShowAdvancedDashboardToolbar((v) => !v)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors"
             aria-expanded={showAdvancedDashboardToolbar}
           >
             <ChevronDown
               size={14}
-              className={cn('text-stone-500 shrink-0 transition-transform', showAdvancedDashboardToolbar && 'rotate-180')}
+              className={cn('text-slate-500 shrink-0 transition-transform', showAdvancedDashboardToolbar && 'rotate-180')}
               aria-hidden
             />
             고급 (구분·부서·집계 제외)
@@ -1262,8 +1262,8 @@ export function Dashboard({
             className={cn(
               'inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors shrink-0',
               canResetDashboardDisplayFilters
-                ? 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50 hover:border-stone-300'
-                : 'border-transparent bg-stone-100 text-stone-400 cursor-not-allowed',
+                ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                : 'border-transparent bg-slate-100 text-slate-400 cursor-not-allowed',
             )}
             title="구분·부서·프로젝트·집계 제외·빠른 필터·기간 미정만·활성 부서만을 모두 기본값으로 되돌립니다."
           >
@@ -1293,7 +1293,7 @@ export function Dashboard({
                         'px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors',
                         on
                           ? 'bg-violet-600 border-violet-600 text-white hover:bg-violet-700'
-                          : 'bg-white border-stone-200 text-stone-400 line-through hover:bg-stone-50',
+                          : 'bg-white border-slate-200 text-slate-400 line-through hover:bg-slate-50',
                       )}
                       title={on ? '클릭하여 이 구분을 집계에서 제외' : '클릭하여 이 구분을 집계에 포함'}
                       aria-pressed={on}
@@ -1326,7 +1326,7 @@ export function Dashboard({
                     'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
                     showMyDivisionOnly
                       ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
-                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
                   )}
                   title={myDivisionId ? '내가 소속된 부서만 표시' : '조직도에서 본인 매칭 안 됨'}
                   aria-pressed={showMyDivisionOnly}
@@ -1344,7 +1344,7 @@ export function Dashboard({
                   'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
                   showActiveDivisionsOnly
                     ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
-                    : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
                 )}
                 title="켜면 프로젝트·Task·투입 인원이 모두 없는 조직 행을 숨깁니다. 기본은 조직 전체를 표시합니다."
                 aria-pressed={showActiveDivisionsOnly}
@@ -1361,7 +1361,7 @@ export function Dashboard({
                     setIsProjectPickerOpen(false);
                     setIsExclusionPickerOpen(false);
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
                   title="대시보드에 표시할 부서 선택"
                 >
                   <Settings2 size={12} />
@@ -1373,9 +1373,9 @@ export function Dashboard({
                   )}
                 </button>
                 {isDivisionPickerOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
-                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
-                      <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 부서</span>
+                  <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-[60] p-2">
+                    <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-slate-100 mb-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">표시할 부서</span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -1388,7 +1388,7 @@ export function Dashboard({
                         <button
                           type="button"
                           onClick={() => persistDivisionVisible(new Set())}
-                          className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                          className="text-[11px] text-slate-500 hover:text-slate-700 font-medium"
                           title="모든 부서 해제"
                         >
                           모두 해제
@@ -1396,28 +1396,28 @@ export function Dashboard({
                       </div>
                     </div>
                     {divisionStats.length === 0 ? (
-                      <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 부서가 없습니다.</p>
+                      <p className="px-3 py-4 text-xs text-slate-400 text-center">표시 가능한 부서가 없습니다.</p>
                     ) : (
                       <ul className="space-y-0.5">
                         {divisionStats.map((d) => {
                           const checked = divisionVisibleIds === null ? true : divisionVisibleIds.has(d.id);
                           return (
                             <li key={d.id}>
-                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer">
                                 <span
                                   className={cn(
                                     'inline-flex items-center justify-center w-4 h-4 rounded border',
-                                    checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-stone-300 bg-white',
+                                    checked ? 'bg-sky-600 border-sky-600 text-white' : 'border-slate-300 bg-white',
                                   )}
                                 >
                                   {checked && <Check size={11} strokeWidth={3} />}
                                 </span>
                                 <input type="checkbox" checked={checked} onChange={() => toggleDivision(d.id)} className="sr-only" />
-                                <span className="text-sm text-stone-700 truncate" title={d.name}>
+                                <span className="text-sm text-slate-700 truncate" title={d.name}>
                                   {d.name}
                                 </span>
                                 <span
-                                  className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums max-w-[10rem] truncate text-right"
+                                  className="ml-auto text-[10px] text-slate-400 shrink-0 tabular-nums max-w-[10rem] truncate text-right"
                                   title={
                                     d.registeredProjects.length > 0
                                       ? d.registeredProjects.map((r) => r.label).join('\n')
@@ -1432,11 +1432,11 @@ export function Dashboard({
                         })}
                       </ul>
                     )}
-                    <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                    <div className="px-2 pt-2 mt-1 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={showAllDivisions}
-                        className="w-full text-[11px] text-stone-500 hover:text-sky-700 font-medium py-1"
+                        className="w-full text-[11px] text-slate-500 hover:text-sky-700 font-medium py-1"
                         title="필터 해제 (기본 상태로)"
                       >
                         필터 초기화 (기본)
@@ -1466,7 +1466,7 @@ export function Dashboard({
                     'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
                     dashboardExcludedIds.size > 0
                       ? 'border-amber-400 bg-amber-100 text-amber-950 hover:bg-amber-200/90'
-                      : 'border-stone-200 bg-white hover:bg-stone-50 text-stone-600',
+                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600',
                   )}
                   title="대시보드 집계에서 뺄 프로젝트 선택 (이 브라우저에만 저장)"
                 >
@@ -1479,8 +1479,8 @@ export function Dashboard({
                   )}
                 </button>
                 {isExclusionPickerOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-80 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
-                    <p className="px-2 pb-2 text-[11px] text-stone-500 leading-snug border-b border-stone-100 mb-1">
+                  <div className="absolute left-0 top-full mt-1.5 w-80 max-h-[60vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-[60] p-2">
+                    <p className="px-2 pb-2 text-[11px] text-slate-500 leading-snug border-b border-slate-100 mb-1">
                       체크한 프로젝트는 대시보드 요약·목록·카드·부서 집계·투입 현황에 포함되지 않습니다. (표시 필터와 별개, 이 기기에만
                       저장)
                     </p>
@@ -1495,18 +1495,18 @@ export function Dashboard({
                       </button>
                     </div>
                     {projectsForExclusionPicker.length === 0 ? (
-                      <p className="px-3 py-4 text-xs text-stone-400 text-center">프로젝트가 없습니다.</p>
+                      <p className="px-3 py-4 text-xs text-slate-400 text-center">프로젝트가 없습니다.</p>
                     ) : (
                       <ul className="space-y-0.5">
                         {projectsForExclusionPicker.map((p) => {
                           const excluded = dashboardExcludedIds.has(p.id);
                           return (
                             <li key={p.id}>
-                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                              <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer">
                                 <span
                                   className={cn(
                                     'inline-flex items-center justify-center w-4 h-4 rounded border shrink-0',
-                                    excluded ? 'bg-amber-500 border-amber-500 text-white' : 'border-stone-300 bg-white',
+                                    excluded ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-300 bg-white',
                                   )}
                                 >
                                   {excluded && <Check size={11} strokeWidth={3} />}
@@ -1518,7 +1518,7 @@ export function Dashboard({
                                   className="sr-only"
                                 />
                                 <span
-                                  className="text-sm text-stone-700 break-words min-w-0"
+                                  className="text-sm text-slate-700 break-words min-w-0"
                                   title={formatProjectDisplayName(p.name, p.projectKind)}
                                 >
                                   {formatProjectDisplayName(p.name, p.projectKind)}
@@ -1551,7 +1551,7 @@ export function Dashboard({
                 'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors',
                 showMyOnly
                   ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700'
-                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
               )}
               title="소유자·멤버·작업 담당자(이름 매칭) 중 하나라도 해당하면 포함"
               aria-pressed={showMyOnly}
@@ -1568,7 +1568,7 @@ export function Dashboard({
                 setIsProjectPickerOpen((v) => !v);
                 setIsExclusionPickerOpen(false);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
               title="대시보드에 표시할 프로젝트 선택"
             >
               <Settings2 size={12} />
@@ -1580,9 +1580,9 @@ export function Dashboard({
               )}
             </button>
             {isProjectPickerOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-stone-200 rounded-xl shadow-xl z-[60] p-2">
-                <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-stone-100 mb-1">
-                  <span className="text-[11px] font-bold text-stone-500 uppercase whitespace-nowrap">표시할 프로젝트</span>
+              <div className="absolute left-0 top-full mt-1.5 w-72 max-h-[60vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-[60] p-2">
+                <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-slate-100 mb-1">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase whitespace-nowrap">표시할 프로젝트</span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -1595,7 +1595,7 @@ export function Dashboard({
                     <button
                       type="button"
                       onClick={() => persistDashboardVisible(new Set())}
-                      className="text-[11px] text-stone-500 hover:text-stone-700 font-medium"
+                      className="text-[11px] text-slate-500 hover:text-slate-700 font-medium"
                       title="모든 프로젝트 해제"
                     >
                       모두 해제
@@ -1603,38 +1603,38 @@ export function Dashboard({
                   </div>
                 </div>
                 {visibleProjectStats.length === 0 ? (
-                  <p className="px-3 py-4 text-xs text-stone-400 text-center">표시 가능한 프로젝트가 없습니다.</p>
+                  <p className="px-3 py-4 text-xs text-slate-400 text-center">표시 가능한 프로젝트가 없습니다.</p>
                 ) : (
                   <ul className="space-y-0.5">
                     {visibleProjectStats.map((p) => {
                       const checked = dashboardVisibleIds === null ? true : dashboardVisibleIds.has(p.id);
                       return (
                         <li key={p.id}>
-                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-stone-50 cursor-pointer">
+                          <label className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer">
                             <span
                               className={cn(
                                 'inline-flex items-center justify-center w-4 h-4 rounded border',
-                                checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-stone-300 bg-white',
+                                checked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white',
                               )}
                             >
                               {checked && <Check size={11} strokeWidth={3} />}
                             </span>
                             <input type="checkbox" checked={checked} onChange={() => toggleDashboardProject(p.id)} className="sr-only" />
-                            <span className="text-sm text-stone-700 break-words" title={formatProjectDisplayName(p.name, p.projectKind)}>
+                            <span className="text-sm text-slate-700 break-words" title={formatProjectDisplayName(p.name, p.projectKind)}>
                               {formatProjectDisplayName(p.name, p.projectKind)}
                             </span>
-                            <span className="ml-auto text-[10px] text-stone-400 shrink-0">{p.stats?.total ?? 0}건</span>
+                            <span className="ml-auto text-[10px] text-slate-400 shrink-0">{p.stats?.total ?? 0}건</span>
                           </label>
                         </li>
                       );
                     })}
                   </ul>
                 )}
-                <div className="px-2 pt-2 mt-1 border-t border-stone-100">
+                <div className="px-2 pt-2 mt-1 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={showAllDashboardProjects}
-                    className="w-full text-[11px] text-stone-500 hover:text-indigo-700 font-medium py-1"
+                    className="w-full text-[11px] text-slate-500 hover:text-indigo-700 font-medium py-1"
                     title="필터 해제 (기본 상태로)"
                   >
                     필터 초기화 (기본)
@@ -1693,7 +1693,7 @@ export function Dashboard({
               <section
                 className={cn(
                   !mobileReadabilityMode &&
-                    'rounded-xl border border-stone-200/60 bg-[var(--color-bg)]/90 px-2 py-2 shadow-sm sm:px-3 sm:py-2.5',
+                    'rounded-xl border border-slate-200/60 bg-[var(--color-bg)]/90 px-2 py-2 shadow-sm sm:px-3 sm:py-2.5',
                 )}
               >
                 <div className={cn('flex flex-wrap items-center justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
@@ -1725,7 +1725,7 @@ export function Dashboard({
                     />
                     <SummaryCard
                       title="회원가입자 수"
-                      value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
+                      value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-slate-400" /> : memberCount}
                       subtitle="클릭하여 명단·상세"
                       compact={mobileReadabilityMode}
                       highlight="text-violet-600"
@@ -1736,7 +1736,7 @@ export function Dashboard({
                       compact={mobileReadabilityMode}
                       value={
                         loadingVisitorStats ? (
-                          <Loader2 size={14} className="animate-spin text-stone-400" />
+                          <Loader2 size={14} className="animate-spin text-slate-400" />
                         ) : (
                           <div className="space-y-1.5 not-italic font-normal tracking-normal">
                             <div className="flex items-baseline gap-1.5">
@@ -1755,10 +1755,10 @@ export function Dashboard({
                     />
                   </div>
                 ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden mb-2">
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-2">
                     <table className="w-full text-sm">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr className="text-xs text-slate-500">
                           <th className="text-left font-medium px-3 py-2.5">항목</th>
                           <th className="text-left font-medium px-3 py-2.5">값</th>
                           <th className="text-left font-medium px-3 py-2.5 min-w-[40%]">비고</th>
@@ -1766,41 +1766,41 @@ export function Dashboard({
                       </thead>
                       <tbody>
                         <tr
-                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer"
                           onClick={() => openDashboardDetail('projects')}
                         >
-                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 프로젝트 수</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">등록된 프로젝트 수</td>
                           <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalProjects}</td>
                           <DashboardTableHintCell text={projectCountSummarySubtitle} />
                         </tr>
                         <tr
-                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer"
                           onClick={() => openDashboardDetail('tasks')}
                         >
-                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 총 작업 수</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">등록된 총 작업 수</td>
                           <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalTasks}</td>
                           <DashboardTableHintCell
                             text={dashboardExcludedIds.size > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : ''}
                           />
                         </tr>
                         <tr
-                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer"
                           onClick={() => openDashboardDetail('members')}
                         >
-                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">회원가입자 수</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">회원가입자 수</td>
                           <td className="px-3 py-2.5 font-bold text-violet-600 tabular-nums">
-                            {loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
+                            {loadingMemberCount ? <Loader2 size={14} className="animate-spin text-slate-400" /> : memberCount}
                           </td>
                           <DashboardTableHintCell text="클릭하여 명단·상세" />
                         </tr>
                         <tr
-                          className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                          className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer"
                           onClick={() => openDashboardDetail('visitors')}
                         >
-                          <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">접속자수</td>
-                          <td className="px-3 py-2.5 text-stone-800">
+                          <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">접속자수</td>
+                          <td className="px-3 py-2.5 text-slate-800">
                             {loadingVisitorStats ? (
-                              <Loader2 size={14} className="animate-spin text-stone-400" />
+                              <Loader2 size={14} className="animate-spin text-slate-400" />
                             ) : (
                               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
                                 <span>
@@ -1833,7 +1833,7 @@ export function Dashboard({
                     <span className="ml-2 inline-flex items-center rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 shrink-0">
                       조직도 기준
                     </span>
-                    <span className="text-sm font-normal text-stone-500 ml-1">
+                    <span className="text-sm font-normal text-slate-500 ml-1">
                       ({displayDivisionStats.length}
                       {showActiveDivisionsOnly && divisionStatsAfterVisibility.length !== displayDivisionStats.length
                         ? ` / ${divisionStatsAfterVisibility.length}`
@@ -1842,7 +1842,7 @@ export function Dashboard({
                           : ''}
                       개
                       {showActiveDivisionsOnly && divisionStatsAfterVisibility.length > displayDivisionStats.length && (
-                        <span className="text-stone-400">
+                        <span className="text-slate-400">
                           {' '}
                           · 비활성 {divisionStatsAfterVisibility.length - displayDivisionStats.length}개 숨김
                         </span>
@@ -1858,7 +1858,7 @@ export function Dashboard({
                         'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors inline-flex items-center gap-1',
                         showActiveDivisionsOnly
                           ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
-                          : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
                       )}
                       title="켜면 프로젝트·Task·투입 인원이 모두 없는 조직 행을 숨깁니다. 기본은 조직 전체를 표시합니다."
                       aria-pressed={showActiveDivisionsOnly}
@@ -1868,7 +1868,7 @@ export function Dashboard({
                     </button>
                     {!mobileReadabilityMode && (
                       <div
-                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
+                        className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shrink-0"
                         role="group"
                         aria-label="사업부별 등록 프로젝트 현황 표 또는 카드 보기"
                       >
@@ -1877,7 +1877,7 @@ export function Dashboard({
                           onClick={() => persistDashboardSectionLayout('divisions', 'table')}
                           className={cn(
                             'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                            dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                            dashboardSectionLayout.divisions === 'table' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
                           )}
                           title="표로 보기"
                         >
@@ -1888,7 +1888,7 @@ export function Dashboard({
                           onClick={() => persistDashboardSectionLayout('divisions', 'card')}
                           className={cn(
                             'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
-                            dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-stone-600 hover:bg-stone-50',
+                            dashboardSectionLayout.divisions === 'card' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
                           )}
                           title="카드로 보기"
                         >
@@ -1899,19 +1899,19 @@ export function Dashboard({
                     )}
                   </div>
                 </div>
-                <details className="mb-2 rounded-lg border border-stone-100 bg-stone-50/60 px-2 py-1.5 text-stone-700 group/divhint">
-                  <summary className="cursor-pointer list-none text-xs font-semibold text-stone-600 flex items-center gap-1.5 select-none [&::-webkit-details-marker]:hidden">
+                <details className="mb-2 rounded-lg border border-slate-100 bg-slate-50/60 px-2 py-1.5 text-slate-700 group/divhint">
+                  <summary className="cursor-pointer list-none text-xs font-semibold text-slate-600 flex items-center gap-1.5 select-none [&::-webkit-details-marker]:hidden">
                     <ChevronDown
                       size={14}
-                      className="shrink-0 text-stone-400 transition-transform group-open/divhint:rotate-180"
+                      className="shrink-0 text-slate-400 transition-transform group-open/divhint:rotate-180"
                       aria-hidden
                     />
                     조직·집계 기준 안내
                   </summary>
                   <p className="text-xs sm:text-sm mt-2 mb-0 m-0 leading-relaxed pl-0.5">
-                    <span className="font-semibold text-stone-800">조직도에서 회사 직속 하위 노드(본부·사업부·실 등) 전체</span>를 한 행씩
+                    <span className="font-semibold text-slate-800">조직도에서 회사 직속 하위 노드(본부·사업부·실 등) 전체</span>를 한 행씩
                     보여 줍니다. 프로젝트가 아직 없거나 PM·PO·소유자 부서·그룹명으로 사업부를 찾지 못한 조직은 프로젝트 수가 0으로
-                    표시됩니다. 아래 합계는 현재 필터로 <strong className="text-stone-800">표시 중인 행만</strong> 합산합니다.
+                    표시됩니다. 아래 합계는 현재 필터로 <strong className="text-slate-800">표시 중인 행만</strong> 합산합니다.
                   </p>
                 </details>
                 {displayDivisionStats.length > 0 && (
@@ -1944,11 +1944,11 @@ export function Dashboard({
                   </div>
                 )}
                 {divisionOrgProjectSummary.visibleRowCount > 0 && (
-                  <div className="mb-2 flex flex-col gap-1.5 text-xs text-stone-600">
+                  <div className="mb-2 flex flex-col gap-1.5 text-xs text-slate-600">
                     {!showActiveDivisionsOnly && divisionOrgProjectSummary.visibleWithoutProjects > 0 && (
-                      <p className="m-0 rounded-md border border-stone-200 bg-stone-50/90 px-2 py-1.5 leading-snug">
-                        이 목록에서 <strong className="text-stone-800">등록된 프로젝트가 아직 없는 조직</strong>은{' '}
-                        <span className="tabular-nums font-semibold text-stone-900">
+                      <p className="m-0 rounded-md border border-slate-200 bg-slate-50/90 px-2 py-1.5 leading-snug">
+                        이 목록에서 <strong className="text-slate-800">등록된 프로젝트가 아직 없는 조직</strong>은{' '}
+                        <span className="tabular-nums font-semibold text-slate-900">
                           {divisionOrgProjectSummary.visibleWithoutProjects}
                         </span>
                         개입니다(전체 {divisionOrgProjectSummary.visibleRowCount}개 행 중).
@@ -1999,7 +1999,7 @@ export function Dashboard({
                     </div>
                   </details>
                 )}
-                <details className="mb-2 text-stone-500 group/cardhint">
+                <details className="mb-2 text-slate-500 group/cardhint">
                   <summary className="cursor-pointer list-none text-[11px] font-medium flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
                     <ChevronDown
                       size={12}
@@ -2010,11 +2010,11 @@ export function Dashboard({
                   </summary>
                   <p className="mt-1.5 mb-0 text-[11px] leading-relaxed pl-0.5">
                     카드에 마우스를 올리거나 Tab으로 포커스하면 프로젝트 이름 목록이 표시됩니다. 카드(또는 표 행) 클릭은 사업부 상세,{' '}
-                    <strong className="font-semibold text-stone-600">프로젝트 이름</strong>을 누르면 해당 프로젝트 WBS 표로 이동합니다.
+                    <strong className="font-semibold text-slate-600">프로젝트 이름</strong>을 누르면 해당 프로젝트 WBS 표로 이동합니다.
                   </p>
                 </details>
                 {displayDivisionStats.length === 0 ? (
-                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                  <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
                     {divisionStats.length === 0
                       ? '조직도 데이터를 불러오는 중이거나 매칭되는 부서가 없습니다.'
                       : showMyDivisionOnly
@@ -2040,8 +2040,8 @@ export function Dashboard({
                           className={cn(
                             'rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 border h-full',
                             d.projectCount === 0
-                              ? 'border-dashed border-stone-300 bg-stone-50/60 hover:border-stone-400'
-                              : 'bg-white border-stone-200 hover:border-indigo-200/80',
+                              ? 'border-dashed border-slate-300 bg-slate-50/60 hover:border-slate-400'
+                              : 'bg-white border-slate-200 hover:border-indigo-200/80',
                           )}
                           title={
                             d.registeredProjects.length > 0
@@ -2050,13 +2050,13 @@ export function Dashboard({
                           }
                         >
                           <h3
-                            className="font-semibold text-stone-900 text-sm mb-2 flex items-center gap-1.5 flex-wrap min-w-0"
+                            className="font-semibold text-slate-900 text-sm mb-2 flex items-center gap-1.5 flex-wrap min-w-0"
                             title={d.name}
                           >
                             <Building2 className="text-sky-500 shrink-0" size={16} aria-hidden />
                             <span className="truncate min-w-0 leading-tight">{d.name}</span>
                             {d.projectCount === 0 && (
-                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide rounded bg-stone-200/90 text-stone-700 px-1 py-0.5">
+                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide rounded bg-slate-200/90 text-slate-700 px-1 py-0.5">
                                 미등록
                               </span>
                             )}
@@ -2075,44 +2075,44 @@ export function Dashboard({
                               </div>
                             </div>
                             {d.projectCount === 0 && (
-                              <p className="text-[10px] text-stone-500 m-0 text-center leading-snug">
+                              <p className="text-[10px] text-slate-500 m-0 text-center leading-snug">
                                 이 조직으로 분류된 프로젝트가 없습니다.
                               </p>
                             )}
                             <div>
                               <div className="flex items-baseline justify-between gap-1 mb-0.5">
-                                <span className="text-[9px] font-bold text-stone-500 uppercase tracking-wide">계획율</span>
+                                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">계획율</span>
                                 <span className="text-base font-bold text-amber-700 tabular-nums leading-none">
                                   {formatPercent1(d.planned)}%
                                 </span>
                               </div>
-                              <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                 <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, d.planned)}%` }} />
                               </div>
                             </div>
                             <div>
                               <div className="flex items-baseline justify-between gap-1 mb-0.5">
-                                <span className="text-[9px] font-bold text-stone-500 uppercase tracking-wide">진척율</span>
+                                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">진척율</span>
                                 <span className="text-base font-bold text-indigo-600 tabular-nums leading-none">
                                   {formatPercent1(d.progress)}%
                                 </span>
                               </div>
-                              <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                 <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
                               </div>
                             </div>
                             {mobileReadabilityMode && d.registeredProjects.length > 0 && (
-                              <details className="rounded-lg border border-stone-200 bg-stone-50/90 px-2 py-1.5 text-left">
-                                <summary className="text-[11px] font-semibold text-stone-600 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                              <details className="rounded-lg border border-slate-200 bg-slate-50/90 px-2 py-1.5 text-left">
+                                <summary className="text-[11px] font-semibold text-slate-600 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
                                   프로젝트 이름 ({d.registeredProjects.length}건) — 탭하여 펼치기
                                 </summary>
-                                <ul className="mt-2 space-y-0.5 text-[11px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc max-h-40 overflow-y-auto">
+                                <ul className="mt-2 space-y-0.5 text-[11px] font-medium text-slate-800 leading-snug m-0 pl-3 list-disc max-h-40 overflow-y-auto">
                                   {d.registeredProjects.map((rp) => (
                                     <li key={rp.id} className="break-words">
                                       {onNavigate ? (
                                         <button
                                           type="button"
-                                          className="text-left w-full font-medium text-stone-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
+                                          className="text-left w-full font-medium text-slate-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             openTableProject(rp.id);
@@ -2141,15 +2141,15 @@ export function Dashboard({
                               'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
                             )}
                           >
-                            <div className="rounded-lg border border-stone-200 bg-white px-3 py-2 shadow-xl max-h-56 overflow-y-auto text-left">
-                              <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1.5">프로젝트 이름</div>
-                              <ul className="space-y-1 text-[12px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc">
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-xl max-h-56 overflow-y-auto text-left">
+                              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">프로젝트 이름</div>
+                              <ul className="space-y-1 text-[12px] font-medium text-slate-800 leading-snug m-0 pl-3 list-disc">
                                 {d.registeredProjects.map((rp) => (
                                   <li key={rp.id} className="break-words">
                                     {onNavigate ? (
                                       <button
                                         type="button"
-                                        className="text-left w-full font-medium text-stone-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
+                                        className="text-left w-full font-medium text-slate-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
                                         onClick={() => openTableProject(rp.id)}
                                         title="해당 프로젝트 WBS 작업 표로 이동"
                                       >
@@ -2168,18 +2168,18 @@ export function Dashboard({
                     ))}
                   </div>
                 ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto shadow-sm">
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
                     <table className="w-full text-sm min-w-[520px]">
-                      <thead className="bg-stone-100 border-b-2 border-stone-200">
-                        <tr className="text-[11px] text-stone-700">
+                      <thead className="bg-slate-100 border-b-2 border-slate-200">
+                        <tr className="text-[11px] text-slate-700">
                           <th className="text-left font-bold px-3 py-2.5">조직</th>
                           <th className="text-right font-bold px-2 py-2.5 w-[4.5rem]" title="조직도 기준으로 이 사업부에 묶인 프로젝트 수">
                             프로젝트
-                            <span className="block text-[9px] font-normal text-stone-500 normal-case">(건)</span>
+                            <span className="block text-[9px] font-normal text-slate-500 normal-case">(건)</span>
                           </th>
                           <th className="text-right font-bold px-2 py-2.5 w-[4.5rem]" title="해당 프로젝트들에 등록된 작업 수">
                             Task
-                            <span className="block text-[9px] font-normal text-stone-500 normal-case">(건)</span>
+                            <span className="block text-[9px] font-normal text-slate-500 normal-case">(건)</span>
                           </th>
                           <th className="text-right font-bold px-2 py-2.5 w-20" title="일정 기준 기대 진척, Task 가중">
                             계획율
@@ -2194,8 +2194,8 @@ export function Dashboard({
                           <tr
                             key={d.id}
                             className={cn(
-                              'border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer',
-                              d.projectCount === 0 && 'bg-stone-50/70',
+                              'border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer',
+                              d.projectCount === 0 && 'bg-slate-50/70',
                             )}
                             onClick={() => openDivisionDetail(d.id)}
                             title={
@@ -2204,13 +2204,13 @@ export function Dashboard({
                                 : '클릭하여 사업부 상세 보기'
                             }
                           >
-                            <td className="px-3 py-2.5 font-medium text-stone-800 max-w-[16rem] align-middle">
+                            <td className="px-3 py-2.5 font-medium text-slate-800 max-w-[16rem] align-middle">
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="truncate min-w-0" title={d.name}>
                                   {d.name}
                                 </span>
                                 {d.projectCount === 0 && (
-                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded bg-stone-200/90 text-stone-700 px-1.5 py-0.5 whitespace-nowrap">
+                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded bg-slate-200/90 text-slate-700 px-1.5 py-0.5 whitespace-nowrap">
                                     미등록
                                   </span>
                                 )}
@@ -2226,7 +2226,7 @@ export function Dashboard({
                         ))}
                       </tbody>
                       <tfoot className="bg-sky-50/80 border-t-2 border-sky-200">
-                        <tr className="text-sm font-bold text-stone-900">
+                        <tr className="text-sm font-bold text-slate-900">
                           <td className="px-3 py-2.5">합계 (표시 중)</td>
                           <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 text-lg">
                             {divisionAggregatedSummary.projectSum}
@@ -2236,11 +2236,11 @@ export function Dashboard({
                           </td>
                           <td className="px-2 py-2.5 text-right tabular-nums text-amber-900">
                             {formatPercent1(divisionAggregatedSummary.tablePlanned)}%
-                            <span className="block text-[9px] font-normal text-stone-500">Task 가중</span>
+                            <span className="block text-[9px] font-normal text-slate-500">Task 가중</span>
                           </td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-indigo-800">
                             {formatPercent1(divisionAggregatedSummary.tableProgress)}%
-                            <span className="block text-[9px] font-normal text-stone-500">Task 가중</span>
+                            <span className="block text-[9px] font-normal text-slate-500">Task 가중</span>
                           </td>
                         </tr>
                       </tfoot>
@@ -2257,7 +2257,7 @@ export function Dashboard({
                   <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
                     <Briefcase className="text-[var(--color-accent)] shrink-0" size={20} />
                     프로젝트별 현황
-                    <span className="text-sm font-normal text-stone-500 ml-1">
+                    <span className="text-sm font-normal text-slate-500 ml-1">
                       ({displayProjectStats.length}개
                       {showUndeterminedPeriodProjectsOnly && projectsWithUndeterminedPeriod.length !== displayProjectStats.length
                         ? ` / 기간 미정 ${projectsWithUndeterminedPeriod.length}`
@@ -2274,7 +2274,7 @@ export function Dashboard({
                           'px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors inline-flex items-center gap-1',
                           showUndeterminedPeriodProjectsOnly
                             ? 'bg-violet-600 border-violet-600 text-white hover:bg-violet-700'
-                            : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
                         )}
                         title="시작일 또는 종료일이 비어 있는 프로젝트만 표시"
                         aria-pressed={showUndeterminedPeriodProjectsOnly}
@@ -2286,9 +2286,9 @@ export function Dashboard({
                     )}
                   </div>
                 </div>
-                <p className="text-xs text-stone-500 -mt-1 mb-1">
+                <p className="text-xs text-slate-500 -mt-1 mb-1">
                   카드를 누르면 요약 상세가 열립니다. 카드에는 진척·기한·작업·이슈 등{' '}
-                  <strong className="font-semibold text-stone-600">숫자 요약</strong>만 표시합니다(WBS 화면 캡처 없음). 아래 버튼으로 정렬할
+                  <strong className="font-semibold text-slate-600">숫자 요약</strong>만 표시합니다(WBS 화면 캡처 없음). 아래 버튼으로 정렬할
                   수 있습니다.
                 </p>
                 <div className="space-y-2">
@@ -2298,7 +2298,7 @@ export function Dashboard({
                       role="toolbar"
                       aria-label="프로젝트 목록 정렬"
                     >
-                      <span className="text-stone-500 font-medium mr-0.5 shrink-0">정렬</span>
+                      <span className="text-slate-500 font-medium mr-0.5 shrink-0">정렬</span>
                       {(
                         [
                           ['name', '프로젝트'],
@@ -2316,7 +2316,7 @@ export function Dashboard({
                             'inline-flex items-center gap-0.5 rounded-md border px-2 py-1 font-semibold transition-colors',
                             projectStatusTableSort?.key === key
                               ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
-                              : 'border-stone-200/80 bg-white text-stone-600 hover:bg-stone-50',
+                              : 'border-slate-200/80 bg-white text-slate-600 hover:bg-slate-50',
                           )}
                           title={`${label} 기준 정렬 · 한 번 더 누르면 방향 전환`}
                         >
@@ -2328,7 +2328,7 @@ export function Dashboard({
                   )}
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                     {displayProjectStats.length === 0 ? (
-                      <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
+                      <div className="col-span-full text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
                         {showUndeterminedPeriodProjectsOnly
                           ? '현재 필터 조건에서 기간 미지정 프로젝트가 없습니다. 「기간 미정만」을 해제하거나 다른 필터를 확인해 주세요.'
                           : projects.length > 0 && projectsEligibleForDashboard.length === 0
@@ -2398,12 +2398,12 @@ export function Dashboard({
                 mobileReadabilityMode={mobileReadabilityMode}
               />
             ) : (
-              <div className="rounded-xl border border-stone-200 bg-white p-8 text-center space-y-4">
-                <p className="text-stone-600">요청한 사업부를 찾을 수 없습니다.</p>
+              <div className="rounded-xl border border-slate-200 bg-white p-8 text-center space-y-4">
+                <p className="text-slate-600">요청한 사업부를 찾을 수 없습니다.</p>
                 <button
                   type="button"
                   onClick={clearDivisionDetail}
-                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 >
                   사업부 현황으로 돌아가기
                 </button>
@@ -2470,7 +2470,7 @@ export function Dashboard({
         onClose={() => setSelectedProjectCardId(null)}
         showCloseButton={false}
         size="full"
-        bodyClassName="p-2 sm:p-4 bg-stone-100/40"
+        bodyClassName="p-2 sm:p-4 bg-slate-100/40"
       >
         {selectedProjectCard ? (
           <DashboardProjectCardDetailPanel
@@ -2499,10 +2499,10 @@ function DashboardTableHintCell({ text }: { text: string }) {
   const noteId = useId();
   const t = text.trim();
   if (!t) {
-    return <td className="px-3 py-2.5 text-xs text-stone-500">—</td>;
+    return <td className="px-3 py-2.5 text-xs text-slate-500">—</td>;
   }
   return (
-    <td className="px-3 py-2.5 text-xs text-stone-500 cursor-help" title={t} aria-describedby={noteId}>
+    <td className="px-3 py-2.5 text-xs text-slate-500 cursor-help" title={t} aria-describedby={noteId}>
       <span id={noteId} className="sr-only">
         {t}
       </span>
@@ -2631,11 +2631,11 @@ function ProjectCard({
         {formatProjectDisplayName(project.name, project.projectKind)}
       </h3>
       <div
-        className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-stone-500 tabular-nums mb-1.5"
+        className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 tabular-nums mb-1.5"
         aria-label="작업·이슈·액션·지연 건수"
       >
         <span>
-          작업 <strong className="font-semibold text-stone-700">{s.total}</strong>건
+          작업 <strong className="font-semibold text-slate-700">{s.total}</strong>건
         </span>
         {s.issueCount > 0 && (
           <span className="inline-flex items-center gap-0.5 text-rose-800/90" title="이슈로 표시된 작업">
@@ -2657,16 +2657,16 @@ function ProjectCard({
         )}
       </div>
       <p
-        className="text-[10px] text-stone-600 mb-1.5 line-clamp-2 leading-snug"
+        className="text-[10px] text-slate-600 mb-1.5 line-clamp-2 leading-snug"
         title={[pmDisplay && `PM ${pmDisplay}`, poDisplay && `PO ${poDisplay}`].filter(Boolean).join(' · ')}
       >
-        <span className="text-stone-400">PM</span> {pmDisplay || '미지정'}
-        <span className="text-stone-300 mx-1">·</span>
-        <span className="text-stone-400">PO</span> {poDisplay || '—'}
+        <span className="text-slate-400">PM</span> {pmDisplay || '미지정'}
+        <span className="text-slate-300 mx-1">·</span>
+        <span className="text-slate-400">PO</span> {poDisplay || '—'}
       </p>
 
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[10px] font-semibold text-stone-400 shrink-0">진척</span>
+        <span className="text-[10px] font-semibold text-slate-400 shrink-0">진척</span>
         <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
@@ -2677,12 +2677,12 @@ function ProjectCard({
       </div>
 
       <div className="flex items-center gap-1.5 mb-2 text-[11px] tabular-nums">
-        <span className="text-[10px] font-semibold text-stone-400 shrink-0">계획</span>
-        <span className="text-stone-500">{formatPercent1(s.planned)}%</span>
-        <span className="text-stone-300">·</span>
-        <span className="text-[10px] font-semibold text-stone-400 shrink-0">차이</span>
+        <span className="text-[10px] font-semibold text-slate-400 shrink-0">계획</span>
+        <span className="text-slate-500">{formatPercent1(s.planned)}%</span>
+        <span className="text-slate-300">·</span>
+        <span className="text-[10px] font-semibold text-slate-400 shrink-0">차이</span>
         <span
-          className={cn('font-bold', s.variance < 0 ? 'text-red-600' : s.variance > 0 ? 'text-emerald-600' : 'text-stone-500')}
+          className={cn('font-bold', s.variance < 0 ? 'text-red-600' : s.variance > 0 ? 'text-emerald-600' : 'text-slate-500')}
           title={`실제 ${formatPercent1(s.progress)}% − 계획 ${formatPercent1(s.planned)}% · ${
             s.variance < 0 ? '계획 대비 지연' : s.variance > 0 ? '계획보다 앞섬' : '계획대로'
           }`}
@@ -2692,21 +2692,21 @@ function ProjectCard({
         </span>
       </div>
 
-      <div className="text-[11px] text-stone-500 pt-2 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
-        <span className="text-stone-600">
+      <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+        <span className="text-slate-600">
           {project.startDate || project.endDate ? (
             <>
-              <ProjectPeriodDateText date={project.startDate} className="text-stone-600" emptyLabel="?" />
-              <span className="text-stone-300 mx-0.5">~</span>
-              <ProjectPeriodDateText date={project.endDate} className="text-stone-600" emptyLabel="?" />
+              <ProjectPeriodDateText date={project.startDate} className="text-slate-600" emptyLabel="?" />
+              <span className="text-slate-300 mx-0.5">~</span>
+              <ProjectPeriodDateText date={project.endDate} className="text-slate-600" emptyLabel="?" />
             </>
           ) : (
             <span className="text-amber-700/90 font-medium">기간 미정</span>
           )}
         </span>
-        <span className="text-stone-300">|</span>
+        <span className="text-slate-300">|</span>
         <span>
-          팀원 <strong className="font-semibold text-stone-800">{s.assigneeCount}</strong>
+          팀원 <strong className="font-semibold text-slate-800">{s.assigneeCount}</strong>
         </span>
       </div>
     </div>

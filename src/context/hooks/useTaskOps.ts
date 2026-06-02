@@ -2,20 +2,13 @@ import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction 
 import { Task, Project, ProjectAssignment } from '../../types';
 import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
-import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
-import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../../lib/schedule';
-import { getHolidaysForTaskDates } from '../../lib/calendar';
+import { applyDependencySchedule } from '../../lib/schedule';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
 import { syncParentRollups, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
-import {
-  buildProjectEffortUnitMap,
-  normalizeWorkEffortUnit,
-  resolveWorkEffortForNewTask,
-  workEffortToManDays,
-} from '../../lib/workEffortUnits';
+import { buildProjectEffortUnitMap, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
 import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
 
 /** rootIds와 그 모든 하위 작업 id (같은 트리: parentId 체인). */
@@ -73,35 +66,18 @@ export function useTaskOps(deps: TaskOpsDeps) {
     bumpDirty,
   } = deps;
 
-  const clampTaskToProjectRange = useCallback((t: Task, proj?: Project): Task => {
-    if (!proj) return t;
-    let start = t.startDate;
-    let end = t.endDate;
-    if (proj.startDate && start && start < proj.startDate) start = proj.startDate;
-    if (proj.endDate && end && end > proj.endDate) end = proj.endDate;
-    if (start && end && start > end) start = end;
-    if (start !== t.startDate || end !== t.endDate) return { ...t, startDate: start, endDate: end };
-    return t;
-  }, []);
-
   const addTask = useCallback(
     (newTask: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string): string => {
       saveHistory();
       const cpi = currentProjectIdRef.current;
       const projs = projectsRef.current;
       const projectId = projectIdOverride ?? (cpi === 'all' ? projs[0]?.id || '' : cpi);
-      const project = projs.find((p) => p.id === projectId);
-      const task: Task = applyMilestoneDateInvariant(
-        clampTaskToProjectRange(
-          {
-            ...newTask,
-            workEffort: resolveWorkEffortForNewTask(newTask.workEffort),
-            id: uuidv4(),
-            projectId,
-          } as Task,
-          project,
-        ),
-      );
+      const task: Task = applyMilestoneDateInvariant({
+        ...newTask,
+        workEffort: resolveWorkEffortForNewTask(newTask.workEffort),
+        id: uuidv4(),
+        projectId,
+      } as Task);
       setAllTasks((prev) => {
         let nextTasks: Task[];
         if (insertAfterId) {
@@ -123,12 +99,16 @@ export function useTaskOps(deps: TaskOpsDeps) {
           new Set<string>(
             ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
           ),
+          undefined,
+          undefined,
+          undefined,
+          true,
         );
         return result;
       });
       return task.id;
     },
-    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, clampTaskToProjectRange],
+    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks],
   );
 
   const addTasks = useCallback(
@@ -137,22 +117,20 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const cpi = currentProjectIdRef.current;
       const projs = projectsRef.current;
       const effectiveProjectId = cpi === 'all' ? projs[0]?.id || '' : cpi;
-      const project = projs.find((p) => p.id === effectiveProjectId);
       const tasksWithProject = newTasks.map((t) =>
-        applyMilestoneDateInvariant(
-          clampTaskToProjectRange(
-            { ...t, projectId: effectiveProjectId, workEffort: resolveWorkEffortForNewTask(t.workEffort) } as Task,
-            project,
-          ),
-        ),
+        applyMilestoneDateInvariant({
+          ...t,
+          projectId: effectiveProjectId,
+          workEffort: resolveWorkEffortForNewTask(t.workEffort),
+        } as Task),
       );
       setAllTasks((prev) => {
         const next = [...prev, ...tasksWithProject];
 
-        return recomputeProjectRollups(next, effectiveProjectId);
+        return recomputeProjectRollups(next, effectiveProjectId, undefined, undefined, true);
       });
     },
-    [saveHistory, currentProjectIdRef, projectsRef, setAllTasks, clampTaskToProjectRange],
+    [saveHistory, currentProjectIdRef, projectsRef, setAllTasks],
   );
 
   const updateTask = useCallback(
@@ -161,8 +139,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
       updates: Partial<Task>,
       options?: { skipCascade?: boolean; skipEffortScheduleLink?: boolean; deferScheduleSync?: boolean },
     ) => {
-      const skipCascade = options?.skipCascade ?? false;
-      const skipEffortScheduleLink = options?.skipEffortScheduleLink ?? false;
       const deferScheduleSync = options?.deferScheduleSync ?? false;
       saveHistory();
       // setAllTasks 업데이터에서 프로젝트 자동 확장이 필요한지 결정한 뒤, 외부에서 setProjects/upsertProject로 반영한다.
@@ -195,58 +171,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
             resolvedUpdates = { ...resolvedUpdates, progress: 100 };
           }
         }
-        const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projs.map((p) => [p.id, p.assignments ?? []]));
-        const assignments = task.projectId ? projectAssignmentsMap.get(task.projectId) : undefined;
-        const holidays = getHolidaysForTaskDates(prev);
-        const effortProject = projs.find((p) => p.id === task.projectId);
-        const effortUnit = normalizeWorkEffortUnit(effortProject?.workEffortUnit);
-        const linkEffortToSchedule = wSettings.linkEffortToSchedule === true;
-        const scheduleOpts = { linkEffortToSchedule } as const;
-
-        if (hasScheduleChange && linkEffortToSchedule && !skipEffortScheduleLink) {
-          const newStart = updates.startDate ?? task.startDate;
-          const newEnd = updates.endDate ?? task.endDate;
-          const workEffort = updates.workEffort !== undefined ? updates.workEffort : task.workEffort;
-          const workEffortMd = typeof workEffort === 'number' && workEffort > 0 ? workEffortToManDays(workEffort, effortUnit) : undefined;
-
-          if (Object.prototype.hasOwnProperty.call(updates, 'endDate') && !Object.prototype.hasOwnProperty.call(updates, 'startDate')) {
-            const computedStart = computeStartDateFromEndDate(newEnd, workEffortMd, assignments, holidays, task.startDate, task.endDate);
-            if (computedStart !== task.startDate) {
-              resolvedUpdates.startDate = computedStart;
-            }
-          }
-
-          if (!Object.prototype.hasOwnProperty.call(updates, 'endDate')) {
-            if (typeof workEffortMd === 'number' && workEffortMd > 0) {
-              resolvedUpdates.endDate = computeEndDateFromEffort(
-                resolvedUpdates.startDate ?? newStart,
-                workEffortMd,
-                assignments,
-                holidays,
-              );
-            } else if (updates.startDate) {
-              const oldStart = parseISO(task.startDate);
-              const oldEnd = parseISO(task.endDate);
-              if (isValid(oldStart) && isValid(oldEnd)) {
-                const durationDays = differenceInDays(oldEnd, oldStart);
-                resolvedUpdates.endDate = format(addDays(parseISO(resolvedUpdates.startDate ?? newStart), durationDays), 'yyyy-MM-dd');
-              }
-            }
-          }
-        }
-
         let updatedTask = { ...task, ...resolvedUpdates };
         const project = projs.find((p) => p.id === task.projectId);
 
-        // 사용자가 명시적으로 작업 일정을 프로젝트 범위 밖으로 변경하면, 클램프하지 않고 프로젝트 범위를 자동 확장한다.
-        // (그렇지 않으면 사용자의 변경이 클램프에 의해 무효화되어, 화면에서는 "날짜가 변경되지 않는" 것처럼 보인다.)
-        // 상위 작업 일정은 syncParentRollups가 자식 min/max로 자동 확장하므로, 여기서는 프로젝트 경계만 처리.
+        // 사용자가 명시적으로 작업 일정을 프로젝트 범위 밖으로 변경하면 프로젝트 범위를 자동 확장한다.
         const explicitStartChange = hasDateChange && Object.prototype.hasOwnProperty.call(updates, 'startDate');
-        const explicitEndChange =
-          hasDateChange &&
-          (Object.prototype.hasOwnProperty.call(updates, 'endDate') ||
-            // linkEffortToSchedule 모드에서 startDate 변경에 따라 endDate가 자동 계산된 경우도 포함.
-            (explicitStartChange && resolvedUpdates.endDate != null));
+        const explicitEndChange = hasDateChange && Object.prototype.hasOwnProperty.call(updates, 'endDate');
         const expansion: { startDate?: string; endDate?: string } = {};
         if (project) {
           if (explicitStartChange && updatedTask.startDate && project.startDate && updatedTask.startDate < project.startDate) {
@@ -257,11 +187,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
         const willExpandProject = expansion.startDate !== undefined || expansion.endDate !== undefined;
-        const effectiveProject = willExpandProject ? ({ ...project!, ...expansion } as Project) : project;
-        // 간트 막대 이동(순수 평행 이동): 프로젝트 경계 클램프가 시작/종료를 비대칭으로 잘라 기간이 변하는 것을 막음
-        if (!skipEffortScheduleLink) {
-          updatedTask = clampTaskToProjectRange(updatedTask, effectiveProject);
-        }
         updatedTask = applyMilestoneDateInvariant(updatedTask);
 
         // 프로젝트 범위 확장은 setAllTasks 외부에서 setProjects/upsertProject로 별도 적용해야 한다.
@@ -317,109 +242,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        // 일정 변경 시 연관 업무 재계산
-        if (hasScheduleChange && task.projectId && !skipCascade) {
-          const projectTaskList = nextTasks.filter((t) => t.projectId === task.projectId);
-          const dateLocked = new Set<string>();
-
-          const getDescendantIds = (rootId: string): Set<string> => {
-            const desc = new Set<string>();
-            const stack = [rootId];
-            while (stack.length) {
-              const pid = stack.pop()!;
-              for (const t of projectTaskList) {
-                if (t.parentId === pid && !dateLocked.has(t.id) && !desc.has(t.id)) {
-                  desc.add(t.id);
-                  stack.push(t.id);
-                }
-              }
-            }
-            return desc;
-          };
-          const descendantIds = getDescendantIds(id);
-
-          const sourceAssignee = updatedTask.assignee ?? '';
-          const getSuccessorIds = (predId: string): Set<string> => {
-            const succ = new Set<string>();
-            const stack = [predId];
-            while (stack.length) {
-              const pid = stack.pop()!;
-              for (const t of projectTaskList) {
-                if (t.id === id || dateLocked.has(t.id)) continue;
-                if (t.dependencies?.includes(pid)) {
-                  if ((t.assignee ?? '') !== sourceAssignee) continue;
-                  if (!succ.has(t.id)) {
-                    succ.add(t.id);
-                    stack.push(t.id);
-                  }
-                }
-              }
-            }
-            return succ;
-          };
-          const getPredecessorIds = (succId: string): Set<string> => {
-            const preds = new Set<string>();
-            const stack = [succId];
-            const existingIds = new Set(projectTaskList.map((t) => t.id));
-            while (stack.length) {
-              const sid = stack.pop()!;
-              const t = projectTaskList.find((x) => x.id === sid);
-              const taskDeps = (t?.dependencies ?? []).filter((depId) => existingIds.has(depId));
-              for (const depId of taskDeps) {
-                if (!dateLocked.has(depId) && !preds.has(depId)) {
-                  preds.add(depId);
-                  stack.push(depId);
-                }
-              }
-            }
-            return preds;
-          };
-          const successorIds = getSuccessorIds(id);
-          const predecessorIds = getPredecessorIds(id);
-          const affectedIds = new Set<string>([id, ...descendantIds, ...successorIds, ...predecessorIds]);
-
-          const oldStart = parseISO(task.startDate);
-          const newStart = parseISO(updatedTask.startDate);
-          if (isValid(oldStart) && isValid(newStart)) {
-            const deltaDays = Math.round(differenceInDays(newStart, oldStart));
-            if (deltaDays !== 0) {
-              nextTasks = nextTasks.map((t) => {
-                if (t.id === id) return t;
-                if (t.projectId !== task.projectId || !affectedIds.has(t.id)) return t;
-                const start = parseISO(t.startDate);
-                const end = parseISO(t.endDate);
-                if (!isValid(start) || !isValid(end)) return t;
-                return {
-                  ...t,
-                  startDate: format(addDays(start, deltaDays), 'yyyy-MM-dd'),
-                  endDate: format(addDays(end, deltaDays), 'yyyy-MM-dd'),
-                };
-              });
-            }
-          }
-
-          const projectTasksForSchedule = nextTasks.filter((t) => t.projectId === task.projectId);
-          const excludeFromRecalc = hasDateChange ? new Set([id]) : undefined;
-          const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projs);
-          const adjusted = applyDependencySchedule(
-            projectTasksForSchedule,
-            projectAssignmentsMap,
-            excludeFromRecalc,
-            projectEffortUnitByProjectId,
-            scheduleOpts,
-          );
-          const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
-          // FS 재계산 결과는 프로젝트 전체에 병합한다. affectedIds는 같은 담당자에게만 델타 이동을 전파하는
-          // getSuccessorIds 등에 쓰이므로, 여기서 affectedIds로 제한하면 선행만 바꿔도 다른 담당 후행 일정이 갱신되지 않는다.
-          const projectScheduleMergeIds = new Set(projectTasksForSchedule.map((t) => t.id));
-
-          nextTasks = nextTasks.map((t) => {
-            if (!projectScheduleMergeIds.has(t.id)) return t;
-            return adjustedById.get(t.id) ?? t;
-          });
-        }
-
-        // updates / resolvedUpdates 둘 다 검사: 일부 경로에서 파생 필드만 resolved에 있거나,
+        // 일정·의존성·공수 변경 시에도 FS 재계산·연관 행 델타 이동·부모 일정 자동 맞춤은 하지 않는다(저장값 그대로 유지).
         // 클라이언트가 보낸 키가 updates에만 있는 경우에도 상위 진척 롤업이 빠지지 않도록 한다.
         const affectsRollup = (['startDate', 'endDate', 'workEffort', 'weight', 'dependencies', 'progress', 'status'] as const).some(
           (k) => Object.prototype.hasOwnProperty.call(updates, k) || Object.prototype.hasOwnProperty.call(resolvedUpdates, k),
@@ -438,14 +261,14 @@ export function useTaskOps(deps: TaskOpsDeps) {
             const skipWorkEffortRollupParentIds =
               hasChildTasks && !hasDateChange && !isDirectProgressEdit && hasWorkEffortChange ? new Set([id]) : undefined;
             if (hasChildTasks && !hasDateChange && !isDirectProgressEdit) {
-              result = syncParentRollups(result, id, doneStatusIds, true, undefined, skipWorkEffortRollupParentIds);
+              result = syncParentRollups(result, id, doneStatusIds, true, undefined, skipWorkEffortRollupParentIds, true);
             } else {
-              result = syncParentRollups(result, task.parentId, doneStatusIds, true);
+              result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, undefined, true);
             }
           }
           if (parentIdChanged) {
-            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds);
-            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds);
+            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds, false, undefined, undefined, true);
+            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds, false, undefined, undefined, true);
           }
         }
 
@@ -477,7 +300,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         if (hasScheduleChange && task.projectId && !deferScheduleSync) {
           const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
           const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
-          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup);
+          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, true);
         }
 
         return result;
@@ -494,17 +317,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         }
       }
     },
-    [
-      saveHistory,
-      wbsSettingsRef,
-      projectsRef,
-      setAllTasks,
-      setProjects,
-      clampTaskToProjectRange,
-      bumpDirty,
-      handleDbError,
-      useLocalOnlyRef,
-    ],
+    [saveHistory, wbsSettingsRef, projectsRef, setAllTasks, setProjects, bumpDirty, handleDbError, useLocalOnlyRef],
   );
 
   const updateTasksBulk = useCallback(
@@ -542,7 +355,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
             if (row?.parentId) parentIds.add(row.parentId);
           }
           for (const pid of parentIds) {
-            next = syncParentRollups(next, pid, doneStatusIds, true);
+            next = syncParentRollups(next, pid, doneStatusIds, true, undefined, undefined, true);
           }
         }
 
@@ -821,7 +634,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
           result = prev.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
         }
-        result = recomputeProjectRollups(result, projectId, doneStatusIds);
+        result = recomputeProjectRollups(result, projectId, doneStatusIds, undefined, skipDependencySchedule);
         return result;
       });
     },
@@ -841,7 +654,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const idsToDelete = [id, ...getAllDescendantIds(id, prev)];
         if (taskToDelete.projectId) recordDeletedTaskIds(taskToDelete.projectId, idsToDelete);
         const next = prev.filter((t) => !new Set(idsToDelete).has(t.id));
-        return syncParentRollups(next, taskToDelete.parentId);
+        return syncParentRollups(next, taskToDelete.parentId, undefined, false, undefined, undefined, true);
       });
     },
     [saveHistory, setAllTasks, recordDeletedTaskIds],

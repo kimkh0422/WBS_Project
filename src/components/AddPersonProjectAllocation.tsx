@@ -112,7 +112,7 @@ export function AddPersonProjectAllocation({
           }
         }}
         placeholder="프로젝트명"
-        className="max-w-[10rem] px-1.5 py-0.5 text-xs border border-stone-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300 truncate"
+        className="max-w-[10rem] px-1.5 py-0.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300 truncate"
         title="기존 프로젝트 선택 또는 신규 프로젝트명 입력"
       />
       <datalist id={datalistId}>
@@ -150,7 +150,7 @@ export function AddPersonProjectAllocation({
       >
         추가
       </button>
-      <button type="button" onClick={reset} className="px-1.5 py-0.5 text-[10px] font-semibold rounded text-stone-500 hover:bg-stone-100">
+      <button type="button" onClick={reset} className="px-1.5 py-0.5 text-[10px] font-semibold rounded text-slate-500 hover:bg-slate-100">
         취소
       </button>
     </span>

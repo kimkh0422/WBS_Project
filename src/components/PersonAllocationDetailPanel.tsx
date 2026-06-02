@@ -155,7 +155,7 @@ export function PersonAllocationDetailPanel({
 
   return (
     <div
-      className="border-t border-teal-100/80 bg-gradient-to-b from-stone-50/80 to-white px-4 py-4 sm:px-5 sm:py-5"
+      className="border-t border-teal-100/80 bg-gradient-to-b from-slate-50/80 to-white px-4 py-4 sm:px-5 sm:py-5"
       role="region"
       aria-label={`${personDisplay} 상세`}
     >
@@ -166,17 +166,17 @@ export function PersonAllocationDetailPanel({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <UserCircle className="text-stone-400 shrink-0" size={18} aria-hidden />
-              <h3 className="text-base font-bold text-stone-900 break-words min-w-0">{personDisplay}</h3>
+              <UserCircle className="text-slate-400 shrink-0" size={18} aria-hidden />
+              <h3 className="text-base font-bold text-slate-900 break-words min-w-0">{personDisplay}</h3>
             </div>
-            {orgLabel && <p className="text-xs text-stone-500 mt-1">{orgLabel}</p>}
-            <p className="text-[11px] text-stone-400 mt-1">행을 다시 클릭하거나 Esc로 접을 수 있습니다.</p>
+            {orgLabel && <p className="text-xs text-slate-500 mt-1">{orgLabel}</p>}
+            <p className="text-[11px] text-slate-400 mt-1">행을 다시 클릭하거나 Esc로 접을 수 있습니다.</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="self-end sm:self-start inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-600 hover:bg-stone-50"
+          className="self-end sm:self-start inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
         >
           <X size={14} aria-hidden />
           닫기
@@ -193,7 +193,7 @@ export function PersonAllocationDetailPanel({
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm sm:col-span-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:col-span-2">
           <PersonAllocationEffortCell
             totalPercent={totalPercent}
             totalWorkEffortMd={totalMd}
@@ -201,12 +201,12 @@ export function PersonAllocationDetailPanel({
             align="left"
           />
         </div>
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">투입 프로젝트</div>
-          <div className="text-lg font-bold tabular-nums text-stone-800 mt-0.5">{allocationItems.length}</div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">투입 프로젝트</div>
+          <div className="text-lg font-bold tabular-nums text-slate-800 mt-0.5">{allocationItems.length}</div>
         </div>
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">담당 작업</div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">담당 작업</div>
           <div className="text-lg font-bold tabular-nums text-violet-700 mt-0.5">{tasksForPerson.length}건</div>
         </div>
       </div>
@@ -262,18 +262,18 @@ export function PersonAllocationDetailPanel({
       )}
 
       <div className="mb-5">
-        <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
           <Briefcase size={14} />
           프로젝트별 투입 · 기간
         </h4>
         {allocationItems.length === 0 ? (
-          <p className="text-sm text-stone-500 bg-white border border-stone-100 rounded-lg px-3 py-2">
+          <p className="text-sm text-slate-500 bg-white border border-slate-100 rounded-lg px-3 py-2">
             프로젝트 설정에 등록된 투입 비율이 없습니다. WBS 작업만 배정된 경우 아래「담당 WBS 작업」만 표시됩니다.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="w-full text-xs sm:text-sm min-w-[640px]">
-              <thead className="bg-stone-50 border-b border-stone-200 text-stone-500">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">프로젝트</th>
                   <th
@@ -310,10 +310,10 @@ export function PersonAllocationDetailPanel({
                   return (
                     <tr
                       key={project.id}
-                      className={cn('border-t border-stone-100 align-top', rowIntegrity.hasMismatch && 'bg-amber-50/40')}
+                      className={cn('border-t border-slate-100 align-top', rowIntegrity.hasMismatch && 'bg-amber-50/40')}
                       title={rowIntegrity.hasMismatch ? (allocationEffortMismatchDetailTooltip(rowIntegrity) ?? undefined) : undefined}
                     >
-                      <td className="px-3 py-2 font-medium text-stone-800 break-words max-w-[14rem]">
+                      <td className="px-3 py-2 font-medium text-slate-800 break-words max-w-[14rem]">
                         {formatProjectDisplayName(project.name, project.projectKind)}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums font-semibold text-teal-700">
@@ -322,7 +322,7 @@ export function PersonAllocationDetailPanel({
                       <td
                         className={cn(
                           'px-2 py-2 text-right tabular-nums align-top',
-                          rowIntegrity.hasMismatch ? 'text-amber-800 font-semibold' : 'text-stone-600',
+                          rowIntegrity.hasMismatch ? 'text-amber-800 font-semibold' : 'text-slate-600',
                         )}
                       >
                         {md > 0 ? (
@@ -336,8 +336,8 @@ export function PersonAllocationDetailPanel({
                           '—'
                         )}
                       </td>
-                      <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{period}</td>
-                      <td className="px-2 py-2 text-stone-500">
+                      <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{period}</td>
+                      <td className="px-2 py-2 text-slate-500">
                         {monthly ? (
                           <div className="flex flex-wrap gap-x-2 gap-y-0.5 max-w-[18rem]">
                             {Object.entries(monthly)
@@ -349,7 +349,7 @@ export function PersonAllocationDetailPanel({
                               ))}
                           </div>
                         ) : (
-                          <span className="text-stone-400">동일 비율</span>
+                          <span className="text-slate-400">동일 비율</span>
                         )}
                       </td>
                       <td className="px-2 py-2 text-center">
@@ -375,16 +375,16 @@ export function PersonAllocationDetailPanel({
       </div>
 
       <div>
-        <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
           <ListTodo size={14} />
           담당 WBS 작업 ({tasksForPerson.length}건)
         </h4>
         {tasksForPerson.length === 0 ? (
-          <p className="text-sm text-stone-500 bg-white border border-stone-100 rounded-lg px-3 py-2">할당된 작업이 없습니다.</p>
+          <p className="text-sm text-slate-500 bg-white border border-slate-100 rounded-lg px-3 py-2">할당된 작업이 없습니다.</p>
         ) : (
-          <div className="overflow-x-auto max-h-[min(420px,50vh)] overflow-y-auto rounded-lg border border-stone-200 bg-white">
+          <div className="overflow-x-auto max-h-[min(420px,50vh)] overflow-y-auto rounded-lg border border-slate-200 bg-white">
             <table className="w-full text-xs sm:text-sm min-w-[720px]">
-              <thead className="sticky top-0 z-[1] bg-stone-50 border-b border-stone-200 text-stone-500">
+              <thead className="sticky top-0 z-[1] bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">프로젝트</th>
                   <th className="text-left font-medium px-2 py-2">작업명</th>
@@ -405,12 +405,12 @@ export function PersonAllocationDetailPanel({
                   const unit = workEffortUnitLabel(proj?.workEffortUnit);
                   const we = task.workEffort;
                   return (
-                    <tr key={task.id} className="border-t border-stone-100 hover:bg-stone-50/60 align-top">
-                      <td className="px-3 py-2 text-stone-700 break-words max-w-[10rem]">
+                    <tr key={task.id} className="border-t border-slate-100 hover:bg-slate-50/60 align-top">
+                      <td className="px-3 py-2 text-slate-700 break-words max-w-[10rem]">
                         {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : task.projectId}
                       </td>
-                      <td className="px-2 py-2 font-medium text-stone-900 break-words max-w-[16rem]">{task.name}</td>
-                      <td className="px-1 py-2 text-center text-[10px] text-stone-500">
+                      <td className="px-2 py-2 font-medium text-slate-900 break-words max-w-[16rem]">{task.name}</td>
+                      <td className="px-1 py-2 text-center text-[10px] text-slate-500">
                         {task.isMilestone && <span className="block text-amber-700 font-semibold">M</span>}
                         {task.isIssue && <span className="block text-red-700 font-semibold">이슈</span>}
                         {task.isActionItem && <span className="block text-violet-700 font-semibold">액션</span>}
@@ -424,12 +424,12 @@ export function PersonAllocationDetailPanel({
                           {statusLabel}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-700">{formatPercent1(task.progress)}%</td>
-                      <td className="px-2 py-2 text-right tabular-nums text-stone-600">
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-700">{formatPercent1(task.progress)}%</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                         {we != null && Number(we) > 0 ? `${formatNum2(Number(we))} ${unit}` : '—'}
                       </td>
-                      <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{task.startDate || '—'}</td>
-                      <td className="px-2 py-2 text-stone-600 whitespace-nowrap">{task.endDate || '—'}</td>
+                      <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{task.startDate || '—'}</td>
+                      <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{task.endDate || '—'}</td>
                     </tr>
                   );
                 })}

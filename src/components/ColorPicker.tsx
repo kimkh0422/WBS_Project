@@ -1,12 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  hexToHsv,
-  hsvToHex,
-  hexToRgb,
-  rgbToHex,
-  hsvToRgb,
-  type Hsv,
-} from '../lib/colorPickerUtils';
+import { hexToHsv, hsvToHex, hexToRgb, rgbToHex, hsvToRgb, type Hsv } from '../lib/colorPickerUtils';
 
 const PICKER_SIZE = 220;
 const SLIDER_HEIGHT = 12;
@@ -40,7 +33,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       setHsv(next);
       onChange(hsvToHex(next.h, next.s, next.v));
     },
-    [onChange]
+    [onChange],
   );
 
   const rgb = (() => {
@@ -57,7 +50,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
       updateFromHsv({ ...hsv, s: x, v: 1 - y });
     },
-    [hsv, updateFromHsv]
+    [hsv, updateFromHsv],
   );
 
   const handleHueMove = useCallback(
@@ -68,7 +61,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       updateFromHsv({ ...hsv, h: x * 360 });
     },
-    [hsv, updateFromHsv]
+    [hsv, updateFromHsv],
   );
 
   useEffect(() => {
@@ -97,7 +90,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       {/* Saturation / Value square */}
       <div
         ref={svRef}
-        className="relative rounded-lg border border-stone-200 overflow-hidden cursor-crosshair select-none"
+        className="relative rounded-lg border border-slate-200 overflow-hidden cursor-crosshair select-none"
         style={{
           height: size,
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent), ${hueColor}`,
@@ -122,7 +115,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       <div className="mt-2 relative" style={{ height: SLIDER_HEIGHT + 8 }}>
         <div
           ref={hueRef}
-          className="absolute inset-0 rounded-full border border-stone-200 overflow-visible cursor-pointer select-none"
+          className="absolute inset-0 rounded-full border border-slate-200 overflow-visible cursor-pointer select-none"
           style={{
             height: SLIDER_HEIGHT,
             top: 4,
@@ -147,7 +140,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
 
       {/* RGB inputs */}
       <div className="mt-3 flex items-center gap-2">
-        <span className="text-[10px] font-bold text-stone-500 w-5">R</span>
+        <span className="text-[10px] font-bold text-slate-500 w-5">R</span>
         <input
           type="number"
           min={0}
@@ -160,7 +153,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
           }}
           className="w-12 input-field py-1 text-xs text-right"
         />
-        <span className="text-[10px] font-bold text-stone-500 w-5">G</span>
+        <span className="text-[10px] font-bold text-slate-500 w-5">G</span>
         <input
           type="number"
           min={0}
@@ -173,7 +166,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
           }}
           className="w-12 input-field py-1 text-xs text-right"
         />
-        <span className="text-[10px] font-bold text-stone-500 w-5">B</span>
+        <span className="text-[10px] font-bold text-slate-500 w-5">B</span>
         <input
           type="number"
           min={0}
@@ -189,10 +182,7 @@ export function ColorPicker({ value, onChange, size = PICKER_SIZE, className = '
       </div>
 
       {/* Preview bar */}
-      <div
-        className="mt-2 rounded-lg border border-stone-200 h-8"
-        style={{ backgroundColor: hex }}
-      />
+      <div className="mt-2 rounded-lg border border-slate-200 h-8" style={{ backgroundColor: hex }} />
     </div>
   );
 }

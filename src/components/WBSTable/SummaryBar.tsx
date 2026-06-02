@@ -20,13 +20,13 @@ const StatChip = ({
   valueClassName?: string;
 }) => (
   <div className="flex items-center gap-1.5 px-3 py-1" title={hint}>
-    <span className="text-stone-400">{icon}</span>
-    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{label}</span>
+    <span className="text-slate-400">{icon}</span>
+    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
     <span className={cn('text-xs font-semibold text-[var(--color-ink)]', valueClassName)}>{value}</span>
   </div>
 );
 
-const Divider = () => <div className="w-px h-4 bg-stone-200 flex-shrink-0" />;
+const Divider = () => <div className="w-px h-4 bg-slate-200 flex-shrink-0" />;
 
 interface SummaryBarProps {
   summaryStats: SummaryStats | null;
@@ -70,8 +70,8 @@ export function SummaryBar({
       className={cn(
         // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
         isSplitView
-          ? 'h-14 flex items-center gap-0 border-b px-4 py-0 text-xs bg-stone-50 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
-          : 'flex items-center gap-0 border-b px-4 py-2 text-xs bg-stone-50 flex-wrap flex-shrink-0',
+          ? 'h-14 flex items-center gap-0 border-b px-4 py-0 text-xs bg-slate-50 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
+          : 'flex items-center gap-0 border-b px-4 py-2 text-xs bg-slate-50 flex-wrap flex-shrink-0',
         'border-[var(--color-line)]',
       )}
     >
@@ -121,7 +121,7 @@ export function SummaryBar({
           />
 
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">레벨 펼치기</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">레벨 펼치기</span>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map((lv) => (
                 <button
@@ -136,7 +136,7 @@ export function SummaryBar({
                     'h-7 min-w-[2.25rem] rounded-md border text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20',
                     treeExpandLevel === lv
                       ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm'
-                      : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50',
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                   )}
                 >
                   {lv}
@@ -150,7 +150,7 @@ export function SummaryBar({
               aria-pressed={tableEditMode}
               className={cn(
                 'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20',
-                tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50',
+                tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
               )}
               title="스프레드시트 편집 모드 (F2)"
             >
@@ -170,7 +170,7 @@ export function SummaryBar({
             <button
               type="button"
               onClick={onAutoFitColumns}
-              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
             >
               <Maximize2 size={12} strokeWidth={2} aria-hidden />
@@ -214,7 +214,7 @@ export function SummaryBar({
             aria-pressed={tableEditMode}
             className={cn(
               'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20',
-              tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50',
+              tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
             )}
             title="스프레드시트 편집 모드 (F2)"
           >
@@ -223,14 +223,14 @@ export function SummaryBar({
           <button
             type="button"
             onClick={onAutoFitColumns}
-            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
           >
             <Maximize2 size={12} strokeWidth={2} aria-hidden />
             자동 맞춤
           </button>
           {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
-          <div className="w-px h-5 bg-stone-200 shrink-0" />
+          <div className="w-px h-5 bg-slate-200 shrink-0" />
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
             <input

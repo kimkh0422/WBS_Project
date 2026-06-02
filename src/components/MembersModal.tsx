@@ -464,7 +464,7 @@ export function MembersModal({
             회원 관리
           </h2>
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="p-2 hover:bg-stone-100 rounded-lg text-stone-500 transition-colors">
+            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -480,18 +480,18 @@ export function MembersModal({
             </p>
           )}
           {effectiveIsAdmin && (
-            <p className="text-xs text-stone-500 mb-3 leading-relaxed">
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
               조직도(<span className="font-mono">org_members</span>)에서 직책이 팀장이면 부팀장을 제외하고, 회원명·부서가 동일할 때{' '}
               <strong>관리자</strong> 권한이 자동으로 부여됩니다(로그인·부서·조직도 갱신 시 반영).
             </p>
           )}
           {loading ? (
-            <div className="flex items-center justify-center py-12 gap-2 text-stone-500">
+            <div className="flex items-center justify-center py-12 gap-2 text-slate-500">
               <Loader2 size={24} className="animate-spin" />
               <span>로딩 중...</span>
             </div>
           ) : members.length === 0 ? (
-            <p className="text-stone-500 text-center py-12">등록된 회원이 없습니다.</p>
+            <p className="text-slate-500 text-center py-12">등록된 회원이 없습니다.</p>
           ) : (
             <>
               <datalist id="wbs-profile-dept-options">
@@ -502,11 +502,11 @@ export function MembersModal({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--color-line)]">
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('full_name')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="회원명으로 정렬"
                       >
                         회원명
@@ -521,11 +521,11 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('email')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="이메일로 정렬"
                       >
                         이메일
@@ -541,16 +541,16 @@ export function MembersModal({
                       </button>
                     </th>
                     <th
-                      className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap"
+                      className="text-left py-3 px-2 font-semibold text-slate-600 whitespace-nowrap"
                       title="조직현황(조직도) 인원과 회원명으로 자동 연동. 필요 시 직접 수정"
                     >
                       부서
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('created_at')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="가입일로 정렬"
                       >
                         가입일
@@ -565,11 +565,11 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('login_count')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="접속횟수로 정렬"
                       >
                         접속횟수
@@ -584,11 +584,11 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('last_visited_at')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="마지막 접속으로 정렬"
                       >
                         마지막 접속시각
@@ -603,11 +603,11 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('approved')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="승인 여부로 정렬"
                       >
                         승인
@@ -623,13 +623,13 @@ export function MembersModal({
                       </button>
                     </th>
                     <th
-                      className="text-left py-3 px-2 font-semibold text-stone-600 whitespace-nowrap"
+                      className="text-left py-3 px-2 font-semibold text-slate-600 whitespace-nowrap"
                       title="해당 회원이 만든(소유한) 프로젝트 개수. 숫자를 누르면 프로젝트 이름을 펼칩니다."
                     >
                       <button
                         type="button"
                         onClick={() => toggleSort('project_count')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="프로젝트 수로 정렬 (셀의 숫자는 클릭하여 목록 표시)"
                       >
                         프로젝트 수
@@ -644,12 +644,12 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">프로젝트 권한</th>
-                    <th className="text-left py-3 px-2 font-semibold text-stone-600">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">프로젝트 권한</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600">
                       <button
                         type="button"
                         onClick={() => toggleSort('role')}
-                        className="inline-flex items-center gap-1 hover:text-stone-800 transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
                         title="역할로 정렬"
                       >
                         역할
@@ -664,12 +664,12 @@ export function MembersModal({
                         )}
                       </button>
                     </th>
-                    <th className="text-right py-3 px-2 font-semibold text-stone-600 w-16">삭제</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-600 w-16">삭제</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedMembers.map((m) => (
-                    <tr key={m.id} className="border-b border-stone-100 hover:bg-stone-50">
+                    <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="py-3 px-2 text-[var(--color-ink)]">
                         {editingId === m.id ? (
                           <div className="flex items-center gap-1">
@@ -684,7 +684,7 @@ export function MembersModal({
                               }}
                               onBlur={saveName}
                               autoFocus
-                              className="flex-1 min-w-0 px-2 py-1 text-sm border border-stone-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="flex-1 min-w-0 px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                               disabled={savingName}
                             />
                             <button
@@ -707,7 +707,7 @@ export function MembersModal({
                             {effectiveIsAdmin && (
                               <button
                                 onClick={() => startEdit(m)}
-                                className="p-1 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                 title="이름 수정"
                                 type="button"
                               >
@@ -745,21 +745,21 @@ export function MembersModal({
                                 }
                                 className={cn(
                                   'w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500',
-                                  fromOrgOnly ? 'border-teal-200 bg-teal-50/50' : 'border-stone-200',
+                                  fromOrgOnly ? 'border-teal-200 bg-teal-50/50' : 'border-slate-200',
                                 )}
                               />
                             );
                           })()
                         ) : (
                           <span
-                            className="text-stone-600 text-xs"
+                            className="text-slate-600 text-xs"
                             title={resolveMemberDepartment(m.department, m.full_name, orgDeptByName) || undefined}
                           >
                             {resolveMemberDepartment(m.department, m.full_name, orgDeptByName) || '—'}
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-2 text-stone-500">
+                      <td className="py-3 px-2 text-slate-500">
                         {m.created_at ? (
                           <span title={format(new Date(m.created_at), 'yyyy-MM-dd HH:mm')}>
                             {format(new Date(m.created_at), 'yyyy-MM-dd')}
@@ -768,8 +768,8 @@ export function MembersModal({
                           '-'
                         )}
                       </td>
-                      <td className="py-3 px-2 text-stone-600 tabular-nums">{m.login_count != null ? m.login_count : '-'}</td>
-                      <td className="py-3 px-2 text-stone-500 whitespace-nowrap">
+                      <td className="py-3 px-2 text-slate-600 tabular-nums">{m.login_count != null ? m.login_count : '-'}</td>
+                      <td className="py-3 px-2 text-slate-500 whitespace-nowrap">
                         {m.last_visited_at ? (
                           <span title={format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm:ss')}>
                             {format(new Date(m.last_visited_at), 'yyyy-MM-dd HH:mm')}
@@ -784,11 +784,11 @@ export function MembersModal({
                         ) : m.id === currentUserId ? (
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">대기</span>
                         ) : !effectiveIsAdmin ? (
-                          <span className="text-stone-400 text-xs" title="회원 승인은 시스템 관리자만 처리합니다.">
+                          <span className="text-slate-400 text-xs" title="회원 승인은 시스템 관리자만 처리합니다.">
                             —
                           </span>
                         ) : approvingId === m.id ? (
-                          <span className="text-stone-400 text-xs flex items-center gap-1">
+                          <span className="text-slate-400 text-xs flex items-center gap-1">
                             <Loader2 size={12} className="animate-spin" /> 처리 중
                           </span>
                         ) : (
@@ -802,12 +802,12 @@ export function MembersModal({
                           </button>
                         )}
                       </td>
-                      <td className="py-3 px-2 text-stone-700 align-top">
+                      <td className="py-3 px-2 text-slate-700 align-top">
                         {(() => {
                           const owned = projectsByOwner.get(m.id) ?? [];
                           const count = owned.length;
                           if (count === 0) {
-                            return <span className="tabular-nums text-stone-300">0</span>;
+                            return <span className="tabular-nums text-slate-300">0</span>;
                           }
                           const isOpen = expandedOwnedProjectsMemberId === m.id;
                           return (
@@ -838,7 +838,7 @@ export function MembersModal({
                                           onNavigateToProject(p.id);
                                           onClose();
                                         }}
-                                        className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-stone-700 transition-colors text-left break-words max-w-full"
+                                        className="px-2 py-0.5 text-xs rounded-md border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-slate-700 transition-colors text-left break-words max-w-full"
                                         title={`${formatProjectDisplayName(p.name, p.projectKind)} — 작업 화면으로 이동`}
                                       >
                                         {formatProjectDisplayName(p.name, p.projectKind)}
@@ -846,7 +846,7 @@ export function MembersModal({
                                     ) : (
                                       <span
                                         key={p.id}
-                                        className="px-2 py-0.5 text-xs rounded-md border border-stone-200 bg-stone-50 text-stone-700 break-words max-w-full"
+                                        className="px-2 py-0.5 text-xs rounded-md border border-slate-200 bg-slate-50 text-slate-700 break-words max-w-full"
                                         title={formatProjectDisplayName(p.name, p.projectKind)}
                                       >
                                         {formatProjectDisplayName(p.name, p.projectKind)}
@@ -864,39 +864,39 @@ export function MembersModal({
                           <button
                             type="button"
                             onClick={() => setAccessMember(m)}
-                            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-stone-100 text-stone-700 hover:bg-stone-200 transition-colors"
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
                             title="회원별 프로젝트 권한(보기/편집) 확인 및 수정"
                           >
                             보기/수정
                           </button>
                         ) : (
-                          <span className="text-stone-400 text-xs">—</span>
+                          <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
                       <td className="py-3 px-2">
                         {m.id === currentUserId ? (
                           <span
-                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}
                             title="본인 계정의 역할은 직접 변경할 수 없습니다. (회원 화면 미리보기는 헤더의 '회원 체험' 사용)"
                           >
                             {m.is_admin ? '관리자' : '회원'}
                           </span>
                         ) : !canChangeMemberRole(m) ? (
                           <span
-                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-600'}`}
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${m.is_admin ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}
                             title={effectiveIsAdmin ? undefined : '소속 범위 밖이거나 조직 책임자에게서만 변경 가능한 회원이 아닙니다.'}
                           >
                             {m.is_admin ? '관리자' : '회원'}
                           </span>
                         ) : savingRoleId === m.id ? (
-                          <span className="text-stone-400 text-xs flex items-center gap-1">
+                          <span className="text-slate-400 text-xs flex items-center gap-1">
                             <Loader2 size={12} className="animate-spin" /> 변경 중
                           </span>
                         ) : (
                           <select
                             value={m.is_admin ? 'admin' : 'member'}
                             onChange={(e) => setRole(m, e.target.value === 'admin')}
-                            className="text-xs font-medium px-2 py-1 rounded border border-stone-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                            className="text-xs font-medium px-2 py-1 rounded border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
                           >
                             <option value="member">회원</option>
                             <option value="admin">관리자</option>
@@ -908,15 +908,15 @@ export function MembersModal({
                           <button
                             type="button"
                             onClick={() => setMemberToDelete(m)}
-                            className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                             title="회원 삭제"
                           >
                             <Trash2 size={16} />
                           </button>
                         ) : m.id === currentUserId ? (
-                          <span className="text-stone-300 text-xs">본인</span>
+                          <span className="text-slate-300 text-xs">본인</span>
                         ) : (
-                          <span className="text-stone-400 text-xs">—</span>
+                          <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
                     </tr>
@@ -928,21 +928,21 @@ export function MembersModal({
 
           {dbIsAdmin && !loading && adminAccessRequests.length > 0 && (
             <div className="mt-8 pt-6 border-t border-[var(--color-line)]">
-              <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-3">
                 <Shield size={16} />
                 시스템 관리자 권한 요청 (대기 중)
               </h3>
-              <p className="text-xs text-stone-500 mb-3">
+              <p className="text-xs text-slate-500 mb-3">
                 회원이 DB 시스템 관리자(<span className="font-mono">is_admin</span>) 권한을 요청한 목록입니다. 승인 시 해당 회원이
                 대시보드·전역 설정 등 관리자 기능을 사용할 수 있습니다.
               </p>
-              <table className="w-full text-sm border border-stone-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
                 <thead>
-                  <tr className="bg-stone-50 border-b border-stone-200">
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청자</th>
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">사유</th>
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청일</th>
-                    <th className="text-right py-2 px-3 font-semibold text-stone-600 w-32">처리</th>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">요청자</th>
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">사유</th>
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">요청일</th>
+                    <th className="text-right py-2 px-3 font-semibold text-slate-600 w-32">처리</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -958,14 +958,14 @@ export function MembersModal({
                       : req.user_id;
                     const isProcessing = processingAdminRequestId === req.id;
                     return (
-                      <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                      <tr key={req.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                         <td className="py-2 px-3 text-[var(--color-ink)]">{requesterName}</td>
-                        <td className="py-2 px-3 text-stone-600 max-w-[220px]">
+                        <td className="py-2 px-3 text-slate-600 max-w-[220px]">
                           <span className="line-clamp-2 break-words" title={req.message ?? undefined}>
                             {req.message?.trim() ? req.message : '—'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-stone-500 whitespace-nowrap">
+                        <td className="py-2 px-3 text-slate-500 whitespace-nowrap">
                           {req.created_at ? format(new Date(req.created_at), 'yyyy-MM-dd HH:mm') : '-'}
                         </td>
                         <td className="py-2 px-3 text-right">
@@ -1002,21 +1002,21 @@ export function MembersModal({
 
           {effectiveIsAdmin && !loading && accessRequests.length > 0 && (
             <div className="mt-8 pt-6 border-t border-[var(--color-line)]">
-              <h3 className="text-sm font-semibold text-stone-700 flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-3">
                 <FolderGit2 size={16} />
                 프로젝트 권한 요청 (대기 중)
               </h3>
-              <p className="text-xs text-stone-500 mb-3">
+              <p className="text-xs text-slate-500 mb-3">
                 승인된 회원이 특정 프로젝트에 대한 보기/편집 권한을 요청한 목록입니다. 승인 시 해당 회원이 프로젝트 내용을 볼 수 있습니다.
               </p>
-              <table className="w-full text-sm border border-stone-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
                 <thead>
-                  <tr className="bg-stone-50 border-b border-stone-200">
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">프로젝트</th>
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청자</th>
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청 권한</th>
-                    <th className="text-left py-2 px-3 font-semibold text-stone-600">요청일</th>
-                    <th className="text-right py-2 px-3 font-semibold text-stone-600 w-32">처리</th>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">프로젝트</th>
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">요청자</th>
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">요청 권한</th>
+                    <th className="text-left py-2 px-3 font-semibold text-slate-600">요청일</th>
+                    <th className="text-right py-2 px-3 font-semibold text-slate-600 w-32">처리</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1034,15 +1034,15 @@ export function MembersModal({
                       : req.user_id;
                     const isProcessing = processingRequestId === req.id;
                     return (
-                      <tr key={req.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                      <tr key={req.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                         <td className="py-2 px-3 text-[var(--color-ink)]">{projectName}</td>
-                        <td className="py-2 px-3 text-stone-600">{requesterName}</td>
+                        <td className="py-2 px-3 text-slate-600">{requesterName}</td>
                         <td className="py-2 px-3">
-                          <span className={req.requested_role === 'editor' ? 'text-indigo-600' : 'text-stone-600'}>
+                          <span className={req.requested_role === 'editor' ? 'text-indigo-600' : 'text-slate-600'}>
                             {req.requested_role === 'editor' ? '편집' : '보기'}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-stone-500">
+                        <td className="py-2 px-3 text-slate-500">
                           {req.created_at ? format(new Date(req.created_at), 'yyyy-MM-dd HH:mm') : '-'}
                         </td>
                         <td className="py-2 px-3 text-right">
@@ -1078,8 +1078,8 @@ export function MembersModal({
           )}
         </div>
 
-        <div className="p-4 border-t border-[var(--color-line)] bg-stone-50/50">
-          <p className="text-xs text-stone-500">총 {members.length}명</p>
+        <div className="p-4 border-t border-[var(--color-line)] bg-slate-50/50">
+          <p className="text-xs text-slate-500">총 {members.length}명</p>
         </div>
       </div>
 
@@ -1088,7 +1088,7 @@ export function MembersModal({
           <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')} onClick={(e) => e.stopPropagation()}>
             <div className="p-5 border-b border-[var(--color-line)]">
               <h3 className="text-lg font-bold text-[var(--color-ink)]">회원 삭제</h3>
-              <p className="mt-2 text-sm text-stone-600">
+              <p className="mt-2 text-sm text-slate-600">
                 <strong>
                   {memberToDelete.full_name
                     ? `${memberToDelete.full_name} (${memberToDelete.email || '이메일 없음'})`
@@ -1101,7 +1101,7 @@ export function MembersModal({
               <button
                 onClick={() => setMemberToDelete(null)}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
               >
                 취소
               </button>

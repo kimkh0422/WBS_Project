@@ -79,23 +79,23 @@ export function ProjectEditAccessRequestModal({
             <Edit3 size={18} />
             프로젝트 편집 권한 요청
           </h2>
-          <button type="button" onClick={onClose} className="p-2 hover:bg-stone-100 rounded-lg text-stone-500 transition-colors">
+          <button type="button" onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
             <X size={18} />
           </button>
         </div>
 
         {checking ? (
-          <div className="flex justify-center py-8 text-stone-500">
+          <div className="flex justify-center py-8 text-slate-500">
             <Loader2 size={24} className="animate-spin" />
           </div>
         ) : (
           <>
-            <p className="text-sm text-stone-600 leading-relaxed mb-4">
+            <p className="text-sm text-slate-600 leading-relaxed mb-4">
               이 프로젝트에서 작업을 추가·수정하려면 소유자·관리자가 <strong>회원 관리</strong>에서 승인해 주어야 합니다. 승인 시{' '}
               <strong>보기·편집</strong> 요청 모두 동일하게 표에서 편집할 수 있습니다. 아래는 그 승인을 요청하는 용도입니다.
             </p>
             <p
-              className="text-xs text-stone-500 mb-4 rounded-lg bg-stone-50 border border-stone-100 px-3 py-2 truncate"
+              className="text-xs text-slate-500 mb-4 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 truncate"
               title={projectName}
             >
               대상: {projectName}
@@ -117,12 +117,12 @@ export function ProjectEditAccessRequestModal({
                   </p>
                 )}
                 {request?.status === 'rejected' && (
-                  <p className="text-xs text-stone-600 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">
+                  <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                     이전 요청이 거절되었습니다. 다시 편집 권한을 요청할 수 있습니다.
                   </p>
                 )}
                 {request?.status === 'approved' && request.requested_role === 'viewer' && (
-                  <p className="text-xs text-stone-600 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">
+                  <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
                     보기로 요청했던 기록이 승인된 상태입니다. 멤버로 등록되어 있다면 이미 편집할 수 있습니다. 목록이 갱신되지 않으면
                     새로고침 해 보세요.
                   </p>
@@ -131,7 +131,7 @@ export function ProjectEditAccessRequestModal({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                   >
                     닫기
                   </button>
@@ -154,7 +154,7 @@ export function ProjectEditAccessRequestModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   닫기
                 </button>

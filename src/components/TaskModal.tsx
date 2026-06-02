@@ -4,11 +4,10 @@ import { Task, TaskStatus } from '../types';
 import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
-import { computeEndDateFromEffort } from '../lib/schedule';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { useOrganization } from '../context/OrganizationContext';
-import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { randomUUID, cn, round1, round2 } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
@@ -125,7 +124,7 @@ function TaskDescriptionCollabEditor({
     editor?.setEditable(!readOnly);
   }, [editor, readOnly]);
 
-  if (!editor) return <div className="input-field min-h-[7rem] rounded-lg bg-stone-50 animate-pulse" aria-hidden />;
+  if (!editor) return <div className="input-field min-h-[7rem] rounded-lg bg-slate-50 animate-pulse" aria-hidden />;
   return (
     <div onPaste={onPaste}>
       <EditorContent editor={editor} />
@@ -970,12 +969,7 @@ export function TaskModal({
                 value={formData.startDate?.split('T')[0]}
                 onChange={(e) => {
                   const newStart = e.target.value;
-                  const effortStored =
-                    typeof formData.workEffort === 'number' && formData.workEffort > 0 ? formData.workEffort : (formData.workEffort ?? 1);
-                  const effortMd = workEffortToManDays(effortStored, taskEffortUnit);
-                  let newEnd = computeEndDateFromEffort(newStart, effortMd, projectAssignments.length > 0 ? projectAssignments : undefined);
-                  if (taskProject?.endDate && newEnd > taskProject.endDate) newEnd = taskProject.endDate;
-                  setFormData((prev) => ({ ...prev, startDate: newStart, endDate: newEnd }));
+                  setFormData((prev) => ({ ...prev, startDate: newStart }));
                 }}
                 className="input-field py-1.5 text-sm"
                 readOnly={readOnly}
@@ -1198,7 +1192,7 @@ export function TaskModal({
                         type="button"
                         className={cn(
                           'w-full text-left px-2.5 py-1.5 text-sm flex gap-2 items-baseline',
-                          i === depPickIdx ? 'bg-[var(--color-accent-soft)]' : 'hover:bg-stone-100 dark:hover:bg-stone-800',
+                          i === depPickIdx ? 'bg-[var(--color-accent-soft)]' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
                         )}
                         onMouseDown={(ev) => ev.preventDefault()}
                         onMouseEnter={() => setDepPickIdx(i)}
@@ -1291,14 +1285,14 @@ export function TaskModal({
                             type="checkbox"
                             checked={completed}
                             onChange={() => handleToggleChildInChecklist(child.id)}
-                            className="rounded border-stone-300 text-blue-600 shrink-0"
+                            className="rounded border-slate-300 text-blue-600 shrink-0"
                             title="하위 작업 완료 여부"
                             disabled={readOnly}
                           />
                           <button
                             type="button"
                             onClick={() => onOpenTask?.(child)}
-                            className={`flex-1 min-w-0 text-left py-0.5 text-xs border-0 bg-transparent focus:ring-0 hover:text-[var(--color-accent)] ${completed ? 'line-through text-stone-400' : ''}`}
+                            className={`flex-1 min-w-0 text-left py-0.5 text-xs border-0 bg-transparent focus:ring-0 hover:text-[var(--color-accent)] ${completed ? 'line-through text-slate-400' : ''}`}
                             title={onOpenTask ? '작업 열기' : undefined}
                           >
                             {title}
@@ -1318,7 +1312,7 @@ export function TaskModal({
                             type="checkbox"
                             checked={item.completed}
                             onChange={() => handleToggleChecklist(item.id)}
-                            className="rounded border-stone-300 text-blue-600 shrink-0"
+                            className="rounded border-slate-300 text-blue-600 shrink-0"
                             disabled={readOnly}
                           />
                           <input
@@ -1336,13 +1330,13 @@ export function TaskModal({
                             }}
                             readOnly={readOnly}
                             disabled={readOnly}
-                            className={`flex-1 min-w-0 py-0.5 text-xs border-0 bg-transparent focus:ring-0 ${item.completed ? 'line-through text-stone-400' : ''}`}
+                            className={`flex-1 min-w-0 py-0.5 text-xs border-0 bg-transparent focus:ring-0 ${item.completed ? 'line-through text-slate-400' : ''}`}
                           />
                           {!readOnly && initialData?.id && (
                             <button
                               type="button"
                               onClick={() => handleConvertToSubtask(item)}
-                              className="p-0.5 text-stone-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 shrink-0"
+                              className="p-0.5 text-slate-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 shrink-0"
                               title="하위 작업으로 변환"
                             >
                               <CornerDownRight size={11} />
@@ -1352,7 +1346,7 @@ export function TaskModal({
                             <button
                               type="button"
                               onClick={() => handleDeleteChecklist(item.id)}
-                              className="p-0.5 text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0"
+                              className="p-0.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0"
                               title="삭제"
                             >
                               <X size={11} />

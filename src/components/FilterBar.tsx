@@ -99,7 +99,7 @@ export function WbsFilterBar({
         <button
           type="button"
           onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-all min-w-[140px] text-left"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all min-w-[140px] text-left"
           title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
         >
           <span className="flex-1 break-words">
@@ -124,7 +124,7 @@ export function WbsFilterBar({
               value={projectSearch}
               onChange={(e) => setProjectSearch(e.target.value)}
               placeholder="프로젝트 검색..."
-              className="w-full px-2 py-1.5 text-xs border-b border-stone-200 outline-none placeholder:text-stone-400"
+              className="w-full px-2 py-1.5 text-xs border-b border-slate-200 outline-none placeholder:text-slate-400"
             />
             {(() => {
               const allIds = projectsSortedByName.map((x) => x.id);
@@ -140,7 +140,7 @@ export function WbsFilterBar({
                 Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
               return (
                 <>
-                  <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-stone-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
+                  <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
                     <input
                       ref={(el) => {
                         (projectFilterAllCheckboxRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
@@ -167,7 +167,7 @@ export function WbsFilterBar({
                     return (
                       <label
                         key={p.id}
-                        className="flex items-center gap-2 px-3 py-1.5 text-xs text-stone-700 hover:bg-slate-50 cursor-pointer"
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -224,10 +224,10 @@ export function WbsFilterBar({
           value={filters.searchText ?? ''}
           onChange={(e) => setFilters((f) => ({ ...f, searchText: e.target.value }))}
           placeholder="작업 검색..."
-          className="bg-transparent text-xs text-stone-700 placeholder-stone-400 outline-none w-28 sm:w-36"
+          className="bg-transparent text-xs text-slate-700 placeholder-slate-400 outline-none w-28 sm:w-36"
         />
         {filters.searchText && (
-          <button onClick={() => setFilters((f) => ({ ...f, searchText: '' }))} className="text-stone-400 hover:text-stone-600">
+          <button onClick={() => setFilters((f) => ({ ...f, searchText: '' }))} className="text-slate-400 hover:text-slate-600">
             <X size={10} />
           </button>
         )}

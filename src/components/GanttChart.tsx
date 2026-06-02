@@ -491,17 +491,17 @@ export function GanttChart({
       return (
         <div
           ref={barPopoverRef}
-          className="fixed z-50 bg-white border border-stone-200 rounded-lg shadow-lg p-3 text-sm max-w-[280px]"
+          className="fixed z-50 bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-sm max-w-[280px]"
           style={{ left: tappedBar.x, top: tappedBar.y, transform: 'translate(-50%, 8px)' }}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <div className="font-semibold text-stone-800 break-words">{displayName}</div>
-          <div className="text-stone-600 mt-1 tabular-nums">{formatRange(t.startDate, t.endDate)}</div>
+          <div className="font-semibold text-slate-800 break-words">{displayName}</div>
+          <div className="text-slate-600 mt-1 tabular-nums">{formatRange(t.startDate, t.endDate)}</div>
           {schedulePopoverWarn ? (
             <div className="text-amber-900 mt-2 text-xs leading-snug border-t border-amber-100 pt-2">{schedulePopoverWarn}</div>
           ) : null}
           {t.assignee ? (
-            <div className="text-stone-500 mt-1 break-words">{formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName)}</div>
+            <div className="text-slate-500 mt-1 break-words">{formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName)}</div>
           ) : null}
         </div>
       );
@@ -509,14 +509,14 @@ export function GanttChart({
 
   if (visibleTasks.length === 0)
     return (
-      <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+      <div className="p-12 text-center text-slate-400 italic font-serif bg-slate-50/30">
         {tasks.length === 0 ? '등록된 작업이 없습니다. 새 작업을 추가해 보세요.' : '필터와 일치하는 작업이 없습니다.'}
       </div>
     );
 
   if (dates.length === 0)
     return (
-      <div className="p-12 text-center text-stone-400 italic font-serif bg-stone-50/30">
+      <div className="p-12 text-center text-slate-400 italic font-serif bg-slate-50/30">
         유효하지 않은 날짜가 포함되어 있습니다. 데이터를 확인해 주세요.
       </div>
     );
@@ -540,13 +540,13 @@ export function GanttChart({
       <>
         <div className="w-full h-full flex flex-col bg-white">
           {/* 표의 Summary Bar와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 (min-h로 여유 두어 화면 잘림 방지) */}
-          <div className="h-14 flex-shrink-0 flex items-center gap-3 px-4 py-0 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto overflow-y-hidden whitespace-nowrap">
+          <div className="h-14 flex-shrink-0 flex items-center gap-3 px-4 py-0 border-b border-[var(--color-line)] bg-slate-50 overflow-x-auto overflow-y-hidden whitespace-nowrap">
             {/* 확대/축소 (너비 간격) */}
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
               <button
                 onClick={() => setZoomIndex((prev) => (prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1)))}
-                className="p-0.5 rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors shrink-0"
+                className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
                 title="축소"
               >
                 <ZoomOut size={12} />
@@ -565,12 +565,12 @@ export function GanttChart({
                     : zoomIndex
                 }
                 onChange={(e) => setZoomIndex(Number(e.target.value))}
-                className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
+                className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
                 title="간트 확대/축소"
               />
               <button
                 onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
-                className="p-0.5 rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors shrink-0"
+                className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
                 title="확대"
               >
                 <ZoomIn size={12} />
@@ -580,13 +580,13 @@ export function GanttChart({
                 onClick={() => setZoomIndex(-1)}
                 className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-                  zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700',
+                  zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
                 )}
                 title="전체 맞춤"
               >
                 맞춤
               </button>
-              <span className="text-[10px] font-mono text-stone-500 w-8 shrink-0">
+              <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
                 {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
               </span>
             </div>
@@ -595,7 +595,7 @@ export function GanttChart({
                 split 뷰(표+간트)에서는 표 SummaryBar에 동일 슬라이더가 있으므로 간트 쪽은 숨긴다(이중 노출 방지) */}
             {!isSplitView && onRowHeightChange && (
               <>
-                <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
+                <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
                   <input
@@ -605,19 +605,19 @@ export function GanttChart({
                     step={2}
                     value={propRowHeight ?? 20}
                     onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                    className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
+                    className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
                     title={`줄간격: ${propRowHeight ?? 20}px`}
                   />
                   <span className="text-[10px] font-bold text-slate-600 w-7 text-right shrink-0">{propRowHeight ?? 20}</span>
                 </div>
               </>
             )}
-            <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
+            <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
             <button
               onClick={() => setShowBaseline((prev) => !prev)}
               className={cn(
                 'text-[10px] px-2 py-0.5 rounded transition-colors shrink-0 whitespace-nowrap',
-                showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700',
+                showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
               )}
               title="베이스라인 일정 표시 토글"
             >
@@ -636,7 +636,7 @@ export function GanttChart({
             className="flex-shrink-0 z-40 bg-white shadow-sm border-b border-[var(--color-line)] overflow-x-auto overflow-y-hidden"
           >
             <div className="relative flex-shrink-0" style={{ width: totalWidth, height: 60 }}>
-              <div className="flex h-7 border-b border-stone-200" style={{ width: totalWidth }}>
+              <div className="flex h-7 border-b border-slate-200" style={{ width: totalWidth }}>
                 <GanttTopHeader {...headerProps} />
               </div>
               <div className="flex h-8" style={{ width: totalWidth }}>
@@ -810,7 +810,7 @@ export function GanttChart({
                       })()}
                     {isBeingDragged && (
                       <div
-                        className="absolute -top-7 bg-stone-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
+                        className="absolute -top-7 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
                         style={{ left: Math.max(0, left) }}
                       >
                         {effectiveStartDate} ~ {effectiveEndDate}
@@ -818,7 +818,7 @@ export function GanttChart({
                     )}
                     {width < 80 && !isBeingDragged && (
                       <span
-                        className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 break-words max-w-[200px] pointer-events-none"
+                        className="absolute top-1/2 -translate-y-1/2 text-xs text-slate-500 break-words max-w-[200px] pointer-events-none"
                         style={{ left: left + width + 8 }}
                       >
                         {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}
@@ -846,7 +846,7 @@ export function GanttChart({
               if (typeof rb === 'function') rb(el);
               else if (rb) (rb as React.MutableRefObject<HTMLDivElement | null>).current = el;
             }}
-            className="flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-stone-200"
+            className="flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-slate-200"
             style={{ height: 12 }}
           >
             <div style={{ width: totalWidth, height: 1 }} />
@@ -897,13 +897,13 @@ export function GanttChart({
     <>
       <div className="w-full h-full flex flex-col bg-white">
         {/* 컨트롤 바 - 스크롤 영역 밖 (split view와 동일한 구조) */}
-        <div className="min-h-12 flex-shrink-0 flex items-center justify-end gap-3 px-4 py-1.5 border-b border-[var(--color-line)] bg-stone-50 overflow-x-auto overflow-y-visible whitespace-nowrap">
+        <div className="min-h-12 flex-shrink-0 flex items-center justify-end gap-3 px-4 py-1.5 border-b border-[var(--color-line)] bg-slate-50 overflow-x-auto overflow-y-visible whitespace-nowrap">
           {/* 확대/축소 (날짜 간격) */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
             <button
               onClick={() => setZoomIndex((prev) => (prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1)))}
-              className="p-0.5 rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors shrink-0"
+              className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
               title="축소"
             >
               <ZoomOut size={12} />
@@ -922,12 +922,12 @@ export function GanttChart({
                   : zoomIndex
               }
               onChange={(e) => setZoomIndex(Number(e.target.value))}
-              className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
+              className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
               title="간트 확대/축소"
             />
             <button
               onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
-              className="p-0.5 rounded text-stone-500 hover:bg-stone-100 hover:text-stone-800 transition-colors shrink-0"
+              className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
               title="확대"
             >
               <ZoomIn size={12} />
@@ -937,13 +937,13 @@ export function GanttChart({
               onClick={() => setZoomIndex(-1)}
               className={cn(
                 'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-                zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-stone-400 hover:bg-stone-100 hover:text-stone-700',
+                zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
               )}
               title="전체 맞춤"
             >
               맞춤
             </button>
-            <span className="text-[10px] font-mono text-stone-500 w-8 shrink-0">
+            <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
               {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
             </span>
           </div>
@@ -951,7 +951,7 @@ export function GanttChart({
           {/* 줄간격 조절 (split 뷰에서는 표 SummaryBar에 통합되어 있으므로 숨김) */}
           {!isSplitView && onRowHeightChange && (
             <>
-              <div className="w-px h-5 bg-stone-200 flex-shrink-0" />
+              <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
                 <input
@@ -961,7 +961,7 @@ export function GanttChart({
                   step={2}
                   value={propRowHeight ?? 20}
                   onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                  className="w-24 h-1.5 accent-stone-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
+                  className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
                   title={`줄간격: ${propRowHeight ?? 20}px`}
                 />
                 <span className="text-[10px] font-bold text-slate-600 w-7 text-right shrink-0">{propRowHeight ?? 20}</span>
@@ -986,14 +986,14 @@ export function GanttChart({
               {/* Sidebar Header */}
               {!hideSidebar && (
                 <div
-                  className="relative flex-shrink-0 border-r border-[var(--color-line)] bg-stone-100/90 backdrop-blur p-3 font-bold text-xs uppercase flex items-end sticky left-0 z-50 text-stone-500"
+                  className="relative flex-shrink-0 border-r border-[var(--color-line)] bg-slate-100/90 backdrop-blur p-3 font-bold text-xs uppercase flex items-end sticky left-0 z-50 text-slate-500"
                   style={{ width: sidebarWidth, height: 60 }}
                 >
                   <div className="flex items-end w-full min-w-0">
                     <span>작업</span>
                   </div>
                   <div
-                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-indigo-400/30 border-l border-stone-200 hover:border-indigo-400 z-[60] shrink-0"
+                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-indigo-400/30 border-l border-slate-200 hover:border-indigo-400 z-[60] shrink-0"
                     onMouseDown={handleSidebarResizeMouseDown}
                     title="왼쪽 너비 조절"
                   />
@@ -1003,7 +1003,7 @@ export function GanttChart({
               {/* Timeline Header */}
               <div className="relative" style={{ width: Math.max(totalWidth, containerWidth - effectiveSidebarWidth), height: 60 }}>
                 {/* Top header (months or years) */}
-                <div className="flex h-7 border-b border-stone-200" style={{ width: totalWidth }}>
+                <div className="flex h-7 border-b border-slate-200" style={{ width: totalWidth }}>
                   <GanttTopHeader {...headerProps} />
                 </div>
 
@@ -1028,7 +1028,7 @@ export function GanttChart({
                     return (
                       <div
                         key={t.id}
-                        className="flex items-center text-xs font-medium text-[var(--color-ink)] hover:bg-stone-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-stone-100"
+                        className="flex items-center text-xs font-medium text-[var(--color-ink)] hover:bg-slate-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-slate-100"
                         style={{
                           height: `${effectiveRowHeights[index] ?? ROW_HEIGHT}px`,
                           paddingLeft: `${depth * 16 + 16}px`,
@@ -1048,7 +1048,7 @@ export function GanttChart({
                     );
                   })}
                   <div
-                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-indigo-400/30 border-l border-stone-200 hover:border-indigo-400 z-[60] shrink-0"
+                    className="absolute top-0 right-0 h-full w-2 cursor-col-resize hover:bg-indigo-400/30 border-l border-slate-200 hover:border-indigo-400 z-[60] shrink-0"
                     onMouseDown={handleSidebarResizeMouseDown}
                     title="왼쪽 너비 조절"
                   />
@@ -1204,7 +1204,7 @@ export function GanttChart({
                       {/* Floating date tooltip during drag */}
                       {isBeingDragged && (
                         <div
-                          className="absolute -top-7 bg-stone-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
+                          className="absolute -top-7 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
                           style={{ left: Math.max(0, left) }}
                         >
                           {effectiveStartDate} ~ {effectiveEndDate}
@@ -1213,7 +1213,7 @@ export function GanttChart({
 
                       {(width < 80 || isMilestone) && !isBeingDragged && (
                         <span
-                          className="absolute top-1/2 -translate-y-1/2 text-xs text-stone-500 break-words max-w-[200px] pointer-events-none"
+                          className="absolute top-1/2 -translate-y-1/2 text-xs text-slate-500 break-words max-w-[200px] pointer-events-none"
                           style={{ left: (isMilestone ? left + dayWidth / 2 - 8 + 16 : left + width) + 8 }}
                         >
                           {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}

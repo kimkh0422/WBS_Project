@@ -371,7 +371,7 @@ export function ShareModal({
             <button
               type="button"
               onClick={onClose}
-              className="shrink-0 rounded-lg p-2 text-stone-500 transition-colors hover:bg-stone-100 dark:hover:bg-stone-800"
+              className="shrink-0 rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
               aria-label="닫기"
             >
               <X size={18} />
@@ -406,7 +406,7 @@ export function ShareModal({
                   className={cn(
                     'inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors sm:w-auto',
                     inviteCreating
-                      ? 'cursor-not-allowed bg-stone-100 text-stone-400'
+                      ? 'cursor-not-allowed bg-slate-100 text-slate-400'
                       : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]',
                   )}
                 >
@@ -419,7 +419,7 @@ export function ShareModal({
                     type="text"
                     readOnly
                     value={inviteLink}
-                    className="min-w-0 flex-1 rounded-xl border border-[var(--color-line)] bg-stone-50 px-3 py-2.5 text-sm text-stone-700 dark:bg-stone-900/50"
+                    className="min-w-0 flex-1 rounded-xl border border-[var(--color-line)] bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:bg-slate-900/50"
                   />
                   <button
                     type="button"
@@ -457,7 +457,7 @@ export function ShareModal({
               </div>
             ) : members.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-8 text-center">
-                <Users className="mx-auto mb-3 h-10 w-10 text-stone-300 dark:text-stone-600" strokeWidth={1.25} aria-hidden />
+                <Users className="mx-auto mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" strokeWidth={1.25} aria-hidden />
                 <p className="text-sm font-medium text-[var(--color-ink)]">아직 공유된 멤버가 없습니다</p>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--color-ink-muted)]">
                   초대 링크로 초대하거나, 아래에서 이름·이메일 또는 조직 회원을 추가해 보세요.
@@ -486,11 +486,11 @@ export function ShareModal({
                             <option value="editor">편집</option>
                           </select>
                         ) : (
-                          <span className="shrink-0 rounded-md bg-stone-200 px-2 py-0.5 text-[11px] text-stone-600 dark:bg-stone-700 dark:text-stone-300">
+                          <span className="shrink-0 rounded-md bg-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                             {m.role === 'owner' ? '소유자' : m.role === 'editor' ? '편집' : '보기'}
                           </span>
                         )}
-                        {roleChangingId === m.user_id && <Loader2 size={12} className="shrink-0 animate-spin text-stone-400" />}
+                        {roleChangingId === m.user_id && <Loader2 size={12} className="shrink-0 animate-spin text-slate-400" />}
                       </div>
                       {canManage && m.user_id !== user?.id && m.role !== 'owner' && (
                         <button
@@ -533,7 +533,7 @@ export function ShareModal({
                       <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
                         미가입
                       </span>
-                      <span className="shrink-0 rounded-md bg-stone-200 px-1.5 py-0.5 text-[11px] text-stone-700 dark:bg-stone-700 dark:text-stone-200">
+                      <span className="shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[11px] text-slate-700 dark:bg-slate-700 dark:text-slate-200">
                         {p.role === 'editor' ? '편집' : '보기'}
                       </span>
                     </div>
@@ -620,7 +620,7 @@ export function ShareModal({
                       'flex w-full min-h-[42px] items-center justify-center rounded-xl px-3 text-sm font-semibold transition-colors sm:w-auto sm:min-w-[3.25rem]',
                       !pendingSubmitting && (pendingName.trim() || pendingEmail.trim())
                         ? 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'
-                        : 'cursor-not-allowed bg-stone-100 text-stone-400 dark:bg-stone-800',
+                        : 'cursor-not-allowed bg-slate-100 text-slate-400 dark:bg-slate-800',
                     )}
                   >
                     {pendingSubmitting ? <Loader2 size={16} className="animate-spin" /> : '추가'}
@@ -703,7 +703,7 @@ export function ShareModal({
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() => toggleAddSelection(p.id)}
-                                className="rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
+                                className="rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
                               />
                               <span className="truncate text-sm text-[var(--color-ink)]" title={label}>
                                 {label}
@@ -742,7 +742,7 @@ export function ShareModal({
                         'inline-flex min-h-[42px] min-w-[7.5rem] flex-1 items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors sm:flex-initial',
                         selectedAddUserIds.size > 0 && !adding
                           ? 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'
-                          : 'cursor-not-allowed bg-stone-100 text-stone-400 dark:bg-stone-800',
+                          : 'cursor-not-allowed bg-slate-100 text-slate-400 dark:bg-slate-800',
                       )}
                       title="체크한 사용자에게 권한을 일괄 부여"
                     >

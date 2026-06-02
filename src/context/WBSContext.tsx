@@ -1241,7 +1241,7 @@ export function WBSProvider({
         scope === 'all' ? (Array.from(new Set(next.map((t) => t.projectId))).filter(Boolean) as string[]) : targetProjectIds;
       const doneStatusIds = new Set((configs as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id));
       for (const pid of projectIdsToRollup) {
-        next = recomputeProjectRollups(next, pid, doneStatusIds);
+        next = recomputeProjectRollups(next, pid, doneStatusIds, undefined, true);
       }
       return next;
     });

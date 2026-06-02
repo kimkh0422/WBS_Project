@@ -778,7 +778,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     <th
       scope="col"
       className={cn(
-        'text-left text-xs font-semibold text-stone-600 px-3 py-2.5 border-b border-stone-200 bg-stone-100 whitespace-nowrap cursor-pointer select-none hover:bg-stone-200/90',
+        'text-left text-xs font-semibold text-slate-600 px-3 py-2.5 border-b border-slate-200 bg-slate-100 whitespace-nowrap cursor-pointer select-none hover:bg-slate-200/90',
         className,
       )}
       onClick={() => handleColumnHeaderClick(sortKey)}
@@ -792,7 +792,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <ArrowDown className="shrink-0 opacity-80" size={14} aria-hidden />
           )
         ) : (
-          <ArrowUpDown className="shrink-0 text-stone-400" size={13} aria-hidden />
+          <ArrowUpDown className="shrink-0 text-slate-400" size={13} aria-hidden />
         )}
       </span>
     </th>
@@ -801,7 +801,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const renderTableHead = () => (
     <thead className="sticky top-0 z-[1] shadow-[0_1px_0_0_rgba(0,0,0,0.06)]">
       <tr>
-        {showSelectCol && <th scope="col" className="w-10 px-2 py-2.5 border-b border-stone-200 bg-stone-100" aria-label="선택" />}
+        {showSelectCol && <th scope="col" className="w-10 px-2 py-2.5 border-b border-slate-200 bg-slate-100" aria-label="선택" />}
         {renderSortTh('종류', 'kind', 'min-w-[76px]')}
         {renderSortTh('프로젝트명', 'name', 'min-w-[160px]')}
         {renderSortTh('그룹', 'group', 'min-w-[120px]')}
@@ -814,7 +814,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         {renderSortTh('소유자', 'owner', 'min-w-[120px]')}
         <th
           scope="col"
-          className="text-right text-xs font-semibold text-stone-600 px-3 py-2.5 border-b border-stone-200 bg-stone-100 whitespace-nowrap min-w-[140px]"
+          className="text-right text-xs font-semibold text-slate-600 px-3 py-2.5 border-b border-slate-200 bg-slate-100 whitespace-nowrap min-w-[140px]"
         >
           작업
         </th>
@@ -829,7 +829,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     return (
       <tr
         key={project.id}
-        className={cn('bg-white hover:bg-stone-50/90 transition-colors group/row', canEdit && 'cursor-pointer')}
+        className={cn('bg-white hover:bg-slate-50/90 transition-colors group/row', canEdit && 'cursor-pointer')}
         onDoubleClick={() => {
           if (!canEdit) return;
           setEditingProject(project);
@@ -838,7 +838,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         title={canEdit ? '더블클릭: 편집' : '편집 권한이 없습니다'}
       >
         {showSelectCol && (
-          <td className="px-2 py-2 align-middle border-b border-stone-100 w-10" onClick={(e) => e.stopPropagation()}>
+          <td className="px-2 py-2 align-middle border-b border-slate-100 w-10" onClick={(e) => e.stopPropagation()}>
             {canManage ? (
               <input
                 type="checkbox"
@@ -848,18 +848,18 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   e.stopPropagation();
                   toggleProjectSelection(project.id);
                 }}
-                className="w-4 h-4 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] cursor-pointer"
+                className="w-4 h-4 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] cursor-pointer"
                 title="다중 선택 (삭제 권한이 있는 프로젝트만 선택 가능)"
               />
             ) : null}
           </td>
         )}
-        <td className="px-3 py-2 align-middle border-b border-stone-100">
+        <td className="px-3 py-2 align-middle border-b border-slate-100">
           <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-md border inline-block', kindBadge.badgeClass)}>
             {kindBadge.label}
           </span>
         </td>
-        <td className="px-3 py-2 align-middle border-b border-stone-100 min-w-0 max-w-[280px]">
+        <td className="px-3 py-2 align-middle border-b border-slate-100 min-w-0 max-w-[280px]">
           <ProjectNameLabel
             project={project}
             name={project.name}
@@ -867,7 +867,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             nameClassName="font-medium text-[var(--color-ink)] truncate"
           />
         </td>
-        <td className="px-3 py-2 align-middle border-b border-stone-100 text-stone-600" onClick={(e) => e.stopPropagation()}>
+        <td className="px-3 py-2 align-middle border-b border-slate-100 text-slate-600" onClick={(e) => e.stopPropagation()}>
           {sortedGroups.length > 0 ? (
             canEdit ? (
               <select
@@ -876,7 +876,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   const val = e.target.value;
                   updateProject(project.id, { groupId: val === '' ? undefined : val });
                 }}
-                className="max-w-full text-xs text-stone-700 bg-white border border-stone-200 rounded-md px-2 py-1 hover:border-stone-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="max-w-full text-xs text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1 hover:border-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                 title="그룹 선택"
               >
                 <option value="">그룹 미지정</option>
@@ -887,55 +887,55 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 ))}
               </select>
             ) : (
-              <span className="text-xs text-stone-500">{sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정'}</span>
+              <span className="text-xs text-slate-500">{sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정'}</span>
             )
           ) : (
-            <span className="text-xs text-stone-400">—</span>
+            <span className="text-xs text-slate-400">—</span>
           )}
         </td>
         <td
-          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 max-w-[140px] truncate"
+          className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 max-w-[140px] truncate"
           title={project.pmName}
         >
           {(project.pmName ?? '').trim() || '—'}
         </td>
         <td
-          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 max-w-[140px] truncate"
+          className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 max-w-[140px] truncate"
           title={project.poName}
         >
           {(project.poName ?? '').trim() || '—'}
         </td>
-        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums whitespace-nowrap">
+        <td className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 tabular-nums whitespace-nowrap">
           {project.startDate ?? '—'}
         </td>
-        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums whitespace-nowrap">
+        <td className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 tabular-nums whitespace-nowrap">
           {project.endDate ?? '—'}
         </td>
-        <td className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums text-right">
+        <td className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 tabular-nums text-right">
           {taskCountByProject[project.id] ?? 0}
         </td>
         <td
-          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 tabular-nums text-right"
+          className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 tabular-nums text-right"
           title="WBS 작업 공수 합(담당자별)"
         >
           {formatListInputEffort(project.id)}
         </td>
         <td
-          className="px-3 py-2 align-middle border-b border-stone-100 text-xs text-stone-600 min-w-0 max-w-[200px] truncate"
+          className="px-3 py-2 align-middle border-b border-slate-100 text-xs text-slate-600 min-w-0 max-w-[200px] truncate"
           title={project.ownerId ? (profileDisplayById[project.ownerId] ?? profileMap[project.ownerId] ?? project.ownerId) : undefined}
         >
           {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
-            <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
+            <Loader2 size={14} className="inline-block align-middle animate-spin text-slate-400" />
           ) : (
             ownerLabel(project.ownerId)
           )}
         </td>
-        <td className="px-2 py-2 align-middle border-b border-stone-100 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+        <td className="px-2 py-2 align-middle border-b border-slate-100 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
           <div className="inline-flex items-center justify-end gap-0.5">
             <button
               type="button"
               onClick={() => handleNavigateToWork(project.id)}
-              className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[var(--color-accent)] transition-colors"
               title="작업 보기"
             >
               <List size={16} />
@@ -944,7 +944,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               <button
                 type="button"
                 onClick={() => handleOpenShare(project)}
-                className="p-1.5 rounded-lg text-stone-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-teal-50 hover:text-teal-600 transition-colors"
                 title="공유"
               >
                 <Share2 size={16} />
@@ -956,7 +956,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 setProjectToCopy(project);
                 setIsCopyConfirmOpen(true);
               }}
-              className="p-1.5 rounded-lg text-stone-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
               title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
             >
               <Copy size={16} />
@@ -968,7 +968,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   setEditingProject(project);
                   setIsProjectModalOpen(true);
                 }}
-                className="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors"
                 title="편집"
               >
                 <Edit size={16} />
@@ -981,7 +981,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   setProjectToDelete(project);
                   setIsDeleteConfirmOpen(true);
                 }}
-                className="p-1.5 rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
                 title="삭제"
               >
                 <Trash2 size={16} />
@@ -1000,7 +1000,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     const groupLabel = sortedGroups.length > 0 ? (sortedGroups.find((g) => g.id === project.groupId)?.name ?? '그룹 미지정') : null;
 
     return (
-      <article className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm space-y-3">
+      <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 space-y-2">
             <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-md border inline-block', kindBadge.badgeClass)}>
@@ -1022,17 +1022,17 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 e.stopPropagation();
                 toggleProjectSelection(project.id);
               }}
-              className="w-4 h-4 mt-1 rounded border-stone-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] cursor-pointer shrink-0"
+              className="w-4 h-4 mt-1 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)] cursor-pointer shrink-0"
               title="다중 선택"
               aria-label={`${project.name} 선택`}
             />
           )}
         </div>
 
-        <dl className="grid gap-2 text-sm text-stone-600">
+        <dl className="grid gap-2 text-sm text-slate-600">
           {sortedGroups.length > 0 && (
             <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-3">
-              <dt className="text-stone-400 shrink-0 text-xs font-semibold uppercase tracking-wide">그룹</dt>
+              <dt className="text-slate-400 shrink-0 text-xs font-semibold uppercase tracking-wide">그룹</dt>
               <dd className="min-w-0 sm:text-right" onClick={(e) => e.stopPropagation()}>
                 {canEdit ? (
                   <select
@@ -1041,7 +1041,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                       const val = e.target.value;
                       updateProject(project.id, { groupId: val === '' ? undefined : val });
                     }}
-                    className="w-full max-w-full text-xs text-stone-700 bg-white border border-stone-200 rounded-md px-2 py-1.5"
+                    className="w-full max-w-full text-xs text-slate-700 bg-white border border-slate-200 rounded-md px-2 py-1.5"
                     title="그룹 선택"
                   >
                     <option value="">그룹 미지정</option>
@@ -1052,41 +1052,41 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     ))}
                   </select>
                 ) : (
-                  <span className="text-stone-700 break-words">{groupLabel}</span>
+                  <span className="text-slate-700 break-words">{groupLabel}</span>
                 )}
               </dd>
             </div>
           )}
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">PM</dt>
-            <dd className="text-right font-medium text-stone-800 min-w-0 break-words">{(project.pmName ?? '').trim() || '—'}</dd>
+            <dt className="text-slate-400 shrink-0">PM</dt>
+            <dd className="text-right font-medium text-slate-800 min-w-0 break-words">{(project.pmName ?? '').trim() || '—'}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">PO</dt>
-            <dd className="text-right font-medium text-stone-800 min-w-0 break-words">{(project.poName ?? '').trim() || '—'}</dd>
+            <dt className="text-slate-400 shrink-0">PO</dt>
+            <dd className="text-right font-medium text-slate-800 min-w-0 break-words">{(project.poName ?? '').trim() || '—'}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">기간</dt>
-            <dd className="text-right tabular-nums text-stone-700 text-xs">
+            <dt className="text-slate-400 shrink-0">기간</dt>
+            <dd className="text-right tabular-nums text-slate-700 text-xs">
               {(project.startDate ?? '—') + ' ~ ' + (project.endDate ?? '—')}
             </dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">작업 수</dt>
+            <dt className="text-slate-400 shrink-0">작업 수</dt>
             <dd className="text-right tabular-nums font-medium">{taskCountByProject[project.id] ?? 0}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">{effortDisplayUnitForProjectList === 'md' ? '투입 M/D' : '투입 M/M'}</dt>
+            <dt className="text-slate-400 shrink-0">{effortDisplayUnitForProjectList === 'md' ? '투입 M/D' : '투입 M/M'}</dt>
             <dd className="text-right tabular-nums font-medium">{formatListInputEffort(project.id)}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-stone-400 shrink-0">소유자</dt>
+            <dt className="text-slate-400 shrink-0">소유자</dt>
             <dd
-              className="text-right min-w-0 break-words text-stone-700 text-xs"
+              className="text-right min-w-0 break-words text-slate-700 text-xs"
               title={project.ownerId ? (profileDisplayById[project.ownerId] ?? profileMap[project.ownerId] ?? project.ownerId) : undefined}
             >
               {loadingProfiles && project.ownerId && project.ownerId !== user?.id ? (
-                <Loader2 size={14} className="inline-block align-middle animate-spin text-stone-400" />
+                <Loader2 size={14} className="inline-block align-middle animate-spin text-slate-400" />
               ) : (
                 ownerLabel(project.ownerId)
               )}
@@ -1094,11 +1094,11 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           </div>
         </dl>
 
-        <div className="flex flex-wrap justify-end gap-1 pt-2 border-t border-stone-100" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap justify-end gap-1 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => handleNavigateToWork(project.id)}
-            className="p-2 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-[var(--color-accent)] transition-colors"
+            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[var(--color-accent)] transition-colors"
             title="작업 보기"
           >
             <List size={18} />
@@ -1107,7 +1107,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <button
               type="button"
               onClick={() => handleOpenShare(project)}
-              className="p-2 rounded-lg text-stone-500 hover:bg-teal-50 hover:text-teal-600 transition-colors"
+              className="p-2 rounded-lg text-slate-500 hover:bg-teal-50 hover:text-teal-600 transition-colors"
               title="공유"
             >
               <Share2 size={18} />
@@ -1119,7 +1119,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               setProjectToCopy(project);
               setIsCopyConfirmOpen(true);
             }}
-            className="p-2 rounded-lg text-stone-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+            className="p-2 rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
             title="복사"
           >
             <Copy size={18} />
@@ -1131,7 +1131,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 setEditingProject(project);
                 setIsProjectModalOpen(true);
               }}
-              className="p-2 rounded-lg text-stone-500 hover:bg-stone-100 hover:text-[var(--color-ink)] transition-colors"
+              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[var(--color-ink)] transition-colors"
               title="편집"
             >
               <Edit size={18} />
@@ -1144,7 +1144,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 setProjectToDelete(project);
                 setIsDeleteConfirmOpen(true);
               }}
-              className="p-2 rounded-lg text-stone-500 hover:bg-red-50 hover:text-red-500 transition-colors"
+              className="p-2 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-500 transition-colors"
               title="삭제"
             >
               <Trash2 size={18} />
@@ -1156,12 +1156,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   };
 
   return (
-    <div className="h-full min-h-0 flex-1 overflow-auto bg-stone-50/50">
+    <div className="h-full min-h-0 flex-1 overflow-auto bg-slate-50/50">
       <div className="max-w-7xl mx-auto p-4 md:p-6 pb-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-bold text-[var(--color-ink)]">프로젝트 관리</h1>
-            <p className="text-sm text-stone-500 mt-0.5">
+            <p className="text-sm text-slate-500 mt-0.5">
               프로젝트를 생성·편집·공유·삭제할 수 있습니다. 표 머리글을 클릭하면 해당 열 기준으로 오름·내림차순 정렬됩니다.
             </p>
           </div>
@@ -1174,7 +1174,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               className={cn(
                 'flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border transition-colors',
                 pdfListExporting || uniqueProjects.length === 0
-                  ? 'text-stone-400 bg-stone-100 border-stone-200 cursor-not-allowed'
+                  ? 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed'
                   : 'text-rose-900 bg-rose-50 border-rose-200 hover:bg-rose-100 hover:border-rose-300',
               )}
             >
@@ -1183,7 +1183,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             </button>
             <button
               onClick={() => setIsGroupManagerOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 bg-white border border-stone-200 hover:border-stone-300 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg transition-colors"
               title="프로젝트 그룹 추가·이름변경·삭제·순서 변경 (그룹은 모든 사용자에게 공통으로 보입니다)"
             >
               <FolderCog size={14} /> 그룹 관리
@@ -1203,42 +1203,42 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
         {uniqueProjects.length > 0 && uniqueProjects.length < 2 && (
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer">
               <input
                 type="checkbox"
                 checked={groupByOwner}
                 onChange={(e) => setGroupByOwner(e.target.checked)}
-                className="rounded border-stone-300 text-[var(--color-accent)]"
+                className="rounded border-slate-300 text-[var(--color-accent)]"
               />
               소유자별 그룹으로 보기
             </label>
             {dashboardExcludedProjectCount > 0 && (
               <label
-                className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer"
+                className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer"
                 title="대시보드 집계·카드에 포함하지 않은 프로젝트만 표시합니다."
               >
                 <input
                   type="checkbox"
                   checked={showDashboardExcludedOnly}
                   onChange={(e) => toggleShowDashboardExcludedOnly(e.target.checked)}
-                  className="rounded border-stone-300 text-orange-600"
+                  className="rounded border-slate-300 text-orange-600"
                 />
                 대시보드 미반영만
               </label>
             )}
             <>
-              <div className="h-4 w-px bg-stone-200/80" />
+              <div className="h-4 w-px bg-slate-200/80" />
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
-                <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5">
+                <span className="text-xs font-medium text-slate-400 shrink-0">목록 묶음</span>
+                <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5">
                   <button
                     type="button"
                     onClick={() => persistProjectListLayout('kind')}
                     className={cn(
                       'px-2 py-1 text-xs font-medium rounded-md transition-colors',
                       projectListLayout === 'kind'
-                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                        : 'text-stone-600 hover:bg-stone-100/90',
+                        ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                        : 'text-slate-600 hover:bg-slate-100/90',
                     )}
                   >
                     구분별
@@ -1250,8 +1250,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                       className={cn(
                         'px-2 py-1 text-xs font-medium rounded-md transition-colors',
                         projectListLayout === 'group'
-                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                          : 'text-stone-600 hover:bg-stone-100/90',
+                          ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                          : 'text-slate-600 hover:bg-slate-100/90',
                       )}
                     >
                       그룹별
@@ -1264,8 +1264,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                       className={cn(
                         'px-2 py-1 text-xs font-medium rounded-md transition-colors',
                         projectListLayout === 'org'
-                          ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                          : 'text-stone-600 hover:bg-stone-100/90',
+                          ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                          : 'text-slate-600 hover:bg-slate-100/90',
                       )}
                     >
                       조직도별
@@ -1277,8 +1277,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     className={cn(
                       'px-2 py-1 text-xs font-medium rounded-md transition-colors',
                       projectListLayout === 'assignees'
-                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                        : 'text-stone-600 hover:bg-stone-100/90',
+                        ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                        : 'text-slate-600 hover:bg-slate-100/90',
                     )}
                     title="투입 인원과 작업 담당자 이름을 합친 참여 인원 수로 묶습니다."
                   >
@@ -1292,10 +1292,10 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
         {/* 툴바: 전체 선택 / 선택 삭제 (소유자·관리자만 다중 삭제 가능) */}
         {manageableProjects.length > 1 && (
-          <div className="flex flex-wrap items-center gap-3 mb-4 px-3 py-2 md:px-4 md:py-2 bg-white rounded-xl border border-stone-200 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 mb-4 px-3 py-2 md:px-4 md:py-2 bg-white rounded-xl border border-slate-200 shadow-sm">
             <button
               onClick={toggleSelectAll}
-              className="text-xs font-medium text-stone-500 hover:text-[var(--color-accent)]"
+              className="text-xs font-medium text-slate-500 hover:text-[var(--color-accent)]"
               title={effectiveIsAdmin ? '전체 프로젝트 선택' : '내가 만든 프로젝트만 선택됩니다'}
             >
               {selectedProjectIds.size >= manageableProjects.length ? '선택 해제' : '전체 선택'}
@@ -1306,59 +1306,59 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               className={cn(
                 'text-xs font-medium',
                 manageableProjects.every((p) => (taskCountByProject[p.id] ?? 0) > 0)
-                  ? 'text-stone-300 cursor-not-allowed'
-                  : 'text-stone-500 hover:text-[var(--color-accent)]',
+                  ? 'text-slate-300 cursor-not-allowed'
+                  : 'text-slate-500 hover:text-[var(--color-accent)]',
               )}
               title="작업이 0개인 프로젝트만 선택 (삭제 권한이 있는 항목 중)"
             >
               0개만 선택
             </button>
-            <div className="h-4 w-px bg-stone-200/80" />
+            <div className="h-4 w-px bg-slate-200/80" />
             <label
-              className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0"
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer shrink-0"
               title="내가 만든 프로젝트만 보기"
             >
               <input
                 type="checkbox"
                 checked={showMyOnly}
                 onChange={(e) => toggleShowMyOnly(e.target.checked)}
-                className="rounded border-stone-300 text-[var(--color-accent)]"
+                className="rounded border-slate-300 text-[var(--color-accent)]"
               />
               내 프로젝트만
             </label>
-            <div className="h-4 w-px bg-stone-200/80" />
-            <label className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0">
+            <div className="h-4 w-px bg-slate-200/80" />
+            <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={groupByOwner}
                 onChange={(e) => setGroupByOwner(e.target.checked)}
-                className="rounded border-stone-300 text-[var(--color-accent)]"
+                className="rounded border-slate-300 text-[var(--color-accent)]"
               />
               소유자별 그룹
             </label>
             {dashboardExcludedProjectCount > 0 && (
               <>
-                <div className="h-4 w-px bg-stone-200/80" />
+                <div className="h-4 w-px bg-slate-200/80" />
                 <label
-                  className="flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer shrink-0"
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer shrink-0"
                   title="대시보드 집계·카드에 포함하지 않은 프로젝트만 표시합니다."
                 >
                   <input
                     type="checkbox"
                     checked={showDashboardExcludedOnly}
                     onChange={(e) => toggleShowDashboardExcludedOnly(e.target.checked)}
-                    className="rounded border-stone-300 text-orange-600"
+                    className="rounded border-slate-300 text-orange-600"
                   />
                   대시보드 미반영만
                 </label>
               </>
             )}
-            <div className="h-4 w-px bg-stone-200/80" />
+            <div className="h-4 w-px bg-slate-200/80" />
             <div className="flex flex-wrap items-center gap-2">
-              <ArrowUpDown size={14} className="text-stone-400 shrink-0" aria-hidden />
-              <span className="text-xs font-medium text-stone-400 shrink-0">정렬</span>
+              <ArrowUpDown size={14} className="text-slate-400 shrink-0" aria-hidden />
+              <span className="text-xs font-medium text-slate-400 shrink-0">정렬</span>
               <div
-                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
+                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5"
                 role="radiogroup"
                 aria-label="프로젝트 정렬"
                 title="목록 정렬 프리셋입니다. 표 머리글로 정렬하면 프리셋은 기본으로 맞춰집니다."
@@ -1383,8 +1383,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     className={cn(
                       'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
                       projectSort === key && columnSort === null
-                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                        ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                        : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-800',
                     )}
                   >
                     {label}
@@ -1392,12 +1392,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 ))}
               </div>
             </div>
-            <div className="h-4 w-px bg-stone-200/80" />
+            <div className="h-4 w-px bg-slate-200/80" />
             <div className="flex flex-wrap items-center gap-2">
-              <Network size={14} className="text-stone-400 shrink-0" aria-hidden />
-              <span className="text-xs font-medium text-stone-400 shrink-0">목록 묶음</span>
+              <Network size={14} className="text-slate-400 shrink-0" aria-hidden />
+              <span className="text-xs font-medium text-slate-400 shrink-0">목록 묶음</span>
               <div
-                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-50/90 p-0.5"
+                className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5"
                 role="radiogroup"
                 aria-label="프로젝트 목록 묶음 방식"
                 title="헤더의 프로젝트 목록과 동일한 설정이 로컬에 저장됩니다."
@@ -1410,8 +1410,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   className={cn(
                     'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
                     projectListLayout === 'kind'
-                      ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                      : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                      : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-800',
                   )}
                 >
                   구분별
@@ -1425,8 +1425,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     className={cn(
                       'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
                       projectListLayout === 'group'
-                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                        ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                        : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-800',
                     )}
                   >
                     그룹별
@@ -1441,8 +1441,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     className={cn(
                       'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
                       projectListLayout === 'org'
-                        ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                        : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                        ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                        : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-800',
                     )}
                   >
                     조직도별
@@ -1456,8 +1456,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   className={cn(
                     'px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
                     projectListLayout === 'assignees'
-                      ? 'bg-white text-stone-900 shadow-sm ring-1 ring-stone-200/80'
-                      : 'text-stone-600 hover:bg-stone-100/90 hover:text-stone-800',
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                      : 'text-slate-600 hover:bg-slate-100/90 hover:text-slate-800',
                   )}
                   title="투입 인원과 작업 담당자 이름을 합친 참여 인원 수로 묶습니다."
                 >
@@ -1479,17 +1479,17 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
         {/* 프로젝트 목록 (표) */}
         <div>
           {uniqueProjects.length === 0 ? (
-            <div className="bg-white rounded-xl border border-stone-200 p-12 text-center">
-              <FolderPlus className="mx-auto text-stone-300 mb-4" size={48} />
-              <p className="text-stone-500 font-medium">등록된 프로젝트가 없습니다.</p>
-              <p className="text-sm text-stone-400 mt-1">새 프로젝트를 만들어 시작하세요.</p>
+            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+              <FolderPlus className="mx-auto text-slate-300 mb-4" size={48} />
+              <p className="text-slate-500 font-medium">등록된 프로젝트가 없습니다.</p>
+              <p className="text-sm text-slate-400 mt-1">새 프로젝트를 만들어 시작하세요.</p>
               <button onClick={() => setIsProjectModalOpen(true)} className="btn-primary mt-4">
                 새 프로젝트 만들기
               </button>
             </div>
           ) : isMobileProjectList ? (
             <div className="space-y-3">
-              <p className="text-xs text-stone-500 px-0.5 leading-relaxed">
+              <p className="text-xs text-slate-500 px-0.5 leading-relaxed">
                 좁은 화면에서는 가로로 밀리지 않도록 카드 목록으로 표시합니다. 정렬·필터는 위 도구줄과 동일하게 적용됩니다.
               </p>
               {projectListLayout === 'org' && topLevelDivisions.length > 0
@@ -1509,17 +1509,17 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   : orderedProjects.map((project) => <React.Fragment key={project.id}>{renderMobileProjectCard(project)}</React.Fragment>)}
             </div>
           ) : (
-            <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden overflow-x-auto">
               <table className="w-full min-w-[980px] text-sm border-collapse">
                 {renderTableHead()}
                 <tbody>
                   {groupByOwner ? (
                     <>
                       {projectsGroupedByOwner.flatMap(([ownerKey, list]) => [
-                        <tr key={`sec-owner-${ownerKey}`} className="bg-stone-100/95">
-                          <td colSpan={tableColSpan} className="px-3 py-2.5 text-xs font-bold text-stone-700 border-b border-stone-200">
+                        <tr key={`sec-owner-${ownerKey}`} className="bg-slate-100/95">
+                          <td colSpan={tableColSpan} className="px-3 py-2.5 text-xs font-bold text-slate-700 border-b border-slate-200">
                             <span>{ownerLabel(ownerKey === '__none__' ? undefined : ownerKey)}</span>
-                            <span className="ml-2 font-normal text-stone-500 tabular-nums">프로젝트 {list.length}개</span>
+                            <span className="ml-2 font-normal text-slate-500 tabular-nums">프로젝트 {list.length}개</span>
                           </td>
                         </tr>,
                         ...list.map((p) => renderProjectRow(p)),
@@ -1539,19 +1539,19 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                             <tr key={`org-h-${key}`} className="bg-teal-50/50">
                               <td
                                 colSpan={tableColSpan}
-                                className="px-3 py-2 border-b border-stone-200"
+                                className="px-3 py-2 border-b border-slate-200"
                                 style={{ paddingLeft: 10 + branch.depth * 14 }}
                               >
                                 <button
                                   type="button"
                                   onClick={() => toggleOrgSectionCollapsed(key)}
-                                  className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-teal-800 font-bold text-sm w-full min-w-0"
+                                  className="flex flex-wrap items-center gap-2 text-left text-slate-800 hover:text-teal-800 font-bold text-sm w-full min-w-0"
                                   aria-expanded={!collapsed}
                                 >
                                   {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
                                   <Network size={18} className="text-teal-600 shrink-0" />
                                   <span>{branch.title}</span>
-                                  <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {sub}개</span>
+                                  <span className="text-xs font-medium text-slate-500 tabular-nums">프로젝트 {sub}개</span>
                                 </button>
                               </td>
                             </tr>,
@@ -1569,18 +1569,18 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                           const uk = 'org:__unmapped__';
                           const uc = collapsedOrgSectionKeys.has(uk);
                           rows.push(
-                            <tr key={`org-h-${uk}`} className="bg-stone-100/95">
-                              <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                            <tr key={`org-h-${uk}`} className="bg-slate-100/95">
+                              <td colSpan={tableColSpan} className="px-3 py-2 border-b border-slate-200">
                                 <button
                                   type="button"
                                   onClick={() => toggleOrgSectionCollapsed(uk)}
-                                  className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-stone-950 font-bold text-sm w-full min-w-0"
+                                  className="flex flex-wrap items-center gap-2 text-left text-slate-800 hover:text-slate-950 font-bold text-sm w-full min-w-0"
                                   aria-expanded={!uc}
                                 >
                                   {uc ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-                                  <Network size={18} className="text-stone-400 shrink-0" />
+                                  <Network size={18} className="text-slate-400 shrink-0" />
                                   <span>조직 미매칭</span>
-                                  <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {unmapped.length}개</span>
+                                  <span className="text-xs font-medium text-slate-500 tabular-nums">프로젝트 {unmapped.length}개</span>
                                 </button>
                               </td>
                             </tr>,
@@ -1592,7 +1592,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                             <tr key="org-empty-hint">
                               <td
                                 colSpan={tableColSpan}
-                                className="px-3 py-6 text-xs text-stone-500 text-center border-b border-stone-100 bg-white"
+                                className="px-3 py-6 text-xs text-slate-500 text-center border-b border-slate-100 bg-white"
                               >
                                 조직도에 표시할 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 맞추거나 회원 부서 정보를 확인해 주세요.
                               </td>
@@ -1606,7 +1606,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                     <>
                       {projectsByParticipantSections.flatMap(({ participantCount, projects: list }) => [
                         <tr key={`sec-part-${participantCount}`} className={participantCount === 0 ? 'bg-amber-50/90' : 'bg-violet-50/90'}>
-                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-slate-200">
                             <span
                               className={cn(
                                 'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border',
@@ -1631,18 +1631,18 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                         if (g.id === '__none__' && list.length === 0) return [];
                         const collapsed = collapsedGroupIds.has(g.id);
                         return [
-                          <tr key={`sec-grp-${g.id}`} className="bg-stone-100/95">
-                            <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                          <tr key={`sec-grp-${g.id}`} className="bg-slate-100/95">
+                            <td colSpan={tableColSpan} className="px-3 py-2 border-b border-slate-200">
                               <button
                                 type="button"
                                 onClick={() => toggleGroupCollapsed(g.id)}
-                                className="flex flex-wrap items-center gap-2 text-left text-stone-800 hover:text-indigo-600 font-bold text-sm w-full min-w-0"
+                                className="flex flex-wrap items-center gap-2 text-left text-slate-800 hover:text-indigo-600 font-bold text-sm w-full min-w-0"
                                 aria-expanded={!collapsed}
                               >
                                 {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-                                <FolderOpen size={18} className={g.id === '__none__' ? 'text-stone-400' : 'text-amber-500 shrink-0'} />
+                                <FolderOpen size={18} className={g.id === '__none__' ? 'text-slate-400' : 'text-amber-500 shrink-0'} />
                                 <span>{g.name}</span>
-                                <span className="text-xs font-medium text-stone-500 tabular-nums">프로젝트 {list.length}개</span>
+                                <span className="text-xs font-medium text-slate-500 tabular-nums">프로젝트 {list.length}개</span>
                               </button>
                             </td>
                           </tr>,
@@ -1654,7 +1654,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                                   <tr key={`empty-grp-${g.id}`}>
                                     <td
                                       colSpan={tableColSpan}
-                                      className="px-3 py-3 text-xs text-stone-400 border-b border-stone-100 bg-stone-50/50"
+                                      className="px-3 py-3 text-xs text-slate-400 border-b border-slate-100 bg-slate-50/50"
                                     >
                                       소속된 프로젝트가 없습니다.
                                     </td>
@@ -1666,8 +1666,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                   ) : (
                     <>
                       {projectsByKindSections.flatMap(({ sectionKey, headerLabel, headerBadgeClass, projects: list }) => [
-                        <tr key={`sec-kind-${sectionKey}`} className="bg-stone-50">
-                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-stone-200">
+                        <tr key={`sec-kind-${sectionKey}`} className="bg-slate-50">
+                          <td colSpan={tableColSpan} className="px-3 py-2 border-b border-slate-200">
                             <span
                               className={cn(
                                 'inline-flex items-center gap-2 text-sm font-bold px-3 py-1.5 rounded-lg border',
