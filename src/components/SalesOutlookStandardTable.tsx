@@ -87,7 +87,7 @@ export function SalesOutlookStandardTable({ columns, rows }: { columns: StdColum
             </tr>
           ) : (
             rows.map((r, ri) => (
-              <tr key={ri} className="hover:bg-blue-50/40">
+              <tr key={ri} className="hover:bg-indigo-50/40">
                 {columns.map((c, ci) => {
                   const v = ci < r.cells.length ? r.cells[ci] : null;
                   const text = formatStdCell(v ?? null, c.kind);

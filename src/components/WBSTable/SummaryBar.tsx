@@ -133,9 +133,9 @@ export function SummaryBar({
                     expandToLevel(lv);
                   }}
                   className={cn(
-                    'h-7 min-w-[2.25rem] rounded-md border text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20',
+                    'h-7 min-w-[2.25rem] rounded-md border text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
                     treeExpandLevel === lv
-                      ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm'
+                      ? 'border-indigo-400 bg-indigo-50 text-indigo-700 shadow-sm'
                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
                   )}
                 >
@@ -149,8 +149,10 @@ export function SummaryBar({
               onClick={toggleTableEditMode}
               aria-pressed={tableEditMode}
               className={cn(
-                'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20',
-                tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                tableEditMode
+                  ? 'border-indigo-400 bg-indigo-100 text-indigo-700'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
               )}
               title="스프레드시트 편집 모드 (F2)"
             >
@@ -170,7 +172,7 @@ export function SummaryBar({
             <button
               type="button"
               onClick={onAutoFitColumns}
-              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
             >
               <Maximize2 size={12} strokeWidth={2} aria-hidden />
@@ -213,8 +215,10 @@ export function SummaryBar({
             onClick={toggleTableEditMode}
             aria-pressed={tableEditMode}
             className={cn(
-              'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20',
-              tableEditMode ? 'border-blue-400 bg-blue-100 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+              'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+              tableEditMode
+                ? 'border-indigo-400 bg-indigo-100 text-indigo-700'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
             )}
             title="스프레드시트 편집 모드 (F2)"
           >
@@ -223,7 +227,7 @@ export function SummaryBar({
           <button
             type="button"
             onClick={onAutoFitColumns}
-            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
           >
             <Maximize2 size={12} strokeWidth={2} aria-hidden />

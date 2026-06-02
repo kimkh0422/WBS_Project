@@ -1,10 +1,18 @@
 import type { ProjectRow, ProjectAssignmentRow, TaskRow, SettingsRow } from '../supabase';
-import type { Task, Project, ProjectAssignment } from '../../types';
+import type { Task, Project, ProjectAssignment, CellTextStyle } from '../../types';
+import { WBS_INTERNAL_CELL_TEXT_STYLES_KEY } from '../cellTextStyle';
 import { normalizeWorkEffortUnit } from '../workEffortUnits';
 import { migrateDbProjectKindToAppKind } from '../projectKind';
 import type { WBSSettings } from '../wbsSettings';
 
 export function toTaskRow(task: Task, sortOrder: number): TaskRow {
+  const userCf = { ...(task.customFields ?? {}) };
+  delete userCf[WBS_INTERNAL_CELL_TEXT_STYLES_KEY];
+  const custom_fields: Record<string, string> = { ...userCf };
+  if (task.cellTextStyles && Object.keys(task.cellTextStyles).length > 0) {
+    custom_fields[WBS_INTERNAL_CELL_TEXT_STYLES_KEY] = JSON.stringify(task.cellTextStyles);
+  }
+
   return {
     id: task.id,
     project_id: task.projectId,
@@ -30,12 +38,32 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
     weight: task.weight ?? null,
-    custom_fields: task.customFields ?? {},
+    custom_fields,
   };
 }
 
 /** TaskRow → Task (동기화 시 DB 전체 내려받기·로컬 저장용) */
 export function fromTaskRow(row: TaskRow): Task {
+  let cellTextStyles: Record<string, CellTextStyle> | undefined;
+  const cfOut: Record<string, string> = {};
+  const rawCf = row.custom_fields;
+  if (rawCf && typeof rawCf === 'object') {
+    for (const [k, v] of Object.entries(rawCf as Record<string, unknown>)) {
+      if (k === WBS_INTERNAL_CELL_TEXT_STYLES_KEY) {
+        if (typeof v === 'string' && v.trim()) {
+          try {
+            const p = JSON.parse(v) as unknown;
+            if (p && typeof p === 'object' && !Array.isArray(p)) cellTextStyles = p as Record<string, CellTextStyle>;
+          } catch {
+            /* ignore malformed */
+          }
+        }
+        continue;
+      }
+      cfOut[k] = typeof v === 'string' ? v : v == null ? '' : String(v);
+    }
+  }
+
   return {
     id: row.id,
     projectId: row.project_id,
@@ -60,7 +88,8 @@ export function fromTaskRow(row: TaskRow): Task {
     baselineEndDate: row.baseline_end_date ?? undefined,
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
     weight: row.weight ?? undefined,
-    customFields: row.custom_fields ?? undefined,
+    customFields: Object.keys(cfOut).length > 0 ? cfOut : undefined,
+    cellTextStyles,
   };
 }
 

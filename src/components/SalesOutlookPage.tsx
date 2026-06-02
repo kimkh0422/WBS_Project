@@ -12,7 +12,7 @@ const LEDGER_KEY = '__ledger__';
 function catBadgeClass(category: string): string {
   if (category.startsWith('이월')) return 'bg-slate-100 text-slate-600 border-slate-200';
   if (category.startsWith('확정')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (category.startsWith('예정')) return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (category.startsWith('예정')) return 'bg-indigo-50 text-indigo-700 border-indigo-200';
   if (category.startsWith('미정')) return 'bg-amber-50 text-amber-700 border-amber-200';
   return 'bg-slate-50 text-slate-600 border-slate-200';
 }
@@ -42,7 +42,7 @@ const Select = ({
   <select
     value={value}
     onChange={(e) => onChange(e.target.value)}
-    className="h-9 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+    className="h-9 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
   >
     <option value="all">{allLabel}</option>
     {options.map((o) => (
@@ -144,7 +144,7 @@ export function SalesOutlookPage() {
       {/* 헤더 */}
       <div className="mb-4">
         <h1 className="flex items-center gap-2 text-xl font-bold text-[var(--color-ink)]">
-          <TrendingUp size={22} className="text-blue-600" /> 영업 아웃룩
+          <TrendingUp size={22} className="text-indigo-600" /> 영업 아웃룩
         </h1>
         <p className="mt-0.5 text-xs text-slate-500">
           <FileSpreadsheet size={12} className="mr-1 inline" />
@@ -163,7 +163,7 @@ export function SalesOutlookPage() {
             className={cn(
               'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
               activeSheet === t.key
-                ? 'bg-blue-600 text-white shadow-sm'
+                ? 'bg-indigo-600 text-white shadow-sm'
                 : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100',
             )}
           >
@@ -231,7 +231,7 @@ export function SalesOutlookPage() {
                     <tr key={d.key} className="border-b border-slate-100 last:border-0">
                       <td className="px-3 py-1.5 font-medium text-[var(--color-ink)]">{d.key}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{d.count.toLocaleString('ko-KR')}</td>
-                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-blue-700" title={formatKRW(d.expected)}>
+                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-indigo-700" title={formatKRW(d.expected)}>
                         {formatKRW(d.expected)}
                       </td>
                     </tr>
@@ -249,7 +249,7 @@ export function SalesOutlookPage() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="사업명·발주처·PM·PJ코드 검색"
-                className="h-9 w-60 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="h-9 w-60 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
             {showDivisionFilter && <Select value={fDivision} onChange={setFDivision} options={divisionOptions} allLabel="전체 사업부" />}
@@ -259,7 +259,7 @@ export function SalesOutlookPage() {
             <div className="ml-auto flex items-center gap-3">
               <span className="text-sm text-slate-500">
                 <b className="text-[var(--color-ink)]">{filteredPlan.length.toLocaleString('ko-KR')}</b>건 · 예상수주{' '}
-                <b className="text-blue-700">{formatKRW(planSummary.totalExpected)}</b>
+                <b className="text-indigo-700">{formatKRW(planSummary.totalExpected)}</b>
               </span>
             </div>
           </div>
@@ -360,7 +360,7 @@ function LedgerView({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="프로젝트·거래처·적요 검색"
-            className="h-9 w-60 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="h-9 w-60 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
         </div>
         {divisionOptions.length > 1 && (
@@ -370,7 +370,7 @@ function LedgerView({
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-slate-500">
             <b className="text-[var(--color-ink)]">{rows.length.toLocaleString('ko-KR')}</b>건 · 합계{' '}
-            <b className="text-blue-700">{formatKRW(summary.totalAmount)}</b>
+            <b className="text-indigo-700">{formatKRW(summary.totalAmount)}</b>
           </span>
         </div>
       </div>
@@ -402,7 +402,7 @@ function LedgerView({
               </tr>
             ) : (
               rows.map((r, i) => (
-                <tr key={`${r.pjCode}-${i}`} className="border-b border-slate-100 hover:bg-blue-50/40">
+                <tr key={`${r.pjCode}-${i}`} className="border-b border-slate-100 hover:bg-indigo-50/40">
                   <Td className="whitespace-nowrap text-xs text-slate-500">{r.date}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{r.month != null ? `${r.month}월` : ''}</Td>
                   <Td className="whitespace-nowrap text-slate-500">{r.division}</Td>
@@ -426,7 +426,7 @@ function LedgerView({
                   <Td
                     className={cn(
                       'whitespace-nowrap text-right font-semibold tabular-nums',
-                      r.total < 0 ? 'text-red-600' : 'text-blue-700',
+                      r.total < 0 ? 'text-red-600' : 'text-indigo-700',
                     )}
                   >
                     {formatKRW(r.total)}

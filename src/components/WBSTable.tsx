@@ -31,6 +31,7 @@ import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
 import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { SummaryBar } from './WBSTable/SummaryBar';
+import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
 import { SortableTaskRow } from './SortableTaskRow';
 import { ExcelGrid } from './ExcelGrid';
 import type { Project, Task } from '../types';
@@ -57,6 +58,7 @@ import {
 } from '../lib/workEffortUnits';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
+import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -138,7 +140,6 @@ export function WBSTable({
     setActiveTaskId,
     refreshProjectSchedule,
     canEditCurrentProject,
-    reparentTaskRootsUnder,
     moveTaskRootsSibling,
     linkSequentialPredecessors,
     updateProject,
@@ -252,6 +253,19 @@ export function WBSTable({
 
   // F2 Inline Name Edit state
   const [inlineEditingNameId, setInlineEditingNameId] = useState<string | null>(null);
+  const inlineEditingNameIdRef = useRef<string | null>(null);
+  inlineEditingNameIdRef.current = inlineEditingNameId;
+
+  const setInlineEditingNameIdCommitted = useCallback(
+    (next: string | null) => {
+      const prev = inlineEditingNameIdRef.current;
+      if (prev && next && prev !== next && canEditCurrentProject) {
+        commitWbsInlineNameEditFromDom(prev, tasks, updateTask, canEditCurrentProject);
+      }
+      setInlineEditingNameId(next);
+    },
+    [tasks, updateTask, canEditCurrentProject],
+  );
 
   /** 셀 단위 인라인 편집: { taskId, columnId } */
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
@@ -267,12 +281,16 @@ export function WBSTable({
   //  tableEditMode를 켜는 순간 바로 inlineEditingNameId까지 지워지는 버그가 있었음)
   useEffect(() => {
     if (excelView) {
+      const id = inlineEditingNameIdRef.current;
+      if (id && canEditCurrentProject) {
+        commitWbsInlineNameEditFromDom(id, tasks, updateTask, canEditCurrentProject);
+      }
       setTableEditMode(false);
       setEditingCell(null);
       setInlineEditingNameId(null);
       setFocusedCell(null);
     }
-  }, [excelView]);
+  }, [excelView, tasks, updateTask, canEditCurrentProject]);
 
   const toggleTableEditMode = useCallback(() => {
     setTableEditMode((wasOn) => {
@@ -376,21 +394,9 @@ export function WBSTable({
   const dndSelectedTaskIds = useMemo(() => new Set(sharedSelectedTaskIds ?? []), [sharedSelectedTaskIds]);
 
   // 드래그앤드롭 — extracted to useWbsDragDrop
-  const {
-    dndActiveId,
-    dropTarget,
-    dropMenu,
-    setDropMenu,
-    sensors,
-    handleDragStart,
-    handleDragOver,
-    handleDragCancel,
-    handleDragEnd,
-    executeDropAction,
-  } = useWbsDragDrop({
+  const { dndActiveId, dropTarget, sensors, handleDragStart, handleDragOver, handleDragCancel, handleDragEnd } = useWbsDragDrop({
     tasks,
     selectedTaskIds: dndSelectedTaskIds,
-    reparentTaskRootsUnder,
     moveTaskRootsSibling,
   });
 
@@ -816,7 +822,7 @@ export function WBSTable({
     syncRangeAnchorForKeyboardFocus,
     setTableEditMode,
     setFocusedCell,
-    setInlineEditingNameId,
+    setInlineEditingNameId: setInlineEditingNameIdCommitted,
     setEditingCell,
     setSelection,
     setBulkStatus,
@@ -1163,7 +1169,7 @@ export function WBSTable({
               >
                 <input
                   type="checkbox"
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                   onChange={handleSelectAll}
                 />
@@ -1267,7 +1273,7 @@ export function WBSTable({
                       >
                         <input
                           type="checkbox"
-                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           checked={visibleTasks.length > 0 && selectedTaskIds.size === visibleTasks.length}
                           onChange={handleSelectAll}
                         />
@@ -1365,7 +1371,7 @@ export function WBSTable({
                               gridStyle={gridStyle}
                               visibleColumnIds={visibleColumnIds}
                               isInlineEditingName={inlineEditingNameId === task.id}
-                              setInlineEditingNameId={setInlineEditingNameId}
+                              setInlineEditingNameId={setInlineEditingNameIdCommitted}
                               editingCell={editingCell}
                               setEditingCell={setEditingCell}
                               focusedCell={focusedCell}
@@ -1387,11 +1393,11 @@ export function WBSTable({
                               plannedProgress={plannedProgressById.get(task.id)}
                             />
                             {inlineAddingTaskId === task.id && (
-                              <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
-                                <div className="data-cell justify-center text-blue-400 font-bold text-[10px]">*</div>
+                              <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>
+                                <div className="data-cell justify-center text-indigo-400 font-bold text-[10px]">*</div>
                                 <div className="data-cell justify-center"></div>
                                 <div className="data-cell justify-center"></div>
-                                <div className="data-cell justify-center text-blue-400">
+                                <div className="data-cell justify-center text-indigo-400">
                                   <CornerDownRight size={14} />
                                 </div>
                                 {visibleColumnIds.map((colId) => {
@@ -1456,12 +1462,12 @@ export function WBSTable({
                                               setInsertTargetId(null);
                                             }}
                                             placeholder="작업명 입력 후 Enter..."
-                                            className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-sm font-bold text-blue-600 placeholder:text-blue-300 h-full py-2 px-2"
+                                            className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-sm font-bold text-indigo-600 placeholder:text-indigo-300 h-full py-2 px-2"
                                           />
                                           <button
                                             type="submit"
                                             onMouseDown={(e) => e.preventDefault()}
-                                            className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-blue-500 uppercase px-3 hover:bg-blue-600 transition-colors opacity-0 group-hover/form:opacity-100"
+                                            className="absolute right-0 top-0 bottom-0 text-[10px] font-bold text-white bg-indigo-500 uppercase px-3 hover:bg-indigo-600 transition-colors opacity-0 group-hover/form:opacity-100"
                                           >
                                             확인
                                           </button>
@@ -1471,7 +1477,7 @@ export function WBSTable({
                                   }
                                   if (colId === 'wbsId') {
                                     return (
-                                      <div key={colId} className="data-cell text-[10px] font-mono text-blue-400">
+                                      <div key={colId} className="data-cell text-[10px] font-mono text-indigo-400">
                                         신규
                                       </div>
                                     );
@@ -1503,9 +1509,9 @@ export function WBSTable({
                   </div>
                 )}
                 {canEditCurrentProject && (
-                  <div className="min-w-fit w-full border-t border-blue-200/70 bg-blue-50/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                  <div className="min-w-fit w-full border-t border-indigo-200/70 bg-indigo-50/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
                     <div
-                      className="data-row flex-shrink-0 bg-blue-50/70 border-b border-blue-200/70 shadow-sm box-border"
+                      className="data-row flex-shrink-0 bg-indigo-50/70 border-b border-indigo-200/70 shadow-sm box-border"
                       style={{
                         ...gridStyle,
                         ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
@@ -1514,7 +1520,7 @@ export function WBSTable({
                       <div className="data-cell"></div>
                       <div className="data-cell"></div>
                       <div className="data-cell"></div>
-                      <div className="data-cell justify-center text-blue-500">
+                      <div className="data-cell justify-center text-indigo-500">
                         <Plus size={14} />
                       </div>
                       {visibleColumnIds.map((colId) => {
@@ -1530,7 +1536,7 @@ export function WBSTable({
                                 value={quickAddBottomValue}
                                 onChange={(e) => setQuickAddBottomValue(e.target.value)}
                                 placeholder="+ 새 작업 추가 (Enter 키 입력)..."
-                                className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-blue-900 placeholder:text-blue-500 placeholder:font-medium h-full px-3"
+                                className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:ring-0 text-[13px] font-semibold text-indigo-900 placeholder:text-indigo-500 placeholder:font-medium h-full px-3"
                               />
                             </form>
                           </div>
@@ -1554,6 +1560,31 @@ export function WBSTable({
           </div>
         )}
       </div>
+
+      {/* 포커스된 표 데이터 셀 서식(하단 고정). 다중 선택 시 일괄 수정 바 위에 배치 */}
+      {focusedCell &&
+        !excelView &&
+        createPortal(
+          <div
+            className="fixed left-0 right-0 z-[99] pointer-events-none flex justify-center px-3 sm:px-4"
+            style={{
+              bottom:
+                selectedTaskIds.size > 1
+                  ? 'max(112px, calc(112px + env(safe-area-inset-bottom, 0px)))'
+                  : 'max(16px, calc(16px + env(safe-area-inset-bottom, 0px)))',
+            }}
+          >
+            <CellFormatToolbar
+              focusedCell={focusedCell}
+              selectedTaskIds={selectedTaskIds}
+              tasks={tasks}
+              canEdit={canEditCurrentProject}
+              customColumnNameById={customColumnNameById}
+              updateTask={updateTask}
+            />
+          </div>,
+          document.body,
+        )}
 
       {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보 */}
       {selectedTaskIds.size > 1 &&
@@ -1594,8 +1625,8 @@ export function WBSTable({
                     value={bulkStatus}
                     onChange={(e) => setBulkStatus(e.target.value)}
                     className={cn(
-                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer',
-                      bulkStatus ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer',
+                      bulkStatus ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   >
                     <option value="">변경 없음</option>
@@ -1615,8 +1646,8 @@ export function WBSTable({
                     onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
                     title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
                     className={cn(
-                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer min-w-[8.5rem]',
-                      bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer min-w-[8.5rem]',
+                      bulkTaskKind ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   >
                     <option value="">변경 없음</option>
@@ -1638,7 +1669,7 @@ export function WBSTable({
                         onChange={(e) => setBulkAssignee(e.target.value)}
                         placeholder="조직 회원에서 검색 또는 직접 입력"
                         title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
-                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
+                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-56"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') executeBulkAssignee();
                         }}
@@ -1665,7 +1696,7 @@ export function WBSTable({
                     value={bulkWorkEffort}
                     onChange={(e) => setBulkWorkEffort(e.target.value)}
                     placeholder={`${workEffortHeaderTitle} 일괄`}
-                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36"
                   />
                 </div>
 
@@ -1687,7 +1718,7 @@ export function WBSTable({
                       '',
                       '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
                     ].join('\n')}
-                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
                   />
                 </div>
 
@@ -1702,7 +1733,7 @@ export function WBSTable({
                     onChange={(e) => setBulkWeight(e.target.value)}
                     placeholder="가중치 일괄 지정..."
                     title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
-                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-32"
                   />
                 </div>
 
@@ -1714,8 +1745,8 @@ export function WBSTable({
                     value={bulkStartDate}
                     onChange={(e) => setBulkStartDate(e.target.value)}
                     className={cn(
-                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                      bulkStartDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
+                      bulkStartDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   />
                 </div>
@@ -1728,8 +1759,8 @@ export function WBSTable({
                     value={bulkEndDate}
                     onChange={(e) => setBulkEndDate(e.target.value)}
                     className={cn(
-                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                      bulkEndDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-slate-200 text-slate-500',
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
+                      bulkEndDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
                     )}
                   />
                 </div>
@@ -1746,7 +1777,7 @@ export function WBSTable({
                     onChange={(e) => setBulkAllocation(e.target.value)}
                     placeholder="0~100"
                     title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
-                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
                   />
                 </div>
 
@@ -1764,7 +1795,7 @@ export function WBSTable({
                     !bulkEndDate.trim() &&
                     (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
                   }
-                  className="self-end text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
+                  className="self-end text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
                   title="입력한 항목 모두 적용"
                 >
                   적용
@@ -2057,58 +2088,6 @@ export function WBSTable({
         confirmLabel="삭제"
         isDanger={true}
       />
-
-      {/* 드래그 후 배치 옵션 팝업 */}
-      {dropMenu &&
-        (() => {
-          const overTask = tasks.find((t) => t.id === dropMenu.overId);
-          const n = dropMenu.draggedRootIds.length;
-          if (!overTask || n === 0) return null;
-          const overName = overTask.name.length > 15 ? overTask.name.slice(0, 15) + '…' : overTask.name;
-          return (
-            <>
-              <div className="fixed inset-0 z-50" onClick={() => setDropMenu(null)} />
-              <div
-                className="fixed z-50 bg-[var(--color-surface)]/80 backdrop-blur-lg border border-[var(--color-line)] rounded-xl shadow-xl py-1.5 min-w-[200px] animate-in fade-in zoom-in-95 duration-100"
-                style={{ left: Math.min(dropMenu.x - 100, window.innerWidth - 220), top: Math.min(dropMenu.y, window.innerHeight - 160) }}
-              >
-                <div className="px-3 py-1.5 text-[10px] font-bold text-[var(--color-ink-muted)] uppercase tracking-wider border-b border-[var(--color-line)] mb-1 truncate">
-                  {n > 1 ? `${n}개 작업 배치` : '배치 위치 선택'}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => executeDropAction('before')}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-line-soft)] text-[var(--color-ink)] flex items-center gap-2"
-                >
-                  <span className="text-indigo-500 text-base">↑</span> <span className="truncate">'{overName}' 위에</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => executeDropAction('after')}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-line-soft)] text-[var(--color-ink)] flex items-center gap-2"
-                >
-                  <span className="text-indigo-500 text-base">↓</span> <span className="truncate">'{overName}' 아래에</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => executeDropAction('inside')}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 text-emerald-700 font-medium flex items-center gap-2"
-                >
-                  <span className="text-base">→</span> <span className="truncate">'{overName}' 하위 작업으로</span>
-                </button>
-                <div className="border-t border-[var(--color-line)] mt-1 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setDropMenu(null)}
-                    className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-ink-muted)] hover:bg-[var(--color-line-soft)]"
-                  >
-                    취소
-                  </button>
-                </div>
-              </div>
-            </>
-          );
-        })()}
     </>
   );
   return <div className={cn('flex flex-col min-h-0', fillHeight && 'h-full')}>{content}</div>;

@@ -105,7 +105,7 @@ export function BackupRestoreModal({
                 className={cn(
                   'flex items-start gap-3 p-3 rounded-lg border transition-colors',
                   projects.length === 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
-                  mode === 'project' ? 'border-blue-300 bg-blue-50' : 'border-slate-200 hover:bg-slate-50',
+                  mode === 'project' ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:bg-slate-50',
                 )}
               >
                 <input
@@ -125,7 +125,7 @@ export function BackupRestoreModal({
                     <select
                       value={targetProjectId}
                       onChange={(e) => setTargetProjectId(e.target.value)}
-                      className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     >
                       {projects.map((p) => (
                         <option key={p.id} value={p.id}>

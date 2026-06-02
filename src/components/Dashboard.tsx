@@ -1741,7 +1741,7 @@ export function Dashboard({
                           <div className="space-y-1.5 not-italic font-normal tracking-normal">
                             <div className="flex items-baseline gap-1.5">
                               <span className="text-xs font-medium text-slate-400">금일</span>
-                              <span className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</span>
+                              <span className="text-3xl font-bold text-indigo-600 tabular-nums">{visitorStats.daily}</span>
                             </div>
                             <div className="flex items-baseline gap-1.5">
                               <span className="text-xs font-medium text-slate-400">누적</span>
@@ -1805,7 +1805,7 @@ export function Dashboard({
                               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
                                 <span>
                                   <span className="text-[10px] font-medium text-slate-400 mr-1">금일</span>
-                                  <span className="font-bold text-blue-600">{visitorStats.daily}</span>
+                                  <span className="font-bold text-indigo-600">{visitorStats.daily}</span>
                                 </span>
                                 <span>
                                   <span className="text-[10px] font-medium text-slate-400 mr-1">누적</span>

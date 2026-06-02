@@ -142,7 +142,7 @@ export function ExcelImportPreviewModal({
               <select
                 value={targetProjectId}
                 onChange={(e) => setTargetProjectId(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -157,7 +157,7 @@ export function ExcelImportPreviewModal({
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="프로젝트 이름"
-                  className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
               )}
             </div>
@@ -231,7 +231,7 @@ export function ExcelImportPreviewModal({
                                     {ok ? m.header : '미매칭'}
                                   </span>
                                   {m.note && (
-                                    <span className="ml-2 text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                                    <span className="ml-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full">
                                       {m.note}
                                     </span>
                                   )}

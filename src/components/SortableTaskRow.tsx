@@ -25,6 +25,9 @@ import {
 import { type TableColumnId } from './wbsTableTypes';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
+import { cellTextStyleToCss } from '../lib/cellTextStyle';
+import { isComposingKeyEvent } from '../lib/ime';
+import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
 /** 표에서의 순번(1부터) → taskId */
@@ -85,7 +88,7 @@ export interface SortableTaskRowProps {
   key?: string | number;
   rowIndex: number;
   task: Task & { depth?: number };
-  dropIndicator?: 'before' | 'inside' | 'after' | null;
+  dropIndicator?: 'before' | 'after' | null;
   wbsId?: string;
   displayWbsId?: string;
   displayWbsMap: Map<string, string>;
@@ -236,6 +239,9 @@ function SortableTaskRowInner({
       setInlineEditingNameId(task.id);
       setEditingCell(null);
     } else {
+      if (isInlineEditingName && canEdit) {
+        commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
+      }
       setEditingCell({ taskId: task.id, columnId });
       setInlineEditingNameId(null);
     }
@@ -477,10 +483,15 @@ function SortableTaskRowInner({
       }}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
-      {dropIndicator && <div className="absolute inset-0 ring-2 ring-indigo-400 bg-indigo-50/40 pointer-events-none z-10" />}
+      {dropIndicator === 'before' && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500 pointer-events-none z-10" aria-hidden />
+      )}
+      {dropIndicator === 'after' && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 pointer-events-none z-10" aria-hidden />
+      )}
       <div
         className="data-cell justify-center text-slate-300 hover:text-slate-500 select-none"
-        title={canEdit ? '행을 잡고 드래그해 다른 작업 위·아래·하위로 옮깁니다' : undefined}
+        title={canEdit ? '행을 잡고 드래그해 목록에서 위·아래 순서를 바꿉니다' : undefined}
         aria-hidden
       >
         <GripVertical size={14} />
@@ -488,7 +499,7 @@ function SortableTaskRowInner({
       <div className="data-cell justify-center" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
-          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
@@ -549,6 +560,7 @@ function SortableTaskRowInner({
             </div>
           );
         }
+        const txtStyle = cellTextStyleToCss(task.cellTextStyles?.[colId]);
         if (colId === 'name') {
           const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
           const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
@@ -558,7 +570,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell relative', isFocused && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell relative', isFocused && 'ring-2 ring-indigo-500 ring-inset')}
               style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
               onClick={(e) => {
                 // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
@@ -590,20 +602,19 @@ function SortableTaskRowInner({
                   id={`wbs-edit-${task.id}-name`}
                   autoFocus
                   defaultValue={task.name}
-                  className="w-full min-h-[28px] text-sm font-bold bg-white text-blue-600 outline-none ring-1 ring-blue-500 rounded px-1"
+                  className="w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1"
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
-                  onBlur={(e) => {
-                    if (e.target.value.trim() && e.target.value.trim() !== task.name) {
-                      updateTask(task.id, { name: e.target.value.trim() });
-                    }
-                    setInlineEditingNameId(null);
-                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
+                      if (isComposingKeyEvent(e.nativeEvent)) return;
                       e.preventDefault();
                       e.stopPropagation();
-                      e.currentTarget.blur();
+                      const v = e.currentTarget.value.trim();
+                      if (canEdit && v && v !== task.name) {
+                        updateTask(task.id, { name: v });
+                      }
+                      setInlineEditingNameId(null);
                       requestAnimationFrame(() => {
                         document.getElementById(`task-row-${task.id}`)?.focus();
                       });
@@ -618,6 +629,7 @@ function SortableTaskRowInner({
               ) : (
                 <span
                   className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
+                  style={txtStyle}
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('name');
@@ -681,7 +693,7 @@ function SortableTaskRowInner({
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocused && 'ring-2 ring-blue-500 ring-inset',
+                isFocused && 'ring-2 ring-indigo-500 ring-inset',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -695,7 +707,7 @@ function SortableTaskRowInner({
                   type="date"
                   autoFocus
                   defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onChange={(e) => {
                     // 일부 브라우저/환경에서 캘린더만 닫고 blur가 오지 않거나 순서가 꼬이면 값이 저장되지 않는 경우가 있어 change에서도 커밋한다.
                     commitStartDateIfChanged(e.target.value);
@@ -720,7 +732,7 @@ function SortableTaskRowInner({
                 <span className="flex w-full min-w-0 items-center gap-0.5">
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
                       beginEdit('startDate');
@@ -735,7 +747,9 @@ function SortableTaskRowInner({
                     }}
                     title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">{formatDate(task.startDate)}</span>
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
+                      {formatDate(task.startDate)}
+                    </span>
                   </button>
                 </span>
               )}
@@ -764,7 +778,7 @@ function SortableTaskRowInner({
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedEnd && 'ring-2 ring-blue-500 ring-inset',
+                isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -778,7 +792,7 @@ function SortableTaskRowInner({
                   type="date"
                   autoFocus
                   defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onChange={(e) => {
                     commitEndDateIfChanged(e.target.value);
                   }}
@@ -800,7 +814,7 @@ function SortableTaskRowInner({
                 <span className="flex w-full min-w-0 items-center gap-0.5">
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
                       beginEdit('endDate');
@@ -815,7 +829,9 @@ function SortableTaskRowInner({
                     }}
                     title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">{formatDate(task.endDate)}</span>
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
+                      {formatDate(task.endDate)}
+                    </span>
                   </button>
                 </span>
               )}
@@ -840,7 +856,7 @@ function SortableTaskRowInner({
               key={colId}
               className={cn(
                 'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedWE && 'ring-2 ring-blue-500 ring-inset',
+                isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
               )}
               style={otherRingStyle}
               onClick={(e) => {
@@ -860,7 +876,7 @@ function SortableTaskRowInner({
                   step={effortStep}
                   autoFocus
                   defaultValue={task.workEffort ?? ''}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={(e) => {
                     const v = parseFloat(e.target.value);
                     if (!isNaN(v) && v >= 0) {
@@ -878,7 +894,7 @@ function SortableTaskRowInner({
                 <span className="flex w-full min-w-0 items-center gap-0.5">
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
                       beginEdit('workEffort');
@@ -893,7 +909,7 @@ function SortableTaskRowInner({
                     }}
                     title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                       {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
                     </span>
                   </button>
@@ -918,7 +934,7 @@ function SortableTaskRowInner({
               key={colId}
               className={cn(
                 'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedW && 'ring-2 ring-blue-500 ring-inset',
+                isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -937,7 +953,7 @@ function SortableTaskRowInner({
                   step={0.1}
                   autoFocus
                   defaultValue={task.weight ?? ''}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={(e) => {
                     const v = parseFloat(e.target.value);
                     if (!isNaN(v) && v >= 0) {
@@ -954,7 +970,7 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-blue-50/80"
+                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-indigo-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('weight');
@@ -969,7 +985,7 @@ function SortableTaskRowInner({
                   }}
                   title={weightColumnTooltip}
                 >
-                  {task.weight != null ? formatNum1(task.weight) : '-'}
+                  <span style={txtStyle}>{task.weight != null ? formatNum1(task.weight) : '-'}</span>
                 </button>
               )}
             </div>
@@ -981,7 +997,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-indigo-500 ring-inset')}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1006,7 +1022,7 @@ function SortableTaskRowInner({
                   step={5}
                   autoFocus
                   defaultValue={typeof task.progress === 'number' ? task.progress : ''}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={(e) => {
                     const v = parseFloat(e.target.value);
                     if (!isNaN(v) && v >= 0 && v <= 100) {
@@ -1024,7 +1040,7 @@ function SortableTaskRowInner({
                 <span className="flex w-full min-w-0 items-center gap-0.5">
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-blue-50/80"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
                       beginEdit('progress');
@@ -1038,7 +1054,7 @@ function SortableTaskRowInner({
                       beginEdit('progress');
                     }}
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0">
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                       {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
                     </span>
                   </button>
@@ -1061,7 +1077,9 @@ function SortableTaskRowInner({
                   : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.'
               }
             >
-              <span className="px-1 inline-block w-full text-left truncate">{computable ? `${plannedFmt}%` : '—'}</span>
+              <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
+                {computable ? `${plannedFmt}%` : '—'}
+              </span>
             </div>
           );
         }
@@ -1080,14 +1098,16 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs min-w-0 cursor-help', color)}
+              className={cn('data-cell font-mono text-xs min-w-0 cursor-help', !txtStyle.color && color)}
               title={
                 computable
                   ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
                   : '계획 일정이 없어 진척차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율이며, 계획율은 일정에서만 산정됩니다.'
               }
             >
-              <span className="px-1 inline-block w-full text-left truncate">{computable ? `${sign}${varFmt}%p` : '—'}</span>
+              <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
+                {computable ? `${sign}${varFmt}%p` : '—'}
+              </span>
             </div>
           );
         }
@@ -1103,7 +1123,7 @@ function SortableTaskRowInner({
               key={colId}
               className={cn(
                 'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
-                isFocusedAssignee && 'ring-2 ring-blue-500 ring-inset',
+                isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1123,7 +1143,7 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={task.assignee || ''}
                     placeholder="배정 ..."
-                    className="w-full bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none pr-6"
+                    className="w-full bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none pr-6"
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v !== (task.assignee || '').trim()) {
@@ -1156,7 +1176,10 @@ function SortableTaskRowInner({
                 </>
               ) : (
                 <>
-                  <div className={cn('w-full px-1 py-0.5 truncate', task.assignee ? 'text-slate-600' : 'text-slate-400')}>
+                  <div
+                    className={cn('w-full px-1 py-0.5 truncate', !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'))}
+                    style={txtStyle}
+                  >
                     {formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 ...'}
                   </div>
                   <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-slate-400 group-hover/assignee:text-slate-600">
@@ -1191,7 +1214,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('allocation');
@@ -1209,7 +1232,7 @@ function SortableTaskRowInner({
                     const next = e.target.value;
                     if (next === '' || /^\d*$/.test(next)) setAllocationEditStr(next);
                   }}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={() => {
                     persistAllocation(allocationEditStr);
                     setEditingCell(null);
@@ -1222,7 +1245,7 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-blue-50/80"
+                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-indigo-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('allocation');
@@ -1236,7 +1259,7 @@ function SortableTaskRowInner({
                     beginEdit('allocation');
                   }}
                 >
-                  {allocationDisplayText ?? '—'}
+                  <span style={txtStyle}>{allocationDisplayText ?? '—'}</span>
                 </button>
               )}
             </div>
@@ -1249,7 +1272,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell', isFocusedStatus && 'ring-2 ring-blue-500 ring-inset rounded')}
+              className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('status');
@@ -1288,7 +1311,7 @@ function SortableTaskRowInner({
                       (e.target as HTMLSelectElement).blur();
                     }
                   }}
-                  className="w-full bg-white p-1 ring-1 ring-blue-500 rounded border border-transparent appearance-none text-xs"
+                  className="w-full bg-white p-1 ring-1 ring-indigo-500 rounded border border-transparent appearance-none text-xs"
                 >
                   {statusConfigs.map((config) => (
                     <option key={config.id} value={config.id}>
@@ -1299,7 +1322,7 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-blue-50/80 truncate"
+                  className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-indigo-50/80 truncate"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('status');
@@ -1310,7 +1333,9 @@ function SortableTaskRowInner({
                   }}
                   title="더블클릭 또는 F2로 상태 수정"
                 >
-                  {currentStatusName}
+                  <span className="truncate block" style={txtStyle}>
+                    {currentStatusName}
+                  </span>
                 </button>
               )}
             </div>
@@ -1322,7 +1347,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-indigo-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit('deliverables');
@@ -1335,7 +1360,7 @@ function SortableTaskRowInner({
                   autoFocus
                   defaultValue={task.deliverables ?? ''}
                   placeholder="산출물"
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={(e) => {
                     const v = e.target.value.trim();
                     if (v !== (task.deliverables ?? '').trim()) {
@@ -1351,7 +1376,7 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80"
+                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('deliverables');
@@ -1366,7 +1391,7 @@ function SortableTaskRowInner({
                   }}
                   title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
                 >
-                  {task.deliverables || '-'}
+                  <span style={txtStyle}>{task.deliverables || '-'}</span>
                 </button>
               )}
             </div>
@@ -1493,7 +1518,7 @@ function SortableTaskRowInner({
               className={cn(
                 'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
                 depsMenuOpen && 'z-20 overflow-visible',
-                isFocusedDep && 'ring-2 ring-blue-500 ring-inset rounded',
+                isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1558,7 +1583,7 @@ function SortableTaskRowInner({
                       }
                     }}
                     placeholder="번호 또는 이름…"
-                    className="w-full min-w-0 bg-white p-1 font-mono text-inherit border border-blue-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 rounded focus:outline-none"
+                    className="w-full min-w-0 bg-white p-1 font-mono text-inherit border border-indigo-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 rounded focus:outline-none"
                     autoComplete="off"
                   />
                   {renderDepsDropdown}
@@ -1567,7 +1592,7 @@ function SortableTaskRowInner({
                 <span className="flex w-full min-w-0 items-center gap-0.5 font-mono">
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 truncate text-left cursor-cell hover:bg-blue-50/80"
+                    className="rounded px-1 -mx-1 min-w-0 flex-1 truncate text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
                       beginEdit('dependencies');
@@ -1578,7 +1603,9 @@ function SortableTaskRowInner({
                     }}
                     title="더블클릭 또는 F2로 선행작업 수정"
                   >
-                    <span className="block truncate">{depsDisplayText}</span>
+                    <span className="block truncate" style={txtStyle}>
+                      {depsDisplayText}
+                    </span>
                   </button>
                 </span>
               )}
@@ -1593,7 +1620,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-blue-500 ring-inset')}
+              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset')}
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isEditing) beginEdit(colId);
@@ -1606,7 +1633,7 @@ function SortableTaskRowInner({
                   type="text"
                   autoFocus
                   defaultValue={currentValue}
-                  className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                   onBlur={(e) => {
                     const nextValue = e.target.value ?? '';
                     if (nextValue !== currentValue) {
@@ -1624,7 +1651,7 @@ function SortableTaskRowInner({
               ) : (
                 <button
                   type="button"
-                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-blue-50/80"
+                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit(colId);
@@ -1639,7 +1666,7 @@ function SortableTaskRowInner({
                   }}
                   title={currentValue || `${customLabel} 입력`}
                 >
-                  {currentValue || '-'}
+                  <span style={txtStyle}>{currentValue || '-'}</span>
                 </button>
               )}
             </div>
@@ -1656,7 +1683,7 @@ function SortableTaskRowInner({
             e.stopPropagation();
             onEdit(task);
           }}
-          className="p-1.5 hover:bg-blue-50 text-blue-600 rounded transition-colors"
+          className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded transition-colors"
           title="작업 수정"
         >
           <Edit2 size={13} />
@@ -1812,7 +1839,7 @@ function DepsPortalDropdown({
               type="button"
               className={cn(
                 'w-full text-left px-2 py-1 text-[12px] leading-snug flex gap-1.5 items-baseline',
-                i === pickIdx ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                i === pickIdx ? 'bg-indigo-50 dark:bg-indigo-950/50' : 'hover:bg-slate-50 dark:hover:bg-slate-800',
               )}
               onMouseDown={(ev) => ev.preventDefault()}
               onMouseEnter={() => setPickIdx(i)}

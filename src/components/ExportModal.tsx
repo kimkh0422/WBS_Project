@@ -119,7 +119,7 @@ export function ExportModal({
                 className={cn(
                   'flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all',
                   scope === 'all'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
@@ -131,7 +131,7 @@ export function ExportModal({
                 className={cn(
                   'flex-1 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all',
                   scope === 'selected'
-                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50',
                 )}
               >
@@ -158,14 +158,14 @@ export function ExportModal({
                       key={p.id}
                       className={cn(
                         'flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-white transition-colors',
-                        selectedProjectIds.includes(p.id) && 'bg-blue-50',
+                        selectedProjectIds.includes(p.id) && 'bg-indigo-50',
                       )}
                     >
                       <input
                         type="checkbox"
                         checked={selectedProjectIds.includes(p.id)}
                         onChange={() => toggleProject(p.id)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                       />
                       <span className="text-sm text-slate-700 flex-1 break-words">{formatProjectDisplayName(p.name, p.projectKind)}</span>
                       <span className="text-xs text-slate-400 tabular-nums">{taskCountByProject[p.id] ?? 0}개</span>

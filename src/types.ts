@@ -3,6 +3,21 @@ export type WorkEffortUnit = 'minute' | 'hour' | 'day' | 'week';
 
 export type TaskStatus = string;
 
+/** 표 데이터 셀(열)별 텍스트 표시 스타일. 키는 `name`, `startDate`, `custom:…` 등 컬럼 id 문자열 */
+export interface CellTextStyle {
+  fontFamily?: string;
+  /** 표시 글자 크기(px). 대략 8~48 권장 */
+  fontSize?: number;
+  /** 전경색(예: #334155) */
+  color?: string;
+  /** 배경색 */
+  backgroundColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+}
+
 export type SortConfig = {
   key: keyof Task | 'wbs';
   direction: 'asc' | 'desc';
@@ -27,7 +42,7 @@ export interface Project {
   projectKind?: ProjectKind;
   description?: string;
   startDate?: string; // ISO string (YYYY-MM-DD)
-  endDate?: string; // ISO string (YYYY-MM-DD). WBS 작업은 이 기간 범위를 벗어날 수 없음
+  endDate?: string; // ISO string (YYYY-MM-DD). 참고·요약용이며 작업 일정과 달라도 됨
   /** 프로젝트별 투입인원·투입비율. 이 프로젝트 소속 작업의 기간·공수 계산에 적용 */
   assignments?: ProjectAssignment[];
   /** 프로젝트 PM 표시 이름(저장 시 필수). 조직 회원 이름과 일치하면 대시보드 등에서 직급과 함께 표시. 구 데이터에만 비어 있을 수 있음 */
@@ -95,6 +110,8 @@ export interface Task {
   baselineWorkEffort?: number;
   /** 사용자 정의 컬럼 값 저장소. 키: custom column id, 값: 문자열 */
   customFields?: Record<string, string>;
+  /** 표 셀 텍스트 스타일(열 id → 스타일). DB에는 custom_fields 내부 키로 직렬화 */
+  cellTextStyles?: Record<string, CellTextStyle>;
 }
 
 export interface FilterState {

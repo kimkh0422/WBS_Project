@@ -32,7 +32,7 @@ const DEFAULT_LEVEL_COLORS: RgbColor[] = [...LEVEL_COLORS];
 
 /** 상태(할 일/진행 중/완료 등)별 색상 프리셋 - Tailwind 클래스 */
 const STATUS_COLOR_PRESETS: { value: string; label: string }[] = [
-  { value: 'bg-slate-100 border-slate-200', label: '회색' },
+  { value: 'bg-stone-100 border-stone-200', label: '회색' },
   { value: 'bg-zinc-100 border-zinc-200', label: '징크' },
   { value: 'bg-neutral-100 border-neutral-200', label: '뉴트럴' },
   { value: 'bg-slate-100 border-slate-200', label: '슬레이트' },
@@ -483,7 +483,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       id="prependDisplayWbsToTaskName"
                       checked={prependDisplayWbsToTaskName}
                       onChange={(e) => setPrependDisplayWbsToTaskName(e.target.checked)}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
                     <label htmlFor="prependDisplayWbsToTaskName" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
                       작업명 컬럼에 WBS ID 접두 표시
@@ -531,7 +531,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                 setLevelColorsState(next);
                               }
                             }}
-                            className="w-full min-h-[44px] h-12 rounded-lg border-2 border-slate-200 cursor-pointer hover:border-slate-300 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                            className="w-full min-h-[44px] h-12 rounded-lg border-2 border-slate-200 cursor-pointer hover:border-slate-300 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
                             title="클릭하여 색상 선택"
                           />
                         </div>
@@ -650,7 +650,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         setCustomColumns((prev) => [...prev, { id, name: '새 컬럼' }]);
                         setTableColumns((prev) => [...(prev || []), { id, visible: true }]);
                       }}
-                      className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
                     >
                       <Plus size={14} />
                       컬럼 추가
@@ -704,7 +704,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            className="h-3.5 w-3.5 text-blue-600 border-slate-300 focus:ring-blue-500"
+                            className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                             checked={linkStatusAndProgress}
                             onChange={(e) => setLinkStatusAndProgress(e.target.checked)}
                           />
@@ -713,7 +713,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            className="h-3.5 w-3.5 text-blue-600 border-slate-300 focus:ring-blue-500"
+                            className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                             checked={linkEffortToSchedule}
                             onChange={(e) => setLinkEffortToSchedule(e.target.checked)}
                           />
@@ -727,7 +727,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             <label className="inline-flex items-center gap-1 cursor-pointer">
                               <input
                                 type="radio"
-                                className="h-3.5 w-3.5 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                                 checked={statusApplyMode === 'none'}
                                 onChange={() => setStatusApplyMode('none')}
                               />
@@ -736,7 +736,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             <label className="inline-flex items-center gap-1 cursor-pointer">
                               <input
                                 type="radio"
-                                className="h-3.5 w-3.5 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                                 checked={statusApplyMode === 'current'}
                                 onChange={() => setStatusApplyMode('current')}
                               />
@@ -745,7 +745,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             <label className="inline-flex items-center gap-1 cursor-pointer">
                               <input
                                 type="radio"
-                                className="h-3.5 w-3.5 text-blue-600 border-slate-300 focus:ring-blue-500"
+                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
                                 checked={statusApplyMode === 'all'}
                                 onChange={() => setStatusApplyMode('all')}
                               />
@@ -764,7 +764,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                           { id: newId, name: '새 상태', progress: 0, color: 'bg-slate-50 border-slate-100' },
                         ]);
                       }}
-                      className="p-1 hover:bg-blue-50 text-blue-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
                     >
                       <Plus size={14} />
                       상태 추가
@@ -1027,7 +1027,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                 </span>
                               )}
                             </label>
-                            <p className="text-[10px] text-slate-400 truncate">WBS 작업은 설정된 기간 범위를 벗어날 수 없습니다.</p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              작업 일정은 입력값이 우선이며, 프로젝트 기간과 달라도 저장됩니다.
+                            </p>
                           </div>
                           <div className="flex-shrink-0 flex items-end gap-2">
                             <div className="flex flex-col gap-0.5">

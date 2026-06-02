@@ -50,7 +50,7 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
               setError(false);
             }}
             placeholder="비밀번호"
-            className={`w-full px-4 py-3 rounded-xl border text-[var(--color-ink)] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
+            className={`w-full px-4 py-3 rounded-xl border text-[var(--color-ink)] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
               error ? 'border-red-500 bg-red-50' : 'border-[var(--color-line)] bg-slate-50'
             }`}
             autoFocus

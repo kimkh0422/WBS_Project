@@ -55,7 +55,7 @@ export interface WBSSettings {
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
-  { id: 'todo', name: '할 일', progress: 0, color: 'bg-slate-100 border-slate-200' },
+  { id: 'todo', name: '할 일', progress: 0, color: 'bg-stone-100 border-stone-200' },
   { id: 'in-progress', name: '진행 중', progress: 10, color: 'bg-blue-50 border-blue-100' },
   { id: 'blocked', name: '지연됨', progress: 50, color: 'bg-red-50 border-red-100' },
   { id: 'done', name: '완료', progress: 100, color: 'bg-green-50 border-green-100' },
@@ -116,7 +116,7 @@ export function parseSettings(raw: unknown): WBSSettings {
                   : 100,
         color:
           id === 'todo'
-            ? 'bg-slate-100 border-slate-200'
+            ? 'bg-stone-100 border-stone-200'
             : id === 'in-progress'
               ? 'bg-blue-50 border-blue-100'
               : id === 'blocked'

@@ -24,7 +24,7 @@ describe('buildWbsImprovementGuide', () => {
     expect(steps[0].title).toContain('없습니다');
   });
 
-  it('프로젝트 기간 밖 일정이 최우선(critical)으로 잡힌다', () => {
+  it('프로젝트 기간과 겹치지 않는 일정은 medium 단계로 안내된다', () => {
     const project = baseProject({ startDate: '2026-06-01', endDate: '2026-06-30' });
     const tasks: Task[] = [
       {
@@ -40,8 +40,9 @@ describe('buildWbsImprovementGuide', () => {
       },
     ];
     const steps = buildWbsImprovementGuide(tasks, new Map([['p1', project]]), statuses, { refDateIso: '2026-06-15' });
-    expect(steps[0].severity).toBe('critical');
-    expect(steps[0].title).toContain('기간');
+    const outsideStep = steps.find((s) => s.title.includes('프로젝트') && s.title.includes('기간'));
+    expect(outsideStep).toBeDefined();
+    expect(outsideStep!.severity).toBe('medium');
   });
 
   it('말단 담당 미지정은 medium 단계로 포함된다', () => {

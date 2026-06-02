@@ -869,7 +869,7 @@ export function AppHeader({
                                       setIsCopyProjectConfirmOpen(true);
                                       setIsProjectDropdownOpen(false);
                                     }}
-                                    className="text-slate-400 hover:text-blue-600 p-1 rounded"
+                                    className="text-slate-400 hover:text-indigo-600 p-1 rounded"
                                     title="프로젝트 복사 (내 프로젝트로 복사본 생성)"
                                     aria-label="프로젝트 복사"
                                   >
@@ -1033,7 +1033,7 @@ export function AppHeader({
                               setIsProjectModalOpen(true);
                               setIsProjectDropdownOpen(false);
                             }}
-                            className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-blue-50 rounded-lg flex items-center gap-2 transition-colors"
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-indigo-50 rounded-lg flex items-center gap-2 transition-colors"
                             title="새 프로젝트를 생성합니다."
                           >
                             <FolderPlus size={14} /> 새 프로젝트

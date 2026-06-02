@@ -956,7 +956,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
                 setProjectToCopy(project);
                 setIsCopyConfirmOpen(true);
               }}
-              className="p-1.5 rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
               title="프로젝트 복사: 내 프로젝트로 복사해 별도 수정"
             >
               <Copy size={16} />
@@ -1119,7 +1119,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               setProjectToCopy(project);
               setIsCopyConfirmOpen(true);
             }}
-            className="p-2 rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+            className="p-2 rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
             title="복사"
           >
             <Copy size={18} />

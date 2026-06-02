@@ -684,7 +684,7 @@ export function MembersModal({
                               }}
                               onBlur={saveName}
                               autoFocus
-                              className="flex-1 min-w-0 px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                              className="flex-1 min-w-0 px-2 py-1 text-sm border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                               disabled={savingName}
                             />
                             <button
@@ -707,7 +707,7 @@ export function MembersModal({
                             {effectiveIsAdmin && (
                               <button
                                 onClick={() => startEdit(m)}
-                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                 title="이름 수정"
                                 type="button"
                               >
@@ -744,7 +744,7 @@ export function MembersModal({
                                       : '조직현황과 동일한 부서명을 권장합니다. 필요 시 직접 수정'
                                 }
                                 className={cn(
-                                  'w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500',
+                                  'w-full min-w-[100px] max-w-[180px] px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500',
                                   fromOrgOnly ? 'border-teal-200 bg-teal-50/50' : 'border-slate-200',
                                 )}
                               />
@@ -896,7 +896,7 @@ export function MembersModal({
                           <select
                             value={m.is_admin ? 'admin' : 'member'}
                             onChange={(e) => setRole(m, e.target.value === 'admin')}
-                            className="text-xs font-medium px-2 py-1 rounded border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
+                            className="text-xs font-medium px-2 py-1 rounded border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer"
                           >
                             <option value="member">회원</option>
                             <option value="admin">관리자</option>

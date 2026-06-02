@@ -107,8 +107,9 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
       title: '표 (WBS)',
       items: [
         {
-          label: '행 포커스',
-          chords: [[<ArrowUp size={12} key="up" />], [<ArrowDown size={12} key="down" />]],
+          label: '셀 이동 (← →)',
+          chords: [[<ArrowLeft size={12} key="cellL" />], [<ArrowRight size={12} key="cellR" />]],
+          hint: '세로(↑↓)는 Alt+↑↓로 순서 변경만',
         },
         {
           label: '트리 접기 · 펼치기',

@@ -3,7 +3,24 @@ import type { Task, TaskStatus, FilterState, SortConfig, Project } from '../../t
 import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
+import { commitWbsInlineNameEditFromDom } from '../../lib/wbsInlineNameCommit';
 import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../../lib/workEffortUnits';
+
+/** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
+function collectVisibleSubtreeRows(visibleTasks: TaskWithDepth[], rootId: string): TaskWithDepth[] {
+  const rootIdx = visibleTasks.findIndex((t) => t.id === rootId);
+  if (rootIdx === -1) return [];
+  const root = visibleTasks[rootIdx]!;
+  const rootDepth = root.depth ?? 0;
+  const out: TaskWithDepth[] = [root];
+  for (let i = rootIdx + 1; i < visibleTasks.length; i++) {
+    const t = visibleTasks[i]!;
+    const d = t.depth ?? 0;
+    if (d <= rootDepth) break;
+    out.push(t);
+  }
+  return out;
+}
 
 /** Clipboard payload shape (defined in WBSTable, passed in as type parameter) */
 type ClipboardPayloadV1 = { version: 1; copiedAt: string; tasks: Task[] };
@@ -208,25 +225,23 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // 작업명(name) 인라인 편집 중 Enter: blur로 커밋(onBlur) 후 편집만 종료 — 같은 레벨 새 작업 추가는 표 포커스에서 Enter(793행대)로 수행
+      // 작업명(name) 인라인 편집 중 Enter: blur 없이 커밋 후 종료(의도치 않은 중간 blur로 편집이 끊기는 것 방지)
       if (e.key === 'Enter' && inlineEditingNameId && inWbsTable) {
         e.preventDefault();
         const currentTaskId = inlineEditingNameId;
         if (!canEditCurrentProject) {
-          (document.activeElement as HTMLElement | null)?.blur?.();
+          setInlineEditingNameId(null);
           return;
         }
-        (document.activeElement as HTMLElement | null)?.blur?.();
-        window.setTimeout(() => {
-          setInlineEditingNameId(null);
-          setEditingCell(null);
-          setFocusedCell({ taskId: currentTaskId, columnId: 'name' });
-          setLastSelectedId(currentTaskId);
-          maybeSyncShiftRangeAnchor(currentTaskId);
-          requestAnimationFrame(() => {
-            tableScrollRef.current?.focus();
-          });
-        }, 0);
+        commitWbsInlineNameEditFromDom(currentTaskId, tasks, updateTask, canEditCurrentProject);
+        setInlineEditingNameId(null);
+        setEditingCell(null);
+        setFocusedCell({ taskId: currentTaskId, columnId: 'name' });
+        setLastSelectedId(currentTaskId);
+        maybeSyncShiftRangeAnchor(currentTaskId);
+        requestAnimationFrame(() => {
+          tableScrollRef.current?.focus();
+        });
         return;
       }
 
@@ -273,7 +288,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             const nextTask = visibleTasks[nextRowIdx];
             const nextCol = editableColumnIds[nextColIdx];
             if (nextTask && nextCol) {
-              // 현재 입력값 커밋
+              // 작업명 인라인 편집 중 Tab 이동: blur 전에 DOM에서 커밋(onBlur 미사용)
+              if (inlineEditingNameId) {
+                commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
+              }
+              // 현재 입력값 커밋(그 외 셀은 blur로 각 셀 onBlur가 처리)
               (document.activeElement as HTMLElement | null)?.blur?.();
               setTimeout(() => {
                 setLastSelectedId(nextTask.id);
@@ -299,11 +318,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       }
 
-      // 셀 간 화살표 이동 (편집 중이 아닐 때, F2/격자 모드 없이도 동작)
-      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주해 ←/→/↑/↓로 셀 이동.
+      // 셀 간 좌우 화살표 이동 (편집 중이 아닐 때). ↑↓ 행 이동은 Alt+↑↓(순서 변경) 또는 Shift/Ctrl/Meta+↑↓(선택)에서만 처리한다.
+      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주해 ←/→로 열만 이동.
       // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
       // 빠진 경우에도 ←/→가 동작하도록 한다.
-      // Alt(작업 순서 변경)·Shift(트리 펼치기)·Ctrl(범위 선택) 조합은 다른 핸들러로 패스.
+      // Alt(작업 순서 변경)·Shift(트리 펼치기/범위)·Ctrl(범위 선택) 조합은 다른 핸들러로 패스.
       const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
         ? 'name'
         : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
@@ -319,16 +338,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         !e.ctrlKey &&
         !e.metaKey
       ) {
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           const rowIdx = visibleTasks.findIndex((t) => t.id === effectiveArrowCell.taskId);
           let colIdx = editableColumnIds.indexOf(effectiveArrowCell.columnId);
           if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumn));
           if (rowIdx >= 0 && colIdx >= 0) {
             let nextRowIdx = rowIdx;
             let nextColIdx = colIdx;
-            if (e.key === 'ArrowUp') nextRowIdx = Math.max(0, rowIdx - 1);
-            else if (e.key === 'ArrowDown') nextRowIdx = Math.min(visibleTasks.length - 1, rowIdx + 1);
-            else if (e.key === 'ArrowLeft') {
+            if (e.key === 'ArrowLeft') {
               if (colIdx === 0) {
                 nextColIdx = editableColumnIds.length - 1;
                 nextRowIdx = Math.max(0, rowIdx - 1);
@@ -507,13 +524,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       const effectiveSelectedIds = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : sharedSelectedTaskIds || [];
 
       const copySelectionToClipboard = () => {
-        if (selectedTaskIds.size === 0) return;
-        const selected = visibleTasks
-          .filter((t) => selectedTaskIds.has(t.id))
-          .map((t) => {
-            const { depth: _depth, ...rest } = t as TaskWithDepth;
-            return rest as Task;
-          });
+        // 체크박스 다중 선택이 없어도, 행 클릭·↑↓로 포커스된 행(lastSelectedId)이 있으면 그 행(및 펼쳐진 하위)을 행 단위 복사
+        const rowsFromCheckbox = selectedTaskIds.size > 0 ? visibleTasks.filter((t) => selectedTaskIds.has(t.id)) : [];
+        const rows =
+          rowsFromCheckbox.length > 0 ? rowsFromCheckbox : lastSelectedId ? collectVisibleSubtreeRows(visibleTasks, lastSelectedId) : [];
+        if (rows.length === 0) return;
+        const selected = rows.map((t) => {
+          const { depth: _depth, ...rest } = t as TaskWithDepth;
+          return rest as Task;
+        });
         setCopiedTasks(selected);
         try {
           const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
@@ -527,8 +546,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
         e.preventDefault();
         copySelectionToClipboard();
-        if (effectiveSelectedIds.length > 0) {
-          setDeleteConfirm({ isOpen: true, taskIds: effectiveSelectedIds });
+        const idsForDelete =
+          selectedTaskIds.size > 0
+            ? Array.from(selectedTaskIds)
+            : lastSelectedId
+              ? collectVisibleSubtreeRows(visibleTasks, lastSelectedId).map((t) => t.id)
+              : effectiveSelectedIds;
+        if (idsForDelete.length > 0) {
+          setDeleteConfirm({ isOpen: true, taskIds: idsForDelete });
         }
         return;
       }
@@ -558,6 +583,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         e.preventDefault();
         // 편집 권한 없으면 F2도 동작 안 함 (보기 권한 사용자나 'all' 뷰에서 편집 차단)
         if (!canEditCurrentProject) return;
+        if (inlineEditingNameId) {
+          commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
+        }
         const taskId = lastSelectedId || focusedCell?.taskId || visibleTasks[0]?.id;
         if (!taskId || editableColumnIds.length === 0) return;
         const columnId =
@@ -598,19 +626,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (!rangeArrowFromOutsideTable) return;
       }
 
-      // If nothing is selected yet, allow arrow keys to move focus (체크는 변경하지 않음)
-      if (!lastSelectedId) {
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          const first = visibleTasks[0];
-          const last = visibleTasks[visibleTasks.length - 1];
-          const next = e.key === 'ArrowDown' ? first : last;
-          if (next) {
-            setLastSelectedId(next.id);
-            maybeSyncShiftRangeAnchor(next.id);
-            document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
-          }
-        }
+      // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
+      if (!lastSelectedId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         return;
       }
 
@@ -634,25 +651,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         !!filters.milestoneOnly ||
         !!filters.issueOnly;
 
-      // 셀 링 포커스(focusedCell)와 lastSelectedId가 잠깐 어긋나도(간트 동기화 등) ↑/↓·Shift 범위는 보이는 행 기준으로
-      const rowForArrowNav = focusedCell?.taskId ?? lastSelectedId;
-      let currentIndex = visibleTasks.findIndex((t) => t.id === rowForArrowNav);
-      if (currentIndex === -1 && lastSelectedId) {
-        currentIndex = visibleTasks.findIndex((t) => t.id === lastSelectedId);
-      }
-      if (currentIndex === -1) return;
-
-      /** Shift 범위 확장 시 포커스 셀보다 '선택 블록의 끝' 기준으로 다음 행을 잡는다 (위쪽=최소 인덱스, 아래=최대) */
-      const extentIndexForShiftArrow = (dir: 'up' | 'down'): number => {
-        if (!e.shiftKey || selectedTaskIds.size === 0) return currentIndex;
-        const indices = visibleTasks.map((t, i) => (selectedTaskIds.has(t.id) ? i : -1)).filter((i) => i >= 0);
-        if (indices.length === 0) return currentIndex;
-        return dir === 'up' ? Math.min(...indices) : Math.max(...indices);
-      };
-
       if (e.key === 'ArrowUp') {
-        e.preventDefault();
         if (e.altKey) {
+          e.preventDefault();
           // Alt+↑: 한 칸 위로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
           const canMove =
             !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
@@ -660,26 +661,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             moveTask(lastSelectedId, 'up');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
-        } else {
-          const prevTask = visibleTasks[extentIndexForShiftArrow('up') - 1];
-          if (prevTask) {
-            if (e.ctrlKey || e.metaKey || e.shiftKey) {
-              handleSelect(prevTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
-            } else {
-              setLastSelectedId(prevTask.id);
-              maybeSyncShiftRangeAnchor(prevTask.id);
-              // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
-              setFocusedCell({
-                taskId: prevTask.id,
-                columnId: focusedCell?.columnId ?? 'name',
-              });
-            }
-            document.getElementById(`task-row-${prevTask.id}`)?.scrollIntoView({ block: 'nearest' });
-          }
         }
+        // Alt 없이 ↑: 표시 순서/포커스/선택 범위를 세로로 움직이지 않음
+        return;
       } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
         if (e.altKey) {
+          e.preventDefault();
           // Alt+↓: 한 칸 아래로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
           const canMove =
             !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
@@ -687,23 +674,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             moveTask(lastSelectedId, 'down');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
-        } else {
-          const nextTask = visibleTasks[extentIndexForShiftArrow('down') + 1];
-          if (nextTask) {
-            if (e.ctrlKey || e.metaKey || e.shiftKey) {
-              handleSelect(nextTask.id, e.ctrlKey || e.metaKey, e.shiftKey);
-            } else {
-              setLastSelectedId(nextTask.id);
-              maybeSyncShiftRangeAnchor(nextTask.id);
-              // 키보드 이동 시 셀 포커스 동기화(점선 격자는 F2·더블클릭·요약 바에서만 켬)
-              setFocusedCell({
-                taskId: nextTask.id,
-                columnId: focusedCell?.columnId ?? 'name',
-              });
-            }
-            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-          }
         }
+        // Alt 없이 ↓: 표시 순서/포커스/선택 범위를 세로로 움직이지 않음
+        return;
       } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) {
         // Shift+←/→: 트리 접기/펼치기 (←/→는 셀 이동에 전용)
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;

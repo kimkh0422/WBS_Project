@@ -4,21 +4,51 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type Active,
   type DragCancelEvent,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type Over,
 } from '@dnd-kit/core';
+import { getEventCoordinates } from '@dnd-kit/utilities';
+import type { Coordinates } from '@dnd-kit/utilities';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { Task } from '../../types';
 
-export type DropPosition = 'before' | 'inside' | 'after';
+export type DropPosition = 'before' | 'after';
+
+/** `task-row-{id}`가 있으면 화면상 실제 행 박스 기준(가상 스크롤·변환 오차 완화) */
+function overRowMidY(overId: string, kitOverRect: Over['rect']): number {
+  if (typeof document === 'undefined') return kitOverRect.top + kitOverRect.height / 2;
+  const el = document.getElementById(`task-row-${overId}`);
+  const dom = el?.getBoundingClientRect();
+  if (dom && dom.height > 0) return dom.top + dom.height / 2;
+  return kitOverRect.top + kitOverRect.height / 2;
+}
+
+/**
+ * 포인터의 현재 clientY(시작 좌표 + dnd delta)와 대상 행 중앙을 비교한다.
+ * 행 박스 중심만 쓰면 잡은 위치·오버레이와 어긋날 수 있어 마우스 기준으로 맞춘다.
+ */
+function dropPositionBeforeOrAfter(active: Active, over: Over, activatorEvent: Event, delta: Coordinates): DropPosition {
+  const start = getEventCoordinates(activatorEvent);
+  if (start) {
+    const pointerY = start.y + delta.y;
+    const midY = overRowMidY(String(over.id), over.rect);
+    return pointerY < midY ? 'before' : 'after';
+  }
+  const translated = active.rect.current.translated ?? active.rect.current.initial;
+  if (!translated) return 'before';
+  const dragCenterY = translated.top + translated.height / 2;
+  const midY = overRowMidY(String(over.id), over.rect);
+  return dragCenterY < midY ? 'before' : 'after';
+}
 
 interface UseWbsDragDropOptions {
   tasks: Task[];
   /** 체크박스·Ctrl/Shift 다중 선택과 동기화된 id 집합(그립 드래그 시 일괄 이동에 사용) */
   selectedTaskIds?: ReadonlySet<string>;
-  reparentTaskRootsUnder: (newParentId: string, orderedRootIds: string[]) => void;
   moveTaskRootsSibling: (orderedRootIds: string[], overId: string, position: 'before' | 'after') => void;
 }
 
@@ -32,15 +62,9 @@ function orderedSelectionRoots(tasks: Task[], projectId: string, selected: Reado
   });
 }
 
-export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder, moveTaskRootsSibling }: UseWbsDragDropOptions) {
+export function useWbsDragDrop({ tasks, selectedTaskIds, moveTaskRootsSibling }: UseWbsDragDropOptions) {
   const [dndActiveId, setDndActiveId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ overId: string; position: DropPosition } | null>(null);
-  const [dropMenu, setDropMenu] = useState<{
-    draggedRootIds: string[];
-    overId: string;
-    x: number;
-    y: number;
-  } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -63,7 +87,8 @@ export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder,
       setDropTarget(null);
       return;
     }
-    setDropTarget({ overId: over.id as string, position: 'inside' });
+    const position = dropPositionBeforeOrAfter(active, over, event.activatorEvent, event.delta);
+    setDropTarget({ overId: over.id as string, position });
   }, []);
 
   const handleDragCancel = useCallback((_event: DragCancelEvent) => {
@@ -76,7 +101,9 @@ export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder,
       setDndActiveId(null);
       setDropTarget(null);
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
+      if (!over || active.id === over.id) {
+        return;
+      }
 
       const activeId = active.id as string;
       const overId = over.id as string;
@@ -87,11 +114,15 @@ export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder,
 
       const draggedTask = tasks.find((t) => t.id === activeId);
       const overTask = tasks.find((t) => t.id === overId);
-      if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) return;
+      if (!draggedTask || !overTask || draggedTask.projectId !== overTask.projectId) {
+        return;
+      }
 
       const pid = draggedTask.projectId;
       const draggedRootIds = orderedSelectionRoots(tasks, pid, dragSet);
-      if (draggedRootIds.length === 0) return;
+      if (draggedRootIds.length === 0) {
+        return;
+      }
 
       const collectSubtreeIds = (rootId: string, list: Task[]): Set<string> => {
         const acc = new Set<string>([rootId]);
@@ -112,47 +143,23 @@ export function useWbsDragDrop({ tasks, selectedTaskIds, reparentTaskRootsUnder,
       for (const rid of draggedRootIds) {
         for (const id of collectSubtreeIds(rid, tasks)) forbidden.add(id);
       }
-      if (forbidden.has(overId)) return;
-
-      const el = document.getElementById(`task-row-${overId}`);
-      const rect = el?.getBoundingClientRect();
-      const x = rect ? rect.left + Math.min(450, rect.width * 0.38) : 450;
-      const y = rect ? rect.bottom + 4 : window.innerHeight / 2;
-      setDropMenu({ draggedRootIds, overId, x, y });
-    },
-    [tasks, selectedTaskIds],
-  );
-
-  const executeDropAction = useCallback(
-    (action: DropPosition) => {
-      if (!dropMenu) return;
-      const { draggedRootIds, overId } = dropMenu;
-      const overTask = tasks.find((t) => t.id === overId);
-      if (!overTask || draggedRootIds.length === 0) {
-        setDropMenu(null);
+      if (forbidden.has(overId)) {
         return;
       }
 
-      if (action === 'inside') {
-        reparentTaskRootsUnder(overId, draggedRootIds);
-      } else {
-        moveTaskRootsSibling(draggedRootIds, overId, action);
-      }
-      setDropMenu(null);
+      const position = dropPositionBeforeOrAfter(active, over, event.activatorEvent, event.delta);
+      moveTaskRootsSibling(draggedRootIds, overId, position);
     },
-    [dropMenu, tasks, reparentTaskRootsUnder, moveTaskRootsSibling],
+    [tasks, selectedTaskIds, moveTaskRootsSibling],
   );
 
   return {
     dndActiveId,
     dropTarget,
-    dropMenu,
-    setDropMenu,
     sensors,
     handleDragStart,
     handleDragOver,
     handleDragCancel,
     handleDragEnd,
-    executeDropAction,
   };
 }

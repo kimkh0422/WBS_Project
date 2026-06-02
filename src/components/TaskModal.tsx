@@ -552,20 +552,19 @@ export function TaskModal({
       checklist = filterChecklistAgainstChildren(checklist, initialData.id, parentOptions, displayWbsMap);
     }
     const toMerge = { ...formData, progress: parsedProgress, dependencies: parsedDeps, checklist, allocationPercent: parsedAllocation };
-    const start = toMerge.startDate || '';
-    const end = toMerge.endDate || start;
-    if (start && end && start > end) {
-      setFormError('시작일이 종료일보다 늦을 수 없습니다.');
-      return;
+    let start = (toMerge.startDate || '').trim();
+    let end = (toMerge.endDate || '').trim();
+    if (!start && end) start = end.slice(0, 10);
+    if (start && !end) end = start.slice(0, 10);
+    const s10 = start.slice(0, 10);
+    const e10 = end.slice(0, 10);
+    const ymdOk = /^\d{4}-\d{2}-\d{2}$/.test(s10) && /^\d{4}-\d{2}-\d{2}$/.test(e10);
+    if (ymdOk && s10 > e10) {
+      end = s10 + (end.length > 10 ? end.slice(10) : '');
     }
-    if (taskProject?.startDate && start < taskProject.startDate) {
-      setFormError(`작업 시작일은 프로젝트 시작일(${taskProject.startDate})보다 이전일 수 없습니다.`);
-      return;
-    }
-    if (taskProject?.endDate && end > taskProject.endDate) {
-      setFormError(`작업 종료일은 프로젝트 종료일(${taskProject.endDate})을 초과할 수 없습니다.`);
-      return;
-    }
+    toMerge.startDate = start || undefined;
+    toMerge.endDate = end || start || undefined;
+    // 프로젝트 달력 밖이어도 저장됨 — 작업에 입력한 일정이 그대로 반영됩니다.
     const { allocationPercent: _ap, ...toMergeRest } = toMerge as TaskFormState;
     const toSave = { ...toMergeRest } as Partial<Task>;
     if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
@@ -982,7 +981,10 @@ export function TaskModal({
                 required
                 type="date"
                 value={formData.endDate?.split('T')[0]}
-                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFormData((prev) => ({ ...prev, endDate: v }));
+                }}
                 className="input-field py-1.5 text-sm"
                 readOnly={readOnly}
                 disabled={readOnly}
@@ -1270,7 +1272,11 @@ export function TaskModal({
                     </span>
                   </label>
                   {!readOnly && initialData?.id && manualChecklist.length > 0 && (
-                    <button type="button" onClick={handleConvertAllToSubtasks} className="text-[10px] text-blue-600 hover:underline mb-0.5">
+                    <button
+                      type="button"
+                      onClick={handleConvertAllToSubtasks}
+                      className="text-[10px] text-indigo-600 hover:underline mb-0.5"
+                    >
                       전체→하위작업
                     </button>
                   )}
@@ -1285,7 +1291,7 @@ export function TaskModal({
                             type="checkbox"
                             checked={completed}
                             onChange={() => handleToggleChildInChecklist(child.id)}
-                            className="rounded border-slate-300 text-blue-600 shrink-0"
+                            className="rounded border-slate-300 text-indigo-600 shrink-0"
                             title="하위 작업 완료 여부"
                             disabled={readOnly}
                           />
@@ -1312,7 +1318,7 @@ export function TaskModal({
                             type="checkbox"
                             checked={item.completed}
                             onChange={() => handleToggleChecklist(item.id)}
-                            className="rounded border-slate-300 text-blue-600 shrink-0"
+                            className="rounded border-slate-300 text-indigo-600 shrink-0"
                             disabled={readOnly}
                           />
                           <input
@@ -1336,7 +1342,7 @@ export function TaskModal({
                             <button
                               type="button"
                               onClick={() => handleConvertToSubtask(item)}
-                              className="p-0.5 text-slate-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 shrink-0"
+                              className="p-0.5 text-slate-400 hover:text-indigo-500 opacity-0 group-hover:opacity-100 shrink-0"
                               title="하위 작업으로 변환"
                             >
                               <CornerDownRight size={11} />

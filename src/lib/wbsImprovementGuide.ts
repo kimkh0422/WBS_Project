@@ -117,10 +117,9 @@ export function buildWbsImprovementGuide(
   if (outsideProject.length) {
     const { ids, labels } = pickSamples(outsideProject, labelForTask);
     steps.push({
-      severity: 'critical',
-      title: '프로젝트 기간과 맞지 않는 일정',
-      instruction:
-        '작업 시작·종료일이 프로젝트에 설정한 기간을 벗어났습니다. 프로젝트 기간을 조정하거나, 작업 일정을 경계 안으로 맞추세요.',
+      severity: 'medium',
+      title: '프로젝트 기간과 겹치지 않는 작업',
+      instruction: '작업 일정은 입력한 대로 유지됩니다. 대시보드·요약과 맞추려면 프로젝트 기간을 조정하거나 작업 일정을 검토해 보세요.',
       affectedCount: outsideProject.length,
       sampleTaskIds: ids,
       sampleLabels: labels,
@@ -251,7 +250,7 @@ export function buildWbsImprovementGuide(
         severity: 'low',
         title: '우선 조치할 항목이 없습니다',
         instruction:
-          '등록된 말단 작업 기준으로 자주 빠지는 항목(기간 불일치·담당 미지정·산출물·선행·진척 지연)이 감지되지 않았습니다. 필요 시 주기적으로 이 가이드를 다시 확인하세요.',
+          '등록된 말단 작업 기준으로 자주 빠지는 항목(담당 미지정·산출물·선행·진척 지연 등)이 감지되지 않았습니다. 필요 시 주기적으로 이 가이드를 다시 확인하세요.',
         affectedCount: 0,
         sampleTaskIds: [],
         sampleLabels: [],

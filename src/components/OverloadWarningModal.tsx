@@ -120,7 +120,7 @@ export function OverloadWarningModal({ isOpen, onClose, overloads, tasksById, wb
                       className={cn(
                         'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
                         strategy === 'extend'
-                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
                           : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
                       )}
                       title="겹치는 작업을 순차 배치"
@@ -135,7 +135,7 @@ export function OverloadWarningModal({ isOpen, onClose, overloads, tasksById, wb
                       className={cn(
                         'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
                         strategy === 'increaseAllocation'
-                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
                           : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50',
                       )}
                       title="50% → 100%로 조정 후 종료일 재계산"

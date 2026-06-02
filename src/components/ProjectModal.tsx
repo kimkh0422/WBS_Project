@@ -448,7 +448,8 @@ export function ProjectModal({
                 </div>
               </div>
               <p className="text-xs leading-relaxed text-slate-600 -mt-1">
-                WBS 작업 일정은 이 기간을 벗어날 수 없습니다. (미입력 시 기간 제한 없음)
+                프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시 기간 제한
+                없음)
               </p>
               <div className="flex gap-3 rounded-lg border border-slate-200/80 bg-white/60 p-3.5">
                 <input

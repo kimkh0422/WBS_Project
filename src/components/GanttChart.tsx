@@ -580,7 +580,7 @@ export function GanttChart({
                 onClick={() => setZoomIndex(-1)}
                 className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-                  zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
+                  zoomIndex === -1 ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
                 )}
                 title="전체 맞춤"
               >
@@ -832,7 +832,7 @@ export function GanttChart({
             {/* 하단 spacer — 표 본문 맨 아래 퀵 추가 행에 대응 */}
             {canEditCurrentProject && bottomSpacerHeight > 0 && (
               <div
-                className="sticky bottom-0 z-20 border-y border-blue-200/70 bg-blue-50/70 backdrop-blur-sm shadow-sm box-border"
+                className="sticky bottom-0 z-20 border-y border-indigo-200/70 bg-indigo-50/70 backdrop-blur-sm shadow-sm box-border"
                 style={{ height: bottomSpacerHeight, width: totalWidth }}
                 aria-hidden
               />
@@ -937,7 +937,7 @@ export function GanttChart({
               onClick={() => setZoomIndex(-1)}
               className={cn(
                 'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-                zoomIndex === -1 ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
+                zoomIndex === -1 ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
               )}
               title="전체 맞춤"
             >

@@ -47,7 +47,6 @@ export interface TaskOpsDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setProjects: Dispatch<SetStateAction<Project[]>>;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
-  /** 작업 일정이 프로젝트 범위 밖으로 변경되어 프로젝트가 자동 확장될 때 dirty 플래그를 올린다. */
   bumpDirty: () => void;
 }
 
@@ -141,11 +140,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
     ) => {
       const deferScheduleSync = options?.deferScheduleSync ?? false;
       saveHistory();
-      // setAllTasks 업데이터에서 프로젝트 자동 확장이 필요한지 결정한 뒤, 외부에서 setProjects/upsertProject로 반영한다.
-      let projectExpansionToApply: { project: Project; expansion: { startDate?: string; endDate?: string } } | null = null;
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
-        const projs = projectsRef.current;
         const task = prev.find((t) => t.id === id);
         if (!task) return prev;
         const hasDateChange =
@@ -172,27 +168,28 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
         let updatedTask = { ...task, ...resolvedUpdates };
-        const project = projs.find((p) => p.id === task.projectId);
 
-        // 사용자가 명시적으로 작업 일정을 프로젝트 범위 밖으로 변경하면 프로젝트 범위를 자동 확장한다.
         const explicitStartChange = hasDateChange && Object.prototype.hasOwnProperty.call(updates, 'startDate');
         const explicitEndChange = hasDateChange && Object.prototype.hasOwnProperty.call(updates, 'endDate');
-        const expansion: { startDate?: string; endDate?: string } = {};
-        if (project) {
-          if (explicitStartChange && updatedTask.startDate && project.startDate && updatedTask.startDate < project.startDate) {
-            expansion.startDate = updatedTask.startDate;
-          }
-          if (explicitEndChange && updatedTask.endDate && project.endDate && updatedTask.endDate > project.endDate) {
-            expansion.endDate = updatedTask.endDate;
+        // 한쪽 날짜만 바꿔 기간이 역전되면 표시·저장이 꼬일 수 있어 시작≤종료로만 맞춘다(프로젝트 기간과 무관).
+        if (hasDateChange) {
+          const YMD = /^\d{4}-\d{2}-\d{2}$/;
+          const rawS = updatedTask.startDate ?? '';
+          const rawE = updatedTask.endDate ?? '';
+          const sY = rawS.slice(0, 10);
+          const eY = rawE.slice(0, 10);
+          if (YMD.test(sY) && YMD.test(eY) && sY > eY) {
+            const tailS = rawS.length > 10 ? rawS.slice(10) : '';
+            const tailE = rawE.length > 10 ? rawE.slice(10) : '';
+            if (explicitEndChange && !explicitStartChange) {
+              updatedTask = { ...updatedTask, startDate: eY + tailS };
+            } else {
+              updatedTask = { ...updatedTask, endDate: sY + tailE };
+            }
           }
         }
-        const willExpandProject = expansion.startDate !== undefined || expansion.endDate !== undefined;
         updatedTask = applyMilestoneDateInvariant(updatedTask);
 
-        // 프로젝트 범위 확장은 setAllTasks 외부에서 setProjects/upsertProject로 별도 적용해야 한다.
-        if (willExpandProject && project) {
-          projectExpansionToApply = { project, expansion };
-        }
         let nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
 
         // 상태 변경 시 모든 하위 작업에 캐스케이드
@@ -305,19 +302,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
         return result;
       });
-
-      // 작업 일정이 프로젝트 범위 밖으로 변경된 경우, 프로젝트 시작/종료일을 자동 확장하여 저장한다.
-      if (projectExpansionToApply) {
-        const { project, expansion } = projectExpansionToApply;
-        const expandedProject: Project = { ...project, ...expansion };
-        setProjects((prev) => prev.map((p) => (p.id === project.id ? expandedProject : p)));
-        bumpDirty();
-        if (!useLocalOnlyRef.current) {
-          upsertProject(expandedProject).catch((err) => handleDbError(err, '프로젝트 일정 자동 확장 저장에 실패했습니다.'));
-        }
-      }
     },
-    [saveHistory, wbsSettingsRef, projectsRef, setAllTasks, setProjects, bumpDirty, handleDbError, useLocalOnlyRef],
+    [saveHistory, wbsSettingsRef, setAllTasks],
   );
 
   const updateTasksBulk = useCallback(

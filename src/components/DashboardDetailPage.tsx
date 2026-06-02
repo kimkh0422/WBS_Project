@@ -938,7 +938,7 @@ export function DashboardDetailPage({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="rounded-xl border border-slate-200 bg-white p-5">
                 <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">금일 접속(세션)</div>
-                <div className="text-3xl font-bold text-blue-600 tabular-nums">{visitorStats.daily}</div>
+                <div className="text-3xl font-bold text-indigo-600 tabular-nums">{visitorStats.daily}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-5">
                 <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">누적 접속(세션)</div>
