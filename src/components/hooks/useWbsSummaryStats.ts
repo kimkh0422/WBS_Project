@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Task, Project } from '../../types';
 import { formatPercent1, round1 } from '../../lib/utils';
 import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../../lib/workEffortUnits';
+import { computePlannedProgressMap } from '../../lib/plannedProgress';
 
 export interface SummaryStats {
   totalEffort: number;
@@ -11,6 +12,10 @@ export interface SummaryStats {
   avgProgress: number;
   /** 요약 바「전체 진척율」계산 방식 설명 (title 툴팁) */
   avgProgressTooltip: string;
+  /** 전체 계획율(%): 전체 진척율과 동일 가중·집계 방식으로 계산한 "오늘 일정상 기대 진척" */
+  avgPlanned: number;
+  /** 계획 대비 진척 차이(%p) = avgProgress − avgPlanned. 양수=앞섬, 음수=지연 */
+  progressVariance: number;
   startDate: string;
   endDate: string;
   taskCount: number;
@@ -28,6 +33,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
     if (source.length === 0) return null;
 
     const projectById = new Map(projects.map((p) => [p.id, p]));
+    const plannedById = computePlannedProgressMap(source);
 
     const leafTasks = source.filter((t) => !source.some((other) => other.parentId === t.id));
     const forAggregate = leafTasks.length > 0 ? leafTasks : source;
@@ -96,6 +102,29 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
           ? Math.min(100, Math.max(0, round1(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
           : 0;
 
+    // 전체 계획율: 전체 진척율과 동일한 집계 대상(level1 우선)·동일 가중(가중치→없으면 공수 M/D)으로 계산
+    const plannedOf = (t: Task) => plannedById.get(t.id) ?? 0;
+    const weightForAgg = (t: Task) =>
+      typeof t.weight === 'number' && Number.isFinite(t.weight)
+        ? t.weight
+        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
+          ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
+          : 0;
+    const computeWeightedPlanned = (items: Task[]) => {
+      let totalWeight = 0;
+      let acc = 0;
+      for (const t of items) {
+        const w = weightForAgg(t);
+        totalWeight += w;
+        acc += plannedOf(t) * w;
+      }
+      if (totalWeight > 0) return Math.min(100, Math.max(0, round1(acc / totalWeight)));
+      if (items.length > 0) return Math.min(100, Math.max(0, round1(items.reduce((s, t) => s + plannedOf(t), 0) / items.length)));
+      return 0;
+    };
+    const avgPlanned = level1.length > 0 ? computeWeightedPlanned(level1) : computeWeightedPlanned(forAggregate);
+    const progressVarianceValue = round1(avgProgress - avgPlanned);
+
     let avgProgressTooltip: string;
     if (level1.length > 0) {
       const parts: string[] = [
@@ -149,6 +178,8 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       effortDisplayLabel,
       avgProgress,
       avgProgressTooltip,
+      avgPlanned,
+      progressVariance: progressVarianceValue,
       startDate,
       endDate,
       taskCount: source.length,

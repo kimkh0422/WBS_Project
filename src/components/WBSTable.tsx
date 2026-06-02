@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatPercent1 } from '../lib/utils';
@@ -19,7 +20,6 @@ import {
   Link2,
   Edit2,
   Trash2,
-  Unlock,
 } from 'lucide-react';
 import { type TableColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard } from './hooks/useWbsTableKeyboard';
@@ -54,6 +54,7 @@ import {
   normalizeWorkEffortUnit,
   workEffortUnitSuffixKo,
 } from '../lib/workEffortUnits';
+import { computePlannedProgressMap } from '../lib/plannedProgress';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -69,6 +70,8 @@ const DEFAULT_TABLE_COLUMNS: {
     | 'allocation'
     | 'status'
     | 'progress'
+    | 'plannedProgress'
+    | 'progressVariance'
     | 'deliverables'
     | 'dependencies';
   visible: boolean;
@@ -83,6 +86,8 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'allocation', visible: false },
   { id: 'status', visible: true },
   { id: 'progress', visible: true },
+  { id: 'plannedProgress', visible: true },
+  { id: 'progressVariance', visible: true },
   { id: 'deliverables', visible: true },
   { id: 'dependencies', visible: true },
 ];
@@ -627,6 +632,8 @@ export function WBSTable({
   );
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
+  /** 작업별 계획율(0~100). 리프=영업일 경과 비율, 부모=자식 가중 롤업. 진척차이 컬럼 계산에도 사용 */
+  const plannedProgressById = useMemo(() => computePlannedProgressMap(baseTasks), [baseTasks]);
   const isTreeView = !(
     filters.status !== 'all' ||
     filters.assignee ||
@@ -731,7 +738,6 @@ export function WBSTable({
     executeBulkAssignee,
     executeBulkClearDependencies,
     executeBulkLinkSequentialPredecessors,
-    executeBulkUnlockFieldLocks,
   } = useWbsBulkEdit({
     selectedTaskIds,
     tasks,
@@ -1341,6 +1347,7 @@ export function WBSTable({
                               projectScheduleByProjectId={projectScheduleByProjectId}
                               prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
                               rollupTooltipBaseTasks={baseTasks}
+                              plannedProgress={plannedProgressById.get(task.id)}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-blue-50/60 border-dashed" style={gridStyle}>
@@ -1511,270 +1518,265 @@ export function WBSTable({
         )}
       </div>
 
-      {/* Bulk Action Bar - 다중선택(2개 이상)일 경우에만 표시 */}
-      {selectedTaskIds.size > 1 && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-glass-elevated shadow-2xl rounded-2xl z-50 animate-in slide-in-from-bottom-4 fade-in duration-300 overflow-hidden min-w-max border border-white/40 border-t-white">
-          {/* Header */}
-          <div className="bg-indigo-600/90 backdrop-blur-sm px-4 py-2 flex items-center justify-between gap-6">
-            <span className="text-[11px] font-bold text-white tracking-widest uppercase">일괄 수정</span>
-            <div className="flex items-center gap-2">
-              <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full tracking-wide">
-                {selectedTaskIds.size}개 선택됨
-              </span>
-              <button
-                onClick={() => {
-                  setSelection(new Set());
-                  resetBulkFields();
-                }}
-                className="text-white/60 hover:text-white transition-colors hover:rotate-90 duration-300"
-                title="선택 해제"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>
-
-          {/* Fields + Actions */}
-          <div className="px-4 py-3 flex items-end gap-3">
-            {/* 상태 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">상태</label>
-              <select
-                value={bulkStatus}
-                onChange={(e) => setBulkStatus(e.target.value)}
-                className={cn(
-                  'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer',
-                  bulkStatus ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
-                )}
-              >
-                <option value="">변경 없음</option>
-                {(wbsSettings?.statusConfigs ?? []).map((config) => (
-                  <option key={config.id} value={config.id}>
-                    {config.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* 작업 유형(마일스톤·이슈·액션) */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">유형</label>
-              <select
-                value={bulkTaskKind}
-                onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
-                title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
-                className={cn(
-                  'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer min-w-[8.5rem]',
-                  bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
-                )}
-              >
-                <option value="">변경 없음</option>
-                <option value="plain">일반 작업</option>
-                <option value="milestone">마일스톤</option>
-                <option value="issue">이슈</option>
-                <option value="action">액션 항목</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">담당자</label>
+      {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보 */}
+      {selectedTaskIds.size > 1 &&
+        createPortal(
+          <div
+            className="fixed left-0 right-0 z-[100] pointer-events-none flex justify-center px-3 sm:px-4 animate-in slide-in-from-bottom-4 fade-in duration-300"
+            style={{
+              bottom: 'max(16px, calc(16px + env(safe-area-inset-bottom, 0px)))',
+            }}
+          >
+            <div className="pointer-events-auto min-w-0 max-w-full w-max overflow-x-auto overflow-y-visible rounded-2xl border border-white/40 border-t-white bg-glass-elevated shadow-2xl">
+              {/* Header */}
+              <div className="bg-indigo-600/90 backdrop-blur-sm px-4 py-2 flex items-center justify-between gap-6">
+                <span className="text-[11px] font-bold text-white tracking-widest uppercase">일괄 수정</span>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    list="all-assignees"
-                    value={bulkAssignee}
-                    onChange={(e) => setBulkAssignee(e.target.value)}
-                    placeholder="조직 회원에서 검색 또는 직접 입력"
-                    title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
-                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') executeBulkAssignee();
+                  <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full tracking-wide">
+                    {selectedTaskIds.size}개 선택됨
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSelection(new Set());
+                      resetBulkFields();
                     }}
-                  />
-                  <datalist id="all-assignees">
-                    {bulkAssigneeCandidates.map((name) => {
-                      const label = bulkAssigneeLabelByName.get(name);
-                      return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
-                    })}
-                  </datalist>
+                    className="text-white/60 hover:text-white transition-colors hover:rotate-90 duration-300"
+                    title="선택 해제"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               </div>
-            </div>
 
-            {/* 공수 — 프로젝트 단위에 맞게 입력 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">{workEffortHeaderTitle}</label>
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                value={bulkWorkEffort}
-                onChange={(e) => setBulkWorkEffort(e.target.value)}
-                placeholder={`${workEffortHeaderTitle} 일괄`}
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
-              />
-            </div>
+              {/* Fields + Actions */}
+              <div className="px-4 py-3 pb-4 flex flex-wrap items-end gap-3">
+                {/* 상태 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">상태</label>
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}
+                    className={cn(
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer',
+                      bulkStatus ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                    )}
+                  >
+                    <option value="">변경 없음</option>
+                    {(wbsSettings?.statusConfigs ?? []).map((config) => (
+                      <option key={config.id} value={config.id}>
+                        {config.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            {/* 진척율(%) — 0~100 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">진척율(%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={bulkProgress}
-                onChange={(e) => setBulkProgress(e.target.value)}
-                placeholder="0~100"
-                title={[
-                  '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
-                  '',
-                  PROGRESS_COLUMN_HELP_TEXT,
-                  '',
-                  '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
-                ].join('\n')}
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
-              />
-            </div>
+                {/* 작업 유형(마일스톤·이슈·액션) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">유형</label>
+                  <select
+                    value={bulkTaskKind}
+                    onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
+                    title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
+                    className={cn(
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer min-w-[8.5rem]',
+                      bulkTaskKind ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                    )}
+                  >
+                    <option value="">변경 없음</option>
+                    <option value="plain">일반 작업</option>
+                    <option value="milestone">마일스톤</option>
+                    <option value="issue">이슈</option>
+                    <option value="action">액션 항목</option>
+                  </select>
+                </div>
 
-            {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">가중치</label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={bulkWeight}
-                onChange={(e) => setBulkWeight(e.target.value)}
-                placeholder="가중치 일괄 지정..."
-                title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
-              />
-            </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">담당자</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        list="all-assignees"
+                        value={bulkAssignee}
+                        onChange={(e) => setBulkAssignee(e.target.value)}
+                        placeholder="조직 회원에서 검색 또는 직접 입력"
+                        title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
+                        className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-56"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') executeBulkAssignee();
+                        }}
+                      />
+                      <datalist id="all-assignees">
+                        {bulkAssigneeCandidates.map((name) => {
+                          const label = bulkAssigneeLabelByName.get(name);
+                          return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                        })}
+                      </datalist>
+                    </div>
+                  </div>
+                </div>
 
-            {/* 시작일 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">시작일</label>
-              <input
-                type="date"
-                value={bulkStartDate}
-                onChange={(e) => setBulkStartDate(e.target.value)}
-                className={cn(
-                  'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                  bulkStartDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                {/* 공수 — 프로젝트 단위에 맞게 입력 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">
+                    {workEffortHeaderTitle}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={bulkWorkEffort}
+                    onChange={(e) => setBulkWorkEffort(e.target.value)}
+                    placeholder={`${workEffortHeaderTitle} 일괄`}
+                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36"
+                  />
+                </div>
+
+                {/* 진척율(%) — 0~100 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">진척율(%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bulkProgress}
+                    onChange={(e) => setBulkProgress(e.target.value)}
+                    placeholder="0~100"
+                    title={[
+                      '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
+                      '',
+                      PROGRESS_COLUMN_HELP_TEXT,
+                      '',
+                      '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
+                    ].join('\n')}
+                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                  />
+                </div>
+
+                {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">가중치</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={bulkWeight}
+                    onChange={(e) => setBulkWeight(e.target.value)}
+                    placeholder="가중치 일괄 지정..."
+                    title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
+                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-32"
+                  />
+                </div>
+
+                {/* 시작일 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">시작일</label>
+                  <input
+                    type="date"
+                    value={bulkStartDate}
+                    onChange={(e) => setBulkStartDate(e.target.value)}
+                    className={cn(
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
+                      bulkStartDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                    )}
+                  />
+                </div>
+
+                {/* 완료일(종료일) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">완료일</label>
+                  <input
+                    type="date"
+                    value={bulkEndDate}
+                    onChange={(e) => setBulkEndDate(e.target.value)}
+                    className={cn(
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
+                      bulkEndDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                    )}
+                  />
+                </div>
+
+                {/* 투입율(%) — 0~100 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">투입율(%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bulkAllocation}
+                    onChange={(e) => setBulkAllocation(e.target.value)}
+                    placeholder="0~100"
+                    title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
+                    className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
+                  />
+                </div>
+
+                {/* 적용 버튼 - 상태, 유형, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
+                <button
+                  onClick={executeBulkEdit}
+                  disabled={
+                    !bulkStatus &&
+                    !bulkTaskKind &&
+                    !bulkAssignee.trim() &&
+                    (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
+                    (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
+                    (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
+                    !bulkStartDate.trim() &&
+                    !bulkEndDate.trim() &&
+                    (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
+                  }
+                  className="self-end text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
+                  title="입력한 항목 모두 적용"
+                >
+                  적용
+                </button>
+
+                {canEditCurrentProject && selectedTaskIds.size >= 2 && (
+                  <button
+                    type="button"
+                    onClick={executeBulkLinkSequentialPredecessors}
+                    className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다."
+                  >
+                    <Link2 size={14} />
+                    선행 순차 연결
+                  </button>
                 )}
-              />
-            </div>
 
-            {/* 완료일(종료일) */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">완료일</label>
-              <input
-                type="date"
-                value={bulkEndDate}
-                onChange={(e) => setBulkEndDate(e.target.value)}
-                className={cn(
-                  'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-36',
-                  bulkEndDate ? 'border-blue-400 text-blue-700 font-medium' : 'border-stone-200 text-stone-500',
+                <button
+                  onClick={executeBulkClearDependencies}
+                  className="flex items-center gap-2 text-amber-700 hover:text-amber-800 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                  title="선택한 작업들의 선행작업을 모두 제거"
+                >
+                  <Unlink size={14} />
+                  선행작업 지우기
+                </button>
+
+                <div className="h-4 w-px bg-stone-200" />
+
+                {canEditCurrentProject && (
+                  <button
+                    onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
+                    className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
+                    title="선택된 모든 작업 삭제"
+                  >
+                    <Trash2 size={14} />
+                    삭제
+                  </button>
                 )}
-              />
+                <button
+                  onClick={() => setSelection(new Set())}
+                  className="p-1.5 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             </div>
-
-            {/* 투입율(%) — 0~100 */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-0.5">투입율(%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={bulkAllocation}
-                onChange={(e) => setBulkAllocation(e.target.value)}
-                placeholder="0~100"
-                title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
-                className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-28"
-              />
-            </div>
-
-            {/* 적용 버튼 - 상태, 유형, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
-            <button
-              onClick={executeBulkEdit}
-              disabled={
-                !bulkStatus &&
-                !bulkTaskKind &&
-                !bulkAssignee.trim() &&
-                (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
-                (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
-                (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
-                !bulkStartDate.trim() &&
-                !bulkEndDate.trim() &&
-                (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
-              }
-              className="self-end text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
-              title="입력한 항목 모두 적용"
-            >
-              적용
-            </button>
-
-            {canEditCurrentProject && selectedTaskIds.size >= 2 && (
-              <button
-                type="button"
-                onClick={executeBulkLinkSequentialPredecessors}
-                className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다. 시작일/종료일 잠금이 켜진 작업은 자동 일정 조정으로 날짜가 바뀌지 않습니다."
-              >
-                <Link2 size={14} />
-                선행 순차 연결
-              </button>
-            )}
-
-            <button
-              onClick={executeBulkClearDependencies}
-              className="flex items-center gap-2 text-amber-700 hover:text-amber-800 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-              title="선택한 작업들의 선행작업을 모두 제거"
-            >
-              <Unlink size={14} />
-              선행작업 지우기
-            </button>
-
-            {canEditCurrentProject && (
-              <button
-                type="button"
-                onClick={() => {
-                  executeBulkUnlockFieldLocks();
-                  setEditingTask((prev) => (prev && selectedTaskIds.has(prev.id) ? { ...prev, userLockedFields: undefined } : prev));
-                }}
-                disabled={!tasks.some((t) => selectedTaskIds.has(t.id) && (t.userLockedFields?.length ?? 0) > 0)}
-                className="flex items-center gap-2 text-violet-700 hover:text-violet-800 hover:bg-violet-50 disabled:opacity-40 disabled:pointer-events-none px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                title="선택한 작업의 필드 잠금(자동 재계산 제외)을 모두 해제합니다. 잠금이 없으면 비활성화됩니다."
-              >
-                <Unlock size={14} />
-                잠금 일괄 해제
-              </button>
-            )}
-
-            <div className="h-4 w-px bg-stone-200" />
-
-            {canEditCurrentProject && (
-              <button
-                onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
-                className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
-                title="선택된 모든 작업 삭제"
-              >
-                <Trash2 size={14} />
-                삭제
-              </button>
-            )}
-            <button
-              onClick={() => setSelection(new Set())}
-              className="p-1.5 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-600 transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       <TaskModal
         isOpen={!!editingTask}
@@ -1987,31 +1989,6 @@ export function WBSTable({
                           },
                         },
                       ]
-                    : []),
-                  ...(canEditCurrentProject && contextMenu.taskId
-                    ? (() => {
-                        const ctxTask = tasks.find((t) => t.id === contextMenu.taskId);
-                        const locks = ctxTask?.userLockedFields ?? [];
-                        if (locks.length === 0) return [];
-                        const idsToUnlock =
-                          selectedTaskIds.size > 1 && selectedTaskIds.has(contextMenu.taskId)
-                            ? Array.from(selectedTaskIds)
-                            : [contextMenu.taskId];
-                        return [
-                          { divider: true },
-                          {
-                            label: idsToUnlock.length > 1 ? `필드 잠금 전체 해제 (${idsToUnlock.length}개 작업)` : '필드 잠금 전체 해제',
-                            icon: <Unlock size={14} />,
-                            onClick: () => {
-                              idsToUnlock.forEach((tid) => updateTask(tid, { userLockedFields: undefined }));
-                              setEditingTask((prev) =>
-                                prev && idsToUnlock.includes(prev.id) ? { ...prev, userLockedFields: undefined } : prev,
-                              );
-                              setContextMenu(null);
-                            },
-                          },
-                        ] as ContextMenuAction[];
-                      })()
                     : []),
                   {
                     label: '컬럼 설정',

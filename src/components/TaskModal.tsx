@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks, AlertTriangle, Unlock } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { computeEndDateFromEffort } from '../lib/schedule';
+import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { useOrganization } from '../context/OrganizationContext';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
@@ -25,7 +26,6 @@ import StarterKit from '@tiptap/starter-kit';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { SupabaseYjsProvider } from '../lib/yjsSupabaseProvider';
-import { USER_LOCKED_FIELD_LABELS, type UserLockedField } from '../lib/taskLocks';
 import { resolveAssigneeIfUniqueMatch } from '../lib/assigneeOptions';
 
 interface TaskModalProps {
@@ -159,11 +159,22 @@ export function TaskModal({
     editableProjectIds,
   } = useWBS();
   const { orgMembers } = useOrganization();
-  const taskProjectId = initialData?.projectId ?? currentProjectId;
-  const taskProject = projects.find((p) => p.id === taskProjectId);
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
+  /** 전체 프로젝트 보기에서 신규 작업: 스케줄·RLS와 맞는 기준 프로젝트를 하나 고른다. */
+  const taskProjectId = useMemo(() => {
+    if (initialData?.projectId) return initialData.projectId;
+    if (currentProjectId && currentProjectId !== 'all') return currentProjectId;
+    for (const id of editableProjectIds ?? []) {
+      if (projects.some((p) => p.id === id)) return id;
+    }
+    const owned = projects.find((p) => !!currentUserId && p.ownerId === currentUserId);
+    if (owned) return owned.id;
+    if (isAdmin && projects[0]?.id) return projects[0].id;
+    return '';
+  }, [initialData?.projectId, currentProjectId, projects, editableProjectIds, currentUserId, isAdmin]);
+  const taskProject = projects.find((p) => p.id === taskProjectId);
   const currentUserName =
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
@@ -206,7 +217,7 @@ export function TaskModal({
   // 진행률 입력: type=number + 즉시 숫자변환은 일부 브라우저/IME에서 "80" 같은 입력이 막히는 케이스가 있어
   // 입력 중에는 문자열로 유지하고(중간 상태 허용), blur/저장 시점에만 숫자 변환/검증한다.
   const [progressInput, setProgressInput] = useState<string>('0');
-  /** 투입율: number 즉시 반영은 빈 칸·소수 입력이 막히는 경우가 있어 진행률과 동일하게 문자열로 유지 */
+  /** 투입율: number 즉시 반영은 빈 칸·입력이 막히는 경우가 있어 진행률과 동일하게 문자열로 유지 */
   const [allocationPercentInput, setAllocationPercentInput] = useState<string>('100');
   const [progressTouched, setProgressTouched] = useState(false);
   const progressTouchedRef = useRef(false);
@@ -222,8 +233,6 @@ export function TaskModal({
   const [depsFocused, setDepsFocused] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  /** 저장 시 제거할 필드 잠금(모달을 연 시점의 initialData 기준). */
-  const [removedFieldLocks, setRemovedFieldLocks] = useState<Set<UserLockedField>>(() => new Set());
 
   const taskScheduleOutsideNote = useMemo(() => {
     if (!taskProject) return null;
@@ -285,10 +294,6 @@ export function TaskModal({
     );
     return (checklist || []).filter((item) => !childIds.has(item.id) && !childTitles.has(item.text.trim()));
   };
-
-  useEffect(() => {
-    setRemovedFieldLocks(new Set());
-  }, [initialData?.id, isOpen]);
 
   useEffect(() => {
     if (initialData) {
@@ -536,7 +541,7 @@ export function TaskModal({
       const raw = allocationPercentInput.trim();
       const parsed = raw === '' ? 100 : parseFloat(raw);
       if (!Number.isFinite(parsed)) return formData.allocationPercent ?? 100;
-      return Math.min(100, Math.max(0, round1(parsed)));
+      return clampAllocationPercentInt(parsed);
     })();
     const parsedDeps = parseDepsInput();
     // 체크리스트: ① formData가 아직 커밋되지 않은 경우(추가 직후 저장) · ② 입력란에만 있고「추가」안 누른 경우까지 포함
@@ -566,19 +571,6 @@ export function TaskModal({
     const toSave = { ...toMergeRest } as Partial<Task>;
     if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
     if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round1(toSave.weight);
-    if (initialData?.id) {
-      type LockedField = NonNullable<Task['userLockedFields']>[number];
-      const locked = new Set<LockedField>(initialData.userLockedFields ?? []);
-      removedFieldLocks.forEach((f) => locked.delete(f));
-      if (formData.startDate !== initialData.startDate) locked.add('startDate');
-      if (formData.endDate !== initialData.endDate) locked.add('endDate');
-      const depA = (toMerge.dependencies ?? []).slice().sort();
-      const depB = (initialData.dependencies ?? []).slice().sort();
-      const depsChanged = depA.length !== depB.length || depA.some((id, i) => id !== depB[i]);
-      if (depsChanged) locked.add('dependencies');
-      if (formData.workEffort !== initialData.workEffort) locked.add('workEffort');
-      toSave.userLockedFields = Array.from(locked);
-    }
     if (initialData && initialData.id === '') {
       const { id, ...rest } = toSave as Task & { id?: string };
       onSave(rest);
@@ -589,7 +581,7 @@ export function TaskModal({
     const assigneeName = (formData.assignee ?? '').trim();
     const ap = parsedAllocation;
     if (initialData?.id && projectId && assigneeName && typeof ap === 'number' && Number.isFinite(ap)) {
-      const pct = Math.min(100, Math.max(0, round1(ap)));
+      const pct = clampAllocationPercentInt(ap);
       const proj = projects.find((p) => p.id === projectId);
       if (proj) {
         const list = [...(proj.assignments ?? [])].filter((a) => (a.assignee || '').trim() !== assigneeName);
@@ -916,11 +908,11 @@ export function TaskModal({
                 <label className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율 %</label>
                 <input
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   value={allocationPercentInput}
                   onChange={(e) => {
                     const next = e.target.value;
-                    if (next === '' || /^\d*([.]\d*)?$/.test(next)) {
+                    if (next === '' || /^\d*$/.test(next)) {
                       setAllocationPercentInput(next);
                     }
                   }}
@@ -928,14 +920,14 @@ export function TaskModal({
                     if (readOnly) return;
                     const raw = allocationPercentInput.trim();
                     const parsed = raw === '' ? 100 : parseFloat(raw);
-                    const safe = !Number.isFinite(parsed) ? 100 : Math.min(100, Math.max(0, round1(parsed)));
+                    const safe = !Number.isFinite(parsed) ? 100 : clampAllocationPercentInt(parsed);
                     setAllocationPercentInput(String(safe));
                     setFormData((prev) => ({ ...prev, allocationPercent: safe }));
                   }}
                   className="input-field py-1 text-[11px] w-16"
                   readOnly={readOnly}
                   disabled={readOnly}
-                  title="담당자 1명 기준 투입 비율 (0~100%, 소수 입력 가능)"
+                  title="담당자 1명 기준 투입 비율 (0~100% 정수)"
                 />
               </div>
             </div>
@@ -964,43 +956,6 @@ export function TaskModal({
                 )}
               </div>
             ) : null}
-
-            {!readOnly &&
-              initialData?.id &&
-              (() => {
-                const activeLocks = (initialData.userLockedFields ?? []).filter((f) => !removedFieldLocks.has(f));
-                if (activeLocks.length === 0) return null;
-                return (
-                  <div className="col-span-full rounded-lg border border-amber-200/80 bg-amber-50/60 px-3 py-2">
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="text-[11px] font-semibold text-amber-900">필드 잠금</span>
-                      <span className="text-[10px] text-amber-800/90 leading-snug">
-                        아래에서 해제한 항목은 저장 시 반영됩니다. 해제 후에는 자동 일정·롤업이 해당 항목에 다시 적용될 수 있습니다.
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      {activeLocks.map((field) => (
-                        <button
-                          key={field}
-                          type="button"
-                          onClick={() => setRemovedFieldLocks((prev) => new Set(prev).add(field))}
-                          className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
-                        >
-                          <Unlock size={12} className="text-amber-700 shrink-0" aria-hidden />
-                          {USER_LOCKED_FIELD_LABELS[field]}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setRemovedFieldLocks(new Set(initialData.userLockedFields ?? []))}
-                        className="text-[10px] font-semibold text-amber-800 hover:underline ml-1"
-                      >
-                        전부 해제
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
 
             {/* 일정 + 공수 - 한 줄 */}
             <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">

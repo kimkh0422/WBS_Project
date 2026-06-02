@@ -3,8 +3,9 @@ import { X, Plus, Calendar } from 'lucide-react';
 import { Project, ProjectAssignment, type ProjectKind } from '../types';
 import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS, isPrivateProjectKind } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
+import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { eachMonthOfInterval, format, parseISO, addMonths, startOfMonth } from 'date-fns';
-import { cn, formatPercent1 } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { normalizeWorkEffortUnit } from '../lib/workEffortUnits';
 import { useOrganization } from '../context/OrganizationContext';
@@ -207,9 +208,7 @@ export function ProjectModal({
         if (!assignee) return null;
         const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
         const parsed = parseFloat(raw);
-        const pct = !Number.isFinite(parsed)
-          ? Number(a.allocationPercent ?? 100)
-          : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+        const pct = !Number.isFinite(parsed) ? Number(a.allocationPercent ?? 100) : clampAllocationPercentInt(parsed);
         return { ...a, assignee, allocationPercent: pct };
       })
       .filter((a): a is ProjectAssignment => a != null);
@@ -271,12 +270,13 @@ export function ProjectModal({
     }
   };
   const updateMonthlyAllocation = (index: number, yearMonth: string, percent: number) => {
+    const rounded = clampAllocationPercentInt(percent);
     setAssignments((prev) => {
       const next = [...prev];
       if (!next[index]) return prev;
       const base = next[index].allocationPercent;
-      const nextMonthly = { ...(next[index].monthlyAllocations || {}), [yearMonth]: percent };
-      if (percent === base) {
+      const nextMonthly = { ...(next[index].monthlyAllocations || {}), [yearMonth]: rounded };
+      if (rounded === base) {
         delete nextMonthly[yearMonth];
         next[index] = { ...next[index], monthlyAllocations: Object.keys(nextMonthly).length ? nextMonthly : undefined };
       } else {
@@ -523,7 +523,7 @@ export function ProjectModal({
                       />
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         disabled={!a.assignee.trim()}
                         className={cn('input-field w-20 py-2 text-sm', !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-stone-50')}
                         value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
@@ -531,7 +531,7 @@ export function ProjectModal({
                         onChange={(e) => {
                           if (!a.assignee.trim()) return;
                           const next = e.target.value;
-                          if (next !== '' && !/^\d*([.]\d*)?$/.test(next)) return;
+                          if (next !== '' && !/^\d*$/.test(next)) return;
                           setAllocPctInputs((prev) => {
                             const nextArr = [...prev];
                             while (nextArr.length < assignments.length) {
@@ -555,9 +555,7 @@ export function ProjectModal({
                           const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
                           if (raw === '') return;
                           const parsed = parseFloat(raw);
-                          const safe = !Number.isFinite(parsed)
-                            ? Number(a.allocationPercent ?? 100)
-                            : Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+                          const safe = !Number.isFinite(parsed) ? Number(a.allocationPercent ?? 100) : clampAllocationPercentInt(parsed);
                           updateAssignment(i, 'allocationPercent', safe);
                           setAllocPctInputs((prev) => {
                             const nextArr = [...prev];
@@ -568,7 +566,7 @@ export function ProjectModal({
                         }}
                         title={
                           a.assignee.trim()
-                            ? '기본 투입비율 (0~100%, 소수 가능. 월별 미설정 시 적용)'
+                            ? '기본 투입비율 (0~100% 정수. 월별 미설정 시 적용)'
                             : '담당자를 먼저 입력한 뒤 투입비율을 입력하세요'
                         }
                       />
@@ -593,8 +591,9 @@ export function ProjectModal({
                         <div className="flex flex-wrap gap-2">
                           {projectMonths.map((ym) => {
                             const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
-                            const displayNum = typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100;
-                            const inPreset = ALLOCATION_OPTIONS.some((o) => o === displayNum);
+                            const displayNum = clampAllocationPercentInt(
+                              typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100,
+                            );
                             return (
                               <div key={ym} className="flex items-center gap-1">
                                 <span className="text-[10px] text-stone-500 w-12">{ym}</span>
@@ -603,10 +602,9 @@ export function ProjectModal({
                                   onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
                                   className="input-field py-1.5 text-xs w-16"
                                 >
-                                  {!inPreset && <option value={displayNum}>{formatPercent1(displayNum)}%</option>}
                                   {ALLOCATION_OPTIONS.map((pct) => (
                                     <option key={pct} value={pct}>
-                                      {formatPercent1(pct)}%
+                                      {pct}%
                                     </option>
                                   ))}
                                 </select>

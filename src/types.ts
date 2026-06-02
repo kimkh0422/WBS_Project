@@ -93,8 +93,6 @@ export interface Task {
   baselineEndDate?: string;
   /** 베이스라인 공수(프로젝트 공수 단위와 동일) */
   baselineWorkEffort?: number;
-  /** 사용자가 수동 수정한 항목. 자동 일정(의존성 재계산·선행 순차 연결 등)에서 해당 필드는 덮어쓰지 않음. workEffort 잠금은 공수 숫자가 자동으로 바뀌지 않도록 함. progress 잠금 시 상위 작업 진척률은 하위 롤업으로 덮어쓰지 않음 */
-  userLockedFields?: ('dependencies' | 'startDate' | 'endDate' | 'workEffort' | 'progress')[];
   /** 사용자 정의 컬럼 값 저장소. 키: custom column id, 값: 문자열 */
   customFields?: Record<string, string>;
 }

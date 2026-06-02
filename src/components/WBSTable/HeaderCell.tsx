@@ -1,6 +1,9 @@
 import React from 'react';
 import type { Task } from '../../types';
+import { PLANNED_PROGRESS_COLUMN_HELP_TEXT, PROGRESS_VARIANCE_COLUMN_HELP_TEXT } from '../../lib/plannedProgressTooltips';
 import type { BuiltInTableColumnId, TableColumnId } from '../wbsTableTypes';
+
+export { PLANNED_PROGRESS_COLUMN_HELP_TEXT, PROGRESS_VARIANCE_COLUMN_HELP_TEXT } from '../../lib/plannedProgressTooltips';
 
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
 export const WEIGHT_COLUMN_HELP_TEXT = [
@@ -30,6 +33,8 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   allocation: '투입율 (%)',
   status: '상태',
   progress: PROGRESS_COLUMN_HELP_TEXT,
+  plannedProgress: PLANNED_PROGRESS_COLUMN_HELP_TEXT,
+  progressVariance: PROGRESS_VARIANCE_COLUMN_HELP_TEXT,
   deliverables: '산출물',
   dependencies: '선행작업(의존성)',
 };
@@ -165,6 +170,30 @@ export function HeaderCell({
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.progress : '진척률 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
           진척(%)
+          {resizeGrip}
+        </div>
+      );
+    case 'plannedProgress':
+      return (
+        <div
+          className="col-header relative"
+          onDoubleClick={onColDoubleClick}
+          onContextMenu={onColContextMenu}
+          title={COLUMN_TOOLTIPS.plannedProgress + ' · 더블클릭: 너비 자동'}
+        >
+          계획(%)
+          {resizeGrip}
+        </div>
+      );
+    case 'progressVariance':
+      return (
+        <div
+          className="col-header relative"
+          onDoubleClick={onColDoubleClick}
+          onContextMenu={onColContextMenu}
+          title={COLUMN_TOOLTIPS.progressVariance + ' · 더블클릭: 너비 자동'}
+        >
+          차이(%p)
           {resizeGrip}
         </div>
       );

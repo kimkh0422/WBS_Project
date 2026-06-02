@@ -17,8 +17,7 @@ function maxIsoDate(a: string | undefined, b: string | undefined): string | unde
 
 /**
  * 부모 작업의 시작일/종료일/진척률을 자식 기준으로 롤업.
- * @param forceProgress true: 자식 변경 전파 시 progressLocked 무시하고 항상 롤업
- *                      false(기본): DB 싱크/전체 재계산 시 progressLocked 존중
+ * @param _forceProgress 예약(하위 호출 호환). 진척률 롤업은 항상 동일 규칙으로 적용됨.
  * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID. 본인이면 갱신을 건너뛰되,
  *                        조상 롤업 재귀는 계속 진행한다(상위 영향은 따로 반영).
  * @param skipWorkEffortRollupParentIds 이 ID의 부모 행은 공수만 자식 합으로 덮어쓰지 않음(해당 행에서 공수를 직접 저장한 경우).
@@ -27,7 +26,7 @@ export function syncParentRollups(
   allTasks: Task[],
   parentId: string | null,
   doneStatusIds?: Set<string>,
-  forceProgress = false,
+  _forceProgress = false,
   excludeParentIds?: Set<string>,
   skipWorkEffortRollupParentIds?: Set<string>,
 ): Task[] {
@@ -36,7 +35,7 @@ export function syncParentRollups(
   if (excludeParentIds?.has(parentId)) {
     const parent = allTasks.find((t) => t.id === parentId);
     if (!parent) return allTasks;
-    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
+    return syncParentRollups(allTasks, parent.parentId, doneStatusIds, _forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
   }
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
@@ -77,11 +76,9 @@ export function syncParentRollups(
     parentProgress = Math.min(100, Math.max(0, Math.round(simpleProgressSum / children.length)));
   }
 
-  const lockedFields = new Set(parent.userLockedFields ?? []);
-  const workEffortLocked = lockedFields.has('workEffort');
   const skipEffortRollup = skipWorkEffortRollupParentIds?.has(parentId) === true;
   let alignedWorkEffort = parent.workEffort;
-  if (!workEffortLocked && !skipEffortRollup) {
+  if (!skipEffortRollup) {
     alignedWorkEffort = sumChildEffort;
   }
   // 부모 일정: 하위가 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장). 하위가 짧아져도 상위는 자동으로 줄이지 않음.
@@ -96,13 +93,12 @@ export function syncParentRollups(
   if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
     alignedEnd = alignedStart;
   }
-  const progressLocked = !forceProgress && lockedFields.has('progress');
   const prevEffortForCompare = round2(typeof parent.workEffort === 'number' && Number.isFinite(parent.workEffort) ? parent.workEffort : 0);
-  const effortRollupChanged = !workEffortLocked && !skipEffortRollup && prevEffortForCompare !== sumChildEffort;
+  const effortRollupChanged = !skipEffortRollup && prevEffortForCompare !== sumChildEffort;
   const shouldUpdate =
     parent.startDate !== alignedStart ||
     parent.endDate !== alignedEnd ||
-    (!progressLocked && parentProgress !== undefined && parent.progress !== parentProgress) ||
+    (parentProgress !== undefined && parent.progress !== parentProgress) ||
     effortRollupChanged;
 
   const updatedTasks = shouldUpdate
@@ -112,14 +108,14 @@ export function syncParentRollups(
               ...t,
               startDate: alignedStart,
               endDate: alignedEnd,
-              ...(!workEffortLocked && !skipEffortRollup ? { workEffort: alignedWorkEffort } : {}),
-              ...(!progressLocked && parentProgress !== undefined ? { progress: parentProgress } : {}),
+              ...(!skipEffortRollup ? { workEffort: alignedWorkEffort } : {}),
+              ...(parentProgress !== undefined ? { progress: parentProgress } : {}),
             }
           : t,
       )
     : allTasks;
 
-  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
+  return syncParentRollups(updatedTasks, parent.parentId, doneStatusIds, _forceProgress, excludeParentIds, skipWorkEffortRollupParentIds);
 }
 
 /** 진척률 셀·툴팁용: syncParentRollups와 동일한 가중 규칙으로 설명 문구 생성 */
@@ -239,9 +235,7 @@ export function syncParentStatus(allTasks: Task[], parentId: string | null, stat
   }
 
   const newCfg = statusConfigs.find((c) => c.id === derivedStatusId);
-  const lockedFields = new Set(parent.userLockedFields ?? []);
-  const progressLocked = lockedFields.has('progress');
-  const newProgress = syncProgress && !progressLocked && newCfg && typeof newCfg.progress === 'number' ? newCfg.progress : undefined;
+  const newProgress = syncProgress && newCfg && typeof newCfg.progress === 'number' ? newCfg.progress : undefined;
 
   const nextTasks = allTasks.map((t) =>
     t.id === parentId

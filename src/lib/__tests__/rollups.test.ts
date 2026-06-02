@@ -77,14 +77,14 @@ describe('syncParentRollups', () => {
     expect(parent.workEffort).toBe(10);
   });
 
-  it('userLockedFields에 workEffort가 있으면 부모 공수는 자식 합으로 덮어쓰지 않음', () => {
+  it('부모 공수는 자식 합으로 롤업된다', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'parent', workEffort: 14, userLockedFields: ['workEffort'] }),
+      makeTask({ id: 'parent', workEffort: 14 }),
       makeTask({ id: 'c1', parentId: 'parent', workEffort: 0.5 }),
       makeTask({ id: 'c2', parentId: 'parent', workEffort: 0.5 }),
     ];
     const result = syncParentRollups(tasks, 'parent');
-    expect(result.find((t) => t.id === 'parent')!.workEffort).toBe(14);
+    expect(result.find((t) => t.id === 'parent')!.workEffort).toBe(1);
   });
 
   it('3레벨: 손자 공수 변경이 조부모 공수까지 롤업', () => {
@@ -318,16 +318,16 @@ describe('syncParentStatus', () => {
     expect(result).toBe(tasks);
   });
 
-  it('progress가 잠긴 부모는 status는 갱신하되 progress는 보존', () => {
+  it('자식이 모두 완료면 부모 status는 done이며 preset 진척률도 적용', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'parent', status: 'todo', progress: 25, userLockedFields: ['progress'] }),
+      makeTask({ id: 'parent', status: 'todo', progress: 25 }),
       makeTask({ id: 'c1', parentId: 'parent', status: 'done', progress: 100 }),
       makeTask({ id: 'c2', parentId: 'parent', status: 'done', progress: 100 }),
     ];
     const result = syncParentStatus(tasks, 'parent', DEFAULT_STATUS_CONFIGS);
     const parent = result.find((t) => t.id === 'parent')!;
     expect(parent.status).toBe('done');
-    expect(parent.progress).toBe(25);
+    expect(parent.progress).toBe(100);
   });
 
   it('syncProgress=false면 status만 갱신하고 progress는 유지', () => {

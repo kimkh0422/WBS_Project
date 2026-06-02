@@ -125,6 +125,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       allocation: '투입율',
       weight: '가중치',
       status: '상태',
+      progress: '진척(%)',
+      plannedProgress: '계획(%)',
+      progressVariance: '진척차이(%p)',
       deliverables: '산출물',
       dependencies: '선행작업',
     }),
@@ -144,6 +147,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'weight', visible: true },
       { id: 'status', visible: true },
       { id: 'progress', visible: true },
+      { id: 'plannedProgress', visible: true },
+      { id: 'progressVariance', visible: true },
       { id: 'deliverables', visible: true },
       { id: 'dependencies', visible: true },
     ],
@@ -951,7 +956,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     체크한 블록만 대시보드에 나타납니다. 처음에는 <strong className="font-semibold text-stone-600">전체 현황 요약</strong>,{' '}
                     <strong className="font-semibold text-stone-600">인원·사업부 투입공수</strong>,{' '}
                     <strong className="font-semibold text-stone-600">프로젝트별 상태</strong>가 켜져 있고, 부서·마일스톤·이슈·액션 등은
-                    필요할 때 여기서 켜 주시면 됩니다. 이 기기(브라우저)에만 저장되며, 아래 버튼으로 앱 기본값으로 되돌릴 수 있습니다.
+                    필요할 때 여기서 켜 주시면 됩니다. 대시보드는 지표·목록 중심이며 WBS 화면 캡처 미리보기는 사용하지 않습니다. 이
+                    기기(브라우저)에만 저장되며, 아래 버튼으로 앱 기본값으로 되돌릴 수 있습니다.
                   </p>
                 </div>
                 <ul className="space-y-2">

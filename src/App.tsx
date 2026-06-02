@@ -268,7 +268,8 @@ function WBSApp({
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(max-width: 767px)').matches;
   });
-  // 메뉴(탭) 숨김: 기본은 모두 표시. Vite 환경변수 `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭 숨김.
+  // 메뉴(탭) 숨김: `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭도 숨김.
+  // 기본으로 표+간트(`tablegantt`)·칸반(`kanban`)은 항상 숨김(표만·간트만·대시보드 등은 그대로).
   // `VITE_PROJECT_STATUS_ONLY=true` 이면 표·간트·칸반·프로젝트 관리·마인드맵을 추가로 숨기고 대시보드(프로젝트 현황) 중심으로 둡니다.
   // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨). 마인드맵은 관리자 전용 유지.
   const hiddenViews = React.useMemo(() => {
@@ -280,6 +281,8 @@ function WBSApp({
         .map((s) => s.trim())
         .filter(Boolean),
     );
+    set.add('tablegantt');
+    set.add('kanban');
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }

@@ -282,9 +282,9 @@ export function DashboardPersonAllocationSection({
     <div className="dashboard-person-allocation">
       {variant === 'dashboard' && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
-              <Briefcase className="text-[var(--color-accent)] shrink-0" size={24} aria-hidden />
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
+              <Briefcase className="text-[var(--color-accent)] shrink-0" size={20} aria-hidden />
               인원·사업부 투입공수
               <span className="text-sm font-normal text-stone-500 ml-1 tabular-nums">({totalPeople}명)</span>
             </h2>
@@ -356,7 +356,7 @@ export function DashboardPersonAllocationSection({
         >
           <p className="m-0 min-w-0 leading-snug">
             <span className="font-semibold">{personAllocationQuickFilter.label?.trim() || '선택 사업부'}</span>
-            <span className="text-teal-900/90"> 소속 인원만 · 「사업부·부서별 현황」과 동일 매핑</span>
+            <span className="text-teal-900/90"> 소속 인원만 · 「사업부별 등록 프로젝트·업무 현황」과 동일 매핑</span>
           </p>
           <button
             type="button"

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  clampAllocationPercentInt,
   computePersonProjectTaskCounts,
   computePersonTaskAllocations,
   computePersonWorkEffortAllocationsFromTasks,
@@ -7,9 +8,27 @@ import {
   countProjectPersonnel,
   getProjectMonthKeys,
   mergePersonTaskAllocationsWithOrgDirectory,
+  parseAllocationPercentInput,
 } from '../personAllocations';
 import type { OrgMember } from '../../data/organization';
 import type { Project, Task } from '../../types';
+
+describe('parseAllocationPercentInput / clampAllocationPercentInt', () => {
+  it('투입율 입력을 0~100 정수로 파싱한다', () => {
+    expect(parseAllocationPercentInput('37')).toBe(37);
+    expect(parseAllocationPercentInput('37.6')).toBe(38);
+    expect(parseAllocationPercentInput('100')).toBe(100);
+    expect(parseAllocationPercentInput('0', { allowZero: true })).toBe(0);
+    expect(parseAllocationPercentInput('0')).toBeNull();
+    expect(parseAllocationPercentInput('')).toBeNull();
+  });
+
+  it('clampAllocationPercentInt가 범위를 맞춘다', () => {
+    expect(clampAllocationPercentInt(33.4)).toBe(33);
+    expect(clampAllocationPercentInt(-5)).toBe(0);
+    expect(clampAllocationPercentInt(150)).toBe(100);
+  });
+});
 
 describe('getProjectMonthKeys', () => {
   it('시작·종료일 사이 월 목록을 반환한다', () => {

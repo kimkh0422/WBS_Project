@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useWBS } from '../context/WBSContext';
@@ -23,7 +23,10 @@ import {
   Table2,
   Calendar,
   ChevronDown,
+  AlertCircle,
+  CircleHelp,
 } from 'lucide-react';
+import { isBefore, parseISO, startOfDay } from 'date-fns';
 import { cn, randomUUID, formatPercent1 } from '../lib/utils';
 import { getStatusColorProps } from '../lib/statusColor';
 import {
@@ -34,6 +37,8 @@ import {
   type ProjectKind,
 } from '../lib/projectKind';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
+import { computePlannedProgressMap } from '../lib/plannedProgress';
+import { dashboardPlannedVarianceRowTitle } from '../lib/plannedProgressTooltips';
 import type { Task, Project } from '../types';
 import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
 import {
@@ -56,6 +61,7 @@ import {
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
+import { inferProjectTopDivisionId } from '../lib/allocationDivisionInfer';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { hasUndeterminedProjectPeriod } from '../lib/projectPeriod';
 import { ProjectPeriodDateText } from './ProjectPeriodDateText';
@@ -74,13 +80,39 @@ import {
   sortActionTasksByEndDate,
 } from '../lib/actionItemDueFilter';
 
+/** 대시보드 집계용: 완료 상태·진척 100%면 미완료 아님 */
+function dashboardTaskDone(t: Task, doneStatusIds: Set<string>): boolean {
+  return doneStatusIds.has(t.status) || (typeof t.progress === 'number' && Number.isFinite(t.progress) && t.progress >= 100);
+}
+
+function dashboardTaskOverdue(t: Task, doneStatusIds: Set<string>): boolean {
+  if (dashboardTaskDone(t, doneStatusIds)) return false;
+  const end = t.endDate?.trim();
+  if (!end) return false;
+  try {
+    const d = parseISO(end);
+    if (Number.isNaN(d.getTime())) return false;
+    return isBefore(d, startOfDay(new Date()));
+  } catch {
+    return false;
+  }
+}
+
 interface ProjectStats {
   total: number;
   statusCounts: Record<string, number>;
   progress: number;
+  /** 계획율(%): 오늘 일정상 기대 진척. 진척률과 동일 가중·집계 방식 */
+  planned: number;
+  /** 계획 대비 진척 차이(%p) = progress − planned. 양수=앞섬, 음수=지연 */
+  variance: number;
   assigneeCount: number;
   /** WBS 작업 공수 합(M/D). 투입 M/M 표시·정렬에 사용 */
   inputManDays: number;
+  /** 카드·요약용: 화면 캡처 없이 숫자로 한눈에 보이게 */
+  issueCount: number;
+  actionCount: number;
+  overdueCount: number;
 }
 
 type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'team' | 'end';
@@ -139,14 +171,36 @@ function computeWeightedProgress(items: Task[]): number {
   return 0;
 }
 
+/** computeWeightedProgress와 동일 가중 규칙으로 계획율을 집계 (값만 plannedById에서 가져옴) */
+function computeWeightedPlanned(items: Task[], plannedById: Map<string, number>): number {
+  let totalWeight = 0;
+  let acc = 0;
+  for (const t of items) {
+    const p = plannedById.get(t.id) ?? 0;
+    const w =
+      typeof t.weight === 'number' && Number.isFinite(t.weight)
+        ? t.weight
+        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
+          ? t.workEffort
+          : 0;
+    totalWeight += w;
+    acc += p * w;
+  }
+  if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
+  if (items.length > 0)
+    return Math.min(100, Math.max(0, Math.round(items.reduce((s, t) => s + (plannedById.get(t.id) ?? 0), 0) / items.length)));
+  return 0;
+}
+
 type DivisionStatRow = {
   projectCount: number;
   total: number;
+  assignmentPersonCount: number;
 };
 
-/** 프로젝트 또는 Task가 하나라도 있는 부서 */
+/** 프로젝트·Task·프로젝트 투입 인원 중 하나라도 있는 사업부 */
 function isActiveDivisionStat(d: DivisionStatRow): boolean {
-  return d.projectCount > 0 || d.total > 0;
+  return d.projectCount > 0 || d.total > 0 || d.assignmentPersonCount > 0;
 }
 
 export function Dashboard({
@@ -327,14 +381,35 @@ export function Dashboard({
     return m;
   }, [topLevelDivisions]);
 
+  /** PM·PO·소유자 부서·(보조)프로젝트 그룹명으로 사업부 추론 — 투입공수 집계와 동일 규칙 */
+  const divisionInferCtx = useMemo(
+    () => ({
+      memberToDivisionId,
+      departmentNameToDivisionId,
+      profileMap: profileMap ?? {},
+      ownerDepartmentByUserId,
+    }),
+    [memberToDivisionId, departmentNameToDivisionId, profileMap, ownerDepartmentByUserId],
+  );
+
   // 공유 파생 데이터 — 여러 useMemo에서 재사용 (집계 제외 반영)
   const projectMap = useMemo(() => new Map(projectsForDashboard.map((p) => [p.id, p])), [projectsForDashboard]);
 
   // Calculate stats for each project
   const projectStats = useMemo(() => {
+    const doneIds = new Set<string>((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => String(c.id)));
     return projectsForDashboard.map((project) => {
       const pTasks = allTasksForDashboard.filter((t) => t.projectId === project.id);
       const total = pTasks.length;
+
+      let issueCount = 0;
+      let actionCount = 0;
+      let overdueCount = 0;
+      for (const t of pTasks) {
+        if (t.isIssue) issueCount++;
+        if (t.isActionItem) actionCount++;
+        if (dashboardTaskOverdue(t, doneIds)) overdueCount++;
+      }
 
       // Dynamic status counts
       const statusCounts: Record<string, number> = {};
@@ -363,14 +438,32 @@ export function Dashboard({
             ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)))
             : 0;
 
+      // 계획율: 진척률과 동일 대상(level1 우선)·동일 가중으로 집계. 차이 = 진척 − 계획.
+      const plannedById = computePlannedProgressMap(pTasks);
+      const planned =
+        level1.length > 0
+          ? computeWeightedPlanned(level1, plannedById)
+          : forAggregate.length > 0
+            ? Math.min(
+                100,
+                Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (plannedById.get(t.id) ?? 0), 0) / forAggregate.length)),
+              )
+            : 0;
+      const variance = Math.round((progress - planned) * 10) / 10;
+
       return {
         ...project,
         stats: {
           total,
           statusCounts,
           progress,
+          planned,
+          variance,
           assigneeCount: assignees.length,
           inputManDays,
+          issueCount,
+          actionCount,
+          overdueCount,
         },
       };
     });
@@ -629,6 +722,17 @@ export function Dashboard({
     [projectsForDashboard, allTasksForDashboard],
   );
 
+  /** 상단 프로젝트 목록(구분별) 개수와 달라 보일 때 — 요약은 집계 범위만 센다는 안내 */
+  const projectCountSummarySubtitle = useMemo(() => {
+    if (projects.length > projectsForDashboard.length) {
+      return `※ 요약 집계 ${projectsForDashboard.length}개 / 이 화면에서 접근 가능 ${projects.length}개. 차이는 구분(종류) 필터·프로젝트「대시보드에 포함」해제·요약에서 제외한 프로젝트 때문일 수 있습니다.`;
+    }
+    if (dashboardExcludedIds.size > 0) {
+      return `※ 대시보드 집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`;
+    }
+    return '';
+  }, [projects.length, projectsForDashboard.length, dashboardExcludedIds.size, projectsEligibleForDashboard.length]);
+
   // 마일스톤 목록 (날짜순)
   const milestones = useMemo(() => {
     return allTasksForDashboard
@@ -689,38 +793,73 @@ export function Dashboard({
 
   const actionTasks = useMemo(() => actionTasksFiltered.slice(0, 80), [actionTasksFiltered]);
 
-  // 사업부/본부별 작업 현황 집계 (담당자 이름이 그 division의 멤버에 매핑되는 작업들)
-  const divisionStats = useMemo(() => {
-    const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
+  // 사업부/본부별 등록 현황: 조직도 1단계(지엠티 직속) 전 노드를 행으로 두고, 소속 프로젝트·미분류 목록을 함께 산출
+  const { divisionStats, unclassifiedDashboardProjects } = useMemo(() => {
+    const doneStatusIdsSet = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
     const groupNameById = new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const));
-    const registeredProjectsByDivision = new Map<string, { id: string; label: string }[]>();
-    for (const division of topLevelDivisions) registeredProjectsByDivision.set(division.id, []);
+
+    const resolveDivisionId = (p: (typeof projectsForDashboard)[number]): string | undefined => {
+      const inferred = inferProjectTopDivisionId(p, divisionInferCtx);
+      if (inferred) return inferred;
+      if (p.groupId) {
+        const gname = groupNameById.get(p.groupId);
+        if (gname) return departmentNameToDivisionId.get(gname);
+      }
+      return undefined;
+    };
+
+    const unclassified: { id: string; label: string }[] = [];
     for (const p of projectsForDashboard) {
-      const gname = p.groupId ? groupNameById.get(p.groupId) : undefined;
-      if (!gname) continue;
-      const divId = departmentNameToDivisionId.get(gname);
+      if (!resolveDivisionId(p)) {
+        unclassified.push({ id: p.id, label: formatProjectDisplayName(p.name, p.projectKind) });
+      }
+    }
+    unclassified.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
+
+    const projectsByDivision = new Map<string, { id: string; label: string }[]>();
+    const projectIdsByDivision = new Map<string, Set<string>>();
+    for (const division of topLevelDivisions) {
+      projectsByDivision.set(division.id, []);
+      projectIdsByDivision.set(division.id, new Set());
+    }
+
+    for (const p of projectsForDashboard) {
+      const divId = resolveDivisionId(p);
       if (!divId) continue;
-      const list = registeredProjectsByDivision.get(divId);
-      if (!list) continue;
+      const list = projectsByDivision.get(divId);
+      const idSet = projectIdsByDivision.get(divId);
+      if (!list || !idSet) continue;
+      idSet.add(p.id);
       list.push({ id: p.id, label: formatProjectDisplayName(p.name, p.projectKind) });
     }
-    for (const list of registeredProjectsByDivision.values()) {
+    for (const list of projectsByDivision.values()) {
       list.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
     }
 
     const stats = topLevelDivisions.map((division) => {
-      const tasks = allTasksForDashboard.filter((t) => {
-        const a = (t.assignee || '').trim();
-        return !!a && memberToDivisionId.get(a) === division.id;
-      });
+      const projectIds = projectIdsByDivision.get(division.id) ?? new Set<string>();
+      const divisionProjects = projectsForDashboard.filter((p) => projectIds.has(p.id));
+      const tasks = allTasksForDashboard.filter((t) => projectIds.has(t.projectId));
       const total = tasks.length;
-      const doneCount = tasks.filter((t) => doneStatusIds.has(t.status) || (typeof t.progress === 'number' && t.progress >= 100)).length;
+      const doneCount = tasks.filter((t) => doneStatusIdsSet.has(t.status) || (typeof t.progress === 'number' && t.progress >= 100)).length;
       const issueCount = tasks.filter((t) => t.isIssue).length;
       const inProgressCount = total - doneCount;
       const assigneeSet = new Set(tasks.map((t) => (t.assignee || '').trim()).filter(Boolean));
       const progress = computeWeightedProgress(tasks);
+      const plannedById = computePlannedProgressMap(tasks);
+      const planned = computeWeightedPlanned(tasks, plannedById);
       const memberCount = orgMembers.filter((m) => memberToDivisionId.get(m.name) === division.id).length;
-      const registeredProjects = registeredProjectsByDivision.get(division.id) ?? [];
+      const registeredProjects = projectsByDivision.get(division.id) ?? [];
+
+      const assignmentNames = new Set<string>();
+      for (const proj of divisionProjects) {
+        for (const a of proj.assignments ?? []) {
+          const n = (a.assignee ?? '').trim();
+          if (n) assignmentNames.add(n);
+        }
+      }
+      const assignmentPersonCount = assignmentNames.size;
+
       return {
         id: division.id,
         name: division.name,
@@ -728,15 +867,24 @@ export function Dashboard({
         doneCount,
         issueCount,
         progress,
+        planned,
         assigneeCount: assigneeSet.size,
+        assignmentPersonCount,
         memberCount,
         inProgressCount,
         projectCount: registeredProjects.length,
         registeredProjects,
       };
     });
-    // 작업이 있는 사업부 우선 + 인원만 있는 사업부도 보여주기
-    return stats.sort((a, b) => b.total - a.total || b.assigneeCount - a.assigneeCount);
+    const sorted = stats.sort((a, b) => {
+      const actA = isActiveDivisionStat(a) ? 1 : 0;
+      const actB = isActiveDivisionStat(b) ? 1 : 0;
+      if (actA !== actB) return actB - actA;
+      if (b.projectCount !== a.projectCount) return b.projectCount - a.projectCount;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.name.localeCompare(b.name, 'ko');
+    });
+    return { divisionStats: sorted, unclassifiedDashboardProjects: unclassified };
   }, [
     topLevelDivisions,
     allTasksForDashboard,
@@ -746,12 +894,15 @@ export function Dashboard({
     wbsSettings.projectGroups,
     projectsForDashboard,
     departmentNameToDivisionId,
+    divisionInferCtx,
   ]);
 
   // ─── 사업부 표시 필터 (사용자 선택 + 내가 포함된 부서 토글) ─────────────
   const DIVISION_VISIBLE_KEY = 'wbs-dashboard-visible-division-ids';
   const DIVISION_MY_ONLY_KEY = 'wbs-dashboard-division-my-only';
-  const DIVISION_ACTIVE_ONLY_KEY = 'wbs-dashboard-division-active-only';
+  /** v2: '1'=활성 부서만, '0' 또는 미설정=조직 전체 행 표시(기본). 구 키 `wbs-dashboard-division-active-only`는 토글 시 제거 */
+  const DIVISION_ACTIVE_ONLY_V2_KEY = 'wbs-dashboard-division-active-only-v2';
+  const DIVISION_ACTIVE_ONLY_LEGACY_KEY = 'wbs-dashboard-division-active-only';
   const [divisionVisibleIds, setDivisionVisibleIds] = useState<Set<string> | null>(() => {
     try {
       const raw = localStorage.getItem(DIVISION_VISIBLE_KEY);
@@ -771,9 +922,14 @@ export function Dashboard({
   });
   const [showActiveDivisionsOnly, setShowActiveDivisionsOnly] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(DIVISION_ACTIVE_ONLY_KEY) !== '0';
+      const v2 = localStorage.getItem(DIVISION_ACTIVE_ONLY_V2_KEY);
+      if (v2 === '1') return true;
+      if (v2 === '0') return false;
+      const legacy = localStorage.getItem(DIVISION_ACTIVE_ONLY_LEGACY_KEY);
+      if (legacy === '0') return false;
+      return false;
     } catch {
-      return true;
+      return false;
     }
   });
   const [isDivisionPickerOpen, setIsDivisionPickerOpen] = useState(false);
@@ -819,8 +975,9 @@ export function Dashboard({
     setShowActiveDivisionsOnly((prev) => {
       const next = !prev;
       try {
-        if (next) localStorage.removeItem(DIVISION_ACTIVE_ONLY_KEY);
-        else localStorage.setItem(DIVISION_ACTIVE_ONLY_KEY, '0');
+        if (next) localStorage.setItem(DIVISION_ACTIVE_ONLY_V2_KEY, '1');
+        else localStorage.setItem(DIVISION_ACTIVE_ONLY_V2_KEY, '0');
+        localStorage.removeItem(DIVISION_ACTIVE_ONLY_LEGACY_KEY);
       } catch {
         /* ignore */
       }
@@ -854,6 +1011,37 @@ export function Dashboard({
     if (!showActiveDivisionsOnly) return divisionStatsAfterVisibility;
     return divisionStatsAfterVisibility.filter(isActiveDivisionStat);
   }, [divisionStatsAfterVisibility, showActiveDivisionsOnly]);
+
+  /** 현재 부서 필터로 남은 행 중, 대시보드에 분류된 프로젝트가 0건인 조직 수 */
+  const divisionOrgProjectSummary = useMemo(() => {
+    let withoutProjects = 0;
+    for (const d of divisionStatsAfterVisibility) {
+      if (d.projectCount === 0) withoutProjects++;
+    }
+    return { visibleRowCount: divisionStatsAfterVisibility.length, visibleWithoutProjects: withoutProjects };
+  }, [divisionStatsAfterVisibility]);
+
+  /** 현재 카드·표에 나오는 사업부 기준 합계(프로젝트·Task는 사업부 간 중복 없음) */
+  const divisionAggregatedSummary = useMemo(() => {
+    let projectSum = 0;
+    let taskSum = 0;
+    let wProg = 0;
+    let wPlanned = 0;
+    for (const d of displayDivisionStats) {
+      projectSum += d.projectCount;
+      taskSum += d.total;
+      wProg += d.progress * d.total;
+      wPlanned += d.planned * d.total;
+    }
+    const tableProgress = taskSum > 0 ? Math.min(100, Math.max(0, Math.round(wProg / taskSum))) : 0;
+    const tablePlanned = taskSum > 0 ? Math.min(100, Math.max(0, Math.round(wPlanned / taskSum))) : 0;
+    return {
+      projectSum,
+      taskSum,
+      tableProgress,
+      tablePlanned,
+    };
+  }, [displayDivisionStats]);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -930,22 +1118,26 @@ export function Dashboard({
 
   const divisionDetailProjects = useMemo(() => {
     if (!divisionDetailId) return [];
+    const groupNameById = new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const));
     return projectsForDashboard.filter((p) => {
-      const gname = p.groupId ? groupNameByProjectGroupId.get(p.groupId) : undefined;
-      if (!gname) return false;
-      return departmentNameToDivisionId.get(gname) === divisionDetailId;
+      const inferred = inferProjectTopDivisionId(p, divisionInferCtx);
+      if (inferred === divisionDetailId) return true;
+      if (p.groupId) {
+        const gname = groupNameById.get(p.groupId);
+        if (gname && departmentNameToDivisionId.get(gname) === divisionDetailId) return true;
+      }
+      return false;
     });
-  }, [divisionDetailId, projectsForDashboard, groupNameByProjectGroupId, departmentNameToDivisionId]);
+  }, [divisionDetailId, projectsForDashboard, divisionInferCtx, wbsSettings.projectGroups, departmentNameToDivisionId]);
+
+  const divisionDetailProjectIdSet = useMemo(() => new Set(divisionDetailProjects.map((p) => p.id)), [divisionDetailProjects]);
 
   const divisionDetailTasks = useMemo(() => {
     if (!divisionDetailId) return [];
     return allTasksForDashboard
-      .filter((t) => {
-        const a = (t.assignee || '').trim();
-        return !!a && memberToDivisionId.get(a) === divisionDetailId;
-      })
+      .filter((t) => divisionDetailProjectIdSet.has(t.projectId))
       .sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''));
-  }, [divisionDetailId, allTasksForDashboard, memberToDivisionId]);
+  }, [allTasksForDashboard, divisionDetailProjectIdSet]);
 
   const divisionDetailMembers = useMemo(() => {
     if (!divisionDetailId) return [];
@@ -1111,7 +1303,7 @@ export function Dashboard({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-50/80 border border-sky-100/80 px-2 py-1.5">
-              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider shrink-0" title="사업부·부서별 카드">
+              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider shrink-0" title="사업부별 등록 프로젝트 현황">
                 사업부
               </span>
               {currentUserDisplay && (
@@ -1142,7 +1334,7 @@ export function Dashboard({
                     ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
                     : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
                 )}
-                title="프로젝트·작업이 있는 부서만 표시"
+                title="켜면 프로젝트·Task·투입 인원이 모두 없는 조직 행을 숨깁니다. 기본은 조직 전체를 표시합니다."
                 aria-pressed={showActiveDivisionsOnly}
               >
                 <Building2 size={12} />
@@ -1213,14 +1405,14 @@ export function Dashboard({
                                   {d.name}
                                 </span>
                                 <span
-                                  className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums max-w-[9rem] truncate text-right"
+                                  className="ml-auto text-[10px] text-stone-400 shrink-0 tabular-nums max-w-[10rem] truncate text-right"
                                   title={
                                     d.registeredProjects.length > 0
                                       ? d.registeredProjects.map((r) => r.label).join('\n')
-                                      : `${d.memberCount}명 · 프로젝트 ${d.projectCount}`
+                                      : `프로젝트 ${d.projectCount} · Task ${d.total} · 투입 ${d.assignmentPersonCount}`
                                   }
                                 >
-                                  {d.memberCount}명 · 프로젝트 {d.projectCount}
+                                  P{d.projectCount} · T{d.total} · 투{d.assignmentPersonCount}
                                 </span>
                               </label>
                             </li>
@@ -1477,12 +1669,12 @@ export function Dashboard({
   return (
     <>
       {!divisionDetailId && !detailKind && dashboardFiltersToolbar}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain bg-[var(--color-bg)] p-4 pb-10 sm:p-6 md:p-8">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain bg-[var(--color-bg)] p-3 pb-6 sm:p-4 md:p-5">
         <>
           <div
             className={cn(
-              'max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500',
-              mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
+              'max-w-[min(100%,96rem)] mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500',
+              mobileReadabilityMode ? 'space-y-5' : 'space-y-4 md:space-y-5',
             )}
           >
             {mobileReadabilityMode && (
@@ -1496,28 +1688,29 @@ export function Dashboard({
             )}
             {/* Header Summary */}
             {showDashSection('summary') && (
-              <section>
-                <div className={cn('flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+              <section
+                className={cn(
+                  !mobileReadabilityMode &&
+                    'rounded-xl border border-stone-200/60 bg-[var(--color-bg)]/90 px-2 py-2 shadow-sm sm:px-3 sm:py-2.5',
+                )}
+              >
+                <div className={cn('flex flex-wrap items-center justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
                   <h2
                     className={cn(
                       'font-bold text-[var(--color-ink)] flex items-center gap-2 m-0',
-                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                      mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
                     )}
                   >
-                    <LayoutGrid className="text-slate-500" size={24} />
+                    <LayoutGrid className="text-slate-500 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
                     전체 현황 요약
                   </h2>
                 </div>
                 {dashboardSectionLayout.summary === 'card' ? (
-                  <div className={cn('grid gap-3 md:gap-4', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-4')}>
+                  <div className={cn('grid gap-2 sm:gap-3', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-4')}>
                     <SummaryCard
                       title="등록된 프로젝트 수"
                       value={summary.totalProjects}
-                      subtitle={
-                        dashboardExcludedIds.size > 0
-                          ? `※ 대시보드 집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
-                          : ''
-                      }
+                      subtitle={projectCountSummarySubtitle}
                       compact={mobileReadabilityMode}
                       onClick={() => openDashboardDetail('projects')}
                     />
@@ -1560,7 +1753,7 @@ export function Dashboard({
                     />
                   </div>
                 ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden mb-3 md:mb-4">
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden mb-2">
                     <table className="w-full text-sm">
                       <thead className="bg-stone-50 border-b border-stone-200">
                         <tr className="text-xs text-stone-500">
@@ -1576,11 +1769,7 @@ export function Dashboard({
                         >
                           <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 프로젝트 수</td>
                           <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalProjects}</td>
-                          <td className="px-3 py-2.5 text-xs text-stone-500">
-                            {dashboardExcludedIds.size > 0
-                              ? `집계 제외 ${dashboardExcludedIds.size}개(대시보드 반영 ${projectsEligibleForDashboard.length}개 중)`
-                              : '—'}
-                          </td>
+                          <DashboardTableHintCell text={projectCountSummarySubtitle} />
                         </tr>
                         <tr
                           className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
@@ -1588,9 +1777,9 @@ export function Dashboard({
                         >
                           <td className="px-3 py-2.5 font-medium text-stone-700 whitespace-nowrap">등록된 총 작업 수</td>
                           <td className="px-3 py-2.5 tabular-nums font-bold text-[var(--color-ink)]">{summary.totalTasks}</td>
-                          <td className="px-3 py-2.5 text-xs text-stone-500">
-                            {dashboardExcludedIds.size > 0 ? '제외 프로젝트의 작업은 합계에 미포함' : '—'}
-                          </td>
+                          <DashboardTableHintCell
+                            text={dashboardExcludedIds.size > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : ''}
+                          />
                         </tr>
                         <tr
                           className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
@@ -1600,7 +1789,7 @@ export function Dashboard({
                           <td className="px-3 py-2.5 font-bold text-violet-600 tabular-nums">
                             {loadingMemberCount ? <Loader2 size={14} className="animate-spin text-stone-400" /> : memberCount}
                           </td>
-                          <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 명단·상세</td>
+                          <DashboardTableHintCell text="클릭하여 명단·상세" />
                         </tr>
                         <tr
                           className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
@@ -1623,7 +1812,7 @@ export function Dashboard({
                               </div>
                             )}
                           </td>
-                          <td className="px-3 py-2.5 text-xs text-stone-500">클릭하여 금일 명단·상세</td>
+                          <DashboardTableHintCell text="클릭하여 금일 명단·상세" />
                         </tr>
                       </tbody>
                     </table>
@@ -1635,14 +1824,14 @@ export function Dashboard({
             {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
             {showDashSection('issues') && (
               <section>
-                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
                   <h2
                     className={cn(
                       'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                      mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
                     )}
                   >
-                    <Bug className="text-rose-500 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
+                    <Bug className="text-rose-500 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
                     이슈 작업
                     <span className="text-sm font-medium text-stone-400">{issueTasksAll.length}건</span>
                   </h2>
@@ -1758,14 +1947,14 @@ export function Dashboard({
             {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
             {showDashSection('actions') && (
               <section>
-                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-3 md:mb-4', mobileReadabilityMode && 'mb-3')}>
+                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
                   <h2
                     className={cn(
                       'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                      mobileReadabilityMode ? 'text-lg' : 'text-xl',
+                      mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
                     )}
                   >
-                    <ListChecks className="text-teal-600 shrink-0" size={mobileReadabilityMode ? 22 : 24} />
+                    <ListChecks className="text-teal-600 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
                     액션 항목
                     <span className="text-sm font-medium text-stone-400">{actionTasksFiltered.length}건</span>
                     {actionTasksWithDueDate.length > 0 && actionTasksFiltered.length !== actionTasksWithDueDate.length && (
@@ -1988,13 +2177,16 @@ export function Dashboard({
               </section>
             )}
 
-            {/* 사업부·부서별 현황 */}
+            {/* 사업부별 등록 프로젝트·업무 현황 */}
             {showDashSection('divisions') && (
               <section>
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
-                    <Building2 className="text-sky-500" size={24} />
-                    사업부·부서별 현황
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
+                    <Building2 className="text-sky-500 shrink-0" size={20} aria-hidden />
+                    사업부별 등록 프로젝트·업무 현황
+                    <span className="ml-2 inline-flex items-center rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 shrink-0">
+                      조직도 기준
+                    </span>
                     <span className="text-sm font-normal text-stone-500 ml-1">
                       ({displayDivisionStats.length}
                       {showActiveDivisionsOnly && divisionStatsAfterVisibility.length !== displayDivisionStats.length
@@ -2022,7 +2214,7 @@ export function Dashboard({
                           ? 'bg-sky-600 border-sky-600 text-white hover:bg-sky-700'
                           : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50',
                       )}
-                      title="프로젝트·작업이 있는 부서만 표시"
+                      title="켜면 프로젝트·Task·투입 인원이 모두 없는 조직 행을 숨깁니다. 기본은 조직 전체를 표시합니다."
                       aria-pressed={showActiveDivisionsOnly}
                     >
                       활성 부서만
@@ -2032,7 +2224,7 @@ export function Dashboard({
                       <div
                         className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
                         role="group"
-                        aria-label="사업부·부서별 현황 표 또는 카드 보기"
+                        aria-label="사업부별 등록 프로젝트 현황 표 또는 카드 보기"
                       >
                         <button
                           type="button"
@@ -2061,10 +2253,119 @@ export function Dashboard({
                     )}
                   </div>
                 </div>
-                <p className="text-sm text-stone-500 mb-3 m-0 leading-relaxed">
-                  카드나 행을 누르면 등록 프로젝트·진척·담당 작업을 상세로 볼 수 있습니다. 상세 안내 버튼으로 아래「사업부별 작업
-                  투입공수」으로 이어가면, 그 사업부 소속 인원만 자동으로 걸러 봅니다.
-                </p>
+                <details className="mb-2 rounded-lg border border-stone-100 bg-stone-50/60 px-2 py-1.5 text-stone-700 group/divhint">
+                  <summary className="cursor-pointer list-none text-xs font-semibold text-stone-600 flex items-center gap-1.5 select-none [&::-webkit-details-marker]:hidden">
+                    <ChevronDown
+                      size={14}
+                      className="shrink-0 text-stone-400 transition-transform group-open/divhint:rotate-180"
+                      aria-hidden
+                    />
+                    조직·집계 기준 안내
+                  </summary>
+                  <p className="text-xs sm:text-sm mt-2 mb-0 m-0 leading-relaxed pl-0.5">
+                    <span className="font-semibold text-stone-800">조직도에서 회사 직속 하위 노드(본부·사업부·실 등) 전체</span>를 한 행씩
+                    보여 줍니다. 프로젝트가 아직 없거나 PM·PO·소유자 부서·그룹명으로 사업부를 찾지 못한 조직은 프로젝트 수가 0으로
+                    표시됩니다. 아래 합계는 현재 필터로 <strong className="text-stone-800">표시 중인 행만</strong> 합산합니다.
+                  </p>
+                </details>
+                {displayDivisionStats.length > 0 && (
+                  <div className="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2" role="region" aria-label="표시 중인 사업부 합계">
+                    <div className="rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-white px-3 py-2 shadow-sm">
+                      <div className="flex items-center gap-1.5 text-sky-900">
+                        <Briefcase className="shrink-0 text-sky-600" size={18} aria-hidden />
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-sky-800/90">분류된 프로젝트</span>
+                      </div>
+                      <div className="mt-0.5 text-2xl font-bold tabular-nums text-sky-700 leading-none">
+                        {divisionAggregatedSummary.projectSum}
+                        <span className="text-sm font-semibold text-sky-600/90 ml-0.5">건</span>
+                      </div>
+                      {unclassifiedDashboardProjects.length > 0 && (
+                        <p className="text-[10px] text-amber-800/90 mt-1 m-0 leading-snug">
+                          ※ 미분류 {unclassifiedDashboardProjects.length}건 미포함
+                        </p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-white px-3 py-2 shadow-sm">
+                      <div className="flex items-center gap-1.5 text-slate-900">
+                        <ListChecks className="shrink-0 text-slate-600" size={18} aria-hidden />
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-800/90">등록 Task</span>
+                      </div>
+                      <div className="mt-0.5 text-2xl font-bold tabular-nums text-slate-800 leading-none">
+                        {divisionAggregatedSummary.taskSum}
+                        <span className="text-sm font-semibold text-slate-600/90 ml-0.5">건</span>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50/90 via-white to-white px-3 py-2 shadow-sm">
+                      <div className="flex items-center gap-1.5 text-violet-900">
+                        <Building2 className="shrink-0 text-violet-600" size={18} aria-hidden />
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-violet-900/90">표시 중 조직</span>
+                      </div>
+                      <div className="mt-0.5 text-2xl font-bold tabular-nums text-violet-800 leading-none">
+                        {divisionAggregatedSummary.divisionCount}
+                        <span className="text-sm font-semibold text-violet-700/90 ml-0.5">개</span>
+                      </div>
+                      <p className="text-[10px] text-violet-900/75 mt-1 m-0 leading-snug">필터 반영 개수</p>
+                    </div>
+                  </div>
+                )}
+                {divisionOrgProjectSummary.visibleRowCount > 0 && (
+                  <div className="mb-2 flex flex-col gap-1.5 text-xs text-stone-600">
+                    {!showActiveDivisionsOnly && divisionOrgProjectSummary.visibleWithoutProjects > 0 && (
+                      <p className="m-0 rounded-md border border-stone-200 bg-stone-50/90 px-2 py-1.5 leading-snug">
+                        이 목록에서 <strong className="text-stone-800">등록된 프로젝트가 아직 없는 조직</strong>은{' '}
+                        <span className="tabular-nums font-semibold text-stone-900">
+                          {divisionOrgProjectSummary.visibleWithoutProjects}
+                        </span>
+                        개입니다(전체 {divisionOrgProjectSummary.visibleRowCount}개 행 중).
+                      </p>
+                    )}
+                    {showActiveDivisionsOnly && divisionStatsAfterVisibility.length > displayDivisionStats.length && (
+                      <p className="m-0 rounded-md border border-sky-100 bg-sky-50/60 px-2 py-1.5 leading-snug text-sky-950">
+                        「활성 부서만」으로{' '}
+                        <span className="tabular-nums font-semibold">
+                          {divisionStatsAfterVisibility.length - displayDivisionStats.length}
+                        </span>
+                        개 조직이 숨겨져 있습니다. 프로젝트를 등록하지 않은 조직까지 보려면 이 옵션을 해제하세요.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {unclassifiedDashboardProjects.length > 0 && (
+                  <details className="mb-2 rounded-lg border border-amber-200 bg-amber-50/90 text-amber-950 shadow-sm group/uncls">
+                    <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold flex items-center gap-1.5 select-none [&::-webkit-details-marker]:hidden">
+                      <ChevronDown size={16} className="shrink-0 opacity-70 group-open/uncls:rotate-180 transition-transform" aria-hidden />
+                      사업부 미분류 프로젝트 ({unclassifiedDashboardProjects.length}건)
+                    </summary>
+                    <div className="px-3 pb-2 pt-0 border-t border-amber-100/80">
+                      <p className="mt-2 mb-2 m-0 text-xs text-amber-900/90 leading-relaxed">
+                        PM·PO·소유자 부서 문자열이 조직도와 맞지 않거나, 프로젝트 그룹명으로도 사업부를 찾지 못한 경우입니다.
+                      </p>
+                      <ul className="m-0 max-h-28 overflow-y-auto space-y-0.5 text-xs font-medium leading-snug pl-4 list-disc marker:text-amber-700">
+                        {unclassifiedDashboardProjects.slice(0, 24).map((p) => (
+                          <li key={p.id} className="break-words" title={p.label}>
+                            {p.label}
+                          </li>
+                        ))}
+                      </ul>
+                      {unclassifiedDashboardProjects.length > 24 && (
+                        <p className="mt-1.5 mb-0 text-[11px] text-amber-900/80">외 {unclassifiedDashboardProjects.length - 24}건</p>
+                      )}
+                    </div>
+                  </details>
+                )}
+                <details className="mb-2 text-stone-500 group/cardhint">
+                  <summary className="cursor-pointer list-none text-[11px] font-medium flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
+                    <ChevronDown
+                      size={12}
+                      className="shrink-0 opacity-60 group-open/cardhint:rotate-180 transition-transform"
+                      aria-hidden
+                    />
+                    카드·표 사용 안내
+                  </summary>
+                  <p className="mt-1.5 mb-0 text-[11px] leading-relaxed pl-0.5">
+                    카드에 마우스를 올리거나 Tab으로 포커스하면 프로젝트 이름 목록이 표시됩니다. 행·카드 클릭 시 상세로 이동합니다.
+                  </p>
+                </details>
                 {displayDivisionStats.length === 0 ? (
                   <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
                     {divisionStats.length === 0
@@ -2072,139 +2373,205 @@ export function Dashboard({
                       : showMyDivisionOnly
                         ? '내가 포함된 부서가 조직도에서 매칭되지 않습니다. 토글을 해제하세요.'
                         : showActiveDivisionsOnly && divisionStatsAfterVisibility.length > 0
-                          ? '프로젝트·작업이 있는 활성 부서가 없습니다. 상단 또는 「활성 부서만」을 해제하면 전체 부서를 볼 수 있습니다.'
+                          ? '프로젝트·Task·투입 인원이 있는 활성 부서가 없습니다. 상단 또는 「활성 부서만」을 해제하면 전체 부서를 볼 수 있습니다.'
                           : '상단의 대시보드 표시에서 부서를 선택하세요. (또는 필터 초기화)'}
                   </div>
                 ) : dashboardSectionLayout.divisions === 'card' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                     {displayDivisionStats.map((d) => (
-                      <div
-                        key={d.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openDivisionDetail(d.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            openDivisionDetail(d.id);
+                      <div key={d.id} className="relative group">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openDivisionDetail(d.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openDivisionDetail(d.id);
+                            }
+                          }}
+                          className={cn(
+                            'rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 border h-full',
+                            d.projectCount === 0
+                              ? 'border-dashed border-stone-300 bg-stone-50/60 hover:border-stone-400'
+                              : 'bg-white border-stone-200 hover:border-indigo-200/80',
+                          )}
+                          title={
+                            d.registeredProjects.length > 0
+                              ? `클릭하여 상세 · 프로젝트 ${d.registeredProjects.length}건(목록은 카드 위에 마우스)`
+                              : '클릭하여 사업부 상세 보기'
                           }
-                        }}
-                        className="bg-white border border-stone-200 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer hover:border-indigo-200/80 outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
-                        title="클릭하여 사업부 상세 보기"
-                      >
-                        <h3 className="font-semibold text-stone-800 truncate mb-3" title={d.name}>
-                          {d.name}
-                        </h3>
-                        <div className="space-y-3">
-                          <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5">
-                            <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">등록 프로젝트</div>
-                            <div className="text-[1.65rem] font-bold text-sky-600 tabular-nums leading-tight mt-0.5">{d.projectCount}</div>
-                            {d.registeredProjects.length > 0 && (
-                              <ul className="mt-2 pt-2 border-t border-sky-100/90 space-y-1 max-h-[7.5rem] overflow-y-auto text-[11px] font-medium text-sky-900/90 leading-snug">
+                        >
+                          <h3
+                            className="font-semibold text-stone-900 text-sm mb-2 flex items-center gap-1.5 flex-wrap min-w-0"
+                            title={d.name}
+                          >
+                            <Building2 className="text-sky-500 shrink-0" size={16} aria-hidden />
+                            <span className="truncate min-w-0 leading-tight">{d.name}</span>
+                            {d.projectCount === 0 && (
+                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide rounded bg-stone-200/90 text-stone-700 px-1 py-0.5">
+                                미등록
+                              </span>
+                            )}
+                          </h3>
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div className="rounded-lg border-2 border-sky-200 bg-sky-50/90 px-2 py-2 text-center shadow-sm">
+                                <div className="text-[10px] font-bold text-sky-900 tracking-wide">프로젝트</div>
+                                <div className="text-2xl font-bold text-sky-700 tabular-nums leading-none mt-0.5">{d.projectCount}</div>
+                                <div className="text-[9px] font-medium text-sky-800/80 mt-0.5">건</div>
+                              </div>
+                              <div className="rounded-lg border-2 border-slate-200 bg-slate-50 px-2 py-2 text-center shadow-sm">
+                                <div className="text-[10px] font-bold text-slate-900 tracking-wide">Task</div>
+                                <div className="text-2xl font-bold text-slate-800 tabular-nums leading-none mt-0.5">{d.total}</div>
+                                <div className="text-[9px] font-medium text-slate-700/85 mt-0.5">건</div>
+                              </div>
+                            </div>
+                            {d.projectCount === 0 && (
+                              <p className="text-[10px] text-stone-500 m-0 text-center leading-snug">
+                                이 조직으로 분류된 프로젝트가 없습니다.
+                              </p>
+                            )}
+                            <div>
+                              <div className="flex items-baseline justify-between gap-1 mb-0.5">
+                                <span className="text-[9px] font-bold text-stone-500 uppercase tracking-wide">계획율</span>
+                                <span className="text-base font-bold text-amber-700 tabular-nums leading-none">
+                                  {formatPercent1(d.planned)}%
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, d.planned)}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <div className="flex items-baseline justify-between gap-1 mb-0.5">
+                                <span className="text-[9px] font-bold text-stone-500 uppercase tracking-wide">진척율</span>
+                                <span className="text-base font-bold text-indigo-600 tabular-nums leading-none">
+                                  {formatPercent1(d.progress)}%
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
+                              </div>
+                            </div>
+                            {mobileReadabilityMode && d.registeredProjects.length > 0 && (
+                              <details className="rounded-lg border border-stone-200 bg-stone-50/90 px-2 py-1.5 text-left">
+                                <summary className="text-[11px] font-semibold text-stone-600 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                                  프로젝트 이름 ({d.registeredProjects.length}건) — 탭하여 펼치기
+                                </summary>
+                                <ul className="mt-2 space-y-0.5 text-[11px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc max-h-40 overflow-y-auto">
+                                  {d.registeredProjects.map((rp) => (
+                                    <li key={rp.id} className="break-words" title={rp.label}>
+                                      {rp.label}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                          </div>
+                        </div>
+                        {d.registeredProjects.length > 0 && !mobileReadabilityMode && (
+                          <div
+                            className={cn(
+                              'absolute left-0 right-0 top-full z-[80] pt-1',
+                              'opacity-0 invisible translate-y-1 transition-all duration-150',
+                              'group-hover:opacity-100 group-hover:visible group-hover:translate-y-0',
+                              'group-focus-within:opacity-100 group-focus-within:visible group-focus-within:translate-y-0',
+                              'pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
+                            )}
+                          >
+                            <div className="rounded-lg border border-stone-200 bg-white px-3 py-2 shadow-xl max-h-56 overflow-y-auto text-left">
+                              <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1.5">프로젝트 이름</div>
+                              <ul className="space-y-1 text-[12px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc">
                                 {d.registeredProjects.map((rp) => (
-                                  <li key={rp.id} className="truncate" title={rp.label}>
+                                  <li key={rp.id} className="break-words" title={rp.label}>
                                     {rp.label}
                                   </li>
                                 ))}
                               </ul>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                              <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
-                              <span className="text-2xl font-bold text-indigo-600 tabular-nums leading-none">
-                                {formatPercent1(d.progress)}%
-                              </span>
-                            </div>
-                            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
                             </div>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-center">
-                            <div>
-                              <div className="text-[10px] text-stone-500 mb-0.5">소속 인원</div>
-                              <div className="text-lg font-bold text-stone-800 tabular-nums">{d.memberCount}</div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] text-stone-500 mb-0.5">전체 Task</div>
-                              <div className="text-lg font-bold text-stone-700 tabular-nums">{d.total}</div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] text-stone-500 mb-0.5">진행 중</div>
-                              <div className="text-lg font-bold text-violet-600 tabular-nums">{d.inProgressCount}</div>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[10px] text-stone-400">
-                            <span>
-                              완료 <span className="text-emerald-600 font-semibold tabular-nums">{d.doneCount}</span>
-                            </span>
-                            <span>
-                              이슈 <span className="text-rose-600 font-semibold tabular-nums">{d.issueCount}</span>
-                            </span>
-                            {d.assigneeCount !== d.memberCount && (
-                              <span className="text-stone-400" title="이 사업부 작업에 이름이 올라간 서로 다른 담당자 수">
-                                담당자 {d.assigneeCount}명
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
-                          <th className="text-left font-medium px-3 py-2">사업부·본부</th>
-                          <th className="text-right font-medium px-2 py-2 w-16">프로젝트</th>
-                          <th className="text-right font-medium px-2 py-2 w-20">진척율</th>
-                          <th className="text-right font-medium px-2 py-2 w-16">인원</th>
-                          <th className="text-right font-medium px-2 py-2 w-16">Task</th>
-                          <th className="text-right font-medium px-2 py-2 w-16">진행</th>
-                          <th className="text-right font-medium px-2 py-2 w-14">완료</th>
-                          <th className="text-right font-medium px-3 py-2 w-14">이슈</th>
+                  <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto shadow-sm">
+                    <table className="w-full text-sm min-w-[520px]">
+                      <thead className="bg-stone-100 border-b-2 border-stone-200">
+                        <tr className="text-[11px] text-stone-700">
+                          <th className="text-left font-bold px-3 py-2.5">조직</th>
+                          <th className="text-right font-bold px-2 py-2.5 w-[4.5rem]" title="조직도 기준으로 이 사업부에 묶인 프로젝트 수">
+                            프로젝트
+                            <span className="block text-[9px] font-normal text-stone-500 normal-case">(건)</span>
+                          </th>
+                          <th className="text-right font-bold px-2 py-2.5 w-[4.5rem]" title="해당 프로젝트들에 등록된 작업 수">
+                            Task
+                            <span className="block text-[9px] font-normal text-stone-500 normal-case">(건)</span>
+                          </th>
+                          <th className="text-right font-bold px-2 py-2.5 w-20" title="일정 기준 기대 진척, Task 가중">
+                            계획율
+                          </th>
+                          <th className="text-right font-bold px-3 py-2.5 w-20" title="실제 진척, Task 가중">
+                            진척율
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {displayDivisionStats.map((d) => (
                           <tr
                             key={d.id}
-                            className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
+                            className={cn(
+                              'border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer',
+                              d.projectCount === 0 && 'bg-stone-50/70',
+                            )}
                             onClick={() => openDivisionDetail(d.id)}
-                            title="클릭하여 사업부 상세 보기"
+                            title={
+                              d.registeredProjects.length > 0
+                                ? `클릭하여 상세\n프로젝트:\n${d.registeredProjects.map((r) => r.label).join('\n')}`
+                                : '클릭하여 사업부 상세 보기'
+                            }
                           >
-                            <td className="px-3 py-2 font-medium text-stone-800 max-w-[14rem] truncate" title={d.name}>
-                              {d.name}
-                            </td>
-                            <td
-                              className="px-2 py-2 text-right tabular-nums text-sky-700 font-semibold max-w-[12rem]"
-                              title={
-                                d.registeredProjects.length > 0
-                                  ? `등록 프로젝트 (${d.projectCount}개)\n${d.registeredProjects.map((r) => r.label).join('\n')}`
-                                  : undefined
-                              }
-                            >
-                              <div className="flex flex-col items-end gap-0.5 min-w-0">
-                                <span>{d.projectCount}</span>
-                                {d.registeredProjects.length > 0 && (
-                                  <span className="text-[10px] font-normal text-sky-600/90 text-left w-full line-clamp-2 break-words hyphens-auto">
-                                    {d.registeredProjects.map((r) => r.label).join(' · ')}
+                            <td className="px-3 py-2.5 font-medium text-stone-800 max-w-[16rem] align-middle">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="truncate min-w-0" title={d.name}>
+                                  {d.name}
+                                </span>
+                                {d.projectCount === 0 && (
+                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded bg-stone-200/90 text-stone-700 px-1.5 py-0.5 whitespace-nowrap">
+                                    미등록
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td className="px-2 py-2 text-right tabular-nums text-indigo-600 font-semibold">
-                              {formatPercent1(d.progress)}%
+                            <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 font-bold text-lg align-middle">
+                              {d.projectCount}
                             </td>
-                            <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.memberCount}</td>
-                            <td className="px-2 py-2 text-right tabular-nums text-stone-700">{d.total}</td>
-                            <td className="px-2 py-2 text-right tabular-nums text-violet-600">{d.inProgressCount}</td>
-                            <td className="px-2 py-2 text-right tabular-nums text-emerald-600">{d.doneCount}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-rose-600">{d.issueCount}</td>
+                            <td className="px-2 py-2.5 text-right tabular-nums text-slate-900 font-bold text-lg">{d.total}</td>
+                            <td className="px-2 py-2.5 text-right tabular-nums text-amber-800 font-bold">{formatPercent1(d.planned)}%</td>
+                            <td className="px-3 py-2.5 text-right tabular-nums text-indigo-700 font-bold">{formatPercent1(d.progress)}%</td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot className="bg-sky-50/80 border-t-2 border-sky-200">
+                        <tr className="text-sm font-bold text-stone-900">
+                          <td className="px-3 py-2.5">합계 (표시 중)</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 text-lg">
+                            {divisionAggregatedSummary.projectSum}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-slate-900 text-lg">
+                            {divisionAggregatedSummary.taskSum}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-amber-900">
+                            {formatPercent1(divisionAggregatedSummary.tablePlanned)}%
+                            <span className="block text-[9px] font-normal text-stone-500">Task 가중</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-indigo-800">
+                            {formatPercent1(divisionAggregatedSummary.tableProgress)}%
+                            <span className="block text-[9px] font-normal text-stone-500">Task 가중</span>
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -2243,9 +2610,9 @@ export function Dashboard({
             {/* Milestones */}
             {showDashSection('milestones') && milestones.length > 0 && (
               <section>
-                <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
-                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 m-0">
-                    <Flag className="text-amber-500" size={24} />
+                <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
+                  <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 m-0">
+                    <Flag className="text-amber-500 shrink-0" size={20} />
                     마일스톤
                     <span className="text-sm font-medium text-stone-400">{milestones.length}건</span>
                   </h2>
@@ -2352,9 +2719,9 @@ export function Dashboard({
             {/* Project List */}
             {showDashSection('projects') && (
               <section>
-                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
-                  <h2 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
-                    <Briefcase className="text-[var(--color-accent)]" size={24} />
+                <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
+                    <Briefcase className="text-[var(--color-accent)] shrink-0" size={20} />
                     프로젝트별 상태
                     <span className="text-sm font-normal text-stone-500 ml-1">
                       ({displayProjectStats.length}개
@@ -2385,8 +2752,12 @@ export function Dashboard({
                     )}
                   </div>
                 </div>
-                <p className="text-xs text-stone-500 -mt-1 mb-1">카드를 누르면 요약 상세가 열립니다. 아래 버튼으로 정렬할 수 있습니다.</p>
-                <div className="space-y-3">
+                <p className="text-xs text-stone-500 -mt-1 mb-1">
+                  카드를 누르면 요약 상세가 열립니다. 카드에는 진척·기한·작업·이슈 등{' '}
+                  <strong className="font-semibold text-stone-600">숫자 요약</strong>만 표시합니다(WBS 화면 캡처 없음). 아래 버튼으로 정렬할
+                  수 있습니다.
+                </p>
+                <div className="space-y-2">
                   {displayProjectStats.length > 0 && (
                     <div
                       className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-[11px]"
@@ -2421,7 +2792,7 @@ export function Dashboard({
                       ))}
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                     {displayProjectStats.length === 0 ? (
                       <div className="col-span-full text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
                         {showUndeterminedPeriodProjectsOnly
@@ -2464,7 +2835,7 @@ export function Dashboard({
         {divisionDetailId && (
           <div
             className={cn(
-              'max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500',
+              'max-w-[min(100%,96rem)] mx-auto p-3 pb-6 sm:p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500',
               mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
             )}
           >
@@ -2495,7 +2866,7 @@ export function Dashboard({
                   onClick={clearDivisionDetail}
                   className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                 >
-                  사업부·부서별 현황으로 돌아가기
+                  사업부별 현황으로 돌아가기
                 </button>
               </div>
             )}
@@ -2513,7 +2884,7 @@ export function Dashboard({
         {detailKind && !divisionDetailId && (
           <div
             className={cn(
-              'max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500',
+              'max-w-[min(100%,96rem)] mx-auto p-3 pb-6 sm:p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500',
               mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
             )}
           >
@@ -2726,6 +3097,24 @@ function IssueTaskDetailModalBody({
   );
 }
 
+function DashboardTableHintCell({ text }: { text: string }) {
+  const noteId = useId();
+  const t = text.trim();
+  if (!t) {
+    return <td className="px-3 py-2.5 text-xs text-stone-500">—</td>;
+  }
+  return (
+    <td className="px-3 py-2.5 text-xs text-stone-500 cursor-help" title={t} aria-describedby={noteId}>
+      <span id={noteId} className="sr-only">
+        {t}
+      </span>
+      <span className="inline-flex items-center justify-center text-slate-500" aria-hidden>
+        <CircleHelp className="size-4 shrink-0" strokeWidth={2} />
+      </span>
+    </td>
+  );
+}
+
 function SummaryCard({
   title,
   value,
@@ -2736,12 +3125,17 @@ function SummaryCard({
 }: {
   title: string;
   value: number | React.ReactNode;
-  subtitle: string;
+  /** 카드에 마우스를 올리면 브라우저 툴팁으로 표시(항상 보이지 않음) */
+  subtitle?: string;
   highlight?: string;
   /** 모바일 대시보드: 여백·숫자 크기 축소 */
   compact?: boolean;
   onClick?: () => void;
 }) {
+  const noteId = useId();
+  const subtitleTrimmed = subtitle?.trim() ?? '';
+  const hasNote = subtitleTrimmed.length > 0;
+
   return (
     <div
       onClick={onClick}
@@ -2757,18 +3151,37 @@ function SummaryCard({
             }
           : undefined
       }
+      title={hasNote ? subtitleTrimmed : undefined}
+      aria-describedby={hasNote ? noteId : undefined}
       className={cn(
         'card-elevated flex flex-col justify-center transition-all duration-300 relative overflow-hidden group/card',
-        compact ? 'p-4 hover:-translate-y-0' : 'p-6 transform hover:-translate-y-1',
+        compact ? 'p-4 hover:-translate-y-0' : 'p-4 md:p-5 transform hover:-translate-y-0.5',
         onClick && 'cursor-pointer hover:border-indigo-200',
+        hasNote && !onClick && 'cursor-help',
       )}
     >
+      {hasNote ? (
+        <span id={noteId} className="sr-only">
+          {subtitleTrimmed}
+        </span>
+      ) : null}
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-200 to-transparent group-hover/card:via-indigo-400 transition-colors duration-500 opacity-0 group-hover/card:opacity-100" />
       <div className={cn('font-bold text-slate-500 mb-2 uppercase tracking-wide', compact ? 'text-[10px]' : 'text-xs')}>{title}</div>
-      <div className={cn('font-bold tracking-tight', compact ? 'text-2xl' : 'text-3xl', highlight || 'text-[var(--color-ink)]')}>
+      <div
+        className={cn('font-bold tracking-tight', compact ? 'text-2xl' : 'text-2xl md:text-3xl', highlight || 'text-[var(--color-ink)]')}
+      >
         {value}
       </div>
-      {subtitle && <div className="text-xs text-slate-400 mt-1">{subtitle}</div>}
+      {hasNote ? (
+        <CircleHelp
+          className={cn(
+            'absolute pointer-events-none text-slate-400/85 shrink-0',
+            compact ? 'bottom-2.5 right-2.5 size-3.5' : 'bottom-3.5 right-3.5 size-4',
+          )}
+          strokeWidth={2}
+          aria-hidden
+        />
+      ) : null}
     </div>
   );
 }
@@ -2808,19 +3221,45 @@ function ProjectCard({
           : undefined
       }
       className={cn(
-        'card flex h-full flex-col overflow-hidden group p-3.5 transition-shadow',
+        'card flex h-full flex-col overflow-hidden group p-3 transition-shadow',
         onClick && 'cursor-pointer hover:border-indigo-200',
         isSelected && 'ring-2 ring-indigo-400 border-indigo-300 shadow-md',
       )}
     >
       <h3
-        className="text-sm font-semibold text-[var(--color-ink)] mb-2 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
+        className="text-[13px] font-semibold text-[var(--color-ink)] mb-1.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
         title={formatProjectDisplayName(project.name, project.projectKind)}
       >
         {formatProjectDisplayName(project.name, project.projectKind)}
       </h3>
+      <div
+        className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-stone-500 tabular-nums mb-1.5"
+        aria-label="작업·이슈·액션·지연 건수"
+      >
+        <span>
+          작업 <strong className="font-semibold text-stone-700">{s.total}</strong>건
+        </span>
+        {s.issueCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-rose-800/90" title="이슈로 표시된 작업">
+            <Bug size={10} className="shrink-0" aria-hidden />
+            이슈 {s.issueCount}
+          </span>
+        )}
+        {s.actionCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-violet-800/90" title="액션 항목 작업">
+            <ListChecks size={10} className="shrink-0" aria-hidden />
+            액션 {s.actionCount}
+          </span>
+        )}
+        {s.overdueCount > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-amber-800/90" title="종료일이 지났고 아직 미완료">
+            <AlertCircle size={10} className="shrink-0" aria-hidden />
+            지연 {s.overdueCount}
+          </span>
+        )}
+      </div>
       <p
-        className="text-[11px] text-stone-600 mb-2.5 line-clamp-2 leading-snug"
+        className="text-[10px] text-stone-600 mb-1.5 line-clamp-2 leading-snug"
         title={[pmDisplay && `PM ${pmDisplay}`, poDisplay && `PO ${poDisplay}`].filter(Boolean).join(' · ')}
       >
         <span className="text-stone-400">PM</span> {pmDisplay || '미지정'}
@@ -2837,6 +3276,22 @@ function ProjectCard({
           />
         </div>
         <span className="text-sm font-bold text-indigo-700 w-11 text-right tabular-nums shrink-0">{formatPercent1(s.progress)}%</span>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-2 text-[11px] tabular-nums">
+        <span className="text-[10px] font-semibold text-stone-400 shrink-0">계획</span>
+        <span className="text-stone-500">{formatPercent1(s.planned)}%</span>
+        <span className="text-stone-300">·</span>
+        <span className="text-[10px] font-semibold text-stone-400 shrink-0">차이</span>
+        <span
+          className={cn('font-bold', s.variance < 0 ? 'text-red-600' : s.variance > 0 ? 'text-emerald-600' : 'text-stone-500')}
+          title={`실제 ${formatPercent1(s.progress)}% − 계획 ${formatPercent1(s.planned)}% · ${
+            s.variance < 0 ? '계획 대비 지연' : s.variance > 0 ? '계획보다 앞섬' : '계획대로'
+          }`}
+        >
+          {s.variance > 0 ? '+' : ''}
+          {formatPercent1(s.variance)}%p
+        </span>
       </div>
 
       <div className="text-[11px] text-stone-500 pt-2 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">

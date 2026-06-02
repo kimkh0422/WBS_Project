@@ -6,6 +6,7 @@ import {
   allocationEffortWbsSumTooltip,
   evaluateAllocationEffortIntegrity,
 } from '../lib/allocationEffortIntegrity';
+import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { manDaysToManMonths } from '../lib/workEffortUnits';
 
 interface EditableAllocationBadgeProps {
@@ -52,14 +53,6 @@ function RoleTagBadges({ tags }: { tags: ('pm' | 'po')[] }) {
       )}
     </span>
   );
-}
-
-function parseAllocationPercent(raw: string, fallback: number): number {
-  const trimmed = raw.trim();
-  if (trimmed === '') return fallback;
-  const parsed = parseFloat(trimmed);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
 }
 
 export function EditableAllocationBadge({
@@ -116,7 +109,9 @@ export function EditableAllocationBadge({
   }, [effortIntegrityWarning, integrityResult, effortDisplayUnit, chipLayout, onOpenDetail]);
 
   const commit = () => {
-    const next = parseAllocationPercent(inputValue, allocationPercent);
+    const trimmed = inputValue.trim();
+    const parsed = trimmed === '' ? allocationPercent : parseFloat(trimmed);
+    const next = !Number.isFinite(parsed) ? allocationPercent : clampAllocationPercentInt(parsed);
     setInputValue(String(next));
     setIsEditing(false);
     if (next !== allocationPercent) onSave(next);
@@ -171,11 +166,11 @@ export function EditableAllocationBadge({
             <input
               ref={inputRef}
               type="text"
-              inputMode="decimal"
+              inputMode="numeric"
               value={inputValue}
               onChange={(e) => {
                 const next = e.target.value;
-                if (next === '' || /^\d*([.]\d*)?$/.test(next)) setInputValue(next);
+                if (next === '' || /^\d*$/.test(next)) setInputValue(next);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

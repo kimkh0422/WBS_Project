@@ -133,11 +133,11 @@ export function AddProjectPersonAllocation({
       <span className="inline-flex items-center gap-0.5 shrink-0">
         <input
           type="text"
-          inputMode="decimal"
+          inputMode="numeric"
           value={percentInput}
           onChange={(e) => {
             const next = e.target.value;
-            if (next === '' || /^\d*([.]\d*)?$/.test(next)) setPercentInput(next);
+            if (next === '' || /^\d*$/.test(next)) setPercentInput(next);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -150,7 +150,7 @@ export function AddProjectPersonAllocation({
           }}
           placeholder="%"
           className="w-10 px-1 py-0.5 text-xs font-bold text-teal-700 border border-teal-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300 tabular-nums"
-          title="투입율 (0~100%)"
+          title="투입율 (0~100% 정수)"
         />
         <span className="text-teal-600 font-bold">%</span>
       </span>

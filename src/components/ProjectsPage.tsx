@@ -24,8 +24,9 @@ import {
   ArrowUp,
   ArrowDown,
   Network,
+  FileDown,
 } from 'lucide-react';
-import { cn, formatNum2 } from '../lib/utils';
+import { cn, formatNum2, formatPercent1 } from '../lib/utils';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { manDaysToManMonths } from '../lib/workEffortUnits';
 import { Project } from '../types';
@@ -34,6 +35,7 @@ import {
   groupProjectsForKindListView,
   projectListKindSortRank,
   isPrivateProjectHiddenFromViewer,
+  formatProjectDisplayName,
 } from '../lib/projectKind';
 import {
   PROJECT_LIST_LAYOUT_LS_KEY,
@@ -46,10 +48,12 @@ import {
 } from '../lib/projectListOrgGrouping';
 import { PROJECT_CARD_SORT_LS_KEY, parseProjectCardSortKey, type ProjectCardSortKey } from '../lib/projectCardSort';
 import type { ProjectGroup } from '../lib/wbsSettings';
-import { fetchProfiles, checkIsAdmin, getProjectOwnerDisplayNames } from '../lib/db';
+import { computeProjectRollupMetrics } from '../lib/projectRollupStats';
+import { downloadProjectManagementPdfReport, type ProjectManagementPdfEntry } from '../lib/projectManagementPdf';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatPersonDisplay } from '../lib/assigneeOptions';
 import type { ProfileRow } from '../lib/supabase';
+import { checkIsAdmin, fetchProfiles, getProjectOwnerDisplayNames } from '../lib/db';
 
 /** 프로젝트 관리 표의 열 정렬 키 */
 type ProjectsColumnSortKey = 'name' | 'kind' | 'group' | 'tasks' | 'input' | 'owner' | 'start' | 'end' | 'pm' | 'po';
@@ -129,6 +133,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   };
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+  const [pdfListExporting, setPdfListExporting] = useState(false);
   const isMobileProjectList = useMatchMedia('(max-width: 767px)');
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => {
     try {
@@ -468,6 +473,15 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     profileMap,
   ]);
 
+  const rollupByProjectId = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof computeProjectRollupMetrics>>();
+    for (const p of orderedProjects) {
+      const pTasks = allTasks.filter((t) => t.projectId === p.id);
+      m.set(p.id, computeProjectRollupMetrics(p, pTasks));
+    }
+    return m;
+  }, [orderedProjects, allTasks]);
+
   const projectsGroupedByGroup = useMemo(() => {
     const map = new Map<string, Project[]>();
     sortedGroups.forEach((g) => map.set(g.id, []));
@@ -538,6 +552,90 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     () => flattenOrgChartProjectsForMobile(orgChartPageModel.blocks, orgChartPageModel.unmapped),
     [orgChartPageModel],
   );
+
+  const layoutLabelForPdf =
+    projectListLayout === 'org'
+      ? '조직도별'
+      : projectListLayout === 'group'
+        ? '그룹별'
+        : projectListLayout === 'assignees'
+          ? '인원별'
+          : '구분별';
+
+  const handleDownloadProjectListPdf = async () => {
+    if (pdfListExporting) return;
+    setPdfListExporting(true);
+    try {
+      const entries: ProjectManagementPdfEntry[] = [];
+      const seqRef = { n: 0 };
+      const pushRow = (p: Project) => {
+        seqRef.n++;
+        const m = rollupByProjectId.get(p.id);
+        if (!m) return;
+        const md = m.inputManDays;
+        const inputLabel =
+          md <= 0 ? '—' : effortDisplayUnitForProjectList === 'md' ? `${formatNum2(md)} M/D` : `${formatNum2(manDaysToManMonths(md))} M/M`;
+        entries.push({
+          kind: 'row',
+          seq: seqRef.n,
+          projectName: formatProjectDisplayName(p.name, p.projectKind),
+          pm: (p.pmName ?? '').trim() || '—',
+          po: (p.poName ?? '').trim() || '—',
+          start: p.startDate ?? '—',
+          end: p.endDate ?? '—',
+          tasks: m.taskCount,
+          inputLabel,
+          planned: `${formatPercent1(m.planned)}%`,
+          progress: `${formatPercent1(m.progress)}%`,
+        });
+      };
+
+      if (groupByOwner) {
+        for (const [ownerKey, list] of projectsGroupedByOwner) {
+          entries.push({
+            kind: 'section',
+            label: `${ownerLabel(ownerKey === '__none__' ? undefined : ownerKey)} · 프로젝트 ${list.length}개`,
+          });
+          for (const p of list) pushRow(p);
+        }
+      } else if (projectListLayout === 'org' && topLevelDivisions.length > 0) {
+        const flat = flattenOrgChartProjectsForMobile(orgChartPageModel.blocks, orgChartPageModel.unmapped);
+        let lastPath = '';
+        for (const { project, path } of flat) {
+          if (path !== lastPath) {
+            entries.push({ kind: 'section', label: path });
+            lastPath = path;
+          }
+          pushRow(project);
+        }
+      } else {
+        for (const p of orderedProjects) pushRow(p);
+      }
+
+      const subtitleLines: string[] = [`화면과 동일한 목록 묶음: ${layoutLabelForPdf}`];
+      if (showMyOnly) subtitleLines.push('「내 프로젝트만」이 적용된 범위입니다.');
+      if (showDashboardExcludedOnly) subtitleLines.push('「대시보드 미반영만」이 적용된 범위입니다.');
+
+      const reportTitle = groupByOwner
+        ? '프로젝트 목록 (소유자별)'
+        : projectListLayout === 'org' && topLevelDivisions.length > 0
+          ? '프로젝트 목록 (조직도)'
+          : '프로젝트 목록';
+      const fileNamePrefix = groupByOwner
+        ? '프로젝트목록_소유자별'
+        : projectListLayout === 'org' && topLevelDivisions.length > 0
+          ? '프로젝트목록_조직도'
+          : '프로젝트목록';
+
+      await downloadProjectManagementPdfReport({ entries, reportTitle, subtitleLines, fileNamePrefix });
+      pushToast('PDF를 저장했습니다.', { variant: 'success' });
+    } catch (e) {
+      console.error(e);
+      pushToast('PDF 저장에 실패했습니다.', { variant: 'error' });
+    } finally {
+      setPdfListExporting(false);
+    }
+  };
 
   const handleSaveProject = (
     name: string,
@@ -1061,7 +1159,22 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               프로젝트를 생성·편집·공유·삭제할 수 있습니다. 표 머리글을 클릭하면 해당 열 기준으로 오름·내림차순 정렬됩니다.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={() => void handleDownloadProjectListPdf()}
+              disabled={pdfListExporting || uniqueProjects.length === 0}
+              title="현재 목록·묶음·필터가 반영된 표를 PDF로 저장합니다. (순번·PM·PO·일정·작업수·투입·계획율·진척율)"
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border transition-colors',
+                pdfListExporting || uniqueProjects.length === 0
+                  ? 'text-stone-400 bg-stone-100 border-stone-200 cursor-not-allowed'
+                  : 'text-rose-900 bg-rose-50 border-rose-200 hover:bg-rose-100 hover:border-rose-300',
+              )}
+            >
+              <FileDown size={16} className="shrink-0" aria-hidden />
+              {pdfListExporting ? 'PDF 생성 중…' : 'PDF'}
+            </button>
             <button
               onClick={() => setIsGroupManagerOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 bg-white border border-stone-200 hover:border-stone-300 rounded-lg transition-colors"

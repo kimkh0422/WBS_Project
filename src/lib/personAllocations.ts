@@ -132,6 +132,12 @@ export function executePersonProjectAdd(
   actions.createProject(name, [{ assignee, allocationPercent: percent }], projectKind ? { projectKind } : undefined);
 }
 
+/** 저장·검증용: 투입비율(%)을 0~100 정수로 맞춤 */
+export function clampAllocationPercentInt(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 /** 투입율(%) 입력 문자열 파싱. allowZero가 false(기본)이면 0 이하는 null */
 export function parseAllocationPercentInput(raw: string, opts?: { allowZero?: boolean }): number | null {
   const trimmed = raw.trim();
@@ -139,7 +145,7 @@ export function parseAllocationPercentInput(raw: string, opts?: { allowZero?: bo
   const parsed = parseFloat(trimmed);
   if (!Number.isFinite(parsed)) return null;
   if (!opts?.allowZero && parsed <= 0) return null;
-  return Math.min(100, Math.max(0, Math.round(parsed * 10) / 10));
+  return clampAllocationPercentInt(parsed);
 }
 
 /**
@@ -149,8 +155,8 @@ export function parseAllocationPercentInput(raw: string, opts?: { allowZero?: bo
 export function suggestPercentForPersonAllocationAdd(totalPercentAcrossProjects: number): number {
   const t = Number(totalPercentAcrossProjects);
   const safe = !Number.isFinite(t) ? 0 : t;
-  const headroom = Math.round((100 - safe) * 10) / 10;
-  if (headroom > 0) return Math.min(100, headroom);
+  const headroom = clampAllocationPercentInt(100 - safe);
+  if (headroom > 0) return headroom;
   return 10;
 }
 
@@ -161,7 +167,7 @@ export function applyPersonProjectAllocation(
   newPercent: number,
 ): ProjectAssignment[] {
   const targetName = (person || '').trim() || '(미지정)';
-  const pct = !Number.isFinite(newPercent) ? 0 : Math.min(100, Math.max(0, Math.round(newPercent * 10) / 10));
+  const pct = !Number.isFinite(newPercent) ? 0 : clampAllocationPercentInt(newPercent);
 
   const matchesAssignee = (a: ProjectAssignment) => ((a.assignee || '').trim() || '(미지정)') === targetName;
 

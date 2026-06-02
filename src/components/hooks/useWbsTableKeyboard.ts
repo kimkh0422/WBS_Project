@@ -483,7 +483,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             .map((depId) => idToNewId.get(depId))
             .filter(Boolean) as string[];
           if (mappedDeps.length > 0) {
-            updateTask(newId, { dependencies: mappedDeps, userLockedFields: ['dependencies'] });
+            updateTask(newId, { dependencies: mappedDeps });
           }
         }
 

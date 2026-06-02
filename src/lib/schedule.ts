@@ -11,15 +11,8 @@ import {
 } from './calendar';
 import { applyMilestoneDateInvariant } from './milestoneDates';
 
-const ALLOCATION_STEP = 10;
-const MIN_ALLOCATION = 10;
-const MAX_ALLOCATION = 100;
-
-/** 투입비율 옵션 (10%, 20%, ... 100%) */
-export const ALLOCATION_OPTIONS = Array.from(
-  { length: (MAX_ALLOCATION - MIN_ALLOCATION) / ALLOCATION_STEP + 1 },
-  (_, i) => MIN_ALLOCATION + i * ALLOCATION_STEP,
-);
+/** 월별·빠른 선택 UI용 투입비율 옵션: 0~100% 정수 */
+export const ALLOCATION_OPTIONS = Array.from({ length: 101 }, (_, i) => i);
 
 /**
  * 총 투입비율(0~1) 계산. assignments가 없거나 비어 있으면 1 (100%)로 간주.
@@ -295,7 +288,6 @@ export type ApplyDependencyScheduleOptions = {
  * - 선행 작업 종료일 이후에만 시작.
  * - 기간 = 작업공수 / 총투입비율(영업일). 완료일 = 시작일 + 기간.
  * - `chainLinkRespectBothDates`: 선행 순차 연결 시, 선행이 있고 시작·종료가 모두 있어도 **공수(MD)>0이면 공수로 종료일 산정**. 공수가 없을 때만 기존 영업일 기간 유지.
- * - `userLockedFields`: `startDate`/`endDate` 잠금 시 해당 날짜를 바꾸지 않음. `workEffort` 잠금은 저장 공수 **값**이 자동으로 바뀌지 않도록 하는 용도이며, 종료일은 그 공수로 여전히 산정할 수 있음.
  * - 상위 작업은 하위 작업 구간으로 맞춤.
  */
 export function applyDependencySchedule(
@@ -322,18 +314,16 @@ export function applyDependencySchedule(
   });
   const order = getTopologicalOrder(result);
   const holidays = getHolidaysForTaskDates(result);
-  const locked = (t: Task) => new Set(t.userLockedFields ?? []);
 
   // 위상 순서대로: 선행 종료일(이미 공수 반영된 값) → 시작일 이동 → 종료일 산정
   for (const id of order) {
     const task = byId.get(id)!;
     if (excludeFromRecalc?.has(id)) continue;
 
-    const taskLocked = locked(task);
     const predIds = deps.get(id);
     let startShifted = false;
 
-    if (!taskLocked.has('startDate') && predIds && predIds.length > 0) {
+    if (predIds && predIds.length > 0) {
       let maxPredEnd = '';
       for (const predId of predIds) {
         const pred = byId.get(predId);
@@ -345,8 +335,6 @@ export function applyDependencySchedule(
         startShifted = true;
       }
     }
-
-    if (taskLocked.has('endDate')) continue;
 
     const originalTask = tasks.find((t) => t.id === id);
     let hadBothDatesOnInput = false;

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks, Lock, Unlock, AlertTriangle } from 'lucide-react';
+import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks, AlertTriangle } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
@@ -12,6 +12,8 @@ import { useWBS } from '../context/WBSContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { getTaskProgressRollupTooltip } from '../lib/rollups';
+import { hasPlannedSchedule, progressVariance } from '../lib/plannedProgress';
+import { plannedProgressDataCellTitle, progressVarianceDataCellTitle } from '../lib/plannedProgressTooltips';
 import { useToast } from './Toast';
 import {
   buildOrgMemberLabelMap,
@@ -23,8 +25,7 @@ import {
 import { type TableColumnId } from './wbsTableTypes';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
-import { USER_LOCKED_FIELD_LABELS, userLockedFieldsAfterRemove, type UserLockedField } from '../lib/taskLocks';
-
+import { clampAllocationPercentInt } from '../lib/personAllocations';
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
 /** 표에서의 순번(1부터) → taskId */
@@ -145,6 +146,8 @@ export interface SortableTaskRowProps {
   prependDisplayWbsToTaskName?: boolean;
   /** 진척률 셀 툴팁(요약 바와 같은 범위의 작업 집합) */
   rollupTooltipBaseTasks: Task[];
+  /** 이 작업의 계획율(0~100). 부모에서 계산해 전달. 계획·진척차이 컬럼 표시에 사용 */
+  plannedProgress?: number;
 }
 
 function SortableTaskRowInner({
@@ -190,6 +193,7 @@ function SortableTaskRowInner({
   projectScheduleByProjectId,
   prependDisplayWbsToTaskName = false,
   rollupTooltipBaseTasks,
+  plannedProgress,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const projectSchedule = projectScheduleByProjectId?.get(task.projectId);
@@ -370,35 +374,6 @@ function SortableTaskRowInner({
 
   const depth = task.depth || 0;
   const level = depth + 1;
-
-  const unlockUserField = (field: UserLockedField) => {
-    if (!canEdit) return;
-    updateTask(task.id, { userLockedFields: userLockedFieldsAfterRemove(task.userLockedFields, field) });
-  };
-
-  const renderLockBadge = (field: UserLockedField) => {
-    if (!(task.userLockedFields ?? []).includes(field)) return null;
-    const label = USER_LOCKED_FIELD_LABELS[field];
-    if (canEdit) {
-      return (
-        <button
-          type="button"
-          className="flex-shrink-0 p-0.5 -m-0.5 rounded text-amber-600 hover:bg-amber-100 hover:text-amber-900"
-          title={`${label} 잠금 해제(자동 일정·롤업이 다시 적용될 수 있음)`}
-          aria-label={`${label} 잠금 해제`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            unlockUserField(field);
-          }}
-        >
-          <Unlock size={11} aria-hidden />
-        </button>
-      );
-    }
-    return <Lock size={11} className="flex-shrink-0 text-amber-600" aria-hidden title={`${label} 고정`} />;
-  };
 
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   const zebraOverlay = rowIndex % 2 === 1 ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(2, 6, 23, 0.03)') : 'transparent';
@@ -776,14 +751,7 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('startDate');
                     }}
-                    title={[
-                      (task.userLockedFields ?? []).includes('startDate')
-                        ? '시작일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
-                        : '클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집',
-                      taskScheduleOutsideProjectNote,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+                    title={['클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집', taskScheduleOutsideProjectNote].filter(Boolean).join(' · ')}
                   >
                     <span className="inline-flex items-center gap-0.5 min-w-0">
                       {taskScheduleOutsideProjectNote && (
@@ -797,7 +765,6 @@ function SortableTaskRowInner({
                       {formatDate(task.startDate)}
                     </span>
                   </button>
-                  {renderLockBadge('startDate')}
                 </span>
               )}
               {otherPrimary && (
@@ -874,14 +841,7 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('endDate');
                     }}
-                    title={[
-                      (task.userLockedFields ?? []).includes('endDate')
-                        ? '종료일 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다'
-                        : '클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집',
-                      taskScheduleOutsideProjectNote,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+                    title={['클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집', taskScheduleOutsideProjectNote].filter(Boolean).join(' · ')}
                   >
                     <span className="inline-flex items-center gap-0.5 min-w-0">
                       {taskScheduleOutsideProjectNote && (
@@ -895,7 +855,6 @@ function SortableTaskRowInner({
                       {formatDate(task.endDate)}
                     </span>
                   </button>
-                  {renderLockBadge('endDate')}
                 </span>
               )}
               {otherPrimary && (
@@ -969,17 +928,12 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('workEffort');
                     }}
-                    title={
-                      (task.userLockedFields ?? []).includes('workEffort')
-                        ? `공수 수동 고정 · 선행 연결 등에서 자동 변경되지 않습니다 (${workEffortUnitSuffixKo(effortUnitForTask)})`
-                        : `클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`
-                    }
+                    title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                   >
                     <span className="inline-flex items-center gap-0.5 min-w-0">
                       {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
                     </span>
                   </button>
-                  {renderLockBadge('workEffort')}
                 </span>
               )}
               {otherPrimary && (
@@ -1125,9 +1079,52 @@ function SortableTaskRowInner({
                       {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
                     </span>
                   </button>
-                  {renderLockBadge('progress')}
                 </span>
               )}
+            </div>
+          );
+        }
+        if (colId === 'plannedProgress') {
+          const computable = hasChildren || hasPlannedSchedule(task);
+          const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
+          const plannedFmt = formatPercent1(planned);
+          return (
+            <div
+              key={colId}
+              className="data-cell font-mono text-xs text-stone-500 min-w-0 cursor-help"
+              title={
+                computable
+                  ? plannedProgressDataCellTitle(plannedFmt)
+                  : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.'
+              }
+            >
+              <span className="px-1 inline-block w-full text-left truncate">{computable ? `${plannedFmt}%` : '—'}</span>
+            </div>
+          );
+        }
+        if (colId === 'progressVariance') {
+          const computable = hasChildren || hasPlannedSchedule(task);
+          const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
+          const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
+          const variance = progressVariance(actual, planned);
+          const rounded = round1(variance);
+          const color = !computable ? 'text-stone-400' : rounded < 0 ? 'text-red-600' : rounded > 0 ? 'text-emerald-600' : 'text-stone-500';
+          const sign = rounded > 0 ? '+' : '';
+          const label = rounded < 0 ? '계획 대비 지연' : rounded > 0 ? '계획보다 앞섬' : '계획대로';
+          const actFmt = formatPercent1(actual);
+          const plFmt = formatPercent1(planned);
+          const varFmt = formatPercent1(variance);
+          return (
+            <div
+              key={colId}
+              className={cn('data-cell font-mono text-xs min-w-0 cursor-help', color)}
+              title={
+                computable
+                  ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
+                  : '계획 일정이 없어 진척차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율이며, 계획율은 일정에서만 산정됩니다.'
+              }
+            >
+              <span className="px-1 inline-block w-full text-left truncate">{computable ? `${sign}${varFmt}%p` : '—'}</span>
             </div>
           );
         }
@@ -1221,7 +1218,7 @@ function SortableTaskRowInner({
             const trimmed = rawStr.trim();
             const raw = trimmed === '' ? 100 : parseFloat(trimmed);
             if (!Number.isFinite(raw)) return;
-            const pct = Math.min(100, Math.max(0, Math.round(raw * 10) / 10));
+            const pct = clampAllocationPercentInt(raw);
             const proj = projects.find((p) => p.id === task.projectId);
             if (!proj) return;
             const list = [...(proj.assignments ?? [])].filter((a) => (a.assignee || '').trim() !== assigneeTrimForAlloc);
@@ -1242,12 +1239,12 @@ function SortableTaskRowInner({
                 <input
                   id={`wbs-edit-${task.id}-allocation`}
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   autoFocus
                   value={allocationEditStr}
                   onChange={(e) => {
                     const next = e.target.value;
-                    if (next === '' || /^\d*([.]\d*)?$/.test(next)) setAllocationEditStr(next);
+                    if (next === '' || /^\d*$/.test(next)) setAllocationEditStr(next);
                   }}
                   className="w-full min-w-0 bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   onBlur={() => {
@@ -1452,9 +1449,7 @@ function SortableTaskRowInner({
             const sameLength = prevDeps.length === taskIds.length;
             const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
             if (noChange) return;
-            const locked = new Set(task.userLockedFields ?? []);
-            locked.add('dependencies');
-            updateTask(task.id, { dependencies: taskIds, userLockedFields: Array.from(locked) });
+            updateTask(task.id, { dependencies: taskIds });
           };
           const applyPickDependency = (pickedId: string) => {
             if (pickedId === task.id) return;
@@ -1497,9 +1492,7 @@ function SortableTaskRowInner({
             const sameLength = prevDeps.length === taskIds.length;
             const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
             if (noChange) return;
-            const locked = new Set(task.userLockedFields ?? []);
-            locked.add('dependencies');
-            updateTask(task.id, { dependencies: taskIds, userLockedFields: Array.from(locked) });
+            updateTask(task.id, { dependencies: taskIds });
             const visibleNums = taskIds
               .map((tid) => taskIdToSeqNum.get(tid))
               .filter((n): n is number => n != null)
@@ -1624,7 +1617,6 @@ function SortableTaskRowInner({
                   >
                     <span className="block truncate">{depsDisplayText}</span>
                   </button>
-                  {renderLockBadge('dependencies')}
                 </span>
               )}
             </div>
@@ -1778,14 +1770,13 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.isMilestone === next.task.isMilestone &&
     prev.task.isIssue === next.task.isIssue &&
     prev.task.isActionItem === next.task.isActionItem &&
-    (prev.task.userLockedFields?.length ?? 0) === (next.task.userLockedFields?.length ?? 0) &&
-    (prev.task.userLockedFields ?? []).every((f, i) => (next.task.userLockedFields ?? [])[i] === f) &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById &&
     prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName &&
-    prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks
+    prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks &&
+    prev.plannedProgress === next.plannedProgress
   );
 }
 

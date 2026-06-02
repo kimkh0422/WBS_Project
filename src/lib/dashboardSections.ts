@@ -14,7 +14,7 @@ export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
   summary: '전체 현황 요약',
   issues: '이슈 작업',
   actions: '액션 항목',
-  divisions: '사업부·부서별 현황',
+  divisions: '사업부별 등록 프로젝트·업무 현황',
   allocation: '인원·사업부 투입공수',
   milestones: '마일스톤',
   projects: '프로젝트별 상태',
@@ -24,14 +24,14 @@ export const WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED = 'wbs-dashboard-section-v
 
 export function getDefaultDashboardSectionVisibility(): DashboardSectionVisibility {
   const all = Object.fromEntries(DASHBOARD_SECTION_IDS.map((id) => [id, false])) as DashboardSectionVisibility;
-  /** 첫 화면: 요약 + 인원별 투입 요약 + 프로젝트 목록 — 그 외는 설정에서 켤 수 있음 */
+  /** 첫 화면: 요약 + 사업부별 프로젝트 현황 + 인원별 투입 요약 + 프로젝트 목록 — 그 외는 설정에서 켤 수 있음 */
   all.summary = true;
   all.projects = true;
   all.allocation = true;
-  /** 이슈·액션·부서·마일스톤은 기본 숨김 */
+  all.divisions = true;
+  /** 이슈·액션·마일스톤은 기본 숨김 */
   all.issues = false;
   all.actions = false;
-  all.divisions = false;
   all.milestones = false;
   return all;
 }

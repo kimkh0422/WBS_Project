@@ -14,6 +14,7 @@ import {
   Search,
   Network,
   Table2,
+  FileDown,
 } from 'lucide-react';
 import { getDailyVisitors, getDailyVisitCounts, getVisitorRanking, type DailyVisitorRow, type VisitorRankingRow } from '../lib/db';
 import { cn, formatPercent1 } from '../lib/utils';
@@ -38,6 +39,8 @@ import {
   countProjectsInOrgBranch,
   type OrgChartGroupBranch,
 } from '../lib/projectListOrgGrouping';
+import { downloadProjectRegistrationPdfReport } from '../lib/projectRegistrationPdf';
+import { useToast } from './Toast';
 
 export type DashboardDetailKind =
   | 'projects'
@@ -215,6 +218,8 @@ export function DashboardDetailPage({
   /** PM이 없을 때 조직도 매칭에 사용하는 소유자 프로필 부서 */
   ownerDepartmentByUserId?: Record<string, string | null | undefined>;
 }) {
+  const { push: pushToast } = useToast();
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [dailyList, setDailyList] = useState<DailyVisitorRow[]>([]);
   const [visitorRanking, setVisitorRanking] = useState<VisitorRankingRow[]>([]);
@@ -405,6 +410,32 @@ export function DashboardDetailPage({
     );
   }
 
+  const handleDownloadProjectRegistrationPdf = async () => {
+    if (pdfExporting || kind !== 'projects') return;
+    setPdfExporting(true);
+    try {
+      const subtitleLines: string[] = [];
+      if (dashboardExcludedCount > 0) {
+        subtitleLines.push(
+          `집계에서 제외된 프로젝트 ${dashboardExcludedCount}개는 목록·합계에서 제외된 상태입니다. (전체 ${totalProjectsInAccount}개 중)`,
+        );
+      }
+      if (dashboardFiltersActive) {
+        subtitleLines.push('대시보드 상단 필터가 적용된 표시 범위입니다.');
+      }
+      await downloadProjectRegistrationPdfReport({
+        rows: registeredProjectsSorted,
+        subtitleLines,
+      });
+      pushToast('프로젝트 등록현황 PDF를 저장했습니다.', { variant: 'success' });
+    } catch (e) {
+      console.error(e);
+      pushToast('PDF 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.', { variant: 'error' });
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   const titleForKind = (): string => {
     switch (kind) {
       case 'projects':
@@ -512,45 +543,62 @@ export function DashboardDetailPage({
         {kind === 'projects' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div
-                className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5"
-                role="tablist"
-                aria-label="프로젝트 목록 표시 방식"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={showRegisteredProjectsOrgLayout}
-                  disabled={!orgLayoutAvailable}
-                  title={!orgLayoutAvailable ? '조직 트리 데이터가 없습니다.' : undefined}
-                  onClick={() => persistRegisteredProjectsLayout('org')}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
-                    showRegisteredProjectsOrgLayout
-                      ? 'bg-white text-teal-900 shadow-sm border border-stone-200/80'
-                      : 'text-stone-600 hover:text-stone-900 disabled:opacity-40 disabled:cursor-not-allowed',
-                  )}
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <div
+                  className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5"
+                  role="tablist"
+                  aria-label="프로젝트 목록 표시 방식"
                 >
-                  <Network size={14} aria-hidden />
-                  조직도
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!showRegisteredProjectsOrgLayout}
-                  onClick={() => persistRegisteredProjectsLayout('flat')}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
-                    !showRegisteredProjectsOrgLayout
-                      ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
-                      : 'text-stone-600 hover:text-stone-900',
-                  )}
-                >
-                  <Table2 size={14} aria-hidden />
-                  목록
-                </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={showRegisteredProjectsOrgLayout}
+                    disabled={!orgLayoutAvailable}
+                    title={!orgLayoutAvailable ? '조직 트리 데이터가 없습니다.' : undefined}
+                    onClick={() => persistRegisteredProjectsLayout('org')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
+                      showRegisteredProjectsOrgLayout
+                        ? 'bg-white text-teal-900 shadow-sm border border-stone-200/80'
+                        : 'text-stone-600 hover:text-stone-900 disabled:opacity-40 disabled:cursor-not-allowed',
+                    )}
+                  >
+                    <Network size={14} aria-hidden />
+                    조직도
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={!showRegisteredProjectsOrgLayout}
+                    onClick={() => persistRegisteredProjectsLayout('flat')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-md inline-flex items-center gap-1.5 transition-colors',
+                      !showRegisteredProjectsOrgLayout
+                        ? 'bg-white text-stone-900 shadow-sm border border-stone-200/80'
+                        : 'text-stone-600 hover:text-stone-900',
+                    )}
+                  >
+                    <Table2 size={14} aria-hidden />
+                    목록
+                  </button>
+                </div>
+                {!orgLayoutAvailable ? <p className="text-xs text-stone-500">조직 트리가 없어 목록으로만 표시합니다.</p> : null}
               </div>
-              {!orgLayoutAvailable ? <p className="text-xs text-stone-500">조직 트리가 없어 목록으로만 표시합니다.</p> : null}
+              <button
+                type="button"
+                onClick={() => void handleDownloadProjectRegistrationPdf()}
+                disabled={pdfExporting}
+                title="현재 정렬·필터가 반영된 프로젝트 요약만 PDF로 저장합니다. (세부 작업 목록 제외)"
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors',
+                  pdfExporting
+                    ? 'border-stone-200 bg-stone-100 text-stone-400 cursor-not-allowed'
+                    : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 hover:border-rose-300',
+                )}
+              >
+                <FileDown size={15} className="shrink-0" aria-hidden />
+                {pdfExporting ? 'PDF 생성 중…' : 'PDF 리포트'}
+              </button>
             </div>
             <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
               <table className="w-full text-sm">

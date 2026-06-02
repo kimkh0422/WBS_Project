@@ -15,10 +15,15 @@ export interface DivisionDetailStats {
   doneCount: number;
   issueCount: number;
   projectCount: number;
-  /** 대시보드 집계에 포함된 프로젝트(그룹명→사업부 매칭), 표시명 가나다순 */
+  /** 대시보드에 포함된 프로젝트(사업부 분류), 표시명 가나다순 */
   registeredProjects: { id: string; label: string }[];
   progress: number;
+  /** 일정 기준 기대 진척(0~100). Task 가중과 진척율과 동일 규칙 */
+  planned: number;
+  /** 해당 사업부 프로젝트의 작업에 기재된 서로 다른 담당자 수 */
   assigneeCount: number;
+  /** 해당 사업부 프로젝트 `assignments`에 등록된 서로 다른 인원 수 */
+  assignmentPersonCount: number;
   /** 조직도에서 이 사업부에 매칭된 인원 수 */
   memberCount: number;
   /** 완료 처리되지 않은 작업 수 */
@@ -84,7 +89,7 @@ export function DashboardDivisionDetail({
           className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 hover:border-stone-300 transition-colors"
         >
           <ChevronLeft size={18} className="shrink-0" aria-hidden />
-          사업부·부서별 현황
+          사업부별 현황
         </button>
         <span className="text-xs text-stone-400 hidden sm:inline">Esc로 목록</span>
       </div>
@@ -101,22 +106,36 @@ export function DashboardDivisionDetail({
               {stats.name}
             </h1>
             <p className="text-sm text-stone-500 mt-1">
-              대시보드에 포함된 프로젝트 중, 프로젝트 그룹(부서명)이 이 사업부에 맞거나 이 사업부 소속 담당자 작업이 있는 항목을 모았습니다.
+              이 사업부로 분류된 프로젝트(PM·PO·소유자 부서 추론, 없으면 프로젝트 그룹명)와 그 프로젝트에 등록된 작업·투입·담당 현황입니다.
             </p>
           </div>
         </div>
-        <span className="text-sm text-stone-400 tabular-nums shrink-0">
-          소속 {stats.memberCount}명 · 프로젝트 {stats.projectCount}개
+        <span className="text-sm text-stone-400 tabular-nums shrink-0 text-right">
+          프로젝트 {stats.projectCount} · Task {stats.total} · 투입 {stats.assignmentPersonCount} · 담당 {stats.assigneeCount} · 소속{' '}
+          {stats.memberCount}명
         </span>
       </header>
 
       <div className="bg-white border border-stone-200 rounded-xl p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5">
-          <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">등록 프로젝트</div>
-          <div className={cn('font-bold text-sky-600 tabular-nums leading-tight mt-0.5', mobileReadabilityMode ? 'text-2xl' : 'text-3xl')}>
-            {stats.projectCount}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="rounded-xl border-2 border-sky-200 bg-sky-50/90 px-3 py-3 text-center shadow-sm">
+            <div className="text-[11px] font-bold text-sky-900">프로젝트</div>
+            <div className={cn('font-bold text-sky-700 tabular-nums leading-none mt-1', mobileReadabilityMode ? 'text-3xl' : 'text-4xl')}>
+              {stats.projectCount}
+            </div>
+            <div className="text-[10px] font-semibold text-sky-800/80 mt-0.5">건</div>
           </div>
-          {stats.registeredProjects.length > 0 && (
+          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-3 text-center shadow-sm">
+            <div className="text-[11px] font-bold text-slate-900">등록 Task</div>
+            <div className={cn('font-bold text-slate-800 tabular-nums leading-none mt-1', mobileReadabilityMode ? 'text-3xl' : 'text-4xl')}>
+              {stats.total}
+            </div>
+            <div className="text-[10px] font-semibold text-slate-700/85 mt-0.5">건</div>
+          </div>
+        </div>
+        <div className="rounded-lg bg-sky-50/90 border border-sky-100 px-3 py-2.5 mb-4">
+          <div className="text-[10px] font-bold text-sky-700/85 uppercase tracking-wide">소속 프로젝트 목록</div>
+          {stats.registeredProjects.length > 0 ? (
             <ul
               className={cn(
                 'mt-2 pt-2 border-t border-sky-100/90 space-y-1 max-h-[9rem] overflow-y-auto text-sky-900/90 leading-snug',
@@ -129,29 +148,52 @@ export function DashboardDivisionDetail({
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="text-xs text-sky-800/80 mt-2 m-0">분류된 프로젝트가 없거나 이름만 집계되지 않았습니다.</p>
           )}
         </div>
-        <div>
-          <div className="flex items-baseline justify-between gap-2 mb-1.5">
-            <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">전체 진척율</span>
-            <span className={cn('font-bold text-indigo-600 tabular-nums', mobileReadabilityMode ? 'text-xl' : 'text-2xl')}>
-              {formatPercent1(stats.progress)}%
-            </span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+              <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">계획율</span>
+              <span className={cn('font-bold text-amber-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
+                {formatPercent1(stats.planned)}%
+              </span>
+            </div>
+            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-500 transition-all" style={{ width: `${Math.min(100, stats.planned)}%` }} />
+            </div>
           </div>
-          <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-500 transition-all" style={{ width: `${Math.min(100, stats.progress)}%` }} />
+          <div>
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+              <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wide">진척율</span>
+              <span className={cn('font-bold text-indigo-600 tabular-nums', mobileReadabilityMode ? 'text-xl' : 'text-2xl')}>
+                {formatPercent1(stats.progress)}%
+              </span>
+            </div>
+            <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-500 transition-all" style={{ width: `${Math.min(100, stats.progress)}%` }} />
+            </div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-stone-100 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-stone-100 text-center">
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">소속 인원</div>
+            <div className="text-[10px] text-stone-500 mb-0.5">소속</div>
             <div className={cn('font-bold text-stone-800 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
               {stats.memberCount}
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-stone-500 mb-0.5">전체 Task</div>
-            <div className={cn('font-bold text-stone-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>{stats.total}</div>
+            <div className="text-[10px] text-stone-500 mb-0.5">투입</div>
+            <div className={cn('font-bold text-teal-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
+              {stats.assignmentPersonCount}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] text-stone-500 mb-0.5">담당</div>
+            <div className={cn('font-bold text-indigo-700 tabular-nums', mobileReadabilityMode ? 'text-lg' : 'text-xl')}>
+              {stats.assigneeCount}
+            </div>
           </div>
           <div>
             <div className="text-[10px] text-stone-500 mb-0.5">진행 중</div>
@@ -167,11 +209,6 @@ export function DashboardDivisionDetail({
           <span>
             이슈 <span className="text-rose-600 font-semibold tabular-nums">{stats.issueCount}</span>
           </span>
-          {stats.assigneeCount !== stats.memberCount && (
-            <span className="text-stone-400" title="이 사업부 작업에 배정된 서로 다른 담당자 수">
-              담당자 {stats.assigneeCount}명
-            </span>
-          )}
         </div>
       </div>
 
@@ -234,7 +271,7 @@ export function DashboardDivisionDetail({
         </h2>
         {projects.length === 0 ? (
           <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-            프로젝트 그룹명이 이 사업부 부서명과 매칭되는 프로젝트가 없습니다.
+            이 사업부로 분류되는 프로젝트가 없습니다. PM·PO·소유자 부서 또는 프로젝트 그룹명이 조직도와 맞는지 확인해 주세요.
           </div>
         ) : (
           <div className="bg-white border border-stone-200 rounded-xl overflow-hidden divide-y divide-stone-100">
@@ -246,7 +283,7 @@ export function DashboardDivisionDetail({
                 className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-stone-50/80 transition-colors"
               >
                 <span className="font-medium text-stone-800 break-words min-w-0">{formatProjectDisplayName(p.name, p.projectKind)}</span>
-                <span className="text-xs text-stone-400 shrink-0 tabular-nums">이 사업부 작업 {projectTaskCounts[p.id] ?? 0}건</span>
+                <span className="text-xs text-stone-400 shrink-0 tabular-nums">프로젝트 내 Task {projectTaskCounts[p.id] ?? 0}건</span>
               </button>
             ))}
           </div>
@@ -261,14 +298,14 @@ export function DashboardDivisionDetail({
           )}
         >
           <ListChecks className="text-teal-600 shrink-0" size={22} />
-          담당 작업
+          연결 프로젝트의 작업
           <span className="text-sm font-normal text-stone-500">
             ({tasks.length}건{tasks.length > TASK_TABLE_LIMIT ? `, 상위 ${TASK_TABLE_LIMIT}건만 표시` : ''})
           </span>
         </h2>
         {tableTasks.length === 0 ? (
           <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-            이 사업부 소속 담당자로 배정된 작업이 없습니다.
+            이 사업부로 분류된 프로젝트에 등록된 작업이 없습니다.
           </div>
         ) : mobileReadabilityMode ? (
           <ul className="space-y-2">

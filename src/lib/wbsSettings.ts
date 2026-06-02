@@ -81,6 +81,8 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'allocation', visible: false },
     { id: 'status', visible: true },
     { id: 'progress', visible: true },
+    { id: 'plannedProgress', visible: true },
+    { id: 'progressVariance', visible: true },
     { id: 'deliverables', visible: true },
     { id: 'dependencies', visible: true },
   ],

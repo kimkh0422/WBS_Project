@@ -21,7 +21,7 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     description: task.description ?? null,
     checklist: (task.checklist ?? []) as { id: string; text: string; completed: boolean }[],
     deliverables: task.deliverables ?? null,
-    user_locked_fields: (task.userLockedFields ?? []) as TaskRow['user_locked_fields'],
+    user_locked_fields: [] as TaskRow['user_locked_fields'],
     sort_order: sortOrder,
     is_milestone: task.isMilestone ?? false,
     is_issue: task.isIssue ?? false,
@@ -61,9 +61,6 @@ export function fromTaskRow(row: TaskRow): Task {
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
     weight: row.weight ?? undefined,
     customFields: row.custom_fields ?? undefined,
-    userLockedFields: Array.isArray(row.user_locked_fields)
-      ? (row.user_locked_fields.filter(Boolean) as Task['userLockedFields'])
-      : undefined,
   };
 }
 

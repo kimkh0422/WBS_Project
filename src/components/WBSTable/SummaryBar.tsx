@@ -1,24 +1,28 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2 } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
+import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
 
 const StatChip = ({
   icon,
   label,
   value,
   hint,
+  valueClassName,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   /** 네이티브 툴팁(계산 방식 등) */
   hint?: string;
+  /** 값 텍스트 색 등 추가 클래스(예: 진척차이 양수/음수 색) */
+  valueClassName?: string;
 }) => (
   <div className="flex items-center gap-1.5 px-3 py-1" title={hint}>
     <span className="text-stone-400">{icon}</span>
     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">{label}</span>
-    <span className="text-xs font-semibold text-[var(--color-ink)]">{value}</span>
+    <span className={cn('text-xs font-semibold text-[var(--color-ink)]', valueClassName)}>{value}</span>
   </div>
 );
 
@@ -83,6 +87,28 @@ export function SummaryBar({
             label="전체 진척율"
             value={`${formatPercent1(summaryStats.avgProgress)}%`}
             hint={summaryStats.avgProgressTooltip}
+          />
+          <Divider />
+          <StatChip
+            icon={<Target size={12} />}
+            label="전체 계획율"
+            value={`${formatPercent1(summaryStats.avgPlanned)}%`}
+            hint={SUMMARY_BAR_PLANNED_HINT}
+          />
+          <Divider />
+          <StatChip
+            icon={<TrendingUp size={12} />}
+            label="계획대비"
+            value={`${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}%p`}
+            valueClassName={
+              summaryStats.progressVariance < 0 ? 'text-red-600' : summaryStats.progressVariance > 0 ? 'text-emerald-600' : undefined
+            }
+            hint={summaryBarVarianceHint(
+              formatPercent1(summaryStats.avgProgress),
+              formatPercent1(summaryStats.avgPlanned),
+              `${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}`,
+              summaryStats.progressVariance < 0 ? '계획 대비 지연' : summaryStats.progressVariance > 0 ? '계획보다 앞섬' : '계획대로',
+            )}
           />
           <Divider />
           <StatChip

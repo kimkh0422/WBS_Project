@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
+import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { getTopologicalOrder, applyDependencySchedule, computeEndDateFromEffort, computeStartDateFromEndDate } from '../../lib/schedule';
 import { getHolidaysForTaskDates } from '../../lib/calendar';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
@@ -177,8 +178,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const hasDependencyChange = Object.prototype.hasOwnProperty.call(updates, 'dependencies');
         const hasScheduleChange = hasDateChange || hasWorkEffortChange || hasDependencyChange;
 
-        const taskLockedFields = new Set(task.userLockedFields ?? []);
-        const endDateLocked = taskLockedFields.has('endDate');
         let resolvedUpdates = { ...updates };
         if (typeof resolvedUpdates.weight === 'number' && Number.isFinite(resolvedUpdates.weight)) {
           resolvedUpdates = { ...resolvedUpdates, weight: round1(resolvedUpdates.weight) };
@@ -208,21 +207,16 @@ export function useTaskOps(deps: TaskOpsDeps) {
           const newStart = updates.startDate ?? task.startDate;
           const newEnd = updates.endDate ?? task.endDate;
           const workEffort = updates.workEffort !== undefined ? updates.workEffort : task.workEffort;
-          const startDateLocked = taskLockedFields.has('startDate');
           const workEffortMd = typeof workEffort === 'number' && workEffort > 0 ? workEffortToManDays(workEffort, effortUnit) : undefined;
 
-          if (
-            Object.prototype.hasOwnProperty.call(updates, 'endDate') &&
-            !Object.prototype.hasOwnProperty.call(updates, 'startDate') &&
-            !startDateLocked
-          ) {
+          if (Object.prototype.hasOwnProperty.call(updates, 'endDate') && !Object.prototype.hasOwnProperty.call(updates, 'startDate')) {
             const computedStart = computeStartDateFromEndDate(newEnd, workEffortMd, assignments, holidays, task.startDate, task.endDate);
             if (computedStart !== task.startDate) {
               resolvedUpdates.startDate = computedStart;
             }
           }
 
-          if (!endDateLocked && !Object.prototype.hasOwnProperty.call(updates, 'endDate')) {
+          if (!Object.prototype.hasOwnProperty.call(updates, 'endDate')) {
             if (typeof workEffortMd === 'number' && workEffortMd > 0) {
               resolvedUpdates.endDate = computeEndDateFromEffort(
                 resolvedUpdates.startDate ?? newStart,
@@ -241,34 +235,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        // 명시적 userLockedFields(빈 배열·undefined 포함)가 오면 그걸 기준으로 두고, 없으면 기존 잠금에서 이어서 자동 추가만 한다.
-        let lockFields = new Set(task.userLockedFields ?? []);
-        if (Object.prototype.hasOwnProperty.call(updates, 'userLockedFields')) {
-          const u = updates.userLockedFields;
-          lockFields = new Set(Array.isArray(u) ? u : []);
-        }
-        if (hasDateChange) {
-          if (Object.prototype.hasOwnProperty.call(updates, 'startDate') && resolvedUpdates.startDate != null) {
-            lockFields.add('startDate');
-            lockFields.delete('endDate');
-          }
-          if (resolvedUpdates.endDate != null) {
-            lockFields.add('endDate');
-          }
-        }
-        if (
-          Object.prototype.hasOwnProperty.call(updates, 'progress') &&
-          typeof resolvedUpdates.progress === 'number' &&
-          Number.isFinite(resolvedUpdates.progress)
-        ) {
-          lockFields.add('progress');
-        }
-        /** 표·모달 등에서 사용자가 공수 값을 직접 넣은 경우 자동 일정(선행 연결 등)이 덮어쓰지 않도록 */
-        if (Object.prototype.hasOwnProperty.call(updates, 'workEffort')) {
-          lockFields.add('workEffort');
-        }
-
-        let updatedTask = { ...task, ...resolvedUpdates, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
+        let updatedTask = { ...task, ...resolvedUpdates };
         const project = projs.find((p) => p.id === task.projectId);
 
         // 사용자가 명시적으로 작업 일정을 프로젝트 범위 밖으로 변경하면, 클램프하지 않고 프로젝트 범위를 자동 확장한다.
@@ -353,11 +320,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         // 일정 변경 시 연관 업무 재계산
         if (hasScheduleChange && task.projectId && !skipCascade) {
           const projectTaskList = nextTasks.filter((t) => t.projectId === task.projectId);
-          const dateLocked = new Set(
-            projectTaskList
-              .filter((t) => (t.userLockedFields ?? []).includes('startDate') || (t.userLockedFields ?? []).includes('endDate'))
-              .map((t) => t.id),
-          );
+          const dateLocked = new Set<string>();
 
           const getDescendantIds = (rootId: string): Set<string> => {
             const desc = new Set<string>();
@@ -562,18 +525,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           if (!idSet.has(t.id)) return t;
           const patch = originalIdSet.has(t.id) ? updates : assigneePatch;
           if (Object.keys(patch).length === 0) return t;
-          const patchLocksProgress =
-            Object.prototype.hasOwnProperty.call(patch, 'progress') &&
-            typeof patch.progress === 'number' &&
-            Number.isFinite(patch.progress);
-          if (!patchLocksProgress) return { ...t, ...patch };
-          const localLockFields = new Set(t.userLockedFields ?? []);
-          localLockFields.add('progress');
-          return {
-            ...t,
-            ...patch,
-            userLockedFields: localLockFields.size > 0 ? Array.from(localLockFields) : undefined,
-          };
+          return { ...t, ...patch };
         });
 
         // 일괄 수정은 updateTask와 달리 기본적으로 롤업이 없어 상위·요약 진척률이 갱신되지 않았음.
@@ -743,7 +695,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const bulkEffort = options?.bulkWorkEffort;
       const bulkAlloc = options?.bulkAllocationPercent;
       if (bulkAlloc != null && Number.isFinite(bulkAlloc)) {
-        const pct = Math.min(100, Math.max(0, Math.round(bulkAlloc * 10) / 10));
+        const pct = clampAllocationPercentInt(bulkAlloc);
         const taskById = new Map(allTasksRef.current.map((t) => [t.id, t]));
         const assigneesByProjectId = new Map<string, Set<string>>();
         for (const id of orderedTaskIds) {
@@ -805,19 +757,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
           const idx = indexInChain.get(t.id);
           if (idx == null) return t;
 
-          const lockFields = new Set(t.userLockedFields ?? []);
-          // 날짜 잠금은 유지한다. applyDependencySchedule가 userLockedFields를 존중해
-          // 잠금된 시작일/종료일은 FS·공수 재산출로 덮어쓰지 않는다(선행만 연결하고 일정은 사용자 고정 유지).
-          if (idx > 0) {
-            lockFields.add('dependencies');
-          }
-
-          let updated: Task = { ...t, userLockedFields: lockFields.size > 0 ? Array.from(lockFields) : undefined };
+          let updated: Task = { ...t };
 
           if (applyBulkEffort != null) {
             updated = { ...updated, workEffort: applyBulkEffort };
-            lockFields.add('workEffort');
-            updated.userLockedFields = Array.from(lockFields);
           }
 
           if (idx > 0) {

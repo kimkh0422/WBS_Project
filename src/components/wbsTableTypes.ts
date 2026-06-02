@@ -12,6 +12,8 @@ export type BuiltInTableColumnId =
   | 'allocation'
   | 'status'
   | 'progress'
+  | 'plannedProgress'
+  | 'progressVariance'
   | 'deliverables'
   | 'dependencies';
 export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;

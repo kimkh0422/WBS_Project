@@ -20,6 +20,8 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   allocation: 72,
   status: 70,
   progress: 70,
+  plannedProgress: 66,
+  progressVariance: 78,
   deliverables: 120,
   dependencies: 120,
   actions: 70,
@@ -37,6 +39,8 @@ const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   allocation: '투입율',
   status: '상태',
   progress: '진척(%)',
+  plannedProgress: '계획(%)',
+  progressVariance: '차이(%p)',
   deliverables: '산출물',
   dependencies: '선행작업',
 };

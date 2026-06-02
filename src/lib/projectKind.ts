@@ -130,7 +130,7 @@ export function groupProjectsByKind<T extends Pick<Project, 'projectKind'>>(
 }
 
 /** 구분별 목록에서 `include_in_dashboard = false` 프로젝트를 묶는 섹션 제목 */
-export const DASHBOARD_UNLISTED_SECTION_LABEL = '대시보드 반영 안된 프로젝트';
+export const DASHBOARD_UNLISTED_SECTION_LABEL = '집계제외';
 
 export function getDashboardUnlistedBadgeClass(): string {
   return 'bg-amber-50 text-amber-900 border-amber-200/80';

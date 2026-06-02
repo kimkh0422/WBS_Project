@@ -1230,7 +1230,6 @@ export function WBSProvider({
       let changed = false;
       let next = prev.map((t) => {
         if (!targetSet.has(t.projectId)) return t;
-        if ((t.userLockedFields ?? []).includes('progress')) return t;
         const config = configMap.get(t.status);
         if (!config || config.progress === undefined || config.progress === t.progress) return t;
         changed = true;
@@ -1254,7 +1253,15 @@ export function WBSProvider({
   // DB RLS는 `get_user_editable_project_ids`와 `can_browse_all_company_projects()` 등으로 동일하게 시행됨.
   const currentProjectObj = projects.find((p) => p.id === currentProjectId);
   const canEditCurrentProject = (() => {
-    if (!currentProjectId || currentProjectId === 'all') return false;
+    if (!currentProjectId) return false;
+    // 전체 프로젝트 보기: 단일 프로젝트가 아니어도, 편집 가능한 프로젝트가 하나라도 있으면
+    // 신규 작업·칸반 카드 추가 등 편집 UI를 켠다(addTask는 이 경우 첫 프로젝트 등으로 배정).
+    if (currentProjectId === 'all') {
+      if (isAdmin) return true;
+      if ((editableProjectIds?.length ?? 0) > 0) return true;
+      if (ownerId && projects.some((p) => p.ownerId === ownerId)) return true;
+      return false;
+    }
     if (isAdmin) return true;
     if (currentProjectObj?.ownerId === ownerId) return true;
     // editor 권한으로 공유받은 프로젝트

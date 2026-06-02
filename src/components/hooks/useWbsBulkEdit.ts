@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { Project, Task, TaskStatus } from '../../types';
 import type { WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
+import { clampAllocationPercentInt } from '../../lib/personAllocations';
 
 /** 일괄 수정 바의 작업 유형(플래그 일괄 지정). '' = 변경 없음 */
 export type BulkTaskKind = '' | 'plain' | 'milestone' | 'issue' | 'action';
@@ -128,7 +129,7 @@ export function useWbsBulkEdit({
     if (hasAllocation) {
       const rawVal = parseFloat(bulkAllocation);
       if (!Number.isNaN(rawVal) && Number.isFinite(rawVal)) {
-        const pct = Math.min(100, Math.max(0, Math.round(rawVal * 10) / 10));
+        const pct = clampAllocationPercentInt(rawVal);
         const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
         // 프로젝트별 변경 담당자 집합 수집
         const assigneesByProjectId = new Map<string, Set<string>>();
@@ -191,15 +192,11 @@ export function useWbsBulkEdit({
   const executeBulkWorkEffort = useCallback(() => {
     const value = parseFloat(bulkWorkEffort);
     if (isNaN(value) || value < 0) return;
-    const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
     for (const id of selectedTaskIds) {
-      const prev = taskById.get(id);
-      const locked = new Set<NonNullable<Task['userLockedFields']>[number]>(prev?.userLockedFields ?? []);
-      locked.add('workEffort');
-      updateTask(id, { workEffort: value, userLockedFields: [...locked] });
+      updateTask(id, { workEffort: value });
     }
     setBulkWorkEffort('');
-  }, [bulkWorkEffort, tasks, selectedTaskIds, updateTask]);
+  }, [bulkWorkEffort, selectedTaskIds, updateTask]);
 
   const executeBulkStatus = useCallback(() => {
     if (!bulkStatus) return;
@@ -240,14 +237,10 @@ export function useWbsBulkEdit({
   }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk]);
 
   const executeBulkClearDependencies = useCallback(() => {
-    const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
     for (const id of selectedTaskIds) {
-      const prev = taskById.get(id);
-      const locked = new Set<NonNullable<Task['userLockedFields']>[number]>(prev?.userLockedFields ?? []);
-      locked.add('dependencies');
-      updateTask(id, { dependencies: [], userLockedFields: [...locked] });
+      updateTask(id, { dependencies: [] });
     }
-  }, [tasks, selectedTaskIds, updateTask]);
+  }, [selectedTaskIds, updateTask]);
 
   /** 표에 보이는 순서대로 선택 행만 연쇄 선행(FS) 연결 */
   const executeBulkLinkSequentialPredecessors = useCallback(() => {
@@ -261,40 +254,11 @@ export function useWbsBulkEdit({
     }
     if (bulkAllocation !== '') {
       const val = parseFloat(bulkAllocation);
-      if (!isNaN(val) && Number.isFinite(val)) options.bulkAllocationPercent = Math.min(100, Math.max(0, Math.round(val * 10) / 10));
+      if (!isNaN(val) && Number.isFinite(val)) options.bulkAllocationPercent = clampAllocationPercentInt(val);
     }
-
-    const taskById = new Map(tasks.map((t) => [t.id, t]));
-    const anyDateLocked = ordered.some((id) => {
-      const lf = taskById.get(id)?.userLockedFields ?? [];
-      return lf.includes('startDate') || lf.includes('endDate');
-    });
 
     linkSequentialPredecessors(ordered, Object.keys(options).length > 0 ? options : undefined);
-
-    if (anyDateLocked) {
-      pushToast(
-        '시작일 또는 종료일이 잠금된 작업은 날짜를 자동으로 옮기지 않고 선행만 연결했습니다. FS와 맞지 않으면 표의 경고를 확인하세요.',
-        {
-          variant: 'warning',
-        },
-      );
-    }
-  }, [visibleTasks, selectedTaskIds, bulkWorkEffort, bulkAllocation, linkSequentialPredecessors, tasks, pushToast]);
-
-  /** 선택 작업 중 필드 잠금(`userLockedFields`)이 있는 행만 일괄 해제 */
-  const executeBulkUnlockFieldLocks = useCallback(() => {
-    const ids = Array.from(selectedTaskIds);
-    if (ids.length === 0) return;
-    const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
-    const withLocks = ids.filter((id) => (taskById.get(id)?.userLockedFields?.length ?? 0) > 0);
-    if (withLocks.length === 0) {
-      pushToast('선택한 작업에 잠금된 필드가 없습니다.', { variant: 'warning' });
-      return;
-    }
-    updateTasksBulk(withLocks, { userLockedFields: undefined });
-    pushToast(`${withLocks.length}개 작업의 필드 잠금을 해제했습니다.`, { variant: 'success' });
-  }, [selectedTaskIds, tasks, updateTasksBulk, pushToast]);
+  }, [visibleTasks, selectedTaskIds, bulkWorkEffort, bulkAllocation, linkSequentialPredecessors]);
 
   return {
     bulkStatus,
@@ -322,6 +286,5 @@ export function useWbsBulkEdit({
     executeBulkAssignee,
     executeBulkClearDependencies,
     executeBulkLinkSequentialPredecessors,
-    executeBulkUnlockFieldLocks,
   };
 }
