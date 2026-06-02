@@ -42,7 +42,7 @@ interface DashboardDivisionDetailProps {
   assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
   onBack: () => void;
   onOpenProjectTasks: (projectId: string) => void;
-  /** 대시보드 투입 섹션으로 스크롤·이 사업부 소속 인원만 필터 */
+  /** 투입현황(프로젝트 투입 현황) 화면으로 이동합니다 */
   onOpenAllocationForDivision?: () => void;
   mobileReadabilityMode?: boolean;
 }
@@ -143,8 +143,15 @@ export function DashboardDivisionDetail({
               )}
             >
               {stats.registeredProjects.map((rp) => (
-                <li key={rp.id} className="font-medium break-words" title={rp.label}>
-                  {rp.label}
+                <li key={rp.id} className="font-medium break-words">
+                  <button
+                    type="button"
+                    onClick={() => onOpenProjectTasks(rp.id)}
+                    className="text-left w-full rounded px-1 -mx-1 py-0.5 text-sky-900/90 hover:bg-sky-100/80 hover:text-teal-900 font-medium underline-offset-2 hover:underline"
+                    title="해당 프로젝트 WBS 작업 표로 이동"
+                  >
+                    {rp.label}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -220,7 +227,7 @@ export function DashboardDivisionDetail({
             className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-xl border border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100/90 transition-colors"
           >
             <Users className="shrink-0 text-teal-600" size={18} aria-hidden />
-            사업부 투입공수 (소속만)
+            사업부 투입 현황 (투입현황 메뉴)
           </button>
         </div>
       )}

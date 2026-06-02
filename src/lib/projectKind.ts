@@ -85,7 +85,8 @@ export function getProjectKindBadgeClass(kind: ProjectKind): string {
 /** UI·보내기 등에 쓰는 표시명. `projectKind`가 없으면 기본(기타) 구분을 붙인다. */
 export function formatProjectDisplayName(name: string, kind?: ProjectKind): string {
   const k = normalizeProjectKind(kind) ?? DEFAULT_PROJECT_KIND;
-  return `[${k}] ${name}`;
+  const body = getProjectDisplayNameBody(name, k);
+  return `[${k}] ${body}`;
 }
 
 /**
@@ -100,6 +101,30 @@ export function parseKindBracketPrefixForNewProject(raw: string): { name: string
   const rest = m[2].trim();
   if (!kind || !rest) return { name: trimmed };
   return { name: rest, projectKind: kind };
+}
+
+function escapeRegExpKindLabel(label: string): string {
+  return label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * `project_kind`와 함께 표시할 때 이름 앞에 붙은 구분(대괄호 패턴·종류 단어)을 한 번 제거한다.
+ * DB에는 그대로 두고 목록·툴팁 등 표시용으로만 사용한다.
+ */
+export function getProjectDisplayNameBody(name: string, kind: ProjectKind): string {
+  const original = name.trim();
+  if (!original) return original;
+
+  let n = original;
+  const parsed = parseKindBracketPrefixForNewProject(n);
+  if (parsed.projectKind === kind) {
+    n = parsed.name.trim();
+  }
+
+  const re = new RegExp(`^${escapeRegExpKindLabel(kind)}(?:[\\s\\u3000]+|$)`);
+  const stripped = n.replace(re, '').trim();
+  if (!stripped) return original;
+  return stripped;
 }
 
 export function resolveProjectKind(project?: Pick<Project, 'projectKind'> | null): ProjectKind | undefined {

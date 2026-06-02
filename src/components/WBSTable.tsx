@@ -36,6 +36,7 @@ import { ExcelGrid } from './ExcelGrid';
 import type { Project, Task } from '../types';
 import { TaskModal } from './TaskModal';
 import { MdEditModal } from './MdEditModal';
+import { WbsImprovementGuideModal } from './WbsImprovementGuideModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
@@ -55,6 +56,7 @@ import {
   workEffortUnitSuffixKo,
 } from '../lib/workEffortUnits';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
+import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -293,6 +295,7 @@ export function WBSTable({
   /** 편집 버튼 클릭 시 열리는 표-as-MD 편집 모달 */
   const [isMdEditModalOpen, setIsMdEditModalOpen] = useState(false);
   const [mdEditInitialMarkdown, setMdEditInitialMarkdown] = useState('');
+  const [improvementGuideOpen, setImprovementGuideOpen] = useState(false);
 
   // Global list of assignees for datalist autocomplete (bulk edit 등): 프로젝트 투입인원 + 작업 담당자
   const allAssignees = useMemo(() => {
@@ -441,6 +444,26 @@ export function WBSTable({
       }, 200);
     });
   }, [scrollToTaskId, visibleTasks, shouldVirtualize, rowVirtualizer]);
+
+  const scrollTaskIntoView = useCallback(
+    (taskId: string) => {
+      setActiveTaskId(taskId);
+      const idx = visibleTasks.findIndex((t) => t.id === taskId);
+      if (idx < 0) {
+        pushToast('현재 필터·표시 범위에 해당 작업이 없습니다. 필터를 초기화한 뒤 다시 시도해 주세요.', { variant: 'info' });
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (shouldVirtualize) {
+          rowVirtualizer.scrollToIndex(idx, { align: 'center', behavior: 'smooth' });
+        }
+        setTimeout(() => {
+          document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 200);
+      });
+    },
+    [visibleTasks, shouldVirtualize, rowVirtualizer, setActiveTaskId, pushToast],
+  );
 
   const maxTreeLevel = useMemo(() => {
     if (tasks.length === 0) return 1;
@@ -629,6 +652,19 @@ export function WBSTable({
   const baseTasks = useMemo(
     () => (filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId))),
     [tasks, filters.projectIds],
+  );
+
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
+
+  const improvementGuideSteps = useMemo(
+    () =>
+      buildWbsImprovementGuide(baseTasks, projectsById, wbsSettings.statusConfigs ?? [], {
+        labelForTask: (t) => {
+          const w = displayWbsMap.get(t.id);
+          return w ? `${w} ${t.name}` : t.name;
+        },
+      }),
+    [baseTasks, projectsById, wbsSettings.statusConfigs, displayWbsMap],
   );
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
@@ -1076,6 +1112,7 @@ export function WBSTable({
           setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
           setIsMdEditModalOpen(true);
         }}
+        onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
       />
       <div
         className={cn('w-full flex flex-col min-h-0', fillHeight && 'flex-1')}
@@ -1821,6 +1858,13 @@ export function WBSTable({
             pushToast('매칭되는 작업이 없어 반영되지 않았습니다. WBS 코드를 변경하지 마세요.', { variant: 'warning' });
           }
         }}
+      />
+
+      <WbsImprovementGuideModal
+        isOpen={improvementGuideOpen}
+        onClose={() => setImprovementGuideOpen(false)}
+        steps={improvementGuideSteps}
+        onJumpToTask={scrollTaskIntoView}
       />
 
       {contextMenu && (

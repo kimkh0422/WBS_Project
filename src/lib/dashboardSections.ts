@@ -5,34 +5,25 @@ export const DASHBOARD_SECTION_VISIBILITY_KEY = 'wbs-dashboard-section-visibilit
 /** v1 키 — v2 도입 시 한 번 읽어 이슈·액션은 끈 채로 이관 후 삭제 */
 const LEGACY_DASHBOARD_SECTION_VISIBILITY_KEY = 'wbs-dashboard-section-visibility';
 
-export const DASHBOARD_SECTION_IDS = ['summary', 'issues', 'actions', 'divisions', 'allocation', 'milestones', 'projects'] as const;
+export const DASHBOARD_SECTION_IDS = ['summary', 'divisions', 'projects'] as const;
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
 
 export type DashboardSectionVisibility = Record<DashboardSectionId, boolean>;
 
 export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
-  summary: '전체 현황 요약',
-  issues: '이슈 작업',
-  actions: '액션 항목',
-  divisions: '사업부별 등록 프로젝트·업무 현황',
-  allocation: '인원·사업부 투입공수',
-  milestones: '마일스톤',
-  projects: '프로젝트별 상태',
+  summary: '전체현황',
+  divisions: '사업부 현황',
+  projects: '프로젝트별 현황',
 };
 
 export const WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED = 'wbs-dashboard-section-visibility-changed';
 
 export function getDefaultDashboardSectionVisibility(): DashboardSectionVisibility {
   const all = Object.fromEntries(DASHBOARD_SECTION_IDS.map((id) => [id, false])) as DashboardSectionVisibility;
-  /** 첫 화면: 요약 + 사업부별 프로젝트 현황 + 인원별 투입 요약 + 프로젝트 목록 — 그 외는 설정에서 켤 수 있음 */
+  /** 첫 화면: 전체현황 + 사업부 현황 + 프로젝트별 현황 (투입 인원·비율은 투입현황 메뉴) */
   all.summary = true;
-  all.projects = true;
-  all.allocation = true;
   all.divisions = true;
-  /** 이슈·액션·마일스톤은 기본 숨김 */
-  all.issues = false;
-  all.actions = false;
-  all.milestones = false;
+  all.projects = true;
   return all;
 }
 
@@ -72,8 +63,6 @@ export function readDashboardSectionVisibility(): DashboardSectionVisibility {
       const legacy = localStorage.getItem(LEGACY_DASHBOARD_SECTION_VISIBILITY_KEY);
       if (legacy) {
         const merged = mergeStoredVisibility(legacy, defaults) ?? { ...defaults };
-        merged.issues = false;
-        merged.actions = false;
         try {
           persistVisibility(merged);
           localStorage.removeItem(LEGACY_DASHBOARD_SECTION_VISIBILITY_KEY);

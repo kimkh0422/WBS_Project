@@ -10,15 +10,11 @@ export type DashboardSectionLayout = Record<DashboardSectionId, DashboardSection
 
 export const WBS_DASHBOARD_SECTION_LAYOUT_CHANGED = 'wbs-dashboard-section-layout-changed';
 
-/** PC 기본: 이슈·액션은 표, 나머지는 카드(또는 카드형 목록)에 가깝게 */
+/** PC 기본: 카드형 목록 */
 export function getDefaultDashboardSectionLayout(): DashboardSectionLayout {
   return {
     summary: 'card',
-    issues: 'table',
-    actions: 'table',
     divisions: 'card',
-    allocation: 'table',
-    milestones: 'card',
     projects: 'card',
   };
 }

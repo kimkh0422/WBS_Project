@@ -1,5 +1,14 @@
 import type { Project } from '../types';
 
+/** 프로젝트 소유자(만든 사람) 표시명. `ownerId`·프로필이 없으면 빈 문자열 */
+export function resolveProjectOwnerDisplayName(project: Pick<Project, 'ownerId'>, profileMap?: Readonly<Record<string, string>>): string {
+  const oid = project.ownerId?.trim();
+  if (!oid) return '';
+  const fromProfile = profileMap?.[oid]?.trim();
+  if (fromProfile) return fromProfile;
+  return `사용자 (${oid.slice(0, 8)}…)`;
+}
+
 /**
  * 대시보드 등에서 PM으로 쓸 표시 이름.
  * `pmName`이 비어 있으면 프로젝트 소유자(일반적으로 만든 사람)의 프로필 표시명을 사용한다.

@@ -25,39 +25,37 @@ import { formatProjectPeriodDate } from '../lib/projectPeriod';
 import type { ActionDueDateFilter } from '../lib/actionItemDueFilter';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
-import { DashboardPersonAllocationSection } from './DashboardPersonAllocationSection';
 import { DashboardVisitTrendChart } from './DashboardVisitTrendChart';
 import { ProjectNameLabel } from './ProjectNameLabel';
 import { BaseModal } from './Base/Modal';
 import { ActionItemDetailModalBody } from './ActionItemDetailModalBody';
 import { ActionDueDateCell, ActionDueStatusBadge, actionDueSurfaceClassName, resolveActionDueVisualState } from './ActionItemDueDisplay';
 import { useOrganization } from '../context/OrganizationContext';
-import type { OrgNode } from '../data/organization';
 import {
   buildOrgChartProjectListBlocks,
   collectOrgExpandKeysForBlocks,
   countProjectsInOrgBranch,
   type OrgChartGroupBranch,
 } from '../lib/projectListOrgGrouping';
-import { downloadProjectRegistrationPdfReport } from '../lib/projectRegistrationPdf';
+import { downloadProjectRegistrationPdfReport } from '../lib/projectPdf';
 import { useToast } from './Toast';
 
-export type DashboardDetailKind =
-  | 'projects'
-  | 'tasks'
-  | 'members'
-  | 'visitors'
-  | 'issues'
-  | 'actions'
-  | 'milestones'
-  | 'allocation'
-  | 'project';
+export type DashboardDetailKind = 'projects' | 'tasks' | 'members' | 'visitors' | 'issues' | 'actions' | 'milestones' | 'project';
 
 interface ProjectStats {
   total: number;
   statusCounts: Record<string, number>;
   progress: number;
+  /** 계획율(%): 대시보드와 동일 집계 */
+  planned: number;
+  /** 계획 대비 진척 차이(%p) */
+  variance: number;
   assigneeCount: number;
+  /** WBS 작업 공수 합(M/D) */
+  inputManDays: number;
+  issueCount: number;
+  actionCount: number;
+  overdueCount: number;
 }
 
 type ProjectStatRow = Project & { stats: ProjectStats };
@@ -145,7 +143,6 @@ export function DashboardDetailPage({
   projectId,
   onBack,
   onOpenProjectTable,
-  onOpenAllocationOverview,
   onOpenTaskInTable,
   onOpenAllTasksTable,
   projectsForDashboard,
@@ -165,13 +162,11 @@ export function DashboardDetailPage({
   actionTasksWithDueDateCount,
   milestonesAll,
   projectStatsRows,
-  displayProjectsForAllocation,
-  displayTasksForAllocation,
   dashboardFiltersActive,
   updateTask,
   doneStatusId,
   todoStatusId,
-  doneStatusIds,
+  doneStatusIds: _doneStatusIds,
   isActionTaskCompleted,
   dashboardExcludedCount,
   totalProjectsInAccount,
@@ -182,8 +177,6 @@ export function DashboardDetailPage({
   onBack: () => void;
   /** 모바일 등에서 미제공 시 작업 표 이동 버튼이 비활성화됩니다. */
   onOpenProjectTable?: (projectId: string) => void;
-  /** 제공 시 투입 상세 모달 안에서도「투입현황」전체 화면으로 이동 */
-  onOpenAllocationOverview?: () => void;
   /** 제공 시「열기」가 해당 작업 행으로 스크롤하는 표 이동을 수행합니다. */
   onOpenTaskInTable?: (taskId: string, projectId: string) => void;
   onOpenAllTasksTable?: () => void;
@@ -205,8 +198,6 @@ export function DashboardDetailPage({
   actionTasksWithDueDateCount: number;
   milestonesAll: Array<Task & { projectName: string }>;
   projectStatsRows: Array<Project & { stats: ProjectStats }>;
-  displayProjectsForAllocation: Project[];
-  displayTasksForAllocation: Task[];
   dashboardFiltersActive: boolean;
   updateTask: (id: string, patch: Partial<Task>) => void;
   doneStatusId: string;
@@ -261,34 +252,6 @@ export function DashboardDetailPage({
 
   const { orgTree, orgMembers } = useOrganization();
   const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
-
-  const memberToDivisionId = useMemo(() => {
-    const m = new Map<string, string>();
-    const collect = (node: OrgNode, divisionId: string) => {
-      const deptSet = new Set(node.departments ?? []);
-      for (const member of orgMembers) {
-        if (deptSet.has(member.department) && !m.has(member.name)) m.set(member.name, divisionId);
-      }
-      for (const child of node.children ?? []) collect(child, divisionId);
-    };
-    for (const division of topLevelDivisions) collect(division, division.id);
-    return m;
-  }, [topLevelDivisions, orgMembers]);
-
-  const departmentNameToDivisionId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const division of topLevelDivisions) {
-      const walk = (node: OrgNode) => {
-        for (const d of node.departments ?? []) {
-          const key = d.trim();
-          if (key.length > 0 && !m.has(key)) m.set(key, division.id);
-        }
-        for (const child of node.children ?? []) walk(child);
-      };
-      walk(division);
-    }
-    return m;
-  }, [topLevelDivisions]);
 
   const orgLayoutAvailable = topLevelDivisions.length > 0;
   const showRegisteredProjectsOrgLayout = registeredProjectsLayout === 'org' && orgLayoutAvailable;
@@ -426,6 +389,10 @@ export function DashboardDetailPage({
       await downloadProjectRegistrationPdfReport({
         rows: registeredProjectsSorted,
         subtitleLines,
+        profileMap,
+        orgTree,
+        orgMembers,
+        ownerDepartmentByUserId,
       });
       pushToast('프로젝트 등록현황 PDF를 저장했습니다.', { variant: 'success' });
     } catch (e) {
@@ -452,8 +419,6 @@ export function DashboardDetailPage({
         return '액션 항목';
       case 'milestones':
         return '마일스톤 전체';
-      case 'allocation':
-        return '투입공수 상세';
       case 'project':
         return projectDetailRow ? formatProjectDisplayName(projectDetailRow.name, projectDetailRow.projectKind) : '프로젝트 상세';
       default:
@@ -588,7 +553,7 @@ export function DashboardDetailPage({
                 type="button"
                 onClick={() => void handleDownloadProjectRegistrationPdf()}
                 disabled={pdfExporting}
-                title="현재 정렬·필터가 반영된 프로젝트 요약만 PDF로 저장합니다. (세부 작업 목록 제외)"
+                title="현재 정렬·필터가 반영된 프로젝트 등록 정보·집계를 PDF로 저장합니다. (WBS 개별 작업 행 제외)"
                 className={cn(
                   'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors',
                   pdfExporting
@@ -1333,34 +1298,6 @@ export function DashboardDetailPage({
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-
-        {kind === 'allocation' && (
-          <div className="space-y-2">
-            <p className="text-xs text-stone-500 m-0">
-              WBS 담당 공수(M/M)를 인원·사업부로 묶은 요약입니다. 이름은 상세, 프로젝트는 작업 표로 이동합니다.
-            </p>
-            <DashboardPersonAllocationSection
-              projects={displayProjectsForAllocation}
-              allTasks={displayTasksForAllocation}
-              profileMap={profileMap}
-              registeredMemberDisplayNames={registeredMemberDisplayNames}
-              showFilterHint={dashboardFiltersActive}
-              assigneeTopDivisionIdByName={memberToDivisionId}
-              topLevelDivisions={topLevelDivisions.map((d) => ({ id: d.id, name: d.name }))}
-              onNavigateToWork={onOpenProjectTable}
-              onOpenAllocationOverview={onOpenAllocationOverview}
-              allocationDivisionInfer={{
-                memberToDivisionId,
-                departmentNameToDivisionId,
-                profileMap,
-                ownerDepartmentByUserId,
-              }}
-              sectionLayout="card"
-              showSectionLayoutToggle={false}
-              variant="embedded"
-            />
           </div>
         )}
 

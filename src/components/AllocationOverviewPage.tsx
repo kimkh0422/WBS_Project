@@ -99,12 +99,12 @@ export function AllocationOverviewPage({
           <div>
             <h1 className="text-xl font-bold text-[var(--color-ink)] flex items-center gap-2">
               <Users className="text-teal-600" size={24} />
-              프로젝트 투입 현황
+              투입 현황
             </h1>
             <p className="text-sm text-stone-500 mt-0.5">
-              프로젝트별로 어떤 인원이 어느 비중으로 투입되어 있는지 한눈에 확인합니다. 프로젝트별 보기에서도 각 카드의 「인원 추가」로 해당
-              프로젝트에 바로 투입할 수 있고, 인원별 보기에서는 「인원 추가」로 담당자를 등록한 뒤 「프로젝트」에서 기존·신규 프로젝트를
-              골라 투입을 넣을 수 있습니다.
+              투입 인원·프로젝트별 투입 비율·인원별 WBS 공수(M/D)를 이 화면에서 확인하고 편집합니다. 프로젝트별 보기에서는 각 카드의 「인원
+              추가」로 해당 프로젝트에 바로 투입할 수 있고, 인원별 보기에서는 「인원 추가」로 담당자를 등록한 뒤 「프로젝트」에서 기존·신규
+              프로젝트를 골라 투입을 넣을 수 있습니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">

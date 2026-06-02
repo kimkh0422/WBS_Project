@@ -49,7 +49,7 @@ import {
 import { PROJECT_CARD_SORT_LS_KEY, parseProjectCardSortKey, type ProjectCardSortKey } from '../lib/projectCardSort';
 import type { ProjectGroup } from '../lib/wbsSettings';
 import { computeProjectRollupMetrics } from '../lib/projectRollupStats';
-import { downloadProjectManagementPdfReport, type ProjectManagementPdfEntry } from '../lib/projectManagementPdf';
+import { downloadProjectManagementPdfReport, type ProjectManagementPdfEntry } from '../lib/projectPdf';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatPersonDisplay } from '../lib/assigneeOptions';
 import type { ProfileRow } from '../lib/supabase';
@@ -860,7 +860,12 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
           </span>
         </td>
         <td className="px-3 py-2 align-middle border-b border-stone-100 min-w-0 max-w-[280px]">
-          <ProjectNameLabel project={project} name={project.name} nameClassName="font-medium text-[var(--color-ink)] truncate" />
+          <ProjectNameLabel
+            project={project}
+            name={project.name}
+            showBadge={false}
+            nameClassName="font-medium text-[var(--color-ink)] truncate"
+          />
         </td>
         <td className="px-3 py-2 align-middle border-b border-stone-100 text-stone-600" onClick={(e) => e.stopPropagation()}>
           {sortedGroups.length > 0 ? (
@@ -1004,6 +1009,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <ProjectNameLabel
               project={project}
               name={project.name}
+              showBadge={false}
               nameClassName="font-semibold text-[var(--color-ink)] text-[15px] leading-snug break-words"
             />
           </div>

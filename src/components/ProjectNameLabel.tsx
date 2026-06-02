@@ -3,6 +3,7 @@ import { cn } from '../lib/utils';
 import type { Project } from '../types';
 import {
   formatProjectDisplayName,
+  getProjectDisplayNameBody,
   getProjectKindBadgeClass,
   normalizeProjectKind,
   resolveProjectKind,
@@ -34,9 +35,10 @@ export function ProjectNameLabel({
   showBadge = true,
   title,
 }: ProjectNameLabelProps) {
-  const displayName = project?.name ?? name;
+  const rawName = project?.name ?? name;
   const resolvedKind = normalizeProjectKind(projectKind) ?? resolveProjectKind(project ?? null) ?? DEFAULT_PROJECT_KIND;
-  const fullTitle = title ?? formatProjectDisplayName(displayName, resolvedKind);
+  const displayName = getProjectDisplayNameBody(rawName, resolvedKind);
+  const fullTitle = title ?? formatProjectDisplayName(rawName, resolvedKind);
 
   return (
     <span className={cn('inline-flex items-center gap-1.5 min-w-0', className)} title={fullTitle}>

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -8,7 +8,6 @@ import { getVisitorStats, getRegisteredMemberCount } from '../lib/db';
 import {
   Briefcase,
   LayoutGrid,
-  Flag,
   Loader2,
   Bug,
   Building2,
@@ -25,10 +24,10 @@ import {
   ChevronDown,
   AlertCircle,
   CircleHelp,
+  RotateCcw,
 } from 'lucide-react';
 import { isBefore, parseISO, startOfDay } from 'date-fns';
 import { cn, randomUUID, formatPercent1 } from '../lib/utils';
-import { getStatusColorProps } from '../lib/statusColor';
 import {
   PROJECT_KINDS,
   formatProjectDisplayName,
@@ -40,7 +39,7 @@ import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { dashboardPlannedVarianceRowTitle } from '../lib/plannedProgressTooltips';
 import type { Task, Project } from '../types';
-import type { WBSSettings, StatusConfig } from '../lib/wbsSettings';
+import type { WBSSettings } from '../lib/wbsSettings';
 import {
   readDashboardSectionVisibility,
   type DashboardSectionId,
@@ -66,13 +65,12 @@ import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { hasUndeterminedProjectPeriod } from '../lib/projectPeriod';
 import { ProjectPeriodDateText } from './ProjectPeriodDateText';
 
-import { DashboardPersonAllocationSection } from './DashboardPersonAllocationSection';
 import { DashboardDivisionDetail } from './DashboardDivisionDetail';
 import { DashboardDetailPage, type DashboardDetailKind } from './DashboardDetailPage';
 import { DashboardProjectCardDetailPanel } from './DashboardProjectCardDetailPanel';
-import { ActionItemDetailModalBody } from './ActionItemDetailModalBody';
-import { ActionDueDateCell, ActionDueStatusBadge, actionDueSurfaceClassName, resolveActionDueVisualState } from './ActionItemDueDisplay';
 import { BaseModal } from './Base/Modal';
+import { useToast } from './Toast';
+import { downloadProjectRegistrationPdfReport } from '../lib/projectPdf';
 import {
   type ActionDueDateFilter,
   filterActionTasksByDuePeriod,
@@ -125,7 +123,6 @@ const DASHBOARD_DETAIL_KINDS = new Set<DashboardDetailKind>([
   'issues',
   'actions',
   'milestones',
-  'allocation',
   'project',
 ]);
 
@@ -214,6 +211,7 @@ export function Dashboard({
   ownerDepartmentByUserId,
   currentUserId,
   mobileReadabilityMode = false,
+  projectRegistrationPdfRef,
 }: {
   onNavigate?: (view: string, filters: Record<string, string>) => void;
   /** 이슈 작업 행 선택 시 해당 작업이 있는 프로젝트 WBS 표로 이동·스크롤(PC). 미제공 시 기존처럼 이슈 상세만 엽니다. */
@@ -232,8 +230,11 @@ export function Dashboard({
   currentUserId?: string;
   /** 모바일 전용: 한 열·카드형 레이아웃으로 가독성 강화(App에서 대시보드 고정 시 true) */
   mobileReadabilityMode?: boolean;
+  /** App 상단 ⋮ 메뉴에서 프로젝트 등록현황 PDF 저장 시 호출할 비동기 함수를 등록 */
+  projectRegistrationPdfRef?: MutableRefObject<(() => Promise<void>) | null>;
 }) {
   const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask, updateProject } = useWBS();
+  const { push: pushToast } = useToast();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
   const projects = useMemo(() => {
     const base = accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects;
@@ -246,21 +247,8 @@ export function Dashboard({
 
   // ─── 대시보드에 집계할 프로젝트 구분(이 브라우저에만 저장). 체크 해제한 구분은 표시·계산에서 제외 ─────────
   const DASHBOARD_INCLUDED_KINDS_KEY = 'wbs-dashboard-included-project-kinds';
-  const [dashboardIncludedKinds, setDashboardIncludedKinds] = useState<Set<ProjectKind>>(() => {
-    try {
-      const raw = localStorage.getItem(DASHBOARD_INCLUDED_KINDS_KEY);
-      if (raw == null) return new Set(PROJECT_KINDS);
-      const arr = JSON.parse(raw) as unknown;
-      if (!Array.isArray(arr)) return new Set(PROJECT_KINDS);
-      const next = new Set<ProjectKind>();
-      for (const x of arr) {
-        if (typeof x === 'string' && PROJECT_KINDS.includes(x as ProjectKind)) next.add(x as ProjectKind);
-      }
-      return next;
-    } catch {
-      return new Set(PROJECT_KINDS);
-    }
-  });
+  /** 초기 접속·새로고침 시에는 저장된 필터를 적용하지 않고 전체 구분·필터 없음으로 시작한다. */
+  const [dashboardIncludedKinds, setDashboardIncludedKinds] = useState<Set<ProjectKind>>(() => new Set(PROJECT_KINDS));
   const persistDashboardIncludedKinds = (next: Set<ProjectKind>) => {
     try {
       const ordered = PROJECT_KINDS.filter((k) => next.has(k));
@@ -292,16 +280,7 @@ export function Dashboard({
 
   // ─── 대시보드 집계에서 제외할 프로젝트 (localStorage, 사용자별) ─────────
   const DASHBOARD_EXCLUDED_KEY = 'wbs-dashboard-excluded-project-ids';
-  const [dashboardExcludedIds, setDashboardExcludedIds] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(DASHBOARD_EXCLUDED_KEY);
-      if (!raw) return new Set<string>();
-      const arr = JSON.parse(raw) as unknown;
-      return Array.isArray(arr) ? new Set<string>(arr.filter((x): x is string => typeof x === 'string')) : new Set<string>();
-    } catch {
-      return new Set<string>();
-    }
-  });
+  const [dashboardExcludedIds, setDashboardExcludedIds] = useState<Set<string>>(() => new Set<string>());
   const persistDashboardExcluded = (next: Set<string>) => {
     try {
       if (next.size === 0) localStorage.removeItem(DASHBOARD_EXCLUDED_KEY);
@@ -475,16 +454,7 @@ export function Dashboard({
   // ─── 대시보드 표시 프로젝트 사용자 선택 (localStorage 저장) ──────────────
   // null = 모든 프로젝트 표시 (기본). Set = 명시적으로 선택된 프로젝트만 표시.
   const DASHBOARD_VISIBLE_KEY = 'wbs-dashboard-visible-project-ids';
-  const [dashboardVisibleIds, setDashboardVisibleIds] = useState<Set<string> | null>(() => {
-    try {
-      const raw = localStorage.getItem(DASHBOARD_VISIBLE_KEY);
-      if (!raw) return null;
-      const arr = JSON.parse(raw) as unknown;
-      return Array.isArray(arr) ? new Set<string>(arr.filter((x): x is string => typeof x === 'string')) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [dashboardVisibleIds, setDashboardVisibleIds] = useState<Set<string> | null>(() => null);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const projectPickerRef = useRef<HTMLDivElement>(null);
   const [isExclusionPickerOpen, setIsExclusionPickerOpen] = useState(false);
@@ -534,13 +504,7 @@ export function Dashboard({
 
   // ─── 빠른 필터: 내가 포함된 프로젝트만 ──────────────────────────────────
   const MY_ONLY_KEY = 'wbs-dashboard-my-only';
-  const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(MY_ONLY_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [showMyOnly, setShowMyOnly] = useState<boolean>(false);
   const toggleShowMyOnly = () => {
     setShowMyOnly((prev) => {
       const next = !prev;
@@ -593,9 +557,6 @@ export function Dashboard({
 
   /** 프로젝트별 상태 카드/표 행 선택 시 상세 팝업에 표시할 프로젝트 ID */
   const [selectedProjectCardId, setSelectedProjectCardId] = useState<string | null>(null);
-  /** 이슈 작업 카드 클릭 시 상세 팝업 */
-  const [issueTaskDetailModal, setIssueTaskDetailModal] = useState<Task | null>(null);
-  const [actionTaskDetailModal, setActionTaskDetailModal] = useState<Task | null>(null);
 
   // ─── 대시보드 본문 블록 표시 여부(설정 → 대시보드 탭에서 변경·초기화) ───
   const [dashboardSectionVisibility, setDashboardSectionVisibility] = useState(() => readDashboardSectionVisibility());
@@ -611,11 +572,7 @@ export function Dashboard({
     if (mobileReadabilityMode) {
       return {
         summary: 'card',
-        issues: 'card',
-        actions: 'card',
         divisions: 'card',
-        allocation: 'card',
-        milestones: 'card',
         projects: 'card',
       } as DashboardSectionLayout;
     }
@@ -703,17 +660,6 @@ export function Dashboard({
     }
   }, [selectedProjectCardId, displayProjectStats]);
 
-  /** 투입만 있고 작업 0건인 프로젝트는 visibleProjectStats에 없어 제외되므로, assignments가 있으면 함께 집계한다. */
-  const displayProjectsForAllocation = useMemo(() => {
-    const ids = new Set(displayProjectStats.map((p) => p.id));
-    return projectsForDashboard.filter((p) => ids.has(p.id) || (p.assignments?.length ?? 0) > 0);
-  }, [projectsForDashboard, displayProjectStats]);
-
-  const displayTasksForAllocation = useMemo(() => {
-    const ids = new Set(displayProjectsForAllocation.map((p) => p.id));
-    return allTasksForDashboard.filter((t) => ids.has(t.projectId));
-  }, [allTasksForDashboard, displayProjectsForAllocation]);
-
   const summary = useMemo(
     () => ({
       totalProjects: projectsForDashboard.length,
@@ -751,7 +697,6 @@ export function Dashboard({
   const issueTasksAll = useMemo(() => {
     return allTasksForDashboard.filter((t) => t.isIssue).sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''));
   }, [allTasksForDashboard]);
-  const issueTasks = useMemo(() => issueTasksAll.slice(0, 50), [issueTasksAll]);
 
   const doneStatusIds = useMemo(
     () => new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id)),
@@ -790,8 +735,6 @@ export function Dashboard({
       sortActionTasksByEndDate,
     );
   }, [actionTasksWithDueDate, actionDueDateFilter, doneStatusIds]);
-
-  const actionTasks = useMemo(() => actionTasksFiltered.slice(0, 80), [actionTasksFiltered]);
 
   // 사업부/본부별 등록 현황: 조직도 1단계(지엠티 직속) 전 노드를 행으로 두고, 소속 프로젝트·미분류 목록을 함께 산출
   const { divisionStats, unclassifiedDashboardProjects } = useMemo(() => {
@@ -903,38 +846,11 @@ export function Dashboard({
   /** v2: '1'=활성 부서만, '0' 또는 미설정=조직 전체 행 표시(기본). 구 키 `wbs-dashboard-division-active-only`는 토글 시 제거 */
   const DIVISION_ACTIVE_ONLY_V2_KEY = 'wbs-dashboard-division-active-only-v2';
   const DIVISION_ACTIVE_ONLY_LEGACY_KEY = 'wbs-dashboard-division-active-only';
-  const [divisionVisibleIds, setDivisionVisibleIds] = useState<Set<string> | null>(() => {
-    try {
-      const raw = localStorage.getItem(DIVISION_VISIBLE_KEY);
-      if (!raw) return null;
-      const arr = JSON.parse(raw) as unknown;
-      return Array.isArray(arr) ? new Set<string>(arr.filter((x): x is string => typeof x === 'string')) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [showMyDivisionOnly, setShowMyDivisionOnly] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(DIVISION_MY_ONLY_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [showActiveDivisionsOnly, setShowActiveDivisionsOnly] = useState<boolean>(() => {
-    try {
-      const v2 = localStorage.getItem(DIVISION_ACTIVE_ONLY_V2_KEY);
-      if (v2 === '1') return true;
-      if (v2 === '0') return false;
-      const legacy = localStorage.getItem(DIVISION_ACTIVE_ONLY_LEGACY_KEY);
-      if (legacy === '0') return false;
-      return false;
-    } catch {
-      return false;
-    }
-  });
+  const [divisionVisibleIds, setDivisionVisibleIds] = useState<Set<string> | null>(() => null);
+  const [showMyDivisionOnly, setShowMyDivisionOnly] = useState<boolean>(false);
+  const [showActiveDivisionsOnly, setShowActiveDivisionsOnly] = useState<boolean>(false);
   const [isDivisionPickerOpen, setIsDivisionPickerOpen] = useState(false);
   const divisionPickerRef = useRef<HTMLDivElement>(null);
-  const allocationScrollAnchorRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!isDivisionPickerOpen) return;
     const onClick = (e: MouseEvent) => {
@@ -984,6 +900,48 @@ export function Dashboard({
       return next;
     });
   };
+
+  /** 구분·부서·프로젝트·집계 제외·빠른 필터를 한 번에 기본(전체 표시)으로 되돌림 */
+  const resetAllDashboardDisplayFilters = useCallback(() => {
+    persistDashboardIncludedKinds(new Set(PROJECT_KINDS));
+    persistDashboardExcluded(new Set());
+    persistDashboardVisible(null);
+    try {
+      localStorage.removeItem(MY_ONLY_KEY);
+    } catch {
+      /* ignore */
+    }
+    setShowMyOnly(false);
+    setShowUndeterminedPeriodProjectsOnly(false);
+    persistDivisionVisible(null);
+    try {
+      localStorage.removeItem(DIVISION_MY_ONLY_KEY);
+    } catch {
+      /* ignore */
+    }
+    setShowMyDivisionOnly(false);
+    setShowActiveDivisionsOnly(false);
+    try {
+      localStorage.setItem(DIVISION_ACTIVE_ONLY_V2_KEY, '0');
+      localStorage.removeItem(DIVISION_ACTIVE_ONLY_LEGACY_KEY);
+    } catch {
+      /* ignore */
+    }
+    setIsDivisionPickerOpen(false);
+    setIsProjectPickerOpen(false);
+    setIsExclusionPickerOpen(false);
+    pushToast('대시보드 표시 필터를 초기화했습니다.', { variant: 'success' });
+  }, [
+    persistDashboardIncludedKinds,
+    persistDashboardExcluded,
+    persistDashboardVisible,
+    MY_ONLY_KEY,
+    persistDivisionVisible,
+    DIVISION_MY_ONLY_KEY,
+    DIVISION_ACTIVE_ONLY_V2_KEY,
+    DIVISION_ACTIVE_ONLY_LEGACY_KEY,
+    pushToast,
+  ]);
 
   // 현재 사용자가 속한 부서 ID (organizationMembers의 이름 매칭)
   const myDivisionId = useMemo(() => {
@@ -1045,18 +1003,8 @@ export function Dashboard({
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { hash } = useLocation();
   const divisionDetailIdRaw = searchParams.get('division');
   const divisionDetailId = divisionDetailIdRaw && divisionDetailIdRaw.trim() ? divisionDetailIdRaw.trim() : null;
-  const allocationFocusDivisionIdRaw = searchParams.get('allocationFocus');
-  const allocationFocusDivisionId =
-    allocationFocusDivisionIdRaw && allocationFocusDivisionIdRaw.trim() ? allocationFocusDivisionIdRaw.trim() : null;
-
-  const allocationFocusDivisionLabel = useMemo(() => {
-    if (!allocationFocusDivisionId) return null;
-    return topLevelDivisions.find((x) => x.id === allocationFocusDivisionId)?.name ?? null;
-  }, [allocationFocusDivisionId, topLevelDivisions]);
-
   const detailParamRaw = searchParams.get('detail');
   const detailKind: DashboardDetailKind | null =
     detailParamRaw && DASHBOARD_DETAIL_KINDS.has(detailParamRaw as DashboardDetailKind) ? (detailParamRaw as DashboardDetailKind) : null;
@@ -1087,24 +1035,6 @@ export function Dashboard({
     },
     [navigate],
   );
-
-  const openDashboardAllocationForDivision = useCallback(
-    (divisionId: string) => {
-      const sp = new URLSearchParams();
-      sp.set('allocationFocus', divisionId);
-      navigate({ pathname: '/dashboard', search: sp.toString(), hash: 'dashboard-allocation' });
-    },
-    [navigate],
-  );
-
-  useLayoutEffect(() => {
-    if (hash !== '#dashboard-allocation') return;
-    if (!allocationFocusDivisionId) return;
-    const id = window.requestAnimationFrame(() => {
-      allocationScrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [hash, allocationFocusDivisionId]);
 
   const groupNameByProjectGroupId = useMemo(
     () => new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const)),
@@ -1207,6 +1137,8 @@ export function Dashboard({
     divisionVisibleIds !== null ||
     dashboardExcludedIds.size > 0 ||
     dashboardKindsFilterActive;
+  /** 상단 '필터 초기화' 버튼 활성화: 표시 범위·기간 미정만·활성 부서만 등 */
+  const canResetDashboardDisplayFilters = dashboardFiltersActive || showUndeterminedPeriodProjectsOnly || showActiveDivisionsOnly;
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('wbs-dashboard-filters-active', { detail: { active: dashboardFiltersActive } }));
   }, [dashboardFiltersActive]);
@@ -1216,6 +1148,71 @@ export function Dashboard({
       window.dispatchEvent(new CustomEvent('wbs-dashboard-filters-active', { detail: { active: false } }));
     };
   }, []);
+
+  const runProjectRegistrationPdfExport = useCallback(async () => {
+    const rows = [...projectStats].sort((a, b) => a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
+    const subtitleLines: string[] = [];
+    if (dashboardExcludedIds.size > 0) {
+      subtitleLines.push(
+        `집계에서 제외된 프로젝트 ${dashboardExcludedIds.size}개는 목록·합계에서 제외된 상태입니다. (전체 ${projects.length}개 중)`,
+      );
+    }
+    if (dashboardFiltersActive) {
+      subtitleLines.push('대시보드 상단 필터가 적용된 표시 범위입니다.');
+    }
+    await downloadProjectRegistrationPdfReport({
+      rows,
+      subtitleLines,
+      profileMap,
+      orgTree,
+      orgMembers,
+      ownerDepartmentByUserId,
+    });
+    pushToast('프로젝트 등록현황 PDF를 저장했습니다.', { variant: 'success' });
+  }, [
+    projectStats,
+    dashboardExcludedIds,
+    projects.length,
+    dashboardFiltersActive,
+    pushToast,
+    profileMap,
+    orgTree,
+    orgMembers,
+    ownerDepartmentByUserId,
+  ]);
+
+  useEffect(() => {
+    if (!projectRegistrationPdfRef) return;
+    projectRegistrationPdfRef.current = async () => {
+      try {
+        await runProjectRegistrationPdfExport();
+      } catch (e) {
+        console.error(e);
+        pushToast('PDF 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.', { variant: 'error' });
+      }
+    };
+    return () => {
+      projectRegistrationPdfRef.current = null;
+    };
+  }, [projectRegistrationPdfRef, runProjectRegistrationPdfExport, pushToast]);
+
+  useEffect(() => {
+    if (!projectRegistrationPdfRef) return;
+    let pending = false;
+    try {
+      pending = sessionStorage.getItem('wbs-pending-project-registration-pdf') === '1';
+    } catch {
+      /* ignore */
+    }
+    if (!pending) return;
+    try {
+      sessionStorage.removeItem('wbs-pending-project-registration-pdf');
+    } catch {
+      /* ignore */
+    }
+    const run = projectRegistrationPdfRef.current;
+    if (run) void run();
+  }, [projectRegistrationPdfRef]);
 
   /** 구분·부서·집계 제외 등 — 기본은 접어 두고, 해당 옵션이 켜지면 자동으로 펼침 */
   const dashboardAdvancedFiltersActive =
@@ -1257,6 +1254,21 @@ export function Dashboard({
             {dashboardAdvancedFiltersActive && !showAdvancedDashboardToolbar ? (
               <span className="ml-0.5 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">적용 중</span>
             ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={resetAllDashboardDisplayFilters}
+            disabled={!canResetDashboardDisplayFilters}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg border transition-colors shrink-0',
+              canResetDashboardDisplayFilters
+                ? 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50 hover:border-stone-300'
+                : 'border-transparent bg-stone-100 text-stone-400 cursor-not-allowed',
+            )}
+            title="구분·부서·프로젝트·집계 제외·빠른 필터·기간 미정만·활성 부서만을 모두 기본값으로 되돌립니다."
+          >
+            <RotateCcw size={12} className="shrink-0" aria-hidden />
+            필터 초기화
           </button>
         </div>
 
@@ -1650,19 +1662,9 @@ export function Dashboard({
     onNavigate?.('allocation', { projectId: 'all', status: 'all', assignee: '' });
   }, [onNavigate]);
 
-  const openIssueTaskDetailPopup = useCallback((t: Task) => {
-    setIssueTaskDetailModal(t);
-  }, []);
-
-  const openActionTaskDetailPopup = useCallback((t: Task) => {
-    setActionTaskDetailModal(t);
-  }, []);
-
   useEffect(() => {
     if (detailKind || divisionDetailId) {
       setSelectedProjectCardId(null);
-      setIssueTaskDetailModal(null);
-      setActionTaskDetailModal(null);
     }
   }, [detailKind, divisionDetailId]);
 
@@ -1702,7 +1704,7 @@ export function Dashboard({
                     )}
                   >
                     <LayoutGrid className="text-slate-500 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
-                    전체 현황 요약
+                    전체현황
                   </h2>
                 </div>
                 {dashboardSectionLayout.summary === 'card' ? (
@@ -1821,369 +1823,13 @@ export function Dashboard({
               </section>
             )}
 
-            {/* 이슈 작업 목록 — 전체 현황 요약 바로 아래 */}
-            {showDashSection('issues') && (
-              <section>
-                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
-                  <h2
-                    className={cn(
-                      'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                      mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
-                    )}
-                  >
-                    <Bug className="text-rose-500 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
-                    이슈 작업
-                    <span className="text-sm font-medium text-stone-400">{issueTasksAll.length}건</span>
-                  </h2>
-                </div>
-                {issueTasks.length === 0 ? (
-                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center">
-                    등록된 이슈 작업이 없습니다.
-                  </div>
-                ) : dashboardSectionLayout.issues === 'card' ? (
-                  <div className="space-y-2.5">
-                    {issueTasks.map((t) => {
-                      const proj = projectMap.get(t.projectId);
-                      return (
-                        <div
-                          key={t.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openIssueTaskDetailPopup(t)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openIssueTaskDetailPopup(t);
-                            }
-                          }}
-                          className={cn(
-                            'rounded-xl border border-stone-200 bg-white p-4 shadow-sm text-left transition-colors',
-                            'cursor-pointer hover:border-rose-200 hover:bg-rose-50/35 active:scale-[0.99]',
-                          )}
-                          title="클릭하여 이슈 작업 상세 팝업"
-                        >
-                          <div className="flex items-start gap-2.5">
-                            <Bug size={18} className="text-rose-500 shrink-0 mt-0.5" aria-hidden />
-                            <div className="min-w-0 flex-1 space-y-2.5">
-                              <p className="font-semibold text-stone-900 text-[15px] leading-snug break-words">{t.name || '(이름 없음)'}</p>
-                              <dl className="space-y-1.5 text-sm text-stone-600">
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">프로젝트</dt>
-                                  <dd className="text-right font-medium text-stone-800 break-words min-w-0">
-                                    {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                  </dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">담당자</dt>
-                                  <dd className="text-right break-words min-w-0">
-                                    {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                  </dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">종료일</dt>
-                                  <dd className="tabular-nums text-stone-700">{t.endDate || '—'}</dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">진척률</dt>
-                                  <dd className="tabular-nums font-semibold text-stone-800">
-                                    {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : '—'}
-                                  </dd>
-                                </div>
-                              </dl>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
-                          <th className="text-left font-medium px-3 py-2">작업명</th>
-                          <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">종료일</th>
-                          <th className="text-right font-medium px-3 py-2 w-20">진척률</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {issueTasks.map((t) => {
-                          const proj = projectMap.get(t.projectId);
-                          return (
-                            <tr
-                              key={t.id}
-                              className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                              onClick={() => openIssueTaskDetailPopup(t)}
-                              title="클릭하여 이슈 작업 상세 팝업"
-                            >
-                              <td className="px-3 py-2 text-stone-800">
-                                <div className="flex items-center gap-1.5">
-                                  <Bug size={12} className="text-rose-500 shrink-0" />
-                                  <span className="truncate">{t.name || '(이름 없음)'}</span>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-stone-600 break-words">
-                                {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                              </td>
-                              <td className="px-3 py-2 text-stone-600 truncate">
-                                {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                              </td>
-                              <td className="px-3 py-2 text-stone-500 tabular-nums">{t.endDate || '—'}</td>
-                              <td className="px-3 py-2 text-right text-stone-600 tabular-nums">
-                                {typeof t.progress === 'number' ? `${formatPercent1(t.progress)}%` : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* 액션 항목 — 이슈 목록과 동일 패턴, 완료 체크로 상태·진척률 반영 */}
-            {showDashSection('actions') && (
-              <section>
-                <div className={cn('flex flex-wrap items-end justify-between gap-2 mb-2', mobileReadabilityMode && 'mb-2.5')}>
-                  <h2
-                    className={cn(
-                      'font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0',
-                      mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
-                    )}
-                  >
-                    <ListChecks className="text-teal-600 shrink-0" size={mobileReadabilityMode ? 22 : 20} />
-                    액션 항목
-                    <span className="text-sm font-medium text-stone-400">{actionTasksFiltered.length}건</span>
-                    {actionTasksWithDueDate.length > 0 && actionTasksFiltered.length !== actionTasksWithDueDate.length && (
-                      <span className="text-xs font-normal text-stone-400 w-full sm:w-auto sm:inline sm:ml-1">
-                        (마감일 지정 {actionTasksWithDueDate.length}건 중)
-                      </span>
-                    )}
-                  </h2>
-                  {actionTasksWithDueDate.length > 0 && (
-                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
-                      <div
-                        className="inline-flex gap-0.5 rounded-lg border border-stone-200 bg-white p-0.5 shrink-0"
-                        role="group"
-                        aria-label="액션 항목 마감일 구간"
-                      >
-                        {(
-                          [
-                            { id: 'today' as const, label: '금일' },
-                            { id: 'thisWeek' as const, label: '금주' },
-                            { id: 'overdue' as const, label: '기한초과' },
-                          ] as const
-                        ).map(({ id, label }) => (
-                          <button
-                            key={id}
-                            type="button"
-                            onClick={() => setActionDueDateFilter(id)}
-                            className={cn(
-                              'px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                              actionDueDateFilter === id ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-50',
-                            )}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {actionTasksWithDueDate.length === 0 ? (
-                  <div className="text-sm text-stone-400 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
-                    마감일(종료일)이 지정된 액션 항목만 이 목록에 나타납니다.
-                    <br />
-                    작업 편집에서「액션 항목」을 켜고 종료일을 입력해 주세요.
-                  </div>
-                ) : actionTasksFiltered.length === 0 ? (
-                  <div className="text-sm text-stone-500 bg-white border border-stone-200 rounded-xl p-6 text-center leading-relaxed">
-                    선택한 구간(
-                    {actionDueDateFilter === 'today' ? '금일' : actionDueDateFilter === 'thisWeek' ? '금주' : '기한초과'}
-                    )에 해당하는 액션 항목이 없습니다.
-                  </div>
-                ) : dashboardSectionLayout.actions === 'card' ? (
-                  <div className="space-y-2.5">
-                    {actionTasks.map((t) => {
-                      const proj = projectMap.get(t.projectId);
-                      const done = isActionTaskCompleted(t);
-                      const dueState = resolveActionDueVisualState(t.endDate, done);
-                      return (
-                        <div
-                          key={t.id}
-                          className={cn(
-                            'rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition-colors',
-                            'cursor-pointer hover:border-teal-200 hover:bg-teal-50/30 active:scale-[0.99]',
-                            actionDueSurfaceClassName(dueState, 'card'),
-                          )}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openActionTaskDetailPopup(t)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openActionTaskDetailPopup(t);
-                            }
-                          }}
-                          title="클릭하여 액션 상세"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                checked={done}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  const checked = e.target.checked;
-                                  if (checked) {
-                                    updateTask(t.id, { status: doneStatusId, progress: 100 });
-                                  } else {
-                                    updateTask(t.id, { status: todoStatusId, progress: 0 });
-                                  }
-                                }}
-                                className={cn(
-                                  'rounded border-stone-300 focus:ring-teal-500 h-5 w-5',
-                                  dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
-                                )}
-                                title={done ? '완료 해제' : '완료 표시'}
-                                aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
-                              />
-                            </div>
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <p
-                                className={cn(
-                                  'font-semibold text-[15px] leading-snug break-words flex items-start gap-1.5 flex-wrap',
-                                  done ? 'line-through text-stone-500' : 'text-stone-900',
-                                )}
-                              >
-                                <ListChecks
-                                  size={16}
-                                  className={cn('shrink-0 mt-0.5', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
-                                  aria-hidden
-                                />
-                                <span>{t.name || '(이름 없음)'}</span>
-                                {dueState === 'completed' && (
-                                  <Check size={14} className="text-teal-600 shrink-0 mt-1" strokeWidth={3} aria-hidden />
-                                )}
-                                <ActionDueStatusBadge state={dueState} />
-                              </p>
-                              <dl className="space-y-1.5 text-sm text-stone-600">
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">프로젝트</dt>
-                                  <dd className="text-right font-medium text-stone-800 break-words min-w-0">
-                                    {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                                  </dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">담당자</dt>
-                                  <dd className="text-right break-words min-w-0">
-                                    {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                                  </dd>
-                                </div>
-                                <div className="flex justify-between gap-3">
-                                  <dt className="text-stone-400 shrink-0">기한날짜</dt>
-                                  <dd className="text-right">
-                                    <ActionDueDateCell endDate={t.endDate} isCompleted={done} showBadge={false} />
-                                  </dd>
-                                </div>
-                              </dl>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
-                          <th className="text-center font-medium px-2 py-2 w-14">완료</th>
-                          <th className="text-left font-medium px-3 py-2">액션명</th>
-                          <th className="text-left font-medium px-3 py-2 w-40">프로젝트</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">담당자</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">기한날짜</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {actionTasks.map((t) => {
-                          const proj = projectMap.get(t.projectId);
-                          const done = isActionTaskCompleted(t);
-                          const dueState = resolveActionDueVisualState(t.endDate, done);
-                          return (
-                            <tr
-                              key={t.id}
-                              className={cn(
-                                'border-t border-stone-100 cursor-pointer',
-                                actionDueSurfaceClassName(dueState, 'row') || 'hover:bg-stone-50/60',
-                              )}
-                              onClick={() => openActionTaskDetailPopup(t)}
-                              title="클릭하여 액션 상세"
-                            >
-                              <td className="px-2 py-2 align-middle text-center" onClick={(e) => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  checked={done}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    const checked = e.target.checked;
-                                    if (checked) {
-                                      updateTask(t.id, { status: doneStatusId, progress: 100 });
-                                    } else {
-                                      updateTask(t.id, { status: todoStatusId, progress: 0 });
-                                    }
-                                  }}
-                                  className={cn(
-                                    'rounded border-stone-300 focus:ring-teal-500',
-                                    dueState === 'overdue' ? 'border-red-300 text-red-600' : 'text-teal-600',
-                                  )}
-                                  title={done ? '완료 해제' : '완료 표시'}
-                                  aria-label={done ? `${t.name} 액션 완료 해제` : `${t.name} 액션 완료`}
-                                />
-                              </td>
-                              <td className="px-3 py-2 text-stone-800">
-                                <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                                  <ListChecks
-                                    size={12}
-                                    className={cn('shrink-0', dueState === 'overdue' ? 'text-red-500' : 'text-teal-600')}
-                                    aria-hidden
-                                  />
-                                  <span className={cn('truncate', done && 'line-through text-stone-500')}>{t.name || '(이름 없음)'}</span>
-                                  {dueState === 'completed' && (
-                                    <Check size={12} className="text-teal-600 shrink-0" strokeWidth={3} title="완료됨" aria-hidden />
-                                  )}
-                                  <ActionDueStatusBadge state={dueState} />
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-stone-600 break-words">
-                                {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-                              </td>
-                              <td className="px-3 py-2 text-stone-600 truncate">
-                                {formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName) || '—'}
-                              </td>
-                              <td className="px-3 py-2">
-                                <ActionDueDateCell endDate={t.endDate} isCompleted={done} showBadge={false} />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* 사업부별 등록 프로젝트·업무 현황 */}
+            {/* 사업부 현황 */}
             {showDashSection('divisions') && (
               <section>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap m-0">
                     <Building2 className="text-sky-500 shrink-0" size={20} aria-hidden />
-                    사업부별 등록 프로젝트·업무 현황
+                    사업부 현황
                     <span className="ml-2 inline-flex items-center rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-800 shrink-0">
                       조직도 기준
                     </span>
@@ -2269,7 +1915,7 @@ export function Dashboard({
                   </p>
                 </details>
                 {displayDivisionStats.length > 0 && (
-                  <div className="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2" role="region" aria-label="표시 중인 사업부 합계">
+                  <div className="mb-2 grid grid-cols-1 sm:grid-cols-2 gap-2" role="region" aria-label="표시 중인 사업부 합계">
                     <div className="rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-white px-3 py-2 shadow-sm">
                       <div className="flex items-center gap-1.5 text-sky-900">
                         <Briefcase className="shrink-0 text-sky-600" size={18} aria-hidden />
@@ -2294,17 +1940,6 @@ export function Dashboard({
                         {divisionAggregatedSummary.taskSum}
                         <span className="text-sm font-semibold text-slate-600/90 ml-0.5">건</span>
                       </div>
-                    </div>
-                    <div className="rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50/90 via-white to-white px-3 py-2 shadow-sm">
-                      <div className="flex items-center gap-1.5 text-violet-900">
-                        <Building2 className="shrink-0 text-violet-600" size={18} aria-hidden />
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-violet-900/90">표시 중 조직</span>
-                      </div>
-                      <div className="mt-0.5 text-2xl font-bold tabular-nums text-violet-800 leading-none">
-                        {divisionAggregatedSummary.divisionCount}
-                        <span className="text-sm font-semibold text-violet-700/90 ml-0.5">개</span>
-                      </div>
-                      <p className="text-[10px] text-violet-900/75 mt-1 m-0 leading-snug">필터 반영 개수</p>
                     </div>
                   </div>
                 )}
@@ -2342,8 +1977,19 @@ export function Dashboard({
                       </p>
                       <ul className="m-0 max-h-28 overflow-y-auto space-y-0.5 text-xs font-medium leading-snug pl-4 list-disc marker:text-amber-700">
                         {unclassifiedDashboardProjects.slice(0, 24).map((p) => (
-                          <li key={p.id} className="break-words" title={p.label}>
-                            {p.label}
+                          <li key={p.id} className="break-words">
+                            {onNavigate ? (
+                              <button
+                                type="button"
+                                className="text-left w-full font-medium text-amber-950 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
+                                onClick={() => openTableProject(p.id)}
+                                title="해당 프로젝트 WBS 작업 표로 이동"
+                              >
+                                {p.label}
+                              </button>
+                            ) : (
+                              <span title={p.label}>{p.label}</span>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -2363,7 +2009,8 @@ export function Dashboard({
                     카드·표 사용 안내
                   </summary>
                   <p className="mt-1.5 mb-0 text-[11px] leading-relaxed pl-0.5">
-                    카드에 마우스를 올리거나 Tab으로 포커스하면 프로젝트 이름 목록이 표시됩니다. 행·카드 클릭 시 상세로 이동합니다.
+                    카드에 마우스를 올리거나 Tab으로 포커스하면 프로젝트 이름 목록이 표시됩니다. 카드(또는 표 행) 클릭은 사업부 상세,{' '}
+                    <strong className="font-semibold text-stone-600">프로젝트 이름</strong>을 누르면 해당 프로젝트 WBS 표로 이동합니다.
                   </p>
                 </details>
                 {displayDivisionStats.length === 0 ? (
@@ -2461,8 +2108,22 @@ export function Dashboard({
                                 </summary>
                                 <ul className="mt-2 space-y-0.5 text-[11px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc max-h-40 overflow-y-auto">
                                   {d.registeredProjects.map((rp) => (
-                                    <li key={rp.id} className="break-words" title={rp.label}>
-                                      {rp.label}
+                                    <li key={rp.id} className="break-words">
+                                      {onNavigate ? (
+                                        <button
+                                          type="button"
+                                          className="text-left w-full font-medium text-stone-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openTableProject(rp.id);
+                                          }}
+                                          title="해당 프로젝트 WBS 작업 표로 이동"
+                                        >
+                                          {rp.label}
+                                        </button>
+                                      ) : (
+                                        <span title={rp.label}>{rp.label}</span>
+                                      )}
                                     </li>
                                   ))}
                                 </ul>
@@ -2484,8 +2145,19 @@ export function Dashboard({
                               <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wide mb-1.5">프로젝트 이름</div>
                               <ul className="space-y-1 text-[12px] font-medium text-stone-800 leading-snug m-0 pl-3 list-disc">
                                 {d.registeredProjects.map((rp) => (
-                                  <li key={rp.id} className="break-words" title={rp.label}>
-                                    {rp.label}
+                                  <li key={rp.id} className="break-words">
+                                    {onNavigate ? (
+                                      <button
+                                        type="button"
+                                        className="text-left w-full font-medium text-stone-800 hover:text-teal-800 hover:underline rounded px-0.5 -mx-0.5"
+                                        onClick={() => openTableProject(rp.id)}
+                                        title="해당 프로젝트 WBS 작업 표로 이동"
+                                      >
+                                        {rp.label}
+                                      </button>
+                                    ) : (
+                                      <span title={rp.label}>{rp.label}</span>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -2578,151 +2250,13 @@ export function Dashboard({
               </section>
             )}
 
-            {showDashSection('allocation') && (
-              <section id="dashboard-allocation" ref={allocationScrollAnchorRef} className="scroll-mt-4">
-                <DashboardPersonAllocationSection
-                  projects={displayProjectsForAllocation}
-                  allTasks={displayTasksForAllocation}
-                  profileMap={profileMap}
-                  registeredMemberDisplayNames={registeredMemberDisplayNames}
-                  showFilterHint={dashboardFiltersActive}
-                  assigneeTopDivisionIdByName={memberToDivisionId}
-                  topLevelDivisions={topLevelDivisions.map((d) => ({ id: d.id, name: d.name }))}
-                  allocationFocusDivisionId={allocationFocusDivisionId}
-                  allocationFocusDivisionLabel={allocationFocusDivisionLabel}
-                  onNavigateToWork={onNavigate ? (projectId) => onNavigate('table', { projectId, status: 'all', assignee: '' }) : undefined}
-                  onOpenAllocationOverview={onNavigate ? openAllocationOverview : undefined}
-                  allocationDivisionInfer={{
-                    memberToDivisionId,
-                    departmentNameToDivisionId,
-                    profileMap,
-                    ownerDepartmentByUserId,
-                  }}
-                  narrowScreenLayout={mobileReadabilityMode}
-                  sectionLayout={mobileReadabilityMode ? 'card' : dashboardSectionLayout.allocation}
-                  onSectionLayoutChange={(mode) => persistDashboardSectionLayout('allocation', mode)}
-                  showSectionLayoutToggle={!mobileReadabilityMode}
-                  variant="dashboard"
-                />
-              </section>
-            )}
-
-            {/* Milestones */}
-            {showDashSection('milestones') && milestones.length > 0 && (
-              <section>
-                <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
-                  <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 m-0">
-                    <Flag className="text-amber-500 shrink-0" size={20} />
-                    마일스톤
-                    <span className="text-sm font-medium text-stone-400">{milestones.length}건</span>
-                  </h2>
-                </div>
-                {dashboardSectionLayout.milestones === 'card' ? (
-                  <div className="card-elevated overflow-hidden">
-                    <ul className="divide-y divide-slate-100">
-                      {milestones.map((task) => (
-                        <li
-                          key={task.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openDashboardDetail('milestones')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openDashboardDetail('milestones');
-                            }
-                          }}
-                          className={cn(
-                            'flex items-center hover:bg-slate-50/80 cursor-pointer transition-colors',
-                            mobileReadabilityMode ? 'gap-3 px-4 py-3.5' : 'gap-4 px-6 py-4',
-                          )}
-                        >
-                          <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center">
-                            <Flag size={18} className="text-amber-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className={cn('font-medium text-[var(--color-ink)]', mobileReadabilityMode ? 'break-words' : 'truncate')}>
-                              {task.name}
-                            </div>
-                            <div className="text-xs text-slate-500 mt-0.5 break-words">
-                              {task.projectName} · {task.startDate}
-                            </div>
-                          </div>
-                          {(() => {
-                            const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                            const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                            return (
-                              <span
-                                className={cn(
-                                  'text-xs font-medium px-2.5 py-1 rounded-full border',
-                                  colorProps.className,
-                                  'text-stone-700',
-                                )}
-                                style={colorProps.style}
-                              >
-                                {sc?.name ?? task.status}
-                              </span>
-                            );
-                          })()}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-stone-50 border-b border-stone-200">
-                        <tr className="text-xs text-stone-500">
-                          <th className="text-left font-medium px-3 py-2">작업명</th>
-                          <th className="text-left font-medium px-3 py-2 w-44">프로젝트</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">시작일</th>
-                          <th className="text-left font-medium px-3 py-2 w-28">상태</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {milestones.map((task) => {
-                          const sc = wbsSettings.statusConfigs.find((c) => c.id === task.status);
-                          const colorProps = getStatusColorProps(sc?.color || 'bg-slate-50 border-slate-100');
-                          return (
-                            <tr
-                              key={task.id}
-                              className="border-t border-stone-100 hover:bg-stone-50/60 cursor-pointer"
-                              onClick={() => openDashboardDetail('milestones')}
-                              title="마일스톤 상세로 이동"
-                            >
-                              <td className="px-3 py-2 text-stone-800">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
-                                  <span className="truncate font-medium">{task.name}</span>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-stone-600 truncate">{task.projectName}</td>
-                              <td className="px-3 py-2 text-stone-500 tabular-nums">{task.startDate || '—'}</td>
-                              <td className="px-3 py-2">
-                                <span
-                                  className={cn('text-xs font-medium px-2 py-0.5 rounded-full border inline-block', colorProps.className)}
-                                  style={colorProps.style}
-                                >
-                                  {sc?.name ?? task.status}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* Project List */}
+            {/* 프로젝트별 현황 */}
             {showDashSection('projects') && (
               <section>
                 <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2 flex-wrap">
                     <Briefcase className="text-[var(--color-accent)] shrink-0" size={20} />
-                    프로젝트별 상태
+                    프로젝트별 현황
                     <span className="text-sm font-normal text-stone-500 ml-1">
                       ({displayProjectStats.length}개
                       {showUndeterminedPeriodProjectsOnly && projectsWithUndeterminedPeriod.length !== displayProjectStats.length
@@ -2854,7 +2388,12 @@ export function Dashboard({
                   onNavigate?.('table', { projectId, status: 'all', assignee: '' });
                 }}
                 onOpenAllocationForDivision={
-                  divisionDetailStat ? () => openDashboardAllocationForDivision(divisionDetailStat.id) : undefined
+                  onNavigate
+                    ? () => {
+                        clearDivisionDetail();
+                        openAllocationOverview();
+                      }
+                    : undefined
                 }
                 mobileReadabilityMode={mobileReadabilityMode}
               />
@@ -2866,7 +2405,7 @@ export function Dashboard({
                   onClick={clearDivisionDetail}
                   className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                 >
-                  사업부별 현황으로 돌아가기
+                  사업부 현황으로 돌아가기
                 </button>
               </div>
             )}
@@ -2895,7 +2434,6 @@ export function Dashboard({
               onOpenProjectTable={onNavigate ? openTableProject : undefined}
               onOpenTaskInTable={onOpenTaskInTable}
               onOpenAllTasksTable={onNavigate ? openTableAll : undefined}
-              onOpenAllocationOverview={onNavigate ? openAllocationOverview : undefined}
               projectsForDashboard={projectsForDashboard}
               allTasksForDashboard={allTasksForDashboard}
               projectMap={projectMap}
@@ -2913,8 +2451,6 @@ export function Dashboard({
               actionTasksWithDueDateCount={actionTasksWithDueDate.length}
               milestonesAll={milestones}
               projectStatsRows={projectStats}
-              displayProjectsForAllocation={displayProjectsForAllocation}
-              displayTasksForAllocation={displayTasksForAllocation}
               dashboardFiltersActive={dashboardFiltersActive}
               updateTask={updateTask}
               doneStatusId={doneStatusId}
@@ -2955,145 +2491,7 @@ export function Dashboard({
           />
         ) : null}
       </BaseModal>
-
-      <BaseModal
-        isOpen={Boolean(issueTaskDetailModal)}
-        onClose={() => setIssueTaskDetailModal(null)}
-        title="이슈 작업 상세"
-        size="lg"
-        footer={
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setIssueTaskDetailModal(null)}
-              className="px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
-            >
-              닫기
-            </button>
-            {onOpenTaskInTable && issueTaskDetailModal ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenTaskInTable(issueTaskDetailModal.id, issueTaskDetailModal.projectId);
-                  setIssueTaskDetailModal(null);
-                }}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                WBS 표에서 열기
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  openDashboardDetail('issues');
-                  setIssueTaskDetailModal(null);
-                }}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-rose-600 text-white hover:bg-rose-700"
-              >
-                이슈 목록 상세
-              </button>
-            )}
-          </div>
-        }
-      >
-        {issueTaskDetailModal ? (
-          <IssueTaskDetailModalBody
-            task={issueTaskDetailModal}
-            projectMap={projectMap}
-            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-          />
-        ) : null}
-      </BaseModal>
-
-      <BaseModal
-        isOpen={Boolean(actionTaskDetailModal)}
-        onClose={() => setActionTaskDetailModal(null)}
-        title="액션 항목 상세"
-        size="lg"
-        footer={
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setActionTaskDetailModal(null)}
-              className="px-4 py-2 text-sm font-semibold rounded-xl border border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
-            >
-              닫기
-            </button>
-            {onOpenTaskInTable && actionTaskDetailModal ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenTaskInTable(actionTaskDetailModal.id, actionTaskDetailModal.projectId);
-                  setActionTaskDetailModal(null);
-                }}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                WBS 표에서 열기
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  openDashboardDetail('actions');
-                  setActionTaskDetailModal(null);
-                }}
-                className="px-4 py-2 text-sm font-semibold rounded-xl bg-teal-700 text-white hover:bg-teal-800"
-              >
-                액션 전체 목록
-              </button>
-            )}
-          </div>
-        }
-      >
-        {actionTaskDetailModal ? (
-          <ActionItemDetailModalBody
-            task={actionTaskDetailModal}
-            projectMap={projectMap}
-            assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-            wbsSettings={wbsSettings}
-          />
-        ) : null}
-      </BaseModal>
     </>
-  );
-}
-
-function IssueTaskDetailModalBody({
-  task,
-  projectMap,
-  assigneeDisplayMetaByName,
-}: {
-  task: Task;
-  projectMap: Map<string, Project>;
-  assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
-}) {
-  const proj = projectMap.get(task.projectId);
-  return (
-    <div className="space-y-4 text-sm text-stone-700">
-      <p className="text-base font-semibold text-stone-900 leading-snug break-words">{task.name || '(이름 없음)'}</p>
-      <dl className="space-y-2">
-        <div className="flex justify-between gap-3">
-          <dt className="text-stone-400 shrink-0">프로젝트</dt>
-          <dd className="text-right font-medium text-stone-800 break-words min-w-0">
-            {proj ? formatProjectDisplayName(proj.name, proj.projectKind) : '—'}
-          </dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-stone-400 shrink-0">담당자</dt>
-          <dd className="text-right break-words min-w-0">{formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '—'}</dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-stone-400 shrink-0">종료일</dt>
-          <dd className="tabular-nums text-stone-700">{task.endDate || '—'}</dd>
-        </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-stone-400 shrink-0">진척률</dt>
-          <dd className="tabular-nums font-semibold text-stone-800">
-            {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—'}
-          </dd>
-        </div>
-      </dl>
-    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -44,6 +44,8 @@ interface SummaryBarProps {
   /** 모든 보이는 컬럼 너비를 현재 데이터/헤더 텍스트 길이에 맞춰 일괄 자동 조정 */
   onAutoFitColumns: () => void;
   onOpenMdEditor: () => void;
+  /** 등록 작업 기준 우선순위 보완 가이드(모달) */
+  onOpenImprovementGuide?: () => void;
 }
 
 export function SummaryBar({
@@ -61,6 +63,7 @@ export function SummaryBar({
   handleSetRowHeight,
   onAutoFitColumns,
   onOpenMdEditor,
+  onOpenImprovementGuide,
 }: SummaryBarProps) {
   return (
     <div
@@ -153,6 +156,17 @@ export function SummaryBar({
             >
               <Pencil size={14} strokeWidth={2} aria-hidden />
             </button>
+            {onOpenImprovementGuide && (
+              <button
+                type="button"
+                onClick={onOpenImprovementGuide}
+                className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+                title="담당 미지정·일정 불일치·진척 지연 등을 우선순위 순으로 안내합니다"
+              >
+                <ListOrdered size={12} strokeWidth={2} aria-hidden />
+                보완 가이드
+              </button>
+            )}
             <button
               type="button"
               onClick={onAutoFitColumns}
@@ -183,6 +197,17 @@ export function SummaryBar({
         // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
         <>
           <div className="flex-1" />
+          {onOpenImprovementGuide && (
+            <button
+              type="button"
+              onClick={onOpenImprovementGuide}
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+              title="등록 작업 기준 우선순위 보완 가이드"
+            >
+              <ListOrdered size={12} strokeWidth={2} aria-hidden />
+              가이드
+            </button>
+          )}
           <button
             type="button"
             onClick={toggleTableEditMode}

@@ -35,6 +35,7 @@ import {
   EyeOff,
   Network,
   Keyboard,
+  FileDown,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -121,6 +122,8 @@ export interface AppHeaderProps {
   /** 승인된 사용자 여부. 조직 현황 메뉴 노출 조건. */
   userApproved: boolean;
   handleImportClick: () => void;
+  /** 프로젝트 등록현황 요약 PDF 저장(대시보드 집계 기준) */
+  onSaveProjectRegistrationPdf?: () => void | Promise<void>;
   setIsExportModalOpen: (v: boolean) => void;
   setIsSettingsModalOpen: (v: boolean) => void;
   isShortcutsVisible: boolean;
@@ -208,6 +211,7 @@ export function AppHeader({
   setIsOrganizationOpen,
   userApproved,
   handleImportClick,
+  onSaveProjectRegistrationPdf,
   setIsExportModalOpen,
   setIsSettingsModalOpen,
   isShortcutsVisible,
@@ -1097,7 +1101,7 @@ export function AppHeader({
                 onClick={() => navigateWithTip('allocation')}
                 icon={<Users size={14} />}
                 label="투입현황"
-                title="프로젝트별·인원별 투입 비율을 한눈에 확인합니다."
+                title="투입 인원·투입 비율·프로젝트별 WBS 공수를 확인·편집합니다."
                 tourId="tour-nav-allocation"
               />
             )}
@@ -1288,6 +1292,24 @@ export function AppHeader({
                     <Download size={14} />
                     보내기
                   </button>
+                  {onSaveProjectRegistrationPdf && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        tipOnce?.(
+                          'menu.pdfRegistration',
+                          '대시보드에 집계된 프로젝트별 요약(작업 수·진척률·담당자 수)을 PDF로 저장합니다. 세부 작업 목록은 포함되지 않습니다.',
+                        );
+                        void Promise.resolve(onSaveProjectRegistrationPdf()).catch(() => {});
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      title="대시보드 집계와 동일한 프로젝트 등록현황 요약을 PDF 파일로 저장합니다. 다른 화면에 있으면 대시보드로 전환한 뒤 저장합니다."
+                    >
+                      <FileDown size={14} />
+                      PDF 저장
+                    </button>
+                  )}
 
                   <div className="h-px bg-slate-100 my-1 mx-2" />
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">설정</div>
