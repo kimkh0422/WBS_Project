@@ -37,6 +37,13 @@ import {
 } from '../lib/projectKind';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
+import {
+  computeWbsQualityScore,
+  WBS_QUALITY_GRADE_LABEL,
+  wbsQualityChecksSummary,
+  type WbsQuality,
+  type WbsQualityGrade,
+} from '../lib/wbsQualityScore';
 import { dashboardPlannedVarianceRowTitle } from '../lib/plannedProgressTooltips';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -111,6 +118,8 @@ interface ProjectStats {
   issueCount: number;
   actionCount: number;
   overdueCount: number;
+  /** WBS 작성 충실도(체크리스트 기반): 점수·등급·항목별 충족 내역 */
+  quality: WbsQuality;
 }
 
 type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'team' | 'end';
@@ -430,6 +439,9 @@ export function Dashboard({
             : 0;
       const variance = Math.round((progress - planned) * 10) / 10;
 
+      // WBS 작성 충실도(체크리스트 기반). 이미 계산한 plannedById 재사용.
+      const quality = computeWbsQualityScore(pTasks, project, wbsSettings.statusConfigs ?? [], { plannedById });
+
       return {
         ...project,
         stats: {
@@ -443,6 +455,7 @@ export function Dashboard({
           issueCount,
           actionCount,
           overdueCount,
+          quality,
         },
       };
     });
@@ -2584,6 +2597,13 @@ function SummaryCard({
   );
 }
 
+const WBS_QUALITY_BADGE_CLASS: Record<WbsQualityGrade, string> = {
+  excellent: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  good: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+  fair: 'bg-amber-50 text-amber-700 border-amber-200',
+  poor: 'bg-red-50 text-red-700 border-red-100',
+};
+
 function ProjectCard({
   project,
   onClick,
@@ -2668,10 +2688,7 @@ function ProjectCard({
       <div className="flex items-center gap-2 mb-2">
         <span className="text-[10px] font-semibold text-slate-400 shrink-0">진척</span>
         <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000 ease-out"
-            style={{ width: `${s.progress}%` }}
-          />
+          <div className="h-full bg-indigo-500 transition-all duration-1000 ease-out" style={{ width: `${s.progress}%` }} />
         </div>
         <span className="text-sm font-bold text-indigo-700 w-11 text-right tabular-nums shrink-0">{formatPercent1(s.progress)}%</span>
       </div>
@@ -2690,6 +2707,28 @@ function ProjectCard({
           {s.variance > 0 ? '+' : ''}
           {formatPercent1(s.variance)}%p
         </span>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-2 text-[11px]">
+        <span className="text-[10px] font-semibold text-slate-400 shrink-0">충실도</span>
+        {s.quality.score != null && s.quality.grade ? (
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-bold tabular-nums',
+              WBS_QUALITY_BADGE_CLASS[s.quality.grade],
+            )}
+            title={`WBS 작성 충실도 ${s.quality.score}점 · ${WBS_QUALITY_GRADE_LABEL[s.quality.grade]}\n${wbsQualityChecksSummary(s.quality)}${
+              s.quality.failTotal ? `\n보완 필요 ${s.quality.failTotal}건` : ''
+            }`}
+          >
+            {s.quality.score}
+            <span className="font-semibold opacity-90">· {WBS_QUALITY_GRADE_LABEL[s.quality.grade]}</span>
+          </span>
+        ) : (
+          <span className="text-slate-400" title="점검 대상 작업이 없습니다">
+            —
+          </span>
+        )}
       </div>
 
       <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">

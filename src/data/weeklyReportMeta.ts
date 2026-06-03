@@ -14,7 +14,7 @@ export const weeklyReportMeta = {
    * 푸터「N개 보고 조직 통합」의 N.
    * `weeklyReport.html`의 `REPORTS.length`와 맞추는 것을 권장합니다.
    */
-  organizationCount: 21,
+  organizationCount: 23,
   /** 푸터 마지막 문장(한 줄로 표시) */
   footerNote: '원문의 모든 전략회의/이슈/업무/영업/연구과제/차주계획 내용을 포함합니다.',
 } as const;

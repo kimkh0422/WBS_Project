@@ -24,13 +24,13 @@ function isDoneStatus(status: string, doneStatusIds: Set<string>): boolean {
   return doneStatusIds.has(status);
 }
 
-function isTaskComplete(task: Task, doneStatusIds: Set<string>): boolean {
+export function isTaskComplete(task: Task, doneStatusIds: Set<string>): boolean {
   const p = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
   if (p >= 100) return true;
   return isDoneStatus(String(task.status ?? ''), doneStatusIds);
 }
 
-function isUnassignedAssignee(assignee: string | undefined): boolean {
+export function isUnassignedAssignee(assignee: string | undefined): boolean {
   const t = (assignee ?? '').trim();
   if (!t) return true;
   if (t === '미지정' || t === '(미지정)') return true;
@@ -43,13 +43,13 @@ function ymdStart(s: string | undefined): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(y) ? y : null;
 }
 
-function refIsAfterStart(refYmd: string, startRaw: string | undefined): boolean {
+export function refIsAfterStart(refYmd: string, startRaw: string | undefined): boolean {
   const s = ymdStart(startRaw);
   if (!s) return false;
   return refYmd > s;
 }
 
-function buildDoneStatusIds(statusConfigs: StatusConfig[]): Set<string> {
+export function buildDoneStatusIds(statusConfigs: StatusConfig[]): Set<string> {
   return new Set((statusConfigs ?? []).filter((c) => c.progress >= 100).map((c) => c.id));
 }
 

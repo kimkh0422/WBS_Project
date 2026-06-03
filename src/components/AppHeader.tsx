@@ -1463,7 +1463,7 @@ export function AppHeader({
                     </>
                   )}
                   {user?.id &&
-                    !isAdmin &&
+                    !effectiveIsAdmin &&
                     setIsProjectEditAccessRequestModalOpen &&
                     currentProjectId &&
                     currentProjectId !== 'all' &&
@@ -1486,7 +1486,7 @@ export function AppHeader({
                         <div className="h-px bg-slate-100 my-1 mx-2" />
                       </>
                     )}
-                  {user?.id && !isAdmin && setIsAdminAccessRequestModalOpen && (
+                  {user?.id && !effectiveIsAdmin && setIsAdminAccessRequestModalOpen && (
                     <>
                       <button
                         type="button"
@@ -1502,7 +1502,7 @@ export function AppHeader({
                       <div className="h-px bg-slate-100 my-1 mx-2" />
                     </>
                   )}
-                  {user?.id && !isAdmin && !adminOverride && setIsAdminPasswordModalOpen && (
+                  {user?.id && !effectiveIsAdmin && setIsAdminPasswordModalOpen && (
                     <>
                       <button
                         type="button"

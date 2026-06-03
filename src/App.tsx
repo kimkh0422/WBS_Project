@@ -288,7 +288,8 @@ function WBSApp({
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
   // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
   // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
-  const effectiveIsAdmin = (isAdmin || adminOverride) && !memberPreview;
+  // gmtc.kr 사내 회원은 관리자와 동일하게 모든 메뉴·정보 표시(요청사항). 외부 도메인은 기존 권한 유지.
+  const effectiveIsAdmin = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
   /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
   const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
   const [profiles, setProfiles] = useState<
@@ -2445,7 +2446,8 @@ function AppWithProviders() {
     },
     [pushToast],
   );
-  const effectiveIsAdminGlobal = (isAdmin || adminOverride) && !memberPreview;
+  // gmtc.kr 사내 회원은 관리자와 동일 노출(요청사항) — WBSProvider.isAdmin으로 전파되어 컴포넌트 전반에 동일 적용.
+  const effectiveIsAdminGlobal = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
   /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
   const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
