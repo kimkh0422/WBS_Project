@@ -28,6 +28,33 @@ import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { cellTextStyleToCss } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
+
+/** 인라인 날짜 키패드 입력 정규화: 'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY.MM.DD' | 'YYYY/MM/DD' 등 → 'YYYY-MM-DD' (유효하지 않으면 ''). */
+function normalizeYmdInput(raw: string): string {
+  const s = (raw ?? '').trim();
+  if (!s) return '';
+  let y = '';
+  let m = '';
+  let d = '';
+  const sep = s.match(/^(\d{4})\s*[^\d]\s*(\d{1,2})\s*[^\d]\s*(\d{1,2})$/);
+  const digits = s.replace(/[^0-9]/g, '');
+  if (sep) {
+    [, y, m, d] = sep;
+  } else if (digits.length === 8) {
+    y = digits.slice(0, 4);
+    m = digits.slice(4, 6);
+    d = digits.slice(6, 8);
+  } else {
+    return '';
+  }
+  const mm = m.padStart(2, '0');
+  const dd = d.padStart(2, '0');
+  const mi = parseInt(mm, 10);
+  const di = parseInt(dd, 10);
+  if (!(mi >= 1 && mi <= 12 && di >= 1 && di <= 31)) return '';
+  return `${y}-${mm}-${dd}`;
+}
+
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
 /** 표에서의 순번(1부터) → taskId */
@@ -455,6 +482,10 @@ function SortableTaskRowInner({
         isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-slate-500'),
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
+        // 셀에 사용자 지정 글꼴 크기가 있으면 그 행은 높이를 자동 확장(고정 행 높이에 큰 글자가 잘리는 문제 보완)
+        !!task.cellTextStyles &&
+          Object.values(task.cellTextStyles).some((s) => typeof s?.fontSize === 'number' && (s.fontSize ?? 0) > 0) &&
+          'wbs-cell-styled',
       )}
       // Shift/Ctrl/Meta 구간·다중 선택: click은 일부 컨트롤(날짜 등)에서 합성되지 않을 수 있어 pointerdown 캡처에서 처리한다.
       onPointerDownCapture={(e) => {
@@ -610,16 +641,21 @@ function SortableTaskRowInner({
                       if (isComposingKeyEvent(e.nativeEvent)) return;
                       e.preventDefault();
                       e.stopPropagation();
-                      const v = e.currentTarget.value.trim();
-                      if (canEdit && v && v !== task.name) {
-                        updateTask(task.id, { name: v });
-                      }
+                      commitWbsInlineNameEditFromDom(task.id, tasks, updateTask, canEdit);
                       setInlineEditingNameId(null);
+                      setEditingCell(null);
+                      setFocusedCell({ taskId: task.id, columnId: 'name' });
+                      onFocusRow?.(task.id);
                       requestAnimationFrame(() => {
-                        document.getElementById(`task-row-${task.id}`)?.focus();
+                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
                       });
                     } else if (e.key === 'Escape') {
                       setInlineEditingNameId(null);
+                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                      if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }
                     } else if (e.key === ' ') {
                       // 전역 표 단축키(Space=체크 토글)가 bubble되면 띄어쓰기가 막힐 수 있음
                       e.stopPropagation();
@@ -684,7 +720,7 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
           const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
           const commitStartDateIfChanged = (raw: string) => {
-            const v = raw.trim();
+            const v = normalizeYmdInput(raw);
             if (!v || v === (task.startDate?.slice(0, 10) ?? '')) return;
             updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
           };
@@ -704,14 +740,14 @@ function SortableTaskRowInner({
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-startDate`}
-                  type="date"
+                  type="text"
+                  inputMode="numeric"
                   autoFocus
                   defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onChange={(e) => {
-                    // 일부 브라우저/환경에서 캘린더만 닫고 blur가 오지 않거나 순서가 꼬이면 값이 저장되지 않는 경우가 있어 change에서도 커밋한다.
-                    commitStartDateIfChanged(e.target.value);
-                  }}
+                  placeholder="YYYY-MM-DD"
+                  title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => {
                     commitStartDateIfChanged(e.target.value);
                     setEditingCell(null);
@@ -769,7 +805,7 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
           const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
           const commitEndDateIfChanged = (raw: string) => {
-            const v = raw.trim();
+            const v = normalizeYmdInput(raw);
             if (!v || v === (task.endDate?.slice(0, 10) ?? '')) return;
             updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
           };
@@ -789,13 +825,14 @@ function SortableTaskRowInner({
               {isEditing ? (
                 <input
                   id={`wbs-edit-${task.id}-endDate`}
-                  type="date"
+                  type="text"
+                  inputMode="numeric"
                   autoFocus
                   defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onChange={(e) => {
-                    commitEndDateIfChanged(e.target.value);
-                  }}
+                  placeholder="YYYY-MM-DD"
+                  title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => {
                     commitEndDateIfChanged(e.target.value);
                     setEditingCell(null);

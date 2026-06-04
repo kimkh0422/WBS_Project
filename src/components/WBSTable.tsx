@@ -33,11 +33,7 @@ import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from '
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
 import { SortableTaskRow } from './SortableTaskRow';
-import { ExcelGrid } from './ExcelGrid';
 import type { Project, Task } from '../types';
-import { TaskModal } from './TaskModal';
-import { MdEditModal } from './MdEditModal';
-import { WbsImprovementGuideModal } from './WbsImprovementGuideModal';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
@@ -59,6 +55,15 @@ import {
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
+
+// 첫 화면(표) 진입 경로에서 분리 — 사용자가 열 때만 로드한다.
+// 특히 TaskModal은 tiptap + yjs(협업 에디터)를 동반하므로 분리 효과가 가장 크다.
+const TaskModal = React.lazy(() => import('./TaskModal').then((m) => ({ default: m.TaskModal })));
+const MdEditModal = React.lazy(() => import('./MdEditModal').then((m) => ({ default: m.MdEditModal })));
+const WbsImprovementGuideModal = React.lazy(() =>
+  import('./WbsImprovementGuideModal').then((m) => ({ default: m.WbsImprovementGuideModal })),
+);
+const ExcelGrid = React.lazy(() => import('./ExcelGrid').then((m) => ({ default: m.ExcelGrid })));
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -1556,7 +1561,9 @@ export function WBSTable({
         )}
         {excelView && (
           <div className="flex-1 min-h-[320px] border border-slate-200 rounded-xl overflow-hidden bg-white">
-            <ExcelGrid tasks={visibleTasks} displayWbsMap={displayWbsMap} onTaskChange={updateTask} />
+            <React.Suspense fallback={null}>
+              <ExcelGrid tasks={visibleTasks} displayWbsMap={displayWbsMap} onTaskChange={updateTask} />
+            </React.Suspense>
           </div>
         )}
       </div>
@@ -1846,57 +1853,71 @@ export function WBSTable({
           document.body,
         )}
 
-      <TaskModal
-        isOpen={!!editingTask}
-        onClose={() => setEditingTask(null)}
-        onSave={handleSave}
-        initialData={editingTask || undefined}
-        parentOptions={tasks}
-        onOpenTask={(task) => setEditingTask(task)}
-      />
+      {editingTask && (
+        <React.Suspense fallback={null}>
+          <TaskModal
+            isOpen
+            onClose={() => setEditingTask(null)}
+            onSave={handleSave}
+            initialData={editingTask || undefined}
+            parentOptions={tasks}
+            onOpenTask={(task) => setEditingTask(task)}
+          />
+        </React.Suspense>
+      )}
 
-      <MdEditModal
-        isOpen={isMdEditModalOpen}
-        onClose={() => {
-          setIsMdEditModalOpen(false);
-          setMdEditInitialMarkdown('');
-        }}
-        initialMarkdown={mdEditInitialMarkdown}
-        onSave={(editedMarkdown) => {
-          const rows = parseMarkdownTable(editedMarkdown);
-          const wbsCodeToTaskId = new Map([...wbsMap].map(([id, code]) => [code, id]));
-          let updated = 0;
-          for (const row of rows) {
-            const taskId = wbsCodeToTaskId.get(row.wbsCode);
-            if (!taskId) continue;
-            const updates: Partial<Task> = {
-              name: row.name,
-              progress: row.progress,
-              assignee: row.assignee,
-              status: row.status,
-            };
-            if (row.startDate) updates.startDate = row.startDate;
-            if (row.endDate) updates.endDate = row.endDate;
-            if (row.workEffort != null) updates.workEffort = row.workEffort;
-            updateTask(taskId, updates);
-            updated += 1;
-          }
-          if (updated > 0) {
-            pushToast(`표가 마크다운 내용으로 반영되었습니다. (${updated}개 작업)`, { variant: 'success' });
-          } else if (rows.length === 0) {
-            pushToast('테이블 형식의 행을 찾을 수 없습니다. WBS 코드(**1**, **1.1** 등)가 있는 행만 반영됩니다.', { variant: 'warning' });
-          } else {
-            pushToast('매칭되는 작업이 없어 반영되지 않았습니다. WBS 코드를 변경하지 마세요.', { variant: 'warning' });
-          }
-        }}
-      />
+      {isMdEditModalOpen && (
+        <React.Suspense fallback={null}>
+          <MdEditModal
+            isOpen={isMdEditModalOpen}
+            onClose={() => {
+              setIsMdEditModalOpen(false);
+              setMdEditInitialMarkdown('');
+            }}
+            initialMarkdown={mdEditInitialMarkdown}
+            onSave={(editedMarkdown) => {
+              const rows = parseMarkdownTable(editedMarkdown);
+              const wbsCodeToTaskId = new Map([...wbsMap].map(([id, code]) => [code, id]));
+              let updated = 0;
+              for (const row of rows) {
+                const taskId = wbsCodeToTaskId.get(row.wbsCode);
+                if (!taskId) continue;
+                const updates: Partial<Task> = {
+                  name: row.name,
+                  progress: row.progress,
+                  assignee: row.assignee,
+                  status: row.status,
+                };
+                if (row.startDate) updates.startDate = row.startDate;
+                if (row.endDate) updates.endDate = row.endDate;
+                if (row.workEffort != null) updates.workEffort = row.workEffort;
+                updateTask(taskId, updates);
+                updated += 1;
+              }
+              if (updated > 0) {
+                pushToast(`표가 마크다운 내용으로 반영되었습니다. (${updated}개 작업)`, { variant: 'success' });
+              } else if (rows.length === 0) {
+                pushToast('테이블 형식의 행을 찾을 수 없습니다. WBS 코드(**1**, **1.1** 등)가 있는 행만 반영됩니다.', {
+                  variant: 'warning',
+                });
+              } else {
+                pushToast('매칭되는 작업이 없어 반영되지 않았습니다. WBS 코드를 변경하지 마세요.', { variant: 'warning' });
+              }
+            }}
+          />
+        </React.Suspense>
+      )}
 
-      <WbsImprovementGuideModal
-        isOpen={improvementGuideOpen}
-        onClose={() => setImprovementGuideOpen(false)}
-        steps={improvementGuideSteps}
-        onJumpToTask={scrollTaskIntoView}
-      />
+      {improvementGuideOpen && (
+        <React.Suspense fallback={null}>
+          <WbsImprovementGuideModal
+            isOpen
+            onClose={() => setImprovementGuideOpen(false)}
+            steps={improvementGuideSteps}
+            onJumpToTask={scrollTaskIntoView}
+          />
+        </React.Suspense>
+      )}
 
       {contextMenu && (
         <ContextMenu

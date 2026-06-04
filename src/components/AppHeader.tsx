@@ -503,7 +503,7 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        'bg-white/90 backdrop-blur-xl border-b border-slate-200/60 z-50 safe-top transition-all duration-200',
+        'bg-[var(--color-surface)]/90 backdrop-blur-xl border-b border-[var(--color-line)]/60 z-50 safe-top transition-all duration-200',
         isHeaderCollapsed ? 'py-1.5 px-3 md:py-2 md:px-6' : 'px-4 md:px-6 py-2',
       )}
       style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}
@@ -526,7 +526,7 @@ export function AppHeader({
         </div>
         <button
           onClick={() => setIsHeaderCollapsed(false)}
-          className="p-2.5 -mr-1 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0"
+          className="p-2.5 -mr-1 rounded-lg hover:bg-[var(--color-bg)] text-[var(--color-ink-subdued)] shrink-0"
           title="메뉴 펼치기"
           aria-label="메뉴 펼치기"
         >
@@ -569,7 +569,7 @@ export function AppHeader({
                   setIsProjectDropdownOpen(!isProjectDropdownOpen);
                   if (tipOnce) tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
                 }}
-                className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-all border border-transparent hover:border-slate-200/80"
+                className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--color-bg)] rounded-lg transition-all border border-transparent hover:border-[var(--color-line)]"
                 title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
               >
                 <div className="flex flex-col items-start min-w-0">
@@ -626,8 +626,8 @@ export function AppHeader({
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
                   <div
-                    className="absolute top-full left-0 mt-2 w-[min(49.5rem,calc(100vw-1.5rem))] max-w-[100vw] bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 dropdown-menu"
-                    style={{ boxShadow: 'var(--shadow-xl)' }}
+                    className="absolute top-full left-0 mt-2 w-[min(49.5rem,calc(100vw-1.5rem))] max-w-[100vw] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-hidden z-50 dropdown-menu"
+                    style={{ boxShadow: 'var(--shadow-[var(--shadow-xl)])' }}
                   >
                     <div className="p-1">
                       <div
@@ -647,7 +647,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'my'
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                  : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-slate-200',
+                                  : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-[var(--color-line)]',
                               )}
                               title={listFilter === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
                             >
@@ -665,7 +665,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 projectListLayout === 'org'
                                   ? 'bg-teal-100 text-teal-800 border border-teal-200'
-                                  : 'text-slate-400 hover:text-teal-700 border border-transparent hover:border-slate-200',
+                                  : 'text-slate-400 hover:text-teal-700 border border-transparent hover:border-[var(--color-line)]',
                               )}
                               title={
                                 projectListLayout === 'org'
@@ -688,7 +688,7 @@ export function AppHeader({
                               'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                               projectListLayout === 'assignees'
                                 ? 'bg-violet-100 text-violet-900 border border-violet-200'
-                                : 'text-slate-400 hover:text-violet-800 border border-transparent hover:border-slate-200',
+                                : 'text-slate-400 hover:text-violet-800 border border-transparent hover:border-[var(--color-line)]',
                             )}
                             title={
                               projectListLayout === 'assignees'
@@ -711,7 +711,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'favorites'
                                   ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                  : 'text-slate-400 hover:text-amber-600 border border-transparent hover:border-slate-200',
+                                  : 'text-slate-400 hover:text-amber-600 border border-transparent hover:border-[var(--color-line)]',
                               )}
                               title={listFilter === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
                             >
@@ -730,7 +730,7 @@ export function AppHeader({
                                 'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
                                 listFilter === 'dashboardOn'
                                   ? 'bg-sky-100 text-sky-900 border border-sky-200'
-                                  : 'text-slate-400 hover:text-sky-800 border border-transparent hover:border-slate-200',
+                                  : 'text-slate-400 hover:text-sky-800 border border-transparent hover:border-[var(--color-line)]',
                               )}
                               title={listFilter === 'dashboardOn' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함된 프로젝트만 보기'}
                             >
@@ -743,11 +743,12 @@ export function AppHeader({
                       </div>
                       {projectsSortedByName.length >= 25 && (
                         <div
-                          className="mx-2 mb-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-[10px] text-slate-600 leading-snug"
+                          className="mx-2 mb-1 px-2 py-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-line)] text-[10px] text-[var(--color-ink-subdued)] leading-snug"
                           title="관리자 승인 계정은 서버에 등록된 전체 프로젝트를 볼 수 있습니다."
                         >
-                          <strong className="text-slate-700">왜 이렇게 많나요?</strong> 승인된 계정은 조직의 <strong>전체 프로젝트</strong>
-                          가 표시됩니다. 복사본·테스트 프로젝트까지 합쳐지면 수가 커질 수 있어요. 아래는 <strong>만든 사람(소유자)</strong>
+                          <strong className="text-[var(--color-ink)]">왜 이렇게 많나요?</strong> 승인된 계정은 조직의{' '}
+                          <strong>전체 프로젝트</strong>가 표시됩니다. 복사본·테스트 프로젝트까지 합쳐지면 수가 커질 수 있어요. 아래는{' '}
+                          <strong>만든 사람(소유자)</strong>
                           별로 묶어 두었습니다.
                         </div>
                       )}
@@ -758,7 +759,7 @@ export function AppHeader({
                           'px-3 py-2 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border',
                           currentProjectId === 'all'
                             ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
-                            : 'text-slate-600 hover:bg-slate-50 border-transparent',
+                            : 'text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] border-transparent',
                         )}
                         onClick={() => {
                           selectProject('all');
@@ -792,7 +793,7 @@ export function AppHeader({
                           <span className="text-amber-700/90"> (전체 합계와 목록만 합산 시 숫자가 달라질 수 있음)</span>
                         </div>
                       )}
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                       <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
                           const renderProjectRow = (project: Project) => {
@@ -807,7 +808,7 @@ export function AppHeader({
                                   'px-3 py-1.5 text-sm rounded-lg cursor-pointer flex justify-between items-center group/item transition-colors border gap-1',
                                   isCurrentProject
                                     ? 'bg-sky-50 border-sky-200 text-sky-950 font-semibold ring-1 ring-sky-200/80'
-                                    : 'text-slate-600 hover:bg-slate-50 border-transparent',
+                                    : 'text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] border-transparent',
                                 )}
                                 onClick={() => {
                                   selectProject(project.id);
@@ -922,7 +923,7 @@ export function AppHeader({
                                   <button
                                     type="button"
                                     onClick={() => toggleOrgExpanded(ek)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-600 hover:bg-slate-50"
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)]"
                                     style={{ paddingLeft: 8 + branch.depth * 10 }}
                                   >
                                     {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -931,7 +932,7 @@ export function AppHeader({
                                     <span className="text-[10px] text-slate-400">{sub}</span>
                                   </button>
                                   {expanded && (
-                                    <div className={branch.depth === 0 ? 'mt-0.5' : 'pl-2 ml-3 border-l border-slate-100'}>
+                                    <div className={branch.depth === 0 ? 'mt-0.5' : 'pl-2 ml-3 border-l border-[var(--color-line)]'}>
                                       {branch.children.map((c) => renderOrgBranch(divisionId, c))}
                                       {branch.projects.map((p) => renderProjectRow(p))}
                                     </div>
@@ -957,7 +958,7 @@ export function AppHeader({
                                   <button
                                     type="button"
                                     onClick={() => toggleOrgExpanded(umKey)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-slate-600 hover:bg-slate-50"
+                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)]"
                                   >
                                     {umEx ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                                     <Network size={12} className="text-slate-400 shrink-0" />
@@ -965,14 +966,16 @@ export function AppHeader({
                                     <span className="text-[10px] text-slate-400">{unmapped.length}</span>
                                   </button>
                                   {umEx && (
-                                    <div className="pl-7 border-l border-slate-100 ml-2">{unmapped.map((p) => renderProjectRow(p))}</div>
+                                    <div className="pl-7 border-l border-[var(--color-line)] ml-2">
+                                      {unmapped.map((p) => renderProjectRow(p))}
+                                    </div>
                                   )}
                                 </div>,
                               );
                             }
                             if (nodes.length === 0) {
                               return (
-                                <div className="px-3 py-2 text-[11px] text-slate-500 leading-relaxed">
+                                <div className="px-3 py-2 text-[11px] text-[var(--color-ink-subdued)] leading-relaxed">
                                   조직도에 표시할 프로젝트가 없습니다. PM 이름을 조직 현황 인원과 동일하게 맞추거나, 회원 프로필의 부서가
                                   조직도 부서명과 맞는지 확인해 주세요.
                                 </div>
@@ -984,7 +987,9 @@ export function AppHeader({
                           if (projectListLayout === 'assignees') {
                             if (projectsByParticipantSections.length === 0) {
                               return (
-                                <div className="px-3 py-2 text-[11px] text-slate-500 leading-relaxed">표시할 프로젝트가 없습니다.</div>
+                                <div className="px-3 py-2 text-[11px] text-[var(--color-ink-subdued)] leading-relaxed">
+                                  표시할 프로젝트가 없습니다.
+                                </div>
                               );
                             }
                             return projectsByParticipantSections.map(({ participantCount, projects: list }) => (
@@ -1043,7 +1048,7 @@ export function AppHeader({
                               setIsProjectDropdownOpen(false);
                               setView('projects');
                             }}
-                            className="w-full text-left px-3 py-2 text-sm text-slate-500 hover:bg-slate-50 rounded-lg flex items-center gap-2 transition-colors"
+                            className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] rounded-lg flex items-center gap-2 transition-colors"
                             title="프로젝트 관리 페이지로 이동합니다."
                           >
                             <Briefcase size={14} /> 프로젝트 관리
@@ -1064,7 +1069,7 @@ export function AppHeader({
             <button
               onClick={undo}
               disabled={!canUndo}
-              className="icon-btn !p-1.5 text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className="icon-btn !p-1.5 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="실행 취소 (Ctrl+Z)"
               aria-label="실행 취소 (Ctrl+Z)"
             >
@@ -1073,7 +1078,7 @@ export function AppHeader({
             <button
               onClick={redo}
               disabled={!canRedo}
-              className="icon-btn !p-1.5 text-slate-500 hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className="icon-btn !p-1.5 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="다시 실행 (Ctrl+Y)"
               aria-label="다시 실행 (Ctrl+Y)"
             >
@@ -1082,7 +1087,7 @@ export function AppHeader({
           </div>
           <div className="toolbar-divider hidden md:block" />
           {/* 뷰 탭 바(데스크톱 전용): 모바일은 하단 고정 탭바 사용 */}
-          <div className="hidden md:flex bg-slate-100/70 p-0.5 rounded-lg border border-slate-200/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
+          <div className="hidden md:flex bg-[var(--color-bg)]/70 p-0.5 rounded-lg border border-[var(--color-line)]/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
             {!hiddenViews.has('dashboard') && (
               <NavButton
                 active={view === 'dashboard'}
@@ -1177,7 +1182,7 @@ export function AppHeader({
             href="https://docs.google.com/document/d/1h_St7qRXMRxGsV6i780uCmNSYax3a4PaazTFZgT2gqQ/edit?tab=t.0"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-subdued)] hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
             title="버그 사항 시트로 이동"
           >
             <span className="hidden sm:inline">버그 사항</span>
@@ -1192,8 +1197,8 @@ export function AppHeader({
               className={cn(
                 'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
                 dashboardFiltersActive || showDashboardFilterToolbar
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700',
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
+                  : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
               )}
               title={
                 showDashboardFilterToolbar
@@ -1210,7 +1215,9 @@ export function AppHeader({
               <span
                 className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded-md',
-                  dashboardFiltersActive || showDashboardFilterToolbar ? 'bg-white/20' : 'bg-slate-100 text-slate-400',
+                  dashboardFiltersActive || showDashboardFilterToolbar
+                    ? 'bg-[var(--color-surface)]/20'
+                    : 'bg-[var(--color-bg)] text-slate-400',
                 )}
               >
                 {dashboardFiltersActive || showDashboardFilterToolbar ? 'On' : 'Off'}
@@ -1227,8 +1234,8 @@ export function AppHeader({
               className={cn(
                 'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
                 filterOn
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/25'
-                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700',
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
+                  : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
               )}
               title={
                 filterOn
@@ -1238,7 +1245,12 @@ export function AppHeader({
             >
               <Settings2 size={14} /> {/* Replace Filter */}
               <span className="hidden sm:inline">필터</span>
-              <span className={cn('text-[10px] px-1.5 py-0.5 rounded-md', filterOn ? 'bg-white/20' : 'bg-slate-100 text-slate-400')}>
+              <span
+                className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-md',
+                  filterOn ? 'bg-[var(--color-surface)]/20' : 'bg-[var(--color-bg)] text-slate-400',
+                )}
+              >
                 {filterOn ? 'On' : 'Off'}
               </span>
             </button>
@@ -1252,7 +1264,9 @@ export function AppHeader({
               onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
               className={cn(
                 'icon-btn !p-1.5 transition-colors relative shrink-0',
-                isMoreMenuOpen ? 'text-[var(--color-ink)] bg-slate-100' : 'text-slate-500 hover:text-[var(--color-ink)] hover:bg-slate-50',
+                isMoreMenuOpen
+                  ? 'text-[var(--color-ink)] bg-[var(--color-bg)]'
+                  : 'text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] hover:bg-[var(--color-bg)]',
               )}
               title="가져오기·보내기·환경설정·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
               aria-label="추가 옵션"
@@ -1263,8 +1277,8 @@ export function AppHeader({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsMoreMenuOpen(false)} aria-hidden />
                 <div
-                  className="absolute top-full right-0 mt-2 w-44 bg-white rounded-xl border border-slate-200/80 overflow-hidden z-50 shadow-xl dropdown-menu flex flex-col py-1"
-                  style={{ boxShadow: 'var(--shadow-xl)' }}
+                  className="absolute top-full right-0 mt-2 w-44 bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-hidden z-50 shadow-[var(--shadow-xl)] dropdown-menu flex flex-col py-1"
+                  style={{ boxShadow: 'var(--shadow-[var(--shadow-xl)])' }}
                 >
                   {(userApproved || effectiveIsAdmin) && (
                     <>
@@ -1275,12 +1289,12 @@ export function AppHeader({
                           setIsMoreMenuOpen(false);
                           setIsOrganizationOpen(true);
                         }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                         title="조직도·부서·인원 구조를 확인하고, 회원과 연동되는 표시 정보를 점검할 수 있는 화면으로 이동합니다."
                       >
                         <Users size={14} /> 조직 현황
                       </button>
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
@@ -1292,7 +1306,7 @@ export function AppHeader({
                       setIsMoreMenuOpen(false);
                       handleImportClick();
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     title={
                       canEditCurrentProject
                         ? 'Excel 또는 JSON 파일에서 작업표를 불러와 현재 프로젝트에 반영합니다. 형식에 따라 병합·치환 범위를 확인하세요.'
@@ -1308,7 +1322,7 @@ export function AppHeader({
                       setIsExportModalOpen(true);
                       tipOnce?.('menu.export', '보내기: 범위와 파일 형식(Excel/JSON/Markdown)을 선택해 받을 수 있어요.');
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                     title="현재 프로젝트(또는 모달에서 선택한 범위)를 Excel·JSON·Markdown 등으로 보냅니다. 보관·공유·백업에 활용할 수 있습니다."
                   >
                     <Download size={14} />
@@ -1325,7 +1339,7 @@ export function AppHeader({
                         );
                         void Promise.resolve(onSaveProjectRegistrationPdf()).catch(() => {});
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                       title="대시보드 집계와 동일한 프로젝트 등록현황 요약을 PDF 파일로 저장합니다. 다른 화면에 있으면 대시보드로 전환한 뒤 저장합니다."
                     >
                       <FileDown size={14} />
@@ -1333,7 +1347,7 @@ export function AppHeader({
                     </button>
                   )}
 
-                  <div className="h-px bg-slate-100 my-1 mx-2" />
+                  <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">설정</div>
                   <button
                     type="button"
@@ -1342,7 +1356,7 @@ export function AppHeader({
                       setIsSettingsModalOpen(true);
                       tipOnce?.('menu.settings', '환경설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 바꿀 수 있어요.');
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                     title="WBS 열 구성, 상태·진척도 규칙, 앱 제목, 프로젝트 그룹·관심 목록 등 전역 설정을 변경합니다."
                   >
                     <Settings2 size={14} /> 환경설정
@@ -1354,13 +1368,13 @@ export function AppHeader({
                       setIsShortcutsVisible(!isShortcutsVisible);
                       tipOnce?.('menu.shortcuts', '오른쪽에 키보드 단축키 패널을 엽니다. (입력란에 포커스가 없을 때 Shift+? 로도 토글)');
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                     title="키보드 단축키 안내 패널을 열거나 닫습니다. Shift+? 로도 토글할 수 있습니다."
                   >
                     <Keyboard size={14} /> 단축키
                   </button>
 
-                  {(allowMembersManagement || showSuperAdminDeleteMenu) && <div className="h-px bg-slate-100 my-1 mx-2" />}
+                  {(allowMembersManagement || showSuperAdminDeleteMenu) && <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />}
 
                   {allowMembersManagement && (
                     <>
@@ -1391,7 +1405,7 @@ export function AppHeader({
                         setIsDeleteChoiceOpen(true);
                         tipOnce?.('menu.deleteAll', '삭제 및 초기화 메뉴입니다.');
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-slate-100 pt-2 pb-1"
+                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-[var(--color-line)] pt-2 pb-1"
                       title="선택한 프로젝트·작업만 삭제하거나, 조직 데이터를 초기화하는 등 되돌리기 어려운 작업을 수행합니다. 실행 전 내용을 반드시 확인하세요."
                     >
                       <Trash2 size={14} /> 부분/전체 삭제
@@ -1427,7 +1441,7 @@ export function AppHeader({
               <button
                 type="button"
                 onClick={() => setIsUserMenuOpen((o) => !o)}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 max-w-[140px] sm:max-w-[180px]"
+                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-bg)] max-w-[140px] sm:max-w-[180px]"
                 title={
                   memberPreview && canSwitchAdminMemberView
                     ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 아래 메뉴에서 관리자 화면으로 전환)'
@@ -1436,7 +1450,7 @@ export function AppHeader({
                       : '계정'
                 }
               >
-                <User size={14} className="shrink-0 text-slate-500" />
+                <User size={14} className="shrink-0 text-[var(--color-ink-subdued)]" />
                 <span className="truncate">{currentUserDisplay || user?.email || '계정'}</span>
                 {memberPreview && canSwitchAdminMemberView && (
                   <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-500" title="일반 사용자 화면 모드" aria-hidden />
@@ -1444,7 +1458,7 @@ export function AppHeader({
                 <ChevronDown size={12} className={cn('shrink-0 opacity-50', isUserMenuOpen && 'rotate-180')} />
               </button>
               {isUserMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 py-1 min-w-[200px] rounded-xl border border-slate-200 bg-white shadow-lg z-[60]">
+                <div className="absolute right-0 top-full mt-1 py-1 min-w-[200px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-lg)] z-[60]">
                   {canSwitchAdminMemberView && memberPreview && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">사용자·관리자</div>
@@ -1459,7 +1473,7 @@ export function AppHeader({
                       >
                         <EyeOff size={14} /> 관리자 화면으로 전환
                       </button>
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
                   {user?.id &&
@@ -1474,7 +1488,7 @@ export function AppHeader({
                       <>
                         <button
                           type="button"
-                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                          className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                           onClick={() => {
                             setIsUserMenuOpen(false);
                             setIsProjectEditAccessRequestModalOpen(true);
@@ -1483,14 +1497,14 @@ export function AppHeader({
                         >
                           <Edit size={14} /> 프로젝트 편집 권한 요청…
                         </button>
-                        <div className="h-px bg-slate-100 my-1 mx-2" />
+                        <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                       </>
                     )}
                   {user?.id && !effectiveIsAdmin && setIsAdminAccessRequestModalOpen && (
                     <>
                       <button
                         type="button"
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                         onClick={() => {
                           setIsUserMenuOpen(false);
                           setIsAdminAccessRequestModalOpen(true);
@@ -1499,14 +1513,14 @@ export function AppHeader({
                       >
                         <Shield size={14} /> 시스템 관리자 권한 요청…
                       </button>
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
                   {user?.id && !effectiveIsAdmin && setIsAdminPasswordModalOpen && (
                     <>
                       <button
                         type="button"
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-bg)] flex items-center gap-2"
                         onClick={() => {
                           setIsUserMenuOpen(false);
                           setIsAdminPasswordModalOpen(true);
@@ -1515,7 +1529,7 @@ export function AppHeader({
                       >
                         <ShieldCheck size={14} /> 관리자 비밀번호로 전환…
                       </button>
-                      <div className="h-px bg-slate-100 my-1 mx-2" />
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
                   {/* 테마 선택 영역은 일시적으로 숨김 (라이트 모드 고정) */}
@@ -1537,7 +1551,7 @@ export function AppHeader({
 
           <button
             onClick={() => setIsHeaderCollapsed(true)}
-            className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+            className="md:hidden p-2 rounded-lg text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] transition-colors"
             title="메뉴 접어서 표 넓게 보기"
             aria-label="메뉴 접어서 표 넓게 보기"
           >
@@ -1547,7 +1561,7 @@ export function AppHeader({
       </div>
       {/* 모바일 하단 고정 탭바: 숨김 설정에 따라 대시보드 / 표 / … */}
       {!lockMobileToDashboard && mobileBottomNavItems.length > 0 && (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-slate-200/80 bg-white/95 backdrop-blur-xl px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[70] border-t border-[var(--color-line)] bg-[var(--color-surface)]/95 backdrop-blur-xl px-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-0.5">
           <div className="grid gap-0.5" style={{ gridTemplateColumns: `repeat(${mobileBottomNavItems.length}, minmax(0, 1fr))` }}>
             {mobileBottomNavItems.map((item) => (
               <NavButton

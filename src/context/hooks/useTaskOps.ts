@@ -251,13 +251,27 @@ export function useTaskOps(deps: TaskOpsDeps) {
         let result = nextTasks;
         // 간트 등에서 여러 행 일정을 연속 패치할 때: 중간마다 상위 롤업을 돌리면 아직 옮기지 않은 형제/자식 때문에 부모 시작일이 당겨지는 버그가 난다.
         if (!deferScheduleSync) {
-          if (affectsRollup) {
+          if (hasDateChange) {
+            // 하위(자식) 시작/종료일 변경 → 상위(조상) 일정만 자식 기준으로 자동 롤업(상위가 자식을 포괄).
+            // 단, '날짜만' 편집한 경우 어떤 행의 공수(workEffort)도 자식 합으로 덮어쓰지 않는다(요청: 날짜↔공수 비연동).
+            // 공수가 함께 변경된 편집(모달 저장 등)은 기존대로 공수 롤업도 수행.
+            let skipEffortIds: Set<string> | undefined;
+            if (!hasWorkEffortChange) {
+              skipEffortIds = new Set<string>();
+              const byId = new Map<string, Task>(result.map((t) => [t.id, t]));
+              let cur: string | null | undefined = task.parentId;
+              while (cur) {
+                skipEffortIds.add(cur);
+                cur = byId.get(cur)?.parentId ?? null;
+              }
+            }
+            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, false);
+          } else if (affectsRollup) {
             const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
             const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
             // 하위가 있는 행에서 공수만 직접 바꾼 경우: 같은 틱에서 자식 합으로 덮어쓰지 않도록 공수 롤업만 건너뜀
-            const skipWorkEffortRollupParentIds =
-              hasChildTasks && !hasDateChange && !isDirectProgressEdit && hasWorkEffortChange ? new Set([id]) : undefined;
-            if (hasChildTasks && !hasDateChange && !isDirectProgressEdit) {
+            const skipWorkEffortRollupParentIds = hasChildTasks && !isDirectProgressEdit && hasWorkEffortChange ? new Set([id]) : undefined;
+            if (hasChildTasks && !isDirectProgressEdit) {
               result = syncParentRollups(result, id, doneStatusIds, true, undefined, skipWorkEffortRollupParentIds, true);
             } else {
               result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, undefined, true);

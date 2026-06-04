@@ -188,6 +188,22 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // 새 작업 입력칸(하단/인라인)에서는 Enter가 폼 submit 되도록 전역 단축키 미동작
       if (inQuickAdd) return;
+
+      // 작업명 인라인 편집 중 ↑/↓(수정키 없음): 표·간트 동기/스크롤 등으로 행 포커스가 바뀌지 않도록 여기서 종료
+      if (
+        inlineEditingNameId &&
+        inWbsTable &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
       // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (범위 확장용 ↑↓+Shift/Ctrl/Meta 는 예외)
       if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !rangeArrowFromOutsideTable) return;
 
@@ -558,10 +574,23 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // Copy (works as long as there's a selection)
+      // Copy: 행 전체가 아니라 '작업명'만 시스템 클립보드로 복사 (요청사항)
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         e.preventDefault();
-        copySelectionToClipboard();
+        const names =
+          selectedTaskIds.size > 0
+            ? visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => (t.name ?? '').trim())
+            : lastSelectedId
+              ? [(tasks.find((t) => t.id === lastSelectedId)?.name ?? '').trim()]
+              : [];
+        const text = names.filter(Boolean).join('\n');
+        if (!text) return;
+        try {
+          void navigator.clipboard?.writeText(text);
+        } catch {
+          // ignore clipboard errors (permissions, insecure context)
+        }
+        pushToast(`작업명 ${names.filter(Boolean).length}개를 복사했습니다.`, { variant: 'success' });
         return;
       }
 

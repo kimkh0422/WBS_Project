@@ -668,6 +668,15 @@ export function WBSProvider({
   serverPullFromDbRef.current = async () => {
     if (useLocalOnly || !isSupabaseConfigured || !supabase || !user?.id) return;
     if (hasLocalChangesSinceSyncRef.current) return;
+    // 사용자가 표/모달에서 셀을 편집 중(입력 포커스)이면 이번 풀의 화면 교체를 건너뛴다.
+    // 5분 폴링·탭 복귀 풀이 편집 도중 setAllTasks로 행을 교체하면 입력 포커스가 끊겨 작업이 멈추는 문제 방지(다음 주기 재시도).
+    const _activeEl = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+    if (
+      _activeEl &&
+      (_activeEl.tagName === 'INPUT' || _activeEl.tagName === 'TEXTAREA' || _activeEl.tagName === 'SELECT' || _activeEl.isContentEditable)
+    ) {
+      return;
+    }
     try {
       const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
       if (hasLocalChangesSinceSyncRef.current) return;

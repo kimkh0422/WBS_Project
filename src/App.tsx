@@ -1,18 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { APP_VERSION, APP_COMMIT_DATE } from './appRelease';
-import { WBSTable } from './components/WBSTable';
-import { TableGanttSplit } from './components/TableGanttSplit';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
 import { ShortcutsSidebar } from './components/ShortcutsSidebar';
-import { TaskModal } from './components/TaskModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SearchModal } from './components/SearchModal';
 import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
 import { ProjectNameLabel } from './components/ProjectNameLabel';
+import { AppSkeleton } from './components/AppSkeleton';
+import { AppFilterBar } from './components/AppFilterBar';
+import { AppLayout } from './components/AppLayout';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import {
   List,
@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
 import { useModalStates } from './hooks/useModalStates';
+import { useAppRouting, type ViewType } from './hooks/useAppRouting';
 import {
   useFileImportExport,
   type ImportPreviewState,
@@ -102,6 +103,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
 
+// WBSTable(+SortableTaskRow 등 대형 트리)·TableGanttSplit은 표/간트 뷰에서만 필요 → 지연 로딩으로 초기(대시보드) 번들에서 분리.
+const WBSTable = React.lazy(() => import('./components/WBSTable').then((m) => ({ default: m.WBSTable })));
+const TableGanttSplit = React.lazy(() => import('./components/TableGanttSplit').then((m) => ({ default: m.TableGanttSplit })));
 const GanttChart = React.lazy(() => import('./components/GanttChart').then((m) => ({ default: m.GanttChart })));
 const KanbanBoard = React.lazy(() => import('./components/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
 const MindMapView = React.lazy(() => import('./components/MindMapView').then((m) => ({ default: m.MindMapView })));
@@ -117,6 +121,8 @@ const VersionManager = React.lazy(() => import('./components/VersionManager').th
 const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
 const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
+// 첫 화면(특히 표) 진입 경로에서 분리 — 새 작업/작업 상세 모달을 열 때만 로드(tiptap + yjs 동반).
+const TaskModal = React.lazy(() => import('./components/TaskModal').then((m) => ({ default: m.TaskModal })));
 const OrganizationModal = React.lazy(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -164,60 +170,23 @@ function WBSApp({
   onEditableProjectIdsRefresh,
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
+
+  // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
+  // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
+  // gmtc.kr 사내 회원은 관리자와 동일하게 모든 메뉴·정보 표시(요청사항). 외부 도메인은 기존 권한 유지.
+  const effectiveIsAdmin = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
+  /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
+  const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
+
+  const { view, setView, hiddenViews, lockMobileToDashboard, dashboardMountedOnceRef } = useAppRouting({
+    effectiveIsAdmin,
+    userEmail: user?.email,
+    isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
+  });
+
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
-  // URL 기반 뷰 라우팅 — /table, /gantt 등. 뒤로가기/앞으로가기/딥링크 지원
-  type ViewType =
-    | 'table'
-    | 'tablegantt'
-    | 'gantt'
-    | 'kanban'
-    | 'mindmap'
-    | 'dashboard'
-    | 'projects'
-    | 'allocation'
-    | 'outlook'
-    | 'weekreport';
-  const VALID_VIEWS = new Set<string>([
-    'table',
-    'tablegantt',
-    'gantt',
-    'kanban',
-    'mindmap',
-    'dashboard',
-    'projects',
-    'allocation',
-    'outlook',
-    'weekreport',
-  ]);
-  /** 숨김 뷰 보정·기본 경로에 사용: 앞쪽부터 첫 미숨김 뷰 */
-  const MAIN_NAV_VIEW_ORDER: ViewType[] = [
-    'dashboard',
-    'projects',
-    'allocation',
-    'outlook',
-    'weekreport',
-    'table',
-    'tablegantt',
-    'gantt',
-    'kanban',
-    'mindmap',
-  ];
-  function pickFirstVisibleView(hidden: Set<string>): ViewType {
-    for (const v of MAIN_NAV_VIEW_ORDER) {
-      if (!hidden.has(v)) return v;
-    }
-    return 'dashboard';
-  }
-  const location = useLocation();
-  const navigate = useNavigate();
-  const setView = useCallback(
-    (v: ViewType) => {
-      navigate(`/${v}`, { replace: false });
-    },
-    [navigate],
-  );
   const modals = useModalStates();
   const {
     isModalOpen,
@@ -286,93 +255,6 @@ function WBSApp({
   const [isDbSyncing, setIsDbSyncing] = useState(false);
   const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
-  // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
-  // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
-  // gmtc.kr 사내 회원은 관리자와 동일하게 모든 메뉴·정보 표시(요청사항). 외부 도메인은 기존 권한 유지.
-  const effectiveIsAdmin = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
-  /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
-  const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
-  const [profiles, setProfiles] = useState<
-    { id: string; email: string | null; full_name?: string | null; approved?: boolean; department?: string | null }[]
-  >([]);
-  const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
-  const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia('(max-width: 767px)').matches;
-  });
-  // 메뉴(탭) 숨김: `VITE_HIDDEN_VIEWS`에 "dashboard,allocation" 처럼 지정하면 해당 탭도 숨김.
-  // 기본으로 표+간트(`tablegantt`)·칸반(`kanban`)·영업 아웃룩(`outlook`)은 항상 숨김.
-  // `VITE_PROJECT_STATUS_ONLY=true` 이면 표·간트·칸반·프로젝트 관리·마인드맵을 추가로 숨기고 대시보드(프로젝트 현황) 중심으로 둡니다.
-  // 비관리자: 대시보드는 노출(본인이 참여하는 프로젝트만 RLS로 자연 필터링됨). 마인드맵은 관리자 전용 유지.
-  const hiddenViews = React.useMemo(() => {
-    const raw = import.meta.env.VITE_HIDDEN_VIEWS as string | undefined;
-    const value = typeof raw === 'string' ? raw.trim() : '';
-    const set = new Set(
-      value
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    );
-    set.add('tablegantt');
-    set.add('kanban');
-    set.add('outlook');
-    if (!effectiveIsAdmin) {
-      set.add('mindmap');
-    }
-    // 주간업무보고: @gmtc.kr 사내 회원에게만 노출 (미로그인·외부 도메인은 숨김 → 내비·라우팅·딥링크 모두 차단)
-    if (!isInternalCompanyEmail(user?.email ?? '')) {
-      set.add('weekreport');
-    }
-    if (VITE_PROJECT_STATUS_ONLY) {
-      for (const v of ['table', 'tablegantt', 'gantt', 'kanban', 'projects', 'mindmap'] as const) {
-        set.add(v);
-      }
-    }
-    return set;
-  }, [effectiveIsAdmin, user?.email]);
-
-  /** 768px 미만: 대시보드 중심 읽기 전용(표·간트 등 숨김). 대시보드가 env로 숨겨진 경우는 기존 동작 유지 */
-  const isMobileLayout = useMatchMedia('(max-width: 767px)');
-  const lockMobileToDashboard = isMobileLayout && !hiddenViews.has('dashboard');
-
-  const view: ViewType = useMemo(() => {
-    const segmentRaw = location.pathname.replace(/^\//, '').split('/')[0] || '';
-    const segment = segmentRaw && VALID_VIEWS.has(segmentRaw) ? segmentRaw : '';
-
-    if (lockMobileToDashboard) {
-      if (segment && !hiddenViews.has(segment) && (segment === 'dashboard' || segment === 'projects' || segment === 'allocation')) {
-        return segment as ViewType;
-      }
-      for (const v of ['dashboard', 'projects'] as const) {
-        if (!hiddenViews.has(v)) return v;
-      }
-      return pickFirstVisibleView(hiddenViews);
-    }
-
-    if (segment && !hiddenViews.has(segment)) return segment as ViewType;
-    return pickFirstVisibleView(hiddenViews);
-  }, [location.pathname, hiddenViews, lockMobileToDashboard]);
-
-  /** 대시보드를 한 번이라도 열면 언마운트하지 않아, 초기 무필터 상태가 탭 전환으로 바로 초기화되지 않게 함 */
-  const dashboardMountedOnceRef = useRef(
-    typeof window !== 'undefined' && (window.location.pathname.replace(/^\//, '').split('/')[0] || '') === 'dashboard',
-  );
-  if (view === 'dashboard') dashboardMountedOnceRef.current = true;
-
-  useEffect(() => {
-    const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
-    const legacyTableTarget: ViewType = hiddenViews.has('table') ? pickFirstVisibleView(hiddenViews) : 'table';
-    if (path === 'list') navigate(`/${legacyTableTarget}`, { replace: true });
-    if (path === 'tablekanban') {
-      const ganttTarget: ViewType = hiddenViews.has('tablegantt') ? pickFirstVisibleView(hiddenViews) : 'tablegantt';
-      navigate(`/${ganttTarget}`, { replace: true });
-    }
-    if (path === 'guide') navigate(`/${legacyTableTarget}`, { replace: true });
-  }, [location.pathname, navigate, hiddenViews]);
 
   /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
   useEffect(() => {
@@ -416,8 +298,22 @@ function WBSApp({
     canEditCurrentProject,
     hasLocalChangesSinceSync,
     pushChangesToDb,
-    collabPushNonce,
   } = useWBS();
+
+  // URL 라우팅 + 회원(프로필)·소유자 표시명·내 멤버 프로젝트 상태.
+  // (아래 라우팅 보정/프로필 로딩 useEffect·메모에서 사용됨 — 선언 누락으로 인한 'navigate is not defined' 등 런타임 크래시 복구)
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [profiles, setProfiles] = useState<Awaited<ReturnType<typeof fetchProfiles>>>([]);
+  const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
+  const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  });
 
   // NotificationBell용 메모
   const notifProjectNameMap = React.useMemo(
@@ -436,30 +332,67 @@ function WBSApp({
   const pushChangesToDbRef = useRef(pushChangesToDb);
   pushChangesToDbRef.current = pushChangesToDb;
 
-  /** 로그인 사용자: 편집 후 자동으로 서버에 반영(Realtime로 다른 편집자에게 전달) */
+  /** 저장 모델: 편집마다 자동 DB push 하던 방식을 "수동 저장"으로 전환해 편집 중 렉을 제거한다.
+   *  - 로컬 변경은 WBSContext가 즉시 localStorage에 보존하므로 새로고침해도 데이터는 유지된다.
+   *  - 서버(DB) 반영은 Ctrl+S 또는 우측 하단 "저장" 버튼으로만 수행한다.
+   *  - 미저장 상태로 창을 닫거나 새로고침하면 브라우저 경고로 이탈 전 저장을 유도한다. */
+  const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
+  hasLocalChangesRef.current = hasLocalChangesSinceSync;
+
+  const saveNow = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    if (!hasLocalChangesRef.current) {
+      pushToast('변경사항이 없습니다.', { variant: 'info', durationMs: 1500, id: 'manual-save' });
+      return;
+    }
+    setIsDbPushInProgress(true);
+    try {
+      await pushChangesToDbRef.current('all');
+      pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
+      // 본인 프로젝트는 정상 저장되고 타인 프로젝트만 RLS로 거부될 수 있으므로 권한 메시지는 성공으로 간주.
+      if (/편집 권한이 없습니다/.test(msg)) {
+        pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
+      } else {
+        pushToast(msg, { variant: 'error', durationMs: 6000, id: `db-push:${msg}` });
+      }
+    } finally {
+      setIsDbPushInProgress(false);
+    }
+  }, [pushToast]);
+
+  // Ctrl/Cmd+S: 수동 저장(브라우저 기본 저장 대화상자 차단). 편집 중이면 먼저 blur로 입력을 확정한 뒤 저장.
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    if (!hasLocalChangesSinceSync) return;
-    const id = window.setTimeout(() => {
-      void (async () => {
-        setIsDbPushInProgress(true);
-        try {
-          await pushChangesToDbRef.current('all');
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-          // 자동 sync가 다른 사용자 프로젝트도 upsert 시도해 RLS로 거부될 수 있다.
-          // 본인 프로젝트는 정상 저장되므로 "편집 권한 없습니다" 메시지는 무음 처리.
-          // 그 외 진짜 에러만 토스트로 표시.
-          if (!/편집 권한이 없습니다/.test(msg)) {
-            pushToast(msg, { variant: 'error', durationMs: 6000, id: `db-push:${msg}` });
-          }
-        } finally {
-          setIsDbPushInProgress(false);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        const ae = document.activeElement as HTMLElement | null;
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+          ae.blur(); // 진행 중인 셀 편집을 먼저 확정(미반영 입력 손실 방지)
         }
-      })();
-    }, 100);
-    return () => window.clearTimeout(id);
-  }, [collabPushNonce, hasLocalChangesSinceSync, isSupabaseConfigured, pushToast]);
+        window.setTimeout(() => {
+          void saveNow();
+        }, 60);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [saveNow]);
+
+  // 미저장 상태에서 창 닫기/새로고침/이탈 시 브라우저 경고 → 저장하지 않은 변경 손실 방지.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasLocalChangesRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
   const initialDbSyncDoneRef = useRef(false);
 
   // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동 — 프로젝트 현황 전용 모드에서는 대시보드에 머무름
@@ -1148,64 +1081,7 @@ function WBSApp({
   }, [hasLocalChangesSinceSync, isSupabaseConfigured]);
 
   if (isLoading) {
-    // 스켈레톤 로딩: 실제 테이블 레이아웃을 모방
-    const skeletonPulse = 'animate-pulse bg-[var(--color-line)] rounded';
-    return (
-      <div className="h-full flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)]">
-        {/* 헤더 스켈레톤 */}
-        <div className="px-4 md:px-6 py-3 border-b border-[var(--color-line)] flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-xl ${skeletonPulse}`} />
-          <div className="flex-1 space-y-2">
-            <div className={`h-4 w-48 ${skeletonPulse}`} />
-            <div className={`h-3 w-32 ${skeletonPulse}`} />
-          </div>
-          <div className="hidden md:flex gap-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className={`h-8 w-16 rounded-lg ${skeletonPulse}`} />
-            ))}
-          </div>
-        </div>
-        {/* 요약 바 스켈레톤 */}
-        <div className="px-4 py-2 border-b border-[var(--color-line)] flex items-center gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className={`h-5 w-24 rounded ${skeletonPulse}`} />
-          ))}
-        </div>
-        {/* 테이블 헤더 스켈레톤 */}
-        <div className="px-2 py-2 border-b border-[var(--color-line)] flex items-center gap-3">
-          <div className={`h-4 w-8 ${skeletonPulse}`} />
-          <div className={`h-4 w-12 ${skeletonPulse}`} />
-          {[60, 200, 70, 70, 50, 60, 60, 60].map((w, i) => (
-            <div key={i} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />
-          ))}
-        </div>
-        {/* 테이블 행 스켈레톤 */}
-        <div className="flex-1 overflow-hidden">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div
-              key={i}
-              className="px-2 py-3 border-b border-[var(--color-line-soft)] flex items-center gap-3"
-              style={{ opacity: 1 - i * 0.06 }}
-            >
-              <div className={`h-4 w-4 rounded ${skeletonPulse}`} />
-              <div className={`h-4 w-8 rounded ${skeletonPulse}`} />
-              <div className={`h-4 w-12 rounded ${skeletonPulse}`} />
-              <div className={`h-4 rounded ${skeletonPulse}`} style={{ width: 140 + (i % 3) * 40 }} />
-              {[65, 65, 45, 55, 55, 55].map((w, j) => (
-                <div key={j} className={`h-4 rounded ${skeletonPulse}`} style={{ width: w }} />
-              ))}
-            </div>
-          ))}
-        </div>
-        {/* 하단 로딩 표시 */}
-        <div className="py-3 text-center">
-          <p className="text-xs text-[var(--color-ink-muted)] flex items-center justify-center gap-2">
-            <Loader2 size={14} className="animate-spin" />
-            {isSupabaseConfigured ? '서버에서 데이터를 불러오는 중...' : '로딩 중...'}
-          </p>
-        </div>
-      </div>
-    );
+    return <AppSkeleton isSupabaseConfigured={isSupabaseConfigured} />;
   }
 
   return (
@@ -1215,6 +1091,21 @@ function WBSApp({
         isFullscreen && 'fixed inset-0 z-50',
       )}
     >
+      {isSupabaseConfigured && hasLocalChangesSinceSync && (
+        <button
+          type="button"
+          onClick={() => void saveNow()}
+          disabled={isDbPushInProgress}
+          title="변경사항을 서버에 저장합니다 (Ctrl+S)"
+          className={cn(
+            'fixed bottom-5 right-5 z-[70] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition',
+            'bg-indigo-600 hover:bg-indigo-700 active:translate-y-px disabled:opacity-70',
+          )}
+        >
+          <span className={cn('inline-block h-2 w-2 rounded-full', isDbPushInProgress ? 'animate-pulse bg-white/70' : 'bg-amber-300')} />
+          {isDbPushInProgress ? '저장 중…' : '저장 (Ctrl+S)'}
+        </button>
+      )}
       {!isFullscreen && (
         <AppHeader
           wbsSettings={wbsSettings}
@@ -1314,419 +1205,30 @@ function WBSApp({
         />
       )}
 
-      {/* Filter bar: filterOn일 때 항상 표시 (모바일에서도 헤더 접힘과 무관) */}
-      {filterOn && !isFullscreen && view !== 'projects' && view !== 'allocation' && view !== 'dashboard' && (
-        <div
-          className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40"
-          style={{ boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.03)' }}
-        >
-          {/* 프로젝트 (다중 선택) */}
-          <div
-            ref={projectFilterDropdownRef}
-            className="relative inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200"
-          >
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider" title="프로젝트별로 작업을 필터링합니다.">
-              프로젝트
-            </span>
-            <button
-              type="button"
-              onClick={() => setIsProjectFilterDropdownOpen((o) => !o)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all min-w-[140px] text-left"
-              title="프로젝트 다중 선택: 여러 프로젝트 작업을 한 화면에서 볼 수 있습니다."
-            >
-              <span className="flex-1 break-words">
-                {filters.projectIds === 'all'
-                  ? '전체'
-                  : filters.projectIds.length === 1
-                    ? (() => {
-                        const sel = uniqueProjects.find((p) => p.id === filters.projectIds[0]);
-                        return sel ? formatProjectDisplayName(sel.name, sel.projectKind) : '1개';
-                      })()
-                    : `${filters.projectIds.length}개 프로젝트`}
-              </span>
-              <ChevronDown size={14} className={cn('shrink-0 opacity-60', isProjectFilterDropdownOpen && 'rotate-180')} />
-            </button>
-            {isProjectFilterDropdownOpen && (
-              <div
-                className="absolute left-0 top-full mt-1 z-50 min-w-[280px] max-w-[320px] max-h-[min(70vh,420px)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg py-2"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {(() => {
-                  const allIds = projectsSortedByName.map((x) => x.id);
-                  const isAll = filters.projectIds === 'all';
-                  const isPartial =
-                    Array.isArray(filters.projectIds) && filters.projectIds.length > 0 && filters.projectIds.length < allIds.length;
-                  return (
-                    <>
-                      <label className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 cursor-pointer border-b border-slate-100">
-                        <input
-                          ref={(el) => {
-                            (projectFilterAllCheckboxRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
-                            if (el) el.indeterminate = isPartial;
-                          }}
-                          type="checkbox"
-                          checked={isAll}
-                          onChange={() => {
-                            if (isAll) {
-                              // 전체가 이미 선택된 상태에서 클릭 → 모두 해제
-                              setFilters((f) => ({ ...f, projectIds: [] }));
-                              headerProjectFilterSyncKey.current = '__none__';
-                            } else {
-                              // 일부 혹은 없음 상태에서 클릭 → 전체 선택
-                              selectProject('all');
-                              setFilters((f) => ({ ...f, projectIds: 'all' }));
-                              headerProjectFilterSyncKey.current = '__all__';
-                            }
-                          }}
-                          className="rounded border-slate-300 text-indigo-600"
-                        />
-                        전체 (모든 프로젝트)
-                      </label>
-                      {projectsSortedByName.map((p) => {
-                        const checked = isAll || (Array.isArray(filters.projectIds) && filters.projectIds.includes(p.id));
-                        return (
-                          <label
-                            key={p.id}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                if (filters.projectIds === 'all') {
-                                  const excluded = allIds.filter((id) => id !== p.id);
-                                  setFilters((f) => ({ ...f, projectIds: excluded }));
-                                  headerProjectFilterSyncKey.current = '__partial__';
-                                } else {
-                                  const set = new Set(filters.projectIds);
-                                  if (set.has(p.id)) {
-                                    set.delete(p.id);
-                                    if (set.size === 0) {
-                                      selectProject('all');
-                                      setFilters((f) => ({ ...f, projectIds: 'all' }));
-                                      headerProjectFilterSyncKey.current = '__all__';
-                                    } else {
-                                      const arr = Array.from(set);
-                                      if (arr.length === 1) selectProject(arr[0]);
-                                      setFilters((f) => ({ ...f, projectIds: arr }));
-                                    }
-                                  } else {
-                                    set.add(p.id);
-                                    const arr = Array.from(set);
-                                    if (arr.length === allIds.length) {
-                                      selectProject('all');
-                                      setFilters((f) => ({ ...f, projectIds: 'all' }));
-                                      headerProjectFilterSyncKey.current = '__all__';
-                                    } else {
-                                      setFilters((f) => ({ ...f, projectIds: arr }));
-                                    }
-                                  }
-                                }
-                              }}
-                              className="rounded border-slate-300 text-indigo-600"
-                            />
-                            <ProjectNameLabel project={p} name={p.name} />
-                          </label>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-
-          {/* 상태 */}
-          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-indigo-50/60 border border-indigo-100">
-            <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider" title="상태별로 작업을 필터링합니다.">
-              상태
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                onClick={() => setFilters((f) => ({ ...f, status: 'all' }))}
-                className={cn('filter-chip', filters.status === 'all' ? 'filter-chip-active' : 'filter-chip-inactive')}
-                title="모든 상태의 작업 표시"
-              >
-                전체
-              </button>
-              {wbsSettings.statusConfigs.map((config) => (
-                <button
-                  key={config.id}
-                  onClick={() => setFilters((f) => ({ ...f, status: config.id }))}
-                  className={cn('filter-chip', filters.status === config.id ? 'filter-chip-active' : 'filter-chip-inactive')}
-                  title={`${config.name} 상태인 작업만 표시`}
-                >
-                  {config.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 담당자 */}
-          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-emerald-50/70 border border-emerald-100">
-            <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider" title="담당자별로 작업을 필터링합니다.">
-              담당자
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                onClick={() => setFilters((f) => ({ ...f, assignee: '' }))}
-                className={cn('filter-chip', !filters.assignee ? 'filter-chip-active' : 'filter-chip-inactive')}
-                title="모든 담당자의 작업 표시"
-              >
-                전체
-              </button>
-              {user?.id && profileMap[user.id] && (
-                <button
-                  onClick={() => {
-                    setFilterOn(true);
-                    setFilters((f) => ({ ...f, assignee: profileMap[user.id] }));
-                  }}
-                  className={cn(
-                    'filter-chip flex items-center gap-1',
-                    filters.assignee === profileMap[user.id] ? 'filter-chip-active' : 'filter-chip-inactive',
-                  )}
-                  title="내가 담당자인 작업만 표시"
-                >
-                  <User size={10} className="opacity-80" /> 내 업무만
-                </button>
-              )}
-              {allAssignees.map((a) => (
-                <button
-                  key={String(a)}
-                  onClick={() => setFilters((f) => ({ ...f, assignee: String(a) }))}
-                  className={cn('filter-chip', filters.assignee === String(a) ? 'filter-chip-active' : 'filter-chip-inactive')}
-                  title={`${formatAssigneeDisplay(String(a), assigneeDisplayMetaByName)} 담당 작업만 표시`}
-                >
-                  {formatAssigneeDisplay(String(a), assigneeDisplayMetaByName)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 마일스톤/이슈 (전체·마일스톤만·이슈만 3가지) */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
-            <span
-              className="text-[10px] font-bold text-amber-600 uppercase tracking-wider"
-              title="마일스톤/이슈 기준으로 작업을 필터링합니다."
-            >
-              마일스톤
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    milestoneOnly: false,
-                    issueOnly: false,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  !filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="마일스톤/이슈 구분 없이 모든 작업 표시"
-              >
-                전체
-              </button>
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    milestoneOnly: true,
-                    issueOnly: false,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  filters.milestoneOnly && !filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="마일스톤으로 지정된 이정표 작업만 표시"
-              >
-                <Flag size={12} className="opacity-80" /> 마일스톤만
-              </button>
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    milestoneOnly: false,
-                    issueOnly: true,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  !filters.milestoneOnly && filters.issueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="이슈로 지정된 작업만 표시"
-              >
-                <Bug size={12} className="opacity-80" /> 이슈만
-              </button>
-            </div>
-          </div>
-
-          {/* 기간 */}
-          <div className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-violet-50 border border-violet-100">
-            <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider" title="기간별로 작업을 필터링합니다.">
-              기간
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                onClick={() => setFilters((f) => ({ ...f, startDate: '', endDate: '' }))}
-                className={cn('filter-chip', !filters.startDate && !filters.endDate ? 'filter-chip-active' : 'filter-chip-inactive')}
-                title="기간 제한 없이 모든 작업 표시"
-              >
-                전체
-              </button>
-              <button
-                onClick={() => {
-                  const today = format(new Date(), 'yyyy-MM-dd');
-                  setFilters((f) => ({ ...f, startDate: today, endDate: today }));
-                }}
-                className={cn(
-                  'filter-chip',
-                  filters.startDate &&
-                    filters.endDate &&
-                    filters.startDate === filters.endDate &&
-                    filters.startDate === format(new Date(), 'yyyy-MM-dd')
-                    ? 'filter-chip-active'
-                    : 'filter-chip-inactive',
-                )}
-                title="오늘과 기간이 겹치는 작업만 표시"
-              >
-                금일
-              </button>
-              <button
-                onClick={() => {
-                  const now = new Date();
-                  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-                  const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
-                  setFilters((f) => ({ ...f, startDate: format(weekStart, 'yyyy-MM-dd'), endDate: format(weekEnd, 'yyyy-MM-dd') }));
-                }}
-                className={cn(
-                  'filter-chip',
-                  filters.startDate &&
-                    filters.endDate &&
-                    filters.startDate === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') &&
-                    filters.endDate === format(endOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
-                    ? 'filter-chip-active'
-                    : 'filter-chip-inactive',
-                )}
-                title="이번 주(월~일)와 기간이 겹치는 작업만 표시"
-              >
-                금주
-              </button>
-              <button
-                onClick={() => {
-                  const now = new Date();
-                  const nextWeekBase = addDays(now, 7);
-                  const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                  const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                  setFilters((f) => ({ ...f, startDate: format(nextWeekStart, 'yyyy-MM-dd'), endDate: format(nextWeekEnd, 'yyyy-MM-dd') }));
-                }}
-                className={cn(
-                  'filter-chip',
-                  (() => {
-                    if (!filters.startDate || !filters.endDate) return 'filter-chip-inactive';
-                    const now = new Date();
-                    const nextWeekBase = addDays(now, 7);
-                    const nextWeekStart = startOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                    const nextWeekEnd = endOfWeek(nextWeekBase, { weekStartsOn: 1 });
-                    const startMatch = filters.startDate === format(nextWeekStart, 'yyyy-MM-dd');
-                    const endMatch = filters.endDate === format(nextWeekEnd, 'yyyy-MM-dd');
-                    return startMatch && endMatch ? 'filter-chip-active' : 'filter-chip-inactive';
-                  })(),
-                )}
-                title="다음 주(월~일)와 기간이 겹치는 작업만 표시"
-              >
-                차주
-              </button>
-            </div>
-          </div>
-
-          {/* 금주 완료/기한 지남 (전체·금주 완료·기한 초과 3가지) */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-100">
-            <span
-              className="text-[10px] font-bold text-teal-700 uppercase tracking-wider"
-              title="이번 주 완료/기한 초과 상태로 작업을 필터링합니다."
-            >
-              기한/완료
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    pastDueOnly: false,
-                    completedThisWeekOnly: false,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  !filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="기한/완료 조건 없이 모든 작업 표시"
-              >
-                전체
-              </button>
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    completedThisWeekOnly: true,
-                    pastDueOnly: false,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  filters.completedThisWeekOnly && !filters.pastDueOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="이번 주(월~일)에 완료된 항목만 표시 (상태: 완료, 종료일: 이번 주)"
-              >
-                금주 완료 항목
-              </button>
-              <button
-                onClick={() =>
-                  setFilters((f) => ({
-                    ...f,
-                    pastDueOnly: true,
-                    completedThisWeekOnly: false,
-                  }))
-                }
-                className={cn(
-                  'filter-chip flex items-center gap-1',
-                  filters.pastDueOnly && !filters.completedThisWeekOnly ? 'filter-chip-active' : 'filter-chip-inactive',
-                )}
-                title="기한이 지난 미완료 작업만 표시"
-              >
-                <Clock size={12} className="opacity-80" /> 기한 지난 항목
-              </button>
-            </div>
-          </div>
-          {hasActiveFilters && (
-            <button
-              onClick={() => {
-                setCurrentProjectId('all');
-                setFilters((f) => ({
-                  ...f,
-                  projectIds: 'all',
-                  status: 'all',
-                  assignee: '',
-                  startDate: '',
-                  endDate: '',
-                  milestoneOnly: false,
-                  issueOnly: false,
-                  level: 'all',
-                  pastDueOnly: false,
-                  completedThisWeekOnly: false,
-                  searchText: '',
-                }));
-              }}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border border-red-200 text-red-500 bg-red-50/80 hover:bg-red-100 transition-all shrink-0 ml-auto active:scale-95"
-            >
-              <X size={10} /> 초기화
-            </button>
-          )}
-        </div>
-      )}
+      {/* Filter bar */}
+      <AppFilterBar
+        filterOn={filterOn}
+        isFullscreen={isFullscreen}
+        view={view}
+        filters={filters}
+        setFilters={setFilters}
+        setFilterOn={setFilterOn}
+        wbsSettings={wbsSettings}
+        user={user}
+        profileMap={profileMap}
+        allAssignees={allAssignees}
+        assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+        setCurrentProjectId={setCurrentProjectId}
+        selectProject={selectProject}
+        projectsSortedByName={projectsSortedByName}
+        uniqueProjects={uniqueProjects}
+        hasActiveFilters={hasActiveFilters}
+        projectFilterDropdownRef={projectFilterDropdownRef}
+        isProjectFilterDropdownOpen={isProjectFilterDropdownOpen}
+        setIsProjectFilterDropdownOpen={setIsProjectFilterDropdownOpen}
+        projectFilterAllCheckboxRef={projectFilterAllCheckboxRef}
+        headerProjectFilterSyncKey={headerProjectFilterSyncKey}
+      />
 
       {isFullscreen && (
         <div className="absolute top-3 right-3 z-[60] flex items-center gap-2">
@@ -1968,15 +1470,17 @@ function WBSApp({
       )}
 
       {isModalOpen && (
-        <TaskModal
-          isOpen
-          onClose={() => setIsModalOpen(false)}
-          onSave={handleSaveTask}
-          parentOptions={tasks}
-          defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined}
-          defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined}
-          defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined}
-        />
+        <React.Suspense fallback={null}>
+          <TaskModal
+            isOpen
+            onClose={() => setIsModalOpen(false)}
+            onSave={handleSaveTask}
+            parentOptions={tasks}
+            defaultAssignee={filterOn && filters.assignee ? filters.assignee : undefined}
+            defaultStartDate={filterOn && filters.startDate ? filters.startDate : undefined}
+            defaultEndDate={filterOn && filters.endDate ? filters.endDate : undefined}
+          />
+        </React.Suspense>
       )}
       {isProjectModalOpen && (
         <ProjectModal

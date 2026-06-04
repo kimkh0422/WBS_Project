@@ -294,11 +294,11 @@ export function ProjectModal({
           'bg-glass-elevated rounded-[20px] max-w-3xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col border-[var(--color-line)]',
         )}
       >
-        <div className="flex justify-between items-center p-6 border-b border-slate-200/50 bg-[var(--color-surface)]/40">
+        <div className="flex justify-between items-center p-6 border-b border-[var(--color-line)] bg-[var(--color-surface)]/80 backdrop-blur-md">
           <h2 className="text-xl font-extrabold tracking-tight text-[var(--color-ink)]">{project ? '프로젝트 수정' : '새 프로젝트'}</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-[var(--color-surface)]/60 rounded-full transition-all text-slate-400 hover:text-slate-800 hover:rotate-90 duration-300"
+            className="p-2 hover:bg-[var(--color-bg)] rounded-full transition-all text-slate-400 hover:text-[var(--color-ink)] hover:rotate-90 duration-300"
           >
             <X size={18} />
           </button>
@@ -306,17 +306,17 @@ export function ProjectModal({
 
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
           {/* 필수 */}
-          <section className="rounded-xl border border-amber-200/90 bg-amber-50/40 p-5 shadow-sm space-y-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+          <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-[var(--color-accent)] px-1.5 text-[11px] font-bold text-white shadow-sm">
                 필수
               </span>
               필수 입력
             </h3>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 sm:gap-x-5">
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-project-kind">
-                  항목 <span className="font-normal text-red-600">*</span>
+                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-project-kind">
+                  항목 <span className="font-normal text-[var(--color-danger)]">*</span>
                 </label>
                 <select
                   id="project-modal-project-kind"
@@ -334,12 +334,14 @@ export function ProjectModal({
                   ))}
                 </select>
                 {!includeInDashboard && (
-                  <p className="text-xs leading-relaxed text-slate-600">항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.</p>
+                  <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                    항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.
+                  </p>
                 )}
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-name">
-                  프로젝트 이름 <span className="font-normal text-red-600">*</span>
+                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-name">
+                  프로젝트 이름 <span className="font-normal text-[var(--color-danger)]">*</span>
                 </label>
                 <input
                   id="project-modal-name"
@@ -353,10 +355,10 @@ export function ProjectModal({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 border-t border-amber-200/50 pt-5 sm:grid-cols-2 sm:gap-x-5">
+            <div className="grid grid-cols-1 gap-5 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 sm:gap-x-5">
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-pm">
-                  프로젝트 PM <span className="font-normal text-red-600">*</span>
+                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-pm">
+                  프로젝트 PM <span className="font-normal text-[var(--color-danger)]">*</span>
                 </label>
                 <input
                   id="project-modal-pm"
@@ -369,13 +371,13 @@ export function ProjectModal({
                   placeholder="이름 입력 또는 조직 회원에서 선택"
                   title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
                 />
-                <p className="text-xs leading-relaxed text-slate-600 max-w-prose">
+                <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
                   과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
                 </p>
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-po">
-                  프로젝트 PO <span className="text-slate-500 font-normal">(선택)</span>
+                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-po">
+                  프로젝트 PO <span className="font-normal opacity-60">(선택)</span>
                 </label>
                 <input
                   id="project-modal-po"
@@ -387,7 +389,7 @@ export function ProjectModal({
                   placeholder="예: 제품 책임자 이름"
                   title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
                 />
-                <p className="text-xs leading-relaxed text-slate-600 max-w-prose">
+                <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
                   요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
                 </p>
               </div>
@@ -401,16 +403,16 @@ export function ProjectModal({
           </section>
 
           {/* 선택: 기본 정보 */}
-          <section className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-5 shadow-sm space-y-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white">
+          <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
                 선택
               </span>
               기본 정보 (선택)
             </h3>
             <div className="grid grid-cols-1 gap-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-description">
+                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-description">
                   설명
                 </label>
                 <textarea
@@ -423,7 +425,7 @@ export function ProjectModal({
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-start">
+                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-start">
                     프로젝트 시작일
                   </label>
                   <input
@@ -435,7 +437,7 @@ export function ProjectModal({
                   />
                 </div>
                 <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-slate-800" htmlFor="project-modal-end">
+                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-end">
                     프로젝트 종료일
                   </label>
                   <input
@@ -447,31 +449,31 @@ export function ProjectModal({
                   />
                 </div>
               </div>
-              <p className="text-xs leading-relaxed text-slate-600 -mt-1">
+              <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] -mt-1">
                 프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시 기간 제한
                 없음)
               </p>
-              <div className="flex gap-3 rounded-lg border border-slate-200/80 bg-white/60 p-3.5">
+              <div className="flex gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3.5">
                 <input
                   id="project-modal-include-dashboard"
                   type="checkbox"
                   checked={includeInDashboard}
                   onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
                 />
                 <div className="min-w-0 flex-1">
-                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-slate-900">
+                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">
                     대시보드에 반영
                   </label>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  <p className="mt-1 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
                     켜면 요약·집계·프로젝트 카드에 포함될 수 있습니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로
                     표시됩니다.
                   </p>
                   <details className="mt-2 group">
-                    <summary className="cursor-pointer list-none text-xs font-medium text-indigo-700 hover:text-indigo-800 [&::-webkit-details-marker]:hidden">
+                    <summary className="cursor-pointer list-none text-xs font-medium text-[var(--color-accent)] hover:opacity-80 [&::-webkit-details-marker]:hidden">
                       <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
                     </summary>
-                    <p className="mt-2 border-l-2 border-slate-200 pl-3 text-xs leading-relaxed text-slate-600">
+                    <p className="mt-2 border-l-2 border-[var(--color-line)] pl-3 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
                       대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할
                       수 있습니다.
                     </p>
@@ -482,20 +484,20 @@ export function ProjectModal({
           </section>
 
           {/* 선택: 투입인원 */}
-          <section className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-5 shadow-sm space-y-4">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white">
+          <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
                 선택
               </span>
               프로젝트 투입인원 (투입비율)
             </h3>
             <div>
-              <p className="mb-3 text-xs leading-relaxed text-slate-600 max-w-prose">
+              <p className="mb-3 text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
                 투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수 있습니다.
               </p>
               <div className="space-y-2">
                 {assignments.map((a, i) => (
-                  <div key={i} className="border border-slate-100 rounded-lg p-2.5 space-y-2">
+                  <div key={i} className="border border-[var(--color-line)] rounded-lg p-2.5 space-y-2 bg-[var(--color-surface)]">
                     <div className="flex items-center gap-2">
                       <input
                         ref={(el) => {
@@ -575,8 +577,8 @@ export function ProjectModal({
                         type="button"
                         onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
                         className={cn(
-                          'p-2 rounded text-slate-500 hover:bg-slate-100 transition-colors',
-                          monthlyExpandedIndex === i && 'bg-teal-50 text-teal-600',
+                          'p-2 rounded hover:bg-[var(--color-bg)] transition-colors',
+                          monthlyExpandedIndex === i ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-slate-500',
                         )}
                         title="기간별 월별 투입비율 설정"
                       >
@@ -621,7 +623,7 @@ export function ProjectModal({
               <button
                 type="button"
                 onClick={addAssignment}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-bg)] transition-colors"
               >
                 <Plus size={14} strokeWidth={2.25} aria-hidden /> 인원 추가
               </button>
@@ -637,14 +639,14 @@ export function ProjectModal({
         </form>
 
         {formError && (
-          <div className="mx-6 mb-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2 animate-in fade-in duration-200">
+          <div className="mx-6 mb-2 px-4 py-2.5 rounded-lg bg-[var(--color-danger)]/10 border border-[var(--color-danger)]/20 text-[var(--color-danger)] text-sm flex items-center gap-2 animate-in fade-in duration-200">
             <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             {formError}
           </div>
         )}
-        <div className="flex justify-end gap-3 p-6 border-t border-slate-200/50 bg-[var(--color-surface)]/60 backdrop-blur sticky bottom-0">
+        <div className="flex justify-end gap-3 p-6 border-t border-[var(--color-line)] bg-[var(--color-surface)]/80 backdrop-blur sticky bottom-0">
           <button type="button" onClick={onClose} className="btn-ghost">
             취소
           </button>

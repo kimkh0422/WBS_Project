@@ -35,7 +35,7 @@ const STATUS_COLOR_PRESETS: { value: string; label: string }[] = [
   { value: 'bg-stone-100 border-stone-200', label: '회색' },
   { value: 'bg-zinc-100 border-zinc-200', label: '징크' },
   { value: 'bg-neutral-100 border-neutral-200', label: '뉴트럴' },
-  { value: 'bg-slate-100 border-slate-200', label: '슬레이트' },
+  { value: 'bg-[var(--color-bg)] border-[var(--color-line)]', label: '슬레이트' },
   { value: 'bg-sky-50 border-sky-100', label: '스카이' },
   { value: 'bg-blue-50 border-blue-100', label: '파랑' },
   { value: 'bg-indigo-50 border-indigo-100', label: '남색' },
@@ -65,7 +65,7 @@ function parseCustomStatusColor(value: string): string | null {
 }
 function hexToCustomStatusColor(hex: string): string {
   const rgb = hexToRgb(hex.startsWith('#') ? hex : `#${hex}`);
-  if (!rgb) return 'bg-slate-50 border-slate-100';
+  if (!rgb) return 'bg-[var(--color-bg)] border-[var(--color-line)]';
   const r = Math.min(255, Math.round(rgb.r * 0.2 + 248));
   const g = Math.min(255, Math.round(rgb.g * 0.2 + 248));
   const b = Math.min(255, Math.round(rgb.b * 0.2 + 248));
@@ -331,14 +331,14 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   return (
     <div className={MODAL_BACKDROP_CLASS}>
       <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-7xl overflow-hidden max-h-[94vh] flex flex-col rounded-xl')}>
-        <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-slate-50">
+        <div className="flex justify-between items-center p-5 border-b border-[var(--color-line)] bg-[var(--color-bg)]">
           <div className="flex items-center gap-2 text-[var(--color-ink)]">
             <Settings2 size={18} />
             <h2 className="text-lg font-bold">환경설정</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 hover:text-[var(--color-ink)]"
+            className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)]"
           >
             <X size={18} />
           </button>
@@ -354,15 +354,15 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         )}
 
         <form onSubmit={handleSave} className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-6 md:px-8 pt-4 border-b border-[var(--color-line)] bg-white/70">
+          <div className="px-6 md:px-8 pt-4 border-b border-[var(--color-line)] bg-[var(--color-surface)]/70">
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab('basic')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
                   activeTab === 'basic'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/30'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
                 기본·WBS·색상
@@ -372,8 +372,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 onClick={() => setActiveTab('columns')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
                   activeTab === 'columns'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/30'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
                 표 컬럼
@@ -383,8 +383,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 onClick={() => setActiveTab('status')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
                   activeTab === 'status'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/30'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
                 상태·진척도
@@ -394,8 +394,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 onClick={() => setActiveTab('projects')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
                   activeTab === 'projects'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/30'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
                 프로젝트 기간
@@ -405,8 +405,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 onClick={() => setActiveTab('dashboard')}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors ${
                   activeTab === 'dashboard'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-500/30'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/30'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
                 대시보드
@@ -419,10 +419,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
                 {/* WBS ID Settings */}
                 <div className="space-y-4">
-                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-slate-200 pb-2">WBS ID 표시 영역</h3>
+                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-[var(--color-line)] pb-2">WBS ID 표시 영역</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      <label className="block text-[10px] font-bold text-[var(--color-ink-subdued)] uppercase tracking-wider mb-1.5">
                         1레벨 접두사 (예: W)
                       </label>
                       <input
@@ -436,7 +436,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      <label className="block text-[10px] font-bold text-[var(--color-ink-subdued)] uppercase tracking-wider mb-1.5">
                         2레벨 접두사 (예: W)
                       </label>
                       <input
@@ -450,7 +450,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                      <label className="block text-[10px] font-bold text-[var(--color-ink-subdued)] uppercase tracking-wider mb-1.5">
                         3레벨 접두사 (예: T)
                       </label>
                       <input
@@ -465,8 +465,14 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                   </div>
 
                   <div className="pt-2">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">최대 표시 레벨</label>
-                    <select value={maxLevel} onChange={(e) => setMaxLevel(Number(e.target.value))} className="input-field bg-slate-50">
+                    <label className="block text-[10px] font-bold text-[var(--color-ink-subdued)] uppercase tracking-wider mb-1.5">
+                      최대 표시 레벨
+                    </label>
+                    <select
+                      value={maxLevel}
+                      onChange={(e) => setMaxLevel(Number(e.target.value))}
+                      className="input-field bg-[var(--color-bg)]"
+                    >
                       <option value={2}>2 레벨까지만 표시</option>
                       <option value={3}>3 레벨까지만 표시</option>
                       <option value={4}>4 레벨까지만 표시</option>
@@ -497,7 +503,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
                 {/* 레벨별 색상 */}
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                  <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">
                     <h3 className="font-bold text-sm text-[var(--color-ink)] flex items-center gap-2">
                       <Palette size={16} />
                       레벨별 색상
@@ -505,7 +511,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     <button
                       type="button"
                       onClick={() => setLevelColorsState([...DEFAULT_LEVEL_COLORS])}
-                      className="p-1 hover:bg-slate-100 text-slate-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      className="p-1 hover:bg-[var(--color-bg)] text-[var(--color-ink-subdued)] rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
                       title="기본값으로 복원"
                     >
                       <RotateCcw size={14} />
@@ -518,7 +524,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       const hex = rgbToHex(c.r, c.g, c.b);
                       return (
                         <div key={lev} className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-bold text-slate-500">레벨 {lev}</label>
+                          <label className="text-[10px] font-bold text-[var(--color-ink-subdued)]">레벨 {lev}</label>
                           <input
                             type="color"
                             value={hex}
@@ -531,7 +537,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                 setLevelColorsState(next);
                               }
                             }}
-                            className="w-full min-h-[44px] h-12 rounded-lg border-2 border-slate-200 cursor-pointer hover:border-slate-300 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
+                            className="w-full min-h-[44px] h-12 rounded-lg border-2 border-[var(--color-line)] cursor-pointer hover:border-slate-300 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400"
                             title="클릭하여 색상 선택"
                           />
                         </div>
@@ -549,12 +555,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               <div className="space-y-8 m-0 p-0 border-0 min-w-0">
                 {/* 표 필드 표시/순서 — 전역 설정이라 관리자만 수정 가능 */}
                 <fieldset disabled={!canEditGlobal} className="m-0 p-0 border-0 min-w-0 space-y-4 disabled:opacity-70">
-                  <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                  <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">
                     <h3 className="font-bold text-sm text-[var(--color-ink)]">표 필드(컬럼) 표시/순서</h3>
                     <button
                       type="button"
                       onClick={() => setTableColumns(DEFAULT_TABLE_COLUMNS)}
-                      className="p-1 hover:bg-slate-100 text-slate-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      className="p-1 hover:bg-[var(--color-bg)] text-[var(--color-ink-subdued)] rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
                       title="기본값으로 복원"
                     >
                       <RotateCcw size={14} />
@@ -568,16 +574,27 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       const label = custom?.name || TABLE_COLUMN_LABELS[col.id] || col.id;
                       const isName = col.id === 'name';
                       return (
-                        <div key={col.id} className="flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 bg-white">
+                        <div
+                          key={col.id}
+                          className="flex items-center gap-3 px-3 py-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)]"
+                        >
                           <div className="text-slate-300 shrink-0">
                             <GripVertical size={14} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-slate-800 leading-snug whitespace-normal break-words">{label}</div>
-                            <div className="text-[11px] text-slate-500 font-mono leading-snug whitespace-normal break-all">{col.id}</div>
+                            <div className="text-sm font-semibold text-[var(--color-ink)] leading-snug whitespace-normal break-words">
+                              {label}
+                            </div>
+                            <div className="text-[11px] text-[var(--color-ink-subdued)] font-mono leading-snug whitespace-normal break-all">
+                              {col.id}
+                            </div>
                           </div>
                           {isName ? (
-                            <span className="p-1.5 rounded-md shrink-0 text-slate-500" title="작업명은 항상 표시됩니다." aria-hidden>
+                            <span
+                              className="p-1.5 rounded-md shrink-0 text-[var(--color-ink-subdued)]"
+                              title="작업명은 항상 표시됩니다."
+                              aria-hidden
+                            >
                               <Eye size={14} />
                             </span>
                           ) : (
@@ -586,10 +603,14 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                               onClick={() => {
                                 setTableColumns((prev) => (prev || []).map((p) => (p.id === col.id ? { ...p, visible: !p.visible } : p)));
                               }}
-                              className="p-1.5 rounded-md transition-colors hover:bg-slate-50"
+                              className="p-1.5 rounded-md transition-colors hover:bg-[var(--color-bg)]"
                               title={col.visible ? '숨기기' : '보이기'}
                             >
-                              {col.visible ? <Eye size={14} className="text-slate-600" /> : <EyeOff size={14} className="text-slate-400" />}
+                              {col.visible ? (
+                                <Eye size={14} className="text-[var(--color-ink-subdued)]" />
+                              ) : (
+                                <EyeOff size={14} className="text-slate-400" />
+                              )}
                             </button>
                           )}
                           <div className="flex items-center gap-1">
@@ -606,10 +627,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                   return next;
                                 });
                               }}
-                              className="p-1.5 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="p-1.5 rounded-md hover:bg-[var(--color-bg)] disabled:opacity-40 disabled:cursor-not-allowed"
                               title="위로"
                             >
-                              <ArrowUp size={14} className="text-slate-600" />
+                              <ArrowUp size={14} className="text-[var(--color-ink-subdued)]" />
                             </button>
                             <button
                               type="button"
@@ -624,10 +645,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                   return next;
                                 });
                               }}
-                              className="p-1.5 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="p-1.5 rounded-md hover:bg-[var(--color-bg)] disabled:opacity-40 disabled:cursor-not-allowed"
                               title="아래로"
                             >
-                              <ArrowDown size={14} className="text-slate-600" />
+                              <ArrowDown size={14} className="text-[var(--color-ink-subdued)]" />
                             </button>
                           </div>
                         </div>
@@ -640,9 +661,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 </fieldset>
 
                 {/* 사용자 정의 컬럼 — 일반 회원도 추가/수정/삭제 가능 (전역 공유) */}
-                <div className="border-t border-slate-200 pt-4 space-y-2">
+                <div className="border-t border-[var(--color-line)] pt-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-700">사용자 정의 컬럼</p>
+                    <p className="text-xs font-semibold text-[var(--color-ink)]">사용자 정의 컬럼</p>
                     <button
                       type="button"
                       onClick={() => {
@@ -656,7 +677,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       컬럼 추가
                     </button>
                   </div>
-                  {(customColumns ?? []).length === 0 && <p className="text-[11px] text-slate-500">추가된 사용자 정의 컬럼이 없습니다.</p>}
+                  {(customColumns ?? []).length === 0 && (
+                    <p className="text-[11px] text-[var(--color-ink-subdued)]">추가된 사용자 정의 컬럼이 없습니다.</p>
+                  )}
                   {(customColumns ?? []).map((cc) => (
                     <div key={cc.id} className="flex items-center gap-2">
                       <input
@@ -697,10 +720,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               <fieldset disabled={!canEditGlobal} className="space-y-8 m-0 p-0 border-0 min-w-0 disabled:opacity-70">
                 {/* Status Name & Progress Settings */}
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                  <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">
                     <div className="flex flex-col gap-1">
                       <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭 및 진척도</h3>
-                      <div className="flex flex-col gap-1.5 text-[11px] text-slate-600">
+                      <div className="flex flex-col gap-1.5 text-[11px] text-[var(--color-ink-subdued)]">
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
@@ -708,7 +731,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             checked={linkStatusAndProgress}
                             onChange={(e) => setLinkStatusAndProgress(e.target.checked)}
                           />
-                          <span className="font-semibold text-slate-600">상태별 진척도 사용 (상태 변경 시 진척률 자동 설정)</span>
+                          <span className="font-semibold text-[var(--color-ink-subdued)]">
+                            상태별 진척도 사용 (상태 변경 시 진척률 자동 설정)
+                          </span>
                         </label>
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                           <input
@@ -717,13 +742,13 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             checked={linkEffortToSchedule}
                             onChange={(e) => setLinkEffortToSchedule(e.target.checked)}
                           />
-                          <span className="font-semibold text-slate-600">
+                          <span className="font-semibold text-[var(--color-ink-subdued)]">
                             일정 자동 연동 (시작·종료·공수 편집 시 공수·투입률로 나머지 일정 필드 보정)
                           </span>
                         </label>
                         {linkStatusAndProgress && (
                           <div className="flex flex-wrap items-center gap-3">
-                            <span className="font-semibold text-slate-500">기존 작업 진척도 적용 범위</span>
+                            <span className="font-semibold text-[var(--color-ink-subdued)]">기존 작업 진척도 적용 범위</span>
                             <label className="inline-flex items-center gap-1 cursor-pointer">
                               <input
                                 type="radio"
@@ -761,7 +786,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         const newId = `status-${Date.now()}`;
                         setStatusConfigs([
                           ...statusConfigs,
-                          { id: newId, name: '새 상태', progress: 0, color: 'bg-slate-50 border-slate-100' },
+                          { id: newId, name: '새 상태', progress: 0, color: 'bg-[var(--color-bg)] border-[var(--color-line)]' },
                         ]);
                       }}
                       className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
@@ -779,7 +804,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                           {progressError && (
                             <div
                               id="status-progress-error"
-                              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-100 border-2 border-amber-400 text-amber-900 shadow-sm"
+                              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-100 border-2 border-amber-400 text-amber-900 shadow-[var(--shadow-sm)]"
                               role="alert"
                             >
                               <AlertTriangle size={22} className="shrink-0 text-amber-600" aria-hidden />
@@ -836,7 +861,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                     <span className="absolute right-1.5 top-1.5 text-[9px] text-slate-400 font-bold">%</span>
                                   </div>
                                   <div className="flex items-center gap-1.5" title="상태 색상">
-                                    <span className="text-[10px] font-bold text-slate-500 shrink-0">색상</span>
+                                    <span className="text-[10px] font-bold text-[var(--color-ink-subdued)] shrink-0">색상</span>
                                     <select
                                       value={isCustom ? '__custom__' : colorValue}
                                       onChange={(e) => {
@@ -867,7 +892,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                     </select>
                                     {isCustom ? (
                                       <span
-                                        className="w-8 h-8 rounded-lg border-2 border-slate-200 shrink-0"
+                                        className="w-8 h-8 rounded-lg border-2 border-[var(--color-line)] shrink-0"
                                         style={{ backgroundColor: customHex }}
                                         aria-hidden
                                       />
@@ -885,10 +910,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                         [next[index - 1], next[index]] = [next[index], next[index - 1]];
                                         setStatusConfigs(next);
                                       }}
-                                      className="p-1.5 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="p-1.5 rounded-md hover:bg-[var(--color-bg)] disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="위로"
                                     >
-                                      <ArrowUp size={14} className="text-slate-600" />
+                                      <ArrowUp size={14} className="text-[var(--color-ink-subdued)]" />
                                     </button>
                                     <button
                                       type="button"
@@ -899,10 +924,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                         [next[index], next[index + 1]] = [next[index + 1], next[index]];
                                         setStatusConfigs(next);
                                       }}
-                                      className="p-1.5 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      className="p-1.5 rounded-md hover:bg-[var(--color-bg)] disabled:opacity-40 disabled:cursor-not-allowed"
                                       title="아래로"
                                     >
-                                      <ArrowDown size={14} className="text-slate-600" />
+                                      <ArrowDown size={14} className="text-[var(--color-ink-subdued)]" />
                                     </button>
                                   </div>
                                   {statusConfigs.length > 1 && (
@@ -919,8 +944,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                   )}
                                 </div>
                                 {isCustom && (
-                                  <div className="mt-2 mb-4 pl-2 border-l-2 border-slate-200">
-                                    <p className="text-[10px] font-bold text-slate-500 mb-1.5">채도·밝기·색조·RGB로 선택</p>
+                                  <div className="mt-2 mb-4 pl-2 border-l-2 border-[var(--color-line)]">
+                                    <p className="text-[10px] font-bold text-[var(--color-ink-subdued)] mb-1.5">
+                                      채도·밝기·색조·RGB로 선택
+                                    </p>
                                     <ColorPicker
                                       value={customHex}
                                       onChange={(hex) => {
@@ -951,20 +978,24 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             {activeTab === 'dashboard' && (
               <div className="space-y-6 max-w-xl">
                 <div className="space-y-2">
-                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-slate-200 pb-2">대시보드에 표시할 항목</h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    체크한 블록만 대시보드에 나타납니다. 기본은 <strong className="font-semibold text-slate-600">전체현황</strong>,{' '}
-                    <strong className="font-semibold text-slate-600">사업부 현황</strong>,{' '}
-                    <strong className="font-semibold text-slate-600">프로젝트별 현황</strong>이 켜져 있습니다. 투입 인원·투입
-                    비율·프로젝트별 WBS 공수는 상단 메뉴의 <strong className="font-semibold text-slate-600">투입현황</strong>에서
-                    확인·편집합니다. 대시보드는 지표·목록 중심이며 WBS 화면 캡처 미리보기는 사용하지 않습니다. 이 기기(브라우저)에만
-                    저장되며, 아래 버튼으로 앱 기본값으로 되돌릴 수 있습니다.
+                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-[var(--color-line)] pb-2">
+                    대시보드에 표시할 항목
+                  </h3>
+                  <p className="text-xs text-[var(--color-ink-subdued)] leading-relaxed">
+                    체크한 블록만 대시보드에 나타납니다. 기본은{' '}
+                    <strong className="font-semibold text-[var(--color-ink-subdued)]">전체현황</strong>,{' '}
+                    <strong className="font-semibold text-[var(--color-ink-subdued)]">사업부 현황</strong>,{' '}
+                    <strong className="font-semibold text-[var(--color-ink-subdued)]">프로젝트별 현황</strong>이 켜져 있습니다. 투입
+                    인원·투입 비율·프로젝트별 WBS 공수는 상단 메뉴의{' '}
+                    <strong className="font-semibold text-[var(--color-ink-subdued)]">투입현황</strong>에서 확인·편집합니다. 대시보드는
+                    지표·목록 중심이며 WBS 화면 캡처 미리보기는 사용하지 않습니다. 이 기기(브라우저)에만 저장되며, 아래 버튼으로 앱
+                    기본값으로 되돌릴 수 있습니다.
                   </p>
                 </div>
                 <ul className="space-y-2">
                   {DASHBOARD_SECTION_IDS.map((id) => (
                     <li key={id}>
-                      <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50/80 cursor-pointer">
+                      <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] hover:bg-[var(--color-bg)]/80 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={dashSectionVis[id]}
@@ -975,12 +1006,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                           }}
                           className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                         />
-                        <span className="text-sm font-medium text-slate-800">{DASHBOARD_SECTION_LABELS[id]}</span>
+                        <span className="text-sm font-medium text-[var(--color-ink)]">{DASHBOARD_SECTION_LABELS[id]}</span>
                       </label>
                     </li>
                   ))}
                 </ul>
-                <div className="pt-2 border-t border-slate-100">
+                <div className="pt-2 border-t border-[var(--color-line)]">
                   <button
                     type="button"
                     onClick={() => {
@@ -988,7 +1019,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       resetDashboardSectionLayout();
                       setDashSectionVis(getDefaultDashboardSectionVisibility());
                     }}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                    className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-[var(--color-line)] bg-[var(--color-bg)] text-[var(--color-ink)] hover:bg-[var(--color-bg)]"
                   >
                     <RotateCcw size={14} aria-hidden />
                     기본값으로 초기화
@@ -1001,7 +1032,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               <div className="space-y-8">
                 {/* Project Start/End Dates Settings */}
                 <div className="space-y-4">
-                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-slate-200 pb-2">프로젝트 시작·종료일 관리</h3>
+                  <h3 className="font-bold text-sm text-[var(--color-ink)] border-b border-[var(--color-line)] pb-2">
+                    프로젝트 시작·종료일 관리
+                  </h3>
                   <div className="space-y-2 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
                     {projectsShownInSettings.map((p) => {
                       const editable = canEditProject(p.ownerId);
@@ -1009,18 +1042,20 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                         <div
                           key={p.id}
                           className={`flex items-center justify-between gap-3 p-2 border rounded-lg ${
-                            editable ? 'bg-white border-slate-100' : 'bg-slate-50 border-slate-200'
+                            editable
+                              ? 'bg-[var(--color-surface)] border-[var(--color-line)]'
+                              : 'bg-[var(--color-bg)] border-[var(--color-line)]'
                           }`}
                         >
                           <div className="flex-1 min-w-0">
                             <label
-                              className="text-xs font-bold text-slate-600 break-words block flex items-center gap-1.5 min-w-0"
+                              className="text-xs font-bold text-[var(--color-ink-subdued)] break-words block flex items-center gap-1.5 min-w-0"
                               title={formatProjectDisplayName(p.name, p.projectKind)}
                             >
                               <ProjectNameLabel project={p} name={p.name} className="min-w-0" />
                               {!editable && (
                                 <span
-                                  className="inline-flex items-center gap-0.5 text-[9px] font-medium text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded shrink-0"
+                                  className="inline-flex items-center gap-0.5 text-[9px] font-medium text-[var(--color-ink-subdued)] bg-slate-200 px-1.5 py-0.5 rounded shrink-0"
                                   title="본인이 만든 프로젝트가 아니므로 변경할 수 없습니다."
                                 >
                                   보기 전용
@@ -1033,23 +1068,23 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                           </div>
                           <div className="flex-shrink-0 flex items-end gap-2">
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-[9px] font-semibold text-slate-500">시작</span>
+                              <span className="text-[9px] font-semibold text-[var(--color-ink-subdued)]">시작</span>
                               <input
                                 type="date"
                                 value={projectDates[p.id] || ''}
                                 onChange={(e) => setProjectDates({ ...projectDates, [p.id]: e.target.value })}
                                 disabled={!editable}
-                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-[var(--color-bg)] disabled:text-slate-400 disabled:cursor-not-allowed"
                               />
                             </div>
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-[9px] font-semibold text-slate-500">종료</span>
+                              <span className="text-[9px] font-semibold text-[var(--color-ink-subdued)]">종료</span>
                               <input
                                 type="date"
                                 value={projectEndDates[p.id] || ''}
                                 onChange={(e) => setProjectEndDates({ ...projectEndDates, [p.id]: e.target.value })}
                                 disabled={!editable}
-                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                className="input-field py-1 text-[11px] h-7 w-28 disabled:bg-[var(--color-bg)] disabled:text-slate-400 disabled:cursor-not-allowed"
                               />
                             </div>
                           </div>
@@ -1062,7 +1097,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
             )}
           </div>
 
-          <div className="p-6 pt-4 flex justify-between items-center gap-3 border-t border-[var(--color-line)] bg-white sticky bottom-0">
+          <div className="p-6 pt-4 flex justify-between items-center gap-3 border-t border-[var(--color-line)] bg-[var(--color-surface)] sticky bottom-0">
             {/* 로컬 초기화: 관리자/일반 사용자 모두 숨김 처리 (실수 방지). onRequestReset prop은 호환을 위해 유지하되 UI에는 노출하지 않는다. */}
             <div className="flex items-center gap-2" />
             <div className="flex justify-end gap-3">

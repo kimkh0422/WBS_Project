@@ -1,7 +1,9 @@
 import React, { useCallback, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project, FilterState } from '../types';
 import { BackupData } from '../lib/export';
-import { exportToExcel, parseExcelWithMeta, type ExcelImportMeta } from '../lib/excel';
+// xlsx(약 424KB)는 무거우므로 정적 import하지 않는다. 내보내기/가져오기 시점에 동적 로드해
+// 첫 화면 진입 경로에서 vendor-xlsx 청크가 eager preload 되지 않도록 한다. (타입만 정적 import)
+import type { ExcelImportMeta } from '../lib/excel';
 import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons } from '../lib/export';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
@@ -87,19 +89,20 @@ export function useFileImportExport(deps: FileImportExportDeps) {
   const mergeInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportFromModal = useCallback(
-    (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => {
+    async (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => {
       const { formats, projectIds, scope } = params;
       const now = new Date();
       const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
       const filteredProjects = projects.filter((p) => projectIds.includes(p.id));
       const filteredTasks = allTasks.filter((t) => t.projectId && projectIds.includes(t.projectId));
 
-      const doExport = (format: ExportFormat) => {
+      const doExport = async (format: ExportFormat) => {
         if (format === 'excel') {
           const fileName =
             filteredProjects.length === 1
               ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
               : `wbs_export_${timestamp}.xlsx`;
+          const { exportToExcel } = await import('../lib/excel');
           exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects, undefined, assigneeDisplayMetaByName);
         } else if (format === 'markdown') {
           const fileName =
@@ -166,7 +169,9 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         }
       };
 
-      formats.forEach(doExport);
+      for (const format of formats) {
+        await doExport(format);
+      }
 
       pushToast('내보내기가 완료되었습니다.');
       const primaryFormat = formats[0] ?? 'excel';
@@ -224,6 +229,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         }));
       };
 
+      const { parseExcelWithMeta } = await import('../lib/excel');
       const parsed = await Promise.all(files.map((f) => parseExcelWithMeta(f)));
       const perFileTasks = parsed.map((p) => p.tasks);
       const importedTasks = files.length > 1 ? perFileTasks.flatMap(remapIdsWithinFile) : perFileTasks.flat();

@@ -90,7 +90,13 @@ export function CellFormatToolbar({
       className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm"
       role="toolbar"
       aria-label="셀 서식"
-      onMouseDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => {
+        // 표 셀 포커스를 유지하려고 전체에 preventDefault를 쓰면, 숫자·글꼴 등 폼 컨트롤이
+        // mousedown 기본 동작(포커스·드롭다운)을 받지 못해 크기 입력 등이 동작하지 않는다.
+        const el = e.target as HTMLElement | null;
+        if (el?.closest('input, select, textarea, label')) return;
+        e.preventDefault();
+      }}
     >
       <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
         서식 · {columnTitle}
