@@ -5,6 +5,7 @@ import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../../lib/wbsInlineNameCommit';
 import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../../lib/workEffortUnits';
+import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
 
 /** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
 function collectVisibleSubtreeRows(visibleTasks: TaskWithDepth[], rootId: string): TaskWithDepth[] {
@@ -20,6 +21,50 @@ function collectVisibleSubtreeRows(visibleTasks: TaskWithDepth[], rootId: string
     out.push(t);
   }
   return out;
+}
+
+/** 표 안에서 비어 있지 않은 텍스트 선택이 있는지(앵커·포커스가 표 내부). `hasNonEmptyTextSelectionInEditableControl`에서 사용 */
+function hasNonEmptyTextSelectionInside(root: HTMLElement | null): boolean {
+  if (!root || typeof window === 'undefined') return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+  if (!sel.toString().trim()) return false;
+  const nodeInsideRoot = (n: Node | null): boolean => {
+    if (!n) return false;
+    const el = n.nodeType === Node.TEXT_NODE ? (n.parentElement as HTMLElement | null) : (n as HTMLElement);
+    return !!(el && root.contains(el));
+  };
+  return nodeInsideRoot(sel.anchorNode) && nodeInsideRoot(sel.focusNode);
+}
+
+/** 인라인 편집 input/textarea 등 안에서만 true — 셀 드래그 선택 시에는 false로 두어 TSV 행 복사 대신 작업명만 복사 */
+function hasNonEmptyTextSelectionInEditableControl(root: HTMLElement | null): boolean {
+  if (!hasNonEmptyTextSelectionInside(root)) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const nodeToEl = (n: Node | null): HTMLElement | null => {
+    if (!n) return null;
+    return n.nodeType === Node.TEXT_NODE ? (n.parentElement as HTMLElement | null) : (n as HTMLElement);
+  };
+  const a = nodeToEl(sel.anchorNode);
+  const f = nodeToEl(sel.focusNode);
+  if (!a || !f) return false;
+  const edA = a.closest('input, textarea, [contenteditable="true"]');
+  const edF = f.closest('input, textarea, [contenteditable="true"]');
+  return !!(edA && edA === edF && root.contains(edA));
+}
+
+/** 시스템 클립보드용: 포커스 셀 → 없으면 키보드 포커스 행의 작업명만 (체크박스 다중 선택과 무관) */
+export function getWbsTableCopyPlainText(opts: {
+  focusedCell: { taskId: string; columnId: TableColumnId } | null;
+  lastSelectedId: string | null;
+  tasks: Task[];
+}): { text: string; count: number } | null {
+  const cursorTaskId = opts.focusedCell?.taskId ?? opts.lastSelectedId;
+  if (!cursorTaskId) return null;
+  const name = (opts.tasks.find((t) => t.id === cursorTaskId)?.name ?? '').trim();
+  if (!name) return null;
+  return { text: name, count: 1 };
 }
 
 /** Clipboard payload shape (defined in WBSTable, passed in as type parameter) */
@@ -304,6 +349,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             const nextTask = visibleTasks[nextRowIdx];
             const nextCol = editableColumnIds[nextColIdx];
             if (nextTask && nextCol) {
+              const editColAfterTab = wasEditing ? delegateInlineEditColumnId(nextCol, editableColumnIds) : nextCol;
               // 작업명 인라인 편집 중 Tab 이동: blur 전에 DOM에서 커밋(onBlur 미사용)
               if (inlineEditingNameId) {
                 commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
@@ -313,17 +359,17 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               setTimeout(() => {
                 setLastSelectedId(nextTask.id);
                 maybeSyncShiftRangeAnchor(nextTask.id);
-                setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
+                setFocusedCell({ taskId: nextTask.id, columnId: editColAfterTab });
                 if (wasEditing) {
-                  if (nextCol === 'name') {
+                  if (editColAfterTab === 'name') {
                     setInlineEditingNameId(nextTask.id);
                     setEditingCell(null);
                   } else {
-                    setEditingCell({ taskId: nextTask.id, columnId: nextCol });
+                    setEditingCell({ taskId: nextTask.id, columnId: editColAfterTab });
                     setInlineEditingNameId(null);
                   }
                   requestAnimationFrame(() => {
-                    document.getElementById(`wbs-edit-${nextTask.id}-${nextCol}`)?.focus();
+                    document.getElementById(`wbs-edit-${nextTask.id}-${editColAfterTab}`)?.focus();
                   });
                 }
                 document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
@@ -579,8 +625,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       };
 
+      const wbsTableEl = document.querySelector('[data-wbs-table]') as HTMLElement | null;
+      const deferCutCopyToBrowser = hasNonEmptyTextSelectionInEditableControl(wbsTableEl);
+
       // Cut: copy + delete (with confirmation)
       if ((e.ctrlKey || e.metaKey) && e.key === 'x') {
+        if (deferCutCopyToBrowser) return;
         e.preventDefault();
         copySelectionToClipboard();
         const idsForDelete =
@@ -597,21 +647,16 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // Copy: 행 전체가 아니라 '작업명'만 시스템 클립보드로 복사 (요청사항)
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        if (deferCutCopyToBrowser) return;
         e.preventDefault();
-        const names =
-          selectedTaskIds.size > 0
-            ? visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => (t.name ?? '').trim())
-            : lastSelectedId
-              ? [(tasks.find((t) => t.id === lastSelectedId)?.name ?? '').trim()]
-              : [];
-        const text = names.filter(Boolean).join('\n');
-        if (!text) return;
+        const packed = getWbsTableCopyPlainText({ focusedCell, lastSelectedId, tasks });
+        if (!packed) return;
         try {
-          void navigator.clipboard?.writeText(text);
+          void navigator.clipboard?.writeText(packed.text);
         } catch {
           // ignore clipboard errors (permissions, insecure context)
         }
-        pushToast(`작업명 ${names.filter(Boolean).length}개를 복사했습니다.`, { variant: 'success' });
+        pushToast('작업명을 복사했습니다.', { variant: 'success' });
         return;
       }
 
@@ -636,30 +681,49 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (inlineEditingNameId) {
           commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
         }
-        const taskId = lastSelectedId || focusedCell?.taskId || visibleTasks[0]?.id;
+        // 셀 링(focusedCell)과 행 하이라이트(lastSelectedId)가 어긋난 경우(간트·동기화 등)에도
+        // F2는 항상 "보이는 활성 셀" 기준이 되도록: 표시 중인 행에 대한 focusedCell을 lastSelectedId보다 우선한다.
+        const taskIdFromFocusedCell = focusedCell && visibleTasks.some((t) => t.id === focusedCell.taskId) ? focusedCell.taskId : null;
+        const taskId = taskIdFromFocusedCell ?? lastSelectedId ?? visibleTasks[0]?.id;
         if (!taskId || editableColumnIds.length === 0) return;
-        const columnId =
+        const focusColumnId =
           focusedCell && focusedCell.taskId === taskId && editableColumnIds.includes(focusedCell.columnId)
             ? focusedCell.columnId
             : editableColumnIds.includes('name')
               ? 'name'
               : editableColumnIds[0]!;
-        setFocusedCell({ taskId, columnId });
+        const editColumnId = delegateInlineEditColumnId(focusColumnId, editableColumnIds);
+        const cannotOpenInlineEditor = isDerivedScheduleColumnId(focusColumnId) && editColumnId === focusColumnId;
+
         setLastSelectedId(taskId);
         maybeSyncShiftRangeAnchor(taskId);
         // 체크박스 선택은 유지 (편집만으로 행이 자동 체크되지 않음)
-        if (columnId === 'name') {
+        if (cannotOpenInlineEditor) {
+          setFocusedCell({ taskId, columnId: focusColumnId });
+          setInlineEditingNameId(null);
+          setEditingCell(null);
+          document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              tableScrollRef.current?.focus();
+            });
+          });
+          return;
+        }
+
+        setFocusedCell({ taskId, columnId: editColumnId });
+        if (editColumnId === 'name') {
           setInlineEditingNameId(taskId);
           setEditingCell(null);
         } else {
-          setEditingCell({ taskId, columnId });
+          setEditingCell({ taskId, columnId: editColumnId });
           setInlineEditingNameId(null);
         }
         document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
         // 가상 스크롤/레이아웃 직후 input이 붙는 타이밍에 맞추기 위해 한 프레임 더 미룸
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            const el = document.getElementById(`wbs-edit-${taskId}-${columnId}`);
+            const el = document.getElementById(`wbs-edit-${taskId}-${editColumnId}`);
             el?.focus();
             if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
               el.select();

@@ -22,7 +22,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type TableColumnId, type WBSTableProps } from './wbsTableTypes';
-import { useWbsTableKeyboard } from './hooks/useWbsTableKeyboard';
+import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
 import { useColumnResize } from './hooks/useColumnResize';
 import { useWbsSummaryStats } from './hooks/useWbsSummaryStats';
@@ -706,6 +706,22 @@ export function WBSTable({
     setSharedSelectedTaskIds: setSharedSelectedTaskIds,
     tableScrollRef,
   });
+
+  /** 하단 고정 셀 서식 툴·일괄 수정 바 뒤에 행·퀵추가가 숨지 않도록 스크롤 영역 하단 패딩 */
+  const tableScrollBottomPadding = useMemo(() => {
+    if (excelView || editingTask) return undefined;
+    const bulk = selectedTaskIds.size > 1;
+    const showCellFormat = focusedCell != null && focusedCell.columnId !== 'wbsId' && tasks.some((t) => t.id === focusedCell.taskId);
+    if (!showCellFormat && !bulk) return undefined;
+    if (showCellFormat && bulk) {
+      return 'calc(min(42dvh, 24rem) + env(safe-area-inset-bottom, 0px))';
+    }
+    if (showCellFormat) {
+      return 'calc(7.5rem + env(safe-area-inset-bottom, 0px))';
+    }
+    return 'calc(12rem + env(safe-area-inset-bottom, 0px))';
+  }, [excelView, editingTask, focusedCell, selectedTaskIds.size, tasks]);
+
   // setLastSelectedId 호출 시 activeTaskId도 같은 사이클에서 함께 set한다.
   // (양방향 동기화 effect만으로는 키보드 repeat 같은 빠른 연속 호출에서 race로 두 state가 어긋나
   //  노란색 두 개가 동시에 보이는 회귀가 발생했음)
@@ -852,6 +868,24 @@ export function WBSTable({
     tableScrollRef,
     CLIPBOARD_KEY,
   });
+
+  /** 우클릭·메뉴 복사 등: 셀 드래그 TSV 대신 작업명만 클립보드에 넣음 (인라인 편집 필드는 제외) */
+  const handleWbsTableCopyCapture = useCallback(
+    (e: React.ClipboardEvent) => {
+      if (!hotkeysEnabled || excelView) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      const packed = getWbsTableCopyPlainText({
+        focusedCell,
+        lastSelectedId,
+        tasks,
+      });
+      if (!packed) return;
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', packed.text);
+    },
+    [hotkeysEnabled, excelView, focusedCell, lastSelectedId, tasks],
+  );
 
   const handleInlineQuickAdd = (e: React.FormEvent, parentId: string | null) => {
     e.preventDefault();
@@ -1229,6 +1263,7 @@ export function WBSTable({
               }}
               tabIndex={0}
               data-wbs-table
+              onCopyCapture={handleWbsTableCopyCapture}
               className={cn(
                 // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
                 isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
@@ -1236,9 +1271,10 @@ export function WBSTable({
                 !tableEditMode && 'wbs-view-mode',
                 fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
                 wrapTextInCells && 'wrap-text-in-cells',
-                // 마지막 행·퀵 추가 입력 아래에 약간 여백(일괄 수정 바 등 고정 UI와 겹침 완화)
-                'pb-6',
+                // 마지막 행·퀵 추가 입력 아래 여백(셀 서식/일괄 바가 있으면 style로 더 큰 값 사용)
+                !tableScrollBottomPadding && 'pb-6',
               )}
+              style={tableScrollBottomPadding ? { paddingBottom: tableScrollBottomPadding } : undefined}
               onScroll={(e) => {
                 const target = e.currentTarget;
                 const header = headerScrollRef.current;
@@ -1568,16 +1604,17 @@ export function WBSTable({
         )}
       </div>
 
-      {/* 포커스된 표 데이터 셀 서식(하단 고정). 다중 선택 시 일괄 수정 바 위에 배치 */}
+      {/* 포커스된 표 데이터 셀 서식(하단 고정). 다중 선택 시 일괄 수정 바(z-100)보다 위 레이어·충분한 bottom으로 가리지 않게 함 */}
       {focusedCell &&
         !excelView &&
+        !editingTask &&
         createPortal(
           <div
-            className="fixed left-0 right-0 z-[99] pointer-events-none flex justify-center px-3 sm:px-4"
+            className="fixed left-0 right-0 z-[110] pointer-events-none flex justify-center px-3 sm:px-4"
             style={{
               bottom:
                 selectedTaskIds.size > 1
-                  ? 'max(112px, calc(112px + env(safe-area-inset-bottom, 0px)))'
+                  ? 'calc(clamp(200px, 34dvh, 380px) + env(safe-area-inset-bottom, 0px))'
                   : 'max(16px, calc(16px + env(safe-area-inset-bottom, 0px)))',
             }}
           >

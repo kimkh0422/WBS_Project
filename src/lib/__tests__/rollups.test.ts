@@ -49,6 +49,17 @@ describe('syncParentRollups', () => {
     expect(parent.endDate).toBe('2026-04-10');
   });
 
+  it('자식 종료일을 줄이면 부모 종료일도 하위 트리 최대 종료일로 줄어든다', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', startDate: '2024-01-01', endDate: '2051-04-12' }),
+      makeTask({ id: 'c1', parentId: 'parent', startDate: '2024-04-10', endDate: '2026-04-12' }),
+    ];
+    const result = syncParentRollups(tasks, 'parent');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.endDate).toBe('2026-04-12');
+    expect(parent.startDate).toBe('2024-04-10');
+  });
+
   it('3레벨: 중간 노드 종료일이 직계 자식 max보다 짧아도 손자 기간으로 조부모 종료일이 확장된다', () => {
     const tasks: Task[] = [
       makeTask({ id: 'gp', startDate: '2010-09-10', endDate: '2010-09-10' }),

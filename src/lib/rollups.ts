@@ -3,18 +3,6 @@ import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 
-function minIsoDate(a: string | undefined, b: string | undefined): string | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  return a < b ? a : b;
-}
-
-function maxIsoDate(a: string | undefined, b: string | undefined): string | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  return a > b ? a : b;
-}
-
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
 function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<string> {
   const childrenBy = new Map<string, string[]>();
@@ -118,15 +106,16 @@ export function syncParentRollups(
   if (!skipEffortRollup) {
     alignedWorkEffort = sumChildEffort;
   }
-  // 부모 일정: 하위가 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장). 하위가 짧아져도 상위는 자동으로 줄이지 않음.
+  // 부모 일정: 이 노드 아래 전체 하위 트리의 min(start)·max(end)에 맞춘다(문서 FR-SCHED-06 / PROGRAM_LOGIC 9.2와 동일).
+  // 하위가 짧아지면 상위 종료일도 함께 줄어든다.
   let alignedStart = parent.startDate;
   let alignedEnd = parent.endDate;
   if (!skipScheduleRollup) {
     if (minStart !== undefined) {
-      alignedStart = minIsoDate(parent.startDate, minStart) ?? minStart;
+      alignedStart = minStart;
     }
     if (maxEnd !== undefined) {
-      alignedEnd = maxIsoDate(parent.endDate, maxEnd) ?? maxEnd;
+      alignedEnd = maxEnd;
     }
     if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
       alignedEnd = alignedStart;

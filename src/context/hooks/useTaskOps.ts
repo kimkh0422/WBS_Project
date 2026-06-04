@@ -191,7 +191,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
         const hasChildTasks = prev.some((t) => t.parentId === id);
-        updatedTask = applyMilestoneDateInvariant(updatedTask, { hasChildTasks });
+        let preferCanonical: 'start' | 'end' | undefined;
+        if (updatedTask.isMilestone && !hasChildTasks) {
+          if (explicitEndChange && !explicitStartChange) preferCanonical = 'end';
+          else if (explicitStartChange && !explicitEndChange) preferCanonical = 'start';
+        }
+        updatedTask = applyMilestoneDateInvariant(updatedTask, { hasChildTasks, preferCanonical });
 
         let nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
 

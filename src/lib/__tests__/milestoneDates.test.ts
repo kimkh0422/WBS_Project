@@ -24,6 +24,21 @@ describe('applyMilestoneDateInvariant', () => {
     expect(out.workEffort).toBe(0);
   });
 
+  it('마일스톤: preferCanonical end면 종료일 기준으로 시작·종료를 맞춘다', () => {
+    const t = base({ isMilestone: true, startDate: '2025-10-30', endDate: '2027-10-30', workEffort: 0 });
+    const out = applyMilestoneDateInvariant(t, { preferCanonical: 'end' });
+    expect(out.startDate).toBe('2027-10-30');
+    expect(out.endDate).toBe('2027-10-30');
+    expect(out.workEffort).toBe(0);
+  });
+
+  it('마일스톤: preferCanonical start면 시작일 기준으로 맞춘다', () => {
+    const t = base({ isMilestone: true, startDate: '2027-01-05', endDate: '2026-12-01', workEffort: 1 });
+    const out = applyMilestoneDateInvariant(t, { preferCanonical: 'start' });
+    expect(out.startDate).toBe('2027-01-05');
+    expect(out.endDate).toBe('2027-01-05');
+  });
+
   it('종료일만 있으면 시작을 종료에 맞춘다', () => {
     const t = base({ isMilestone: true, startDate: undefined, endDate: '2026-02-02', workEffort: 1 });
     const out = applyMilestoneDateInvariant(t);

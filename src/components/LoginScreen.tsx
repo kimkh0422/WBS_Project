@@ -136,7 +136,13 @@ export function LoginScreen() {
         if (result?.error) {
           setError(result.error);
         } else {
-          setSuccess(`${email.trim()}로 비밀번호 재설정 코드를 보냈습니다.`);
+          setSuccess(
+            [
+              `가입된 계정이면 곧 ${email.trim()} 로 인증 메일이 도착합니다.`,
+              '몇 분 내 오지 않으면 스팸·프로모션함을 확인해 주세요.',
+              '이 서비스에 한 번도 가입하지 않은 주소라면 메일이 가지 않을 수 있습니다. 그럴 때는 아래 회원가입으로 먼저 계정을 만든 뒤 로그인해 주세요.',
+            ].join('\n'),
+          );
           setOtpToken('');
           setMode('forgotVerify');
         }
@@ -229,9 +235,9 @@ export function LoginScreen() {
       case 'verifySignup':
         return '메일로 받은 인증 코드를 입력하세요.';
       case 'forgotEmail':
-        return '가입한 회사 메일로 인증 코드를 보내드립니다.';
+        return '이미 가입·이메일 인증을 마친 주소로만 재설정 코드가 발송됩니다. 처음이시면 회원가입부터 진행해 주세요.';
       case 'forgotVerify':
-        return '메일로 받은 인증 코드를 입력하세요.';
+        return '메일로 받은 인증 코드를 입력하세요. 메일이 없다면 미가입이거나 스팸함일 수 있습니다.';
       case 'forgotReset':
         return '사용할 새 비밀번호를 입력하세요(6자 이상).';
     }
@@ -314,6 +320,13 @@ export function LoginScreen() {
                     />
                   )}
 
+                  {isForgotEmail && (
+                    <p className="text-xs text-slate-400 text-left leading-relaxed px-0.5">
+                      비밀번호 찾기는 <span className="text-slate-300">이미 회원가입을 완료한 이메일</span>에만 인증 메일이 갑니다. 계정이
+                      없다면 회원가입 화면에서 이름·비밀번호를 입력해 주세요.
+                    </p>
+                  )}
+
                   {/* 인증 코드 입력: 가입 OTP / 비밀번호 재설정 OTP */}
                   {(isVerifySignup || isForgotVerify) && (
                     <>
@@ -321,6 +334,18 @@ export function LoginScreen() {
                         <span className="text-slate-400">받는 메일: </span>
                         <span className="font-medium text-white">{email}</span>
                       </div>
+                      {isForgotVerify && (
+                        <p className="text-xs text-slate-400 text-left leading-relaxed px-0.5">
+                          코드가 계속 오지 않으면 이 주소로는 아직 가입이 없을 수 있습니다.{' '}
+                          <button
+                            type="button"
+                            onClick={() => goMode('signUp')}
+                            className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2"
+                          >
+                            회원가입으로 이동
+                          </button>
+                        </p>
+                      )}
                       <input
                         type="text"
                         inputMode="numeric"
@@ -396,7 +421,7 @@ export function LoginScreen() {
                   {success && (
                     <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <MailCheck className="w-4 h-4 mt-0.5 text-emerald-400 shrink-0" />
-                      <p className="text-emerald-400 text-sm text-left">{success}</p>
+                      <p className="text-emerald-400 text-sm text-left whitespace-pre-line">{success}</p>
                     </div>
                   )}
 
@@ -460,13 +485,22 @@ export function LoginScreen() {
                     </div>
                   )}
                   {(isForgotEmail || isForgotVerify || isForgotReset) && (
-                    <button
-                      type="button"
-                      onClick={() => goMode('signIn')}
-                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1 mx-auto"
-                    >
-                      <ArrowLeft className="w-3 h-3" /> 로그인으로 돌아가기
-                    </button>
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => goMode('signUp')}
+                        className="text-sm text-slate-500 hover:text-white transition-colors"
+                      >
+                        계정이 없으신가요? 회원가입
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => goMode('signIn')}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+                      >
+                        <ArrowLeft className="w-3 h-3" /> 로그인으로 돌아가기
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

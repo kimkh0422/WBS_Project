@@ -23,6 +23,7 @@ import {
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { type TableColumnId } from './wbsTableTypes';
+import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { cellTextStyleToCss } from '../lib/cellTextStyle';
@@ -287,6 +288,14 @@ function SortableTaskRowInner({
     onFocusRow?.(task.id);
     onSetRowAnchor?.(task.id);
   };
+
+  const visibleEditableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
+
+  /** 계획율·진척차이(파생) 셀: 더블클릭 시 실제 편집 가능한 컬럼으로 진입 */
+  const beginEditNowResolved = (columnId: TableColumnId) => {
+    beginEditNow(delegateInlineEditColumnId(columnId, visibleEditableColumnIds));
+  };
+
   /**
    * 표 행의 레벨 배경색.
    * - 다크모드: 컨텍스트가 transparent 반환 (왼쪽 테두리로 레벨 구분)
@@ -544,6 +553,11 @@ function SortableTaskRowInner({
             e.stopPropagation();
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             onSelect(task.id, true, false);
+            // 체크박스만 눌러도 셀 포커스가 남아 있지 않으면 하단 서식 바가 안 뜨는 문제 방지 + 다중 선택 시 같은 열 서식 일괄 적용 기준 행 정렬
+            setFocusedCell((prev) => ({
+              taskId: task.id,
+              columnId: prev?.columnId && prev.columnId !== 'wbsId' ? prev.columnId : (visibleEditableColumnIds[0] ?? 'name'),
+            }));
           }}
           onChange={() => {
             // onClick에서 제어하므로 onChange는 비워 둔다.
@@ -1125,15 +1139,30 @@ function SortableTaskRowInner({
           const computable = hasChildren || hasPlannedSchedule(task);
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const plannedFmt = formatPercent1(planned);
+          const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress';
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-xs text-slate-500 min-w-0 cursor-help"
-              title={
+              className={cn(
+                'data-cell font-mono text-xs text-slate-500 min-w-0 cursor-cell',
+                isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
+              )}
+              style={otherRingStyle}
+              title={[
                 computable
                   ? plannedProgressDataCellTitle(plannedFmt)
-                  : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.'
-              }
+                  : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.',
+                '',
+                '클릭: 셀 포커스 · 더블클릭 또는 F2: 일정(종료일 우선) 편집',
+              ].join('\n')}
+              onClick={(e) => {
+                e.stopPropagation();
+                beginEdit('plannedProgress');
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                beginEditNowResolved('plannedProgress');
+              }}
             >
               <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
                 {computable ? `${plannedFmt}%` : '—'}
@@ -1153,15 +1182,31 @@ function SortableTaskRowInner({
           const actFmt = formatPercent1(actual);
           const plFmt = formatPercent1(planned);
           const varFmt = formatPercent1(variance);
+          const isFocusedVar = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progressVariance';
           return (
             <div
               key={colId}
-              className={cn('data-cell font-mono text-xs min-w-0 cursor-help', !txtStyle.color && color)}
-              title={
+              className={cn(
+                'data-cell font-mono text-xs min-w-0 cursor-cell',
+                !txtStyle.color && color,
+                isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
+              )}
+              style={otherRingStyle}
+              title={[
                 computable
                   ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
-                  : '계획 일정이 없어 진척차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율이며, 계획율은 일정에서만 산정됩니다.'
-              }
+                  : '계획 일정이 없어 진척차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율이며, 계획율은 일정에서만 산정됩니다.',
+                '',
+                '클릭: 셀 포커스 · 더블클릭 또는 F2: 실제 진척률 편집',
+              ].join('\n')}
+              onClick={(e) => {
+                e.stopPropagation();
+                beginEdit('progressVariance');
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                beginEditNowResolved('progressVariance');
+              }}
             >
               <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
                 {computable ? `${sign}${varFmt}%p` : '—'}

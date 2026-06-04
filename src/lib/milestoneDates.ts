@@ -5,6 +5,11 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/;
 export type MilestoneInvariantOptions = {
   /** true면 이 행 아래에 하위 작업이 있다. 일정은 상위 롤업으로 시작≠종료가 될 수 있어 한 시점으로 강제하지 않는다. */
   hasChildTasks?: boolean;
+  /**
+   * 시작·종료가 둘 다 유효한 YMD이고 서로 다를 때, 한 날(마일스톤)로 맞출 때 어느 쪽을 기준으로 할지.
+   * 없으면 기존과 같이 시작일을 우선한다(표에서 종료일만 연장하면 시작이 덮어써지던 문제 방지용).
+   */
+  preferCanonical?: 'start' | 'end';
 };
 
 /**
@@ -32,8 +37,18 @@ export function applyMilestoneDateInvariant(task: Task, options?: MilestoneInvar
   let startOut = task.startDate;
   let endOut = task.endDate;
   if (sOk || eOk) {
-    const canonicalY = sOk ? sY : eY;
-    const tail = sOk && rawS.length > 10 ? rawS.slice(10) : eOk && rawE.length > 10 ? rawE.slice(10) : '';
+    let canonicalY: string;
+    let tail: string;
+    if (sOk && eOk && sY !== eY && options?.preferCanonical === 'end') {
+      canonicalY = eY;
+      tail = rawE.length > 10 ? rawE.slice(10) : rawS.length > 10 ? rawS.slice(10) : '';
+    } else if (sOk && eOk && sY !== eY && options?.preferCanonical === 'start') {
+      canonicalY = sY;
+      tail = rawS.length > 10 ? rawS.slice(10) : rawE.length > 10 ? rawE.slice(10) : '';
+    } else {
+      canonicalY = sOk ? sY : eY;
+      tail = sOk && rawS.length > 10 ? rawS.slice(10) : eOk && rawE.length > 10 ? rawE.slice(10) : '';
+    }
     const canonical = canonicalY + tail;
     startOut = canonical;
     endOut = canonical;

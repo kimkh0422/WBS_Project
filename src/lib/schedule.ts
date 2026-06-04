@@ -256,18 +256,6 @@ function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId?: Map<s
   return undefined;
 }
 
-function minIsoDate(a: string | undefined, b: string | undefined): string | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  return a < b ? a : b;
-}
-
-function maxIsoDate(a: string | undefined, b: string | undefined): string | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  return a > b ? a : b;
-}
-
 export type ApplyDependencyScheduleOptions = {
   /**
    * false: 공수·투입률로 종료일을 일괄 재계산하지 않음(시작/종료/공수 독립).
@@ -376,7 +364,7 @@ export function applyDependencySchedule(
     }
   }
 
-  // 상위 작업: 하위 기간이 길어지면 상위 시작/종료도 함께 늘어남(바깥으로만 확장)
+  // 상위 작업: 직속 자식 기간의 min(start)·max(end)에 맞춘다(하위가 짧아지면 상위도 줄어듦).
   const byParent = new Map<string | null, Task[]>();
   result.forEach((t) => {
     const pid = t.parentId ?? null;
@@ -406,11 +394,11 @@ export function applyDependencySchedule(
     const ends = children.map((c) => c.endDate).filter(Boolean) as string[];
     if (starts.length > 0) {
       const minC = starts.reduce((a, b) => (a < b ? a : b));
-      task.startDate = minIsoDate(task.startDate, minC) ?? minC;
+      task.startDate = minC;
     }
     if (ends.length > 0) {
       const maxC = ends.reduce((a, b) => (a > b ? a : b));
-      task.endDate = maxIsoDate(task.endDate, maxC) ?? maxC;
+      task.endDate = maxC;
     }
     if (task.startDate && task.endDate && task.startDate > task.endDate) {
       task.endDate = task.startDate;

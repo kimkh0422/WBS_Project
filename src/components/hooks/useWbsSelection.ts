@@ -29,9 +29,18 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
       if (prev.size === shared.size && [...shared].every((id) => prev.has(id))) return prev;
       return shared;
     });
-    if (sharedSelectedTaskIds.length === 1) setLastSelectedId(sharedSelectedTaskIds[0]);
-    else if (sharedSelectedTaskIds.length === 0) setLastSelectedId(null);
-  }, [sharedSelectedTaskIds]);
+    if (sharedSelectedTaskIds.length === 1) {
+      setLastSelectedId(sharedSelectedTaskIds[0]);
+    } else if (sharedSelectedTaskIds.length === 0) {
+      // 체크 선택만 해제(Esc·간트 동기 등)할 때 `lastSelectedId`를 무조건 null로 두면
+      // `focusedCell`도 Esc로 지워진 뒤 화살표 기준 셀이 사라져 키보드 이동이 멈춘다.
+      // 현재 표에 없는 이전 행(프로젝트 전환 등)일 때만 포커스를 비운다.
+      setLastSelectedId((prev) => {
+        if (prev == null) return null;
+        return visibleTasks.some((t) => t.id === prev) ? prev : null;
+      });
+    }
+  }, [sharedSelectedTaskIds, visibleTasks]);
 
   const setSelection = useCallback(
     (next: Set<string>) => {
