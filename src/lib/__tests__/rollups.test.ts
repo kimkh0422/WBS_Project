@@ -49,6 +49,19 @@ describe('syncParentRollups', () => {
     expect(parent.endDate).toBe('2026-04-10');
   });
 
+  it('3레벨: 중간 노드 종료일이 직계 자식 max보다 짧아도 손자 기간으로 조부모 종료일이 확장된다', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'gp', startDate: '2010-09-10', endDate: '2010-09-10' }),
+      makeTask({ id: 'p', parentId: 'gp', startDate: '2010-09-10', endDate: '2010-09-10' }),
+      makeTask({ id: 'leaf', parentId: 'p', startDate: '2024-04-01', endDate: '2050-04-01' }),
+    ];
+    const result = syncParentRollups(tasks, 'p');
+    const gp = result.find((t) => t.id === 'gp')!;
+    const p = result.find((t) => t.id === 'p')!;
+    expect(p.endDate).toBe('2050-04-01');
+    expect(gp.endDate).toBe('2050-04-01');
+  });
+
   it('parentId가 null이면 변경 없음', () => {
     const tasks: Task[] = [makeTask({ id: 'a' })];
     const result = syncParentRollups(tasks, null);

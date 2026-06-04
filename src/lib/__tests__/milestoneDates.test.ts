@@ -43,4 +43,30 @@ describe('applyMilestoneDateInvariant', () => {
     expect(out.startDate).toBe('2026-03-01T00:00:00.000Z');
     expect(out.endDate).toBe('2026-03-01T00:00:00.000Z');
   });
+
+  it('하위 작업이 있는 마일스톤 상위 행은 롤업된 시작·종료를 한 날로 덮지 않는다', () => {
+    const t = base({
+      isMilestone: true,
+      startDate: '2010-09-10',
+      endDate: '2060-04-01',
+      workEffort: 0,
+    });
+    const out = applyMilestoneDateInvariant(t, { hasChildTasks: true });
+    expect(out.startDate).toBe('2010-09-10');
+    expect(out.endDate).toBe('2060-04-01');
+    expect(out).toBe(t);
+  });
+
+  it('하위가 있는 마일스톤은 공수만 0으로 맞춘다', () => {
+    const t = base({
+      isMilestone: true,
+      startDate: '2010-09-10',
+      endDate: '2060-04-01',
+      workEffort: 4,
+    });
+    const out = applyMilestoneDateInvariant(t, { hasChildTasks: true });
+    expect(out.startDate).toBe('2010-09-10');
+    expect(out.endDate).toBe('2060-04-01');
+    expect(out.workEffort).toBe(0);
+  });
 });

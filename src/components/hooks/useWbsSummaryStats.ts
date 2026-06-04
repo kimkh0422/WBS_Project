@@ -3,6 +3,7 @@ import type { Task, Project } from '../../types';
 import { formatPercent1, round1 } from '../../lib/utils';
 import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../../lib/workEffortUnits';
 import { computePlannedProgressMap } from '../../lib/plannedProgress';
+import { envelopeProjectWithTaskDates } from '../../lib/projectPeriod';
 
 export interface SummaryStats {
   totalEffort: number;
@@ -159,18 +160,12 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       ].join('\n');
     }
 
-    // 기간 표시: 단일 프로젝트 뷰에서는 그 프로젝트의 startDate/endDate를 우선 표시한다.
-    // 프로젝트 일정이 비어 있거나 다중 프로젝트가 섞여 있으면 작업의 min/max 합산으로 폴백.
+    // 기간 표시: 프로젝트 등록 기간과 표시 중인 작업 일정의 합집합(더 넓은 범위).
     const projectIdsInView = Array.from(new Set(source.map((t) => t.projectId).filter(Boolean)));
-    const taskMinStart = source.reduce((min, t) => (t.startDate < min ? t.startDate : min), source[0].startDate);
-    const taskMaxEnd = source.reduce((max, t) => (t.endDate > max ? t.endDate : max), source[0].endDate);
-    let startDate = taskMinStart;
-    let endDate = taskMaxEnd;
-    if (projectIdsInView.length === 1) {
-      const proj = projectById.get(projectIdsInView[0]!);
-      if (proj?.startDate) startDate = proj.startDate;
-      if (proj?.endDate) endDate = proj.endDate;
-    }
+    const proj = projectIdsInView.length === 1 ? projectById.get(projectIdsInView[0]!) : undefined;
+    const env = envelopeProjectWithTaskDates(proj, source);
+    const startDate = env?.startDate ?? '';
+    const endDate = env?.endDate ?? '';
 
     return {
       totalEffort,

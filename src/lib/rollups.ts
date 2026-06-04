@@ -15,6 +15,27 @@ function maxIsoDate(a: string | undefined, b: string | undefined): string | unde
   return a > b ? a : b;
 }
 
+/** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
+function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<string> {
+  const childrenBy = new Map<string, string[]>();
+  for (const t of allTasks) {
+    if (!t.parentId) continue;
+    const arr = childrenBy.get(t.parentId);
+    if (arr) arr.push(t.id);
+    else childrenBy.set(t.parentId, [t.id]);
+  }
+  const out = new Set<string>();
+  const stack = [...(childrenBy.get(rootId) ?? [])];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (out.has(id)) continue;
+    out.add(id);
+    const ch = childrenBy.get(id);
+    if (ch) for (const c of ch) stack.push(c);
+  }
+  return out;
+}
+
 /**
  * 부모 작업의 시작일/종료일/진척률을 자식 기준으로 롤업.
  * @param _forceProgress 예약(하위 호출 호환). 진척률 롤업은 항상 동일 규칙으로 적용됨.
@@ -50,11 +71,6 @@ export function syncParentRollups(
   const children = allTasks.filter((t) => t.parentId === parentId);
   if (children.length === 0) return allTasks;
 
-  const starts = children.map((c) => c.startDate).filter(Boolean) as string[];
-  const ends = children.map((c) => c.endDate).filter(Boolean) as string[];
-  const minStart = starts.length > 0 ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
-  const maxEnd = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
-
   let totalWeight = 0;
   let weightedProgressSum = 0;
   let simpleProgressSum = 0;
@@ -72,6 +88,17 @@ export function syncParentRollups(
 
   const parent = allTasks.find((t) => t.id === parentId);
   if (!parent) return allTasks;
+
+  // 일정 롤업: 직계만이 아니라 이 노드 아래 전체 트리의 min/max를 쓴다.
+  // 중간 요약 행의 시작·종료가 비어 있거나 오래된 값이어도 손자 일정이 상위(P7 등)에 반영되도록 한다.
+  const parentProj = parent.projectId;
+  const descIds = collectStrictDescendantIds(parentId, allTasks);
+  const scheduleTasks = parentProj && descIds.size > 0 ? allTasks.filter((t) => descIds.has(t.id) && t.projectId === parentProj) : children;
+
+  const starts = scheduleTasks.map((c) => c.startDate).filter(Boolean) as string[];
+  const ends = scheduleTasks.map((c) => c.endDate).filter(Boolean) as string[];
+  const minStart = starts.length > 0 ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
+  const maxEnd = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
 
   sumChildEffort = round2(sumChildEffort);
 
@@ -476,7 +503,7 @@ export function recomputeProjectRollups(
     if (excludeParentIds?.has(pid)) continue;
     next = syncParentRollups(next, pid, doneStatusIds, false, excludeParentIds, undefined, skipScheduleRollup);
   }
-  return next.map((t) => (t.projectId === projectId ? applyMilestoneDateInvariant(t) : t));
+  return next.map((t) => (t.projectId === projectId ? applyMilestoneDateInvariant(t, { hasChildTasks: hasChildren.has(t.id) }) : t));
 }
 
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/진척률을 하위 작업 기준으로 롤업 */

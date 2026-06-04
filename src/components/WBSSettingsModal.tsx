@@ -216,14 +216,17 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       const initialStartDates: Record<string, string> = {};
       const initialEndDates: Record<string, string> = {};
       projects.forEach((p) => {
-        initialStartDates[p.id] = p.startDate || '';
-        initialEndDates[p.id] = p.endDate || '';
+        initialStartDates[p.id] = p.startDate ? p.startDate.slice(0, 10) : '';
+        initialEndDates[p.id] = p.endDate ? p.endDate.slice(0, 10) : '';
       });
       setProjectDates(initialStartDates);
       setProjectEndDates(initialEndDates);
       setDashSectionVis(readDashboardSectionVisibility());
     }
-  }, [isOpen, wbsSettings, projects, levelColors]);
+    // projects 는 의존성에서 제외: 실시간·동기화로 tasks/프로젝트가 자주 갱신되면 모달을 연 채로
+    // 프로젝트 일정 입력란이 초기값으로 되돌아가는 현상을 막음(열 때·설정 변경 시에만 위에서 초기화).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- projects: 위 설명
+  }, [isOpen, wbsSettings, levelColors]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -305,10 +308,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       const endDate = projectEndDates[project.id] ?? '';
 
       const updates: Record<string, string | undefined> = {};
-      if ((project.startDate || '') !== startDate) {
+      const prevStart = (project.startDate || '').slice(0, 10);
+      const prevEnd = (project.endDate || '').slice(0, 10);
+      if (prevStart !== startDate) {
         updates.startDate = startDate || undefined;
       }
-      if ((project.endDate || '') !== endDate) {
+      if (prevEnd !== endDate) {
         updates.endDate = endDate || undefined;
       }
 

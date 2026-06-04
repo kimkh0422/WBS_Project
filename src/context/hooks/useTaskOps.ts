@@ -10,6 +10,7 @@ import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasi
 import { syncParentRollups, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
 import { buildProjectEffortUnitMap, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
 import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
+import { expandProjectStoredDatesToTaskSpan } from '../../lib/projectPeriod';
 
 /** rootIds와 그 모든 하위 작업 id (같은 트리: parentId 체인). */
 function collectDescendantTaskIds(rootIds: Iterable<string>, tasks: Task[]): Set<string> {
@@ -140,6 +141,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     ) => {
       const deferScheduleSync = options?.deferScheduleSync ?? false;
       saveHistory();
+      let projectScheduleExpansion: { projectId: string; startDate: string; endDate: string } | null = null;
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
         const task = prev.find((t) => t.id === id);
@@ -188,7 +190,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
             }
           }
         }
-        updatedTask = applyMilestoneDateInvariant(updatedTask);
+        const hasChildTasks = prev.some((t) => t.parentId === id);
+        updatedTask = applyMilestoneDateInvariant(updatedTask, { hasChildTasks });
 
         let nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
 
@@ -312,12 +315,39 @@ export function useTaskOps(deps: TaskOpsDeps) {
           const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
           const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
           result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, true);
+
+          const projRow = projectsRef.current.find((p) => p.id === task.projectId);
+          const tasksInProject = result.filter((t) => t.projectId === task.projectId);
+          const expanded = expandProjectStoredDatesToTaskSpan(projRow, tasksInProject);
+          if (expanded?.changed) {
+            projectScheduleExpansion = {
+              projectId: task.projectId,
+              startDate: expanded.startDate,
+              endDate: expanded.endDate,
+            };
+          }
         }
 
         return result;
       });
+
+      if (projectScheduleExpansion) {
+        bumpDirty();
+        const prevProj = projectsRef.current.find((p) => p.id === projectScheduleExpansion!.projectId);
+        if (prevProj) {
+          const merged: Project = {
+            ...prevProj,
+            startDate: projectScheduleExpansion.startDate,
+            endDate: projectScheduleExpansion.endDate,
+          };
+          setProjects((projs) => projs.map((p) => (p.id === merged.id ? merged : p)));
+          if (!useLocalOnlyRef.current) {
+            void upsertProject(merged).catch((err) => handleDbError(err, '프로젝트 기간 저장에 실패했습니다.'));
+          }
+        }
+      }
     },
-    [saveHistory, wbsSettingsRef, setAllTasks],
+    [saveHistory, wbsSettingsRef, setAllTasks, setProjects, projectsRef, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
   const updateTasksBulk = useCallback(

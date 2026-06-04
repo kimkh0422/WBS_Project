@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Info, Flag, Bug, ListChecks, AlertTriangle } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Bug, ListChecks, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
@@ -190,7 +190,7 @@ export function TaskModal({
     assignee: a.assignee,
     allocationPercent: a.allocationPercent,
   }));
-  const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
+  const defaultDate = (taskProject?.startDate || new Date().toISOString().split('T')[0]).slice(0, 10);
   type TaskFormState = Partial<Task> & { allocationPercent?: number };
   const [formData, setFormData] = useState<TaskFormState>({
     name: '',
@@ -307,7 +307,7 @@ export function TaskModal({
       progressTouchedRef.current = false;
       setProgressTouched(false);
     } else {
-      const defaultDate = taskProject?.startDate || new Date().toISOString().split('T')[0];
+      const defaultDate = (taskProject?.startDate || new Date().toISOString().split('T')[0]).slice(0, 10);
       const projectMatch = defaultAssignee
         ? projectAssignments.find((a) => (a.assignee || '').trim() === (defaultAssignee || '').trim())
         : undefined;
@@ -336,7 +336,9 @@ export function TaskModal({
       progressTouchedRef.current = false;
       setProgressTouched(false);
     }
-  }, [initialData, isOpen, taskProject?.startDate, defaultAssignee, defaultStartDate, defaultEndDate]);
+    // taskProject?.startDate 는 넣지 않음: 프로젝트 목록/동기화로 바뀔 때마다 이 effect가 돌면
+    // initialData(모달 연 시점 스냅샷)로 폼 전체가 덮여 사용자가 고친 시작일·종료일이 사라짐.
+  }, [initialData, isOpen, defaultAssignee, defaultStartDate, defaultEndDate]);
 
   useEffect(() => {
     // 모달 열림/초기 데이터 변경 시 진행률 입력값 동기화
@@ -1110,7 +1112,6 @@ export function TaskModal({
                   className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30"
                   disabled={readOnly}
                 />
-                <Flag size={12} className="text-amber-500 shrink-0" aria-hidden />
                 <span>마일스톤</span>
                 <span className="text-[10px] text-[var(--color-ink-muted)]">(이정표)</span>
               </label>

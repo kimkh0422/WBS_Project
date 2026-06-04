@@ -116,8 +116,9 @@ export function ProjectModal({
         setName(project.name);
         setProjectKind(project.projectKind ?? DEFAULT_PROJECT_KIND);
         setDescription(project.description || '');
-        setStartDate(project.startDate || '');
-        setEndDate(project.endDate || '');
+        // type="date" 는 yyyy-MM-dd 만 허용. DB·ISO 문자열이면 잘려 보이지 않거나 변경이 반영되지 않는 것처럼 보일 수 있음
+        setStartDate(project.startDate ? project.startDate.slice(0, 10) : '');
+        setEndDate(project.endDate ? project.endDate.slice(0, 10) : '');
         const list = project.assignments?.length ? [...project.assignments] : [];
         setAssignments(list);
         setAllocPctInputs(list.map((a) => String(Number(a.allocationPercent ?? 100))));

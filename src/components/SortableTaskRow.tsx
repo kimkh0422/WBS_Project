@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Flag, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
+import { GripVertical, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
@@ -29,14 +29,22 @@ import { cellTextStyleToCss } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 
-/** 인라인 날짜 키패드 입력 정규화: 'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY.MM.DD' | 'YYYY/MM/DD' 등 → 'YYYY-MM-DD' (유효하지 않으면 ''). */
+/** 인라인 날짜 키패드 입력 정규화: 'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY.MM.DD' | '2050년 7월 16일'(끝의 일·공백 허용) 등 → 'YYYY-MM-DD' (유효하지 않으면 ''). */
 function normalizeYmdInput(raw: string): string {
   const s = (raw ?? '').trim();
   if (!s) return '';
+  // ISO 등 "2026-06-15T12:00:00Z" → 앞 10자만 (전부 숫자로만 파싱하면 8자리 규칙에 걸려 실패하던 버그)
+  const head10 = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head10)) {
+    const mi = parseInt(head10.slice(5, 7), 10);
+    const di = parseInt(head10.slice(8, 10), 10);
+    if (mi >= 1 && mi <= 12 && di >= 1 && di <= 31) return head10;
+  }
   let y = '';
   let m = '';
   let d = '';
-  const sep = s.match(/^(\d{4})\s*[^\d]\s*(\d{1,2})\s*[^\d]\s*(\d{1,2})$/);
+  // 표시용 toLocaleDateString('ko-KR') 복붙은 "…년 …월 …일"로 끝나므로, 일 뒤 비숫자 접미사를 허용한다.
+  const sep = s.match(/^(\d{4})\s*[^\d]\s*(\d{1,2})\s*[^\d]\s*(\d{1,2})\s*[^\d]*$/);
   const digits = s.replace(/[^0-9]/g, '');
   if (sep) {
     [, y, m, d] = sep;
@@ -636,6 +644,20 @@ function SortableTaskRowInner({
                   className="w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1"
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
+                  onPaste={(e) => {
+                    e.stopPropagation();
+                    // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
+                    setTimeout(() => {
+                      commitWbsInlineNameEditFromDom(task.id, tasks, updateTask, canEdit);
+                      setInlineEditingNameId(null);
+                      setEditingCell(null);
+                      setFocusedCell({ taskId: task.id, columnId: 'name' });
+                      onFocusRow?.(task.id);
+                      requestAnimationFrame(() => {
+                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                      });
+                    }, 0);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       if (isComposingKeyEvent(e.nativeEvent)) return;
@@ -685,7 +707,6 @@ function SortableTaskRowInner({
                     orgMemberDisplayMetaByName,
                   )}
                 >
-                  {task.isMilestone && <Flag size={14} className="text-amber-500 flex-shrink-0" title="마일스톤" />}
                   {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
                   {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
                   {criticalPathSet?.has(task.id) && (

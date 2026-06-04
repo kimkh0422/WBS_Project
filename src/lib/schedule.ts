@@ -417,5 +417,9 @@ export function applyDependencySchedule(
     }
   }
 
-  return result.map(applyMilestoneDateInvariant);
+  const hasChildIds = new Set<string>();
+  for (const t of result) {
+    if (t.parentId) hasChildIds.add(t.parentId);
+  }
+  return result.map((t) => applyMilestoneDateInvariant(t, { hasChildTasks: hasChildIds.has(t.id) }));
 }

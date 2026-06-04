@@ -334,11 +334,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
       }
 
-      // 셀 간 좌우 화살표 이동 (편집 중이 아닐 때). ↑↓ 행 이동은 Alt+↑↓(순서 변경) 또는 Shift/Ctrl/Meta+↑↓(선택)에서만 처리한다.
-      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주해 ←/→로 열만 이동.
+      // 셀 간 화살표 이동 (편집 중이 아닐 때): ←/→ 열 이동, ↑/↓ 같은 열에서 이전/다음 행.
+      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주.
       // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
-      // 빠진 경우에도 ←/→가 동작하도록 한다.
-      // Alt(작업 순서 변경)·Shift(트리 펼치기/범위)·Ctrl(범위 선택) 조합은 다른 핸들러로 패스.
+      // 빠진 경우에도 화살표가 동작하도록 한다.
+      // Alt+↑↓(행 순서)·Shift+←/→(트리 접기/펼치기)·Shift/Ctrl/Meta+↑↓(체크 범위)는 아래에서 처리.
       const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
         ? 'name'
         : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
@@ -388,6 +388,27 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               tableScrollRef.current?.focus();
               return;
             }
+          }
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          const rowIdx = visibleTasks.findIndex((t) => t.id === effectiveArrowCell.taskId);
+          let colIdx = editableColumnIds.indexOf(effectiveArrowCell.columnId);
+          if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumn));
+          if (rowIdx >= 0 && colIdx >= 0) {
+            const delta = e.key === 'ArrowUp' ? -1 : 1;
+            const nextRowIdx = Math.min(visibleTasks.length - 1, Math.max(0, rowIdx + delta));
+            e.preventDefault();
+            if (nextRowIdx !== rowIdx) {
+              const nextTask = visibleTasks[nextRowIdx];
+              const nextCol = editableColumnIds[colIdx];
+              if (nextTask && nextCol) {
+                setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
+                setLastSelectedId(nextTask.id);
+                maybeSyncShiftRangeAnchor(nextTask.id);
+                document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+              }
+            }
+            tableScrollRef.current?.focus();
+            return;
           }
         }
       }
@@ -690,8 +711,21 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             moveTask(lastSelectedId, 'up');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
+        } else if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          // Shift/Ctrl/Meta+↑: 앵커~한 줄 위까지 체크 범위 확장 (일괄 수정 패널 등 표 밖 포커스 포함)
+          const idx = visibleTasks.findIndex((t) => t.id === lastSelectedId);
+          const nextIdx = idx > 0 ? idx - 1 : idx;
+          if (idx >= 0 && nextIdx !== idx) {
+            e.preventDefault();
+            const nextTask = visibleTasks[nextIdx]!;
+            handleSelect(nextTask.id, e.ctrlKey || e.metaKey, true);
+            const navCol: TableColumnId =
+              focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
+            setFocusedCell({ taskId: nextTask.id, columnId: navCol });
+            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+            tableScrollRef.current?.focus();
+          }
         }
-        // Alt 없이 ↑: 표시 순서/포커스/선택 범위를 세로로 움직이지 않음
         return;
       } else if (e.key === 'ArrowDown') {
         if (e.altKey) {
@@ -703,8 +737,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             moveTask(lastSelectedId, 'down');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
+        } else if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          const idx = visibleTasks.findIndex((t) => t.id === lastSelectedId);
+          const nextIdx = idx >= 0 && idx < visibleTasks.length - 1 ? idx + 1 : idx;
+          if (idx >= 0 && nextIdx !== idx) {
+            e.preventDefault();
+            const nextTask = visibleTasks[nextIdx]!;
+            handleSelect(nextTask.id, e.ctrlKey || e.metaKey, true);
+            const navCol: TableColumnId =
+              focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
+            setFocusedCell({ taskId: nextTask.id, columnId: navCol });
+            document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
+            tableScrollRef.current?.focus();
+          }
         }
-        // Alt 없이 ↓: 표시 순서/포커스/선택 범위를 세로로 움직이지 않음
         return;
       } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey) {
         // Shift+←/→: 트리 접기/펼치기 (←/→는 셀 이동에 전용)
