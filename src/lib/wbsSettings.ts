@@ -20,7 +20,7 @@ export interface WBSSettings {
   level3Prefix: string;
   maxLevel: number;
   statusConfigs: StatusConfig[];
-  /** true: 상태별 진척도를 사용해 상태 ↔ 진척률을 연동. false: 상태는 표시만, 진척률은 수동 입력 기준 */
+  /** @deprecated 상태↔진척률 자동 연동 기능은 제거됨. 항상 false로 읽히며 상태 변경 시 진척률을 자동 설정하지 않음(진척률은 수동 입력 기준). */
   linkStatusAndProgress?: boolean;
   /**
    * true: 시작일·종료일·공수 중 하나를 바꿀 때 나머지 일정 필드를 공수·투입률 기준으로 자동 보정(기존 동작).
@@ -81,7 +81,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   level3Prefix: 'T',
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
-  linkStatusAndProgress: true,
+  linkStatusAndProgress: false,
   linkEffortToSchedule: false,
   tableColumns: [
     { id: 'wbsId', visible: true },
@@ -154,7 +154,8 @@ export function parseSettings(raw: unknown): WBSSettings {
       // 크리티컬 패스 강조는 제거됨: 저장값과 무관하게 항상 끔
       showCriticalPath: false,
       wrapTextInCells: parsed.wrapTextInCells === true,
-      linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
+      // 상태↔진척률 자동 연동 기능 제거: 저장값과 무관하게 항상 false(수동 진척)로 고정
+      linkStatusAndProgress: false,
       linkEffortToSchedule: parsed.linkEffortToSchedule === true,
       prependDisplayWbsToTaskName: parsed.prependDisplayWbsToTaskName === true,
       showTableAutoFormatting: parsed.showTableAutoFormatting === false ? false : true,

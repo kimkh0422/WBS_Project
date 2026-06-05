@@ -1232,8 +1232,7 @@ export function WBSProvider({
   const updateWbsSettings = useCallback(
     (updates: Partial<WBSSettings>) => {
       const newSettings = { ...wbsSettingsRef.current, ...updates };
-      // 다음 렌더 전에도 ref가 최신이어야 함(예: 환경설정 저장 직후 syncProgressFromStatusConfigs가
-      // 같은 틱에서 호출될 때 이전 statusConfigs로 일괄 동기화되는 버그 방지).
+      // 다음 렌더 전에도 ref가 최신이어야 하는 동기 로직을 위해 ref를 즉시 갱신.
       wbsSettingsRef.current = newSettings;
       setWbsSettings(newSettings);
       // 로컬에 즉시 저장 (디바운스 전 새로고침 시에도 유지)
@@ -1242,41 +1241,6 @@ export function WBSProvider({
     },
     [handleDbError],
   );
-
-  const syncProgressFromStatusConfigs = useCallback((scope: 'current' | 'all') => {
-    if (wbsSettingsRef.current.linkStatusAndProgress === false) return;
-    const configs = wbsSettingsRef.current.statusConfigs ?? [];
-    if (!configs || configs.length === 0) return;
-    const configMap = new Map<string, StatusConfig>(configs.map((c) => [c.id, c]));
-    setAllTasks((prev) => {
-      const cpi = currentProjectIdRef.current;
-      const targetProjectIds =
-        scope === 'all'
-          ? (Array.from(new Set(prev.map((t) => t.projectId))).filter(Boolean) as string[])
-          : cpi && cpi !== 'all'
-            ? [cpi]
-            : [];
-      if (targetProjectIds.length === 0) return prev;
-      const targetSet = new Set(targetProjectIds);
-      let changed = false;
-      let next = prev.map((t) => {
-        if (!targetSet.has(t.projectId)) return t;
-        const config = configMap.get(t.status);
-        if (!config || config.progress === undefined || config.progress === t.progress) return t;
-        changed = true;
-        return { ...t, progress: config.progress };
-      });
-      if (!changed) return prev;
-
-      const projectIdsToRollup =
-        scope === 'all' ? (Array.from(new Set(next.map((t) => t.projectId))).filter(Boolean) as string[]) : targetProjectIds;
-      const doneStatusIds = new Set((configs as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id));
-      for (const pid of projectIdsToRollup) {
-        next = recomputeProjectRollups(next, pid, doneStatusIds, undefined, true);
-      }
-      return next;
-    });
-  }, []);
 
   // ─── canEdit ───────────────────────────────────────────────────────────────
   // 권한 모델: 다음 중 하나면 편집 가능 — (1) 시스템 관리자, (2) 프로젝트 소유자,
@@ -1317,7 +1281,6 @@ export function WBSProvider({
       setActiveTaskId,
       wbsSettings,
       updateWbsSettings,
-      syncProgressFromStatusConfigs,
       treeExpandLevel,
       setTreeExpandLevel,
       // Project ops
@@ -1386,7 +1349,6 @@ export function WBSProvider({
       setActiveTaskId,
       wbsSettings,
       updateWbsSettings,
-      syncProgressFromStatusConfigs,
       treeExpandLevel,
       setTreeExpandLevel,
       projectOps,

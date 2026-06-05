@@ -61,8 +61,6 @@ export interface WBSContextType {
   setActiveTaskId: (id: string | null) => void;
   wbsSettings: WBSSettings;
   updateWbsSettings: (settings: Partial<WBSSettings>) => void;
-  /** 상태 명칭·진척도 설정을 기준으로 작업 진척도를 일괄 동기화 */
-  syncProgressFromStatusConfigs: (scope: 'current' | 'all') => void;
   treeExpandLevel: number;
   setTreeExpandLevel: (level: number) => void;
   addProject: (

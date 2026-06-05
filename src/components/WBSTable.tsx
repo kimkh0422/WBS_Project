@@ -405,6 +405,28 @@ export function WBSTable({
   const [rowHeightState, setRowHeightState] = useState<number>(20);
   const rowHeight = propRowHeight ?? rowHeightState;
 
+  /** 계획율 기준일(YYYY-MM-DD): 표·요약의 모든 계획율(%)·차이(%P)를 이 날짜 기준으로 산정.
+   *  - 기본값: 오늘(localStorage에 저장된 값 우선) — 사용자가 입력 시 그 날짜로 즉시 재계산
+   *  - 빈 값('') = "오늘 자동" 모드(매일 자동 갱신) */
+  const [plannedRefDateIso, setPlannedRefDateIso] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return window.localStorage.getItem('wbs.plannedRefDate') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  useEffect(() => {
+    try {
+      if (plannedRefDateIso) window.localStorage.setItem('wbs.plannedRefDate', plannedRefDateIso);
+      else window.localStorage.removeItem('wbs.plannedRefDate');
+    } catch {
+      /* ignore quota */
+    }
+  }, [plannedRefDateIso]);
+  /** computePlannedProgressMap에 넘길 실제 ref date — 빈 문자열이면 undefined(=오늘 자동) */
+  const effectivePlannedRef = plannedRefDateIso || undefined;
+
   /** DnD 일괄 이동: 체크박스 다중 선택과 동기화(간트 등에서 빈 배열로 해제된 경우도 반영) */
   const dndSelectedTaskIds = useMemo(() => new Set(sharedSelectedTaskIds ?? []), [sharedSelectedTaskIds]);
 
@@ -706,7 +728,7 @@ export function WBSTable({
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
   /** 작업별 계획율(0~100). 리프=영업일 경과 비율, 부모=자식 가중 롤업. 진척차이 컬럼 계산에도 사용 */
-  const plannedProgressById = useMemo(() => computePlannedProgressMap(baseTasks), [baseTasks]);
+  const plannedProgressById = useMemo(() => computePlannedProgressMap(baseTasks, effectivePlannedRef), [baseTasks, effectivePlannedRef]);
   const isTreeView = !(
     filters.status !== 'all' ||
     filters.assignee ||
@@ -1122,7 +1144,7 @@ export function WBSTable({
   };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
-  const summaryStats = useWbsSummaryStats(baseTasks, projects);
+  const summaryStats = useWbsSummaryStats(baseTasks, projects, effectivePlannedRef);
 
   const isSplitView = !!syncScrollRef;
   /** 헤더 클릭으로 정렬하지 않음(열 포커스·너비 조절과 혼동 방지). 정렬은 헤더 우클릭 →「이 컬럼으로 정렬」만 사용. */
@@ -1184,6 +1206,8 @@ export function WBSTable({
       {/* === Summary Bar (표 바로 위: 통계·레벨 펼치기·편집·줄간격) === */}
       <SummaryBar
         summaryStats={summaryStats}
+        plannedRefDateIso={plannedRefDateIso}
+        setPlannedRefDateIso={setPlannedRefDateIso}
         isSplitView={isSplitView}
         maxTreeLevel={maxTreeLevel}
         treeExpandLevel={treeExpandLevel}

@@ -35,6 +35,9 @@ const Divider = () => (
 
 interface SummaryBarProps {
   summaryStats: SummaryStats | null;
+  /** 계획율 기준일(YYYY-MM-DD). 빈 문자열이면 "오늘 자동" 모드. */
+  plannedRefDateIso: string;
+  setPlannedRefDateIso: (iso: string) => void;
   isSplitView: boolean;
   maxTreeLevel: number;
   treeExpandLevel: number;
@@ -61,6 +64,8 @@ interface SummaryBarProps {
 
 export function SummaryBar({
   summaryStats,
+  plannedRefDateIso,
+  setPlannedRefDateIso,
   isSplitView,
   maxTreeLevel,
   treeExpandLevel,
@@ -131,6 +136,46 @@ export function SummaryBar({
             label="기간"
             value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`}
           />
+          <Divider />
+          {/* 계획율 기준일 — 이 날짜 기준으로 모든 계획율(%)·차이(%P)가 즉시 재계산됨. */}
+          <div
+            className={cn(
+              'flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border',
+              plannedRefDateIso ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-white',
+            )}
+            title={
+              plannedRefDateIso
+                ? `계획율 기준일: ${plannedRefDateIso}\n— 이 날짜 시점의 영업일 진행률로 계획(%)·차이(%P)가 산정됩니다.\n— 비우면 "오늘 자동" 모드(매일 자동 갱신).`
+                : '계획율 기준일이 비어 있어 "오늘 자동" 모드입니다. 날짜를 입력하면 그 시점 기준으로 모든 계획율이 즉시 재계산됩니다.'
+            }
+          >
+            <CalendarDays size={12} className={plannedRefDateIso ? 'text-indigo-600' : 'text-slate-400'} />
+            <span
+              className={cn('text-[10px] font-bold uppercase tracking-[0.06em]', plannedRefDateIso ? 'text-indigo-700' : 'text-slate-500')}
+            >
+              기준일
+            </span>
+            <input
+              type="date"
+              value={plannedRefDateIso}
+              onChange={(e) => setPlannedRefDateIso(e.target.value)}
+              className={cn(
+                'h-6 px-1 text-[11px] rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400/30',
+                plannedRefDateIso ? 'border-indigo-300 bg-white text-indigo-800 font-semibold' : 'border-slate-200 bg-white text-slate-600',
+              )}
+              aria-label="계획율 기준일"
+            />
+            {plannedRefDateIso && (
+              <button
+                type="button"
+                onClick={() => setPlannedRefDateIso('')}
+                className="text-[10px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 px-1 py-0.5 rounded"
+                title="기준일 비우기 → 오늘 자동"
+              >
+                오늘
+              </button>
+            )}
+          </div>
 
           <div className="ml-auto flex items-center gap-2.5 pl-2">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.06em]">레벨 펼치기</span>

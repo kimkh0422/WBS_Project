@@ -28,13 +28,13 @@ export interface SummaryStats {
  * 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균(Σw가 100이 아니어도 동일)을 우선 사용.
  * (weight 없으면 공수로 대체) 1레벨이 없으면 폴백으로 단말(리프) 단순 평균. 결과는 0~100%로 클램프.
  */
-export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []): SummaryStats | null {
+export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], refDateIso?: string): SummaryStats | null {
   return useMemo(() => {
     const source = baseTasks;
     if (source.length === 0) return null;
 
     const projectById = new Map(projects.map((p) => [p.id, p]));
-    const plannedById = computePlannedProgressMap(source);
+    const plannedById = computePlannedProgressMap(source, refDateIso);
 
     const leafTasks = source.filter((t) => !source.some((other) => other.parentId === t.id));
     const forAggregate = leafTasks.length > 0 ? leafTasks : source;
@@ -181,7 +181,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       leafCount: leafTasks.length,
       isSelection: false,
     };
-  }, [baseTasks, projects]);
+  }, [baseTasks, projects, refDateIso]);
 }
 
 export function formatSummaryDate(d: string): string {

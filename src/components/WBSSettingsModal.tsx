@@ -1,11 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette, AlertTriangle } from 'lucide-react';
+import { X, Settings2, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Eye, EyeOff, RotateCcw, Palette } from 'lucide-react';
 import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
-import { cn, round2, formatPercent1 } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   DASHBOARD_SECTION_IDS,
@@ -86,7 +86,7 @@ function hexToRgb(hex: string): RgbColor | null {
 }
 
 export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSettingsModalProps) {
-  const { wbsSettings, updateWbsSettings, projects, updateProject, syncProgressFromStatusConfigs, isAdmin } = useWBS();
+  const { wbsSettings, updateWbsSettings, projects, updateProject, isAdmin } = useWBS();
   const { user } = useAuth();
   const { levelColors, setLevelColors } = useLevelColors();
   // 권한: 전역 설정(WBS prefix, 표 컬럼, 상태/진척도, 색상 등)은 관리자만 수정 가능.
@@ -103,11 +103,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
   const [maxLevel, setMaxLevel] = useState(wbsSettings.maxLevel);
   const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
-  const [linkStatusAndProgress, setLinkStatusAndProgress] = useState(wbsSettings.linkStatusAndProgress !== false);
   const [linkEffortToSchedule, setLinkEffortToSchedule] = useState(wbsSettings.linkEffortToSchedule === true);
-  // 상태별 진척도(%)를 바꾼 뒤 "적용하기"를 누르면, 대부분은 기존 작업에도 바로 반영되길 기대한다.
-  // 기본값을 current로 두어 "현재 프로젝트"에 자동 반영되도록 한다. (원치 않으면 '변경하지 않음' 선택)
-  const [statusApplyMode, setStatusApplyMode] = useState<'none' | 'current' | 'all'>('current');
   const [projectDates, setProjectDates] = useState<Record<string, string>>({});
   const [projectEndDates, setProjectEndDates] = useState<Record<string, string>>({});
   const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
@@ -214,9 +210,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       setLevel3(wbsSettings.level3Prefix);
       setMaxLevel(wbsSettings.maxLevel);
       setStatusConfigs(wbsSettings.statusConfigs);
-      setLinkStatusAndProgress(wbsSettings.linkStatusAndProgress !== false);
       setLinkEffortToSchedule(wbsSettings.linkEffortToSchedule === true);
-      setStatusApplyMode('current');
       setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
       setCustomColumns(wbsSettings.customColumns || []);
       setLevelColorsState(levelColors && levelColors.length >= 5 ? [...levelColors] : [...DEFAULT_LEVEL_COLORS]);
@@ -263,11 +257,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   if (!isOpen) return null;
 
-  const statusProgressInvalid = statusConfigs.some((c) => c.progress > 100 || c.progress < 0);
-
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (statusProgressInvalid) return;
     // 사용자 정의 컬럼은 일반 회원도 추가/수정/삭제 가능 (전역 공유)
     const cleanedCustomColumns = customColumns
       .map((c) => ({ id: c.id, name: c.name.trim() }))
@@ -284,7 +275,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         level3Prefix: level3.trim(),
         maxLevel: Number(maxLevel),
         statusConfigs: statusConfigs,
-        linkStatusAndProgress,
+        // 상태↔진척률 자동 연동 제거: 항상 false로 저장
+        linkStatusAndProgress: false,
         linkEffortToSchedule,
         tableColumns: normalizedTableColumns,
         customColumns: cleanedCustomColumns,
@@ -330,14 +322,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         updateProject(project.id, updates);
       }
     });
-
-    if (canEditGlobal) {
-      if (statusApplyMode === 'current') {
-        syncProgressFromStatusConfigs('current');
-      } else if (statusApplyMode === 'all') {
-        syncProgressFromStatusConfigs('all');
-      }
-    }
 
     onClose();
   };
@@ -401,7 +385,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:bg-[var(--color-bg)]'
                 }`}
               >
-                상태·진척도
+                상태
               </button>
               <button
                 type="button"
@@ -784,19 +768,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">
                     <div className="flex flex-col gap-1">
-                      <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭 및 진척도</h3>
+                      <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭·색상</h3>
                       <div className="flex flex-col gap-1.5 text-[11px] text-[var(--color-ink-subdued)]">
-                        <label className="inline-flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                            checked={linkStatusAndProgress}
-                            onChange={(e) => setLinkStatusAndProgress(e.target.checked)}
-                          />
-                          <span className="font-semibold text-[var(--color-ink-subdued)]">
-                            상태별 진척도 사용 (상태 변경 시 진척률 자동 설정)
-                          </span>
-                        </label>
                         <label className="inline-flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
@@ -808,38 +781,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             일정 자동 연동 (시작·종료·공수 편집 시 공수·투입률로 나머지 일정 필드 보정)
                           </span>
                         </label>
-                        {linkStatusAndProgress && (
-                          <div className="flex flex-wrap items-center gap-3">
-                            <span className="font-semibold text-[var(--color-ink-subdued)]">기존 작업 진척도 적용 범위</span>
-                            <label className="inline-flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                                checked={statusApplyMode === 'none'}
-                                onChange={() => setStatusApplyMode('none')}
-                              />
-                              <span>변경하지 않음</span>
-                            </label>
-                            <label className="inline-flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                                checked={statusApplyMode === 'current'}
-                                onChange={() => setStatusApplyMode('current')}
-                              />
-                              <span>현재 프로젝트만</span>
-                            </label>
-                            <label className="inline-flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="radio"
-                                className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                                checked={statusApplyMode === 'all'}
-                                onChange={() => setStatusApplyMode('all')}
-                              />
-                              <span>전체 프로젝트</span>
-                            </label>
-                          </div>
-                        )}
                       </div>
                     </div>
                     <button
@@ -859,31 +800,13 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                   </div>
                   <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
                     {(() => {
-                      const progressError = statusConfigs.some((c) => c.progress > 100 || c.progress < 0);
-                      const progressErrorNum = statusConfigs.find((c) => c.progress > 100 || c.progress < 0)?.progress;
                       return (
                         <>
-                          {progressError && (
-                            <div
-                              id="status-progress-error"
-                              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-100 border-2 border-amber-400 text-amber-900 shadow-[var(--shadow-sm)]"
-                              role="alert"
-                            >
-                              <AlertTriangle size={22} className="shrink-0 text-amber-600" aria-hidden />
-                              <p className="text-sm font-bold">
-                                값은 0 이상 100 이하여야 합니다.
-                                {progressErrorNum != null && (
-                                  <span className="ml-1 font-normal text-amber-800">(입력된 값: {formatPercent1(progressErrorNum)}%)</span>
-                                )}
-                              </p>
-                            </div>
-                          )}
                           {statusConfigs.map((config, index) => {
                             const colorValue =
                               config.color ||
                               STATUS_COLOR_PRESETS.find((p) => p.value.includes('green'))?.value ||
                               'bg-green-50 border-green-100';
-                            const hasProgressError = config.progress > 100 || config.progress < 0;
                             const isCustom = isCustomStatusColor(colorValue);
                             const customHex = parseCustomStatusColor(colorValue) || '#0ea5e9';
                             return (
@@ -901,26 +824,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                       className="input-field py-1.5 text-xs"
                                       placeholder="명칭"
                                     />
-                                  </div>
-                                  <div className="w-36 min-w-[8rem] relative">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={config.progress}
-                                      onChange={(e) => {
-                                        const newConfigs = [...statusConfigs];
-                                        newConfigs[index] = { ...config, progress: round2(Number(e.target.value)) };
-                                        setStatusConfigs(newConfigs);
-                                      }}
-                                      className={cn(
-                                        'input-field py-1.5 text-xs pr-8',
-                                        hasProgressError && 'border-2 border-amber-500 bg-amber-50 ring-2 ring-amber-200',
-                                      )}
-                                      aria-invalid={hasProgressError}
-                                      aria-describedby={hasProgressError ? 'status-progress-error' : undefined}
-                                    />
-                                    <span className="absolute right-1.5 top-1.5 text-[9px] text-slate-400 font-bold">%</span>
                                   </div>
                                   <div className="flex items-center gap-1.5" title="상태 색상">
                                     <span className="text-[10px] font-bold text-[var(--color-ink-subdued)] shrink-0">색상</span>
@@ -1029,9 +932,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     })()}
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1 italic">
-                    {linkStatusAndProgress
-                      ? '작업 상태 변경 시 설정된 진척도가 자동으로 반영됩니다. 위의 옵션을 사용하면 현재 저장 시점의 상태 설정을 기준으로 기존 작업들의 진척도를 한 번에 맞출 수 있습니다.'
-                      : '상태는 표시만 사용하고, 진척률은 각 작업에서 입력한 값만을 기준으로 계산합니다.'}
+                    상태는 표시·완료 판정에만 사용하며, 진척률은 각 작업에서 직접 입력한 값만을 기준으로 계산합니다. (상태 변경 시 진척률
+                    자동 설정 기능은 제거되었습니다.)
                   </p>
                 </div>
               </fieldset>
@@ -1166,12 +1068,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
               <button type="button" onClick={onClose} className="btn-ghost">
                 취소
               </button>
-              <button
-                type="submit"
-                className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                disabled={activeTab === 'status' && statusProgressInvalid}
-                title={activeTab === 'status' && statusProgressInvalid ? '진척도는 0~100 범위로 입력해 주세요.' : undefined}
-              >
+              <button type="submit" className="btn-primary">
                 적용하기
               </button>
             </div>
