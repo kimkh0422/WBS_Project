@@ -37,7 +37,10 @@ export interface ProjectAssignment {
 
 export interface Project {
   id: string;
+  /** 가칭·약어 등 목록·WBS에서 쓰는 짧은 표시명 */
   name: string;
+  /** 정식 과제명·전체 명칭(선택). DB formal_name */
+  formalName?: string;
   /** 항목 구분: 상품·연구·용역·유지·제품·내부·연습·개인·기타 */
   projectKind?: ProjectKind;
   description?: string;

@@ -141,6 +141,7 @@ export async function clearAllLocalData(): Promise<void> {
     'wbs:gantt:sidebarWidth',
     'wbs-task-clipboard-v1',
     'wbs-level-colors',
+    'wbs-hide-table-auto-format',
     'wbs-current-project',
   ];
   for (const key of localKeys) {

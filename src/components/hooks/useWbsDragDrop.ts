@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import {
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -13,7 +12,6 @@ import {
 } from '@dnd-kit/core';
 import { getEventCoordinates } from '@dnd-kit/utilities';
 import type { Coordinates } from '@dnd-kit/utilities';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { Task } from '../../types';
 
 export type DropPosition = 'before' | 'after';
@@ -66,14 +64,13 @@ export function useWbsDragDrop({ tasks, selectedTaskIds, moveTaskRootsSibling }:
   const [dndActiveId, setDndActiveId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ overId: string; position: DropPosition } | null>(null);
 
+  // KeyboardSensor 제외: Space 이후 ↑/↓가 정렬 이동으로 가로채져 담당자·셀 편집과 충돌함.
+  // 행 순서 키보드 조정은 useWbsTableKeyboard 의 Alt+↑ / Alt+↓ (moveTask)만 사용.
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 5,
       },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
 

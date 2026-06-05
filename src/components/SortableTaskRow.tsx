@@ -26,7 +26,7 @@ import { type TableColumnId } from './wbsTableTypes';
 import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
-import { cellTextStyleToCss } from '../lib/cellTextStyle';
+import { cellTextStyleToCss, mergeDoneLineThrough } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 
@@ -182,6 +182,8 @@ export interface SortableTaskRowProps {
   rollupTooltipBaseTasks: Task[];
   /** 이 작업의 계획율(0~100). 부모에서 계산해 전달. 계획·진척차이 컬럼 표시에 사용 */
   plannedProgress?: number;
+  /** false면 레벨 배경·완료 시 자동 취소선 등 숨김(셀 서식 도구로 넣은 취소선은 유지) */
+  showTableAutoFormatting?: boolean;
 }
 
 function SortableTaskRowInner({
@@ -228,6 +230,7 @@ function SortableTaskRowInner({
   prependDisplayWbsToTaskName = false,
   rollupTooltipBaseTasks,
   plannedProgress,
+  showTableAutoFormatting = true,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -302,7 +305,7 @@ function SortableTaskRowInner({
    * - 라이트모드 + 하위 작업이 있는 요약(상위) 행: 사용자 정의(없으면 기본) 레벨 색을 칠해 계층 구분 강조
    * - 라이트모드 + 리프(말단) 행: 투명 → 요약행이 자연스럽게 도드라지도록
    */
-  const rowLevelBg = (lev: number, hasKids: boolean) => (hasKids ? levelRowBgCtx(lev) : 'transparent');
+  const rowLevelBg = (lev: number, hasKids: boolean) => (showTableAutoFormatting && hasKids ? levelRowBgCtx(lev) : 'transparent');
   const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const orgMemberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -421,62 +424,35 @@ function SortableTaskRowInner({
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   const zebraOverlay = rowIndex % 2 === 1 ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(2, 6, 23, 0.03)') : 'transparent';
 
-  const isDone = task.status === 'done' || (typeof task.progress === 'number' && task.progress >= 100);
+  const isDone = doneStatusIdsForProgressTip.has(task.status ?? '') || (typeof task.progress === 'number' && task.progress >= 100);
+  const applyDoneAutoStrike = showTableAutoFormatting && isDone;
 
-  // 다크/라이트 모드별 행 상태 색상
-  const doneNormalBg = dark ? '#1a2332' : '#e5e7eb';
-  const doneSelectedBg = dark ? '#2e2456' : '#c7d2fe';
-  const doneFocusedBg = dark ? '#3b2f1a' : '#fef9c3';
+  // 다크/라이트 모드별 행 상태 색상(완료 행은 배경·스트립으로 구분하지 않고 셀 텍스트 취소선으로만 표시)
   const selectedBg = dark ? '#3b2e6b' : '#a5b4fc';
-  const focusedBg = dark ? '#4a3a1a' : '#fef3c7';
+  const focusedBg = dark ? '#4a3a1a' : '#fff7ed';
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    backgroundColor: isDone
-      ? isSelected
-        ? doneSelectedBg
-        : isFocused
-          ? doneFocusedBg
-          : doneNormalBg
-      : isSelected
-        ? selectedBg
-        : isFocused
-          ? focusedBg
-          : rowLevelBg(level, hasChildren),
-    backgroundImage: isSelected || isDone || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
+    backgroundColor: isSelected ? selectedBg : isFocused ? focusedBg : rowLevelBg(level, hasChildren),
+    backgroundImage: isSelected || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     // 좌측 색상 strip은 box-shadow inset으로 그린다. border-left는 grid container의 컨텐츠 영역을 우측으로 밀어
     // 헤더와 본문 컬럼 정렬을 어긋나게 하므로 사용하지 않음.
-    ...(isSelected && !isDone
+    ...(isSelected
       ? {
           boxShadow: dark
             ? 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4)'
             : 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
         }
       : {}),
-    ...(isSelected && isDone
+    ...(isFocused && !isSelected
       ? {
           boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 3px rgba(168, 85, 247, 0.5)'
-            : 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 3px rgba(168, 85, 247, 0.8)',
+            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 1px rgba(245, 158, 11, 0.28), 0 1px 2px rgba(0, 0, 0, 0.25)'
+            : 'inset 3px 0 0 0 rgb(249 115 22), inset 0 0 0 1px rgba(251 146 60, 0.35), 0 1px 2px rgba(234, 88, 12, 0.12)',
         }
       : {}),
-    ...(isFocused && !isSelected && !isDone
-      ? {
-          boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3)'
-            : 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.45), 0 1px 3px rgba(217, 119, 6, 0.25)',
-        }
-      : {}),
-    ...(isFocused && !isSelected && isDone
-      ? {
-          boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.3)'
-            : 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 2px rgba(245, 158, 11, 0.5)',
-        }
-      : {}),
-    ...(isDone && !isSelected && !isFocused ? { boxShadow: 'inset 3px 0 0 0 rgb(34 197 94)' } : {}),
     zIndex: isDragging ? 10 : isSelected || isFocused ? 2 : 1,
     position: isDragging ? 'relative' : undefined,
     ...gridStyle,
@@ -495,8 +471,7 @@ function SortableTaskRowInner({
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
         isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
-        isFocused && !isSelected && (dark ? 'font-medium text-amber-300' : 'font-medium text-amber-900'),
-        isDone && !isSelected && !isFocused && (dark ? 'text-slate-500' : 'text-slate-500'),
+        isFocused && !isSelected && (dark ? 'font-medium text-orange-200' : 'font-medium text-orange-950'),
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
         // 셀에 사용자 지정 글꼴 크기가 있으면 그 행은 높이를 자동 확장(고정 행 높이에 큰 글자가 잘리는 문제 보완)
@@ -600,7 +575,7 @@ function SortableTaskRowInner({
           return (
             <div
               key={colId}
-              className="data-cell font-mono text-[10px] text-slate-400 cursor-pointer"
+              className={cn('data-cell font-mono text-[10px] text-slate-400 cursor-pointer', applyDoneAutoStrike && 'line-through')}
               onClick={() => {
                 // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
                 const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
@@ -701,7 +676,6 @@ function SortableTaskRowInner({
               ) : (
                 <span
                   className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
-                  style={txtStyle}
                   onClick={(e) => {
                     e.stopPropagation();
                     beginEdit('name');
@@ -731,11 +705,13 @@ function SortableTaskRowInner({
                       크리티컬
                     </span>
                   )}
-                  {tableNameLabel ? (
-                    tableNameLabel
-                  ) : (
-                    <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
-                  )}
+                  <span className="min-w-0 truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                    {tableNameLabel ? (
+                      tableNameLabel
+                    ) : (
+                      <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
+                    )}
+                  </span>
                 </span>
               )}
               {otherPrimary && (
@@ -818,7 +794,7 @@ function SortableTaskRowInner({
                     }}
                     title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                       {formatDate(task.startDate)}
                     </span>
                   </button>
@@ -901,7 +877,7 @@ function SortableTaskRowInner({
                     }}
                     title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                       {formatDate(task.endDate)}
                     </span>
                   </button>
@@ -981,7 +957,7 @@ function SortableTaskRowInner({
                     }}
                     title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                   >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
+                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                       {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
                     </span>
                   </button>
@@ -1057,7 +1033,9 @@ function SortableTaskRowInner({
                   }}
                   title={weightColumnTooltip}
                 >
-                  <span style={txtStyle}>{task.weight != null ? formatNum1(task.weight) : '-'}</span>
+                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                    {task.weight != null ? formatNum1(task.weight) : '-'}
+                  </span>
                 </button>
               )}
             </div>
@@ -1109,27 +1087,11 @@ function SortableTaskRowInner({
                   }}
                 />
               ) : (
-                <span className="flex w-full min-w-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEdit('progress');
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('progress');
-                    }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      beginEdit('progress');
-                    }}
-                  >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
-                      {typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '-'}
-                    </span>
-                  </button>
+                <span
+                  className="px-1 inline-block w-full min-w-0 text-left truncate tabular-nums"
+                  style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                >
+                  {typeof task.progress === 'number' && Number.isFinite(task.progress) ? `${formatPercent1(task.progress)}%` : '—'}
                 </span>
               )}
             </div>
@@ -1167,7 +1129,7 @@ function SortableTaskRowInner({
                 beginEditNowResolved('plannedProgress');
               }}
             >
-              <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
+              <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                 {computable ? `${plannedFmt}%` : '—'}
               </span>
             </div>
@@ -1212,7 +1174,7 @@ function SortableTaskRowInner({
                 beginEditNowResolved('progressVariance');
               }}
             >
-              <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
+              <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                 {computable ? `${sign}${varFmt}%p` : '—'}
               </span>
             </div>
@@ -1271,6 +1233,10 @@ function SortableTaskRowInner({
                         setEditingCell(null);
                         e.preventDefault();
                       }
+                      // 행(sortable)·표 전역 키보드로 버블되면 화살표가 정렬/행 이동으로 잡힐 수 있음
+                      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
+                        e.stopPropagation();
+                      }
                     }}
                   />
                   <datalist id={`assignee-datalist-${task.id}`}>
@@ -1285,7 +1251,7 @@ function SortableTaskRowInner({
                 <>
                   <div
                     className={cn('w-full px-1 py-0.5 truncate', !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'))}
-                    style={txtStyle}
+                    style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
                   >
                     {formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 ...'}
                   </div>
@@ -1366,7 +1332,7 @@ function SortableTaskRowInner({
                     beginEdit('allocation');
                   }}
                 >
-                  <span style={txtStyle}>{allocationDisplayText ?? '—'}</span>
+                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{allocationDisplayText ?? '—'}</span>
                 </button>
               )}
             </div>
@@ -1440,7 +1406,7 @@ function SortableTaskRowInner({
                   }}
                   title="더블클릭 또는 F2로 상태 수정"
                 >
-                  <span className="truncate block" style={txtStyle}>
+                  <span className="truncate block" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                     {currentStatusName}
                   </span>
                 </button>
@@ -1498,7 +1464,7 @@ function SortableTaskRowInner({
                   }}
                   title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
                 >
-                  <span style={txtStyle}>{task.deliverables || '-'}</span>
+                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{task.deliverables || '-'}</span>
                 </button>
               )}
             </div>
@@ -1710,7 +1676,7 @@ function SortableTaskRowInner({
                     }}
                     title="더블클릭 또는 F2로 선행작업 수정"
                   >
-                    <span className="block truncate" style={txtStyle}>
+                    <span className="block truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                       {depsDisplayText}
                     </span>
                   </button>
@@ -1773,7 +1739,7 @@ function SortableTaskRowInner({
                   }}
                   title={currentValue || `${customLabel} 입력`}
                 >
-                  <span style={txtStyle}>{currentValue || '-'}</span>
+                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{currentValue || '-'}</span>
                 </button>
               )}
             </div>
@@ -1874,7 +1840,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.customColumnNameById === next.customColumnNameById &&
     prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName &&
     prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks &&
-    prev.plannedProgress === next.plannedProgress
+    prev.plannedProgress === next.plannedProgress &&
+    prev.showTableAutoFormatting === next.showTableAutoFormatting
   );
 }
 

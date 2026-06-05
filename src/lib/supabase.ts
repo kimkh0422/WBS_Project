@@ -65,6 +65,8 @@ export interface ProjectAssignmentRow {
 export interface ProjectRow {
   id: string;
   name: string;
+  /** 정식명칭(전체 과제명). 가칭은 name */
+  formal_name?: string | null;
   description: string | null;
   start_date: string | null;
   end_date: string | null;

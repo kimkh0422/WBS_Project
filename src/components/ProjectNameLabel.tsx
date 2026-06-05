@@ -14,7 +14,7 @@ interface ProjectNameLabelProps {
   name: string;
   projectKind?: Project['projectKind'];
   /** project 객체가 있으면 name·projectKind를 여기서 읽음 */
-  project?: Pick<Project, 'name' | 'projectKind'> | null;
+  project?: Pick<Project, 'name' | 'projectKind' | 'formalName'> | null;
   className?: string;
   nameClassName?: string;
   badgeClassName?: string;
@@ -36,9 +36,11 @@ export function ProjectNameLabel({
   title,
 }: ProjectNameLabelProps) {
   const rawName = project?.name ?? name;
+  const formal = project?.formalName?.trim();
   const resolvedKind = normalizeProjectKind(projectKind) ?? resolveProjectKind(project ?? null) ?? DEFAULT_PROJECT_KIND;
   const displayName = getProjectDisplayNameBody(rawName, resolvedKind);
-  const fullTitle = title ?? formatProjectDisplayName(rawName, resolvedKind);
+  const baseTitle = title ?? formatProjectDisplayName(rawName, resolvedKind);
+  const fullTitle = formal && !title ? `${baseTitle}\n\n정식명칭: ${formal}` : baseTitle;
 
   return (
     <span className={cn('inline-flex items-center gap-1.5 min-w-0', className)} title={fullTitle}>

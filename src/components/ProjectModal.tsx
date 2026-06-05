@@ -16,6 +16,7 @@ interface ProjectModalProps {
   onClose: () => void;
   onSave: (
     name: string,
+    formalName: string,
     description: string,
     /** 프로젝트 PM 표시 이름(조직 회원 이름 권장). 필수 — 공백 불가 */
     pmName: string,
@@ -56,6 +57,7 @@ export function ProjectModal({
 }: ProjectModalProps) {
   const { orgMembers } = useOrganization();
   const [name, setName] = useState('');
+  const [formalName, setFormalName] = useState('');
   const [projectKind, setProjectKind] = useState<ProjectKind>(DEFAULT_NEW_PROJECT_KIND);
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -114,6 +116,7 @@ export function ProjectModal({
     if (isOpen) {
       if (project) {
         setName(project.name);
+        setFormalName(project.formalName?.trim() || '');
         setProjectKind(project.projectKind ?? DEFAULT_PROJECT_KIND);
         setDescription(project.description || '');
         // type="date" 는 yyyy-MM-dd 만 허용. DB·ISO 문자열이면 잘려 보이지 않거나 변경이 반영되지 않는 것처럼 보일 수 있음
@@ -128,6 +131,7 @@ export function ProjectModal({
         setIncludeInDashboard(project.includeInDashboard !== false);
       } else {
         setName('');
+        setFormalName('');
         setProjectKind(DEFAULT_NEW_PROJECT_KIND);
         setDescription('');
         setStartDate('');
@@ -218,6 +222,7 @@ export function ProjectModal({
     const effortUnitToSave = normalizeWorkEffortUnit(project ? project.workEffortUnit : 'day');
     onSave(
       name,
+      formalName.trim(),
       description,
       pmName.trim(),
       poName.trim(),
@@ -342,7 +347,7 @@ export function ProjectModal({
               </div>
               <div className="min-w-0 flex flex-col gap-1.5">
                 <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-name">
-                  프로젝트 이름 <span className="font-normal text-[var(--color-danger)]">*</span>
+                  가칭(약어) <span className="font-normal text-[var(--color-danger)]">*</span>
                 </label>
                 <input
                   id="project-modal-name"
@@ -351,10 +356,26 @@ export function ProjectModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="input-field w-full"
-                  placeholder="프로젝트 이름을 입력하세요..."
+                  placeholder="예: 위성항법"
                   autoFocus
                 />
+                <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">목록·WBS 상단 등에 표시되는 짧은 이름입니다.</p>
               </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-formal-name">
+                정식명칭 <span className="font-normal opacity-60">(선택)</span>
+              </label>
+              <textarea
+                id="project-modal-formal-name"
+                value={formalName}
+                onChange={(e) => setFormalName(e.target.value)}
+                className="input-field min-h-[72px] w-full resize-y"
+                placeholder="예: 한국형 위성항법시스템 센티미터급 임무제어국 상세설계 분석 및 도출 연구 용역"
+              />
+              <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                계약서·보고서에 쓰는 전체 과제명이 있으면 입력하세요. 비워 두면 가칭만 사용됩니다.
+              </p>
             </div>
             <div className="grid grid-cols-1 gap-5 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 sm:gap-x-5">
               <div className="min-w-0 flex flex-col gap-1.5">

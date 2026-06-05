@@ -46,6 +46,14 @@ import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks } from 
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
 
+/** 로컬 설정 위에 DB 설정을 올린 뒤 parseSettings로 마이그레이션·정규화(표 컬럼 등)를 한 번에 적용 */
+function mergeWbsSettingsWithDbPatch(local: WBSSettings, db: Partial<WBSSettings> | null | undefined): WBSSettings {
+  if (!db) return local;
+  const keys = Object.keys(db) as Array<keyof WBSSettings>;
+  if (keys.length === 0) return local;
+  return parseSettings({ ...local, ...db });
+}
+
 // Extracted hooks
 import { useProjectOps } from './hooks/useProjectOps';
 import { useTaskOps } from './hooks/useTaskOps';
@@ -374,7 +382,7 @@ export function WBSProvider({
             const filteredDbProjects = dbProjects.filter((p) => !pendingDeletedProjIdSet.has(p.id));
             if (dbProjects.length > 0) {
               setProjects(filteredDbProjects);
-              const effectiveSettings = { ...localSettings, ...(dbSettings ?? {}) } as WBSSettings;
+              const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
               setAllTasks(
                 applyRollupsToTasks(
                   (Array.isArray(dbTasks) ? dbTasks : []).filter((t) => !pendingDeletedTaskIdSet.has(t.id)),
@@ -382,24 +390,21 @@ export function WBSProvider({
                 ),
               );
               if (dbSettings) {
-                setWbsSettings((prev) => ({ ...localSettings, ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+                setWbsSettings((prev) => parseSettings({ ...localSettings, ...prev, ...dbSettings }));
               } else {
                 setWbsSettings(localSettings);
               }
               const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
               const validId = filteredDbProjects.find((p) => p.id === savedCurrent)?.id ?? filteredDbProjects[0]?.id ?? '';
               if (validId) setCurrentProjectId(validId);
-              const ml =
-                dbSettings && typeof (dbSettings as Partial<WBSSettings>).maxLevel === 'number'
-                  ? (dbSettings as Partial<WBSSettings>).maxLevel!
-                  : DEFAULT_SETTINGS.maxLevel;
+              const ml = effectiveSettings.maxLevel;
               setTreeExpandLevel(Math.min(9, Math.max(1, ml + 1)));
             } else {
               const p = emptyStarterProject();
               setProjects([p]);
               setAllTasks([]);
               if (dbSettings) {
-                setWbsSettings((prev) => ({ ...prev, ...(dbSettings as Partial<WBSSettings>) }));
+                setWbsSettings((prev) => parseSettings({ ...prev, ...dbSettings }));
               } else {
                 setWbsSettings(DEFAULT_SETTINGS);
               }
@@ -629,7 +634,7 @@ export function WBSProvider({
           const partial = fromSettingsRow(row as unknown as SettingsRow);
           // 자기 변경 에코일 가능성: 로컬 변경이 있을 때는 충돌 알림 생략
           if (!hasLocalChangesSinceSyncRef.current) {
-            setWbsSettings((prev) => ({ ...prev, ...partial }));
+            setWbsSettings((prev) => parseSettings({ ...prev, ...partial }));
           }
         });
       },
@@ -692,7 +697,7 @@ export function WBSProvider({
       }
 
       // Tasks: 변경분만 교체. 동일하면 setAllTasks 스킵.
-      const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+      const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
       const prevTasks = allTasksRef.current;
       const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
       const rows = Array.isArray(dbTaskRows) ? dbTaskRows : [];
@@ -719,7 +724,7 @@ export function WBSProvider({
           }
         }
         if (settingsChanged) {
-          setWbsSettings((prev) => ({ ...prev, ...partial }));
+          setWbsSettings((prev) => parseSettings({ ...prev, ...partial }));
         }
       }
 
@@ -1058,7 +1063,7 @@ export function WBSProvider({
 
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
         snapshotProjects = dbProjects;
-        const effectiveSettings = dbSettings ? { ...wbsSettings, ...(dbSettings as Partial<WBSSettings>) } : wbsSettings;
+        const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
         snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow), effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
@@ -1071,7 +1076,7 @@ export function WBSProvider({
 
         setProjects(snapshotProjects);
         setAllTasks(preserveLocalExpanded(snapshotTasks));
-        if (dbSettings) setWbsSettings((prev) => ({ ...prev, ...dbSettings }));
+        if (dbSettings) setWbsSettings((prev) => parseSettings({ ...prev, ...dbSettings }));
         setDeletedTaskIdsByProject(finalDeletedTasks);
         setDeletedProjectIds(finalDeletedProjects);
 
@@ -1084,7 +1089,9 @@ export function WBSProvider({
       }
 
       const finalSettings =
-        Array.isArray(dbProjects) && dbProjects.length > 0 && dbSettings ? { ...wbsSettings, ...dbSettings } : wbsSettings;
+        Array.isArray(dbProjects) && dbProjects.length > 0 && dbSettings
+          ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings)
+          : wbsSettings;
       const finalDeletedTasksForPersist = Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedTasks : deletedTaskIdsByProject;
       const finalDeletedProjectsForPersist = Array.isArray(dbProjects) && dbProjects.length > 0 ? finalDeletedProjects : deletedProjectIds;
       await Promise.allSettled([

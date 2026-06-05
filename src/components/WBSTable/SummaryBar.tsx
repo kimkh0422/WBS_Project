@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered, Sparkles } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -19,14 +19,19 @@ const StatChip = ({
   /** 값 텍스트 색 등 추가 클래스(예: 진척차이 양수/음수 색) */
   valueClassName?: string;
 }) => (
-  <div className="flex items-center gap-1.5 px-3 py-1" title={hint}>
-    <span className="text-slate-400">{icon}</span>
-    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
-    <span className={cn('text-xs font-semibold text-[var(--color-ink)]', valueClassName)}>{value}</span>
+  <div
+    className="flex items-center gap-1.5 rounded-lg border border-[var(--color-line)]/60 bg-[var(--color-surface)]/80 px-2.5 py-1 shadow-[var(--shadow-xs)] backdrop-blur-sm transition-colors hover:border-[var(--color-line)]"
+    title={hint}
+  >
+    <span className="text-slate-400 [&>svg]:opacity-90">{icon}</span>
+    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.05em]">{label}</span>
+    <span className={cn('text-xs font-semibold tabular-nums text-[var(--color-ink)]', valueClassName)}>{value}</span>
   </div>
 );
 
-const Divider = () => <div className="w-px h-4 bg-slate-200 flex-shrink-0" />;
+const Divider = () => (
+  <div className="w-px h-5 bg-gradient-to-b from-transparent via-[var(--color-line)] to-transparent flex-shrink-0 opacity-80" />
+);
 
 interface SummaryBarProps {
   summaryStats: SummaryStats | null;
@@ -46,6 +51,12 @@ interface SummaryBarProps {
   onOpenMdEditor: () => void;
   /** 등록 작업 기준 우선순위 보완 가이드(모달) */
   onOpenImprovementGuide?: () => void;
+  /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
+  tableAutoFormatting?: {
+    effectiveOn: boolean;
+    globalEnabled: boolean;
+    onToggle: () => void;
+  };
 }
 
 export function SummaryBar({
@@ -64,15 +75,16 @@ export function SummaryBar({
   onAutoFitColumns,
   onOpenMdEditor,
   onOpenImprovementGuide,
+  tableAutoFormatting,
 }: SummaryBarProps) {
   return (
     <div
       className={cn(
         // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
         isSplitView
-          ? 'h-14 flex items-center gap-0 border-b px-4 py-0 text-xs bg-slate-50 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
-          : 'flex items-center gap-0 border-b px-4 py-2 text-xs bg-slate-50 flex-wrap flex-shrink-0',
-        'border-[var(--color-line)]',
+          ? 'h-14 flex items-center gap-1.5 border-b px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
+          : 'flex items-center gap-1.5 border-b px-4 py-2.5 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-wrap flex-shrink-0',
+        'border-[var(--color-line)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
       )}
     >
       {summaryStats ? (
@@ -120,8 +132,8 @@ export function SummaryBar({
             value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`}
           />
 
-          <div className="ml-auto flex items-center gap-3">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">레벨 펼치기</span>
+          <div className="ml-auto flex items-center gap-2.5 pl-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.06em]">레벨 펼치기</span>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map((lv) => (
                 <button
@@ -167,6 +179,32 @@ export function SummaryBar({
               >
                 <ListOrdered size={12} strokeWidth={2} aria-hidden />
                 보완 가이드
+              </button>
+            )}
+            {tableAutoFormatting && (
+              <button
+                type="button"
+                onClick={tableAutoFormatting.onToggle}
+                disabled={!tableAutoFormatting.globalEnabled}
+                aria-pressed={tableAutoFormatting.effectiveOn}
+                className={cn(
+                  'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                  !tableAutoFormatting.globalEnabled
+                    ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : tableAutoFormatting.effectiveOn
+                      ? 'border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                      : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+                )}
+                title={
+                  !tableAutoFormatting.globalEnabled
+                    ? '관리자가 전체 자동 서식(레벨 색·완료 강조)을 껐습니다.'
+                    : tableAutoFormatting.effectiveOn
+                      ? '레벨 배경·완료 취소선 등 자동 서식이 켜져 있습니다. 클릭하면 이 브라우저에서만 끕니다.'
+                      : '이 브라우저에서 자동 서식이 꺼져 있습니다. 클릭하면 다시 켭니다.'
+                }
+              >
+                <Sparkles size={12} strokeWidth={2} aria-hidden />
+                자동 서식
               </button>
             )}
             <button
@@ -224,6 +262,32 @@ export function SummaryBar({
           >
             <Pencil size={14} strokeWidth={2} aria-hidden />
           </button>
+          {tableAutoFormatting && (
+            <button
+              type="button"
+              onClick={tableAutoFormatting.onToggle}
+              disabled={!tableAutoFormatting.globalEnabled}
+              aria-pressed={tableAutoFormatting.effectiveOn}
+              className={cn(
+                'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                !tableAutoFormatting.globalEnabled
+                  ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : tableAutoFormatting.effectiveOn
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+              )}
+              title={
+                !tableAutoFormatting.globalEnabled
+                  ? '관리자가 전체 자동 서식을 껐습니다.'
+                  : tableAutoFormatting.effectiveOn
+                    ? '클릭하면 이 브라우저에서만 자동 서식을 끕니다.'
+                    : '클릭하면 자동 서식을 다시 켭니다.'
+              }
+            >
+              <Sparkles size={12} strokeWidth={2} aria-hidden />
+              자동 서식
+            </button>
+          )}
           <button
             type="button"
             onClick={onAutoFitColumns}

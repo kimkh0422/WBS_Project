@@ -4,6 +4,7 @@ import { useWBS } from '../context/WBSContext';
 import { useAuth } from '../context/AuthContext';
 import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
+import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { cn, round2, formatPercent1 } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
@@ -96,6 +97,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const projectsShownInSettings = useMemo(() => filterProjectsVisibleToViewer(projects, user?.id), [projects, user?.id]);
 
   const [prependDisplayWbsToTaskName, setPrependDisplayWbsToTaskName] = useState(wbsSettings.prependDisplayWbsToTaskName === true);
+  const [showTableAutoFormattingAdmin, setShowTableAutoFormattingAdmin] = useState(wbsSettings.showTableAutoFormatting !== false);
   const [level1, setLevel1] = useState(wbsSettings.level1Prefix);
   const [level2, setLevel2] = useState(wbsSettings.level2Prefix);
   const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
@@ -113,6 +115,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [levelColorsState, setLevelColorsState] = useState<RgbColor[]>(DEFAULT_LEVEL_COLORS);
   const [activeTab, setActiveTab] = useState<'basic' | 'columns' | 'status' | 'projects' | 'dashboard'>('basic');
   const [dashSectionVis, setDashSectionVis] = useState(() => readDashboardSectionVisibility());
+
+  const { globalAutoFormattingOn, userHidesAutoFormatting, setUserHide } = useWbsTableAutoFormatting(wbsSettings);
 
   const TABLE_COLUMN_LABELS: Record<string, string> = useMemo(
     () => ({
@@ -142,14 +146,14 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'endDate', visible: true },
       { id: 'workEffort', visible: true },
       { id: 'assignee', visible: true },
-      { id: 'allocation', visible: true },
+      { id: 'allocation', visible: false },
       // 투입율 바로 다음에 가중치
       { id: 'weight', visible: true },
       { id: 'status', visible: true },
       { id: 'progress', visible: true },
       { id: 'plannedProgress', visible: true },
       { id: 'progressVariance', visible: true },
-      { id: 'deliverables', visible: true },
+      { id: 'deliverables', visible: false },
       { id: 'dependencies', visible: true },
     ],
     [],
@@ -180,15 +184,16 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
     for (const id of ensureIds) {
       if (seen.has(id)) continue;
       // 가중치는 투입율(allocation) 바로 뒤에 삽입
+      const defaultVisible = DEFAULT_TABLE_COLUMNS.find((c) => c.id === id)?.visible ?? true;
       if (id === 'weight') {
         const allocIdx = cleaned.findIndex((c) => c.id === 'allocation');
         if (allocIdx >= 0) {
-          cleaned.splice(allocIdx + 1, 0, { id, visible: true });
+          cleaned.splice(allocIdx + 1, 0, { id, visible: defaultVisible });
         } else {
-          cleaned.push({ id, visible: true });
+          cleaned.push({ id, visible: defaultVisible });
         }
       } else {
-        cleaned.push({ id, visible: true });
+        cleaned.push({ id, visible: defaultVisible });
       }
     }
 
@@ -201,6 +206,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   useEffect(() => {
     if (isOpen) {
       setPrependDisplayWbsToTaskName(wbsSettings.prependDisplayWbsToTaskName === true);
+      setShowTableAutoFormattingAdmin(wbsSettings.showTableAutoFormatting !== false);
       setLevel1(wbsSettings.level1Prefix);
       setLevel2(wbsSettings.level2Prefix);
       setLevel3(wbsSettings.level3Prefix);
@@ -270,6 +276,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       updateWbsSettings({
         showCriticalPath: false,
         prependDisplayWbsToTaskName,
+        showTableAutoFormatting: showTableAutoFormattingAdmin,
         level1Prefix: level1.trim(),
         level2Prefix: level2.trim(),
         level3Prefix: level3.trim(),
@@ -504,6 +511,23 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     WBS ID 컬럼은 그대로 두고, 작업명 컬럼에만 &quot;P1 요구사항 정의&quot;처럼 표시용 번호를 붙입니다. 실제 저장되는
                     작업명은 바뀌지 않습니다.
                   </p>
+
+                  <div className="flex items-center gap-3 pt-3 border-t border-[var(--color-line)]/60">
+                    <input
+                      type="checkbox"
+                      id="showTableAutoFormattingAdmin"
+                      checked={showTableAutoFormattingAdmin}
+                      onChange={(e) => setShowTableAutoFormattingAdmin(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="showTableAutoFormattingAdmin" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
+                      작업표·간트 자동 서식 사용 (전체)
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed">
+                    상위 행의 레벨 배경, 완료 작업 취소선, 간트 막대의 완료 강조 등입니다. 끄면 모든 사용자에게 적용됩니다. 켜 둔 상태에서
+                    개인은 요약 바의 「자동 서식」으로 이 브라우저에서만 숨길 수 있습니다.
+                  </p>
                 </div>
 
                 {/* 레벨별 색상 */}
@@ -558,6 +582,37 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
             {activeTab === 'columns' && (
               <div className="space-y-8 m-0 p-0 border-0 min-w-0">
+                <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)]/80 p-4 space-y-2">
+                  <h3 className="font-bold text-sm text-[var(--color-ink)]">이 기기에서만</h3>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="wbsUserShowAutoFormat"
+                      checked={globalAutoFormattingOn && !userHidesAutoFormatting}
+                      disabled={!globalAutoFormattingOn}
+                      onChange={(e) => setUserHide(!e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                    />
+                    <label
+                      htmlFor="wbsUserShowAutoFormat"
+                      className={cn(
+                        'text-sm cursor-pointer',
+                        globalAutoFormattingOn ? 'font-medium text-[var(--color-ink)]' : 'text-slate-400 cursor-not-allowed',
+                      )}
+                    >
+                      자동 서식 표시 (레벨 색·완료 강조)
+                    </label>
+                  </div>
+                  {!globalAutoFormattingOn ? (
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                      관리자가 전체 자동 서식을 꺼 두었습니다. 기본 설정은 상단의「기본」탭에서 관리자만 바꿀 수 있습니다.
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                      요약 바의 「자동 서식」버튼과 동일합니다. 이 값은 이 브라우저에만 저장됩니다.
+                    </p>
+                  )}
+                </div>
                 {/* 표 필드 표시/순서 — 전역 설정이라 관리자만 수정 가능 */}
                 <fieldset disabled={!canEditGlobal} className="m-0 p-0 border-0 min-w-0 space-y-4 disabled:opacity-70">
                   <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">

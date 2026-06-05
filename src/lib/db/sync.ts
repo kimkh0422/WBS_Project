@@ -48,6 +48,7 @@ export function fingerprintProjectRowForSync(row: ProjectRow): string {
   const po = (row.po_name && String(row.po_name).trim()) || null;
   return JSON.stringify({
     name: row.name,
+    formal_name: row.formal_name ?? null,
     description: row.description ?? null,
     start_date: row.start_date ?? null,
     end_date: row.end_date ?? null,

@@ -640,6 +640,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
 
   const handleSaveProject = (
     name: string,
+    formalName: string,
     description: string,
     pmName: string,
     poName: string,
@@ -658,9 +659,11 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     includeInDashboard?: boolean,
   ) => {
     const poTrim = poName.trim();
+    const formalTrim = formalName.trim();
     if (editingProject) {
       updateProject(editingProject.id, {
         name,
+        formalName: formalTrim || undefined,
         description,
         startDate,
         endDate,
@@ -681,6 +684,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
       setEditingProject(null);
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        formalName: formalTrim || undefined,
         workEffortUnit,
         projectKind,
         reportCategory,

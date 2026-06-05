@@ -10,6 +10,7 @@ import { Edit2, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildVisibleTasks, type TaskWithDepth } from '../lib/taskView';
 import { useLevelColors } from '../context/LevelColorsContext';
+import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { getCriticalPathTaskIds } from '../lib/schedule';
 import { buildProjectEffortUnitMap } from '../lib/workEffortUnits';
 import { useToast } from './Toast';
@@ -82,7 +83,23 @@ export function GanttChart({
   );
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
-  const { levelBarBg, levelBorderColor, levelRowBg, levelGanttBarFill } = useLevelColors();
+  const { levelBarBg, levelGanttBarFill } = useLevelColors();
+  const { showTableAutoFormatting } = useWbsTableAutoFormatting(wbsSettings);
+  const GANTT_NEUTRAL_BAR_FILL = 'rgba(148, 163, 184, 0.38)';
+  const GANTT_NEUTRAL_BAR_BORDER = '#94a3b8';
+  const ganttBarFillAt = useCallback(
+    (level: number) => (showTableAutoFormatting ? levelGanttBarFill(level) : GANTT_NEUTRAL_BAR_FILL),
+    [showTableAutoFormatting, levelGanttBarFill],
+  );
+  const ganttBarBorderAt = useCallback(
+    (level: number, isCritical: boolean) =>
+      isCritical ? '#dc2626' : showTableAutoFormatting ? levelBarBg(level) : GANTT_NEUTRAL_BAR_BORDER,
+    [showTableAutoFormatting, levelBarBg],
+  );
+  const ganttSidebarStripColor = useCallback(
+    (level: number) => (showTableAutoFormatting ? levelBarBg(level) : 'transparent'),
+    [showTableAutoFormatting, levelBarBg],
+  );
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ taskId: string } | null>(null);
@@ -752,7 +769,7 @@ export function GanttChart({
                       }}
                       className={cn(
                         'absolute top-0 rounded shadow-sm overflow-hidden transition-all border',
-                        isDone && 'gantt-completed',
+                        isDone && showTableAutoFormatting && 'gantt-completed',
                         isCritical && 'ring-2 ring-red-500 border-red-600',
                         isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110',
                       )}
@@ -760,8 +777,8 @@ export function GanttChart({
                         left,
                         width: Math.max(width - 4, 4),
                         height: rowH,
-                        backgroundColor: levelGanttBarFill(level),
-                        borderColor: isCritical ? '#dc2626' : levelBarBg(level),
+                        backgroundColor: ganttBarFillAt(level),
+                        borderColor: ganttBarBorderAt(level, isCritical),
                       }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                     >
@@ -1033,7 +1050,7 @@ export function GanttChart({
                           height: `${effectiveRowHeights[index] ?? ROW_HEIGHT}px`,
                           paddingLeft: `${depth * 16 + 16}px`,
                           paddingRight: 16,
-                          borderLeftColor: levelBarBg(level),
+                          borderLeftColor: ganttSidebarStripColor(level),
                         }}
                         title={[displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ${t.name}` : t.name, projectScheduleForTask(t)]
                           .filter(Boolean)
@@ -1155,7 +1172,7 @@ export function GanttChart({
                         }}
                         className={cn(
                           'absolute top-0 overflow-hidden transition-all',
-                          isDone && 'gantt-completed',
+                          isDone && showTableAutoFormatting && 'gantt-completed',
                           isMilestone
                             ? 'rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm'
                             : 'rounded shadow-sm border',
@@ -1171,8 +1188,8 @@ export function GanttChart({
                                 left,
                                 width: Math.max(width - 4, 4),
                                 height: rowH,
-                                backgroundColor: levelGanttBarFill(level),
-                                borderColor: isCritical ? '#dc2626' : levelBarBg(level),
+                                backgroundColor: ganttBarFillAt(level),
+                                borderColor: ganttBarBorderAt(level, isCritical),
                               }
                         }
                         title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}

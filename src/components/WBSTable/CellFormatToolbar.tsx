@@ -172,11 +172,24 @@ export function CellFormatToolbar({
     [canEdit, targetTaskIds, tasks, updateTask, focusedCell.columnId],
   );
 
+  /** 대상 행(선택 행, 없으면 포커스 행)의 모든 열 서식 제거. 전체 선택 후 누르면 표 전체가 초기화된다. */
+  const clearAllForTargets = useCallback(() => {
+    if (!canEdit) return;
+    for (const id of targetTaskIds) {
+      const t = tasks.find((x) => x.id === id);
+      if (!t || !t.cellTextStyles || Object.keys(t.cellTextStyles).length === 0) continue;
+      updateTask(id, { cellTextStyles: undefined });
+    }
+  }, [canEdit, targetTaskIds, tasks, updateTask]);
+
   if (!anchorTask || focusedCell.columnId === 'wbsId') return null;
 
   return (
     <div
-      className="pointer-events-auto flex max-w-[min(100vw-1.5rem,56rem)] flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 shadow-xl"
+      className={cn(
+        'pointer-events-auto flex max-w-[min(100vw-1.5rem,56rem)] flex-wrap items-center gap-x-2.5 gap-y-2 rounded-2xl px-3.5 py-3 text-slate-900',
+        'border border-[var(--color-line)]/70 bg-[var(--color-surface)]/92 shadow-[var(--shadow-lg),0_0_0_1px_rgba(255,255,255,0.55)_inset] backdrop-blur-xl',
+      )}
       role="toolbar"
       aria-label="셀 서식"
       onMouseDown={(e) => {
@@ -187,16 +200,24 @@ export function CellFormatToolbar({
         e.preventDefault();
       }}
     >
-      <span className="text-sm font-bold tracking-tight text-slate-800">
-        서식
-        <span className="ml-1.5 font-semibold text-slate-500">· {columnTitle}</span>
-        {targetTaskIds.length > 1 ? (
-          <span className="ml-1.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600">
-            {targetTaskIds.length}행
-          </span>
-        ) : null}
+      <span className="flex items-center gap-2 text-sm font-bold tracking-tight text-slate-800">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 shadow-inner"
+          aria-hidden
+        >
+          <span className="text-[11px] font-black">Aa</span>
+        </span>
+        <span>
+          서식
+          <span className="ml-1.5 font-semibold text-slate-500">· {columnTitle}</span>
+          {targetTaskIds.length > 1 ? (
+            <span className="ml-1.5 rounded-md border border-indigo-200/80 bg-indigo-50 px-1.5 py-0.5 text-xs font-semibold text-indigo-800">
+              {targetTaskIds.length}행
+            </span>
+          ) : null}
+        </span>
       </span>
-      <span className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden />
+      <span className="hidden h-7 w-px bg-gradient-to-b from-transparent via-slate-200 to-transparent sm:block" aria-hidden />
       <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
         <FontFamilyPicker
           value={style?.fontFamily ?? ''}
@@ -227,7 +248,7 @@ export function CellFormatToolbar({
           />
         </label>
       </div>
-      <span className="h-6 w-px bg-slate-200" aria-hidden />
+      <span className="h-7 w-px bg-gradient-to-b from-transparent via-slate-200 to-transparent" aria-hidden />
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
           글자
@@ -261,7 +282,7 @@ export function CellFormatToolbar({
           배경 없음
         </button>
       </div>
-      <span className="h-6 w-px bg-slate-200" aria-hidden />
+      <span className="h-7 w-px bg-gradient-to-b from-transparent via-slate-200 to-transparent" aria-hidden />
       <div className="flex flex-wrap items-center gap-1">
         <button
           type="button"
@@ -319,6 +340,16 @@ export function CellFormatToolbar({
           onClick={() => applyPatch(null)}
         >
           <Eraser size={17} />
+        </button>
+        <button
+          type="button"
+          disabled={!canEdit}
+          title="선택한 행의 모든 열 서식을 지웁니다 (헤더 체크박스로 전체 선택 후 누르면 표 전체 초기화 · 실행취소 가능)"
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50"
+          onClick={clearAllForTargets}
+        >
+          <Eraser size={15} />
+          모든 서식 지우기
         </button>
       </div>
     </div>

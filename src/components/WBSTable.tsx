@@ -55,6 +55,7 @@ import {
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
+import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 
 // 첫 화면(표) 진입 경로에서 분리 — 사용자가 열 때만 로드한다.
 // 특히 TaskModal은 tiptap + yjs(협업 에디터)를 동반하므로 분리 효과가 가장 크다.
@@ -97,7 +98,7 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'progress', visible: true },
   { id: 'plannedProgress', visible: true },
   { id: 'progressVariance', visible: true },
-  { id: 'deliverables', visible: true },
+  { id: 'deliverables', visible: false },
   { id: 'dependencies', visible: true },
 ];
 
@@ -183,6 +184,7 @@ export function WBSTable({
   }, [tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId]);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
+  const { showTableAutoFormatting, globalAutoFormattingOn, toggleUserHide } = useWbsTableAutoFormatting(wbsSettings);
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
 
   // visibleTasks must be defined early - used by many hooks below
@@ -1192,6 +1194,11 @@ export function WBSTable({
           setIsMdEditModalOpen(true);
         }}
         onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
+        tableAutoFormatting={{
+          effectiveOn: showTableAutoFormatting,
+          globalEnabled: globalAutoFormattingOn,
+          onToggle: toggleUserHide,
+        }}
       />
       <div
         className={cn('w-full flex flex-col min-h-0', fillHeight && 'flex-1')}
@@ -1206,7 +1213,7 @@ export function WBSTable({
               if (typeof r === 'function') r(el);
               else if (r) (r as React.MutableRefObject<HTMLDivElement | null>).current = el;
             }}
-            className="flex-shrink-0 border-b border-slate-200 bg-slate-50/80 overflow-x-auto overflow-y-hidden"
+            className="flex-shrink-0 border-b border-[var(--color-line)] bg-gradient-to-b from-[var(--color-line-soft)] to-[var(--color-surface)]/90 overflow-x-auto overflow-y-hidden"
             onScroll={(e) => {
               if (isSyncingScrollRef.current) return;
               const body = tableScrollRef.current;
@@ -1322,12 +1329,15 @@ export function WBSTable({
               }}
             >
               <div
-                className={cn('min-w-fit w-full bg-white relative', !isSplitView && 'wbs-frozen')}
+                className={cn(
+                  'min-w-fit w-full bg-[var(--color-surface)] relative shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]',
+                  !isSplitView && 'wbs-frozen',
+                )}
                 style={!isSplitView ? frozenLeftVars : undefined}
               >
                 {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 본문 맨 아래(행 직후)에 배치 */}
                 {!isSplitView && (
-                  <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+                  <div className="sticky top-0 z-30 w-full border-b border-[var(--color-line)] bg-[var(--color-bg)]/95 shadow-[0_2px_10px_-4px_rgba(15,23,42,0.08)] backdrop-blur-md supports-[backdrop-filter]:bg-[var(--color-bg)]/80">
                     <div className={cn('data-header !relative !top-auto !z-0 border-b-0 shadow-none')} style={gridStyle}>
                       <div
                         className="col-header justify-center relative"
@@ -1469,6 +1479,7 @@ export function WBSTable({
                               prependDisplayWbsToTaskName={wbsSettings?.prependDisplayWbsToTaskName === true}
                               rollupTooltipBaseTasks={baseTasks}
                               plannedProgress={plannedProgressById.get(task.id)}
+                              showTableAutoFormatting={showTableAutoFormatting}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>

@@ -340,6 +340,17 @@ function WBSApp({
   const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
   hasLocalChangesRef.current = hasLocalChangesSinceSync;
 
+  /** 표 셀 인라인 편집 값이 React 상태에 커밋된 뒤 DB 동기화를 돌리기 위한 짧은 대기 (Ctrl+S와 동일). */
+  const flushInlineCellEditsBeforeSave = useCallback(async () => {
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
+      ae.blur();
+    }
+    await new Promise<void>((r) => {
+      window.setTimeout(r, 60);
+    });
+  }, []);
+
   const saveNow = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     if (!hasLocalChangesRef.current) {
@@ -348,6 +359,7 @@ function WBSApp({
     }
     setIsDbPushInProgress(true);
     try {
+      await flushInlineCellEditsBeforeSave();
       await pushChangesToDbRef.current('all');
       pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
     } catch (e: unknown) {
@@ -361,7 +373,7 @@ function WBSApp({
     } finally {
       setIsDbPushInProgress(false);
     }
-  }, [pushToast]);
+  }, [pushToast, flushInlineCellEditsBeforeSave]);
 
   // Ctrl/Cmd+S: 수동 저장(브라우저 기본 저장 대화상자 차단). 편집 중이면 먼저 blur로 입력을 확정한 뒤 저장.
   useEffect(() => {
@@ -369,13 +381,7 @@ function WBSApp({
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
-        const ae = document.activeElement as HTMLElement | null;
-        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
-          ae.blur(); // 진행 중인 셀 편집을 먼저 확정(미반영 입력 손실 방지)
-        }
-        window.setTimeout(() => {
-          void saveNow();
-        }, 60);
+        void saveNow();
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -814,6 +820,7 @@ function WBSApp({
 
   const handleSaveProject = (
     name: string,
+    formalName: string,
     description: string,
     pmName: string,
     poName: string,
@@ -832,9 +839,11 @@ function WBSApp({
     includeInDashboard?: boolean,
   ) => {
     const poTrim = poName.trim();
+    const formalTrim = formalName.trim();
     if (editingProject) {
       updateProject(editingProject.id, {
         name,
+        formalName: formalTrim || undefined,
         description,
         startDate,
         endDate,
@@ -855,6 +864,7 @@ function WBSApp({
       setEditingProject(null);
     } else {
       addProject(name, description, startDate, endDate, assignments, minWorkEffortDays, {
+        formalName: formalTrim || undefined,
         workEffortUnit,
         projectKind,
         reportCategory,

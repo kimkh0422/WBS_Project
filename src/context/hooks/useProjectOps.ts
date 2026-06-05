@@ -64,6 +64,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           | 'pmName'
           | 'poName'
           | 'includeInDashboard'
+          | 'formalName'
         >
       >,
     ) => {
@@ -206,6 +207,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       const newProject: Project = {
         id: newProjectId,
         name: `${source.name} (복사본)`,
+        formalName: source.formalName,
         description: source.description,
         startDate: source.startDate,
         endDate: source.endDate,

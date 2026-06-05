@@ -103,6 +103,7 @@ export function toProjectRow(project: Project): ProjectRow {
   return {
     id: project.id,
     name: project.name,
+    formal_name: project.formalName?.trim() ? project.formalName.trim() : null,
     description: project.description ?? null,
     start_date: project.startDate ?? null,
     end_date: project.endDate ?? null,
@@ -152,6 +153,7 @@ export function fromProjectRow(row: ProjectRow): Project {
   return {
     id: row.id,
     name: row.name,
+    formalName: row.formal_name?.trim() ? row.formal_name.trim() : undefined,
     description: row.description ?? undefined,
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,

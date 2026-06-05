@@ -28,6 +28,13 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'planned_progress_override',
 ]);
 
+/**
+ * 이번 세션 동안 "DB에 없다고 확인된" optional 컬럼.
+ * 한 번 감지하면 이후 모든 업서트에서 처음부터 제외해, 같은 PGRST204(400)를 배치마다 반복하지 않는다.
+ * (마이그레이션 미적용 환경에서도 콘솔 400 폭주·저장 실패 없이 동작)
+ */
+const detectedMissingTaskColumns = new Set<string>();
+
 export function isTaskOptionalColumnSchemaError(err: { code?: string; message?: string }, columnName: string): boolean {
   const msg = (err.message ?? '').toLowerCase();
   const col = String(columnName ?? '').toLowerCase();
@@ -53,8 +60,9 @@ export async function retryTaskRowsWithOptionalColumnFallback<T>(
 ): Promise<{ error: { code?: string; message?: string } | null; data?: T }> {
   // PGRST204는 스키마 캐시 기준 "없는 컬럼"을 payload에 포함하면 발생.
   // 환경마다 누락 컬럼이 1개 이상일 수 있어, 알려진 optional 컬럼은 순차적으로 제거하며 재시도한다.
-  let currentRows = rows;
-  const stripped = new Set<string>();
+  const stripped = new Set<string>(detectedMissingTaskColumns);
+  // 이미 이번 세션에 감지된 누락 컬럼은 처음부터 제외 → 같은 400을 매 배치 반복하지 않는다.
+  let currentRows = stripped.size > 0 ? rows.map((r) => stripTaskOptionalColumns(r, Array.from(stripped))) : rows;
   for (let attempt = 0; attempt < TASK_OPTIONAL_DB_COLUMNS.size + 1; attempt++) {
     const res = await op(currentRows);
     const err = res.error as { code?: string; message?: string } | null | undefined;
@@ -65,6 +73,7 @@ export async function retryTaskRowsWithOptionalColumnFallback<T>(
       return res;
     }
     stripped.add(col);
+    detectedMissingTaskColumns.add(col); // 세션 캐시에 기록 → 이후 배치·저장은 처음부터 제외
     currentRows = currentRows.map((r) => stripTaskOptionalColumns(r, [col]));
   }
   return op(currentRows);
@@ -216,12 +225,15 @@ export async function upsertTask(task: Task, sortOrder: number): Promise<{ confl
     });
     return {};
   }
-  let { error } = await supabase!.from('tasks').upsert(row);
+  // 이번 세션에 이미 감지된 누락 컬럼은 처음부터 제외
+  const firstPayload = detectedMissingTaskColumns.size > 0 ? stripTaskOptionalColumns(row, Array.from(detectedMissingTaskColumns)) : row;
+  let { error } = await supabase!.from('tasks').upsert(firstPayload);
   if (error) {
     const missing = getMissingColumnNameFromPgrst204(error);
-    const minimal = stripIfKnownOptionalTaskColumn(row, missing);
-    if (minimal) {
-      const retry = await supabase!.from('tasks').upsert(minimal);
+    const col = (missing ?? '').toLowerCase();
+    if (col && TASK_OPTIONAL_DB_COLUMNS.has(col)) {
+      detectedMissingTaskColumns.add(col);
+      const retry = await supabase!.from('tasks').upsert(stripTaskOptionalColumns(row, Array.from(detectedMissingTaskColumns)));
       error = retry.error;
     }
   }

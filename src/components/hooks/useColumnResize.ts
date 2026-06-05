@@ -11,7 +11,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   seq: 48,
   expand: 40,
   wbsId: 60,
-  name: 300,
+  name: 380,
   startDate: 85,
   endDate: 85,
   workEffort: 56,
@@ -87,6 +87,26 @@ function autoFitWidthCap(col: string): number {
   return AUTO_FIT_MAX_DEFAULT;
 }
 
+/** 리사이즈·저장값 복원·자동 맞춤 결과에 적용 — 작업명 입력 UX를 위해 `name`은 과도하게 좁게 두지 않음 */
+const MIN_COLUMN_WIDTH_BY_ID: Record<string, number> = {
+  name: 260,
+};
+
+function minColumnWidth(columnId: string): number {
+  return MIN_COLUMN_WIDTH_BY_ID[columnId] ?? 30;
+}
+
+function clampColumnWidths(widths: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = { ...widths };
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (typeof v === 'number' && !Number.isNaN(v)) {
+      out[k] = Math.max(minColumnWidth(k), v);
+    }
+  }
+  return out;
+}
+
 type TaskWithDepth = Task & { depth?: number };
 
 /** 작업명 셀: 트리 들여쓰기·접두 아이콘/배지가 문자 측정값에 포함되지 않으므로 가로 여유를 더한다. */
@@ -121,7 +141,7 @@ export function useColumnResize({
   criticalPathTaskIds,
 }: UseColumnResizeParams): UseColumnResizeReturn {
   // ── State ──
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ ...DEFAULT_COLUMN_WIDTHS });
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => clampColumnWidths({ ...DEFAULT_COLUMN_WIDTHS }));
   const columnWidthsRef = useRef(columnWidths);
   const hasRestoredColumnWidths = useRef(false);
 
@@ -133,7 +153,7 @@ export function useColumnResize({
   useEffect(() => {
     const saved = wbsSettings?.columnWidths;
     if (hasRestoredColumnWidths.current || !saved || Object.keys(saved).length === 0) return;
-    setColumnWidths((prev) => ({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
+    setColumnWidths(() => clampColumnWidths({ ...DEFAULT_COLUMN_WIDTHS, ...saved }));
     hasRestoredColumnWidths.current = true;
   }, [wbsSettings]);
 
@@ -157,7 +177,7 @@ export function useColumnResize({
       const start = resizeStartRef.current;
       if (!start) return;
       const diff = e.clientX - start.startX;
-      const newWidth = Math.max(30, start.startWidth + diff);
+      const newWidth = Math.max(minColumnWidth(start.col), start.startWidth + diff);
       setColumnWidths((prev) => ({ ...prev, [start.col]: newWidth }));
     };
 
@@ -204,7 +224,7 @@ export function useColumnResize({
         const headerW = measureText('#');
         const dataW = measureText(dataText);
         const padding = 24;
-        return Math.max(30, Math.min(autoFitWidthCap(col), Math.max(headerW, dataW) + padding));
+        return Math.max(minColumnWidth(col), Math.min(autoFitWidthCap(col), Math.max(headerW, dataW) + padding));
       }
       const colId = col as TableColumnId;
       const headerLabel = colId.startsWith('custom:')
@@ -247,7 +267,7 @@ export function useColumnResize({
         if (w > maxW) maxW = w;
       }
       const padding = 24;
-      return Math.max(30, Math.min(widthCap, maxW + padding));
+      return Math.max(minColumnWidth(col), Math.min(widthCap, maxW + padding));
     },
     [
       visibleTasks,

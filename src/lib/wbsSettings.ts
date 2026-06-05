@@ -41,6 +41,8 @@ export interface WBSSettings {
   skipImplicitTableColumnAutoFit?: boolean;
   /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
   allocationHiddenMigrated?: boolean;
+  /** 산출물 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  deliverablesHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -52,6 +54,11 @@ export interface WBSSettings {
    * WBS ID 컬럼 표기는 그대로이며, 저장되는 작업명(task.name)은 바뀌지 않음.
    */
   prependDisplayWbsToTaskName?: boolean;
+  /**
+   * false: 작업표·간트에서 레벨별 배경·완료 취소선·간트 완료 강조 등 자동 서식을 쓰지 않음(관리자 전역).
+   * true/미설정: 켜 두되, 사용자는 이 브라우저에서만 숨길 수 있음(요약 바·환경설정).
+   */
+  showTableAutoFormatting?: boolean;
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
@@ -83,11 +90,12 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'progress', visible: true },
     { id: 'plannedProgress', visible: true },
     { id: 'progressVariance', visible: true },
-    { id: 'deliverables', visible: true },
+    { id: 'deliverables', visible: false },
     { id: 'dependencies', visible: true },
   ],
   showCriticalPath: false,
   wrapTextInCells: false,
+  showTableAutoFormatting: true,
 };
 
 /** raw 저장값(문자열 또는 객체)을 WBSSettings로 파싱. 구버전 포맷(statusNames/statusProgress) 호환 포함. */
@@ -142,6 +150,7 @@ export function parseSettings(raw: unknown): WBSSettings {
       linkStatusAndProgress: parsed.linkStatusAndProgress === false ? false : true,
       linkEffortToSchedule: parsed.linkEffortToSchedule === true,
       prependDisplayWbsToTaskName: parsed.prependDisplayWbsToTaskName === true,
+      showTableAutoFormatting: parsed.showTableAutoFormatting === false ? false : true,
     };
 
     // 투입율 컬럼 기본 숨김 마이그레이션 (이전 버전 설정용, 1회만 적용)
@@ -149,6 +158,13 @@ export function parseSettings(raw: unknown): WBSSettings {
       const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
       base.tableColumns = cols.map((c) => (c && c.id === 'allocation' ? { ...c, visible: false } : c));
       base.allocationHiddenMigrated = true;
+    }
+
+    // 산출물 컬럼 기본 숨김 마이그레이션 (1회만 적용)
+    if (!parsed.deliverablesHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map((c) => (c && c.id === 'deliverables' ? { ...c, visible: false } : c));
+      base.deliverablesHiddenMigrated = true;
     }
 
     // 컬럼 너비 저장은 예전부터 있었으나 암묵적 자동맞춤 플래그는 이번에 추가됨 → 기존 저장이 있으면 덮어쓰지 않도록 기본 잠금

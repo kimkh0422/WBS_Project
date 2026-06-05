@@ -47,7 +47,7 @@ export function isMissingColumnError(
 }
 
 /** 스키마가 앱보다 뒤처진 원격 DB용: 알려진 선택 컬럼 누락·assignments 미지원 시 필드를 제거하며 반복 저장 */
-const OPTIONAL_PROJECT_WRITE_COLUMNS = ['project_kind', 'pm_name', 'po_name', 'include_in_dashboard'] as const;
+const OPTIONAL_PROJECT_WRITE_COLUMNS = ['project_kind', 'pm_name', 'po_name', 'include_in_dashboard', 'formal_name'] as const;
 
 function stripProjectWritePayloadForError(
   err: { code?: string | number; message?: string; details?: string; hint?: string },
@@ -97,7 +97,7 @@ async function insertProjectRowWithSchemaFallback(insertRow: Record<string, unkn
 }
 
 const PROJECT_SELECT_COLUMNS =
-  'id,name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,pm_name,po_name,include_in_dashboard,created_at';
+  'id,name,formal_name,description,start_date,end_date,assignments,owner_id,min_work_effort_days,project_kind,report_category,report_agency,report_budget_this_year,report_total_period,report_name_short,report_name_full,group_id,pm_name,po_name,include_in_dashboard,created_at';
 
 /** 원격 DB/PostgREST 스키마가 앱보다 낮을 때 select 목록에서 제거해 재시도할 컬럼 (PGRST204 메시지 기준) */
 const PROJECT_OPTIONAL_SELECT_COLUMNS = new Set(
@@ -117,6 +117,7 @@ const PROJECT_OPTIONAL_SELECT_COLUMNS = new Set(
     'pm_name',
     'po_name',
     'include_in_dashboard',
+    'formal_name',
   ].map((c) => c.toLowerCase()),
 );
 
@@ -150,8 +151,8 @@ export async function fetchProjects(): Promise<Project[]> {
 
 export async function upsertProject(project: Project): Promise<void> {
   requireSupabase();
-  const UPSERT_EXISTING_OPTIONAL = new Set(['end_date', 'pm_name', 'po_name', 'include_in_dashboard']);
-  let existingSelect = 'id, name, description, start_date, end_date, pm_name, po_name, include_in_dashboard';
+  const UPSERT_EXISTING_OPTIONAL = new Set(['end_date', 'pm_name', 'po_name', 'include_in_dashboard', 'formal_name']);
+  let existingSelect = 'id, name, formal_name, description, start_date, end_date, pm_name, po_name, include_in_dashboard';
   let existing = await supabase!.from('projects').select(existingSelect).eq('id', project.id).maybeSingle();
   for (let attempt = 0; attempt < 16 && existing.error; attempt++) {
     const missing = getMissingColumnNameFromPgrst204(existing.error);
