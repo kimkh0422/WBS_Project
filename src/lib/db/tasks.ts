@@ -35,6 +35,11 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
  */
 const detectedMissingTaskColumns = new Set<string>();
 
+/** UI에서 "이 컬럼이 DB에 없어 저장이 안 되니 마이그레이션 적용 필요"를 안내할 때 사용. */
+export function isTaskColumnMissingFromDb(column: string): boolean {
+  return detectedMissingTaskColumns.has(column.toLowerCase());
+}
+
 export function isTaskOptionalColumnSchemaError(err: { code?: string; message?: string }, columnName: string): boolean {
   const msg = (err.message ?? '').toLowerCase();
   const col = String(columnName ?? '').toLowerCase();

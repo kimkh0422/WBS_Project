@@ -5,10 +5,9 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatDate, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
+import { cn, formatDate, formatMonthDay, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
-import { useWBS } from '../context/WBSContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { getTaskProgressRollupTooltip } from '../lib/rollups';
@@ -148,6 +147,7 @@ export interface SortableTaskRowProps {
   toggleExpand: (taskId: string) => void;
   gridStyle: React.CSSProperties;
   visibleColumnIds: TableColumnId[];
+  showActionsColumn?: boolean;
   isInlineEditingName: boolean;
   setInlineEditingNameId: (id: string | null) => void;
   editingCell: { taskId: string; columnId: TableColumnId } | null;
@@ -163,6 +163,8 @@ export interface SortableTaskRowProps {
   statusConfigs: Array<{ id: string; name: string; progress?: number }>;
   /** projectId → assignments (for showing allocation when task has no assignments) */
   projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>;
+  allProjectTasks: Task[];
+  updateProject: (id: string, updates: Partial<Project>) => void;
   criticalPathSet?: Set<string>;
   /** 담당자별로 한 번만 표기한 투입율 텍스트 (행 순서 기준) */
   allocationDisplayText?: string;
@@ -209,6 +211,7 @@ function SortableTaskRowInner({
   toggleExpand,
   gridStyle,
   visibleColumnIds,
+  showActionsColumn = true,
   isInlineEditingName,
   setInlineEditingNameId,
   editingCell,
@@ -221,6 +224,8 @@ function SortableTaskRowInner({
   updateTask,
   statusConfigs,
   projectAssignmentsByProjectId,
+  allProjectTasks,
+  updateProject,
   criticalPathSet,
   allocationDisplayText,
   otherFocusByCellKey,
@@ -400,11 +405,10 @@ function SortableTaskRowInner({
   const [depsInputValue, setDepsInputValue] = useState(depsDisplayValue);
   const [depsFocused, setDepsFocused] = useState(false);
   const [depPickIdx, setDepPickIdx] = useState(0);
-  const { tasks, projects, updateProject } = useWBS();
   const { push: pushToast } = useToast();
   const projectPickCandidates = useMemo(
-    () => tasks.filter((t) => t.projectId === task.projectId && t.id !== task.id),
-    [tasks, task.projectId, task.id],
+    () => allProjectTasks.filter((t) => t.projectId === task.projectId && t.id !== task.id),
+    [allProjectTasks, task.projectId, task.id],
   );
   const depTokenTable = getActiveDependencyToken(depsInputValue ?? '');
   const depSuggestionsList = useMemo(
@@ -792,10 +796,10 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('startDate');
                     }}
-                    title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
+                    title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
                   >
                     <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {formatDate(task.startDate)}
+                      {formatMonthDay(task.startDate)}
                     </span>
                   </button>
                 </span>
@@ -875,10 +879,10 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('endDate');
                     }}
-                    title="클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집"
+                    title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
                   >
                     <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {formatDate(task.endDate)}
+                      {formatMonthDay(task.endDate)}
                     </span>
                   </button>
                 </span>
@@ -1098,19 +1102,25 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'plannedProgress') {
+          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'plannedProgress';
+          const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress' && !isEditing;
           const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
           const computable = hasChildren || hasPlannedSchedule(task) || hasManualPlanned;
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const plannedFmt = formatPercent1(planned);
-          const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress';
           return (
             <div
               key={colId}
-              className={cn(
-                'data-cell font-mono text-xs text-slate-500 min-w-0 cursor-cell',
-                isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
-              )}
+              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset')}
               style={otherRingStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEdit('plannedProgress');
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (!isEditing) beginEditNow('plannedProgress');
+              }}
               title={[
                 computable
                   ? [plannedProgressDataCellTitle(plannedFmt), hasManualPlanned ? '(이 행은 계획율 수동 지정이 적용되어 있습니다.)' : '']
@@ -1118,20 +1128,63 @@ function SortableTaskRowInner({
                       .join(' ')
                   : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.',
                 '',
-                '클릭: 셀 포커스 · 더블클릭 또는 F2: 일정(종료일 우선) 편집',
+                '클릭: 셀 포커스 · 더블클릭 또는 F2: 계획율 수동 지정 편집',
               ].join('\n')}
-              onClick={(e) => {
-                e.stopPropagation();
-                beginEdit('plannedProgress');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                beginEditNowResolved('plannedProgress');
-              }}
             >
-              <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                {computable ? `${plannedFmt}%` : '—'}
-              </span>
+              {isEditing ? (
+                <input
+                  id={`wbs-edit-${task.id}-plannedProgress`}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  autoFocus
+                  defaultValue={typeof task.plannedProgressOverride === 'number' ? task.plannedProgressOverride : ''}
+                  placeholder="수동 계획율 (%)"
+                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  onBlur={(e) => {
+                    const val = e.target.value.trim();
+                    if (val === '') {
+                      updateTask(task.id, { plannedProgressOverride: null });
+                    } else {
+                      const v = parseFloat(val);
+                      if (!isNaN(v) && v >= 0 && v <= 100) {
+                        const rounded = round2(v);
+                        if (rounded !== (task.plannedProgressOverride ?? NaN)) {
+                          updateTask(task.id, { plannedProgressOverride: rounded });
+                        }
+                      }
+                    }
+                    setEditingCell(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.nativeEvent.stopPropagation();
+                      const val = (e.target as HTMLInputElement).value.trim();
+                      if (val === '') {
+                        updateTask(task.id, { plannedProgressOverride: null });
+                      } else {
+                        const v = parseFloat(val);
+                        if (!isNaN(v) && v >= 0 && v <= 100) {
+                          const rounded = round2(v);
+                          if (rounded !== (task.plannedProgressOverride ?? NaN)) {
+                            updateTask(task.id, { plannedProgressOverride: rounded });
+                          }
+                        }
+                      }
+                      setEditingCell(null);
+                    } else if (e.key === 'Escape') {
+                      setEditingCell(null);
+                    }
+                  }}
+                />
+              ) : (
+                <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                  {computable ? `${plannedFmt}%` : '—'}
+                </span>
+              )}
             </div>
           );
         }
@@ -1252,8 +1305,9 @@ function SortableTaskRowInner({
                   <div
                     className={cn('w-full px-1 py-0.5 truncate', !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'))}
                     style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                    title={formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 안됨'}
                   >
-                    {formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 ...'}
+                    {(task.assignee || '').trim() || '배정 ...'}
                   </div>
                   <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-slate-400 group-hover/assignee:text-slate-600">
                     <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
@@ -1278,9 +1332,9 @@ function SortableTaskRowInner({
             const raw = trimmed === '' ? 100 : parseFloat(trimmed);
             if (!Number.isFinite(raw)) return;
             const pct = clampAllocationPercentInt(raw);
-            const proj = projects.find((p) => p.id === task.projectId);
-            if (!proj) return;
-            const list = [...(proj.assignments ?? [])].filter((a) => (a.assignee || '').trim() !== assigneeTrimForAlloc);
+            const list = [...(projectAssignmentsByProjectId.get(task.projectId) ?? [])].filter(
+              (a) => (a.assignee || '').trim() !== assigneeTrimForAlloc,
+            );
             list.push({ assignee: assigneeTrimForAlloc, allocationPercent: pct });
             updateProject(task.projectId, { assignments: list });
           };
@@ -1747,33 +1801,35 @@ function SortableTaskRowInner({
         }
         return null;
       })}
-      <div
-        className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-        onDoubleClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(task);
-          }}
-          className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded transition-colors"
-          title="작업 수정"
+      {showActionsColumn && (
+        <div
+          className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          onDoubleClick={(e) => e.stopPropagation()}
         >
-          <Edit2 size={13} />
-        </button>
-        {canEdit && (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onDeleteClick(task.id);
+              onEdit(task);
             }}
-            className="p-1.5 hover:bg-red-50 text-red-600 rounded transition-colors"
-            title="삭제"
+            className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded transition-colors"
+            title="작업 수정"
           >
-            <Trash2 size={13} />
+            <Edit2 size={13} />
           </button>
-        )}
-      </div>
+          {canEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteClick(task.id);
+              }}
+              className="p-1.5 hover:bg-red-50 text-red-600 rounded transition-colors"
+              title="삭제"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1805,10 +1861,13 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.isInlineEditingName === next.isInlineEditingName &&
     prev.gridStyle === next.gridStyle &&
     prev.visibleColumnIds === next.visibleColumnIds &&
+    prev.showActionsColumn === next.showActionsColumn &&
     prev.allAssignees === next.allAssignees &&
     prev.assigneeOptionsByProjectId === next.assigneeOptionsByProjectId &&
     prev.statusConfigs === next.statusConfigs &&
     prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
+    prev.allProjectTasks === next.allProjectTasks &&
+    prev.updateProject === next.updateProject &&
     prev.projectEffortUnitByProjectId === next.projectEffortUnitByProjectId &&
     prev.projectScheduleByProjectId === next.projectScheduleByProjectId &&
     prev.criticalPathSet === next.criticalPathSet &&

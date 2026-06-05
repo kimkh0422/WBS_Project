@@ -82,7 +82,7 @@ export function computeProjectRollupMetrics(project: Project, pTasks: Task[]): P
 
   const taskById = new Map<string, Task>(pTasks.map((t) => [t.id, t]));
   const getDepth = buildDepthGetter(taskById);
-  const level1 = pTasks.filter((t) => getDepth(t.id) === 1);
+  const level1 = pTasks.filter((t) => getDepth(t.id) === 0);
   const pParentIdSet = new Set(pTasks.map((t) => t.parentId).filter(Boolean));
   const leafTasks = pTasks.filter((t) => !pParentIdSet.has(t.id));
   const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;

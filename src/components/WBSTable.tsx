@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatPercent1 } from '../lib/utils';
+import { cn, formatPercent1, round2 } from '../lib/utils';
+import { isTaskColumnMissingFromDb } from '../lib/db/tasks';
 import {
   ChevronDown,
   ChevronUp,
@@ -19,9 +20,10 @@ import {
   Unlink,
   Link2,
   Edit2,
+  Equal,
   Trash2,
 } from 'lucide-react';
-import { type TableColumnId, type WBSTableProps } from './wbsTableTypes';
+import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
 import { useColumnResize } from './hooks/useColumnResize';
@@ -83,7 +85,8 @@ const DEFAULT_TABLE_COLUMNS: {
     | 'plannedProgress'
     | 'progressVariance'
     | 'deliverables'
-    | 'dependencies';
+    | 'dependencies'
+    | 'actions';
   visible: boolean;
 }[] = [
   { id: 'wbsId', visible: true },
@@ -95,11 +98,12 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'assignee', visible: true },
   { id: 'allocation', visible: false },
   { id: 'status', visible: true },
-  { id: 'progress', visible: true },
   { id: 'plannedProgress', visible: true },
+  { id: 'progress', visible: true },
   { id: 'progressVariance', visible: true },
   { id: 'deliverables', visible: false },
-  { id: 'dependencies', visible: true },
+  { id: 'dependencies', visible: false },
+  { id: 'actions', visible: false },
 ];
 
 export function WBSTable({
@@ -361,18 +365,18 @@ export function WBSTable({
     return map;
   }, [wbsSettings?.customColumns]);
 
-  const tableColumns: { id: TableColumnId; visible: boolean }[] = useMemo(() => {
+  const tableColumns: { id: TableDisplayColumnId; visible: boolean }[] = useMemo(() => {
     const cols = wbsSettings?.tableColumns;
     const incoming = Array.isArray(cols) && cols.length > 0 ? cols : DEFAULT_TABLE_COLUMNS;
 
-    const allow = new Set<TableColumnId>(DEFAULT_TABLE_COLUMNS.map((c) => c.id));
-    for (const id of customColumnNameById.keys()) allow.add(id as TableColumnId);
+    const allow = new Set<TableDisplayColumnId>(DEFAULT_TABLE_COLUMNS.map((c) => c.id));
+    for (const id of customColumnNameById.keys()) allow.add(id as TableDisplayColumnId);
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c: { id: string; visible: boolean }) => c && typeof c.id === 'string')
-      .map((c: { id: string; visible: boolean }) => ({ id: String(c.id) as TableColumnId, visible: c.visible !== false }))
-      .filter((c: { id: TableColumnId; visible: boolean }) => allow.has(c.id))
-      .filter((c: { id: TableColumnId; visible: boolean }) => {
+      .map((c: { id: string; visible: boolean }) => ({ id: String(c.id) as TableDisplayColumnId, visible: c.visible !== false }))
+      .filter((c: { id: TableDisplayColumnId; visible: boolean }) => allow.has(c.id))
+      .filter((c: { id: TableDisplayColumnId; visible: boolean }) => {
         if (seen.has(c.id)) return false;
         seen.add(c.id);
         return true;
@@ -385,7 +389,11 @@ export function WBSTable({
     return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
   }, [wbsSettings, customColumnNameById]);
 
-  const visibleColumnIds = useMemo(() => tableColumns.filter((c) => c.visible).map((c) => c.id), [tableColumns]);
+  const showActionsColumn = useMemo(() => tableColumns.some((c) => c.id === 'actions' && c.visible), [tableColumns]);
+  const visibleColumnIds = useMemo(
+    () => tableColumns.filter((c) => c.visible && c.id !== 'actions').map((c) => c.id as TableColumnId),
+    [tableColumns],
+  );
   /** 편집 모드에서 좌우 이동 시 사용할 편집 가능 컬럼 순서 (wbsId 제외) */
   const editableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
 
@@ -649,18 +657,19 @@ export function WBSTable({
   ]);
 
   const gridStyle = useMemo(() => {
+    const cw = columnWidths as Record<string, number>;
     const parts: string[] = [];
-    parts.push(`${columnWidths.grip}px`);
-    parts.push(`${columnWidths.checkbox}px`);
-    parts.push(`${columnWidths.seq}px`);
-    parts.push(`${columnWidths.expand}px`);
+    parts.push(`${cw.grip}px`);
+    parts.push(`${cw.checkbox}px`);
+    parts.push(`${cw.seq}px`);
+    parts.push(`${cw.expand}px`);
     for (const id of visibleColumnIds) {
-      if (id === 'name') parts.push(`${columnWidths.name}px`);
-      else parts.push(`${(columnWidths as Record<string, number>)[id] ?? 120}px`);
+      if (id === 'name') parts.push(`${cw.name}px`);
+      else parts.push(`${cw[id] ?? 120}px`);
     }
-    parts.push(`${columnWidths.actions}px`);
+    if (showActionsColumn) parts.push(`${cw.actions}px`);
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
-  }, [columnWidths, visibleColumnIds]);
+  }, [columnWidths, showActionsColumn, visibleColumnIds]);
 
   // 좌측 고정열(비분할 표): 앞 6개 컬럼(그립·체크·#·펼침 + 첫 2개 데이터열=기본 WBS·작업명)을
   // 가로 스크롤해도 고정. 각 컬럼의 left 오프셋을 실제 폭에서 누적 계산해 CSS 변수(--frz-l1..6)로 전달한다.
@@ -1279,18 +1288,20 @@ export function WBSTable({
                 {resizeGrip('expand')}
               </div>
               {visibleColumnIds.map(renderHeaderCell)}
-              <div
-                className="col-header justify-end relative"
-                title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  handleColumnHeaderDoubleClick('actions');
-                }}
-                onContextMenu={(e) => handleHeaderContextMenu(e)}
-              >
-                관리
-                {resizeGrip('actions')}
-              </div>
+              {showActionsColumn && (
+                <div
+                  className="col-header justify-end relative"
+                  title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    handleColumnHeaderDoubleClick('actions');
+                  }}
+                  onContextMenu={(e) => handleHeaderContextMenu(e)}
+                >
+                  관리
+                  {resizeGrip('actions')}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1391,18 +1402,20 @@ export function WBSTable({
                         {resizeGrip('expand')}
                       </div>
                       {visibleColumnIds.map(renderHeaderCell)}
-                      <div
-                        className="col-header justify-end relative"
-                        title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          handleColumnHeaderDoubleClick('actions');
-                        }}
-                        onContextMenu={(e) => handleHeaderContextMenu(e)}
-                      >
-                        관리
-                        {resizeGrip('actions')}
-                      </div>
+                      {showActionsColumn && (
+                        <div
+                          className="col-header justify-end relative"
+                          title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            handleColumnHeaderDoubleClick('actions');
+                          }}
+                          onContextMenu={(e) => handleHeaderContextMenu(e)}
+                        >
+                          관리
+                          {resizeGrip('actions')}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1458,6 +1471,7 @@ export function WBSTable({
                               toggleExpand={toggleExpand}
                               gridStyle={gridStyle}
                               visibleColumnIds={visibleColumnIds}
+                              showActionsColumn={showActionsColumn}
                               isInlineEditingName={inlineEditingNameId === task.id}
                               setInlineEditingNameId={setInlineEditingNameIdCommitted}
                               editingCell={editingCell}
@@ -1470,6 +1484,8 @@ export function WBSTable({
                               updateTask={updateTask}
                               statusConfigs={wbsSettings?.statusConfigs ?? []}
                               projectAssignmentsByProjectId={projectAssignmentsByProjectId}
+                              allProjectTasks={tasks}
+                              updateProject={updateProject}
                               criticalPathSet={effectiveCriticalPathSet}
                               allocationDisplayText={allocationDisplayByTaskId.get(task.id) ?? '—'}
                               otherFocusByCellKey={otherFocusByCellKey}
@@ -1573,7 +1589,7 @@ export function WBSTable({
                                   }
                                   return <div key={colId} className="data-cell"></div>;
                                 })}
-                                <div className="data-cell"></div>
+                                {showActionsColumn && <div className="data-cell"></div>}
                               </div>
                             )}
                           </React.Fragment>
@@ -1631,7 +1647,7 @@ export function WBSTable({
                           </div>
                         );
                       })}
-                      <div className="data-cell"></div>
+                      {showActionsColumn && <div className="data-cell"></div>}
                     </div>
                   </div>
                 )}
@@ -1935,6 +1951,45 @@ export function WBSTable({
                   선행작업 지우기
                 </button>
 
+                {canEditCurrentProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 선택된 각 작업의 현재 진척률을 계획율(수동) 값으로 복사 → 차이(%P) = 0.
+                      // 진척률 0%인 행도 0으로 명시 지정(=일정 자동 계산 덮어쓰기).
+                      let n = 0;
+                      for (const id of selectedTaskIds) {
+                        const t = tasks.find((x) => x.id === id);
+                        if (!t) continue;
+                        const v = round2(Number(t.progress ?? 0));
+                        if (t.plannedProgressOverride !== v) {
+                          updateTask(t.id, { plannedProgressOverride: v });
+                          n += 1;
+                        }
+                      }
+                      pushToast(n > 0 ? `계획율을 진척률로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다. (이미 계획율 = 진척률)', {
+                        variant: n > 0 ? 'success' : 'info',
+                      });
+                      // 한 번이라도 push가 PGRST204(컬럼 없음)로 실패한 적이 있으면 — 저장 후 풀에서 값이 사라질 거라 미리 경고.
+                      if (n > 0 && isTaskColumnMissingFromDb('planned_progress_override')) {
+                        pushToast(
+                          'DB에 계획율 수동 컬럼이 없어 저장 후 값이 사라집니다. SQL Editor에서 다음을 실행해 주세요: ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_progress_override numeric(6,2) NULL;',
+                          { variant: 'warning', durationMs: 12000 },
+                        );
+                      }
+                    }}
+                    className="flex items-center gap-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title={[
+                      '선택한 각 작업의 「계획율(%)」을 현재 「진척률(%)」 값으로 일괄 설정합니다.',
+                      '결과: 차이(%P) = 0 (계획대로 진행 중인 것으로 표시).',
+                      '실행취소(Ctrl+Z)로 되돌릴 수 있습니다.',
+                    ].join('\n')}
+                  >
+                    <Equal size={14} />
+                    계획율 = 진척률
+                  </button>
+                )}
+
                 <div className="h-4 w-px bg-slate-200" />
 
                 {canEditCurrentProject && (
@@ -2102,6 +2157,69 @@ export function WBSTable({
                           label: '갱신',
                           icon: <RefreshCw size={14} />,
                           onClick: handleSyncProgressFromStatus,
+                        },
+                      ]
+                    : []),
+                  // 계획율/차이 셀에서 우클릭 시 — 현재 진척률을 계획율(수동)로 복사해 차이=0으로 맞춘다.
+                  ...(canEditCurrentProject && (contextMenu.columnId === 'plannedProgress' || contextMenu.columnId === 'progressVariance')
+                    ? [
+                        {
+                          label: '계획율 = 진척률',
+                          icon: <Equal size={14} />,
+                          onClick: () => {
+                            const ids =
+                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                                ? Array.from(selectedTaskIds)
+                                : contextMenu.taskId
+                                  ? [contextMenu.taskId]
+                                  : [];
+                            let n = 0;
+                            for (const id of ids) {
+                              const t = tasks.find((x) => x.id === id);
+                              if (!t) continue;
+                              const v = round2(Number(t.progress ?? 0));
+                              if (t.plannedProgressOverride !== v) {
+                                updateTask(t.id, { plannedProgressOverride: v });
+                                n += 1;
+                              }
+                            }
+                            pushToast(n > 0 ? `계획율을 진척률로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다.', {
+                              variant: n > 0 ? 'success' : 'info',
+                            });
+                            if (n > 0 && isTaskColumnMissingFromDb('planned_progress_override')) {
+                              pushToast(
+                                'DB에 계획율 수동 컬럼이 없어 저장 후 값이 사라집니다. SQL Editor에서 다음을 실행해 주세요: ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_progress_override numeric(6,2) NULL;',
+                                { variant: 'warning', durationMs: 12000 },
+                              );
+                            }
+                            setContextMenu(null);
+                          },
+                        },
+                        {
+                          label: '계획율 자동(일정 기반)으로 되돌리기',
+                          icon: <RotateCcw size={14} />,
+                          onClick: () => {
+                            const ids =
+                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                                ? Array.from(selectedTaskIds)
+                                : contextMenu.taskId
+                                  ? [contextMenu.taskId]
+                                  : [];
+                            let n = 0;
+                            for (const id of ids) {
+                              const t = tasks.find((x) => x.id === id);
+                              if (!t) continue;
+                              if (t.plannedProgressOverride != null) {
+                                updateTask(t.id, { plannedProgressOverride: null });
+                                n += 1;
+                              }
+                            }
+                            pushToast(
+                              n > 0 ? `계획율 수동값을 해제했습니다. (${n}개 작업, 일정 기준 자동 산정)` : '변경 사항이 없습니다.',
+                              { variant: n > 0 ? 'success' : 'info' },
+                            );
+                            setContextMenu(null);
+                          },
                         },
                       ]
                     : []),

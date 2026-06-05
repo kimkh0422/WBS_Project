@@ -73,7 +73,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       depthMemo.set(id, d);
       return d;
     };
-    const level1 = source.filter((t) => getDepth(t.id) === 1);
+    const level1 = source.filter((t) => getDepth(t.id) === 0);
     const computeWeighted = (items: Task[]) => {
       let totalWeight = 0;
       let acc = 0;
@@ -129,7 +129,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
     let avgProgressTooltip: string;
     if (level1.length > 0) {
       const parts: string[] = [
-        '요약 바「전체 진척율」은 WBS 깊이 1인 작업만 집계합니다.',
+        '요약 바「전체 진척율」은 WBS 레벨 1(최상위) 작업만 집계합니다.',
         '각 1레벨 작업의 진척률에 가중치를 곱한 합을, 가중치 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.',
         '가중치는 작업에 입력한 진척 가중치가 있으면 그 값을 쓰고, 없으면 공수를 해당 프로젝트 단위에서 M/D로 환산한 값을 씁니다.',
         `현재 표시: ${formatPercent1(avgProgress)}%`,
@@ -155,7 +155,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = []):
       avgProgressTooltip = parts.join('\n');
     } else {
       avgProgressTooltip = [
-        '깊이 1 작업이 없어, 단말(리프) 작업들의 진척률 산술평균을 사용합니다.',
+        '최상위 작업이 없어, 단말(리프) 작업들의 진척률 산술평균을 사용합니다.',
         `현재 표시: ${formatPercent1(avgProgress)}%`,
       ].join('\n');
     }

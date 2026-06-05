@@ -23,6 +23,15 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+/** 표 셀처럼 좁은 칸용: 연도 없이 '월 일'만 표시(예: 4월 1일). 저장값·편집 입력은 연도를 포함해 그대로 유지. */
+export function formatMonthDay(dateStr: string): string {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleDateString('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
 /** 브라우저 로컬 시간 기준 오늘 날짜(푸터·로그인 등 표시용) */
 export function formatTodayKoLongWithWeekday(): string {
   return new Date().toLocaleDateString('ko-KR', {

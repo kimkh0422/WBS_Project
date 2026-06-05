@@ -811,7 +811,7 @@ export function AppHeader({
                         </div>
                       )}
                       <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
-                      <div className="max-h-[min(52vh,480px)] overflow-y-auto overscroll-contain pr-0.5">
+                      <div className="max-h-[min(76vh,800px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
                           const renderProjectRow = (project: Project) => {
                             const pmLabel = projectDropdownPmLabel(project);

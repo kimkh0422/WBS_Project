@@ -134,6 +134,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       progressVariance: '진척차이(%p)',
       deliverables: '산출물',
       dependencies: '선행작업',
+      actions: '관리',
     }),
     [],
   );
@@ -150,11 +151,12 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       // 투입율 바로 다음에 가중치
       { id: 'weight', visible: true },
       { id: 'status', visible: true },
-      { id: 'progress', visible: true },
       { id: 'plannedProgress', visible: true },
+      { id: 'progress', visible: true },
       { id: 'progressVariance', visible: true },
       { id: 'deliverables', visible: false },
-      { id: 'dependencies', visible: true },
+      { id: 'dependencies', visible: false },
+      { id: 'actions', visible: false },
     ],
     [],
   );

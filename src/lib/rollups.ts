@@ -1,7 +1,8 @@
 import { Task } from '../types';
 import { applyMilestoneDateInvariant } from './milestoneDates';
-import { formatNum2, formatPercent1, round2 } from './utils';
+import { formatNum2, formatPercent1, round1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
+import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
 
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
 function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<string> {
@@ -96,9 +97,9 @@ export function syncParentRollups(
     parentProgress = 100;
   } else if (totalWeight > 0) {
     // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
-    parentProgress = Math.min(100, Math.max(0, Math.round(weightedProgressSum / totalWeight)));
+    parentProgress = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
   } else if (children.length > 0) {
-    parentProgress = Math.min(100, Math.max(0, Math.round(simpleProgressSum / children.length)));
+    parentProgress = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
   }
 
   const skipEffortRollup = skipWorkEffortRollupParentIds?.has(parentId) === true;
@@ -185,12 +186,12 @@ export function getTaskProgressRollupTooltip(task: Task, allTasks: Task[], doneS
   }
   lines.push('가중 = 진척 가중치(입력)가 있으면 그 값, 없으면 공수(과제 단위 그대로)입니다.');
   if (totalWeight > 0) {
-    const rounded = Math.min(100, Math.max(0, Math.round(weightedProgressSum / totalWeight)));
+    const rounded = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
     lines.push(
       `가중평균: Σ(진척×가중) ÷ Σ가중 = ${formatNum2(weightedProgressSum)} ÷ ${formatNum2(totalWeight)} ≈ ${formatPercent1(rounded)}%`,
     );
   } else {
-    const rounded = Math.min(100, Math.max(0, Math.round(simpleProgressSum / children.length)));
+    const rounded = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
     lines.push(`가중 합이 0이면 형제 진척률 단순 평균 → ${formatPercent1(rounded)}%`);
   }
   if (children.length > maxLines) {
@@ -501,5 +502,6 @@ export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: s
   const projectIds = Array.from(new Set(tasks.map((t) => t.projectId))).filter((id): id is string => Boolean(id) && id !== 'all');
   let result = tasks;
   for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds);
-  return result;
+  // 사용자가 입력한 계획율 수동값은 어떤 자동 로직(롤업/풀)으로도 사라지지 않도록 항상 마지막에 로컬 캐시 오버레이.
+  return overlayPlannedOverrideFromLocal(result);
 }

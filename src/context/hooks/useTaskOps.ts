@@ -4,10 +4,11 @@ import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
+import { setPlannedOverrideLocal } from '../../lib/plannedOverrideLocalCache';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { applyDependencySchedule } from '../../lib/schedule';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
-import { syncParentRollups, recomputeProjectRollups, syncParentStatus } from '../../lib/rollups';
+import { syncParentRollups, recomputeProjectRollups, syncParentStatus, distributeProgressDown } from '../../lib/rollups';
 import { buildProjectEffortUnitMap, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
 import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
 import { expandProjectStoredDatesToTaskSpan } from '../../lib/projectPeriod';
@@ -142,6 +143,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const deferScheduleSync = options?.deferScheduleSync ?? false;
       saveHistory();
       let projectScheduleExpansion: { projectId: string; startDate: string; endDate: string } | null = null;
+      let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
         const task = prev.find((t) => t.id === id);
@@ -159,11 +161,31 @@ export function useTaskOps(deps: TaskOpsDeps) {
         if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
           resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };
         }
-        if (typeof resolvedUpdates.plannedProgressOverride === 'number' && Number.isFinite(resolvedUpdates.plannedProgressOverride)) {
-          resolvedUpdates = {
-            ...resolvedUpdates,
-            plannedProgressOverride: round2(resolvedUpdates.plannedProgressOverride),
-          };
+        // 계획율 수동값(plannedProgressOverride) 직렬화/보호 정책:
+        //   - 호출자가 명시적으로 키를 넘겼을 때만 변경(round2 정규화) + 로컬 캐시에 영구 기록
+        //   - 키를 안 넘긴 경우 자동 로직(롤업/status 동기화/일정 변경 등)으로 절대 reset 되지 않도록 보호
+        const hasPlannedOverrideKey = Object.prototype.hasOwnProperty.call(updates, 'plannedProgressOverride');
+        if (hasPlannedOverrideKey) {
+          const v = resolvedUpdates.plannedProgressOverride;
+          if (typeof v === 'number' && Number.isFinite(v)) {
+            const normalized = round2(Math.min(100, Math.max(0, v)));
+            resolvedUpdates = { ...resolvedUpdates, plannedProgressOverride: normalized };
+            setPlannedOverrideLocal(id, normalized); // 로컬 캐시: DB가 어떻든 이 PC에서는 보존
+          } else if (v === null) {
+            // 사용자가 명시적으로 자동 모드로 복귀
+            resolvedUpdates = { ...resolvedUpdates, plannedProgressOverride: null };
+            setPlannedOverrideLocal(id, null);
+          } else {
+            // 그 외(NaN 등) — 무시: 기존 값 유지
+            const rest: Record<string, unknown> = { ...resolvedUpdates };
+            delete rest.plannedProgressOverride;
+            resolvedUpdates = rest as typeof resolvedUpdates;
+          }
+        } else {
+          // 호출자가 키를 안 넘긴 경우: 다른 어떤 자동 로직도 plannedProgressOverride를 건드리지 않도록 명시적으로 키 제거.
+          const rest: Record<string, unknown> = { ...resolvedUpdates };
+          delete rest.plannedProgressOverride;
+          resolvedUpdates = rest as typeof resolvedUpdates;
         }
         if (
           typeof resolvedUpdates.status === 'string' &&
@@ -205,6 +227,11 @@ export function useTaskOps(deps: TaskOpsDeps) {
         updatedTask = applyMilestoneDateInvariant(updatedTask, { hasChildTasks, preferCanonical });
 
         let nextTasks = prev.map((t) => (t.id === id ? updatedTask : t));
+
+        // 상위 작업 진척률 수동 변경 시 모든 하위 레벨에 분배
+        if (typeof resolvedUpdates.progress === 'number' && resolvedUpdates.progress !== task.progress && hasChildTasks) {
+          nextTasks = distributeProgressDown(nextTasks, id, resolvedUpdates.progress);
+        }
 
         // 상태 변경 시 모든 하위 작업에 캐스케이드
         if (typeof resolvedUpdates.status === 'string' && wSettings.linkStatusAndProgress !== false) {
@@ -339,8 +366,16 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
+        tasksToPersist = result;
         return result;
       });
+
+      if (tasksToPersist) {
+        bumpDirty();
+        if (!useLocalOnlyRef.current) {
+          upsertTasks(tasksToPersist).catch((err) => handleDbError(err, '작업 수정 저장에 실패했습니다.'));
+        }
+      }
 
       if (projectScheduleExpansion) {
         bumpDirty();
@@ -372,6 +407,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       saveHistory();
       const originalIdSet = new Set(taskIds);
       const hasAssignee = Object.prototype.hasOwnProperty.call(updates, 'assignee') && typeof updates.assignee === 'string';
+      let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         const idSet = hasAssignee ? collectDescendantTaskIds(originalIdSet, prev) : originalIdSet;
         const assigneePatch: Partial<Task> = hasAssignee ? { assignee: updates.assignee as string } : {};
@@ -400,10 +436,17 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
+        tasksToPersist = next;
         return next;
       });
+      if (tasksToPersist) {
+        bumpDirty();
+        if (!useLocalOnlyRef.current) {
+          upsertTasks(tasksToPersist).catch((err) => handleDbError(err, '작업 일괄 수정 저장에 실패했습니다.'));
+        }
+      }
     },
-    [saveHistory, setAllTasks, wbsSettingsRef],
+    [saveHistory, setAllTasks, wbsSettingsRef, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
   const setBaselineForTasks = useCallback(

@@ -6,6 +6,7 @@ import {
   syncParentStatus,
   deriveParentStatusFromChildren,
   rescaleSiblingsToSum100,
+  distributeProgressDown,
 } from '../rollups';
 import type { Task } from '../../types';
 import { DEFAULT_STATUS_CONFIGS } from '../wbsSettings';
@@ -25,6 +26,18 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 }
 
 describe('syncParentRollups', () => {
+  it('keeps parent progress to one decimal place', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', workEffort: 3, progress: 0 }),
+      makeTask({ id: 'c1', parentId: 'parent', workEffort: 1, progress: 100 }),
+      makeTask({ id: 'c2', parentId: 'parent', workEffort: 1, progress: 100 }),
+      makeTask({ id: 'c3', parentId: 'parent', workEffort: 1, progress: 0 }),
+    ];
+    const result = syncParentRollups(tasks, 'parent');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.progress).toBe(66.7);
+  });
+
   it('자식 진척률 가중평균으로 부모 진척률 계산', () => {
     const tasks: Task[] = [
       makeTask({ id: 'parent', workEffort: 10, progress: 0 }),
@@ -365,5 +378,20 @@ describe('syncParentStatus', () => {
     expect(parent.status).toBe('in-progress');
     // syncProgress=false: progress는 status preset(10)로 덮어쓰지 않음
     expect(parent.progress).toBe(17);
+  });
+});
+
+describe('distributeProgressDown', () => {
+  it('상위 작업의 진척률을 하위 레벨로 분배', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', progress: 0 }),
+      makeTask({ id: 'c1', parentId: 'parent', progress: 10, workEffort: 5 }),
+      makeTask({ id: 'c2', parentId: 'parent', progress: 20, workEffort: 5 }),
+    ];
+    const result = distributeProgressDown(tasks, 'parent', 30);
+    const c1 = result.find((t) => t.id === 'c1')!;
+    const c2 = result.find((t) => t.id === 'c2')!;
+    expect(c1.progress).toBe(20);
+    expect(c2.progress).toBe(40);
   });
 });

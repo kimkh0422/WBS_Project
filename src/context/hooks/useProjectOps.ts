@@ -75,7 +75,6 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         handleDbError(new Error('로그인 세션이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.'), '프로젝트 저장에 실패했습니다.');
         return;
       }
-      bumpDirty();
       const extras = reportExtras ?? {};
       const resolvedKind = extras.projectKind !== undefined ? extras.projectKind : DEFAULT_NEW_PROJECT_KIND;
       const creatorDefault = creatorDisplayNameRef.current?.trim() || undefined;
@@ -106,26 +105,38 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       };
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
-      if (!useLocalOnlyRef.current) upsertProject(newProject).catch((err) => handleDbError(err, '프로젝트 저장에 실패했습니다.'));
+      if (useLocalOnlyRef.current) {
+        bumpDirty();
+      } else {
+        upsertProject(newProject).catch((err) => {
+          bumpDirty();
+          handleDbError(err, '프로젝트 저장에 실패했습니다.');
+        });
+      }
     },
     [bumpDirty, handleDbError, ownerIdRef, creatorDisplayNameRef, useLocalOnlyRef, setProjects, setCurrentProjectId],
   );
 
   const updateProject = useCallback(
     (id: string, updates: Partial<Project>) => {
-      bumpDirty();
       // 1) 변경 영향 사전 계산 — projectsRef는 즉시 동기화되어 있으므로 안전하게 읽는다.
       const prevProjects = projectsRef.current;
       const project = prevProjects.find((p) => p.id === id);
       if (!project) {
         // 프로젝트가 없으면 (이론적으로 발생 안 함) 단순 머지만 수행하고 종료
         setProjects((prev) => prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p)));
+        bumpDirty();
         return;
       }
 
       const unitChanging =
         updates.workEffortUnit !== undefined &&
         normalizeWorkEffortUnit(project.workEffortUnit) !== normalizeWorkEffortUnit(updates.workEffortUnit);
+
+      /** 로컬 전용의 일반 프로젝트 필드 수정만 수동 동기화 플래그를 올린다. 원격+비단위변경은 upsert로 즉시 DB 반영. 공수 단위 변경은 saveHistory가 bump한다. */
+      if (useLocalOnlyRef.current && !unitChanging) {
+        bumpDirty();
+      }
 
       // 2) 프로젝트 자체 상태는 항상 먼저 갱신 (작업 일괄 이동은 하지 않음)
       setProjects((prev) => prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p)));
@@ -160,8 +171,12 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       }
 
       // 4) DB에 프로젝트 변경 반영 — 로컬 모드 아닐 때
+      // detectPermissionDenied: RLS가 조용히 거부(0행)하면 권한 오류로 올려 무음 되돌림을 막는다.
       if (!useLocalOnlyRef.current) {
-        upsertProject({ ...project, ...updates } as Project).catch((err) => handleDbError(err, '프로젝트 수정 저장에 실패했습니다.'));
+        upsertProject({ ...project, ...updates } as Project, { detectPermissionDenied: true }).catch((err) => {
+          bumpDirty();
+          handleDbError(err, '프로젝트 수정 저장에 실패했습니다.');
+        });
       }
     },
     [bumpDirty, saveHistory, handleDbError, projectsRef, useLocalOnlyRef, setProjects, setAllTasks],
@@ -214,6 +229,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         assignments: source.assignments?.map((a) => ({ ...a })),
         minWorkEffortDays: source.minWorkEffortDays,
         workEffortUnit: source.workEffortUnit,
+        projectKind: source.projectKind,
         ownerId: ownerIdRef.current ?? undefined,
         pmName: copiedPm || 'PM 미입력',
         poName: source.poName?.trim() || undefined,

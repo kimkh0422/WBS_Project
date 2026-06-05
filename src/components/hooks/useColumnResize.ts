@@ -19,9 +19,9 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   assignee: 70,
   allocation: 72,
   status: 70,
-  progress: 70,
-  plannedProgress: 66,
-  progressVariance: 78,
+  progress: 82,
+  plannedProgress: 82,
+  progressVariance: 98,
   deliverables: 120,
   dependencies: 120,
   actions: 70,
@@ -90,6 +90,10 @@ function autoFitWidthCap(col: string): number {
 /** 리사이즈·저장값 복원·자동 맞춤 결과에 적용 — 작업명 입력 UX를 위해 `name`은 과도하게 좁게 두지 않음 */
 const MIN_COLUMN_WIDTH_BY_ID: Record<string, number> = {
   name: 260,
+  // 백분율 열은 값(예: 100.0%, -100.0%p)이 잘리지 않도록 최소 너비를 둔다.
+  progress: 78,
+  plannedProgress: 78,
+  progressVariance: 92,
 };
 
 function minColumnWidth(columnId: string): number {
@@ -253,6 +257,9 @@ export function useColumnResize({
           const name = (wbsSettings?.statusConfigs ?? []).find((c: { id: string }) => c.id === task.status);
           cellText = (name as { name?: string } | undefined)?.name ?? task.status ?? '—';
         } else if (colId === 'progress') cellText = typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—';
+        // 계획율·진척차이는 파생값이라 task에 직접 없으므로 자릿수 최댓값(예: 100.0%, -100.0%p) 기준으로 측정한다.
+        else if (colId === 'plannedProgress') cellText = `${formatPercent1(100)}%`;
+        else if (colId === 'progressVariance') cellText = `-${formatPercent1(100)}%p`;
         else if (colId === 'deliverables') cellText = (task.deliverables?.trim() ?? '') || '—';
         else if (colId === 'dependencies') {
           const nums = (task.dependencies ?? [])

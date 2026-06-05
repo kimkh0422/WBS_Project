@@ -13,7 +13,12 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     custom_fields[WBS_INTERNAL_CELL_TEXT_STYLES_KEY] = JSON.stringify(task.cellTextStyles);
   }
 
-  return {
+  // 계획율 수동값 직렬화 정책: "사용자가 입력한 값만 저장, 자동 로직이 절대 덮어쓰지 않음".
+  //   - 메모리 값이 유한 숫자(0~100) → DB에 그 값 저장
+  //   - 메모리 값이 null → 사용자가 명시적으로 "자동 모드로 복귀"를 선택 → DB에 null 저장
+  //   - 메모리 값이 undefined → 의도 불명 → 페이로드에서 컬럼 자체를 제외(DB 기존값 보존).
+  //   풀에서 컬럼이 한 번 빠진 row를 받아도 다음 push가 실수로 null 덮어쓰는 회귀를 막는다.
+  const row: TaskRow = {
     id: task.id,
     project_id: task.projectId,
     parent_id: task.parentId ?? null,
@@ -38,10 +43,15 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
     weight: task.weight ?? null,
-    planned_progress_override:
-      task.plannedProgressOverride != null && Number.isFinite(task.plannedProgressOverride) ? task.plannedProgressOverride : null,
     custom_fields,
   };
+  if (task.plannedProgressOverride === null) {
+    row.planned_progress_override = null;
+  } else if (typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride)) {
+    row.planned_progress_override = task.plannedProgressOverride;
+  }
+  // undefined인 경우: row에 키 자체를 추가하지 않음 → upsert 시 DB의 기존 컬럼값이 유지됨.
+  return row;
 }
 
 /** TaskRow → Task (동기화 시 DB 전체 내려받기·로컬 저장용) */

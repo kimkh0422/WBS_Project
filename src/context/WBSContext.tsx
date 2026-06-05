@@ -64,6 +64,17 @@ import { useBackupOps } from './hooks/useBackupOps';
 export type { StatusConfig, WBSSettings, DbSyncSummaryByProject, DbSyncSummary };
 
 const WBSContext = createContext<WBSContextType | undefined>(undefined);
+const INITIAL_DB_LOAD_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -375,7 +386,11 @@ export function WBSProvider({
             const pendingDeletedProjIdSet = new Set(Array.isArray(savedDeletedProjIds) ? savedDeletedProjIds : []);
             const pendingDeletedTaskIdSet = new Set(Object.values(pendingDeletedTasks).flat());
 
-            const [dbProjects, dbTasks, dbSettings] = await Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]);
+            const [dbProjects, dbTasks, dbSettings] = await withTimeout(
+              Promise.all([fetchProjects(), fetchTasks(), fetchSettings()]),
+              INITIAL_DB_LOAD_TIMEOUT_MS,
+              'Initial DB load',
+            );
             setDeletedTaskIdsByProject(pendingDeletedTasks);
             setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
             if (!Array.isArray(dbProjects)) throw new Error('Invalid projects response');

@@ -66,11 +66,34 @@ function stripProjectWritePayloadForError(
   return null;
 }
 
-async function updateProjectRowWithSchemaFallback(projectId: string, row: Record<string, unknown>): Promise<void> {
+/**
+ * RLS가 UPDATE를 USING 불충족으로 막으면 오류 없이 0행이 갱신된다(존재가 확인된 행이라도).
+ * 단건 편집(updateProject)에서는 이를 권한 오류로 올려, 서버 풀이 로컬 수정을 조용히
+ * 되돌리기 전에 사용자에게 알리고 dirty 플래그로 되돌림을 막는다. handleDbError가 42501을
+ * "편집 권한 없음" 안내로 매핑한다.
+ */
+class ProjectUpdatePermissionError extends Error {
+  code = '42501';
+  constructor() {
+    super('이 프로젝트를 편집할 권한이 없습니다. 소유자 또는 관리자만 수정할 수 있습니다.');
+    this.name = 'ProjectUpdatePermissionError';
+  }
+}
+
+async function updateProjectRowWithSchemaFallback(
+  projectId: string,
+  row: Record<string, unknown>,
+  detectPermissionDenied = false,
+): Promise<void> {
   let current: Record<string, unknown> = { ...row };
   for (let attempt = 0; attempt < 24; attempt++) {
-    const { error } = await supabase!.from('projects').update(current).eq('id', projectId);
-    if (!error) return;
+    const { data, error } = await supabase!.from('projects').update(current).eq('id', projectId).select('id');
+    if (!error) {
+      if (detectPermissionDenied && Array.isArray(data) && data.length === 0) {
+        throw new ProjectUpdatePermissionError();
+      }
+      return;
+    }
     const next = stripProjectWritePayloadForError(error, current);
     if (next) {
       current = next;
@@ -149,7 +172,7 @@ export async function fetchProjects(): Promise<Project[]> {
     .map(fromProjectRow);
 }
 
-export async function upsertProject(project: Project): Promise<void> {
+export async function upsertProject(project: Project, opts?: { detectPermissionDenied?: boolean }): Promise<void> {
   requireSupabase();
   const UPSERT_EXISTING_OPTIONAL = new Set(['end_date', 'pm_name', 'po_name', 'include_in_dashboard', 'formal_name']);
   let existingSelect = 'id, name, formal_name, description, start_date, end_date, pm_name, po_name, include_in_dashboard';
@@ -170,7 +193,7 @@ export async function upsertProject(project: Project): Promise<void> {
   // 프로젝트를 저장할 때 실패할 수 있음.
   // 따라서 "존재하면 update, 없으면 insert"로 분기한다.
   if (existingRow) {
-    await updateProjectRowWithSchemaFallback(project.id, row as unknown as Record<string, unknown>);
+    await updateProjectRowWithSchemaFallback(project.id, row as unknown as Record<string, unknown>, opts?.detectPermissionDenied === true);
   } else {
     // 백업/가져오기 데이터에는 ownerId가 타 사용자로 들어있을 수 있음.
     // RLS projects_insert는 owner_id = auth.uid()를 요구하므로,

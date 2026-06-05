@@ -17,6 +17,7 @@ export type BuiltInTableColumnId =
   | 'deliverables'
   | 'dependencies';
 export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;
+export type TableDisplayColumnId = TableColumnId | 'actions';
 
 export interface WBSTableProps {
   filters: FilterState;

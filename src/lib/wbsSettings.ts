@@ -41,8 +41,14 @@ export interface WBSSettings {
   skipImplicitTableColumnAutoFit?: boolean;
   /** 투입율 컬럼 기본 숨김 마이그레이션 완료 여부 */
   allocationHiddenMigrated?: boolean;
+  /** 진척 현황 컬럼을 계획→진척→차이 순으로 정렬 + 투입율 재숨김 마이그레이션 완료 여부 */
+  tableProgressLayoutMigrated?: boolean;
   /** 산출물 컬럼 기본 숨김 마이그레이션 완료 여부 */
   deliverablesHiddenMigrated?: boolean;
+  /** 선행작업 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  dependenciesHiddenMigrated?: boolean;
+  /** 관리 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  actionsHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -87,11 +93,12 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
     { id: 'status', visible: true },
-    { id: 'progress', visible: true },
     { id: 'plannedProgress', visible: true },
+    { id: 'progress', visible: true },
     { id: 'progressVariance', visible: true },
     { id: 'deliverables', visible: false },
-    { id: 'dependencies', visible: true },
+    { id: 'dependencies', visible: false },
+    { id: 'actions', visible: false },
   ],
   showCriticalPath: false,
   wrapTextInCells: false,
@@ -165,6 +172,47 @@ export function parseSettings(raw: unknown): WBSSettings {
       const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
       base.tableColumns = cols.map((c) => (c && c.id === 'deliverables' ? { ...c, visible: false } : c));
       base.deliverablesHiddenMigrated = true;
+    }
+
+    if (!parsed.dependenciesHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map((c) => (c && c.id === 'dependencies' ? { ...c, visible: false } : c));
+      base.dependenciesHiddenMigrated = true;
+    }
+
+    if (!parsed.actionsHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      if (cols.some((c) => c && c.id === 'actions')) {
+        base.tableColumns = cols.map((c) => (c && c.id === 'actions' ? { ...c, visible: false } : c));
+      } else {
+        base.tableColumns = [...cols, { id: 'actions', visible: false }];
+      }
+      base.actionsHiddenMigrated = true;
+    }
+
+    // 투입율 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이후 사용자가 컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.tableProgressLayoutMigrated) {
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) =>
+        c && c.id === 'allocation' ? { ...c, visible: false } : c,
+      );
+      base.tableProgressLayoutMigrated = true;
+    }
+
+    // 진척 현황 3종(계획·진척·차이)은 항상 계획→진척→차이 순서로 한데 묶어 표시한다.
+    // 저장값에 일부 컬럼이 없던 구버전도 올바른 위치(첫 trio 자리)에 채워 넣는다. 멱등.
+    {
+      const cols = Array.isArray(base.tableColumns) ? [...base.tableColumns] : [];
+      const trio = ['plannedProgress', 'progress', 'progressVariance'];
+      const inTrio = (c: { id: string } | null | undefined): boolean => !!c && trio.includes(c.id);
+      const existing = new Map(cols.filter(inTrio).map((c) => [c.id, c] as [string, { id: string; visible: boolean }]));
+      if (existing.size > 0) {
+        const firstTrioIdx = cols.findIndex(inTrio);
+        const insertAt = cols.slice(0, firstTrioIdx).filter((c) => !inTrio(c)).length;
+        const rest = cols.filter((c) => !inTrio(c));
+        const block = trio.map((id) => existing.get(id) ?? { id, visible: true });
+        rest.splice(insertAt, 0, ...block);
+        base.tableColumns = rest;
+      }
     }
 
     // 컬럼 너비 저장은 예전부터 있었으나 암묵적 자동맞춤 플래그는 이번에 추가됨 → 기존 저장이 있으면 덮어쓰지 않도록 기본 잠금

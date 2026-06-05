@@ -215,10 +215,16 @@ export function DashboardDetailPage({
   const [dailyList, setDailyList] = useState<DailyVisitorRow[]>([]);
   const [visitorRanking, setVisitorRanking] = useState<VisitorRankingRow[]>([]);
   const [visitTrend, setVisitTrend] = useState<{ visitDate: string; count: number }[]>([]);
+  /** 접속 현황: 금일 / 누적 탭 */
+  const [visitorSessionTab, setVisitorSessionTab] = useState<'today' | 'cumulative'>('today');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
 
   useEffect(() => {
     setMemberSearchQuery('');
+  }, [kind]);
+
+  useEffect(() => {
+    if (kind === 'visitors') setVisitorSessionTab('today');
   }, [kind]);
 
   const [actionDetailTask, setActionDetailTask] = useState<Task | null>(null);
@@ -935,100 +941,157 @@ export function DashboardDetailPage({
         {kind === 'visitors' && (
           <div className="space-y-4">
             <DashboardVisitTrendChart points={visitTrend} loading={dailyLoading} subtitle="세션당 하루 1회 집계" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">금일 접속(세션)</div>
-                <div className="text-3xl font-bold text-indigo-600 tabular-nums">{visitorStats.daily}</div>
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(72vh,560px)]">
+              <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:px-4">
+                <div
+                  className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
+                  role="tablist"
+                  aria-label="접속 세션 집계 구분"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    id="visitor-tab-today"
+                    aria-selected={visitorSessionTab === 'today'}
+                    aria-controls="visitor-panel-today"
+                    onClick={() => setVisitorSessionTab('today')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                      visitorSessionTab === 'today'
+                        ? 'bg-white text-indigo-900 shadow-sm border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900',
+                    )}
+                  >
+                    금일 접속
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="visitor-tab-cumulative"
+                    aria-selected={visitorSessionTab === 'cumulative'}
+                    aria-controls="visitor-panel-cumulative"
+                    onClick={() => setVisitorSessionTab('cumulative')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                      visitorSessionTab === 'cumulative'
+                        ? 'bg-white text-purple-900 shadow-sm border border-slate-200/80'
+                        : 'text-slate-600 hover:text-slate-900',
+                    )}
+                  >
+                    누적 접속
+                  </button>
+                </div>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-5">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">누적 접속(세션)</div>
-                <div className="text-3xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,480px)]">
-              <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-800 shrink-0">금일 접속자 명단</div>
-              <div className="p-4 overflow-y-auto flex-1 text-sm">
-                {dailyLoading ? (
-                  <p className="text-slate-500 text-center py-8">불러오는 중…</p>
-                ) : dailyList.length === 0 ? (
-                  <p className="text-slate-500 text-center py-6 text-sm">
-                    표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {dailyList.map((row) => (
-                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
-                        <span className="font-medium text-slate-800 break-words min-w-0">
-                          {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
-                        </span>
-                        <span className="text-xs text-slate-500 tabular-nums shrink-0 whitespace-nowrap">
-                          {row.visitedAt
-                            ? (() => {
-                                const d = new Date(row.visitedAt);
-                                return Number.isNaN(d.getTime())
-                                  ? row.visitedAt
-                                  : d.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-                              })()
-                            : '—'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(65vh,520px)]">
-              <div className="px-4 py-3 border-b border-slate-100 shrink-0">
-                <div className="text-sm font-bold text-slate-800">누적 접속 순위</div>
-                <div className="text-xs text-slate-500 mt-0.5">세션당 하루 1회 집계 · 접속 횟수 많은 순</div>
-              </div>
-              <div className="p-4 overflow-y-auto flex-1 text-sm">
-                {dailyLoading ? (
-                  <p className="text-slate-500 text-center py-8">불러오는 중…</p>
-                ) : visitorRanking.length === 0 ? (
-                  <p className="text-slate-500 text-center py-6 text-sm">
-                    표시할 기록이 없거나 DB 함수 <code className="text-xs bg-slate-100 px-1 rounded">get_visitor_ranking</code>이 아직
-                    배포되지 않았을 수 있습니다.
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    {visitorRanking.map((row, index) => (
-                      <li key={row.userId} className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
-                        <div className="flex items-start gap-2 min-w-0">
-                          <span
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-50 text-purple-800 text-xs font-bold tabular-nums shrink-0"
-                            aria-label={`${index + 1}위`}
+
+              {visitorSessionTab === 'today' && (
+                <div id="visitor-panel-today" role="tabpanel" aria-labelledby="visitor-tab-today" className="flex flex-col flex-1 min-h-0">
+                  <div className="shrink-0 px-4 sm:px-5 pt-4 pb-3 border-b border-slate-100">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">금일 접속(세션)</div>
+                    <div className="text-3xl font-bold text-indigo-600 tabular-nums">{visitorStats.daily}</div>
+                  </div>
+                  <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-800 shrink-0">금일 접속자 명단</div>
+                  <div className="p-4 overflow-y-auto flex-1 min-h-0 text-sm">
+                    {dailyLoading ? (
+                      <p className="text-slate-500 text-center py-8">불러오는 중…</p>
+                    ) : dailyList.length === 0 ? (
+                      <p className="text-slate-500 text-center py-6 text-sm">
+                        표시할 기록이 없거나 DB 함수가 아직 배포되지 않았을 수 있습니다.
+                      </p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {dailyList.map((row) => (
+                          <li
+                            key={row.userId}
+                            className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0"
                           >
-                            {index + 1}
-                          </span>
-                          <span className="font-medium text-slate-800 break-words pt-0.5">
-                            {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
-                          </span>
-                        </div>
-                        <div className="text-right shrink-0 space-y-0.5">
-                          <div className="text-sm font-bold text-purple-700 tabular-nums">{row.visitCount}회</div>
-                          <div className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
-                            마지막{' '}
-                            {row.lastVisitedAt
-                              ? (() => {
-                                  const d = new Date(row.lastVisitedAt);
-                                  return Number.isNaN(d.getTime())
-                                    ? row.lastVisitedAt
-                                    : d.toLocaleString('ko-KR', {
-                                        month: 'numeric',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                      });
-                                })()
-                              : '—'}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                            <span className="font-medium text-slate-800 break-words min-w-0">
+                              {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
+                            </span>
+                            <span className="text-xs text-slate-500 tabular-nums shrink-0 whitespace-nowrap">
+                              {row.visitedAt
+                                ? (() => {
+                                    const d = new Date(row.visitedAt);
+                                    return Number.isNaN(d.getTime())
+                                      ? row.visitedAt
+                                      : d.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                                  })()
+                                : '—'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {visitorSessionTab === 'cumulative' && (
+                <div
+                  id="visitor-panel-cumulative"
+                  role="tabpanel"
+                  aria-labelledby="visitor-tab-cumulative"
+                  className="flex flex-col flex-1 min-h-0"
+                >
+                  <div className="shrink-0 px-4 sm:px-5 pt-4 pb-3 border-b border-slate-100">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">누적 접속(세션)</div>
+                    <div className="text-3xl font-bold text-purple-600 tabular-nums">{visitorStats.total}</div>
+                  </div>
+                  <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+                    <div className="text-sm font-bold text-slate-800">누적 접속 순위</div>
+                    <div className="text-xs text-slate-500 mt-0.5">세션당 하루 1회 집계 · 접속 횟수 많은 순</div>
+                  </div>
+                  <div className="p-4 overflow-y-auto flex-1 min-h-0 text-sm">
+                    {dailyLoading ? (
+                      <p className="text-slate-500 text-center py-8">불러오는 중…</p>
+                    ) : visitorRanking.length === 0 ? (
+                      <p className="text-slate-500 text-center py-6 text-sm">
+                        표시할 기록이 없거나 DB 함수 <code className="text-xs bg-slate-100 px-1 rounded">get_visitor_ranking</code>이 아직
+                        배포되지 않았을 수 있습니다.
+                      </p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {visitorRanking.map((row, index) => (
+                          <li
+                            key={row.userId}
+                            className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 last:border-0"
+                          >
+                            <div className="flex items-start gap-2 min-w-0">
+                              <span
+                                className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple-50 text-purple-800 text-xs font-bold tabular-nums shrink-0"
+                                aria-label={`${index + 1}위`}
+                              >
+                                {index + 1}
+                              </span>
+                              <span className="font-medium text-slate-800 break-words pt-0.5">
+                                {formatAssigneeDisplay(row.displayName, assigneeDisplayMetaByName) || row.displayName}
+                              </span>
+                            </div>
+                            <div className="text-right shrink-0 space-y-0.5">
+                              <div className="text-sm font-bold text-purple-700 tabular-nums">{row.visitCount}회</div>
+                              <div className="text-[11px] text-slate-500 tabular-nums whitespace-nowrap">
+                                마지막{' '}
+                                {row.lastVisitedAt
+                                  ? (() => {
+                                      const d = new Date(row.lastVisitedAt);
+                                      return Number.isNaN(d.getTime())
+                                        ? row.lastVisitedAt
+                                        : d.toLocaleString('ko-KR', {
+                                            month: 'numeric',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          });
+                                    })()
+                                  : '—'}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

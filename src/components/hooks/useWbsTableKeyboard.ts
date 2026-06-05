@@ -522,11 +522,33 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // Allow paste even when no row is selected (e.g. focus on empty space)
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        // Paste copied tasks into current project (supports cross-project via localStorage clipboard)
+        // 1) 내부 작업 클립보드(Ctrl+X 등)가 있으면 기존처럼 작업 단위 붙여넣기
+        // 2) 없으면 시스템 클립보드 텍스트를 현재 커서 행의 작업명에 반영 (Ctrl+C로 복사한 작업명 등)
         e.preventDefault();
         const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
         if (clipboard.length === 0) {
-          pushToast('복사된 작업이 없습니다.', { variant: 'info' });
+          const cursorTaskId = focusedCell?.taskId ?? lastSelectedId;
+          if (!cursorTaskId) {
+            pushToast('작업을 선택한 뒤 붙여넣기 하세요.', { variant: 'info' });
+            return;
+          }
+          if (!canEditCurrentProject) return;
+          void (async () => {
+            let text = '';
+            try {
+              text = await navigator.clipboard.readText();
+            } catch {
+              pushToast('클립보드를 읽을 수 없습니다.', { variant: 'error' });
+              return;
+            }
+            const firstLine = (text.split(/\r?\n/)[0] ?? '').trim();
+            if (!firstLine) {
+              pushToast('붙여넣을 텍스트가 없습니다.', { variant: 'info' });
+              return;
+            }
+            updateTask(cursorTaskId, { name: firstLine });
+            pushToast('작업명을 붙여넣었습니다.', { variant: 'success' });
+          })();
           return;
         }
 
@@ -659,6 +681,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           void navigator.clipboard?.writeText(packed.text);
         } catch {
           // ignore clipboard errors (permissions, insecure context)
+        }
+        // 작업명만 복사할 때는 Ctrl+V가 작업 단위 붙여넣기로 오인되지 않도록 내부 작업 클립보드 비움
+        setCopiedTasks([]);
+        try {
+          localStorage.removeItem(CLIPBOARD_KEY);
+        } catch {
+          // ignore
         }
         pushToast('작업명을 복사했습니다.', { variant: 'success' });
         return;
@@ -1035,6 +1064,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     currentProjectId,
     projects,
     CLIPBOARD_KEY,
+    loadClipboardTasks,
   ]);
 
   // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지).
