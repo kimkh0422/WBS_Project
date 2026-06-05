@@ -1048,6 +1048,53 @@ export function WBSTable({
     }
   };
 
+  /**
+   * 지정한 작업 행의 "위"에 동일 레벨(형제) 새 작업을 추가하고, 그 새 행을 인라인 편집 모드로 진입.
+   * - 작업명 인라인 편집 input의 Shift+Enter 처리에서 호출
+   * - 동일 부모(parentId) 아래에 삽입. 기준 행 바로 앞 위치(visibleTasks에서 baseIndex-1 다음)에 들어감.
+   */
+  const insertRowAbove = useCallback(
+    (baseTaskId: string) => {
+      if (!canEditCurrentProject) return;
+      const baseTask = tasks.find((t) => t.id === baseTaskId);
+      if (!baseTask) return;
+      const proj = projects.find((p) => p.id === (baseTask.projectId || currentProjectId));
+      const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+      const baseIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
+      const insertAfterId = baseIndex > 0 ? visibleTasks[baseIndex - 1].id : undefined;
+      const newId = addTask(
+        {
+          name: '',
+          startDate: filters.startDate || defaultDate,
+          endDate: filters.endDate || defaultDate,
+          progress: 0,
+          workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
+          assignee: filters.assignee || '',
+          status: 'todo',
+          parentId: baseTask.parentId ?? null,
+        },
+        insertAfterId,
+      );
+      if (newId) {
+        setLastSelectedId(newId);
+        setInlineEditingNameIdCommitted(newId);
+      }
+    },
+    [
+      canEditCurrentProject,
+      tasks,
+      visibleTasks,
+      projects,
+      currentProjectId,
+      filters.startDate,
+      filters.endDate,
+      filters.assignee,
+      addTask,
+      setLastSelectedId,
+      setInlineEditingNameIdCommitted,
+    ],
+  );
+
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => {
       e.preventDefault();
@@ -1512,6 +1559,7 @@ export function WBSTable({
                               showActionsColumn={showActionsColumn}
                               isInlineEditingName={inlineEditingNameId === task.id}
                               setInlineEditingNameId={setInlineEditingNameIdCommitted}
+                              onInsertRowAbove={insertRowAbove}
                               editingCell={editingCell}
                               setEditingCell={setEditingCell}
                               focusedCell={focusedCell}

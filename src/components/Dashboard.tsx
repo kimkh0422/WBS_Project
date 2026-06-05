@@ -28,7 +28,8 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { isBefore, parseISO, startOfDay } from 'date-fns';
-import { cn, randomUUID, formatPercent1 } from '../lib/utils';
+import { cn, randomUUID, formatPercent1, aggregatePercentByWeight } from '../lib/utils';
+import { getUseWeightForProgressRollup } from '../lib/rollupOptions';
 import {
   PROJECT_KINDS,
   formatProjectDisplayName,
@@ -154,49 +155,29 @@ function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
   return get;
 }
 
-/** progress × weight 가중평균(Σw는 임의, Σ(pw)/Σw). 결과 0~100% 클램프 */
-function computeWeightedProgress(items: Task[]): number {
-  let totalWeight = 0;
-  let acc = 0;
-  for (const t of items) {
-    const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-    const w =
-      typeof t.weight === 'number' && Number.isFinite(t.weight)
-        ? t.weight
-        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-          ? t.workEffort
-          : 0;
-    totalWeight += w;
-    acc += p * w;
-  }
-  if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
-  if (items.length > 0)
-    return Math.min(
-      100,
-      Math.max(0, Math.round(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
-    );
+/** 집계 가중치: 입력 진척 가중치가 있으면 그 값, 없으면 공수(과제 단위 그대로). 가중치 OFF면 helper가 무시. */
+function dashWeightOf(t: Task): number {
+  if (typeof t.weight === 'number' && Number.isFinite(t.weight)) return t.weight;
+  if (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0) return t.workEffort;
   return 0;
 }
 
-/** computeWeightedProgress와 동일 가중 규칙으로 계획율을 집계 (값만 plannedById에서 가져옴) */
+/** 진척률 집계: 가중치 ON이면 (progress×weight) 가중평균, OFF면 단순평균. 결과 0~100% 클램프 — 요약 바와 동일 규칙. */
+function computeWeightedProgress(items: Task[]): number {
+  return aggregatePercentByWeight(
+    items.map((t) => ({ value: typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0, weight: dashWeightOf(t) })),
+    getUseWeightForProgressRollup(),
+    Math.round,
+  );
+}
+
+/** computeWeightedProgress와 동일 규칙으로 계획율을 집계 (값만 plannedById에서 가져옴) */
 function computeWeightedPlanned(items: Task[], plannedById: Map<string, number>): number {
-  let totalWeight = 0;
-  let acc = 0;
-  for (const t of items) {
-    const p = plannedById.get(t.id) ?? 0;
-    const w =
-      typeof t.weight === 'number' && Number.isFinite(t.weight)
-        ? t.weight
-        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-          ? t.workEffort
-          : 0;
-    totalWeight += w;
-    acc += p * w;
-  }
-  if (totalWeight > 0) return Math.min(100, Math.max(0, Math.round(acc / totalWeight)));
-  if (items.length > 0)
-    return Math.min(100, Math.max(0, Math.round(items.reduce((s, t) => s + (plannedById.get(t.id) ?? 0), 0) / items.length)));
-  return 0;
+  return aggregatePercentByWeight(
+    items.map((t) => ({ value: plannedById.get(t.id) ?? 0, weight: dashWeightOf(t) })),
+    getUseWeightForProgressRollup(),
+    Math.round,
+  );
 }
 
 type DivisionStatRow = {

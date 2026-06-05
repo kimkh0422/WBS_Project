@@ -1285,7 +1285,7 @@ export function AppHeader({
                   ? 'text-[var(--color-ink)] bg-[var(--color-bg)]'
                   : 'text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] hover:bg-[var(--color-bg)]',
               )}
-              title="가져오기·보내기·환경설정·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
+              title="가져오기·보내기·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
               aria-label="추가 옵션"
             >
               <MoreHorizontal size={17} />
@@ -1366,18 +1366,6 @@ export function AppHeader({
 
                   <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">설정</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      setIsSettingsModalOpen(true);
-                      tipOnce?.('menu.settings', '환경설정에서 WBS 표시, 상태/진척도, 표 컬럼(표시·순서) 등을 바꿀 수 있어요.');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
-                    title="WBS 열 구성, 상태·진척도 규칙, 앱 제목, 프로젝트 그룹·관심 목록 등 전역 설정을 변경합니다."
-                  >
-                    <Settings2 size={14} /> 환경설정
-                  </button>
                   <button
                     type="button"
                     onClick={() => {

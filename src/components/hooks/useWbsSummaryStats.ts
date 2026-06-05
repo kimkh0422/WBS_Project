@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import type { Task, Project } from '../../types';
-import { formatPercent1, round1 } from '../../lib/utils';
+import { aggregatePercentByWeight, formatPercent1, round1 } from '../../lib/utils';
 import { normalizeWorkEffortUnit, workEffortToManDays, workEffortUnitSuffixKo } from '../../lib/workEffortUnits';
 import { computePlannedProgressMap } from '../../lib/plannedProgress';
+import { getUseWeightForProgressRollup } from '../../lib/rollupOptions';
 import { envelopeProjectWithTaskDates } from '../../lib/projectPeriod';
 
 export interface SummaryStats {
@@ -29,6 +30,8 @@ export interface SummaryStats {
  * (weight 없으면 공수로 대체) 1레벨이 없으면 폴백으로 단말(리프) 단순 평균. 결과는 0~100%로 클램프.
  */
 export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], refDateIso?: string): SummaryStats | null {
+  // 가중치 ON/OFF 토글(전역 옵션)을 집계에 반영. 토글 시 WBSTable이 리렌더되어 새 값으로 재계산된다.
+  const useWeight = getUseWeightForProgressRollup();
   return useMemo(() => {
     const source = baseTasks;
     if (source.length === 0) return null;
@@ -74,28 +77,20 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
       return d;
     };
     const level1 = source.filter((t) => getDepth(t.id) === 0);
-    const computeWeighted = (items: Task[]) => {
-      let totalWeight = 0;
-      let acc = 0;
-      for (const t of items) {
-        const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-        const w =
-          typeof t.weight === 'number' && Number.isFinite(t.weight)
-            ? t.weight
-            : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-              ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
-              : 0;
-        totalWeight += w;
-        acc += p * w;
-      }
-      if (totalWeight > 0) return Math.min(100, Math.max(0, round1(acc / totalWeight)));
-      if (items.length > 0)
-        return Math.min(
-          100,
-          Math.max(0, round1(items.reduce((s, t) => s + (typeof t.progress === 'number' ? t.progress : 0), 0) / items.length)),
-        );
-      return 0;
-    };
+    // 집계 가중치: 입력한 진척 가중치가 있으면 그 값, 없으면 공수를 M/D로 환산. (가중치 OFF면 helper가 무시)
+    const weightForAgg = (t: Task) =>
+      typeof t.weight === 'number' && Number.isFinite(t.weight)
+        ? t.weight
+        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
+          ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
+          : 0;
+    const progressOf = (t: Task) => (typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0);
+    const computeWeighted = (items: Task[]) =>
+      aggregatePercentByWeight(
+        items.map((t) => ({ value: progressOf(t), weight: weightForAgg(t) })),
+        useWeight,
+        round1,
+      );
     const avgProgress =
       level1.length > 0
         ? computeWeighted(level1)
@@ -103,26 +98,14 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
           ? Math.min(100, Math.max(0, round1(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
           : 0;
 
-    // 전체 계획율: 전체 진척율과 동일한 집계 대상(level1 우선)·동일 가중(가중치→없으면 공수 M/D)으로 계산
+    // 전체 계획율: 전체 진척율과 동일한 집계 대상(level1 우선)·동일 가중·동일 가중치 ON/OFF 규칙으로 계산
     const plannedOf = (t: Task) => plannedById.get(t.id) ?? 0;
-    const weightForAgg = (t: Task) =>
-      typeof t.weight === 'number' && Number.isFinite(t.weight)
-        ? t.weight
-        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-          ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
-          : 0;
-    const computeWeightedPlanned = (items: Task[]) => {
-      let totalWeight = 0;
-      let acc = 0;
-      for (const t of items) {
-        const w = weightForAgg(t);
-        totalWeight += w;
-        acc += plannedOf(t) * w;
-      }
-      if (totalWeight > 0) return Math.min(100, Math.max(0, round1(acc / totalWeight)));
-      if (items.length > 0) return Math.min(100, Math.max(0, round1(items.reduce((s, t) => s + plannedOf(t), 0) / items.length)));
-      return 0;
-    };
+    const computeWeightedPlanned = (items: Task[]) =>
+      aggregatePercentByWeight(
+        items.map((t) => ({ value: plannedOf(t), weight: weightForAgg(t) })),
+        useWeight,
+        round1,
+      );
     const avgPlanned = level1.length > 0 ? computeWeightedPlanned(level1) : computeWeightedPlanned(forAggregate);
     const progressVarianceValue = round1(avgProgress - avgPlanned);
 
@@ -130,24 +113,27 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
     if (level1.length > 0) {
       const parts: string[] = [
         '요약 바「전체 진척율」은 WBS 레벨 1(최상위) 작업만 집계합니다.',
-        '각 1레벨 작업의 진척률에 가중치를 곱한 합을, 가중치 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.',
-        '가중치는 작업에 입력한 진척 가중치가 있으면 그 값을 쓰고, 없으면 공수를 해당 프로젝트 단위에서 M/D로 환산한 값을 씁니다.',
+        useWeight
+          ? '가중치 ON: 각 1레벨 작업의 진척률에 가중치를 곱한 합을, 가중치 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.'
+          : '가중치 OFF: 1레벨 작업 진척률의 단순 산술평균을 0~100% 범위로 소수 첫째 자리까지 반올림합니다(가중치 무시).',
+        ...(useWeight
+          ? ['가중치는 작업에 입력한 진척 가중치가 있으면 그 값을 쓰고, 없으면 공수를 해당 프로젝트 단위에서 M/D로 환산한 값을 씁니다.']
+          : []),
         `현재 표시: ${formatPercent1(avgProgress)}%`,
       ];
       const maxShow = 8;
       if (level1.length <= maxShow) {
-        parts.push('1레벨 작업별 기여(진척×가중):');
+        parts.push(useWeight ? '1레벨 작업별 기여(진척×가중):' : '1레벨 작업별 진척률:');
         for (const t of level1) {
-          const p = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-          const w =
-            typeof t.weight === 'number' && Number.isFinite(t.weight)
-              ? t.weight
-              : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-                ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
-                : 0;
+          const p = progressOf(t);
           const nm = (t.name ?? '').trim() || t.id;
           const short = nm.length > 26 ? `${nm.slice(0, 26)}…` : nm;
-          parts.push(`· ${short}: ${formatPercent1(p)}% × ${w} → ${Math.round(p * w * 100) / 100}`);
+          if (useWeight) {
+            const w = weightForAgg(t);
+            parts.push(`· ${short}: ${formatPercent1(p)}% × ${round1(w)} → ${Math.round(p * w * 100) / 100}`);
+          } else {
+            parts.push(`· ${short}: ${formatPercent1(p)}%`);
+          }
         }
       } else {
         parts.push(`1레벨 작업 ${level1.length}개(일부만 표시하려면 작업 수를 줄이거나 필터를 사용하세요).`);
@@ -181,7 +167,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
       leafCount: leafTasks.length,
       isSelection: false,
     };
-  }, [baseTasks, projects, refDateIso]);
+  }, [baseTasks, projects, refDateIso, useWeight]);
 }
 
 export function formatSummaryDate(d: string): string {

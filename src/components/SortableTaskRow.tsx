@@ -186,6 +186,8 @@ export interface SortableTaskRowProps {
   plannedProgress?: number;
   /** false면 레벨 배경·완료 시 자동 취소선 등 숨김(셀 서식 도구로 넣은 취소선은 유지) */
   showTableAutoFormatting?: boolean;
+  /** 작업명 인라인 편집 중 Shift+Enter — 현재 행 위에 형제(동일 부모) 새 작업 추가 + 새 행 인라인 편집 진입 */
+  onInsertRowAbove?: (baseTaskId: string) => void;
 }
 
 function SortableTaskRowInner({
@@ -236,6 +238,7 @@ function SortableTaskRowInner({
   rollupTooltipBaseTasks,
   plannedProgress,
   showTableAutoFormatting = true,
+  onInsertRowAbove,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -641,7 +644,7 @@ function SortableTaskRowInner({
                     e.stopPropagation();
                     // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
                     setTimeout(() => {
-                      commitWbsInlineNameEditFromDom(task.id, tasks, updateTask, canEdit);
+                      commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
                       setInlineEditingNameId(null);
                       setEditingCell(null);
                       setFocusedCell({ taskId: task.id, columnId: 'name' });
@@ -656,9 +659,15 @@ function SortableTaskRowInner({
                       if (isComposingKeyEvent(e.nativeEvent)) return;
                       e.preventDefault();
                       e.stopPropagation();
-                      commitWbsInlineNameEditFromDom(task.id, tasks, updateTask, canEdit);
+                      // 현재 작업명을 커밋(저장)
+                      commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
                       setInlineEditingNameId(null);
                       setEditingCell(null);
+                      if (e.shiftKey && onInsertRowAbove) {
+                        // Shift+Enter: 현재 행 "위"에 형제 새 작업을 추가하고, 새 행을 인라인 편집 모드로.
+                        onInsertRowAbove(task.id);
+                        return;
+                      }
                       setFocusedCell({ taskId: task.id, columnId: 'name' });
                       onFocusRow?.(task.id);
                       requestAnimationFrame(() => {
@@ -1598,7 +1607,7 @@ function SortableTaskRowInner({
                 taskIds.push(id);
               }
             }
-            const projectTasks = tasks.filter((t) => t.projectId === task.projectId);
+            const projectTasks = allProjectTasks.filter((t) => t.projectId === task.projectId);
             if (hasDependencyCycle(projectTasks, task.id, taskIds)) {
               pushToast('순환 의존관계가 발견되어 반영하지 않았습니다.', { variant: 'warning' });
               return;

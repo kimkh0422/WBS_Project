@@ -13,7 +13,8 @@ import {
   formatAssigneeDisplay,
 } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
-import { cn, formatPercent1, round1 } from '../lib/utils';
+import { cn, formatPercent1, round1, aggregatePercentByWeight } from '../lib/utils';
+import { getUseWeightForProgressRollup } from '../lib/rollupOptions';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 interface WeeklyReportModalProps {
@@ -257,8 +258,7 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
     const computeOverallProgress = (items: Task[]): { avgProgress: number; totalEffort: number } => {
       if (!items.length) return { avgProgress: 0, totalEffort: 0 };
       let totalWeight = 0;
-      let acc = 0;
-      for (const t of items) {
+      const forAgg = items.map((t) => {
         const p = typeof t.progress === 'number' ? t.progress : 0;
         const w =
           typeof t.weight === 'number' && Number.isFinite(t.weight)
@@ -267,10 +267,11 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
               ? t.workEffort
               : 0;
         totalWeight += w;
-        acc += p * w;
-      }
-      const avg = totalWeight > 0 ? Math.min(100, Math.max(0, round1(acc / totalWeight))) : 0;
-      return { avgProgress: avg, totalEffort: totalWeight };
+        return { value: p, weight: w };
+      });
+      // 가중치 ON: (진척×가중) 가중평균 / OFF: 단순평균. 표 요약 바와 동일 규칙.
+      const avgProgress = aggregatePercentByWeight(forAgg, getUseWeightForProgressRollup(), round1);
+      return { avgProgress, totalEffort: totalWeight };
     };
 
     const thisWeekDone: Task[] = [];

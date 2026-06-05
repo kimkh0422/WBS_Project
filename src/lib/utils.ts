@@ -75,6 +75,33 @@ export function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/**
+ * 진척률·계획율 등 백분율 집계.
+ * - useWeight=true: Σ(value×weight) ÷ Σweight 가중평균. Σweight가 0이면 단순평균으로 폴백.
+ * - useWeight=false: 가중치를 무시한 단순 산술평균.
+ * 결과는 0~100으로 클램프. 반올림 함수는 호출부가 지정(요약 바=round1, 대시보드=Math.round).
+ */
+export function aggregatePercentByWeight(
+  items: ReadonlyArray<{ value: number; weight: number }>,
+  useWeight: boolean,
+  round: (n: number) => number = (n) => n,
+): number {
+  if (items.length === 0) return 0;
+  const clamp = (n: number) => Math.min(100, Math.max(0, round(n)));
+  const valueOf = (v: number) => (Number.isFinite(v) ? v : 0);
+  const simpleAverage = () => clamp(items.reduce((s, it) => s + valueOf(it.value), 0) / items.length);
+  if (!useWeight) return simpleAverage();
+  let totalWeight = 0;
+  let acc = 0;
+  for (const it of items) {
+    const w = Number.isFinite(it.weight) ? it.weight : 0;
+    totalWeight += w;
+    acc += valueOf(it.value) * w;
+  }
+  if (totalWeight > 0) return clamp(acc / totalWeight);
+  return simpleAverage();
+}
+
 /** 소수 1자리까지만 표시 (정수면 소수점 생략). 가중치 등 한 자리만 의미 있는 수에 사용. */
 export function formatNum1(n: number): string {
   if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
