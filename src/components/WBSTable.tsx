@@ -4,6 +4,7 @@ import { useWBS } from '../context/WBSContext';
 import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatPercent1, round2 } from '../lib/utils';
 import { isTaskColumnMissingFromDb } from '../lib/db/tasks';
+import { getUseWeightForProgressRollup, setUseWeightForProgressRollup, onProgressRollupOptionChange } from '../lib/rollupOptions';
 import {
   ChevronDown,
   ChevronUp,
@@ -426,6 +427,17 @@ export function WBSTable({
   }, [plannedRefDateIso]);
   /** computePlannedProgressMap에 넘길 실제 ref date — 빈 문자열이면 undefined(=오늘 자동) */
   const effectivePlannedRef = plannedRefDateIso || undefined;
+
+  /** 가중치 진척 롤업 옵션의 React 거울(다른 곳에서 setter를 호출해도 UI 동기화). */
+  const [useWeightForRollup, setUseWeightForRollupState] = useState<boolean>(() => getUseWeightForProgressRollup());
+  useEffect(() => {
+    const off = onProgressRollupOptionChange((v) => setUseWeightForRollupState(v));
+    return off;
+  }, []);
+  const toggleUseWeightForRollup = useCallback((v: boolean) => {
+    setUseWeightForProgressRollup(v); // localStorage + 이벤트 발행 → WBSContext가 재계산
+    setUseWeightForRollupState(v); // 즉시 UI 반영
+  }, []);
 
   /** DnD 일괄 이동: 체크박스 다중 선택과 동기화(간트 등에서 빈 배열로 해제된 경우도 반영) */
   const dndSelectedTaskIds = useMemo(() => new Set(sharedSelectedTaskIds ?? []), [sharedSelectedTaskIds]);
@@ -1208,6 +1220,8 @@ export function WBSTable({
         summaryStats={summaryStats}
         plannedRefDateIso={plannedRefDateIso}
         setPlannedRefDateIso={setPlannedRefDateIso}
+        useWeightForRollup={useWeightForRollup}
+        setUseWeightForRollup={toggleUseWeightForRollup}
         isSplitView={isSplitView}
         maxTreeLevel={maxTreeLevel}
         treeExpandLevel={treeExpandLevel}

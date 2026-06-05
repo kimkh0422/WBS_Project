@@ -3,6 +3,7 @@ import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
+import { getUseWeightForProgressRollup } from './rollupOptions';
 
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
 function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<string> {
@@ -95,11 +96,16 @@ export function syncParentRollups(
   // 완료 상태인 경우 자식 롤업으로 덮어쓰지 않고 100% 유지
   if (doneStatusIds && parent.status && doneStatusIds.has(parent.status)) {
     parentProgress = 100;
-  } else if (totalWeight > 0) {
-    // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
-    parentProgress = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
-  } else if (children.length > 0) {
-    parentProgress = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
+  } else {
+    // 가중치 반영 여부 옵션(rollupOptions): true=가중평균 / false=단순평균(가중치 무시)
+    const useWeight = getUseWeightForProgressRollup();
+    if (useWeight && totalWeight > 0) {
+      // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
+      parentProgress = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
+    } else if (children.length > 0) {
+      // 가중치 미반영 모드 또는 가중치 합 0 → 자식 progress 단순 평균
+      parentProgress = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
+    }
   }
 
   const skipEffortRollup = skipWorkEffortRollupParentIds?.has(parentId) === true;

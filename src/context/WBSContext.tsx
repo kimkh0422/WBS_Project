@@ -43,6 +43,8 @@ import { useAuth } from './AuthContext';
 import { useWbsHistory } from '../hooks/useWbsHistory';
 import { StatusConfig, WBSSettings, DEFAULT_STATUS_CONFIGS, DEFAULT_SETTINGS, parseSettings } from '../lib/wbsSettings';
 import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks } from '../lib/rollups';
+import { getPlannedOverrideLocal } from '../lib/plannedOverrideLocalCache';
+import { onProgressRollupOptionChange } from '../lib/rollupOptions';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
 
@@ -602,7 +604,13 @@ export function WBSProvider({
           }
           setAllTasks((prev) => {
             const localMatch = prev.find((t) => t.id === serverTask.id);
-            const merged = localMatch ? { ...serverTask, expanded: localMatch.expanded } : serverTask;
+            let merged = localMatch ? { ...serverTask, expanded: localMatch.expanded } : serverTask;
+            // 계획율 수동값(plannedProgressOverride)은 이 기기의 로컬 입력이 우선이다.
+            // 실시간 서버 반영이 override 없는 값으로 덮어써 입력이 사라지지 않도록 로컬 캐시값으로 복원.
+            const cachedPlannedOverride = getPlannedOverrideLocal(merged.id);
+            if (cachedPlannedOverride !== undefined && cachedPlannedOverride !== merged.plannedProgressOverride) {
+              merged = { ...merged, plannedProgressOverride: cachedPlannedOverride };
+            }
             const next = prev.map((t) => (t.id === merged.id ? merged : t));
             if (localMatch) return next;
             return insertTaskBySortOrder(next, merged, row.sort_order);
@@ -1178,6 +1186,24 @@ export function WBSProvider({
       }
     }
   }, [currentProjectId]);
+
+  // 가중치 진척 롤업 옵션이 바뀌면 모든 부모 작업의 progress·계획율을 즉시 재계산.
+  // - 자식이 있는 부모(요약 행)의 progress를 NaN으로 일시 마킹 → syncParentRollups의 동일성 비교를
+  //   확실히 통과시켜 가중평균 ↔ 단순평균 결과가 같을 때도 새 배열·새 객체로 갱신되도록 강제.
+  // - 동시에 모든 task를 새 객체로 복사해 React.memo된 행이 확실히 리렌더되게 한다.
+  useEffect(() => {
+    const off = onProgressRollupOptionChange(() => {
+      setAllTasks((prev) => {
+        const parentIds = new Set<string>();
+        for (const t of prev) {
+          if (t.parentId) parentIds.add(t.parentId);
+        }
+        const stamped = prev.map((t) => (parentIds.has(t.id) ? { ...t, progress: Number.NaN as unknown as number } : { ...t }));
+        return applyRollupsToTasks(stamped, wbsSettingsRef.current.statusConfigs);
+      });
+    });
+    return off;
+  }, []);
 
   // ─── Undo ref ──────────────────────────────────────────────────────────────
   allTasksRef.current = allTasks;

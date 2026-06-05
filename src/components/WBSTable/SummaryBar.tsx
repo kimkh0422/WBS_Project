@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered, Sparkles } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered, Sparkles, Scale } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -38,6 +38,9 @@ interface SummaryBarProps {
   /** 계획율 기준일(YYYY-MM-DD). 빈 문자열이면 "오늘 자동" 모드. */
   plannedRefDateIso: string;
   setPlannedRefDateIso: (iso: string) => void;
+  /** 가중치 진척 롤업 사용 여부 (true=가중평균 / false=단순평균) */
+  useWeightForRollup: boolean;
+  setUseWeightForRollup: (v: boolean) => void;
   isSplitView: boolean;
   maxTreeLevel: number;
   treeExpandLevel: number;
@@ -66,6 +69,8 @@ export function SummaryBar({
   summaryStats,
   plannedRefDateIso,
   setPlannedRefDateIso,
+  useWeightForRollup,
+  setUseWeightForRollup,
   isSplitView,
   maxTreeLevel,
   treeExpandLevel,
@@ -226,6 +231,26 @@ export function SummaryBar({
                 보완 가이드
               </button>
             )}
+            {/* 가중치 진척 롤업 토글: 켜짐=가중평균, 꺼짐=단순평균. 변경 시 모든 부모 진척·계획율 즉시 재계산 */}
+            <button
+              type="button"
+              onClick={() => setUseWeightForRollup(!useWeightForRollup)}
+              aria-pressed={useWeightForRollup}
+              className={cn(
+                'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                useWeightForRollup
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+              )}
+              title={
+                useWeightForRollup
+                  ? '가중치 ON: 부모 진척률 = 자식의 (progress × weight) 가중평균.\n— 클릭하면 가중치를 무시한 단순 평균으로 전환합니다.'
+                  : '가중치 OFF: 부모 진척률 = 자식 progress의 단순 평균(가중치 무시).\n— 클릭하면 가중치 기반 가중평균으로 전환합니다.'
+              }
+            >
+              <Scale size={12} strokeWidth={2} aria-hidden />
+              가중치 {useWeightForRollup ? 'ON' : 'OFF'}
+            </button>
             {tableAutoFormatting && (
               <button
                 type="button"

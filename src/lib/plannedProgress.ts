@@ -1,6 +1,7 @@
 import { parseISO, isValid } from 'date-fns';
 import type { Task } from '../types';
 import { differenceInBusinessDaysEx, getHolidaysForTaskDates } from './calendar';
+import { getUseWeightForProgressRollup } from './rollupOptions';
 
 /**
  * 계획율(계획 진척률)과 계획 대비 진척 차이(일정 변동) 계산.
@@ -114,7 +115,9 @@ export function computePlannedProgressMap(tasks: Task[], refDateIso: string = to
         weightedSum += p * w;
         simpleSum += p;
       }
-      val = totalWeight > 0 ? weightedSum / totalWeight : simpleSum / kids.length;
+      // 가중치 반영 여부 옵션과 동일하게 동작(진척률 롤업과 일관)
+      const useWeight = getUseWeightForProgressRollup();
+      val = useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / kids.length;
     }
 
     val = Math.min(100, Math.max(0, val));
