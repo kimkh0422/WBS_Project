@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   name text NOT NULL,
   start_date date NOT NULL,
   end_date date NOT NULL,
-  progress integer DEFAULT 0,
+  progress numeric(6, 2) DEFAULT 0,
   assignee text DEFAULT '',
   status text DEFAULT 'todo',
   expanded boolean DEFAULT false,

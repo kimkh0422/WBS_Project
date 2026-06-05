@@ -62,7 +62,7 @@ export function AppFilterBar({
 
   return (
     <div
-      className="bg-[var(--color-surface)]/80 backdrop-blur-lg border-b border-[var(--color-line)]/50 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40"
+      className="bg-[var(--color-surface)]/80 backdrop-blur-2xl border-b border-[var(--color-line)]/50 px-4 py-2.5 flex flex-wrap items-start gap-2 shrink-0 z-40 transition-colors duration-300"
       style={{ boxShadow: 'var(--shadow-sm)' }}
     >
       {/* 프로젝트 (다중 선택) */}

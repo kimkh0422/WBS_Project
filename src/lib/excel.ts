@@ -1,9 +1,11 @@
 import * as XLSX from 'xlsx';
+import type { Cell as ExcelCell, Font as ExcelFont } from 'exceljs';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
-import { Task, TaskStatus, Project } from '../types';
-import { randomUUID, round2, formatPercent1 } from './utils';
+import { Task, TaskStatus, Project, type CellTextStyle } from '../types';
+import { randomUUID, round2, formatPercent1, formatNum1 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
+import { computePlannedProgressMap } from './plannedProgress';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -861,8 +863,9 @@ function getAllocationRateString(
 ): string {
   const assignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
   const current = (task.assignee || '').trim();
-  const match = current ? assignments.find((a) => (a.assignee || '').trim() === current) : assignments[0];
-  return match ? `${formatPercent1(match.allocationPercent)}%` : '';
+  // 미배정(담당자 없음)이면 첫 배분값으로 대체하지 않는다 — 화면과 동일하게 '—' 표시.
+  const match = current ? assignments.find((a) => (a.assignee || '').trim() === current) : undefined;
+  return match ? `${formatPercent1(match.allocationPercent)}%` : '—';
 }
 
 /** Excel 시트명: 31자 제한, \ / ? * [ ] : 문자 불가 */
@@ -885,120 +888,231 @@ function toSheetName(name: string, used: Set<string>): string {
 /** 프로젝트 ID → 프로젝트명 맵. 여러 프로젝트 내보낼 때 시트명용 */
 export type ProjectNameMap = Map<string, string>;
 
-export const exportToExcel = (
+/** "2026-05-15" → "2026년 5월 15일" (화면 표기와 동일). 형식이 다르면 원문 유지 */
+function koreanDate(iso?: string): string {
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[1]}년 ${Number(m[2])}월 ${Number(m[3])}일` : iso;
+}
+
+/** #rrggbb → ExcelJS ARGB("FFRRGGBB") */
+function hexToArgb(hex?: string): string | undefined {
+  if (!hex) return undefined;
+  let h = hex.replace('#', '').trim();
+  if (h.length === 3)
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  return /^[0-9a-fA-F]{6}$/.test(h) ? `FF${h.toUpperCase()}` : undefined;
+}
+
+/** 화면 셀 서식(cellTextStyles)을 엑셀 셀 글꼴/배경으로 반영 */
+function applyCellStyle(cell: ExcelCell, style?: CellTextStyle): void {
+  if (!style) return;
+  const font: Partial<ExcelFont> = { ...(cell.font ?? {}) };
+  let touched = false;
+  if (style.fontFamily) {
+    font.name = style.fontFamily;
+    touched = true;
+  }
+  if (typeof style.fontSize === 'number' && style.fontSize > 0) {
+    // 화면 px → 엑셀 pt(≈ ×0.75)로 환산해 시각 크기를 맞춤
+    font.size = Math.max(6, Math.round(style.fontSize * 0.75));
+    touched = true;
+  }
+  const color = hexToArgb(style.color);
+  if (color) {
+    font.color = { argb: color };
+    touched = true;
+  }
+  if (style.bold) {
+    font.bold = true;
+    touched = true;
+  }
+  if (style.italic) {
+    font.italic = true;
+    touched = true;
+  }
+  if (style.underline) {
+    font.underline = true;
+    touched = true;
+  }
+  if (style.strikethrough) {
+    font.strike = true;
+    touched = true;
+  }
+  if (touched) cell.font = font;
+  const bg = hexToArgb(style.backgroundColor);
+  if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+}
+
+type ExportColumn = { id: string; header: string; width: number; align?: 'left' | 'center' | 'right' };
+const EXPORT_COLUMNS: ExportColumn[] = [
+  { id: 'seq', header: '#', width: 5, align: 'center' },
+  { id: 'wbsId', header: 'WBS', width: 11 },
+  { id: 'name', header: '작업명', width: 40 },
+  { id: 'startDate', header: '시작일', width: 15 },
+  { id: 'endDate', header: '종료일', width: 15 },
+  { id: 'workEffort', header: '공수(일)', width: 9, align: 'right' },
+  { id: 'assignee', header: '담당자', width: 20 },
+  { id: 'allocation', header: '투입율', width: 9, align: 'right' },
+  { id: 'weight', header: '가중치', width: 8, align: 'right' },
+  { id: 'status', header: '상태', width: 9, align: 'center' },
+  { id: 'progress', header: '진척(%)', width: 9, align: 'right' },
+  { id: 'deliverables', header: '산출물', width: 18 },
+  { id: 'dependencies', header: '선행작업', width: 12 },
+  { id: 'planned', header: '계획(%)', width: 9, align: 'right' },
+  { id: 'variance', header: '차이(%P)', width: 10, align: 'right' },
+];
+
+/**
+ * 화면(웹)과 동일하게 내보내기.
+ * - SheetJS는 셀 서식을 저장하지 못하므로 ExcelJS로 작성(글꼴·색·크기·배경 보존).
+ * - 컬럼·값(한국어 날짜, 상태 이름, 선행=순번, 계획%/차이, 가중치, # 순번)을 표 화면과 맞춤.
+ * - 프로젝트별 시트(현재 프로젝트만 내보내면 1개 시트).
+ */
+export const exportToExcel = async (
   tasks: Task[],
   wbsMap: Map<string, string>,
   fileName: string = 'wbs_export.xlsx',
   projects: Project[] = [],
   projectNameMap?: ProjectNameMap,
   assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>,
-) => {
+  statusConfigs?: Array<{ id: string; name: string }>,
+): Promise<void> => {
+  const ExcelJSMod = await import('exceljs');
+  const ExcelJS = (ExcelJSMod as unknown as { default?: typeof ExcelJSMod }).default ?? ExcelJSMod;
+
   const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
   const nameMap = projectNameMap ?? new Map(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
+  const statusName = (id?: string) => statusConfigs?.find((c) => c.id === id)?.name ?? id ?? '';
 
-  // 프로젝트별로 작업 그룹화 (projects 순서 유지)
   const tasksByProject = new Map<string, Task[]>();
-  for (const p of projects) {
+  for (const p of projects)
     tasksByProject.set(
       p.id,
       tasks.filter((t) => t.projectId === p.id),
     );
-  }
 
-  const workbook = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
   const usedSheetNames = new Set<string>();
 
   for (const project of projects) {
     const projectTasks = tasksByProject.get(project.id) ?? [];
 
-    // 해당 프로젝트 작업만으로 WBS 맵 생성
+    // WBS 코드 + 표시 순서(트리 펼침 순)
     const exportWbsMap = new Map<string, string>();
     const orderedTasks: Task[] = [];
     const fillWbs = (parentId: string | null) => {
       const children = projectTasks.filter((t) => t.parentId === parentId);
       children.forEach((child, index) => {
         const contextVal = wbsMap.get(child.id);
-        if (contextVal) {
-          exportWbsMap.set(child.id, contextVal);
-        } else {
+        if (contextVal) exportWbsMap.set(child.id, contextVal);
+        else {
           const parentWbs = parentId ? exportWbsMap.get(parentId) || '' : '';
           exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
         }
         orderedTasks.push(child);
-        fillWbs(child.id);
+        // 화면과 동일하게: 접힌(펼치지 않은) 작업의 하위는 내보내지 않는다(task.expanded 반영).
+        if (child.expanded) fillWbs(child.id);
       });
     };
     fillWbs(null);
 
-    const rowFromTask = (task: Task) => {
-      const wbsCode = exportWbsMap.get(task.id) || '';
-      const level = wbsCode ? wbsCode.split('.').filter(Boolean).length : 1;
-      const allocationRate = getAllocationRateString(task, projectAssignmentsByProjectId);
-      return {
-        [HEADER_MAP.wbsId]: wbsCode,
-        [HEADER_MAP.level]: level,
-        [HEADER_MAP.name]: task.name,
-        [HEADER_MAP.startDate]: task.startDate,
-        [HEADER_MAP.endDate]: task.endDate,
-        [HEADER_MAP.progress]: `${formatPercent1(Number(task.progress ?? 0))}%`,
-        [HEADER_MAP.assignee]: formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName),
-        투입율: allocationRate,
-        [HEADER_MAP.status]: task.status,
-        [HEADER_MAP.dependencies]: task.dependencies ? task.dependencies.join(',') : '',
-        [HEADER_MAP.workEffort]: task.workEffort || 0,
-        [HEADER_MAP.deliverables]: task.deliverables || '',
-      };
+    const seqOf = new Map<string, number>();
+    orderedTasks.forEach((t, i) => seqOf.set(t.id, i + 1));
+    const plannedMap = computePlannedProgressMap(projectTasks);
+    const depSeqs = (t: Task) =>
+      (t.dependencies ?? [])
+        .map((id) => seqOf.get(id))
+        .filter((n): n is number => typeof n === 'number')
+        .sort((a, b) => a - b)
+        .join(', ');
+
+    const valueOf = (t: Task, colId: string): string | number => {
+      switch (colId) {
+        case 'seq':
+          return seqOf.get(t.id) ?? '';
+        case 'wbsId':
+          return exportWbsMap.get(t.id) || '';
+        case 'name':
+          return t.name ?? '';
+        case 'startDate':
+          return koreanDate(t.startDate);
+        case 'endDate':
+          return koreanDate(t.endDate);
+        case 'workEffort':
+          return t.workEffort ?? 0;
+        case 'assignee':
+          return formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName);
+        case 'allocation':
+          return getAllocationRateString(t, projectAssignmentsByProjectId);
+        case 'weight':
+          return t.weight != null ? formatNum1(t.weight) : '-';
+        case 'status':
+          return statusName(t.status);
+        case 'progress':
+          return `${formatPercent1(Number(t.progress ?? 0))}%`;
+        case 'deliverables':
+          return t.deliverables || '';
+        case 'dependencies':
+          return depSeqs(t);
+        case 'planned': {
+          const p = plannedMap.get(t.id);
+          return p == null ? '' : `${formatPercent1(p)}%`;
+        }
+        case 'variance': {
+          const p = plannedMap.get(t.id);
+          if (p == null) return '—';
+          const v = Number(t.progress ?? 0) - p;
+          return `${v > 0 ? '+' : ''}${formatPercent1(v)}%p`;
+        }
+        default:
+          return '';
+      }
     };
 
-    const data =
-      orderedTasks.length > 0
-        ? orderedTasks.map(rowFromTask)
-        : [
-            {
-              [HEADER_MAP.wbsId]: '',
-              [HEADER_MAP.level]: '',
-              [HEADER_MAP.name]: '(작업 없음)',
-              [HEADER_MAP.startDate]: project.startDate ?? '',
-              [HEADER_MAP.endDate]: project.endDate ?? '',
-              [HEADER_MAP.progress]: '0%',
-              [HEADER_MAP.assignee]: '',
-              투입율: '',
-              [HEADER_MAP.status]: '',
-              [HEADER_MAP.dependencies]: '',
-              [HEADER_MAP.workEffort]: 0,
-              [HEADER_MAP.deliverables]: '',
-            },
-          ];
+    const ws = wb.addWorksheet(toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames), {
+      // 헤더행 + 좌측 #·WBS·작업명 고정(웹 표와 유사)
+      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }],
+    });
+    ws.columns = EXPORT_COLUMNS.map((c) => ({ width: c.width }));
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    // WBS번호·레벨 열을 텍스트로 고정해 엑셀에서 숫자로 변환되지 않도록 함 (1.2.1 → 1.21 방지)
-    const firstKeys = data.length > 0 ? Object.keys(data[0]) : [];
-    const wbsColIndex = firstKeys.indexOf(HEADER_MAP.wbsId);
-    const levelColIndex = firstKeys.indexOf(HEADER_MAP.level);
-    for (let r = 0; r < data.length; r++) {
-      const rowIndex = r + 1; // row 0 = 헤더
-      if (wbsColIndex >= 0) {
-        const ref = XLSX.utils.encode_cell({ c: wbsColIndex, r: rowIndex });
-        const cell = worksheet[ref];
-        if (cell) {
-          cell.t = 's';
-          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.wbsId] ?? '');
-        }
-      }
-      if (levelColIndex >= 0) {
-        const ref = XLSX.utils.encode_cell({ c: levelColIndex, r: rowIndex });
-        const cell = worksheet[ref];
-        if (cell) {
-          cell.t = 's';
-          cell.v = String((data[r] as Record<string, unknown>)[HEADER_MAP.level] ?? '');
-        }
+    // 헤더
+    const headerRow = ws.addRow(EXPORT_COLUMNS.map((c) => c.header));
+    headerRow.height = 22;
+    headerRow.eachCell({ includeEmpty: true }, (cell, ci) => {
+      cell.font = { bold: true, size: 10, color: { argb: 'FF334155' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+      cell.alignment = { vertical: 'middle', horizontal: EXPORT_COLUMNS[ci - 1]?.align ?? 'left' };
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+    });
+
+    if (orderedTasks.length === 0) {
+      const r = ws.addRow(EXPORT_COLUMNS.map((c) => (c.id === 'name' ? '(작업 없음)' : '')));
+      r.getCell(3).font = { italic: true, color: { argb: 'FF94A3B8' } };
+    } else {
+      for (const task of orderedTasks) {
+        const row = ws.addRow(EXPORT_COLUMNS.map((c) => valueOf(task, c.id)));
+        row.eachCell({ includeEmpty: true }, (cell, ci) => {
+          const col = EXPORT_COLUMNS[ci - 1];
+          if (!col) return;
+          cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+          applyCellStyle(cell, task.cellTextStyles?.[col.id]);
+        });
       }
     }
-    const sheetName = toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames);
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   }
 
-  XLSX.writeFile(workbook, fileName);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 export const parseExcel = (file: File): Promise<Task[]> => {

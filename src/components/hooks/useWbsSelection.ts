@@ -19,18 +19,28 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
   /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
   const rangeAnchorRef = useRef<string | null>(null);
+  /** 체크 선택 배열의 내용이 바뀐 경우에만 true — `visibleTasks`만 바뀐 effect 재실행에 lastSelectedId가 덮어써지지 않게 함 */
+  const prevSharedIdsSigRef = useRef<string | null>(null);
 
   // 외부(검색/알림/간트 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set 동기화.
   // 빈 배열([])도 반영 — 간트에서 선택 해제했을 때 표가 그대로 남는 버그 방지.
   useEffect(() => {
     if (!sharedSelectedTaskIds) return;
+    const sig = [...sharedSelectedTaskIds].sort().join('|');
+    const selectionContentChanged = prevSharedIdsSigRef.current !== sig;
+    prevSharedIdsSigRef.current = sig;
+
     const shared = new Set(sharedSelectedTaskIds);
     setSelectedTaskIds((prev) => {
       if (prev.size === shared.size && [...shared].every((id) => prev.has(id))) return prev;
       return shared;
     });
+    // 단일 체크일 때 매 effect마다 lastSelectedId를 그 행으로 고정하면,
+    // 스페이스로 체크한 뒤 ↑/↓로 옮긴 키보드 포커스가 다음 렌더에서 다시 체크된 행으로 되돌아간다.
     if (sharedSelectedTaskIds.length === 1) {
-      setLastSelectedId(sharedSelectedTaskIds[0]);
+      if (selectionContentChanged) {
+        setLastSelectedId(sharedSelectedTaskIds[0]);
+      }
     } else if (sharedSelectedTaskIds.length === 0) {
       // 체크 선택만 해제(Esc·간트 동기 등)할 때 `lastSelectedId`를 무조건 null로 두면
       // `focusedCell`도 Esc로 지워진 뒤 화살표 기준 셀이 사라져 키보드 이동이 멈춘다.

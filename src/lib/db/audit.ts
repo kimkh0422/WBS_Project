@@ -103,6 +103,7 @@ export function diffTaskFields(
     'is_milestone',
     'is_issue',
     'is_action_item',
+    'planned_progress_override',
   ];
   for (const key of fields) {
     const o = oldRow[key];

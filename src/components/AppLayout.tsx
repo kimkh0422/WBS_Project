@@ -35,7 +35,7 @@ export function AppLayout({
   return (
     <div
       className={cn(
-        'flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-indigo-200 selection:text-indigo-900 overflow-hidden h-screen',
+        'flex flex-col bg-[var(--color-bg)] font-sans text-[var(--color-ink)] selection:bg-[var(--color-accent)]/20 selection:text-[var(--color-accent-hover)] overflow-hidden h-screen transition-colors duration-300',
         isFullscreen && 'fixed inset-0 z-50',
       )}
     >
@@ -53,7 +53,7 @@ export function AppLayout({
 
       <main
         className={cn(
-          'min-h-0 overflow-hidden flex flex-row relative flex-1',
+          'min-h-0 overflow-hidden flex flex-row relative flex-1 transition-all duration-300',
           lockMobileToDashboard ? 'pb-0' : 'pb-[72px] md:pb-0',
           isFullscreen && 'fixed inset-0 z-50 bg-[var(--color-surface)]',
         )}
@@ -66,7 +66,9 @@ export function AppLayout({
           }
         >
           <div className="flex flex-1 min-h-0 min-w-0 flex-row overflow-hidden">
-            <div className="flex-1 min-h-0 min-w-0 h-full flex flex-col overflow-hidden relative bg-white">{children}</div>
+            <div className="flex-1 min-h-0 min-w-0 h-full flex flex-col overflow-hidden relative bg-[var(--color-surface)] transition-colors duration-300">
+              {children}
+            </div>
           </div>
         </React.Suspense>
       </main>

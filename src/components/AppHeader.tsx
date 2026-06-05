@@ -55,6 +55,7 @@ import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assigneeOptions';
 import { WbsFilterBar } from './FilterBar';
 import type { Project, Task } from '../types';
+import { isProjectMineForUserListFilter } from '../lib/projectMineFilter';
 import type { WBSSettings } from '../lib/wbsSettings';
 import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -116,6 +117,8 @@ export interface AppHeaderProps {
   onDashboardFilterToolbarClick?: () => void;
   tipOnce: (key: string, msg: string) => void;
   currentUserDisplay: string;
+  /** 프로필 본명 등. 「내 프로젝트만」에서 PM 이름과 비교 */
+  currentUserPlainName?: string;
   signOut: () => void;
   isMoreMenuOpen: boolean;
   setIsMoreMenuOpen: (v: boolean) => void;
@@ -206,6 +209,7 @@ export function AppHeader({
   onDashboardFilterToolbarClick,
   tipOnce,
   currentUserDisplay,
+  currentUserPlainName = '',
   signOut,
   isMoreMenuOpen,
   setIsMoreMenuOpen,
@@ -345,11 +349,11 @@ export function AppHeader({
 
   const displayProjects = useMemo(() => {
     const base = projectsSortedByName;
-    if (listFilter === 'my' && user?.id) return base.filter((p) => p.ownerId === user.id);
+    if (listFilter === 'my' && user?.id) return base.filter((p) => isProjectMineForUserListFilter(p, user.id, currentUserPlainName));
     if (listFilter === 'favorites') return base.filter((p) => favoriteIds.has(p.id));
     if (listFilter === 'dashboardOn') return base.filter((p) => p.includeInDashboard !== false);
     return base;
-  }, [projectsSortedByName, listFilter, favoriteIds, user?.id]);
+  }, [projectsSortedByName, listFilter, favoriteIds, user?.id, currentUserPlainName]);
 
   const dashboardExcludedInListCount = useMemo(
     () => projectsSortedByName.filter((p) => p.includeInDashboard === false).length,
@@ -503,10 +507,10 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        'bg-[var(--color-surface)]/90 backdrop-blur-xl border-b border-[var(--color-line)]/60 z-50 safe-top transition-all duration-200',
+        'bg-[var(--color-surface)]/90 backdrop-blur-2xl border-b border-[var(--color-line)]/50 z-50 safe-top transition-all duration-300',
         isHeaderCollapsed ? 'py-1.5 px-3 md:py-2 md:px-6' : 'px-4 md:px-6 py-2',
       )}
-      style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.02)' }}
+      style={{ boxShadow: 'var(--shadow-md), inset 0 -1px 0 rgba(0,0,0,0.02)' }}
     >
       {/* 모바일 접힌 상태: 최소 바 */}
       <div className={cn('flex md:hidden items-center justify-between gap-2', !isHeaderCollapsed && 'hidden')}>
@@ -570,29 +574,38 @@ export function AppHeader({
                   if (tipOnce) tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
                 }}
                 className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--color-bg)] rounded-lg transition-all border border-transparent hover:border-[var(--color-line)]"
-                title="프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다."
+                title={
+                  dashboardFilterBarMode
+                    ? '표·간트 등 작업 화면에서 사용할 프로젝트를 선택합니다. 대시보드 표시 범위는「필터」로 조정합니다.'
+                    : '프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다.'
+                }
               >
                 <div className="flex flex-col items-start min-w-0">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">프로젝트</span>
                   <div className="flex items-center gap-1.5 text-[13px] font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-tight">
                     <span className="break-words text-left inline-flex flex-wrap items-center gap-1">
-                      {currentProjectId === 'all' ? (
+                      {dashboardFilterBarMode ? (
+                        '프로젝트를 선택하세요'
+                      ) : currentProjectId === 'all' ? (
                         `전체 프로젝트${allTasks.length > 0 ? ` (${allTasks.length}개)` : ''}`
                       ) : currentProject ? (
                         <ProjectNameLabel project={currentProject} name={currentProject.name} />
                       ) : (
                         '프로젝트 선택'
                       )}
-                      {currentProjectId !== 'all' && currentProject && (taskCountByProject[currentProjectId] ?? 0) > 0 && (
-                        <span className="text-slate-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
-                      )}
+                      {!dashboardFilterBarMode &&
+                        currentProjectId !== 'all' &&
+                        currentProject &&
+                        (taskCountByProject[currentProjectId] ?? 0) > 0 && (
+                          <span className="text-slate-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
+                        )}
                     </span>
                     <ChevronDown
                       size={14}
                       className={cn('text-slate-400 transition-transform duration-200', isProjectDropdownOpen && 'rotate-180')}
                     />
                   </div>
-                  {currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
+                  {!dashboardFilterBarMode && currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
                     <span
                       className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5"
                       title={
@@ -610,7 +623,7 @@ export function AppHeader({
                   )}
                 </div>
               </button>
-              {presenceOthers && presenceOthers.length > 0 && currentProjectId !== 'all' && (
+              {presenceOthers && presenceOthers.length > 0 && currentProjectId !== 'all' && !dashboardFilterBarMode && (
                 <div
                   className="absolute left-0 top-full mt-1 flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200/80 text-amber-800 text-xs"
                   title="다른 사용자가 이 프로젝트를 보고 있습니다. 동시에 수정하면 충돌할 수 있어 저장 후 새로고침됩니다."
@@ -649,7 +662,11 @@ export function AppHeader({
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                                   : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-[var(--color-line)]',
                               )}
-                              title={listFilter === 'my' ? '전체 프로젝트 보기' : '내가 만든 프로젝트만 보기'}
+                              title={
+                                listFilter === 'my'
+                                  ? '전체 프로젝트 보기'
+                                  : '내가 소유자이거나, PM 이름이 내 프로필 이름과 같은 프로젝트만 보기'
+                              }
                             >
                               <User size={10} />내 프로젝트만
                             </button>

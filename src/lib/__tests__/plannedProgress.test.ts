@@ -109,6 +109,36 @@ describe('computePlannedProgressMap (부모 롤업)', () => {
   });
 });
 
+describe('computePlannedProgressMap plannedProgressOverride', () => {
+  it('리프: 수동 지정이 일정 기반 값을 덮어씀', () => {
+    const t = task({
+      id: 'x',
+      startDate: '2026-06-01',
+      endDate: '2026-06-30',
+      plannedProgressOverride: 12,
+    });
+    const map = computePlannedProgressMap([t], '2026-06-15', NO_HOLIDAYS);
+    expect(map.get('x')).toBe(12);
+  });
+
+  it('리프: 0~100 밖은 클램프', () => {
+    const lo = task({ id: 'lo', plannedProgressOverride: -5, startDate: '2026-06-01', endDate: '2026-06-10' });
+    const hi = task({ id: 'hi', plannedProgressOverride: 150, startDate: '2026-06-01', endDate: '2026-06-10' });
+    const map = computePlannedProgressMap([lo, hi], '2026-06-05', NO_HOLIDAYS);
+    expect(map.get('lo')).toBe(0);
+    expect(map.get('hi')).toBe(100);
+  });
+
+  it('부모 롤업에 자식 수동 값이 반영됨', () => {
+    const ref = '2026-06-10';
+    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 40, weight: 1 });
+    const childB = task({ id: 'B', parentId: 'P', startDate: '2026-12-01', endDate: '2026-12-31', weight: 1 });
+    const parent = task({ id: 'P', startDate: '2026-01-01', endDate: '2026-12-31' });
+    const map = computePlannedProgressMap([parent, childA, childB], ref, NO_HOLIDAYS);
+    expect(map.get('P')).toBeCloseTo(20);
+  });
+});
+
 describe('progressVariance', () => {
   it('실제 − 계획. 양수=앞섬, 음수=지연', () => {
     expect(progressVariance(80, 50)).toBe(30);

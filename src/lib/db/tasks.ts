@@ -24,6 +24,8 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'custom_fields',
   // 낙관적 잠금·동기화 (20250308000000)
   'updated_at',
+  // 계획율 수동 지정 (20260605140000)
+  'planned_progress_override',
 ]);
 
 export function isTaskOptionalColumnSchemaError(err: { code?: string; message?: string }, columnName: string): boolean {

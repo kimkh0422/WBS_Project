@@ -1,7 +1,7 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.6.40",
+  "version": "0.6.44",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -45,6 +45,7 @@
     "ag-grid-react": "^35.1.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lib0": "^0.2.117",

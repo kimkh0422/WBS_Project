@@ -71,6 +71,7 @@ import { useMatchMedia } from './hooks/useMatchMedia';
 import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
 import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
+import { isProjectMineForUserListFilter } from './lib/projectMineFilter';
 import { isInternalCompanyEmail } from './lib/emailDomain';
 import { useOrganization } from './context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
@@ -577,7 +578,18 @@ function WBSApp({
       });
   }, [isLoading, setCurrentProjectId, pushToast]);
 
-  const [sharedRowHeight, setSharedRowHeight] = useState(20);
+  const [sharedRowHeight, setSharedRowHeight] = useState<number>(() => {
+    if (typeof window === 'undefined') return 30;
+    const saved = Number(window.localStorage.getItem('wbs.rowHeight'));
+    return Number.isFinite(saved) && saved >= 15 && saved <= 64 ? saved : 30; // 기본 30px(쾌적). 슬라이더로 바꾼 값은 기억된다.
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('wbs.rowHeight', String(sharedRowHeight));
+    } catch {
+      /* ignore quota */
+    }
+  }, [sharedRowHeight]);
 
   useEffect(() => {
     document.title = wbsSettings.appTitle;
@@ -914,6 +926,7 @@ function WBSApp({
     backupConfirm,
     multiMergeConfirm,
     assigneeDisplayMetaByName,
+    statusConfigs: wbsSettings.statusConfigs ?? [],
   });
   const {
     fileInputRef,
@@ -1154,6 +1167,7 @@ function WBSApp({
           onDashboardFilterToolbarClick={onDashboardFilterToolbarClick}
           tipOnce={tipOnce}
           currentUserDisplay={currentUserDisplay}
+          currentUserPlainName={currentUserPlainName}
           signOut={signOut}
           isMoreMenuOpen={isMoreMenuOpen}
           setIsMoreMenuOpen={setIsMoreMenuOpen}
@@ -1280,7 +1294,7 @@ function WBSApp({
                           ? (() => {
                               const ids = new Set<string>();
                               for (const p of projects) {
-                                if (p.ownerId === user.id) ids.add(p.id);
+                                if (isProjectMineForUserListFilter(p, user.id, currentUserPlainName)) ids.add(p.id);
                               }
                               for (const id of myMemberProjectIds) ids.add(id);
                               const myName = (currentUserPlainName || '').trim();
@@ -1421,7 +1435,7 @@ function WBSApp({
                   </ErrorBoundary>
                 ) : view === 'weekreport' ? (
                   <ErrorBoundary viewName="주간업무보고">
-                    <WeeklyReportPage />
+                    <WeeklyReportPage userId={user?.id ?? ''} currentUserDisplay={currentUserDisplay} />
                   </ErrorBoundary>
                 ) : view === 'mindmap' ? (
                   <ErrorBoundary viewName="마인드맵">
@@ -1869,6 +1883,8 @@ function WBSApp({
             onSelectedProjectIdsChange={setExportSelectedProjectIds}
             wbsMap={wbsMap}
             wbsSettings={wbsSettings}
+            currentUserId={user?.id}
+            currentUserPlainName={currentUserPlainName}
             currentProjectId={currentProjectId !== 'all' ? currentProjectId : undefined}
             onExport={handleExportFromModal}
           />

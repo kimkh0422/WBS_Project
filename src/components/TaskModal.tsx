@@ -571,6 +571,14 @@ export function TaskModal({
     const toSave = { ...toMergeRest } as Partial<Task>;
     if (typeof toSave.progress === 'number' && Number.isFinite(toSave.progress)) toSave.progress = round2(toSave.progress);
     if (typeof toSave.weight === 'number' && Number.isFinite(toSave.weight)) toSave.weight = round1(toSave.weight);
+    const po = formData.plannedProgressOverride;
+    if (po === null) {
+      toSave.plannedProgressOverride = null;
+    } else if (typeof po === 'number' && Number.isFinite(po)) {
+      toSave.plannedProgressOverride = round2(Math.min(100, Math.max(0, po)));
+    } else {
+      delete toSave.plannedProgressOverride;
+    }
     if (initialData && initialData.id === '') {
       const { id, ...rest } = toSave as Task & { id?: string };
       onSave(rest);
@@ -1024,6 +1032,45 @@ export function TaskModal({
                 }}
                 className="input-field py-1.5 text-sm w-full"
                 placeholder="0~100"
+                readOnly={readOnly}
+                disabled={readOnly}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">계획율 수동(%)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={
+                  formData.plannedProgressOverride != null && Number.isFinite(formData.plannedProgressOverride)
+                    ? String(formData.plannedProgressOverride)
+                    : ''
+                }
+                onChange={(e) => {
+                  if (readOnly) return;
+                  const next = e.target.value.trim();
+                  if (next === '') {
+                    setFormData((prev) => ({ ...prev, plannedProgressOverride: null }));
+                    return;
+                  }
+                  if (!/^\d*([.]\d*)?$/.test(next)) return;
+                  const parsed = parseFloat(next);
+                  if (!Number.isFinite(parsed)) return;
+                  setFormData((prev) => ({ ...prev, plannedProgressOverride: Math.min(100, Math.max(0, parsed)) }));
+                }}
+                onBlur={() => {
+                  if (readOnly) return;
+                  setFormData((prev) => {
+                    const po = prev.plannedProgressOverride;
+                    if (po !== null && typeof po === 'number' && Number.isFinite(po)) {
+                      return { ...prev, plannedProgressOverride: round2(po) };
+                    }
+                    return prev;
+                  });
+                }}
+                className="input-field py-1.5 text-sm w-full"
+                placeholder="비움 = 일정 기준"
+                title="비우면 일정·베이스라인으로 계산된 계획율을 씁니다. 숫자를 넣으면 해당 작업 행에만 수동 계획율이 적용됩니다."
                 readOnly={readOnly}
                 disabled={readOnly}
               />

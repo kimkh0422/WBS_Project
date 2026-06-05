@@ -38,6 +38,8 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
     weight: task.weight ?? null,
+    planned_progress_override:
+      task.plannedProgressOverride != null && Number.isFinite(task.plannedProgressOverride) ? task.plannedProgressOverride : null,
     custom_fields,
   };
 }
@@ -71,7 +73,7 @@ export function fromTaskRow(row: TaskRow): Task {
     name: row.name,
     startDate: row.start_date,
     endDate: row.end_date,
-    progress: row.progress,
+    progress: row.progress != null && Number.isFinite(Number(row.progress)) ? Number(row.progress) : 0,
     assignee: row.assignee,
     status: row.status as Task['status'],
     expanded: row.expanded,
@@ -88,6 +90,10 @@ export function fromTaskRow(row: TaskRow): Task {
     baselineEndDate: row.baseline_end_date ?? undefined,
     baselineWorkEffort: row.baseline_work_effort ?? undefined,
     weight: row.weight ?? undefined,
+    plannedProgressOverride:
+      row.planned_progress_override != null && Number.isFinite(Number(row.planned_progress_override))
+        ? Number(row.planned_progress_override)
+        : undefined,
     customFields: Object.keys(cfOut).length > 0 ? cfOut : undefined,
     cellTextStyles,
   };

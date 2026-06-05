@@ -56,6 +56,8 @@ interface FileImportExportDeps {
   backupConfirm: BackupConfirmState;
   multiMergeConfirm: MultiMergeConfirmState;
   assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>;
+  /** 상태 id→이름 매핑용(엑셀 내보내기에서 화면과 동일하게 상태 이름 표기) */
+  statusConfigs?: Array<{ id: string; name: string }>;
 }
 
 export function useFileImportExport(deps: FileImportExportDeps) {
@@ -82,6 +84,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     backupConfirm,
     multiMergeConfirm,
     assigneeDisplayMetaByName,
+    statusConfigs,
   } = deps;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +106,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
               ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
               : `wbs_export_${timestamp}.xlsx`;
           const { exportToExcel } = await import('../lib/excel');
-          exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects, undefined, assigneeDisplayMetaByName);
+          await exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects, undefined, assigneeDisplayMetaByName, statusConfigs);
         } else if (format === 'markdown') {
           const fileName =
             filteredProjects.length === 1
@@ -183,7 +186,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         /* ignore */
       }
     },
-    [projects, allTasks, wbsMap, pushToast, exportFullBackup, setLastExportPrefs, assigneeDisplayMetaByName],
+    [projects, allTasks, wbsMap, pushToast, exportFullBackup, setLastExportPrefs, assigneeDisplayMetaByName, statusConfigs],
   );
 
   const handleQuickExport = useCallback(() => {

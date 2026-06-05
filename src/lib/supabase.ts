@@ -171,6 +171,8 @@ export interface TaskRow {
   baseline_work_effort?: number | null;
   /** 진척 가중치(상대 중요도, 형제 합 제약 없음). 상위 진척률 롤업 시 가중평균에 사용 */
   weight?: number | null;
+  /** 계획율(%) 수동 지정. 있으면 일정 기반 계산을 덮어씀 */
+  planned_progress_override?: number | null;
   /** 사용자 정의 컬럼 값 (key: custom column id, value: text) */
   custom_fields?: Record<string, string> | null;
   created_at?: string;

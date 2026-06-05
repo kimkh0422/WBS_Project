@@ -660,6 +660,21 @@ export function WBSTable({
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
   }, [columnWidths, visibleColumnIds]);
 
+  // 좌측 고정열(비분할 표): 앞 6개 컬럼(그립·체크·#·펼침 + 첫 2개 데이터열=기본 WBS·작업명)을
+  // 가로 스크롤해도 고정. 각 컬럼의 left 오프셋을 실제 폭에서 누적 계산해 CSS 변수(--frz-l1..6)로 전달한다.
+  const frozenLeftVars = useMemo(() => {
+    const cw = columnWidths as unknown as Record<string, number>;
+    const widthOf = (id: string | undefined) => (id ? (id === 'name' ? cw.name : cw[id]) : undefined) ?? 120;
+    const widths = [cw.grip, cw.checkbox, cw.seq, cw.expand, widthOf(visibleColumnIds[0]), widthOf(visibleColumnIds[1])];
+    const vars: Record<string, string> = {};
+    let acc = 0;
+    widths.forEach((w, i) => {
+      vars[`--frz-l${i + 1}`] = `${acc}px`;
+      acc += Number(w) || 0;
+    });
+    return vars as React.CSSProperties;
+  }, [columnWidths, visibleColumnIds]);
+
   const baseTasks = useMemo(
     () => (filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId))),
     [tasks, filters.projectIds],
@@ -743,6 +758,23 @@ export function WBSTable({
     [setAnchorTaskId],
   );
 
+  /** 행 클릭·Shift 범위 등으로 행만 포커스될 때도 셀 링이 이전 행에 남지 않게 lastSelectedId와 맞춘다 */
+  const handleFocusRow = useCallback(
+    (taskId: string) => {
+      setLastSelectedId(taskId);
+      setFocusedCell((prev) => {
+        const col =
+          prev && editableColumnIds.includes(prev.columnId)
+            ? prev.columnId
+            : editableColumnIds.includes('name')
+              ? 'name'
+              : (editableColumnIds[0] ?? 'name');
+        return { taskId, columnId: col };
+      });
+    },
+    [setLastSelectedId, editableColumnIds],
+  );
+
   // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
   // 표↔간트 시각 강조를 일치시키기 위함이지만, 체크박스 상태(selectedTaskIds)는 건드리지 않는다
   // — 체크박스는 스페이스/Ctrl·Shift 클릭 등 명시적 조작으로만 토글되도록 유지.
@@ -786,6 +818,8 @@ export function WBSTable({
     setBulkWorkEffort,
     bulkProgress,
     setBulkProgress,
+    bulkPlannedProgress,
+    setBulkPlannedProgress,
     bulkWeight,
     setBulkWeight,
     bulkStartDate,
@@ -1287,7 +1321,10 @@ export function WBSTable({
                 }
               }}
             >
-              <div className="min-w-fit w-full bg-white relative">
+              <div
+                className={cn('min-w-fit w-full bg-white relative', !isSplitView && 'wbs-frozen')}
+                style={!isSplitView ? frozenLeftVars : undefined}
+              >
                 {/* Non-split: 컬럼 헤더만 sticky top — 새 작업 추가는 본문 맨 아래(행 직후)에 배치 */}
                 {!isSplitView && (
                   <div className="sticky top-0 z-30 w-full bg-[var(--color-bg)] border-b border-[var(--color-line)] shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
@@ -1399,7 +1436,7 @@ export function WBSTable({
                               hasChildren={hasChildrenSet.has(task.id)}
                               isTreeView={isTreeView}
                               onSelect={handleSelect}
-                              onFocusRow={setLastSelectedId}
+                              onFocusRow={handleFocusRow}
                               onSetRowAnchor={(id) => {
                                 rangeAnchorRef.current = id;
                                 setAnchorTaskId(id);
@@ -1766,6 +1803,26 @@ export function WBSTable({
                   />
                 </div>
 
+                {/* 계획율(%) — 수동 지정, 0~100 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">계획율(%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bulkPlannedProgress}
+                    onChange={(e) => setBulkPlannedProgress(e.target.value)}
+                    placeholder="0~100"
+                    title={[
+                      '선택한 작업에 동일한 계획율(%)을 수동으로 일괄 지정합니다.',
+                      '지정한 행은 일정·베이스라인 산정 대신 이 값을 계획(%)에 표시합니다.',
+                      '일정 기준으로 되돌리려면 작업 상세에서 「계획율 수동(%)」을 비운 뒤 저장하세요.',
+                    ].join('\n')}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
+                  />
+                </div>
+
                 {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">가중치</label>
@@ -1834,6 +1891,7 @@ export function WBSTable({
                     !bulkAssignee.trim() &&
                     (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
                     (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
+                    (bulkPlannedProgress === '' || isNaN(parseFloat(bulkPlannedProgress))) &&
                     (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
                     !bulkStartDate.trim() &&
                     !bulkEndDate.trim() &&

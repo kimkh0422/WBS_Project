@@ -37,6 +37,7 @@ export function useWbsBulkEdit({
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkWorkEffort, setBulkWorkEffort] = useState('');
   const [bulkProgress, setBulkProgress] = useState('');
+  const [bulkPlannedProgress, setBulkPlannedProgress] = useState('');
   const [bulkWeight, setBulkWeight] = useState('');
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
@@ -48,6 +49,7 @@ export function useWbsBulkEdit({
     setBulkAssignee('');
     setBulkWorkEffort('');
     setBulkProgress('');
+    setBulkPlannedProgress('');
     setBulkWeight('');
     setBulkStartDate('');
     setBulkEndDate('');
@@ -70,6 +72,10 @@ export function useWbsBulkEdit({
     if (bulkProgress !== '') {
       const val = parseFloat(bulkProgress);
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
+    }
+    if (bulkPlannedProgress !== '') {
+      const val = parseFloat(bulkPlannedProgress);
+      if (!isNaN(val) && val >= 0 && val <= 100) updates.plannedProgressOverride = round2(val);
     }
     if (bulkWeight !== '') {
       const val = parseFloat(bulkWeight);
@@ -174,6 +180,7 @@ export function useWbsBulkEdit({
     bulkAssignee,
     bulkWorkEffort,
     bulkProgress,
+    bulkPlannedProgress,
     bulkWeight,
     bulkStartDate,
     bulkEndDate,
@@ -269,6 +276,8 @@ export function useWbsBulkEdit({
     setBulkWorkEffort,
     bulkProgress,
     setBulkProgress,
+    bulkPlannedProgress,
+    setBulkPlannedProgress,
     bulkWeight,
     setBulkWeight,
     bulkStartDate,

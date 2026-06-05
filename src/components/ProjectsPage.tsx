@@ -37,6 +37,7 @@ import {
   isPrivateProjectHiddenFromViewer,
   formatProjectDisplayName,
 } from '../lib/projectKind';
+import { isProjectMineForUserListFilter } from '../lib/projectMineFilter';
 import {
   PROJECT_LIST_LAYOUT_LS_KEY,
   buildOrgChartProjectListBlocks,
@@ -318,18 +319,18 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const dashboardExcludedProjectCount = useMemo(() => projects.filter((p) => p.includeInDashboard === false).length, [projects]);
 
   // id 기준으로만 표시 (사용자별 복사본이 원본과 합쳐지지 않음)
-  // showMyOnly가 true면 본인 owner인 프로젝트만 노출.
+  // showMyOnly가 true면 소유자이거나 PM이 본인 프로필 이름과 같은 프로젝트만 노출.
   const uniqueProjects = useMemo(() => {
     const seen = new Set<string>();
     return projects.filter((p) => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
       if (isPrivateProjectHiddenFromViewer(p, user?.id)) return false;
-      if (showMyOnly && user?.id && p.ownerId !== user.id) return false;
+      if (showMyOnly && user?.id && !isProjectMineForUserListFilter(p, user.id, currentUserPlainName)) return false;
       if (showDashboardExcludedOnly && p.includeInDashboard !== false) return false;
       return true;
     });
-  }, [projects, showMyOnly, showDashboardExcludedOnly, user?.id]);
+  }, [projects, showMyOnly, showDashboardExcludedOnly, user?.id, currentUserPlainName]);
 
   const ownerLabel = (ownerId: string | undefined) => {
     if (!ownerId) return '소유자 미지정';
@@ -1316,7 +1317,7 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
             <div className="h-4 w-px bg-slate-200/80" />
             <label
               className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer shrink-0"
-              title="내가 만든 프로젝트만 보기"
+              title="내가 소유자이거나, PM 이름이 내 프로필 이름과 같은 프로젝트만 보기"
             >
               <input
                 type="checkbox"

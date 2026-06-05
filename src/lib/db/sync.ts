@@ -37,6 +37,7 @@ function taskContentFingerprint(row: TaskRow): string {
     baseline_end_date: row.baseline_end_date ?? null,
     baseline_work_effort: row.baseline_work_effort ?? null,
     weight: row.weight ?? null,
+    planned_progress_override: row.planned_progress_override ?? null,
     custom_fields: row.custom_fields ?? {},
   });
 }

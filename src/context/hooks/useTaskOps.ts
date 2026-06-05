@@ -159,6 +159,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
         if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
           resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };
         }
+        if (typeof resolvedUpdates.plannedProgressOverride === 'number' && Number.isFinite(resolvedUpdates.plannedProgressOverride)) {
+          resolvedUpdates = {
+            ...resolvedUpdates,
+            plannedProgressOverride: round2(resolvedUpdates.plannedProgressOverride),
+          };
+        }
         if (
           typeof resolvedUpdates.status === 'string' &&
           wSettings.linkStatusAndProgress !== false &&

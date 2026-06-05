@@ -381,14 +381,18 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 셀 간 화살표 이동 (편집 중이 아닐 때): ←/→ 열 이동, ↑/↓ 같은 열에서 이전/다음 행.
-      // focusedCell이 없으면 lastSelectedId + 기본 열로 간주.
+      // 행 하이라이트(lastSelectedId)와 셀 링(focusedCell)이 어긋나면(행만 클릭·간트 동기 등)
+      // ↑/↓·Space가 서로 다른 행을 가리키는 문제가 생기므로, 기준 행은 lastSelectedId를 우선한다.
+      // 열은 focusedCell이 유효하면 유지해 같은 열 기준으로 세로 이동한다.
       // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
       // 빠진 경우에도 화살표가 동작하도록 한다.
       // Alt+↑↓(행 순서)·Shift+←/→(트리 접기/펼치기)·Shift/Ctrl/Meta+↑↓(체크 범위)는 아래에서 처리.
       const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
         ? 'name'
         : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
-      const effectiveArrowCell = focusedCell ?? (lastSelectedId ? { taskId: lastSelectedId, columnId: defaultNavColumn } : null);
+      const navColFromFocus = focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
+      const keyboardNavTaskId = lastSelectedId ?? focusedCell?.taskId ?? null;
+      const effectiveArrowCell = keyboardNavTaskId != null ? { taskId: keyboardNavTaskId, columnId: navColFromFocus } : null;
       if (
         !editingCell &&
         !inlineEditingNameId &&
@@ -745,12 +749,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // Space: toggle selection (checkbox) of the focused row
+      // Space: 체크 토글 — 행 포커스(lastSelectedId) 우선(↑/↓와 동일 기준). 없으면 셀 링 행.
       if (e.key === ' ') {
         e.preventDefault();
+        const rowId = lastSelectedId ?? focusedCell?.taskId;
+        if (!rowId) return;
         const next = new Set(selectedTaskIds);
-        if (next.has(lastSelectedId)) next.delete(lastSelectedId);
-        else next.add(lastSelectedId);
+        if (next.has(rowId)) next.delete(rowId);
+        else next.add(rowId);
         setSelection(next);
         return;
       }

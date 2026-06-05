@@ -74,6 +74,7 @@ export function computeLeafPlannedProgress(task: PlannedTaskFields, refDateIso: 
  * - 리프: 날짜 기반 계획율(computeLeafPlannedProgress).
  * - 부모: 직속 자식 계획율의 가중평균. 가중치는 자식의 weight, 없으면 workEffort(둘 다 없으면 단순 평균).
  *   → 실제 진척 롤업(lib/rollups.ts)과 동일한 가중 규칙.
+ * - `task.plannedProgressOverride`가 유한 숫자면 해당 작업 행은 일정 계산 대신 이 값(0~100 클램프)을 사용.
  */
 export function computePlannedProgressMap(tasks: Task[], refDateIso: string = todayIso(), holidays?: Set<string>): Map<string, number> {
   const hol = holidays ?? getHolidaysForTaskDates(tasks);
@@ -117,6 +118,10 @@ export function computePlannedProgressMap(tasks: Task[], refDateIso: string = to
     }
 
     val = Math.min(100, Math.max(0, val));
+    const ovr = t.plannedProgressOverride;
+    if (typeof ovr === 'number' && Number.isFinite(ovr)) {
+      val = Math.min(100, Math.max(0, ovr));
+    }
     visiting.delete(t.id);
     memo.set(t.id, val);
     return val;

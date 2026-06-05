@@ -1136,7 +1136,8 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'plannedProgress') {
-          const computable = hasChildren || hasPlannedSchedule(task);
+          const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
+          const computable = hasChildren || hasPlannedSchedule(task) || hasManualPlanned;
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const plannedFmt = formatPercent1(planned);
           const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress';
@@ -1150,7 +1151,9 @@ function SortableTaskRowInner({
               style={otherRingStyle}
               title={[
                 computable
-                  ? plannedProgressDataCellTitle(plannedFmt)
+                  ? [plannedProgressDataCellTitle(plannedFmt), hasManualPlanned ? '(이 행은 계획율 수동 지정이 적용되어 있습니다.)' : '']
+                      .filter(Boolean)
+                      .join(' ')
                   : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.',
                 '',
                 '클릭: 셀 포커스 · 더블클릭 또는 F2: 일정(종료일 우선) 편집',
@@ -1171,7 +1174,8 @@ function SortableTaskRowInner({
           );
         }
         if (colId === 'progressVariance') {
-          const computable = hasChildren || hasPlannedSchedule(task);
+          const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
+          const computable = hasChildren || hasPlannedSchedule(task) || hasManualPlanned;
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
           const variance = progressVariance(actual, planned);
@@ -1864,6 +1868,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.isIssue === next.task.isIssue &&
     prev.task.isActionItem === next.task.isActionItem &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
+    prev.task.plannedProgressOverride === next.task.plannedProgressOverride &&
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById &&

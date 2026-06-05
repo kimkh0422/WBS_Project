@@ -108,6 +108,11 @@ export interface Task {
   baselineEndDate?: string;
   /** 베이스라인 공수(프로젝트 공수 단위와 동일) */
   baselineWorkEffort?: number;
+  /**
+   * 계획율(%) 수동 지정. 지정 시 일정·베이스라인 기반 계산 대신 이 값을 사용(0~100).
+   * DB에 없거나 null이면 일정 기반 계획율만 사용.
+   */
+  plannedProgressOverride?: number | null;
   /** 사용자 정의 컬럼 값 저장소. 키: custom column id, 값: 문자열 */
   customFields?: Record<string, string>;
   /** 표 셀 텍스트 스타일(열 id → 스타일). DB에는 custom_fields 내부 키로 직렬화 */

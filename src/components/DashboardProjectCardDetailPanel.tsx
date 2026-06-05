@@ -194,7 +194,10 @@ export function DashboardProjectCardDetailPanel({
           {onNavigateToTable && (
             <button
               type="button"
-              onClick={() => onNavigateToTable(project.id)}
+              onClick={() => {
+                onNavigateToTable(project.id);
+                onClose();
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-teal-800 hover:bg-teal-50"
             >
               <Table2 size={14} aria-hidden />
