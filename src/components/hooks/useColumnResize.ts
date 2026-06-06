@@ -28,7 +28,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 };
 
 /** 데이터 컬럼별 헤더 표시 텍스트 */
-const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
+export const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   wbsId: 'WBS',
   name: '작업명',
   startDate: '시작일',
@@ -116,7 +116,7 @@ type TaskWithDepth = Task & { depth?: number };
 /** 작업명 셀: 트리 들여쓰기·접두 아이콘/배지가 문자 측정값에 포함되지 않으므로 가로 여유를 더한다. */
 function nameColumnExtraWidth(task: TaskWithDepth, criticalPathTaskIds: ReadonlySet<string> | undefined): number {
   const depth = task.depth ?? 0;
-  const leftPad = depth * 20 + 12;
+  const leftPad = depth * 20 + 18; // 작업명 셀 들여쓰기 + 펼침 캐럿 공간
   const rightPad = 10; // .data-cell px-2.5 우측
   const gap = 6; // 작업명 행 flex gap-1.5
   const parts: number[] = [];

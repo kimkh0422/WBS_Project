@@ -81,7 +81,6 @@ export interface WbsTableKeyboardDeps {
   editingTask: Task | null;
   editingCell: { taskId: string; columnId: TableColumnId } | null;
   inlineEditingNameId: string | null;
-  tableEditMode: boolean;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   editableColumnIds: TableColumnId[];
   deleteConfirm: { isOpen: boolean; taskIds: string[] };
@@ -100,7 +99,6 @@ export interface WbsTableKeyboardDeps {
   setLastSelectedId: (id: string | null) => void;
   /** Shift+↑/↓ 범위 선택 앵커: 화살표·탭·F2 등으로 행 포커스만 옮길 때 lastSelectedId와 ref가 어긋나지 않게 동기화 */
   syncRangeAnchorForKeyboardFocus?: (taskId: string | null) => void;
-  setTableEditMode: (v: boolean) => void;
   setFocusedCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void;
   setInlineEditingNameId: (id: string | null) => void;
   setEditingCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void;
@@ -145,7 +143,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     editingTask,
     editingCell,
     inlineEditingNameId,
-    tableEditMode,
     focusedCell,
     editableColumnIds,
     deleteConfirm,
@@ -161,7 +158,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setInlineAddingTaskId,
     setLastSelectedId,
     syncRangeAnchorForKeyboardFocus,
-    setTableEditMode,
     setFocusedCell,
     setInlineEditingNameId,
     setEditingCell,
@@ -469,7 +465,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           editingCell != null ||
           inlineEditingNameId != null ||
           focusedCell != null ||
-          tableEditMode ||
           inlineAddingTaskId != null ||
           selectedTaskIds.size > 0;
 
@@ -478,7 +473,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         if (editingCell) setEditingCell(null);
         if (inlineEditingNameId) setInlineEditingNameId(null);
         if (focusedCell) setFocusedCell(null);
-        if (tableEditMode) setTableEditMode(false);
         if (inlineAddingTaskId) setInlineAddingTaskId(null);
         if (selectedTaskIds.size > 0) {
           setSelection(new Set());
@@ -1023,7 +1017,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     editingTask,
     editingCell,
     inlineEditingNameId,
-    tableEditMode,
     focusedCell,
     editableColumnIds,
     deleteConfirm,
@@ -1047,7 +1040,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setEditingCell,
     setFocusedCell,
     setInlineEditingNameId,
-    setTableEditMode,
     setSelection,
     setBulkStatus,
     setBulkAssignee,
@@ -1067,10 +1059,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     loadClipboardTasks,
   ]);
 
-  // 편집 모드가 아닐 때 테이블 내 입력 포커스 제거(커서 깜빡임 방지).
-  // 인라인 작업명 편집·하단/인라인 새 작업 입력 중에는 유지 (tableEditMode가 꺼져 있어도 F2/Enter 후 편집 가능).
+  // 테이블 내 입력 포커스 제거(커서 깜빡임 방지).
+  // 인라인 작업명 편집·하단/인라인 새 작업 입력 중에는 유지 (F2/Enter 후 편집 가능).
   useEffect(() => {
-    if (tableEditMode || inlineAddingTaskId || inlineEditingNameId) return;
+    if (inlineAddingTaskId || inlineEditingNameId) return;
     const el = document.activeElement;
     if (!el || !tableScrollRef.current?.contains(el)) return;
     if ((el as HTMLElement).closest?.('[data-quick-add]')) return;
@@ -1078,5 +1070,5 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       el.blur();
       tableScrollRef.current?.focus();
     }
-  }, [tableEditMode, inlineAddingTaskId, inlineEditingNameId]);
+  }, [inlineAddingTaskId, inlineEditingNameId]);
 }

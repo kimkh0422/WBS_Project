@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Pencil, Edit2, Maximize2, Target, ListOrdered, Sparkles, Scale } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Edit2, Target, ListOrdered, Sparkles, Scale } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -46,14 +46,10 @@ interface SummaryBarProps {
   treeExpandLevel: number;
   setTreeExpandLevel: (n: number) => void;
   expandToLevel: (n: number) => void;
-  toggleTableEditMode: () => void;
-  tableEditMode: boolean;
   excelView: boolean;
   setExcelView: React.Dispatch<React.SetStateAction<boolean>>;
   rowHeight: number;
   handleSetRowHeight: (h: number) => void;
-  /** 모든 보이는 컬럼 너비를 현재 데이터/헤더 텍스트 길이에 맞춰 일괄 자동 조정 */
-  onAutoFitColumns: () => void;
   onOpenMdEditor: () => void;
   /** 등록 작업 기준 우선순위 보완 가이드(모달) */
   onOpenImprovementGuide?: () => void;
@@ -76,13 +72,10 @@ export function SummaryBar({
   treeExpandLevel,
   setTreeExpandLevel,
   expandToLevel,
-  toggleTableEditMode,
-  tableEditMode,
   excelView,
   setExcelView,
   rowHeight,
   handleSetRowHeight,
-  onAutoFitColumns,
   onOpenMdEditor,
   onOpenImprovementGuide,
   tableAutoFormatting,
@@ -206,20 +199,6 @@ export function SummaryBar({
               ))}
             </div>
             <Divider />
-            <button
-              type="button"
-              onClick={toggleTableEditMode}
-              aria-pressed={tableEditMode}
-              className={cn(
-                'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-                tableEditMode
-                  ? 'border-indigo-400 bg-indigo-100 text-indigo-700'
-                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-              )}
-              title="스프레드시트 편집 모드 (F2)"
-            >
-              <Pencil size={14} strokeWidth={2} aria-hidden />
-            </button>
             {onOpenImprovementGuide && (
               <button
                 type="button"
@@ -277,15 +256,6 @@ export function SummaryBar({
                 자동 서식
               </button>
             )}
-            <button
-              type="button"
-              onClick={onAutoFitColumns}
-              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
-            >
-              <Maximize2 size={12} strokeWidth={2} aria-hidden />
-              자동 맞춤
-            </button>
             {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
@@ -318,20 +288,6 @@ export function SummaryBar({
               가이드
             </button>
           )}
-          <button
-            type="button"
-            onClick={toggleTableEditMode}
-            aria-pressed={tableEditMode}
-            className={cn(
-              'flex items-center justify-center h-7 w-7 rounded-md border text-xs transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-              tableEditMode
-                ? 'border-indigo-400 bg-indigo-100 text-indigo-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-            )}
-            title="스프레드시트 편집 모드 (F2)"
-          >
-            <Pencil size={14} strokeWidth={2} aria-hidden />
-          </button>
           {tableAutoFormatting && (
             <button
               type="button"
@@ -358,15 +314,6 @@ export function SummaryBar({
               자동 서식
             </button>
           )}
-          <button
-            type="button"
-            onClick={onAutoFitColumns}
-            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-            title="컬럼 너비를 현재 데이터 길이에 맞춰 일괄 자동 조정. 표만 뷰에서 열 너비를 수동으로 맞춘 뒤에는 이 버튼으로 다시 ‘진입 시 자동 맞춤’을 켤 수 있습니다. 헤더 더블클릭은 단일 컬럼만 적용"
-          >
-            <Maximize2 size={12} strokeWidth={2} aria-hidden />
-            자동 맞춤
-          </button>
           {/* MD편집·엑셀편집 버튼은 일시 숨김 처리 */}
           <div className="w-px h-5 bg-slate-200 shrink-0" />
           <div className="flex items-center gap-2 shrink-0">

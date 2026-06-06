@@ -3,6 +3,7 @@ import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
+import { overlayWeightFromLocal } from './weightLocalCache';
 import { getUseWeightForProgressRollup } from './rollupOptions';
 
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
@@ -502,12 +503,35 @@ export function recomputeProjectRollups(
   return next.map((t) => (t.projectId === projectId ? applyMilestoneDateInvariant(t, { hasChildTasks: hasChildren.has(t.id) }) : t));
 }
 
+/**
+ * 설정(statusConfigs)에 존재하지 않는 status를 가진 작업 — 삭제된 사용자 지정 상태를 가리키는 "고아 참조" —
+ * 를 기본 상태(id 'todo', 없으면 첫 번째 상태)로 정규화한다. status만 바꾸며 진척률 등 다른 필드는 건드리지 않는다.
+ * statusConfigs가 비어 있으면(로드 전 등) 아무것도 바꾸지 않아 정상 상태가 잘못 초기화되는 일을 막는다.
+ */
+export function normalizeOrphanStatuses(tasks: Task[], statusConfigs?: Array<{ id: string }>): Task[] {
+  if (!statusConfigs || statusConfigs.length === 0) return tasks;
+  const validIds = new Set(statusConfigs.map((c) => c.id));
+  const defaultId = statusConfigs.find((c) => c.id === 'todo')?.id ?? statusConfigs[0]?.id;
+  if (!defaultId) return tasks;
+  let changed = false;
+  const next = tasks.map((t) => {
+    if (t.status && !validIds.has(t.status)) {
+      changed = true;
+      return { ...t, status: defaultId };
+    }
+    return t;
+  });
+  return changed ? next : tasks;
+}
+
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/진척률을 하위 작업 기준으로 롤업 */
 export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: string; progress?: number }>): Task[] {
   const doneStatusIds = statusConfigs ? new Set(statusConfigs.filter((c) => c.progress === 100).map((c) => c.id)) : undefined;
-  const projectIds = Array.from(new Set(tasks.map((t) => t.projectId))).filter((id): id is string => Boolean(id) && id !== 'all');
-  let result = tasks;
+  // 고아 상태(삭제된 사용자 지정 상태 참조)를 기본 상태로 정리한 뒤 롤업한다(부모 상태 롤업도 정리된 자식 기준).
+  const normalized = normalizeOrphanStatuses(tasks, statusConfigs);
+  const projectIds = Array.from(new Set(normalized.map((t) => t.projectId))).filter((id): id is string => Boolean(id) && id !== 'all');
+  let result = normalized;
   for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds);
-  // 사용자가 입력한 계획율 수동값은 어떤 자동 로직(롤업/풀)으로도 사라지지 않도록 항상 마지막에 로컬 캐시 오버레이.
-  return overlayPlannedOverrideFromLocal(result);
+  // 사용자가 입력한 가중치·계획율 수동값은 어떤 자동 로직(롤업/풀)으로도 사라지지 않도록 항상 마지막에 로컬 캐시 오버레이.
+  return overlayPlannedOverrideFromLocal(overlayWeightFromLocal(result));
 }

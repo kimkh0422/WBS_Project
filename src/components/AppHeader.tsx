@@ -262,7 +262,7 @@ export function AppHeader({
   /** 목록 필터: 전체 / 내 프로젝트 / 관심 / 대시보드 반영 — 서로 토글(같은 버튼 다시 누르면 전체). */
   type ProjectListFilter = 'all' | 'my' | 'favorites' | 'dashboardOn';
   const PROJECT_LIST_FILTER_KEY = 'wbs-header-projects-list-filter';
-  /** 목록 묶음: 기본은 항목 구분(상품·연구 등), 조직도별은 조직 트리로 전환(헤더 버튼). */
+  /** 목록 묶음: 기본은 조직도별(조직 트리), 헤더 버튼으로 항목 구분(상품·연구 등)·인원별로 전환. */
   type ProjectListLayout = ProjectListLayoutMode;
   /** 구버전: 필터+그룹 레이아웃이 한 키에 묶여 있었음 → 최초 로드 시 분리 마이그레이션 */
   const PROJECT_LIST_MODE_LEGACY_KEY = 'wbs-header-projects-list-mode';
@@ -297,9 +297,9 @@ export function AppHeader({
       ) {
         return 'kind';
       }
-      return 'kind';
+      return 'org';
     } catch {
-      return 'kind';
+      return 'org';
     }
   });
   const [expandedOrgNodeKeys, setExpandedOrgNodeKeys] = useState<Set<string>>(new Set());
@@ -1144,7 +1144,7 @@ export function AppHeader({
                 active={view === 'weekreport'}
                 onClick={() => navigateWithTip('weekreport')}
                 icon={<FileText size={14} />}
-                label="주간업무보고"
+                label="주간보고"
                 title="지엠티 주간업무보고 통합 대시보드. (@gmtc.kr 사내 회원 전용)"
                 tourId="tour-nav-weekreport"
               />
@@ -1154,7 +1154,7 @@ export function AppHeader({
                 active={view === 'table'}
                 onClick={() => navigateWithTip('table')}
                 icon={<CheckSquare size={14} />}
-                label="표만"
+                label="표"
                 title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다."
                 tourId="tour-nav-table"
               />
@@ -1174,7 +1174,7 @@ export function AppHeader({
                 active={view === 'gantt'}
                 onClick={() => navigateWithTip('gantt')}
                 icon={<Target size={14} />}
-                label="간트만"
+                label="간트"
                 title="일정 막대를 드래그해 날짜를 조정하고, 선후관계를 확인합니다."
                 tourId="tour-nav-gantt"
               />

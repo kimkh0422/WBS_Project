@@ -119,6 +119,40 @@ function getTaskDetailTooltip(
   return lines.join('\n');
 }
 
+/**
+ * 작업명 셀 왼쪽 들여쓰기 영역에 트리 가이드 선(│ ├ └)을 그린다.
+ * 셀 패딩 영역에 absolute로만 그려 본문(작업명) 레이아웃에는 영향을 주지 않는다.
+ * 색은 인라인 rgba(반투명 slate)로 라이트·다크 모두에서 보이게 한다.
+ */
+function TreeGuides({ guide, depth, hasChildren, expanded }: { guide: string; depth: number; hasChildren: boolean; expanded?: boolean }) {
+  const showChildStub = hasChildren && !!expanded;
+  if (!guide && !showChildStub) return null;
+  const lineColor = 'rgba(148, 163, 184, 0.55)';
+  const lines: React.ReactNode[] = [];
+  for (let i = 0; i < guide.length; i++) {
+    const c = guide[i];
+    const x = i * 20 + 9;
+    if (c === 'I' || c === 'T') {
+      lines.push(<span key={`v${i}`} style={{ position: 'absolute', top: 0, bottom: 0, width: 1, left: x, background: lineColor }} />);
+    } else if (c === 'L') {
+      lines.push(<span key={`v${i}`} style={{ position: 'absolute', top: 0, height: '50%', width: 1, left: x, background: lineColor }} />);
+    }
+    if (c === 'T' || c === 'L') {
+      lines.push(<span key={`h${i}`} style={{ position: 'absolute', top: '50%', height: 1, width: 11, left: x, background: lineColor }} />);
+    }
+  }
+  if (showChildStub) {
+    lines.push(
+      <span key="stub" style={{ position: 'absolute', top: '50%', bottom: 0, width: 1, left: depth * 20 + 9, background: lineColor }} />,
+    );
+  }
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0">
+      {lines}
+    </span>
+  );
+}
+
 export interface SortableTaskRowProps {
   key?: string | number;
   rowIndex: number;
@@ -135,6 +169,8 @@ export interface SortableTaskRowProps {
   isFocused: boolean;
   hasChildren: boolean;
   isTreeView: boolean;
+  /** 작업명 들여쓰기에 그릴 트리 가이드 선 문자열(depth 칸별 'I'│ 'T'├ 'L'└ ' '공백). 트리 뷰에서만 채워짐 */
+  treeGuide?: string;
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
   /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Shift+행클릭 시 시작 행 */
   onSetRowAnchor?: (taskId: string) => void;
@@ -154,8 +190,6 @@ export interface SortableTaskRowProps {
   setEditingCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   setFocusedCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
-  /** 요약 바 등에서 켜는 엑셀형 편집 모드(표 컨테이너 wbs-view-mode·Esc 순서용). 셀 시각 격자와 무관 */
-  tableEditMode: boolean;
   allAssignees: string[];
   /** projectId → 프로젝트 등록 인원 + 해당 프로젝트 작업 담당자 목록 */
   assigneeOptionsByProjectId: Map<string, string[]>;
@@ -203,6 +237,7 @@ function SortableTaskRowInner({
   isFocused,
   hasChildren,
   isTreeView,
+  treeGuide = '',
   onSelect,
   onSetRowAnchor,
   onFocusRow,
@@ -220,7 +255,6 @@ function SortableTaskRowInner({
   setEditingCell,
   focusedCell,
   setFocusedCell,
-  tableEditMode,
   allAssignees,
   assigneeOptionsByProjectId,
   updateTask,
@@ -557,22 +591,6 @@ function SortableTaskRowInner({
       >
         {rowIndex + 1}
       </div>
-      <div className="data-cell justify-center" onDoubleClick={(e) => e.stopPropagation()}>
-        {isTreeView && hasChildren && (
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleExpand(task.id);
-            }}
-            className="rounded p-0.5 text-xs font-mono tabular-nums transition-colors hover:bg-slate-200 text-slate-600"
-            title={task.expanded ? '접기' : '펼치기'}
-          >
-            {task.expanded ? '▣' : '□'}
-          </button>
-        )}
-      </div>
       {visibleColumnIds.map((colId) => {
         const otherFocusKey = `${task.id}::${colId}`;
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
@@ -606,7 +624,7 @@ function SortableTaskRowInner({
             <div
               key={colId}
               className={cn('data-cell relative', isFocused && 'ring-2 ring-indigo-500 ring-inset')}
-              style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 12}px` }}
+              style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 18}px` }}
               onClick={(e) => {
                 // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
                 // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
@@ -632,6 +650,23 @@ function SortableTaskRowInner({
                 orgMemberDisplayMetaByName,
               )}
             >
+              {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
+              {isTreeView && hasChildren && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleExpand(task.id);
+                  }}
+                  className="absolute z-[1] flex h-4 w-4 items-center justify-center rounded text-[10px] leading-none text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                  style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
+                  title={task.expanded ? '접기' : '펼치기'}
+                  aria-label={task.expanded ? '접기' : '펼치기'}
+                >
+                  {task.expanded ? '▾' : '▸'}
+                </button>
+              )}
               {isInlineEditingName ? (
                 <input
                   id={`wbs-edit-${task.id}-name`}
@@ -1859,7 +1894,6 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
   return (
     editingCellSame &&
     focusedCellSame &&
-    prev.tableEditMode === next.tableEditMode &&
     prev.rowIndex === next.rowIndex &&
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&
@@ -1867,6 +1901,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.isFocused === next.isFocused &&
     prev.hasChildren === next.hasChildren &&
     prev.isTreeView === next.isTreeView &&
+    prev.treeGuide === next.treeGuide &&
     prev.isInlineEditingName === next.isInlineEditingName &&
     prev.gridStyle === next.gridStyle &&
     prev.visibleColumnIds === next.visibleColumnIds &&

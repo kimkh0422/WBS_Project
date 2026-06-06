@@ -49,6 +49,10 @@ export interface WBSSettings {
   dependenciesHiddenMigrated?: boolean;
   /** 관리 컬럼 기본 숨김 마이그레이션 완료 여부 */
   actionsHiddenMigrated?: boolean;
+  /** 상태 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  statusHiddenMigrated?: boolean;
+  /** WBS(ID) 컬럼 기본 숨김 마이그레이션 완료 여부 */
+  wbsIdHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -84,7 +88,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   linkStatusAndProgress: false,
   linkEffortToSchedule: false,
   tableColumns: [
-    { id: 'wbsId', visible: true },
+    { id: 'wbsId', visible: false },
     { id: 'name', visible: true },
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
@@ -92,7 +96,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'weight', visible: true },
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
-    { id: 'status', visible: true },
+    { id: 'status', visible: false },
     { id: 'plannedProgress', visible: true },
     { id: 'progress', visible: true },
     { id: 'progressVariance', visible: true },
@@ -189,6 +193,20 @@ export function parseSettings(raw: unknown): WBSSettings {
         base.tableColumns = [...cols, { id: 'actions', visible: false }];
       }
       base.actionsHiddenMigrated = true;
+    }
+
+    // 상태 컬럼 기본 숨김 마이그레이션 (1회만 적용 — 이후 헤더 우클릭·컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.statusHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map((c) => (c && c.id === 'status' ? { ...c, visible: false } : c));
+      base.statusHiddenMigrated = true;
+    }
+
+    // WBS(ID) 컬럼 기본 숨김 마이그레이션 (1회만 적용 — 트리 들여쓰기로 계층이 보이므로 기본 숨김. 컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.wbsIdHiddenMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map((c) => (c && c.id === 'wbsId' ? { ...c, visible: false } : c));
+      base.wbsIdHiddenMigrated = true;
     }
 
     // 투입율 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이후 사용자가 컬럼 설정에서 다시 켤 수 있음)

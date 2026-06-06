@@ -5,6 +5,7 @@ import type { StatusConfig } from '../lib/wbsSettings';
 import { cn, formatPercent1, round2 } from '../lib/utils';
 import { isTaskColumnMissingFromDb } from '../lib/db/tasks';
 import { getUseWeightForProgressRollup, setUseWeightForProgressRollup, onProgressRollupOptionChange } from '../lib/rollupOptions';
+import { computeTreeGuideStrings } from '../lib/treeGuides';
 import {
   ChevronDown,
   ChevronUp,
@@ -16,6 +17,7 @@ import {
   CornerDownRight,
   Settings2,
   RefreshCw,
+  Eye,
   EyeOff,
   RotateCcw,
   Unlink,
@@ -27,7 +29,7 @@ import {
 import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
-import { useColumnResize } from './hooks/useColumnResize';
+import { useColumnResize, COLUMN_HEADER_LABELS } from './hooks/useColumnResize';
 import { useWbsSummaryStats } from './hooks/useWbsSummaryStats';
 import { useWbsBulkEdit } from './hooks/useWbsBulkEdit';
 import { useWbsSelection } from './hooks/useWbsSelection';
@@ -90,7 +92,7 @@ const DEFAULT_TABLE_COLUMNS: {
     | 'actions';
   visible: boolean;
 }[] = [
-  { id: 'wbsId', visible: true },
+  { id: 'wbsId', visible: false },
   { id: 'name', visible: true },
   { id: 'startDate', visible: true },
   { id: 'endDate', visible: true },
@@ -156,7 +158,7 @@ export function WBSTable({
     updateProject,
   } = useWBS();
 
-  const { push: pushToast, tipOnce } = useToast();
+  const { push: pushToast } = useToast();
   const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
@@ -281,39 +283,23 @@ export function WBSTable({
 
   /** 셀 단위 인라인 편집: { taskId, columnId } */
   const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
-  /** 편집 버튼으로 켜는 엑셀형 즉석 편집 모드: 셀 클릭만으로 해당 컬럼 편집 (F2로 토글) */
-  const [tableEditMode, setTableEditMode] = useState(false);
   /** 전체를 스프레드시트(AG Grid) 뷰로 보는 모드 */
   const [excelView, setExcelView] = useState(false);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
   const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
 
-  // 엑셀 시트(AG Grid) 뷰로 전환할 때만 표 인라인 편집 모드를 종료한다.
-  // (이전에는 !excelView && tableEditMode 일 때마다 초기화되어, 일반 표에서 F2/셀 클릭으로
-  //  tableEditMode를 켜는 순간 바로 inlineEditingNameId까지 지워지는 버그가 있었음)
+  // 엑셀 시트(AG Grid) 뷰로 전환할 때 진행 중인 인라인 편집·셀 포커스를 정리한다.
   useEffect(() => {
     if (excelView) {
       const id = inlineEditingNameIdRef.current;
       if (id && canEditCurrentProject) {
         commitWbsInlineNameEditFromDom(id, tasks, updateTask, canEditCurrentProject);
       }
-      setTableEditMode(false);
       setEditingCell(null);
       setInlineEditingNameId(null);
       setFocusedCell(null);
     }
   }, [excelView, tasks, updateTask, canEditCurrentProject]);
-
-  const toggleTableEditMode = useCallback(() => {
-    setTableEditMode((wasOn) => {
-      if (!wasOn) {
-        queueMicrotask(() => {
-          tipOnce('wbs-edit-mode-tip', '편집 모드: 셀을 클릭하여 직접 수정할 수 있습니다. Esc로 종료합니다.');
-        });
-      }
-      return !wasOn;
-    });
-  }, [tipOnce]);
   // ─── Realtime: 표 셀 포커스 공유 — extracted to useRealtimeCellFocus ────
   const { otherCellFocus, otherFocusByCellKey, colorForUser } = useRealtimeCellFocus({
     currentProjectId,
@@ -696,7 +682,6 @@ export function WBSTable({
     parts.push(`${cw.grip}px`);
     parts.push(`${cw.checkbox}px`);
     parts.push(`${cw.seq}px`);
-    parts.push(`${cw.expand}px`);
     for (const id of visibleColumnIds) {
       if (id === 'name') parts.push(`${cw.name}px`);
       else parts.push(`${cw[id] ?? 120}px`);
@@ -705,12 +690,12 @@ export function WBSTable({
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
   }, [columnWidths, showActionsColumn, visibleColumnIds]);
 
-  // 좌측 고정열(비분할 표): 앞 6개 컬럼(그립·체크·#·펼침 + 첫 2개 데이터열=기본 WBS·작업명)을
-  // 가로 스크롤해도 고정. 각 컬럼의 left 오프셋을 실제 폭에서 누적 계산해 CSS 변수(--frz-l1..6)로 전달한다.
+  // 좌측 고정열(비분할 표): 앞 4개 컬럼(그립·체크·# + 첫 데이터열=작업명)을 가로 스크롤해도 고정.
+  // 각 컬럼의 left 오프셋을 실제 폭에서 누적 계산해 CSS 변수(--frz-l1..4)로 전달한다.
   const frozenLeftVars = useMemo(() => {
     const cw = columnWidths as unknown as Record<string, number>;
     const widthOf = (id: string | undefined) => (id ? (id === 'name' ? cw.name : cw[id]) : undefined) ?? 120;
-    const widths = [cw.grip, cw.checkbox, cw.seq, cw.expand, widthOf(visibleColumnIds[0]), widthOf(visibleColumnIds[1])];
+    const widths = [cw.grip, cw.checkbox, cw.seq, widthOf(visibleColumnIds[0])];
     const vars: Record<string, string> = {};
     let acc = 0;
     widths.forEach((w, i) => {
@@ -748,6 +733,12 @@ export function WBSTable({
     filters.endDate ||
     !!filters.milestoneOnly ||
     !!filters.issueOnly
+  );
+
+  /** 트리 가이드 선(작업명 들여쓰기의 │ ├ └). 트리 뷰일 때만 계산 — 정렬/필터 뷰에선 계층이 끊겨 생략. */
+  const treeGuideByTaskId = useMemo(
+    () => (isTreeView ? computeTreeGuideStrings(visibleTasks) : new Map<string, string>()),
+    [isTreeView, visibleTasks],
   );
 
   // Selection Logic — extracted to useWbsSelection
@@ -904,7 +895,6 @@ export function WBSTable({
     editingTask,
     editingCell,
     inlineEditingNameId,
-    tableEditMode,
     focusedCell,
     editableColumnIds,
     deleteConfirm,
@@ -920,7 +910,6 @@ export function WBSTable({
     setInlineAddingTaskId,
     setLastSelectedId,
     syncRangeAnchorForKeyboardFocus,
-    setTableEditMode,
     setFocusedCell,
     setInlineEditingNameId: setInlineEditingNameIdCommitted,
     setEditingCell,
@@ -1274,13 +1263,10 @@ export function WBSTable({
         treeExpandLevel={treeExpandLevel}
         setTreeExpandLevel={setTreeExpandLevel}
         expandToLevel={expandToLevel}
-        toggleTableEditMode={toggleTableEditMode}
-        tableEditMode={tableEditMode}
         excelView={excelView}
         setExcelView={setExcelView}
         rowHeight={rowHeight}
         handleSetRowHeight={handleSetRowHeight}
-        onAutoFitColumns={() => autoFitAllColumns(visibleColumnIds, { implicitOrToolbarAutoFit: true })}
         onOpenMdEditor={() => {
           const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
           const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
@@ -1360,18 +1346,6 @@ export function WBSTable({
               >
                 #{resizeGrip('seq')}
               </div>
-              <div
-                className="col-header justify-center relative"
-                title="펼침 · 더블클릭: 너비 초기화"
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  handleColumnHeaderDoubleClick('expand');
-                }}
-                onContextMenu={(e) => handleHeaderContextMenu(e)}
-              >
-                <span className="text-slate-300">▾</span>
-                {resizeGrip('expand')}
-              </div>
               {visibleColumnIds.map(renderHeaderCell)}
               {showActionsColumn && (
                 <div
@@ -1405,7 +1379,7 @@ export function WBSTable({
                 // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
                 isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
                 'relative outline-none focus:ring-0',
-                !tableEditMode && 'wbs-view-mode',
+                'wbs-view-mode',
                 fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
                 wrapTextInCells && 'wrap-text-in-cells',
                 // 마지막 행·퀵 추가 입력 아래 여백(셀 서식/일괄 바가 있으면 style로 더 큰 값 사용)
@@ -1474,18 +1448,6 @@ export function WBSTable({
                       >
                         #{resizeGrip('seq')}
                       </div>
-                      <div
-                        className="col-header justify-center relative"
-                        title="펼침 · 더블클릭: 너비 초기화"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          handleColumnHeaderDoubleClick('expand');
-                        }}
-                        onContextMenu={(e) => handleHeaderContextMenu(e)}
-                      >
-                        <span className="text-slate-300">▾</span>
-                        {resizeGrip('expand')}
-                      </div>
                       {visibleColumnIds.map(renderHeaderCell)}
                       {showActionsColumn && (
                         <div
@@ -1543,6 +1505,7 @@ export function WBSTable({
                               isFocused={lastSelectedId === task.id || activeTaskId === task.id}
                               hasChildren={hasChildrenSet.has(task.id)}
                               isTreeView={isTreeView}
+                              treeGuide={treeGuideByTaskId.get(task.id) ?? ''}
                               onSelect={handleSelect}
                               onFocusRow={handleFocusRow}
                               onSetRowAnchor={(id) => {
@@ -1564,7 +1527,6 @@ export function WBSTable({
                               setEditingCell={setEditingCell}
                               focusedCell={focusedCell}
                               setFocusedCell={setFocusedCell}
-                              tableEditMode={tableEditMode}
                               allAssignees={allAssignees}
                               assigneeOptionsByProjectId={assigneeOptionsByProjectId}
                               updateTask={updateTask}
@@ -2076,6 +2038,46 @@ export function WBSTable({
                   </button>
                 )}
 
+                {canEditCurrentProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 선택된 각 작업의 「진척률」을 「현재 계획율(자동 산정값)」으로 일괄 설정.
+                      // 종료일이 지난 작업은 100%로, 진행 중인 작업은 일정 진행률(%)로 채워진다.
+                      let n = 0;
+                      for (const id of selectedTaskIds) {
+                        const t = tasks.find((x) => x.id === id);
+                        if (!t) continue;
+                        const planned = plannedProgressById.get(t.id);
+                        if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
+                        const v = round2(planned);
+                        if (Number(t.progress ?? 0) !== v) {
+                          updateTask(t.id, { progress: v });
+                          n += 1;
+                        }
+                      }
+                      pushToast(
+                        n > 0
+                          ? `진척률을 현재 계획율로 맞췄습니다. (${n}개 작업, 기준일 ${effectivePlannedRef ?? '오늘'})`
+                          : '변경 사항이 없습니다. (이미 진척률 = 계획율)',
+                        { variant: n > 0 ? 'success' : 'info' },
+                      );
+                    }}
+                    className="flex items-center gap-2 text-sky-700 hover:text-sky-800 hover:bg-sky-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title={[
+                      '선택한 각 작업의 「진척률(%)」을 「현재 계획율(자동 산정값)」으로 일괄 설정합니다.',
+                      '- 종료일이 기준일을 지난 작업 → 100%로 채워짐',
+                      '- 진행 중인 작업 → 일정 진행률(%)로 채워짐',
+                      '- 시작 전 작업 → 0%',
+                      '결과: 차이(%P) = 0 (계획대로 진행 중인 것으로 표시).',
+                      '실행취소(Ctrl+Z)로 되돌릴 수 있습니다.',
+                    ].join('\n')}
+                  >
+                    <Equal size={14} />
+                    진척률 = 계획율
+                  </button>
+                )}
+
                 <div className="h-4 w-px bg-slate-200" />
 
                 {canEditCurrentProject && (
@@ -2229,6 +2231,24 @@ export function WBSTable({
                     });
                     headerActions.push({ divider: true });
                   }
+                  // 숨긴 컬럼을 헤더 우클릭으로 바로 다시 표시 (컬럼 설정 모달 없이도)
+                  const hiddenCols = tableColumns.filter((c) => !c.visible && c.id !== 'actions');
+                  if (hiddenCols.length > 0) {
+                    for (const hc of hiddenCols) {
+                      const hcId = hc.id;
+                      const hcLabel =
+                        customColumnNameById.get(hcId) || COLUMN_HEADER_LABELS[hcId as keyof typeof COLUMN_HEADER_LABELS] || hcId;
+                      headerActions.push({
+                        label: `${hcLabel} 표시`,
+                        icon: <Eye size={14} />,
+                        onClick: () => {
+                          const cols = (wbsSettings?.tableColumns ?? []).map((c) => (c.id === hcId ? { ...c, visible: true } : c));
+                          updateWbsSettings({ tableColumns: cols });
+                        },
+                      });
+                    }
+                    headerActions.push({ divider: true });
+                  }
                   headerActions.push({
                     label: '컬럼 설정...',
                     icon: <Settings2 size={14} />,
@@ -2243,6 +2263,39 @@ export function WBSTable({
                           label: '갱신',
                           icon: <RefreshCw size={14} />,
                           onClick: handleSyncProgressFromStatus,
+                        },
+                      ]
+                    : []),
+                  // 진척 셀 우클릭 — 진척률을 현재 계획율(자동)로 일괄 설정 (종료된 작업은 100%, 진행중은 일정 진행률).
+                  ...(canEditCurrentProject && contextMenu.columnId === 'progress'
+                    ? [
+                        {
+                          label: '진척률 = 계획율(자동)',
+                          icon: <Equal size={14} />,
+                          onClick: () => {
+                            const ids =
+                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                                ? Array.from(selectedTaskIds)
+                                : contextMenu.taskId
+                                  ? [contextMenu.taskId]
+                                  : [];
+                            let n = 0;
+                            for (const id of ids) {
+                              const t = tasks.find((x) => x.id === id);
+                              if (!t) continue;
+                              const planned = plannedProgressById.get(t.id);
+                              if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
+                              const v = round2(planned);
+                              if (Number(t.progress ?? 0) !== v) {
+                                updateTask(t.id, { progress: v });
+                                n += 1;
+                              }
+                            }
+                            pushToast(n > 0 ? `진척률을 계획율로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다.', {
+                              variant: n > 0 ? 'success' : 'info',
+                            });
+                            setContextMenu(null);
+                          },
                         },
                       ]
                     : []),

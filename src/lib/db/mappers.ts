@@ -42,9 +42,16 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
     baseline_start_date: task.baselineStartDate ?? null,
     baseline_end_date: task.baselineEndDate ?? null,
     baseline_work_effort: task.baselineWorkEffort ?? null,
-    weight: task.weight ?? null,
     custom_fields,
   };
+  // 가중치 직렬화 정책: "사용자가 입력한 값만 저장, 자동 로직이 절대 덮어쓰지 않음" (plannedProgressOverride와 동일 패턴)
+  if (task.weight === null) {
+    // 사용자가 명시적으로 "가중치 없음(미지정)" 선택
+    row.weight = null;
+  } else if (typeof task.weight === 'number' && Number.isFinite(task.weight)) {
+    row.weight = task.weight;
+  }
+  // undefined인 경우: 페이로드에서 컬럼 자체 제외(DB 기존값 보존)
   if (task.plannedProgressOverride === null) {
     row.planned_progress_override = null;
   } else if (typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride)) {

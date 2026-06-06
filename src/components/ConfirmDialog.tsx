@@ -1,7 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
+import {
+  MODAL_BACKDROP_CLASS,
+  MODAL_PANEL_BASE_CLASS,
+  MODAL_HEADER_CLASS,
+  MODAL_FOOTER_CLASS,
+  MODAL_CLOSE_BUTTON_CLASS,
+} from '../lib/modalChrome';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { isComposingKeyEvent } from '../lib/ime';
 
@@ -73,18 +79,14 @@ export function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-sm overflow-hidden')}
       >
-        <div className="flex justify-between items-center gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-b from-slate-50 to-slate-50/40">
+        <div className={MODAL_HEADER_CLASS}>
           <div className="flex items-center gap-2">
             {isDanger && <AlertTriangle className="text-red-500" size={20} />}
             <h2 id="confirm-dialog-title" className="text-lg font-bold text-[var(--color-ink)]">
               {title}
             </h2>
           </div>
-          <button
-            aria-label="닫기"
-            onClick={onClose}
-            className="p-2 rounded-xl transition-colors text-slate-500 hover:text-slate-900 hover:bg-slate-200/80"
-          >
+          <button aria-label="닫기" onClick={onClose} className={MODAL_CLOSE_BUTTON_CLASS}>
             <X size={18} />
           </button>
         </div>
@@ -94,7 +96,7 @@ export function ConfirmDialog({
         </div>
 
         <form
-          className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200/80 bg-slate-50/50"
+          className={MODAL_FOOTER_CLASS}
           onSubmit={(e) => {
             e.preventDefault();
             onConfirm();

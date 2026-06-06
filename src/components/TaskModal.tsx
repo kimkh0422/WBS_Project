@@ -26,6 +26,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { SupabaseYjsProvider } from '../lib/yjsSupabaseProvider';
 import { resolveAssigneeIfUniqueMatch } from '../lib/assigneeOptions';
+import { COLUMN_HEADER_LABELS } from './hooks/useColumnResize';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -151,6 +152,7 @@ export function TaskModal({
     addTask,
     updateTask,
     wbsSettings,
+    updateWbsSettings,
     projects,
     currentProjectId,
     isAdmin,
@@ -161,6 +163,22 @@ export function TaskModal({
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
+  /** 표 컬럼 표시/숨김 토글 목록 (표 전체에 적용되는 설정). 작업명은 항상 표시. */
+  const tableColumnToggles = useMemo(() => {
+    const customNameById = new Map((wbsSettings.customColumns ?? []).map((c) => [c.id, c.name] as const));
+    return (wbsSettings.tableColumns ?? [])
+      .filter((c) => c.id !== 'actions')
+      .map((c) => ({
+        id: c.id,
+        visible: c.visible !== false,
+        label: customNameById.get(c.id) || COLUMN_HEADER_LABELS[c.id as keyof typeof COLUMN_HEADER_LABELS] || c.id,
+      }));
+  }, [wbsSettings.tableColumns, wbsSettings.customColumns]);
+  const toggleTableColumn = (id: string) => {
+    if (id === 'name') return; // 작업명은 항상 표시
+    const cols = (wbsSettings.tableColumns ?? []).map((c) => (c.id === id ? { ...c, visible: !(c.visible !== false) } : c));
+    updateWbsSettings({ tableColumns: cols });
+  };
   /** 전체 프로젝트 보기에서 신규 작업: 스케줄·RLS와 맞는 기준 프로젝트를 하나 고른다. */
   const taskProjectId = useMemo(() => {
     if (initialData?.projectId) return initialData.projectId;
@@ -1186,6 +1204,33 @@ export function TaskModal({
                 <span>액션 항목</span>
                 <span className="text-[10px] text-[var(--color-ink-muted)]">(대시보드 목록·완료 체크)</span>
               </label>
+            </div>
+
+            {/* 표 컬럼 표시 - 한 줄 (표 전체에 적용) */}
+            <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
+              <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
+              <span className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">표 컬럼 표시</span>
+              <span className="text-[10px] text-[var(--color-ink-muted)] normal-case font-normal">· 표 전체에 적용</span>
+            </div>
+            <div className="col-span-full flex items-center gap-x-4 gap-y-1.5 flex-wrap rounded-lg bg-slate-50/80 border border-[var(--color-line-soft)] px-3 py-2">
+              {tableColumnToggles.map((col) => (
+                <label
+                  key={col.id}
+                  className={cn(
+                    'flex items-center gap-2 select-none text-xs text-[var(--color-ink)]',
+                    col.id === 'name' ? 'opacity-60' : 'cursor-pointer',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={col.visible}
+                    disabled={col.id === 'name'}
+                    onChange={() => toggleTableColumn(col.id)}
+                    className="rounded border-[var(--color-line)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]/30 disabled:opacity-50"
+                  />
+                  <span>{col.label}</span>
+                </label>
+              ))}
             </div>
 
             {/* 의존성 - 한 줄 */}

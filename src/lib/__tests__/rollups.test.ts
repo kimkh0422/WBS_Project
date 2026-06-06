@@ -3,6 +3,7 @@ import {
   syncParentRollups,
   recomputeProjectRollups,
   applyRollupsToTasks,
+  normalizeOrphanStatuses,
   syncParentStatus,
   deriveParentStatusFromChildren,
   rescaleSiblingsToSum100,
@@ -24,6 +25,31 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     ...overrides,
   };
 }
+
+describe('normalizeOrphanStatuses', () => {
+  it('설정에 없는 고아 status는 기본 todo로 바꾸고 진척률은 유지, 유효 상태는 그대로', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'a', status: 'status-1778118610000', progress: 40 }),
+      makeTask({ id: 'b', status: 'in-progress', progress: 10 }),
+    ];
+    const result = normalizeOrphanStatuses(tasks, DEFAULT_STATUS_CONFIGS);
+    expect(result.find((t) => t.id === 'a')!.status).toBe('todo');
+    expect(result.find((t) => t.id === 'a')!.progress).toBe(40); // 진척률은 건드리지 않음
+    expect(result.find((t) => t.id === 'b')!.status).toBe('in-progress');
+  });
+
+  it('statusConfigs가 비어 있거나 없으면 아무것도 바꾸지 않음(로드 전 오정규화 방지)', () => {
+    const tasks: Task[] = [makeTask({ id: 'a', status: 'status-xyz' })];
+    expect(normalizeOrphanStatuses(tasks, [])).toBe(tasks);
+    expect(normalizeOrphanStatuses(tasks, undefined)).toBe(tasks);
+  });
+
+  it('applyRollupsToTasks 경유로도 고아 status가 정리됨', () => {
+    const tasks: Task[] = [makeTask({ id: 'a', status: 'status-deleted-123', progress: 0 })];
+    const result = applyRollupsToTasks(tasks, DEFAULT_STATUS_CONFIGS);
+    expect(result.find((t) => t.id === 'a')!.status).toBe('todo');
+  });
+});
 
 describe('syncParentRollups', () => {
   it('keeps parent progress to one decimal place', () => {

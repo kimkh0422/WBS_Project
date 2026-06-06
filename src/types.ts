@@ -141,6 +141,8 @@ export interface FilterState {
   pastDueOnly?: boolean;
   /** true면 이번 주에 완료(상태 'done' + 종료일이 이번 주)된 작업만 표시 */
   completedThisWeekOnly?: boolean;
+  /** true면 시작일이 오늘(또는 기준일) 이후인(=아직 시작 전) 작업만 표시 */
+  notStartedYetOnly?: boolean;
   /** 작업명/설명 텍스트 검색 */
   searchText?: string;
 }

@@ -10,20 +10,15 @@ import {
   Briefcase,
   LayoutGrid,
   Loader2,
-  Bug,
   Building2,
   Settings2,
   Check,
   User,
   ListChecks,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Ban,
   Table2,
   Calendar,
   ChevronDown,
-  AlertCircle,
   CircleHelp,
   RotateCcw,
 } from 'lucide-react';
@@ -39,14 +34,7 @@ import {
 } from '../lib/projectKind';
 import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
-import {
-  computeWbsQualityScore,
-  WBS_QUALITY_GRADE_LABEL,
-  wbsQualityChecksSummary,
-  type WbsQuality,
-  type WbsQualityGrade,
-} from '../lib/wbsQualityScore';
-import { dashboardPlannedVarianceRowTitle } from '../lib/plannedProgressTooltips';
+import { computeWbsQualityScore, type WbsQuality } from '../lib/wbsQualityScore';
 import type { Task, Project } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
 import {
@@ -58,16 +46,12 @@ import {
   readDashboardSectionLayout,
   writeDashboardSectionLayout,
   type DashboardSectionLayoutMode,
+  type DashboardSectionLayout,
   WBS_DASHBOARD_SECTION_LAYOUT_CHANGED,
 } from '../lib/dashboardSectionLayout';
 import { useOrganization } from '../context/OrganizationContext';
 import type { OrgNode } from '../data/organization';
-import {
-  buildOrgMemberDisplayMetaMap,
-  buildOrgMemberLabelMap,
-  formatAssigneeDisplay,
-  type PersonDisplayMeta,
-} from '../lib/assigneeOptions';
+import { buildOrgMemberDisplayMetaMap, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 import { inferProjectTopDivisionId } from '../lib/allocationDivisionInfer';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
@@ -123,8 +107,6 @@ interface ProjectStats {
   /** WBS 작성 충실도(체크리스트 기반): 점수·등급·항목별 충족 내역 */
   quality: WbsQuality;
 }
-
-type ProjectStatusTableSortKey = 'name' | 'pm' | 'progress' | 'team' | 'end';
 
 const DASHBOARD_DETAIL_KINDS = new Set<DashboardDetailKind>([
   'projects',
@@ -251,7 +233,7 @@ export function Dashboard({
     setDashboardIncludedKinds(next);
   };
   const toggleDashboardIncludedKind = (kind: ProjectKind) => {
-    const next = new Set(dashboardIncludedKinds);
+    const next = new Set<ProjectKind>(dashboardIncludedKinds);
     if (next.has(kind)) next.delete(kind);
     else next.add(kind);
     persistDashboardIncludedKinds(next);
@@ -515,7 +497,7 @@ export function Dashboard({
 
   const [showUndeterminedPeriodProjectsOnly, setShowUndeterminedPeriodProjectsOnly] = useState(false);
 
-  // 사용자 선택 + "내 프로젝트만" + "기간 미정만" 토글 적용한 표시 목록 (정렬 전).
+  // 사용자 선택 + "내 프로젝트만" + "기간 미정만" 토글 적용한 표시 목록.
   const baseDisplayProjectStats = useMemo(() => {
     const base = showUndeterminedPeriodProjectsOnly ? projectStats.filter((p) => hasUndeterminedProjectPeriod(p)) : visibleProjectStats;
     if (showMyOnly && myInvolvedProjectIds) {
@@ -524,31 +506,6 @@ export function Dashboard({
     if (!dashboardVisibleIds) return base;
     return base.filter((p) => dashboardVisibleIds.has(p.id));
   }, [visibleProjectStats, projectStats, showUndeterminedPeriodProjectsOnly, dashboardVisibleIds, showMyOnly, myInvolvedProjectIds]);
-
-  /** 프로젝트별 상태 표: 헤더 클릭 정렬(카드 뷰에서는 적용하지 않음) */
-  const [projectStatusTableSort, setProjectStatusTableSort] = useState<{
-    key: ProjectStatusTableSortKey;
-    direction: 'asc' | 'desc';
-  } | null>(null);
-
-  const toggleProjectStatusColumnSort = useCallback((key: ProjectStatusTableSortKey) => {
-    setProjectStatusTableSort((cur) => {
-      if (cur?.key === key) {
-        if (cur.direction === 'asc') return { key, direction: 'desc' };
-        return null;
-      }
-      return { key, direction: 'asc' };
-    });
-  }, []);
-
-  const projectStatusSortIconEl = (key: ProjectStatusTableSortKey) =>
-    projectStatusTableSort?.key !== key ? (
-      <ArrowUpDown size={12} className="opacity-35 shrink-0" aria-hidden />
-    ) : projectStatusTableSort.direction === 'asc' ? (
-      <ArrowUp size={12} className="shrink-0 text-indigo-600" aria-hidden />
-    ) : (
-      <ArrowDown size={12} className="shrink-0 text-indigo-600" aria-hidden />
-    );
 
   /** 프로젝트별 상태 카드/표 행 선택 시 상세 팝업에 표시할 프로젝트 ID */
   const [selectedProjectCardId, setSelectedProjectCardId] = useState<string | null>(null);
@@ -587,46 +544,7 @@ export function Dashboard({
     [dashboardSectionLayout],
   );
 
-  const displayProjectStats = useMemo(() => {
-    type Row = (typeof baseDisplayProjectStats)[number];
-    const tieName = (a: Row, b: Row) => a.name.localeCompare(b.name, 'ko');
-
-    if (projectStatusTableSort) {
-      const list = [...baseDisplayProjectStats];
-      const dir = projectStatusTableSort.direction === 'asc' ? 1 : -1;
-      const { key } = projectStatusTableSort;
-      list.sort((a, b) => {
-        let cmp = 0;
-        switch (key) {
-          case 'name':
-            cmp = formatProjectDisplayName(a.name, a.projectKind).localeCompare(formatProjectDisplayName(b.name, b.projectKind), 'ko');
-            break;
-          case 'pm': {
-            const pa = resolveProjectPmRawDisplayName(a, profileMap);
-            const pb = resolveProjectPmRawDisplayName(b, profileMap);
-            cmp = pa.localeCompare(pb, 'ko');
-            break;
-          }
-          case 'progress':
-            cmp = a.stats.progress - b.stats.progress;
-            break;
-          case 'team':
-            cmp = a.stats.assigneeCount - b.stats.assigneeCount;
-            break;
-          case 'end':
-            cmp = (a.endDate ?? '').localeCompare(b.endDate ?? '', 'ko');
-            break;
-          default:
-            break;
-        }
-        if (cmp !== 0) return dir * cmp;
-        return tieName(a, b);
-      });
-      return list;
-    }
-
-    return baseDisplayProjectStats;
-  }, [baseDisplayProjectStats, projectStatusTableSort, profileMap]);
+  const displayProjectStats = baseDisplayProjectStats;
 
   const selectedProjectCard = useMemo(
     () => (selectedProjectCardId ? displayProjectStats.find((p) => p.id === selectedProjectCardId) : undefined),
@@ -732,7 +650,7 @@ export function Dashboard({
   }, [actionTasksWithDueDate, actionDueDateFilter, doneStatusIds]);
 
   // 사업부/본부별 등록 현황: 조직도 1단계(지엠티 직속) 전 노드를 행으로 두고, 소속 프로젝트·미분류 목록을 함께 산출
-  const { divisionStats, unclassifiedDashboardProjects } = useMemo(() => {
+  const { divisionStats, unclassifiedDashboardProjects, projectDivisionNameById } = useMemo(() => {
     const doneStatusIdsSet = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
     const groupNameById = new Map((wbsSettings.projectGroups ?? []).map((g) => [g.id, (g.name || '').trim()] as const));
 
@@ -754,6 +672,9 @@ export function Dashboard({
     }
     unclassified.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
 
+    const divisionNameById = new Map<string, string>(topLevelDivisions.map((d) => [String(d.id), String(d.name)] as [string, string]));
+    // 프로젝트 → 소속 사업부명: "사업부 현황"과 동일 분류로 프로젝트 카드에 표시
+    const projectDivisionNameById = new Map<string, string>();
     const projectsByDivision = new Map<string, { id: string; label: string }[]>();
     const projectIdsByDivision = new Map<string, Set<string>>();
     for (const division of topLevelDivisions) {
@@ -769,6 +690,8 @@ export function Dashboard({
       if (!list || !idSet) continue;
       idSet.add(p.id);
       list.push({ id: p.id, label: formatProjectDisplayName(p.name, p.projectKind) });
+      const dn = divisionNameById.get(divId);
+      if (dn) projectDivisionNameById.set(p.id, dn);
     }
     for (const list of projectsByDivision.values()) {
       list.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
@@ -822,7 +745,7 @@ export function Dashboard({
       if (b.total !== a.total) return b.total - a.total;
       return a.name.localeCompare(b.name, 'ko');
     });
-    return { divisionStats: sorted, unclassifiedDashboardProjects: unclassified };
+    return { divisionStats: sorted, unclassifiedDashboardProjects: unclassified, projectDivisionNameById };
   }, [
     topLevelDivisions,
     allTasksForDashboard,
@@ -1636,67 +1559,25 @@ export function Dashboard({
                       mobileReadabilityMode ? 'text-lg' : 'text-lg md:text-xl',
                     )}
                   >
-                    <span className="inline-flex items-center justify-center size-8 rounded-xl bg-indigo-50 text-indigo-600 shrink-0">
+                    <span className="inline-flex items-center justify-center size-8 rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100 shadow-sm shrink-0">
                       <LayoutGrid size={mobileReadabilityMode ? 20 : 18} />
                     </span>
                     전체현황
                   </h2>
                 </div>
                 {dashboardSectionLayout.summary === 'card' ? (
-                  <div className={cn('grid gap-2 sm:gap-3', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-4')}>
-                    <SummaryCard
-                      title="등록된 프로젝트 수"
-                      icon={Briefcase}
-                      accent="indigo"
-                      value={summary.totalProjects}
-                      subtitle={projectCountSummarySubtitle}
-                      compact={mobileReadabilityMode}
-                      onClick={() => openDashboardDetail('projects')}
-                    />
-                    <SummaryCard
-                      title="등록된 총 작업 수"
-                      icon={ListChecks}
-                      accent="slate"
-                      value={summary.totalTasks}
-                      subtitle={dashboardExcludedIds.size > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : ''}
-                      compact={mobileReadabilityMode}
-                      onClick={() => openDashboardDetail('tasks')}
-                    />
-                    <SummaryCard
-                      title="회원가입자 수"
-                      icon={User}
-                      accent="violet"
-                      value={loadingMemberCount ? <Loader2 size={14} className="animate-spin text-slate-400" /> : memberCount}
-                      subtitle="클릭하여 명단·상세"
-                      compact={mobileReadabilityMode}
-                      highlight="text-violet-600"
-                      onClick={() => openDashboardDetail('members')}
-                    />
-                    <SummaryCard
-                      title="접속자수"
-                      icon={Activity}
-                      accent="sky"
-                      compact={mobileReadabilityMode}
-                      value={
-                        loadingVisitorStats ? (
-                          <Loader2 size={14} className="animate-spin text-slate-400" />
-                        ) : (
-                          <div className="flex items-baseline gap-3 not-italic font-normal tracking-normal">
-                            <span className="flex items-baseline gap-1">
-                              <span className="text-[11px] font-medium text-slate-400">금일</span>
-                              <span className="text-2xl md:text-3xl font-bold text-indigo-600 tabular-nums">{visitorStats.daily}</span>
-                            </span>
-                            <span className="flex items-baseline gap-1">
-                              <span className="text-[11px] font-medium text-slate-400">누적</span>
-                              <span className="text-lg font-bold text-purple-600 tabular-nums">{visitorStats.total}</span>
-                            </span>
-                          </div>
-                        )
-                      }
-                      subtitle="클릭하여 금일 명단·상세"
-                      onClick={() => openDashboardDetail('visitors')}
-                    />
-                  </div>
+                  <DashboardHeroBand
+                    totalProjects={summary.totalProjects}
+                    totalTasks={summary.totalTasks}
+                    memberCount={memberCount}
+                    loadingMemberCount={loadingMemberCount}
+                    visitorStats={visitorStats}
+                    loadingVisitorStats={loadingVisitorStats}
+                    projectCountSubtitle={projectCountSummarySubtitle}
+                    excludedCount={dashboardExcludedIds.size}
+                    mobileReadabilityMode={mobileReadabilityMode}
+                    onOpenDetail={openDashboardDetail}
+                  />
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-2">
                     <table className="w-full text-sm">
@@ -1771,7 +1652,10 @@ export function Dashboard({
               <section>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2.5 flex-wrap m-0">
-                    <span className="inline-flex items-center justify-center size-8 rounded-xl bg-sky-50 text-sky-600 shrink-0" aria-hidden>
+                    <span
+                      className="inline-flex items-center justify-center size-8 rounded-xl bg-sky-50 text-sky-600 ring-1 ring-sky-100 shadow-sm shrink-0"
+                      aria-hidden
+                    >
                       <Building2 size={18} />
                     </span>
                     사업부 현황
@@ -1908,7 +1792,12 @@ export function Dashboard({
                   </div>
                 ) : dashboardSectionLayout.divisions === 'card' ? (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                    <div
+                      className={cn(
+                        'grid gap-2',
+                        mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6',
+                      )}
+                    >
                       {activeDivisionCards.map((d) => (
                         <div key={d.id} className="relative group">
                           <div
@@ -1922,7 +1811,7 @@ export function Dashboard({
                               }
                             }}
                             className={cn(
-                              'rounded-lg p-3 hover:shadow-md transition-shadow cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 border h-full',
+                              'rounded-lg p-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 border h-full',
                               d.projectCount === 0
                                 ? 'border-dashed border-slate-300 bg-slate-50/60 hover:border-slate-400'
                                 : 'bg-white border-slate-200 hover:border-indigo-200/80',
@@ -1947,12 +1836,12 @@ export function Dashboard({
                             </h3>
                             <div className="space-y-2">
                               <div className="grid grid-cols-2 gap-1.5">
-                                <div className="rounded-lg border-2 border-sky-200 bg-sky-50/90 px-2 py-2 text-center shadow-sm">
+                                <div className="rounded-lg border border-sky-200/80 bg-sky-50/90 px-2 py-2 text-center shadow-sm">
                                   <div className="text-[10px] font-bold text-sky-900 tracking-wide">프로젝트</div>
                                   <div className="text-2xl font-bold text-sky-700 tabular-nums leading-none mt-0.5">{d.projectCount}</div>
                                   <div className="text-[9px] font-medium text-sky-800/80 mt-0.5">건</div>
                                 </div>
-                                <div className="rounded-lg border-2 border-slate-200 bg-slate-50 px-2 py-2 text-center shadow-sm">
+                                <div className="rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-2 text-center shadow-sm">
                                   <div className="text-[10px] font-bold text-slate-900 tracking-wide">Task</div>
                                   <div className="text-2xl font-bold text-slate-800 tabular-nums leading-none mt-0.5">{d.total}</div>
                                   <div className="text-[9px] font-medium text-slate-700/85 mt-0.5">건</div>
@@ -1971,7 +1860,10 @@ export function Dashboard({
                                   </span>
                                 </div>
                                 <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, d.planned)}%` }} />
+                                  <div
+                                    className="h-full bg-gradient-to-r from-amber-400 to-amber-500"
+                                    style={{ width: `${Math.min(100, d.planned)}%` }}
+                                  />
                                 </div>
                               </div>
                               <div>
@@ -1982,7 +1874,10 @@ export function Dashboard({
                                   </span>
                                 </div>
                                 <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div className="h-full bg-indigo-500" style={{ width: `${Math.min(100, d.progress)}%` }} />
+                                  <div
+                                    className="h-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                                    style={{ width: `${Math.min(100, d.progress)}%` }}
+                                  />
                                 </div>
                               </div>
                               {mobileReadabilityMode && d.registeredProjects.length > 0 && (
@@ -2167,7 +2062,7 @@ export function Dashboard({
               <section>
                 <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-lg md:text-xl font-bold text-[var(--color-ink)] flex items-center gap-2.5 flex-wrap">
-                    <span className="inline-flex items-center justify-center size-8 rounded-xl bg-[var(--color-accent-soft)] text-[var(--color-accent)] shrink-0">
+                    <span className="inline-flex items-center justify-center size-8 rounded-xl bg-[var(--color-accent-soft)] text-[var(--color-accent)] ring-1 ring-indigo-100 shadow-sm shrink-0">
                       <Briefcase size={18} />
                     </span>
                     프로젝트별 현황
@@ -2202,43 +2097,8 @@ export function Dashboard({
                 </div>
                 <p className="text-xs text-slate-500 -mt-1 mb-1">
                   카드를 누르면 진척·기한·작업·이슈 등 <strong className="font-semibold text-slate-600">숫자 요약</strong> 상세가 열립니다.
-                  아래 버튼으로 정렬할 수 있습니다.
                 </p>
                 <div className="space-y-2">
-                  {displayProjectStats.length > 0 && (
-                    <div
-                      className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-[11px]"
-                      role="toolbar"
-                      aria-label="프로젝트 목록 정렬"
-                    >
-                      <span className="text-slate-500 font-medium mr-0.5 shrink-0">정렬</span>
-                      {(
-                        [
-                          ['name', '프로젝트'],
-                          ['pm', 'PM'],
-                          ['end', '기간'],
-                          ['team', '팀원'],
-                          ['progress', '진척'],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => toggleProjectStatusColumnSort(key)}
-                          className={cn(
-                            'inline-flex items-center gap-0.5 rounded-md border px-2 py-1 font-semibold transition-colors',
-                            projectStatusTableSort?.key === key
-                              ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
-                              : 'border-slate-200/80 bg-white text-slate-600 hover:bg-slate-50',
-                          )}
-                          title={`${label} 기준 정렬 · 한 번 더 누르면 방향 전환`}
-                        >
-                          {label}
-                          {projectStatusSortIconEl(key)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                     {displayProjectStats.length === 0 ? (
                       <div className="col-span-full text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
@@ -2262,9 +2122,10 @@ export function Dashboard({
                           key={project.id}
                           project={project}
                           isSelected={selectedProjectCardId === project.id}
-                          onClick={() => setSelectedProjectCardId((prev) => (prev === project.id ? null : project.id))}
-                          assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-                          profileMap={profileMap}
+                          onClick={() => openDashboardDetail('project', { projectId: project.id })}
+                          mobileReadabilityMode={mobileReadabilityMode}
+                          divisionName={projectDivisionNameById.get(project.id)}
+                          pmName={resolveProjectPmRawDisplayName(project, profileMap)}
                         />
                       ))
                     )}
@@ -2426,134 +2287,130 @@ function DashboardTableHintCell({ text }: { text: string }) {
   );
 }
 
-const SUMMARY_CARD_ACCENT: Record<'indigo' | 'slate' | 'violet' | 'sky', string> = {
-  indigo: 'bg-indigo-50 text-indigo-600',
-  slate: 'bg-slate-100 text-slate-600',
-  violet: 'bg-violet-50 text-violet-600',
-  sky: 'bg-sky-50 text-sky-600',
-};
-
-function SummaryCard({
-  title,
-  value,
-  subtitle,
-  highlight,
-  icon: Icon,
-  accent = 'slate',
-  compact = false,
-  onClick,
+/**
+ * 대시보드 상단 "지휘본부" 히어로 밴드 — 핵심 KPI(프로젝트·작업·회원·접속) 타일.
+ * 반투명 타일은 다크모드의 bg-white/* 오버라이드를 피하려 arbitrary rgba 값을 사용.
+ */
+function DashboardHeroBand({
+  totalProjects,
+  totalTasks,
+  memberCount,
+  loadingMemberCount,
+  visitorStats,
+  loadingVisitorStats,
+  projectCountSubtitle,
+  excludedCount,
+  mobileReadabilityMode = false,
+  onOpenDetail,
 }: {
-  title: string;
-  value: number | React.ReactNode;
-  /** 카드에 마우스를 올리면 브라우저 툴팁으로 표시(항상 보이지 않음) */
-  subtitle?: string;
-  highlight?: string;
-  /** 좌상단 아이콘 배지 */
-  icon?: React.ComponentType<{ size?: number | string; className?: string }>;
-  /** 아이콘 배지 색상 테마 */
-  accent?: 'indigo' | 'slate' | 'violet' | 'sky';
-  /** 모바일 대시보드: 여백·숫자 크기 축소 */
-  compact?: boolean;
-  onClick?: () => void;
+  totalProjects: number;
+  totalTasks: number;
+  memberCount: number;
+  loadingMemberCount: boolean;
+  visitorStats: { daily: number; total: number };
+  loadingVisitorStats: boolean;
+  projectCountSubtitle?: string;
+  excludedCount: number;
+  mobileReadabilityMode?: boolean;
+  onOpenDetail: (kind: DashboardDetailKind) => void;
 }) {
-  const noteId = useId();
-  const subtitleTrimmed = subtitle?.trim() ?? '';
-  const hasNote = subtitleTrimmed.length > 0;
+  const tasksNote = excludedCount > 0 ? '※ 제외된 프로젝트의 작업은 합계에 포함되지 않음' : undefined;
+
+  const kpis: Array<{
+    key: DashboardDetailKind;
+    label: string;
+    icon: React.ComponentType<{ size?: number | string; className?: string }>;
+    iconClass: string;
+    title?: string;
+    node: React.ReactNode;
+  }> = [
+    {
+      key: 'projects',
+      label: '프로젝트',
+      icon: Briefcase,
+      iconClass: 'text-indigo-500',
+      title: projectCountSubtitle || undefined,
+      node: <span className="text-2xl md:text-3xl font-bold tabular-nums leading-none">{totalProjects}</span>,
+    },
+    {
+      key: 'tasks',
+      label: '작업',
+      icon: ListChecks,
+      iconClass: 'text-violet-500',
+      title: tasksNote,
+      node: <span className="text-2xl md:text-3xl font-bold tabular-nums leading-none">{totalTasks}</span>,
+    },
+    {
+      key: 'members',
+      label: '회원',
+      icon: User,
+      iconClass: 'text-sky-500',
+      node: loadingMemberCount ? (
+        <Loader2 size={20} className="animate-spin text-slate-400" />
+      ) : (
+        <span className="text-2xl md:text-3xl font-bold tabular-nums leading-none">{memberCount}</span>
+      ),
+    },
+    {
+      key: 'visitors',
+      label: '접속 · 금일',
+      icon: Activity,
+      iconClass: 'text-emerald-500',
+      node: loadingVisitorStats ? (
+        <Loader2 size={20} className="animate-spin text-slate-400" />
+      ) : (
+        <span className="flex items-baseline gap-1.5">
+          <span className="text-2xl md:text-3xl font-bold tabular-nums leading-none">{visitorStats.daily}</span>
+          <span className="text-xs font-medium text-[var(--color-ink-muted)]">누적 {visitorStats.total}</span>
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
-      title={hasNote ? subtitleTrimmed : undefined}
-      aria-describedby={hasNote ? noteId : undefined}
-      className={cn(
-        'card-elevated relative overflow-hidden group/card flex items-center transition-all duration-300',
-        compact ? 'p-4 gap-3' : 'p-4 md:p-5 gap-3.5 md:gap-4',
-        onClick && 'cursor-pointer hover:border-indigo-200 hover:-translate-y-0.5',
-        hasNote && !onClick && 'cursor-help',
-      )}
-    >
-      {hasNote ? (
-        <span id={noteId} className="sr-only">
-          {subtitleTrimmed}
-        </span>
-      ) : null}
-      {Icon ? (
-        <div
-          className={cn(
-            'inline-flex items-center justify-center rounded-xl shrink-0',
-            compact ? 'size-10' : 'size-11 md:size-12',
-            SUMMARY_CARD_ACCENT[accent],
-          )}
-          aria-hidden
-        >
-          <Icon size={compact ? 20 : 22} />
-        </div>
-      ) : null}
-      <div className="min-w-0 flex-1">
-        <div className={cn('font-semibold text-slate-500 uppercase tracking-wide mb-0.5', compact ? 'text-[10px]' : 'text-[11px]')}>
-          {title}
-        </div>
-        <div
-          className={cn(
-            'font-bold tracking-tight leading-tight',
-            compact ? 'text-2xl' : 'text-2xl md:text-3xl',
-            highlight || 'text-[var(--color-ink)]',
-          )}
-        >
-          {value}
-        </div>
+    <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
+      <div className={cn('grid gap-2.5 sm:gap-3', mobileReadabilityMode ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>
+        {kpis.map((k) => {
+          const Icon = k.icon;
+          return (
+            <button
+              key={k.key}
+              type="button"
+              onClick={() => onOpenDetail(k.key)}
+              title={k.title}
+              className="group/kpi flex flex-col gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-3.5 text-left text-[var(--color-ink)] transition-all hover:-translate-y-0.5 hover:bg-[var(--color-surface)] hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+                <Icon size={14} aria-hidden className={k.iconClass} />
+                {k.label}
+              </span>
+              {k.node}
+            </button>
+          );
+        })}
       </div>
-      {hasNote ? (
-        <CircleHelp
-          className={cn(
-            'absolute pointer-events-none text-slate-300 shrink-0',
-            compact ? 'top-3 right-3 size-3.5' : 'top-4 right-4 size-4',
-          )}
-          strokeWidth={2}
-          aria-hidden
-        />
-      ) : null}
     </div>
   );
 }
-
-const WBS_QUALITY_BADGE_CLASS: Record<WbsQualityGrade, string> = {
-  excellent: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  good: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-  fair: 'bg-amber-50 text-amber-700 border-amber-200',
-  poor: 'bg-red-50 text-red-700 border-red-100',
-};
 
 function ProjectCard({
   project,
   onClick,
   isSelected,
-  assigneeDisplayMetaByName,
-  profileMap,
+  mobileReadabilityMode = false,
+  divisionName,
+  pmName,
 }: {
   project: Project & { stats: ProjectStats };
   onClick?: () => void;
   isSelected?: boolean;
-  assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
-  profileMap?: Record<string, string>;
+  mobileReadabilityMode?: boolean;
+  /** 소속 사업부(조직) 이름 — 대시보드 "사업부 현황"과 동일 분류 */
+  divisionName?: string;
+  /** PM(프로젝트 책임자) 표시명 */
+  pmName?: string;
 }) {
   const s = project.stats;
-  const pmRaw = resolveProjectPmRawDisplayName(project, profileMap);
-  const pmDisplay = pmRaw ? formatAssigneeDisplay(pmRaw, assigneeDisplayMetaByName) : '';
-  const poRaw = (project.poName ?? '').trim();
-  const poDisplay = poRaw ? formatAssigneeDisplay(poRaw, assigneeDisplayMetaByName) : '';
 
   return (
     <div
@@ -2571,99 +2428,62 @@ function ProjectCard({
           : undefined
       }
       className={cn(
-        'card flex h-full flex-col overflow-hidden group p-3 transition-shadow',
-        onClick && 'cursor-pointer hover:border-indigo-200',
+        'card flex h-full flex-col overflow-hidden group p-3 transition-all duration-300',
+        onClick && 'cursor-pointer hover:border-indigo-200 hover:-translate-y-0.5 hover:shadow-md',
         isSelected && 'ring-2 ring-indigo-400 border-indigo-300 shadow-md',
       )}
     >
       <h3
-        className="text-[13px] font-semibold text-[var(--color-ink)] mb-1.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug"
+        className={cn(
+          'font-semibold text-[var(--color-ink)] mb-1.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug',
+          mobileReadabilityMode ? 'text-sm' : 'text-[13px]',
+        )}
         title={formatProjectDisplayName(project.name, project.projectKind)}
       >
         {formatProjectDisplayName(project.name, project.projectKind)}
       </h3>
-      <div
-        className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 tabular-nums mb-1.5"
-        aria-label="작업·이슈·액션·지연 건수"
-      >
-        <span>
-          작업 <strong className="font-semibold text-slate-700">{s.total}</strong>건
-        </span>
-        {s.issueCount > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-rose-800/90" title="이슈로 표시된 작업">
-            <Bug size={10} className="shrink-0" aria-hidden />
-            이슈 {s.issueCount}
-          </span>
-        )}
-        {s.actionCount > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-violet-800/90" title="액션 항목 작업">
-            <ListChecks size={10} className="shrink-0" aria-hidden />
-            액션 {s.actionCount}
-          </span>
-        )}
-        {s.overdueCount > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-amber-800/90" title="종료일이 지났고 아직 미완료">
-            <AlertCircle size={10} className="shrink-0" aria-hidden />
-            지연 {s.overdueCount}
-          </span>
-        )}
-      </div>
-      <p
-        className="text-[10px] text-slate-600 mb-1.5 line-clamp-2 leading-snug"
-        title={[pmDisplay && `PM ${pmDisplay}`, poDisplay && `PO ${poDisplay}`].filter(Boolean).join(' · ')}
-      >
-        <span className="text-slate-400">PM</span> {pmDisplay || '미지정'}
-        <span className="text-slate-300 mx-1">·</span>
-        <span className="text-slate-400">PO</span> {poDisplay || '—'}
-      </p>
-
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[10px] font-semibold text-slate-400 shrink-0">진척</span>
-        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div className="h-full bg-indigo-500 transition-all duration-1000 ease-out" style={{ width: `${s.progress}%` }} />
-        </div>
-        <span className="text-sm font-bold text-indigo-700 w-11 text-right tabular-nums shrink-0">{formatPercent1(s.progress)}%</span>
-      </div>
-
-      <div className="flex items-center gap-1.5 mb-2 text-[11px] tabular-nums">
-        <span className="text-[10px] font-semibold text-slate-400 shrink-0">계획</span>
-        <span className="text-slate-500">{formatPercent1(s.planned)}%</span>
-        <span className="text-slate-300">·</span>
-        <span className="text-[10px] font-semibold text-slate-400 shrink-0">차이</span>
+      <div className="flex flex-col gap-1 text-[11px] min-w-0">
         <span
-          className={cn('font-bold', s.variance < 0 ? 'text-red-600' : s.variance > 0 ? 'text-emerald-600' : 'text-slate-500')}
-          title={`실제 ${formatPercent1(s.progress)}% − 계획 ${formatPercent1(s.planned)}% · ${
-            s.variance < 0 ? '계획 대비 지연' : s.variance > 0 ? '계획보다 앞섬' : '계획대로'
-          }`}
+          className="inline-flex items-center gap-1 min-w-0 text-slate-500"
+          title={divisionName ? `소속 ${divisionName}` : '사업부 미분류'}
         >
-          {s.variance > 0 ? '+' : ''}
-          {formatPercent1(s.variance)}%p
+          <Building2 size={11} className="shrink-0 text-sky-500" aria-hidden />
+          <span className={cn('truncate', !divisionName && 'text-slate-400')}>{divisionName || '사업부 미분류'}</span>
+        </span>
+        <span className="inline-flex items-center gap-1 min-w-0" title={pmName ? `PM ${pmName}` : 'PM 미지정'}>
+          <span className="shrink-0 rounded bg-slate-100 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-slate-500">PM</span>
+          <span className={cn('truncate', pmName ? 'font-medium text-slate-700' : 'text-slate-400')}>{pmName || '미지정'}</span>
         </span>
       </div>
-
-      <div className="flex items-center gap-1.5 mb-2 text-[11px]">
-        <span className="text-[10px] font-semibold text-slate-400 shrink-0">충실도</span>
-        {s.quality.score != null && s.quality.grade ? (
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-bold tabular-nums',
-              WBS_QUALITY_BADGE_CLASS[s.quality.grade],
-            )}
-            title={`WBS 작성 충실도 ${s.quality.score}점 · ${WBS_QUALITY_GRADE_LABEL[s.quality.grade]}\n${wbsQualityChecksSummary(s.quality)}${
-              s.quality.failTotal ? `\n보완 필요 ${s.quality.failTotal}건` : ''
-            }`}
-          >
-            {s.quality.score}
-            <span className="font-semibold opacity-90">· {WBS_QUALITY_GRADE_LABEL[s.quality.grade]}</span>
-          </span>
-        ) : (
-          <span className="text-slate-400" title="점검 대상 작업이 없습니다">
-            —
-          </span>
-        )}
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-slate-400 shrink-0">계획율</span>
+          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-amber-500 transition-all duration-1000 ease-out" style={{ width: `${Math.min(100, s.planned)}%` }} />
+          </div>
+          <span className="text-sm font-bold text-amber-700 w-14 text-right tabular-nums shrink-0">{formatPercent1(s.planned)}%</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-slate-400 shrink-0">진척율</span>
+          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-1000 ease-out"
+              style={{ width: `${Math.min(100, s.progress)}%` }}
+            />
+          </div>
+          <span className="text-base font-bold text-indigo-700 w-14 text-right tabular-nums shrink-0">{formatPercent1(s.progress)}%</span>
+        </div>
       </div>
 
-      <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 tabular-nums">
+      <div className="mt-auto pt-2.5 border-t border-slate-100 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-slate-500 tabular-nums">
+        <span>
+          작업 <strong className="font-semibold text-slate-700">{s.total}</strong>
+        </span>
+        <span className="text-slate-300">·</span>
+        <span>
+          팀원 <strong className="font-semibold text-slate-800">{s.assigneeCount}</strong>
+        </span>
+        <span className="text-slate-300">|</span>
         <span className="text-slate-600">
           {project.startDate || project.endDate ? (
             <>
@@ -2674,10 +2494,6 @@ function ProjectCard({
           ) : (
             <span className="text-amber-700/90 font-medium">기간 미정</span>
           )}
-        </span>
-        <span className="text-slate-300">|</span>
-        <span>
-          팀원 <strong className="font-semibold text-slate-800">{s.assigneeCount}</strong>
         </span>
       </div>
     </div>

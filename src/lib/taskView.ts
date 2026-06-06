@@ -115,6 +115,11 @@ function matchesFilters(task: Task, filters: FilterState) {
     const today = new Date().toISOString().slice(0, 10);
     if (!taskEnd || taskEnd >= today || (task.progress ?? 0) >= 100) return false;
   }
+  // 시작 전 항목: 시작일이 오늘 이후(미래)인 작업만 표시
+  if (filters.notStartedYetOnly) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (!taskStart || taskStart <= today) return false;
+  }
   // 이번 주에 완료된 항목만 보기: 상태 done + 종료일이 이번 주(월~일) 안에 포함
   if (filters.completedThisWeekOnly) {
     if (task.status !== 'done') return false;
@@ -214,6 +219,7 @@ export function buildVisibleTasks(
     !!filters.issueOnly ||
     !!filters.pastDueOnly ||
     !!filters.completedThisWeekOnly ||
+    !!filters.notStartedYetOnly ||
     !!filters.searchText;
   const levelFilter = typeof filters.level === 'number';
   const targetLevel = levelFilter ? filters.level! : 0;

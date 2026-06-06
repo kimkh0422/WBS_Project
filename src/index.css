@@ -599,23 +599,21 @@ input[list] {
   min-height: var(--row-height, 20px);
 }
 
-/* ── 좌측 고정열(비분할 표): 앞 6개 컬럼(그립·체크·#·펼침 + 첫 2개 데이터열=기본 WBS·작업명)을
-      가로 스크롤해도 좌측에 고정. left 오프셋은 컨테이너의 --frz-l1..6 변수(실제 폭 누적)에서 읽는다.
+/* ── 좌측 고정열(비분할 표): 앞 4개 컬럼(그립·체크·# + 첫 데이터열=작업명)을
+      가로 스크롤해도 좌측에 고정. left 오프셋은 컨테이너의 --frz-l1..4 변수(실제 폭 누적)에서 읽는다.
       배경은 행의 인라인 배경색을 상속(inherit)해 선택/포커스/완료/줄무늬 상태까지 그대로 보이고,
       스크롤되는 우측 셀이 비치지 않도록 불투명을 유지한다. ── */
-.wbs-frozen .data-header > :nth-child(-n+6),
-.wbs-frozen .data-row > :nth-child(-n+6) { position: sticky; z-index: 6; }
-.wbs-frozen .data-row > :nth-child(-n+6) { background-color: inherit; }
-.wbs-frozen .data-header > :nth-child(-n+6) { background-color: var(--color-line-soft); z-index: 16; }
+.wbs-frozen .data-header > :nth-child(-n+4),
+.wbs-frozen .data-row > :nth-child(-n+4) { position: sticky; z-index: 6; }
+.wbs-frozen .data-row > :nth-child(-n+4) { background-color: inherit; }
+.wbs-frozen .data-header > :nth-child(-n+4) { background-color: var(--color-line-soft); z-index: 16; }
 .wbs-frozen .data-header > :nth-child(1), .wbs-frozen .data-row > :nth-child(1) { left: var(--frz-l1, 0px); }
 .wbs-frozen .data-header > :nth-child(2), .wbs-frozen .data-row > :nth-child(2) { left: var(--frz-l2, 0px); }
 .wbs-frozen .data-header > :nth-child(3), .wbs-frozen .data-row > :nth-child(3) { left: var(--frz-l3, 0px); }
 .wbs-frozen .data-header > :nth-child(4), .wbs-frozen .data-row > :nth-child(4) { left: var(--frz-l4, 0px); }
-.wbs-frozen .data-header > :nth-child(5), .wbs-frozen .data-row > :nth-child(5) { left: var(--frz-l5, 0px); }
-.wbs-frozen .data-header > :nth-child(6), .wbs-frozen .data-row > :nth-child(6) { left: var(--frz-l6, 0px); }
-/* 고정 경계(6번째=작업명 우측)에 옅은 그림자로 경계 표시 */
-.wbs-frozen .data-header > :nth-child(6),
-.wbs-frozen .data-row > :nth-child(6) { box-shadow: 6px 0 8px -6px rgba(15, 23, 42, 0.12); }
+/* 고정 경계(4번째=작업명 우측)에 옅은 그림자로 경계 표시 */
+.wbs-frozen .data-header > :nth-child(4),
+.wbs-frozen .data-row > :nth-child(4) { box-shadow: 6px 0 8px -6px rgba(15, 23, 42, 0.12); }
 
 .data-header {
   display: grid;

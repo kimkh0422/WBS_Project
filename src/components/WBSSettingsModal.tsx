@@ -137,7 +137,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   const DEFAULT_TABLE_COLUMNS = useMemo(
     () => [
-      { id: 'wbsId', visible: true },
+      { id: 'wbsId', visible: false },
       { id: 'name', visible: true },
       { id: 'startDate', visible: true },
       { id: 'endDate', visible: true },

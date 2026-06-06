@@ -2,7 +2,13 @@ import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../../lib/modalChrome';
+import {
+  MODAL_BACKDROP_CLASS,
+  MODAL_PANEL_BASE_CLASS,
+  MODAL_HEADER_CLASS,
+  MODAL_FOOTER_CLASS,
+  MODAL_CLOSE_BUTTON_CLASS,
+} from '../../lib/modalChrome';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { isComposingKeyEvent } from '../../lib/ime';
 
@@ -112,7 +118,7 @@ export function BaseModal({
         className={cn(MODAL_PANEL_BASE_CLASS, 'overflow-hidden flex flex-col max-h-[92vh]', SIZE_CLASS[size], className)}
       >
         {(title || showCloseButton) && (
-          <div className="flex justify-between items-center gap-3 px-5 py-4 border-b border-slate-200/80 bg-gradient-to-b from-slate-50 to-slate-50/40 flex-shrink-0">
+          <div className={cn(MODAL_HEADER_CLASS, 'flex-shrink-0')}>
             <div className="flex items-center gap-2.5 min-w-0">
               {headerStart}
               {title &&
@@ -127,12 +133,7 @@ export function BaseModal({
                 ))}
             </div>
             {showCloseButton && (
-              <button
-                type="button"
-                aria-label={closeLabel}
-                onClick={onClose}
-                className="p-2 rounded-xl transition-colors text-slate-500 hover:text-slate-900 hover:bg-slate-200/80 flex-shrink-0 ring-1 ring-transparent hover:ring-slate-300/60"
-              >
+              <button type="button" aria-label={closeLabel} onClick={onClose} className={cn(MODAL_CLOSE_BUTTON_CLASS, 'flex-shrink-0')}>
                 <X size={18} strokeWidth={2} />
               </button>
             )}
@@ -141,9 +142,7 @@ export function BaseModal({
 
         <div className={cn('flex-1 min-h-0 overflow-y-auto p-5 sm:p-6', bodyClassName)}>{children}</div>
 
-        {footer && (
-          <div className="flex justify-end gap-3 px-5 py-4 border-t border-slate-200/80 bg-slate-50/50 flex-shrink-0">{footer}</div>
-        )}
+        {footer && <div className={cn(MODAL_FOOTER_CLASS, 'flex-shrink-0')}>{footer}</div>}
       </div>
     </div>
   );

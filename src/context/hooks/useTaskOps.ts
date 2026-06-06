@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
 import { setPlannedOverrideLocal } from '../../lib/plannedOverrideLocalCache';
+import { setWeightLocal } from '../../lib/weightLocalCache';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { applyDependencySchedule } from '../../lib/schedule';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
@@ -89,10 +90,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
             nextTasks = arr;
           } else nextTasks = [...prev, task];
         } else nextTasks = [...prev, task];
-        // 가중치: 형제 값은 건드리지 않음. 명시된 경우만 반올림해 저장(합 100 제약 없음).
+        // 가중치: 형제 값은 건드리지 않음. 명시된 경우만 반올림해 저장(합 100 제약 없음) + 로컬 캐시 기록.
         const hasExplicitWeight = typeof task.weight === 'number' && Number.isFinite(task.weight);
         if (hasExplicitWeight && task.projectId) {
-          nextTasks = nextTasks.map((t) => (t.id === task.id ? { ...t, weight: round1(task.weight as number) } : t));
+          const normalized = round1(task.weight as number);
+          nextTasks = nextTasks.map((t) => (t.id === task.id ? { ...t, weight: normalized } : t));
+          setWeightLocal(task.id, normalized);
         }
         const result = syncParentRollups(
           nextTasks,
@@ -155,8 +158,30 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const hasScheduleChange = hasDateChange || hasWorkEffortChange || hasDependencyChange;
 
         let resolvedUpdates = { ...updates };
-        if (typeof resolvedUpdates.weight === 'number' && Number.isFinite(resolvedUpdates.weight)) {
-          resolvedUpdates = { ...resolvedUpdates, weight: round1(resolvedUpdates.weight) };
+        // 가중치(weight) 직렬화/보호 정책: plannedProgressOverride와 동일 패턴
+        //   - 호출자가 명시적으로 키를 넘겼을 때만 변경(round1 정규화) + 로컬 캐시에 영구 기록
+        //   - 키를 안 넘긴 경우 자동 로직(롤업/일정 변경/status 동기화 등)이 weight를 절대 바꾸지 못하도록 키 제거
+        const hasWeightKey = Object.prototype.hasOwnProperty.call(updates, 'weight');
+        if (hasWeightKey) {
+          const w = resolvedUpdates.weight;
+          if (typeof w === 'number' && Number.isFinite(w)) {
+            const normalized = round1(Math.max(0, w));
+            resolvedUpdates = { ...resolvedUpdates, weight: normalized };
+            setWeightLocal(id, normalized); // 로컬 캐시: DB가 어떻든 이 PC에서는 보존
+          } else if (w === null) {
+            resolvedUpdates = { ...resolvedUpdates, weight: null };
+            setWeightLocal(id, null);
+          } else {
+            // 그 외 — 무시: 기존 값 유지
+            const rest: Record<string, unknown> = { ...resolvedUpdates };
+            delete rest.weight;
+            resolvedUpdates = rest as typeof resolvedUpdates;
+          }
+        } else {
+          // 호출자가 weight 키를 안 넘긴 경우: 자동 로직이 절대 weight를 건드릴 수 없도록 키 강제 제거.
+          const rest: Record<string, unknown> = { ...resolvedUpdates };
+          delete rest.weight;
+          resolvedUpdates = rest as typeof resolvedUpdates;
         }
         if (typeof resolvedUpdates.progress === 'number' && Number.isFinite(resolvedUpdates.progress)) {
           resolvedUpdates = { ...resolvedUpdates, progress: round2(resolvedUpdates.progress) };

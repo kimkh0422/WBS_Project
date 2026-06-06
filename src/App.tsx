@@ -585,9 +585,9 @@ function WBSApp({
   }, [isLoading, setCurrentProjectId, pushToast]);
 
   const [sharedRowHeight, setSharedRowHeight] = useState<number>(() => {
-    if (typeof window === 'undefined') return 30;
+    if (typeof window === 'undefined') return 25;
     const saved = Number(window.localStorage.getItem('wbs.rowHeight'));
-    return Number.isFinite(saved) && saved >= 15 && saved <= 64 ? saved : 30; // 기본 30px(쾌적). 슬라이더로 바꾼 값은 기억된다.
+    return Number.isFinite(saved) && saved >= 15 && saved <= 64 ? saved : 25; // 기본 25px. 슬라이더로 바꾼 값은 기억된다.
   });
   useEffect(() => {
     try {
@@ -674,6 +674,7 @@ function WBSApp({
     level: 'all',
     pastDueOnly: false,
     completedThisWeekOnly: false,
+    notStartedYetOnly: false,
   });
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
@@ -1017,6 +1018,7 @@ function WBSApp({
       level: 'all',
       pastDueOnly: false,
       completedThisWeekOnly: false,
+      notStartedYetOnly: false,
       ...rest,
       projectIds,
     }));
@@ -1072,6 +1074,7 @@ function WBSApp({
         level: 'all',
         pastDueOnly: false,
         completedThisWeekOnly: false,
+        notStartedYetOnly: false,
       };
 
   const resetWbsFilters = useCallback(() => {
@@ -1088,6 +1091,7 @@ function WBSApp({
       level: 'all',
       pastDueOnly: false,
       completedThisWeekOnly: false,
+      notStartedYetOnly: false,
       searchText: '',
     }));
   }, []);

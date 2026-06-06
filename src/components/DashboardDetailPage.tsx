@@ -115,7 +115,19 @@ function defaultSortDirForProjectsColumn(key: DashboardProjectsSortKey): 'asc' |
   return key === 'name' ? 'asc' : 'desc';
 }
 
-function DetailBackBar({ title, onBack, subtitle }: { title: string; onBack: () => void; subtitle?: string }) {
+function DetailBackBar({
+  title,
+  onBack,
+  subtitle,
+  icon,
+  accentClass,
+}: {
+  title: string;
+  onBack: () => void;
+  subtitle?: string;
+  icon?: React.ReactNode;
+  accentClass?: string;
+}) {
   return (
     <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-200/90 bg-[var(--color-bg)]/95 backdrop-blur-md px-0.5 pb-4 pt-1 -mt-1">
       <button
@@ -128,7 +140,18 @@ function DetailBackBar({ title, onBack, subtitle }: { title: string; onBack: () 
         </span>
         대시보드로 돌아가기
       </button>
-      <div className="flex items-start gap-3 min-w-0">
+      <div className="flex items-center gap-3.5 min-w-0">
+        {icon && (
+          <span
+            className={cn(
+              'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm',
+              accentClass ?? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+            )}
+            aria-hidden
+          >
+            {icon}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-ink)] tracking-tight break-words">{title}</h1>
           {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
@@ -432,6 +455,31 @@ export function DashboardDetailPage({
     }
   };
 
+  /** 상세 헤더에 표시할 종류별 아이콘 배지(아이콘 + 색상 톤). */
+  const iconForKind = (): { node: React.ReactNode; accent: string } | null => {
+    switch (kind) {
+      case 'projects':
+        return { node: <LayoutGrid size={22} aria-hidden />, accent: 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' };
+      case 'tasks':
+        return { node: <LayoutGrid size={22} aria-hidden />, accent: 'bg-sky-50 text-sky-600 ring-1 ring-sky-100' };
+      case 'members':
+        return { node: <Users size={22} aria-hidden />, accent: 'bg-violet-50 text-violet-600 ring-1 ring-violet-100' };
+      case 'visitors':
+        return { node: <BarChart3 size={22} aria-hidden />, accent: 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' };
+      case 'issues':
+        return { node: <Bug size={22} aria-hidden />, accent: 'bg-rose-50 text-rose-600 ring-1 ring-rose-100' };
+      case 'actions':
+        return { node: <ListChecks size={22} aria-hidden />, accent: 'bg-teal-50 text-teal-600 ring-1 ring-teal-100' };
+      case 'milestones':
+        return { node: <Flag size={22} aria-hidden />, accent: 'bg-amber-50 text-amber-600 ring-1 ring-amber-100' };
+      case 'project':
+        return { node: <Briefcase size={22} aria-hidden />, accent: 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100' };
+      default:
+        return null;
+    }
+  };
+  const kindIcon = iconForKind();
+
   const renderOrgBranchRows = (divisionId: string, branch: OrgChartGroupBranch): React.ReactNode[] => {
     const sub = countProjectsInOrgBranch(branch);
     if (sub === 0) return [];
@@ -502,6 +550,8 @@ export function DashboardDetailPage({
         <DetailBackBar
           title={titleForKind()}
           onBack={onBack}
+          icon={kindIcon?.node}
+          accentClass={kindIcon?.accent}
           subtitle={
             kind === 'projects' && dashboardExcludedCount > 0
               ? `※ 집계 제외 ${dashboardExcludedCount}개 프로젝트는 목록·합계에서 뺐습니다. (전체 ${totalProjectsInAccount}개 중)`
@@ -888,7 +938,7 @@ export function DashboardDetailPage({
             <div className="relative overflow-hidden rounded-2xl border border-violet-200/80 bg-gradient-to-br from-violet-50/90 via-white to-white p-5 shadow-sm">
               <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-violet-200/35 blur-2xl pointer-events-none" aria-hidden />
               <div className="relative flex flex-wrap items-center gap-4">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-violet-600/25">
                   <Users size={26} aria-hidden />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -898,6 +948,11 @@ export function DashboardDetailPage({
                     <span className="text-lg font-bold text-slate-500 ml-1">명</span>
                   </div>
                 </div>
+                {memberSearchQuery.trim() && (
+                  <div className="shrink-0 self-start rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-xs font-semibold tabular-nums text-violet-700">
+                    검색 {memberNamesFiltered.length}명
+                  </div>
+                )}
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden flex flex-col max-h-[min(70vh,560px)]">
@@ -917,21 +972,30 @@ export function DashboardDetailPage({
                   />
                 </div>
               </div>
-              <ul className="overflow-y-auto p-2 sm:p-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <ul className="overflow-y-auto p-2.5 sm:p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {memberNamesSorted.length === 0 ? (
-                  <li className="col-span-full px-4 py-8 text-center text-sm text-slate-500">표시할 회원 표시명이 없습니다.</li>
+                  <li className="col-span-full px-4 py-10 text-center text-sm text-slate-500">표시할 회원 표시명이 없습니다.</li>
                 ) : memberNamesFiltered.length === 0 ? (
-                  <li className="col-span-full px-4 py-8 text-center text-sm text-slate-500">검색 결과가 없습니다.</li>
+                  <li className="col-span-full px-4 py-10 text-center text-sm text-slate-500">검색 결과가 없습니다.</li>
                 ) : (
-                  memberNamesFiltered.map((name) => (
-                    <li
-                      key={name}
-                      className="rounded-xl border border-transparent px-3 py-2.5 text-sm text-slate-800 flex items-center gap-2.5 hover:border-violet-100 hover:bg-violet-50/40 transition-colors"
-                    >
-                      <span className="w-2 h-2 rounded-full bg-violet-500 shrink-0 shadow-sm shadow-violet-400/50" aria-hidden />
-                      <span className="break-words min-w-0">{formatAssigneeDisplay(name, assigneeDisplayMetaByName) || name}</span>
-                    </li>
-                  ))
+                  memberNamesFiltered.map((name) => {
+                    const display = formatAssigneeDisplay(name, assigneeDisplayMetaByName) || name;
+                    const initial = (name.trim()[0] || display.trim()[0] || '·').toUpperCase();
+                    return (
+                      <li
+                        key={name}
+                        className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-sm text-slate-800 transition-all hover:border-violet-200 hover:bg-violet-50/40 hover:shadow-sm"
+                      >
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-purple-500 text-sm font-bold text-white shadow-sm shadow-violet-500/25"
+                          aria-hidden
+                        >
+                          {initial}
+                        </span>
+                        <span className="min-w-0 break-words font-medium">{display}</span>
+                      </li>
+                    );
+                  })
                 )}
               </ul>
             </div>
