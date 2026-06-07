@@ -441,6 +441,19 @@ export function useTaskOps(deps: TaskOpsDeps) {
       if (hasScheduleChange || taskIds.length === 0) return;
       saveHistory();
       const originalIdSet = new Set(taskIds);
+      // 계획율·가중치 일괄 수정도 셀 편집(updateTask)과 동일하게 로컬 캐시를 갱신한다.
+      // 그렇지 않으면 새로고침 후 overlayPlannedOverrideFromLocal/overlayWeightFromLocal이
+      // 옛 캐시값으로 덮어써서 일괄 수정이 "원복"되는 버그가 난다.
+      if (Object.prototype.hasOwnProperty.call(updates, 'plannedProgressOverride')) {
+        const v = updates.plannedProgressOverride;
+        const cacheVal = typeof v === 'number' && Number.isFinite(v) ? v : null;
+        for (const id of taskIds) setPlannedOverrideLocal(id, cacheVal);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'weight')) {
+        const w = updates.weight;
+        const cacheVal = typeof w === 'number' && Number.isFinite(w) ? w : null;
+        for (const id of taskIds) setWeightLocal(id, cacheVal);
+      }
       const hasAssignee = Object.prototype.hasOwnProperty.call(updates, 'assignee') && typeof updates.assignee === 'string';
       let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {

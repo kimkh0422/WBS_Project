@@ -58,9 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 개발 전용 로그인 우회(?devauth=1): 가짜 사용자를 주입해 로그인 화면을 건너뛴다.
     // 운영 빌드에서는 isDevAuthBypass()가 항상 false라 이 분기는 죽은 코드.
     if (isDevAuthBypass()) {
+      // @gmtc.kr 도메인 → effectiveIsAdmin=true(isInternalCompanyEmail)로 주간보고 등 관리자 메뉴까지 모두 보이게 해
+      // 미리보기에서 전체 UI를 검증할 수 있게 한다. (로컬 전용이라 실제 DB 권한과는 무관)
       const mockUser = {
         id: DEV_BYPASS_USER_ID,
-        email: 'preview@local.dev',
+        email: 'preview@gmtc.kr',
         app_metadata: {},
         user_metadata: { full_name: '미리보기 사용자' },
         aud: 'authenticated',

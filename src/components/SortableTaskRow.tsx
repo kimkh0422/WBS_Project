@@ -620,11 +620,17 @@ function SortableTaskRowInner({
           const rawName = (task.name ?? '').trim();
           const tableNameLabel =
             prependDisplayWbsToTaskName && displayWbsPrefix ? (rawName ? `${displayWbsPrefix} ${rawName}` : displayWbsPrefix) : rawName;
+          // 작업명은 좌측 고정(sticky)열이라 자체 box-shadow(고정열 그림자)가 Tailwind ring(box-shadow)을 덮어
+          // 포커스 링이 보이지 않는다 → box-shadow와 독립적인 outline으로 포커스를 표시한다.
           return (
             <div
               key={colId}
-              className={cn('data-cell relative', isFocused && 'ring-2 ring-indigo-500 ring-inset')}
-              style={{ ...(otherRingStyle ?? {}), paddingLeft: `${depth * 20 + 18}px` }}
+              className="data-cell relative"
+              style={{
+                ...(otherRingStyle ?? {}),
+                paddingLeft: `${depth * 20 + 18}px`,
+                ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
+              }}
               onClick={(e) => {
                 // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
                 // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
