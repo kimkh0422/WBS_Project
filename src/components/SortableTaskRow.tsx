@@ -11,7 +11,7 @@ import { useLevelColors } from '../context/LevelColorsContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { getTaskProgressRollupTooltip } from '../lib/rollups';
-import { hasPlannedSchedule, progressVariance } from '../lib/plannedProgress';
+import { progressVariance } from '../lib/plannedProgress';
 import { plannedProgressDataCellTitle, progressVarianceDataCellTitle } from '../lib/plannedProgressTooltips';
 import { useToast } from './Toast';
 import {
@@ -1149,7 +1149,8 @@ function SortableTaskRowInner({
           const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'plannedProgress';
           const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress' && !isEditing;
           const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
-          const computable = hasChildren || hasPlannedSchedule(task) || hasManualPlanned;
+          // 계획율: 리프는 수동 입력값만, 부모는 자식 롤업(계획율 맵에서 전달). 둘 다 없으면 빈칸.
+          const computable = hasChildren || hasManualPlanned;
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const plannedFmt = formatPercent1(planned);
           return (
@@ -1170,9 +1171,9 @@ function SortableTaskRowInner({
                   ? [plannedProgressDataCellTitle(plannedFmt), hasManualPlanned ? '(이 행은 계획율 수동 지정이 적용되어 있습니다.)' : '']
                       .filter(Boolean)
                       .join(' ')
-                  : '계획 일정이 없어 계획율을 계산할 수 없습니다. 시작·종료(또는 베이스라인)를 넣으면 영업일 기준으로 산정됩니다.',
+                  : '계획율 미입력. 더블클릭(또는 F2)으로 직접 입력하세요. (계획율은 수동 입력값만 사용)',
                 '',
-                '클릭: 셀 포커스 · 더블클릭 또는 F2: 계획율 수동 지정 편집',
+                '클릭: 셀 포커스 · 더블클릭 또는 F2: 계획율 수동 입력',
               ].join('\n')}
             >
               {isEditing ? (
@@ -1234,7 +1235,8 @@ function SortableTaskRowInner({
         }
         if (colId === 'progressVariance') {
           const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
-          const computable = hasChildren || hasPlannedSchedule(task) || hasManualPlanned;
+          // 계획율이 있으면(리프 수동값 또는 부모 자식-롤업) 차이를 계산.
+          const computable = hasChildren || hasManualPlanned;
           const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
           const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
           const variance = progressVariance(actual, planned);
@@ -1258,7 +1260,7 @@ function SortableTaskRowInner({
               title={[
                 computable
                   ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
-                  : '계획 일정이 없어 진척차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율이며, 계획율은 일정에서만 산정됩니다.',
+                  : '계획율이 입력되지 않아 차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율(수동 입력).',
                 '',
                 '클릭: 셀 포커스 · 더블클릭 또는 F2: 실제 진척률 편집',
               ].join('\n')}

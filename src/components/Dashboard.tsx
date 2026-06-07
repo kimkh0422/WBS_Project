@@ -2096,7 +2096,7 @@ export function Dashboard({
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 -mt-1 mb-1">
-                  카드를 누르면 진척·기한·작업·이슈 등 <strong className="font-semibold text-slate-600">숫자 요약</strong> 상세가 열립니다.
+                  카드를 누르면 해당 프로젝트의 <strong className="font-semibold text-slate-600">작업 표</strong>로 이동합니다.
                 </p>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
@@ -2122,7 +2122,9 @@ export function Dashboard({
                           key={project.id}
                           project={project}
                           isSelected={selectedProjectCardId === project.id}
-                          onClick={() => openDashboardDetail('project', { projectId: project.id })}
+                          onClick={() =>
+                            onNavigate ? openTableProject(project.id) : openDashboardDetail('project', { projectId: project.id })
+                          }
                           mobileReadabilityMode={mobileReadabilityMode}
                           divisionName={projectDivisionNameById.get(project.id)}
                           pmName={resolveProjectPmRawDisplayName(project, profileMap)}

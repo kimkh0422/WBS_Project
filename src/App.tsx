@@ -87,6 +87,7 @@ import {
   getMyEditableProjectIds,
 } from './lib/db';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { isDevAuthBypass } from './lib/devAuthBypass';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
 import { useAuth } from './context/AuthContext';
@@ -2143,7 +2144,7 @@ function AppWithProviders() {
 
   return (
     <WBSProvider
-      useLocalOnly={false}
+      useLocalOnly={isDevAuthBypass()}
       onConcurrentConflict={handleConcurrentConflict}
       onDbError={handleProviderDbError}
       editableProjectIds={myEditableProjectIds}

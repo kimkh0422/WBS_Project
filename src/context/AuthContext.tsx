@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isDevAuthBypass, DEV_BYPASS_USER_ID } from '../lib/devAuthBypass';
 
 interface AuthContextType {
   user: User | null;
@@ -54,6 +55,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    // 개발 전용 로그인 우회(?devauth=1): 가짜 사용자를 주입해 로그인 화면을 건너뛴다.
+    // 운영 빌드에서는 isDevAuthBypass()가 항상 false라 이 분기는 죽은 코드.
+    if (isDevAuthBypass()) {
+      const mockUser = {
+        id: DEV_BYPASS_USER_ID,
+        email: 'preview@local.dev',
+        app_metadata: {},
+        user_metadata: { full_name: '미리보기 사용자' },
+        aud: 'authenticated',
+        created_at: '2026-01-01T00:00:00.000Z',
+      } as unknown as User;
+      setUser(mockUser);
+      setSession({
+        user: mockUser,
+        access_token: 'dev-bypass',
+        refresh_token: 'dev-bypass',
+        token_type: 'bearer',
+        expires_in: 3600,
+      } as unknown as Session);
+      setLoading(false);
+      return;
+    }
+
     if (!isSupabaseConfigured || !supabase) {
       setLoading(false);
       return;

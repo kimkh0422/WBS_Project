@@ -45,6 +45,8 @@ import { StatusConfig, WBSSettings, DEFAULT_STATUS_CONFIGS, DEFAULT_SETTINGS, pa
 import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks } from '../lib/rollups';
 import { getPlannedOverrideLocal } from '../lib/plannedOverrideLocalCache';
 import { onProgressRollupOptionChange } from '../lib/rollupOptions';
+import { isDevAuthBypass } from '../lib/devAuthBypass';
+import { buildDevSeed } from '../lib/devSeed';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
 
@@ -358,6 +360,13 @@ export function WBSProvider({
           const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
           const validId = projectsToUse.find((p) => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
           setCurrentProjectId(validId);
+        } else if (isDevAuthBypass()) {
+          // 로그인 우회(미리보기) 모드 + 로컬 데이터 없음 → 검증용 샘플 데이터 시드
+          const seed = buildDevSeed(ownerId);
+          setProjects(seed.projects);
+          setAllTasks(applyRollupsToTasks(seed.tasks, DEFAULT_SETTINGS.statusConfigs));
+          setWbsSettings(DEFAULT_SETTINGS);
+          setCurrentProjectId(seed.projects[0]!.id);
         } else {
           const p = emptyStarterProject();
           setProjects([p]);

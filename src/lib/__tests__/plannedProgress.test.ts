@@ -82,60 +82,61 @@ describe('computeLeafPlannedProgress', () => {
   });
 });
 
-describe('computePlannedProgressMap (부모 롤업)', () => {
-  // 자식 A는 완전히 과거(계획 100), 자식 B는 완전히 미래(계획 0)
-  const ref = '2026-06-10';
-  const childA = task({ id: 'A', parentId: 'P', startDate: '2026-01-01', endDate: '2026-02-01' });
-  const childB = task({ id: 'B', parentId: 'P', startDate: '2026-12-01', endDate: '2026-12-31' });
-
-  it('weight 가중평균: A.weight=3, B.weight=1 → 부모 75%', () => {
-    const parent = task({ id: 'P', startDate: '2026-01-01', endDate: '2026-12-31' });
-    const map = computePlannedProgressMap([parent, { ...childA, weight: 3 }, { ...childB, weight: 1 }], ref, NO_HOLIDAYS);
-    expect(map.get('A')).toBe(100);
-    expect(map.get('B')).toBe(0);
-    expect(map.get('P')).toBeCloseTo(75);
-  });
-
-  it('weight 없으면 workEffort로 가중: 둘 다 2 → 50%', () => {
-    const parent = task({ id: 'P', startDate: '2026-01-01', endDate: '2026-12-31' });
-    const map = computePlannedProgressMap([parent, { ...childA, workEffort: 2 }, { ...childB, workEffort: 2 }], ref, NO_HOLIDAYS);
-    expect(map.get('P')).toBeCloseTo(50);
-  });
-
-  it('weight·workEffort 모두 없으면 단순 평균 → 50%', () => {
-    const parent = task({ id: 'P', startDate: '2026-01-01', endDate: '2026-12-31' });
-    const map = computePlannedProgressMap([parent, childA, childB], ref, NO_HOLIDAYS);
-    expect(map.get('P')).toBeCloseTo(50);
-  });
-});
-
-describe('computePlannedProgressMap plannedProgressOverride', () => {
-  it('리프: 수동 지정이 일정 기반 값을 덮어씀', () => {
-    const t = task({
-      id: 'x',
-      startDate: '2026-06-01',
-      endDate: '2026-06-30',
-      plannedProgressOverride: 12,
-    });
-    const map = computePlannedProgressMap([t], '2026-06-15', NO_HOLIDAYS);
+describe('computePlannedProgressMap (계획율 완전 수동 — override만)', () => {
+  it('수동 override가 있으면 그 값만 반환(일정 기반 계산 덮어쓰기 아님, 그냥 그 값)', () => {
+    const t = task({ id: 'x', startDate: '2026-06-01', endDate: '2026-06-30', plannedProgressOverride: 12 });
+    const map = computePlannedProgressMap([t]);
     expect(map.get('x')).toBe(12);
   });
 
-  it('리프: 0~100 밖은 클램프', () => {
-    const lo = task({ id: 'lo', plannedProgressOverride: -5, startDate: '2026-06-01', endDate: '2026-06-10' });
-    const hi = task({ id: 'hi', plannedProgressOverride: 150, startDate: '2026-06-01', endDate: '2026-06-10' });
-    const map = computePlannedProgressMap([lo, hi], '2026-06-05', NO_HOLIDAYS);
+  it('수동 override가 없으면 맵에 없음 — 일정이 있어도 자동 계산하지 않음', () => {
+    const t = task({ id: 'noovr', startDate: '2026-06-01', endDate: '2026-06-30' });
+    const map = computePlannedProgressMap([t], '2026-06-15', NO_HOLIDAYS);
+    expect(map.has('noovr')).toBe(false);
+  });
+
+  it('0~100 밖은 클램프', () => {
+    const lo = task({ id: 'lo', plannedProgressOverride: -5 });
+    const hi = task({ id: 'hi', plannedProgressOverride: 150 });
+    const map = computePlannedProgressMap([lo, hi]);
     expect(map.get('lo')).toBe(0);
     expect(map.get('hi')).toBe(100);
   });
 
-  it('부모 롤업에 자식 수동 값이 반영됨', () => {
-    const ref = '2026-06-10';
-    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 40, weight: 1 });
-    const childB = task({ id: 'B', parentId: 'P', startDate: '2026-12-01', endDate: '2026-12-31', weight: 1 });
-    const parent = task({ id: 'P', startDate: '2026-01-01', endDate: '2026-12-31' });
-    const map = computePlannedProgressMap([parent, childA, childB], ref, NO_HOLIDAYS);
-    expect(map.get('P')).toBeCloseTo(20);
+  it('부모 자동 롤업 — 자식 계획율의 평균으로 상위가 자동 갱신', () => {
+    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 40 });
+    const childB = task({ id: 'B', parentId: 'P', plannedProgressOverride: 60 });
+    const parent = task({ id: 'P' }); // 부모 수동값 없음
+    const map = computePlannedProgressMap([parent, childA, childB]);
+    expect(map.get('A')).toBe(40);
+    expect(map.get('B')).toBe(60);
+    expect(map.get('P')).toBeCloseTo(50); // 가중치 없음 → 단순 평균
+  });
+
+  it('부모 가중평균 — 자식 weight 반영', () => {
+    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 100, weight: 3 });
+    const childB = task({ id: 'B', parentId: 'P', plannedProgressOverride: 0, weight: 1 });
+    const parent = task({ id: 'P' });
+    const map = computePlannedProgressMap([parent, childA, childB]);
+    expect(map.get('P')).toBeCloseTo(75); // (100*3 + 0*1)/4
+  });
+
+  it('계획율 없는 자식은 0으로 보고 롤업, 빈 리프는 맵에서 빠짐', () => {
+    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 80 });
+    const childB = task({ id: 'B', parentId: 'P' }); // 계획율 없음
+    const parent = task({ id: 'P' });
+    const map = computePlannedProgressMap([parent, childA, childB]);
+    expect(map.get('A')).toBe(80);
+    expect(map.has('B')).toBe(false);
+    expect(map.get('P')).toBeCloseTo(40); // (80 + 0)/2
+  });
+
+  it('부모: 자신의 수동값은 무시하고 자식 롤업을 사용', () => {
+    const childA = task({ id: 'A', parentId: 'P', plannedProgressOverride: 10 });
+    const childB = task({ id: 'B', parentId: 'P', plannedProgressOverride: 30 });
+    const parent = task({ id: 'P', plannedProgressOverride: 99 });
+    const map = computePlannedProgressMap([parent, childA, childB]);
+    expect(map.get('P')).toBeCloseTo(20); // 99 무시, (10+30)/2
   });
 });
 
@@ -152,11 +153,10 @@ describe('progressVariance', () => {
 });
 
 describe('aggregatePlannedActual', () => {
-  it('가중 평균 계획·실제·차이를 계산', () => {
-    const ref = '2026-06-10';
-    const a = task({ id: 'A', startDate: '2026-01-01', endDate: '2026-02-01', progress: 100, weight: 3 }); // 계획 100
-    const b = task({ id: 'B', startDate: '2026-12-01', endDate: '2026-12-31', progress: 0, weight: 1 }); // 계획 0
-    const planned = computePlannedProgressMap([a, b], ref, NO_HOLIDAYS);
+  it('가중 평균 계획(수동값)·실제·차이를 계산', () => {
+    const a = task({ id: 'A', progress: 100, plannedProgressOverride: 100, weight: 3 });
+    const b = task({ id: 'B', progress: 0, plannedProgressOverride: 0, weight: 1 });
+    const planned = computePlannedProgressMap([a, b]);
     const summary = aggregatePlannedActual([a, b], planned);
     expect(summary.planned).toBeCloseTo(75); // (100*3 + 0*1)/4
     expect(summary.actual).toBeCloseTo(75); // (100*3 + 0*1)/4
@@ -164,9 +164,8 @@ describe('aggregatePlannedActual', () => {
   });
 
   it('지연이면 variance 음수', () => {
-    const ref = '2026-06-10';
-    const a = task({ id: 'A', startDate: '2026-01-01', endDate: '2026-02-01', progress: 40, weight: 1 }); // 계획 100, 실제 40
-    const planned = computePlannedProgressMap([a], ref, NO_HOLIDAYS);
+    const a = task({ id: 'A', progress: 40, plannedProgressOverride: 100, weight: 1 }); // 계획 100, 실제 40
+    const planned = computePlannedProgressMap([a]);
     const summary = aggregatePlannedActual([a], planned);
     expect(summary.planned).toBeCloseTo(100);
     expect(summary.actual).toBeCloseTo(40);

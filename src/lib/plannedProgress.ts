@@ -1,6 +1,6 @@
 import { parseISO, isValid } from 'date-fns';
 import type { Task } from '../types';
-import { differenceInBusinessDaysEx, getHolidaysForTaskDates } from './calendar';
+import { differenceInBusinessDaysEx } from './calendar';
 import { getUseWeightForProgressRollup } from './rollupOptions';
 
 /**
@@ -71,67 +71,70 @@ export function computeLeafPlannedProgress(task: PlannedTaskFields, refDateIso: 
 }
 
 /**
- * 작업 집합 전체의 작업별 계획율 맵(0~100).
- * - 리프: 날짜 기반 계획율(computeLeafPlannedProgress).
- * - 부모: 직속 자식 계획율의 가중평균. 가중치는 자식의 weight, 없으면 workEffort(둘 다 없으면 단순 평균).
- *   → 실제 진척 롤업(lib/rollups.ts)과 동일한 가중 규칙.
- * - `task.plannedProgressOverride`가 유한 숫자면 해당 작업 행은 일정 계산 대신 이 값(0~100 클램프)을 사용.
+ * 작업별 계획율 맵(0~100).
+ *
+ * - **리프(자식 없음)**: 사용자가 입력한 `plannedProgressOverride`만 사용. 없으면 맵에 넣지 않아 빈칸('—').
+ *   일정 기반 자동 계산은 하지 않는다(요청: 계획율 리프는 완전 수동).
+ * - **부모(자식 있음)**: 직속 자식 계획율의 (가중)평균으로 **자동 롤업**. 자식 값이 들어오면 상위가 자동 갱신된다.
+ *   가중치는 자식 weight, 없으면 workEffort. 가중치 반영 여부는 진척률 롤업 옵션(가중치 ON/OFF)과 동일.
+ *   계획율이 없는 자식은 0으로 본다(진척률 롤업과 동일 규칙). 부모 자신의 수동값은 무시하고 항상 자식 롤업을 쓴다.
+ *
+ * refDate/holidays 인자는 호출부 호환을 위해 남겨두되 더 이상 사용하지 않는다.
  */
-export function computePlannedProgressMap(tasks: Task[], refDateIso: string = todayIso(), holidays?: Set<string>): Map<string, number> {
-  const hol = holidays ?? getHolidaysForTaskDates(tasks);
-
+export function computePlannedProgressMap(tasks: Task[], _refDateIso?: string, _holidays?: Set<string>): Map<string, number> {
   const childrenByParent = new Map<string, Task[]>();
   for (const t of tasks) {
-    const key = t.parentId;
-    if (!key) continue;
-    const arr = childrenByParent.get(key);
+    if (!t.parentId) continue;
+    const arr = childrenByParent.get(t.parentId);
     if (arr) arr.push(t);
-    else childrenByParent.set(key, [t]);
+    else childrenByParent.set(t.parentId, [t]);
   }
 
-  const memo = new Map<string, number>();
-  const visiting = new Set<string>();
+  const clamp = (x: number) => Math.min(100, Math.max(0, x));
+  const leafOverride = (t: Task): number | undefined => {
+    const ovr = t.plannedProgressOverride;
+    return typeof ovr === 'number' && Number.isFinite(ovr) ? clamp(ovr) : undefined;
+  };
 
-  const compute = (t: Task): number => {
-    const cached = memo.get(t.id);
-    if (cached !== undefined) return cached;
-    // 순환 참조 안전장치: 자기 자신 계산 중 다시 호출되면 리프 값으로 폴백
-    if (visiting.has(t.id)) return computeLeafPlannedProgress(t, refDateIso, hol);
+  const memo = new Map<string, number | undefined>();
+  const visiting = new Set<string>();
+  const compute = (t: Task): number | undefined => {
+    if (memo.has(t.id)) return memo.get(t.id);
+    if (visiting.has(t.id)) return leafOverride(t); // 순환 안전장치
     visiting.add(t.id);
 
     const kids = childrenByParent.get(t.id);
-    let val: number;
+    let val: number | undefined;
     if (!kids || kids.length === 0) {
-      val = computeLeafPlannedProgress(t, refDateIso, hol);
+      val = leafOverride(t); // 리프: 수동값만(없으면 undefined=빈칸)
     } else {
       let totalWeight = 0;
       let weightedSum = 0;
       let simpleSum = 0;
       for (const k of kids) {
-        const p = compute(k);
+        const p = compute(k) ?? 0; // 계획율 없는 자식은 0으로
         const effort = typeof k.workEffort === 'number' && Number.isFinite(k.workEffort) ? k.workEffort : 0;
         const w = typeof k.weight === 'number' && Number.isFinite(k.weight) ? k.weight : effort;
         totalWeight += w;
         weightedSum += p * w;
         simpleSum += p;
       }
-      // 가중치 반영 여부 옵션과 동일하게 동작(진척률 롤업과 일관)
       const useWeight = getUseWeightForProgressRollup();
-      val = useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / kids.length;
+      val = clamp(useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / kids.length);
     }
 
-    val = Math.min(100, Math.max(0, val));
-    const ovr = t.plannedProgressOverride;
-    if (typeof ovr === 'number' && Number.isFinite(ovr)) {
-      val = Math.min(100, Math.max(0, ovr));
-    }
     visiting.delete(t.id);
     memo.set(t.id, val);
     return val;
   };
 
   for (const t of tasks) compute(t);
-  return memo;
+
+  const out = new Map<string, number>();
+  for (const [id, v] of memo) {
+    if (typeof v === 'number' && Number.isFinite(v)) out.set(id, v);
+  }
+  return out;
 }
 
 /** 진척차이(%p) = 실제 진척률 − 계획율. 양수=앞섬, 음수=지연. */

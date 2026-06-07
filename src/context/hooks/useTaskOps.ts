@@ -74,12 +74,21 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const cpi = currentProjectIdRef.current;
       const projs = projectsRef.current;
       const projectId = projectIdOverride ?? (cpi === 'all' ? projs[0]?.id || '' : cpi);
+      // 신규 작업의 계획율 기본값: 미입력(빈칸). 계획율은 완전 수동이라 사용자가 직접 입력하기 전까진 비워 둔다.
+      // 호출자가 명시적으로 값을 넘긴 경우에만 그 값을 존중한다.
+      const plannedOverrideForNew =
+        typeof newTask.plannedProgressOverride === 'number' && Number.isFinite(newTask.plannedProgressOverride)
+          ? newTask.plannedProgressOverride
+          : null;
       const task: Task = applyMilestoneDateInvariant({
         ...newTask,
+        plannedProgressOverride: plannedOverrideForNew,
         workEffort: resolveWorkEffortForNewTask(newTask.workEffort),
         id: uuidv4(),
         projectId,
       } as Task);
+      // 명시적으로 계획율을 받은 경우에만 로컬 캐시에 기록(미입력은 빈칸 유지).
+      if (typeof plannedOverrideForNew === 'number') setPlannedOverrideLocal(task.id, plannedOverrideForNew);
       setAllTasks((prev) => {
         let nextTasks: Task[];
         if (insertAfterId) {
@@ -208,6 +217,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         } else {
           // 호출자가 키를 안 넘긴 경우: 다른 어떤 자동 로직도 plannedProgressOverride를 건드리지 않도록 명시적으로 키 제거.
+          // (계획율 완전 수동: 날짜 변경 등으로 수동 계획율을 자동 해제/변경하지 않는다.)
           const rest: Record<string, unknown> = { ...resolvedUpdates };
           delete rest.plannedProgressOverride;
           resolvedUpdates = rest as typeof resolvedUpdates;
