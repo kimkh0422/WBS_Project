@@ -593,17 +593,7 @@ function SortableTaskRowInner({
           }}
         />
       </div>
-      <div
-        className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          onFocusRow?.(task.id);
-          onSetRowAnchor?.(task.id);
-          onEdit(task);
-        }}
-      >
-        {rowIndex + 1}
-      </div>
+      <div className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums">{rowIndex + 1}</div>
       {visibleColumnIds.map((colId) => {
         const otherFocusKey = `${task.id}::${colId}`;
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
@@ -655,12 +645,10 @@ function SortableTaskRowInner({
                   beginEdit('name');
                 }}
                 onDoubleClick={(e) => {
-                  // 더블클릭: 상세(TaskModal). 작업명 인라인 편집은 F2(키보드)로 진입.
+                  // 더블클릭은 상세 모달을 열지 않음 — 다른 셀과 동일하게 인라인 편집 진입. 상세는 행 우측 '수정' 버튼으로만 진입.
                   if (isInlineEditingName) return;
                   e.stopPropagation();
-                  onFocusRow?.(task.id);
-                  onSetRowAnchor?.(task.id);
-                  onEdit(task);
+                  beginEditNow('name');
                 }}
                 title={getTaskDetailTooltip(
                   task,
@@ -757,9 +745,7 @@ function SortableTaskRowInner({
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      onFocusRow?.(task.id);
-                      onSetRowAnchor?.(task.id);
-                      onEdit(task);
+                      beginEditNow('name');
                     }}
                     title={getTaskDetailTooltip(
                       task,
@@ -784,7 +770,7 @@ function SortableTaskRowInner({
                       {tableNameLabel ? (
                         tableNameLabel
                       ) : (
-                        <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
+                        <span className="italic text-slate-400 font-normal select-none">(클릭 또는 F2: 작업명 입력)</span>
                       )}
                     </span>
                   </span>

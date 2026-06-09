@@ -1271,73 +1271,74 @@ export function AppHeader({
             </a>
           )}
 
-          {/* Filter: WBS 작업 필터 | 대시보드는 상단 도구줄(부서·프로젝트 표시)과 연동 */}
-          {dashboardFilterBarMode ? (
-            <button
-              type="button"
-              data-tourid="tour-filter"
-              onClick={() => onDashboardFilterToolbarClick?.()}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
-                dashboardFiltersActive || showDashboardFilterToolbar
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
-                  : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
-              )}
-              title={
-                showDashboardFilterToolbar
-                  ? dashboardFiltersActive
-                    ? '표시 범위가 적용된 상태입니다. 클릭하면 도구줄을 닫습니다.'
-                    : '도구줄이 열려 있습니다. 클릭하면 닫습니다.'
-                  : dashboardFiltersActive
-                    ? '일부만 표시 중 — 클릭하면 표시 도구줄을 엽니다.'
-                    : '대시보드 표시 범위(부서·프로젝트) — 클릭하면 표시 도구줄을 엽니다.'
-              }
-            >
-              <Settings2 size={14} />
-              <span className="hidden sm:inline">필터</span>
-              <span
+          {/* Filter: WBS 작업 필터 | 대시보드는 상단 도구줄(부서·프로젝트 표시)과 연동 — Shift+F12로 표시 토글 */}
+          {showHiddenHeaderItems &&
+            (dashboardFilterBarMode ? (
+              <button
+                type="button"
+                data-tourid="tour-filter"
+                onClick={() => onDashboardFilterToolbarClick?.()}
                 className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-md',
+                  'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
                   dashboardFiltersActive || showDashboardFilterToolbar
-                    ? 'bg-[var(--color-surface)]/20'
-                    : 'bg-[var(--color-bg)] text-slate-400',
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
                 )}
+                title={
+                  showDashboardFilterToolbar
+                    ? dashboardFiltersActive
+                      ? '표시 범위가 적용된 상태입니다. 클릭하면 도구줄을 닫습니다.'
+                      : '도구줄이 열려 있습니다. 클릭하면 닫습니다.'
+                    : dashboardFiltersActive
+                      ? '일부만 표시 중 — 클릭하면 표시 도구줄을 엽니다.'
+                      : '대시보드 표시 범위(부서·프로젝트) — 클릭하면 표시 도구줄을 엽니다.'
+                }
               >
-                {dashboardFiltersActive || showDashboardFilterToolbar ? 'On' : 'Off'}
-              </span>
-            </button>
-          ) : (
-            <button
-              data-tourid="tour-filter"
-              type="button"
-              onClick={() => {
-                setFilterOn((v) => !v);
-                if (tipOnce) tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
-              }}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
-                filterOn
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
-                  : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
-              )}
-              title={
-                filterOn
-                  ? '필터가 켜져 있습니다. 다시 누르면 필터를 끄고 조건 없이 전체 작업을 표시합니다.'
-                  : '상태·담당자·기간 등으로 작업 목록을 좁혀 봅니다. 켜면 필터 바가 나타납니다.'
-              }
-            >
-              <Settings2 size={14} /> {/* Replace Filter */}
-              <span className="hidden sm:inline">필터</span>
-              <span
+                <Settings2 size={14} />
+                <span className="hidden sm:inline">필터</span>
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-md',
+                    dashboardFiltersActive || showDashboardFilterToolbar
+                      ? 'bg-[var(--color-surface)]/20'
+                      : 'bg-[var(--color-bg)] text-slate-400',
+                  )}
+                >
+                  {dashboardFiltersActive || showDashboardFilterToolbar ? 'On' : 'Off'}
+                </span>
+              </button>
+            ) : (
+              <button
+                data-tourid="tour-filter"
+                type="button"
+                onClick={() => {
+                  setFilterOn((v) => !v);
+                  if (tipOnce) tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
+                }}
                 className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-md',
-                  filterOn ? 'bg-[var(--color-surface)]/20' : 'bg-[var(--color-bg)] text-slate-400',
+                  'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
+                  filterOn
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
+                    : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
                 )}
+                title={
+                  filterOn
+                    ? '필터가 켜져 있습니다. 다시 누르면 필터를 끄고 조건 없이 전체 작업을 표시합니다.'
+                    : '상태·담당자·기간 등으로 작업 목록을 좁혀 봅니다. 켜면 필터 바가 나타납니다.'
+                }
               >
-                {filterOn ? 'On' : 'Off'}
-              </span>
-            </button>
-          )}
+                <Settings2 size={14} /> {/* Replace Filter */}
+                <span className="hidden sm:inline">필터</span>
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-md',
+                    filterOn ? 'bg-[var(--color-surface)]/20' : 'bg-[var(--color-bg)] text-slate-400',
+                  )}
+                >
+                  {filterOn ? 'On' : 'Off'}
+                </span>
+              </button>
+            ))}
 
           {/* 더보기 — 이전 커밋과 동일 구조 (기능·데이터·설정·관리자·삭제) */}
           <div className="relative shrink-0 z-50 ml-0.5" ref={moreMenuRef}>
