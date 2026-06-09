@@ -38,28 +38,40 @@ function renderPdfToCanvas(root: HTMLElement, windowWidth: number) {
   );
 }
 
+/** JPEG 품질(0~1). 텍스트·표 가독성과 용량 균형. */
+const PDF_JPEG_QUALITY = 0.85;
+
 function saveCanvasToLandscapePdf(canvas: HTMLCanvasElement, fileBase: string) {
   return import('jspdf').then(({ jsPDF }) => {
-    const imgData = canvas.toDataURL('image/png');
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
     const margin = 8;
-    const pageInnerH = pdfHeight - margin * 2;
-    const imgWidth = pdfWidth - margin * 2;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const pageInnerH = pdfHeight - margin * 2; // mm
+    const imgWidth = pdfWidth - margin * 2; // mm
+    const pxPerMm = canvas.width / imgWidth; // 캔버스 픽셀 ↔ mm 환산
+    const pageSlicePx = Math.max(1, Math.floor(pageInnerH * pxPerMm)); // 한 페이지에 담기는 원본 픽셀 높이
 
-    let heightLeft = imgHeight;
-    let y = margin;
+    // 페이지마다 "보이는 슬라이스"만 JPEG로 추가 → 무손실 PNG·전체 이미지 중복 임베드를 제거해 용량을 크게 줄인다.
+    const totalPages = Math.max(1, Math.ceil(canvas.height / pageSlicePx));
+    for (let page = 0; page < totalPages; page++) {
+      const srcY = page * pageSlicePx;
+      const srcH = Math.min(pageSlicePx, canvas.height - srcY);
+      if (srcH <= 0) break;
 
-    pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
-    heightLeft -= pageInnerH;
-
-    while (heightLeft >= 0) {
-      y = margin + (heightLeft - imgHeight);
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
-      heightLeft -= pageInnerH;
+      const slice = document.createElement('canvas');
+      slice.width = canvas.width;
+      slice.height = srcH;
+      const ctx = slice.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ffffff'; // JPEG는 투명 미지원 → 흰 배경으로 채움
+        ctx.fillRect(0, 0, slice.width, slice.height);
+        ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      }
+      const sliceData = slice.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+      const destH = srcH / pxPerMm; // 마지막 페이지는 내용 높이만큼만(빈 공간을 늘이지 않음)
+      if (page > 0) pdf.addPage();
+      pdf.addImage(sliceData, 'JPEG', margin, margin, imgWidth, destH);
     }
 
     const stamp = formatReportTimestamp(new Date()).replace(/[: ]/g, '-');

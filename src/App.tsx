@@ -950,6 +950,9 @@ function WBSApp({
     handleFileChange,
     handleBackupFileChange,
     handleMergeFileChange,
+    handleImportMappingChange,
+    handleImportCustomColumnToggle,
+    handleImportCustomColumnsSet,
     executeMultiMerge,
     executeImport,
     executeRestoreBackup,
@@ -1755,6 +1758,9 @@ function WBSApp({
           files={importPreview.files}
           projects={projectsSortedByName}
           currentProjectId={currentProjectId}
+          onMappingChange={handleImportMappingChange}
+          onCustomColumnToggle={handleImportCustomColumnToggle}
+          onCustomColumnsSet={handleImportCustomColumnsSet}
         />
         <BackupRestoreModal
           isOpen={backupConfirm.isOpen}

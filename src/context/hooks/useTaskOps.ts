@@ -341,10 +341,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
                 cur = byId.get(cur)?.parentId ?? null;
               }
             }
-            // 자식 일정 변경 시 부모 startDate/endDate를 자식 min/max로 자동 정렬하지 않는다.
-            // (사용자가 간트에서 부모를 직접 드래그한 뒤, 일정 정합화가 자식 옛 min/max로 다시 덮어써 "원복"되어 보이는 버그 방지)
-            // 부모 일정이 자식 밖으로 벗어나는 상황은 사용자가 명시적으로 부모를 편집할 때만 반영한다.
-            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, true);
+            // 자식(하위) 일정 변경은 상위(조상) 일정을 자식 min/max로 자동 확장/축소한다.
+            // 사용자가 부모를 직접 드래그한 케이스는 아래 recomputeProjectRollups 호출에서
+            // excludeFromRollup으로 그 부모 행만 보호되므로 "원복" 문제는 발생하지 않는다.
+            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, false);
           } else if (affectsRollup) {
             const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
             const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
@@ -357,8 +357,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
             }
           }
           if (parentIdChanged) {
-            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds, false, undefined, undefined, true);
-            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds, false, undefined, undefined, true);
+            // 부모가 바뀌면 옛 부모는 자식이 줄어들고 새 부모는 늘어나므로 일정 정합화도 함께 수행한다.
+            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds, false, undefined, undefined, false);
+            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds, false, undefined, undefined, false);
           }
         }
 
@@ -390,7 +391,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
         if (hasScheduleChange && task.projectId && !deferScheduleSync) {
           const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
           const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
-          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, true);
+          // 자식 일정 변경이 다른 가지 의존 작업·조상 일정에까지 반영되도록 부모 일정 정합화를 켠다.
+          // 사용자가 직접 편집한 부모 행은 excludeFromRollup으로 자식 min/max 덮어쓰기에서 보호된다.
+          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, false);
 
           const projRow = projectsRef.current.find((p) => p.id === task.projectId);
           const tasksInProject = result.filter((t) => t.projectId === task.projectId);

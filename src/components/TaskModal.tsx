@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { flushSync } from 'react-dom';
 import { Task, TaskStatus } from '../types';
-import { X, Trash2, CornerDownRight, Info, Bug, ListChecks, AlertTriangle } from 'lucide-react';
+import { X, Trash2, CornerDownRight, Info, Bug, ListChecks, AlertTriangle, FileText, Network, Flag, User, Link2 } from 'lucide-react';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useWBS } from '../context/WBSContext';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
@@ -797,39 +797,50 @@ export function TaskModal({
               <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
               <span className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">기본 정보</span>
             </div>
-            <div className="col-span-2 min-w-0">
-              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">작업명</label>
+            {/* 작업명 — 아이콘 + placeholder, 라벨 제거 */}
+            <div className="col-span-2 min-w-0 relative">
+              <FileText size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)] pointer-events-none" />
               <input
                 required
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="input-field py-1.5 text-sm"
-                placeholder="작업 이름..."
+                className="input-field py-1.5 text-sm pl-7 w-full"
+                placeholder="작업명"
                 autoFocus
                 readOnly={readOnly}
                 disabled={readOnly}
+                title="작업명"
+                aria-label="작업명"
               />
             </div>
+            {/* 상위 작업 — 라벨 제거, 아이콘 + select */}
             <div className="min-w-0">
-              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">상위 작업</label>
               <div className="flex items-center gap-1.5">
-                <select
-                  value={formData.parentId || ''}
-                  onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
-                  className="input-field py-1.5 text-sm flex-1"
-                  disabled={readOnly}
-                >
-                  <option value="">없음</option>
-                  {parentOptions
-                    .filter((t) => t.id !== initialData?.id && !descendantIds.has(t.id))
-                    .map((task) => (
-                      <option key={task.id} value={task.id}>
-                        {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}
-                        {task.name}
-                      </option>
-                    ))}
-                </select>
+                <div className="relative flex-1 min-w-0">
+                  <Network
+                    size={14}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)] pointer-events-none"
+                  />
+                  <select
+                    value={formData.parentId || ''}
+                    onChange={(e) => setFormData({ ...formData, parentId: e.target.value || null })}
+                    className="input-field py-1.5 text-sm w-full pl-7"
+                    disabled={readOnly}
+                    title="상위 작업"
+                    aria-label="상위 작업"
+                  >
+                    <option value="">상위 작업 없음</option>
+                    {parentOptions
+                      .filter((t) => t.id !== initialData?.id && !descendantIds.has(t.id))
+                      .map((task) => (
+                        <option key={task.id} value={task.id}>
+                          {displayWbsMap.get(task.id) ? `${displayWbsMap.get(task.id)} ` : ''}
+                          {task.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
                 {initialData?.parentId && onOpenTask && (
                   <button
                     type="button"
@@ -837,16 +848,17 @@ export function TaskModal({
                       const parentTask = parentOptions.find((t) => t.id === initialData.parentId);
                       if (parentTask) onOpenTask(parentTask);
                     }}
-                    className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors whitespace-nowrap"
+                    className="px-2 py-1.5 text-[11px] font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] rounded-lg border border-indigo-200 transition-colors whitespace-nowrap shrink-0"
                     title="상위 작업 열기"
                   >
-                    상위 열기
+                    열기
                   </button>
                 )}
               </div>
             </div>
-            <div className="min-w-0">
-              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">상태</label>
+            {/* 상태 — 라벨 제거, 아이콘 + select */}
+            <div className="min-w-0 relative">
+              <Flag size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)] pointer-events-none" />
               <select
                 value={formData.status}
                 onChange={(e) => {
@@ -869,8 +881,10 @@ export function TaskModal({
                     setFormData((prev) => ({ ...prev, status: newStatus }));
                   }
                 }}
-                className="input-field py-1.5 text-sm"
+                className="input-field py-1.5 text-sm w-full pl-7"
                 disabled={readOnly}
+                title="상태"
+                aria-label="상태"
               >
                 {wbsSettings.statusConfigs.map((config) => (
                   <option key={config.id} value={config.id}>
@@ -879,50 +893,50 @@ export function TaskModal({
                 ))}
               </select>
             </div>
+            {/* 담당자 + 투입율 — 라벨 제거, 아이콘 + placeholder, 투입율은 인라인 */}
             <div className="min-w-0">
-              <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">
-                <span className="inline-flex items-center gap-1">
-                  담당자
-                  <span
-                    className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)]"
-                    title={assigneeTitle}
-                    aria-label="안내"
-                  >
-                    <Info size={12} />
-                  </span>
+              <div className="relative">
+                <User size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)] pointer-events-none" />
+                <span
+                  className="absolute right-2 top-1/2 -translate-y-1/2 cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)]"
+                  title={assigneeTitle}
+                  aria-label="안내"
+                >
+                  <Info size={12} />
                 </span>
-              </label>
-              <input
-                id="task-modal-assignee-input"
-                type="text"
-                list="task-modal-assignees"
-                value={formData.assignee || ''}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  const match = projectAssignments.find((a) => (a.assignee || '').trim() === v.trim());
-                  const allocationPercent = match?.allocationPercent ?? 100;
-                  setFormData({ ...formData, assignee: v, allocationPercent });
-                  setAllocationPercentInput(String(allocationPercent));
-                }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' || readOnly) return;
-                  const picked = resolveAssigneeIfUniqueMatch(e.currentTarget.value, assigneeOptions);
-                  if (!picked) return;
-                  e.preventDefault();
-                  const match = projectAssignments.find((a) => (a.assignee || '').trim() === picked);
-                  const allocationPercent = match?.allocationPercent ?? 100;
-                  setFormData((prev) => ({ ...prev, assignee: picked, allocationPercent }));
-                  setAllocationPercentInput(String(allocationPercent));
-                  requestAnimationFrame(() => {
-                    document.getElementById('task-modal-work-effort-input')?.focus();
-                  });
-                }}
-                placeholder="선택 또는 입력"
-                className="input-field py-1.5 text-sm"
-                title={assigneeTitle}
-                readOnly={readOnly}
-                disabled={readOnly}
-              />
+                <input
+                  id="task-modal-assignee-input"
+                  type="text"
+                  list="task-modal-assignees"
+                  value={formData.assignee || ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const match = projectAssignments.find((a) => (a.assignee || '').trim() === v.trim());
+                    const allocationPercent = match?.allocationPercent ?? 100;
+                    setFormData({ ...formData, assignee: v, allocationPercent });
+                    setAllocationPercentInput(String(allocationPercent));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' || readOnly) return;
+                    const picked = resolveAssigneeIfUniqueMatch(e.currentTarget.value, assigneeOptions);
+                    if (!picked) return;
+                    e.preventDefault();
+                    const match = projectAssignments.find((a) => (a.assignee || '').trim() === picked);
+                    const allocationPercent = match?.allocationPercent ?? 100;
+                    setFormData((prev) => ({ ...prev, assignee: picked, allocationPercent }));
+                    setAllocationPercentInput(String(allocationPercent));
+                    requestAnimationFrame(() => {
+                      document.getElementById('task-modal-work-effort-input')?.focus();
+                    });
+                  }}
+                  placeholder="담당자"
+                  className="input-field py-1.5 text-sm w-full pl-7 pr-7"
+                  title={assigneeTitle}
+                  readOnly={readOnly}
+                  disabled={readOnly}
+                  aria-label="담당자"
+                />
+              </div>
               <datalist id="task-modal-assignees">
                 <option value="">선택 안 함</option>
                 {assigneeOptions.map((a) => {
@@ -930,8 +944,8 @@ export function TaskModal({
                   return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
                 })}
               </datalist>
-              <div className="mt-0.5 flex items-center gap-2">
-                <label className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율 %</label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">투입율</span>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -950,36 +964,36 @@ export function TaskModal({
                     setAllocationPercentInput(String(safe));
                     setFormData((prev) => ({ ...prev, allocationPercent: safe }));
                   }}
-                  className="input-field py-1 text-[11px] w-16"
+                  className="input-field py-0.5 text-[11px] w-14 text-right"
                   readOnly={readOnly}
                   disabled={readOnly}
                   title="담당자 1명 기준 투입 비율 (0~100% 정수)"
+                  aria-label="투입율"
                 />
+                <span className="text-[10px] text-[var(--color-ink-muted)]">%</span>
               </div>
             </div>
-            {initialData?.id ? (
+            {/* 하위 작업 — 자식이 있을 때만 칩 row로 노출 (라벨·"없음" 영역 제거) */}
+            {initialData?.id && childTasks.length > 0 ? (
               <div className="min-w-0 col-span-full">
-                <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">하위 작업</label>
-                {childTasks.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto rounded-lg border border-[var(--color-line-soft)] bg-slate-50/60 px-2 py-1.5">
-                    {childTasks.map((child) => (
-                      <button
-                        key={child.id}
-                        type="button"
-                        onClick={() => onOpenTask?.(child)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-[var(--color-ink)] bg-white border border-[var(--color-line)] rounded-md hover:bg-[var(--color-accent-soft)] hover:border-indigo-200 transition-colors text-left"
-                        title={onOpenTask ? `${child.name} 작업 열기` : undefined}
-                      >
-                        {displayWbsMap.get(child.id) && (
-                          <span className="text-[var(--color-ink-muted)] tabular-nums">{displayWbsMap.get(child.id)}</span>
-                        )}
-                        <span className="truncate max-w-[180px]">{child.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-[var(--color-ink-muted)] py-1">하위 작업 없음</p>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5 max-h-24 overflow-y-auto rounded-lg border border-[var(--color-line-soft)] bg-slate-50/60 px-2 py-1.5">
+                  <CornerDownRight size={12} className="text-[var(--color-ink-muted)] shrink-0" aria-hidden />
+                  <span className="text-[10px] font-medium text-[var(--color-ink-muted)] shrink-0">하위</span>
+                  {childTasks.map((child) => (
+                    <button
+                      key={child.id}
+                      type="button"
+                      onClick={() => onOpenTask?.(child)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-[var(--color-ink)] bg-white border border-[var(--color-line)] rounded-md hover:bg-[var(--color-accent-soft)] hover:border-indigo-200 transition-colors text-left"
+                      title={onOpenTask ? `${child.name} 작업 열기` : undefined}
+                    >
+                      {displayWbsMap.get(child.id) && (
+                        <span className="text-[var(--color-ink-muted)] tabular-nums">{displayWbsMap.get(child.id)}</span>
+                      )}
+                      <span className="truncate max-w-[180px]">{child.name}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -1240,17 +1254,9 @@ export function TaskModal({
               ))}
             </div>
 
-            {/* 의존성 - 한 줄 */}
-            <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
-              <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
-              <label className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">
-                의존성 (번호·검색)
-                {dependencyCount > 0 && (
-                  <span className="ml-1 font-normal text-[var(--color-accent)] normal-case">· {dependencyCount}개</span>
-                )}
-              </label>
-            </div>
-            <div className="col-span-full relative z-20">
+            {/* 의존성 — 섹션 헤더 제거, 아이콘 + placeholder로 흡수, 개수는 우측 뱃지 */}
+            <div className="col-span-full relative z-20 mt-1">
+              <Link2 size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)] pointer-events-none" />
               <input
                 type="text"
                 value={depsInput}
@@ -1276,13 +1282,22 @@ export function TaskModal({
                     onPickDepSuggestion(depSuggestions[depPickIdx]!);
                   }
                 }}
-                placeholder="번호(1,2) 또는 작업명 일부 입력 후 목록에서 선택"
-                className="input-field py-1.5 text-sm w-full"
+                placeholder="의존성 · 번호(1,2) 또는 작업명 검색"
+                className={cn('input-field py-1.5 text-sm w-full pl-7', dependencyCount > 0 ? 'pr-14' : 'pr-3')}
                 title="쉼표로 구분. 번호 입력 또는 작업명·WBS 검색 후 목록에서 선택"
                 readOnly={readOnly}
                 disabled={readOnly}
                 autoComplete="off"
+                aria-label="의존성"
               />
+              {dependencyCount > 0 && (
+                <span
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-accent)] bg-[var(--color-accent-soft)] rounded-full px-1.5 py-0.5 leading-none pointer-events-none"
+                  aria-label={`연결된 의존성 ${dependencyCount}개`}
+                >
+                  {dependencyCount}
+                </span>
+              )}
               {!readOnly && depsFocused && depSuggestions.length > 0 && (
                 <ul
                   className="absolute left-0 right-0 top-full mt-0.5 max-h-44 overflow-auto rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-lg z-50 py-1"

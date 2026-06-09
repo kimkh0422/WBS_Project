@@ -53,6 +53,7 @@ import { buildOrgMemberDisplayMetaMap, buildOrgMemberLabelMap } from '../lib/ass
 import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 import { inferProjectTopDivisionId } from '../lib/allocationDivisionInfer';
 import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
+import { CooperationRequestSection } from './CooperationRequestSection';
 import { hasUndeterminedProjectPeriod } from '../lib/projectPeriod';
 import { DashboardTableHintCell, DashboardHeroBand, ProjectCard } from './dashboardCards';
 
@@ -760,7 +761,7 @@ export function Dashboard({
     />
   );
 
-  /** 부서(사업부)별로 묶은 프로젝트 현황. divisionStats 순서를 따르고 미분류는 마지막. */
+  /** 부서(사업부)별로 묶은 프로젝트 현황. divisionStats 순서를 따르고 미분류는 마지막. 등록된 프로젝트가 없는 사업부도 빈 그룹으로 표시. */
   const projectStatsGroupedByDivision = useMemo(() => {
     const UNCLASSIFIED = '미분류';
     const byName = new Map<string, typeof displayProjectStats>();
@@ -771,13 +772,13 @@ export function Dashboard({
       else byName.set(name, [p]);
     }
     const ordered: { name: string; projects: typeof displayProjectStats }[] = [];
+    // divisionStats 순서대로 — 등록된 프로젝트가 없는 사업부도 빈 배열로 포함
     for (const ds of divisionStats) {
-      const arr = byName.get(ds.name);
-      if (arr && arr.length > 0) {
-        ordered.push({ name: ds.name, projects: arr });
-        byName.delete(ds.name);
-      }
+      const arr = byName.get(ds.name) ?? [];
+      ordered.push({ name: ds.name, projects: arr });
+      byName.delete(ds.name);
     }
+    // divisionStats에 없는 그룹(미분류 제외) — 보통 발생하지 않지만 안전망
     for (const [name, arr] of byName) {
       if (name === UNCLASSIFIED) continue;
       ordered.push({ name, projects: arr });
@@ -1605,6 +1606,9 @@ export function Dashboard({
                 </section>
               )}
 
+              {/* 업무 협조 요청 — 전체현황 바로 아래 */}
+              {showDashSection('cooperation') && <CooperationRequestSection mobileReadabilityMode={mobileReadabilityMode} />}
+
               {/* 사업부 현황 */}
               {showDashSection('divisions') && (
                 <section>
@@ -2108,7 +2112,7 @@ export function Dashboard({
                     카드를 누르면 해당 프로젝트의 <strong className="font-semibold text-slate-600">작업 표</strong>로 이동합니다.
                   </p>
                   <div className="space-y-2">
-                    {groupProjectsByDivision && displayProjectStats.length > 0 ? (
+                    {groupProjectsByDivision && projectStatsGroupedByDivision.length > 0 ? (
                       <div className="space-y-4">
                         {projectStatsGroupedByDivision.map((group) => (
                           <div key={group.name}>
@@ -2117,9 +2121,15 @@ export function Dashboard({
                               {group.name}
                               <span className="text-xs font-normal text-slate-400">({group.projects.length})</span>
                             </h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
-                              {group.projects.map(renderProjectCard)}
-                            </div>
+                            {group.projects.length > 0 ? (
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                                {group.projects.map(renderProjectCard)}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-400 bg-slate-50/70 border border-dashed border-slate-200 rounded-lg px-3 py-2.5">
+                                등록된 프로젝트가 없습니다.
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

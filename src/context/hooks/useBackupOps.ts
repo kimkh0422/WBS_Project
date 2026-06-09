@@ -45,7 +45,12 @@ export function useBackupOps(deps: BackupOpsDeps) {
   } = deps;
 
   const importTasks = useCallback(
-    async (newTasks: Task[], targetProjectId?: string, newProjectName?: string): Promise<void> => {
+    async (
+      newTasks: Task[],
+      targetProjectId?: string,
+      newProjectName?: string,
+      addCustomColumns?: Array<{ id: string; name: string }>,
+    ): Promise<void> => {
       saveHistory();
       const cpi = currentProjectIdRef.current;
       const projs = projectsRef.current;
@@ -72,6 +77,33 @@ export function useBackupOps(deps: BackupOpsDeps) {
         setProjects((prev) => [...prev, newProject]);
         setCurrentProjectId(newProject.id);
       }
+      // 가져온 사용자 정의 컬럼 정의를 전역 설정에 등록:
+      //  - customColumns: 새 정의만 추가(같은 id는 건너뜀)
+      //  - tableColumns: 가져온 컬럼은 모두 visible: true로 보장(없으면 끝에 추가, 있으면 visible 켬). 사용자는 헤더 우클릭/설정에서 숨길 수 있음.
+      if (addCustomColumns && addCustomColumns.length > 0) {
+        setWbsSettings((prev) => {
+          const existingCustomIds = new Set((prev.customColumns ?? []).map((c) => c.id));
+          const newCustomDefs = addCustomColumns.filter((c) => c && c.id && !existingCustomIds.has(c.id));
+          const tableMap = new Map<string, { id: string; visible: boolean }>(
+            (prev.tableColumns ?? []).map((c) => [c.id, { id: c.id, visible: c.visible !== false }]),
+          );
+          let tableChanged = false;
+          for (const cc of addCustomColumns) {
+            if (!cc?.id) continue;
+            const cur = tableMap.get(cc.id);
+            if (!cur || !cur.visible) {
+              tableMap.set(cc.id, { id: cc.id, visible: true });
+              tableChanged = true;
+            }
+          }
+          if (newCustomDefs.length === 0 && !tableChanged) return prev;
+          return {
+            ...prev,
+            customColumns: newCustomDefs.length > 0 ? [...(prev.customColumns ?? []), ...newCustomDefs] : prev.customColumns,
+            tableColumns: tableChanged ? Array.from(tableMap.values()) : prev.tableColumns,
+          };
+        });
+      }
       setAllTasks((prev) => {
         const prevProjectTaskIds = prev.filter((t) => t.projectId === effectiveProjectId).map((t) => t.id);
         const nextProjectTaskIds = tasksWithProject.map((t) => t.id);
@@ -93,6 +125,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
       setProjects,
       setAllTasks,
       setCurrentProjectId,
+      setWbsSettings,
     ],
   );
 

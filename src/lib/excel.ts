@@ -209,39 +209,74 @@ const adjustIndexForMergedHeader = (rows: unknown[][], headers: string[], idx: n
   return idx;
 };
 
+// 단일 컬럼 매칭(점수 채점·smart parse 공용) — 일반 단어는 fuzzy 오매칭 위험이 있어 보수적으로 유지
+const NAME_CANDIDATES = [
+  '작업명',
+  '작업*',
+  '작업',
+  '업무',
+  'task',
+  'taskname',
+  'name',
+  '제목',
+  'title',
+  '활동명',
+  'wbs활동명',
+  '업무명',
+  '프로그램명',
+];
+const WBS_CANDIDATES = ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS'];
+const LEVEL_CANDIDATES = ['레벨', 'level', 'lvl', '단계', 'lv'];
+const START_CANDIDATES = ['시작일', '시작일*', '시작', 'start', 'startdate', 'from', '계획시작일', '실제시작일'];
+const END_CANDIDATES = ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate', '계획종료일', '실제종료일'];
+const ASSIGNEE_CANDIDATES = ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서', '담당기관', '자원', '개발자'];
+// 진척률: '실적진척률'을 가장 먼저(가장 구체적). 단어 '실적'만 있는 컬럼이 가중치/누적 계산용으로 따로
+// 존재하는 템플릿(eNav 등)에서 우측 가짜 '실적' 컬럼을 잡지 않도록 '실적*'/'실적'은 뒤로 보낸다.
+// '계획진척률'은 실적 미매칭 시 폴백.
+const PROGRESS_CANDIDATES = [
+  '실적진척률',
+  '%workcomplete',
+  '진행률',
+  '진행',
+  '진척률',
+  '진척율',
+  'progress',
+  'percent',
+  '%',
+  '실적*',
+  '실적',
+  '계획진척률',
+];
+const STATUS_CANDIDATES = ['상태', 'status', '진행상태', 'state'];
+const EFFORT_CANDIDATES = [
+  '작업공수',
+  '공수',
+  'effort',
+  '총작업량',
+  '작업량',
+  'man/day',
+  'man-day',
+  'man day',
+  'manday',
+  'md',
+  'duration',
+  '기간',
+];
+const DELIVERABLES_CANDIDATES = ['산출물', 'deliverable', 'deliverables', 'output', '결과물'];
+const DESCRIPTION_CANDIDATES = ['비고', '설명', 'note', 'notes', 'comment', 'remarks', 'remark'];
+
+// 트리(레벨별 다중 컬럼) 인식용 추가 후보 — 단계/Activity/Leaf Task 등은 단독 매칭으로는 위험해 트리 인식에서만 사용
+const NAME_CANDIDATES_FOR_TREE = [...NAME_CANDIDATES, '단계', 'activity', 'leaftask', 'leaf task'];
+
 const scoreHeaderRow = (headers: string[]) => {
-  const nameIdx = guessColumnIndex(headers, ['작업명', '작업*', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
-  const wbsIdx = guessColumnIndex(headers, ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS']);
-  const startIdx = guessColumnIndex(headers, ['시작일', '시작일*', '시작', 'start', 'startdate', 'from']);
-  const endIdx = guessColumnIndex(headers, ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate']);
-  const assigneeIdx = guessColumnIndex(headers, ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서']);
-  const progressIdx = guessColumnIndex(headers, [
-    '실적*',
-    '실적',
-    '실적진척률',
-    '%workcomplete',
-    '진행률',
-    '진행',
-    '진척률',
-    '진척율',
-    'progress',
-    'percent',
-    '%',
-  ]);
-  const statusIdx = guessColumnIndex(headers, ['상태', 'status', '진행상태', 'state']);
-  const effortIdx = guessColumnIndex(headers, [
-    '작업공수',
-    '공수',
-    'effort',
-    '총작업량',
-    '작업량',
-    'man/day',
-    'man-day',
-    'man day',
-    'manday',
-    'md',
-    'duration',
-  ]);
+  const nameIdx = guessColumnIndex(headers, NAME_CANDIDATES);
+  const wbsIdx = guessColumnIndex(headers, WBS_CANDIDATES);
+  const startIdx = guessColumnIndex(headers, START_CANDIDATES);
+  const endIdx = guessColumnIndex(headers, END_CANDIDATES);
+  const assigneeIdx = guessColumnIndex(headers, ASSIGNEE_CANDIDATES);
+  const progressIdx = guessColumnIndex(headers, PROGRESS_CANDIDATES);
+  const statusIdx = guessColumnIndex(headers, STATUS_CANDIDATES);
+  const effortIdx = guessColumnIndex(headers, EFFORT_CANDIDATES);
   let score = 0;
   if (nameIdx >= 0) score += 6;
   if (wbsIdx >= 0) score += 3;
@@ -252,6 +287,31 @@ const scoreHeaderRow = (headers: string[]) => {
   if (statusIdx >= 0) score += 1;
   if (effortIdx >= 0) score += 1;
   return score;
+};
+
+// 다중 후보 컬럼 중에서 '실제 텍스트 작업명 컬럼'만 골라낸다.
+// - 비어 있거나 숫자만 있는 컬럼(가중치 등) 제거
+// - 단일 값(예: ○ 마커만 반복)인 컬럼 제거
+const filterTextColumns = (rows: unknown[][], cols: number[]): number[] => {
+  if (cols.length <= 1) return cols;
+  const sample = rows.slice(0, Math.min(120, rows.length));
+  return cols.filter((c) => {
+    if (c < 0) return false;
+    let textCount = 0;
+    let nonEmpty = 0;
+    const unique = new Set<string>();
+    for (const r of sample) {
+      if (!Array.isArray(r)) continue;
+      const s = String(r[c] ?? '').trim();
+      if (!s) continue;
+      nonEmpty += 1;
+      unique.add(s);
+      if (!Number.isFinite(Number(s))) textCount += 1;
+    }
+    if (nonEmpty === 0) return false;
+    if (unique.size < 2) return false;
+    return textCount >= Math.max(1, Math.floor(nonEmpty * 0.5));
+  });
 };
 
 const pickBestSheetAndHeader = (workbook: XLSX.WorkBook) => {
@@ -299,6 +359,14 @@ export type ExcelImportFieldId =
   | 'workEffort'
   | 'deliverables'
   | 'description';
+
+// 사용자가 미리보기 모달에서 직접 매핑한 결과. number = 컬럼 인덱스, -1 = 매핑 안 함.
+export type ExcelImportFieldOverride = Partial<Record<ExcelImportFieldId, number>>;
+
+// 사용자가 미리보기 모달에서 미사용 컬럼을 "사용자 정의 컬럼"으로 추가하기로 한 항목.
+// id는 모달이 미리 생성(`custom:<uuid>`), columnIndex는 엑셀 헤더 행의 컬럼 인덱스.
+// parseExcelWithMeta는 각 task의 customFields[id]에 해당 셀 값을 채워준다.
+export type ExcelImportCustomColumnInput = { id: string; columnIndex: number };
 
 export type ExcelImportMappingItem = {
   fieldId: ExcelImportFieldId;
@@ -407,7 +475,13 @@ const firstNonEmptyInColumns = (cells: unknown[], cols: number[]) => {
   return '';
 };
 
-export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseResult> => {
+export const parseExcelWithMeta = async (
+  file: File,
+  options?: { overrides?: ExcelImportFieldOverride; customColumns?: ExcelImportCustomColumnInput[] },
+): Promise<ExcelImportParseResult> => {
+  const overrides = options?.overrides;
+  const hasOverrides = !!overrides && Object.keys(overrides).length > 0;
+  const customColumnsOpt = (options?.customColumns ?? []).filter((c) => c && c.id && c.columnIndex >= 0);
   const buf = await file.arrayBuffer();
   const workbook = XLSX.read(buf, { type: 'array' });
   const picked = pickBestSheetAndHeader(workbook);
@@ -427,6 +501,9 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   }
 
   const rawRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '' }) as unknown[][];
+  // 사용자 정의 컬럼 채우기 전용 표시값(셀의 number_format이 그대로 적용됨 — "0%"·"yyyy-mm-dd" 등).
+  // 매핑된 시작일/종료일/진척률 등은 기존 raw 기반 변환 로직이 정확하므로 raw는 그대로 사용.
+  const displayRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: '', raw: false }) as unknown[][];
   if (!rawRows || rawRows.length === 0) {
     return {
       tasks: [],
@@ -446,12 +523,11 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const headerRow = fillMergedHeaders(headerRowRaw);
 
   // Detect whether this is our exported format (Korean headers).
-  // NOTE: Some templates (e.g. XLGantt) contain a subset of these headers (like "산출물") but are NOT our format.
-  // So we require either core headers or a minimum number of matches.
-  const knownHeaderHits = headerRow.reduce((acc, h) => (REVERSE_HEADER_MAP[h] !== undefined ? acc + 1 : acc), 0);
+  // 우리 내보내기 포맷은 정확히 '작업명' 헤더를 포함하므로 그것을 필수로 요구. 변형 헤더(WBS 활동명/진척률 등)는
+  // smart 분기에서 fuzzy 매칭하는 편이 더 정확. 사용자가 매핑 override를 줬으면 강제로 smart 분기로.
   const hasCoreKnownHeaders =
     headerRow.includes(HEADER_MAP.name) && (headerRow.includes(HEADER_MAP.startDate) || headerRow.includes(HEADER_MAP.endDate));
-  const hasKnownHeader = hasCoreKnownHeaders || knownHeaderHits >= 4;
+  const hasKnownHeader = !hasOverrides && customColumnsOpt.length === 0 && hasCoreKnownHeaders;
   if (hasKnownHeader) {
     const tasks: Task[] = [];
     const levelsByTaskId = new Map<string, LevelValue>();
@@ -615,57 +691,48 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const body = rawRows.slice(headerRowIndex + 1);
   const headers = headerRow;
 
-  const nameIdx = guessColumnIndex(headers, ['작업명', '작업*', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
-  const wbsIdx = guessColumnIndex(headers, ['wbs번호', 'wbs', 'wbsid', 'wbs코드', 'wbs code', 'WBS']);
-  const levelIdx = guessColumnIndex(headers, ['레벨', 'level', 'lvl', '단계', 'lv']);
-  const startIdx = guessColumnIndex(headers, ['시작일', '시작일*', '시작', 'start', 'startdate', 'from']);
-  const endIdx = guessColumnIndex(headers, ['종료일', '완료일', '완료일*', '종료', 'end', 'enddate', 'to', 'finish', 'finishdate']);
-  const assigneeIdx = guessColumnIndex(headers, ['담당자', '담당', 'assignee', 'owner', '담당부서', '부서']);
-  const progressIdx = guessColumnIndex(headers, [
-    '실적*',
-    '실적',
-    '실적진척률',
-    '%workcomplete',
-    '진행률',
-    '진행',
-    '진척률',
-    '진척율',
-    'progress',
-    'percent',
-    '%',
-  ]);
-  const statusIdx = guessColumnIndex(headers, ['상태', 'status', '진행상태', 'state']);
-  const effortIdx = guessColumnIndex(headers, [
-    '작업공수',
-    '공수',
-    'effort',
-    '총작업량',
-    '작업량',
-    'man/day',
-    'man-day',
-    'man day',
-    'manday',
-    'md',
-    'duration',
-  ]);
-  const deliverablesIdx = guessColumnIndex(headers, ['산출물', 'deliverable', 'deliverables', 'output', '결과물']);
-  const descriptionIdx = guessColumnIndex(headers, ['비고', '설명', 'note', 'notes', 'comment', 'remarks', 'remark']);
+  const nameIdx = guessColumnIndex(headers, NAME_CANDIDATES);
+  const wbsIdx = guessColumnIndex(headers, WBS_CANDIDATES);
+  const levelIdx = guessColumnIndex(headers, LEVEL_CANDIDATES);
+  const startIdx = guessColumnIndex(headers, START_CANDIDATES);
+  const endIdx = guessColumnIndex(headers, END_CANDIDATES);
+  const assigneeIdx = guessColumnIndex(headers, ASSIGNEE_CANDIDATES);
+  const progressIdx = guessColumnIndex(headers, PROGRESS_CANDIDATES);
+  const statusIdx = guessColumnIndex(headers, STATUS_CANDIDATES);
+  const effortIdx = guessColumnIndex(headers, EFFORT_CANDIDATES);
+  const deliverablesIdx = guessColumnIndex(headers, DELIVERABLES_CANDIDATES);
+  const descriptionIdx = guessColumnIndex(headers, DESCRIPTION_CANDIDATES);
 
-  // Some templates (notably XLGantt) represent task name across multiple columns with the same header (e.g. repeated "작업*").
-  // In that case, a single column mapping will only capture a subset (often higher levels).
-  const nameColsByHeader = findAllColumnIndices(headers, ['작업*', '작업명', '작업', '업무', 'task', 'taskname', 'name', '제목', 'title']);
+  // 일부 템플릿(XLGantt 등)은 작업명을 레벨별로 여러 컬럼에 분할 — 같은 헤더 반복(예: 작업*) 또는
+  // 단계/Activity/Task/Leaf Task처럼 헤더 이름이 모두 다른 경우 둘 다 인식.
+  // 가짜 후보(헤더만 같고 가중치 숫자만 있는 우측 컬럼, ○만 반복되는 마커 컬럼)는 텍스트 비율·고유값 필터로 제거.
+  const nameColsByHeader = filterTextColumns(body, findAllColumnIndices(headers, NAME_CANDIDATES_FOR_TREE));
 
-  const nameCol = adjustIndexForMergedHeader(body, headers, nameIdx);
-  const wbsCol = adjustIndexForMergedHeader(body, headers, wbsIdx);
-  const levelCol = adjustIndexForMergedHeader(body, headers, levelIdx);
-  const startCol = adjustIndexForMergedHeader(body, headers, startIdx);
-  const endCol = adjustIndexForMergedHeader(body, headers, endIdx);
-  const assigneeCol = adjustIndexForMergedHeader(body, headers, assigneeIdx);
-  const progressCol = adjustIndexForMergedHeader(body, headers, progressIdx);
-  const statusCol = adjustIndexForMergedHeader(body, headers, statusIdx);
-  const effortCol = adjustIndexForMergedHeader(body, headers, effortIdx);
-  const deliverablesCol = adjustIndexForMergedHeader(body, headers, deliverablesIdx);
-  const descriptionCol = adjustIndexForMergedHeader(body, headers, descriptionIdx);
+  // 사용자가 모달에서 컬럼을 직접 지정했으면(override) 자동 매칭 대신 그 값을 우선 사용한다.
+  const ovr = overrides ?? {};
+  const pickCol = (fieldId: ExcelImportFieldId, autoIdx: number) => {
+    if (Object.prototype.hasOwnProperty.call(ovr, fieldId)) return ovr[fieldId]!;
+    return adjustIndexForMergedHeader(body, headers, autoIdx);
+  };
+  const isOverridden = (fieldId: ExcelImportFieldId) => Object.prototype.hasOwnProperty.call(ovr, fieldId);
+
+  const nameCol = pickCol('name', nameIdx);
+  const wbsCol = pickCol('wbsKey', wbsIdx);
+  const levelCol = pickCol('level', levelIdx);
+  const startCol = pickCol('startDate', startIdx);
+  const endCol = pickCol('endDate', endIdx);
+  const assigneeCol = pickCol('assignee', assigneeIdx);
+  const progressCol = pickCol('progress', progressIdx);
+  const statusCol = pickCol('status', statusIdx);
+  const effortCol = pickCol('workEffort', effortIdx);
+  const deliverablesCol = pickCol('deliverables', deliverablesIdx);
+  const descriptionCol = pickCol('description', descriptionIdx);
+
+  // 사용자가 작업명을 직접 단일 컬럼으로 지정했으면 다중 컬럼(트리) 모드 해제
+  const effectiveNameCols = isOverridden('name') ? [] : nameColsByHeader;
+
+  const noteFor = (fieldId: ExcelImportFieldId, autoNote: string | undefined): string | undefined =>
+    isOverridden(fieldId) ? '사용자 매핑' : autoNote;
 
   const mapped: ExcelImportMappingItem[] = [
     {
@@ -673,78 +740,84 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       fieldLabel: FIELD_LABELS.wbsKey,
       header: headers[wbsCol] ?? '',
       columnIndex: wbsCol,
-      note: wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('wbsKey', wbsCol !== wbsIdx && wbsIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'level',
       fieldLabel: FIELD_LABELS.level,
       header: headers[levelCol] ?? '',
       columnIndex: levelCol,
-      note: levelCol !== levelIdx && levelIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('level', levelCol !== levelIdx && levelIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'name',
       fieldLabel: FIELD_LABELS.name,
       header: headers[nameCol] ?? '',
       columnIndex: nameCol,
-      columnIndices: nameColsByHeader.length > 1 ? nameColsByHeader : undefined,
-      note: nameColsByHeader.length > 1 ? '레벨별 다중컬럼' : nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined,
+      columnIndices: effectiveNameCols.length > 1 ? effectiveNameCols : undefined,
+      note: noteFor(
+        'name',
+        effectiveNameCols.length > 1 ? '레벨별 다중컬럼' : nameCol !== nameIdx && nameIdx >= 0 ? '병합헤더 보정' : undefined,
+      ),
     },
     {
       fieldId: 'startDate',
       fieldLabel: FIELD_LABELS.startDate,
       header: headers[startCol] ?? '',
       columnIndex: startCol,
-      note: startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('startDate', startCol !== startIdx && startIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'endDate',
       fieldLabel: FIELD_LABELS.endDate,
       header: headers[endCol] ?? '',
       columnIndex: endCol,
-      note: endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('endDate', endCol !== endIdx && endIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'assignee',
       fieldLabel: FIELD_LABELS.assignee,
       header: headers[assigneeCol] ?? '',
       columnIndex: assigneeCol,
-      note: assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('assignee', assigneeCol !== assigneeIdx && assigneeIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'progress',
       fieldLabel: FIELD_LABELS.progress,
       header: headers[progressCol] ?? '',
       columnIndex: progressCol,
-      note: progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('progress', progressCol !== progressIdx && progressIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'status',
       fieldLabel: FIELD_LABELS.status,
       header: headers[statusCol] ?? '',
       columnIndex: statusCol,
-      note: statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('status', statusCol !== statusIdx && statusIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'workEffort',
       fieldLabel: FIELD_LABELS.workEffort,
       header: headers[effortCol] ?? '',
       columnIndex: effortCol,
-      note: effortCol < 0 ? '미입력시 자동산정(기간)' : effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor(
+        'workEffort',
+        effortCol < 0 ? '미입력시 자동산정(기간)' : effortCol !== effortIdx && effortIdx >= 0 ? '병합헤더 보정' : undefined,
+      ),
     },
     {
       fieldId: 'deliverables',
       fieldLabel: FIELD_LABELS.deliverables,
       header: headers[deliverablesCol] ?? '',
       columnIndex: deliverablesCol,
-      note: deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('deliverables', deliverablesCol !== deliverablesIdx && deliverablesIdx >= 0 ? '병합헤더 보정' : undefined),
     },
     {
       fieldId: 'description',
       fieldLabel: FIELD_LABELS.description,
       header: headers[descriptionCol] ?? '',
       columnIndex: descriptionCol,
-      note: descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined,
+      note: noteFor('description', descriptionCol !== descriptionIdx && descriptionIdx >= 0 ? '병합헤더 보정' : undefined),
     },
   ];
 
@@ -754,16 +827,19 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
   const levelsByTaskId = new Map<string, LevelValue>();
   const tasks: Task[] = [];
   const today = new Date().toISOString().split('T')[0];
+  const displayBody = displayRows.slice(headerRowIndex + 1);
 
-  for (const row of body) {
+  for (let rowIdx = 0; rowIdx < body.length; rowIdx++) {
+    const row = body[rowIdx];
     const cells = Array.isArray(row) ? row : [];
-    const nameFromLevelColumns = nameColsByHeader.length > 1 ? firstNonEmptyInColumns(cells, nameColsByHeader) : '';
+    const displayCells: unknown[] = Array.isArray(displayBody[rowIdx]) ? (displayBody[rowIdx] as unknown[]) : [];
+    const nameFromLevelColumns = effectiveNameCols.length > 1 ? firstNonEmptyInColumns(cells, effectiveNameCols) : '';
     const name = nameFromLevelColumns || (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '');
     const wbsKey = wbsCol >= 0 ? normalizeWbsKey(cells[wbsCol]) : '';
     const explicitLevel = levelCol >= 0 ? clampLevel(cells[levelCol]) : undefined;
     const inferredLevelFromNameCols = (() => {
-      if (nameColsByHeader.length <= 1) return undefined;
-      const cols = [...nameColsByHeader].filter((n) => n >= 0).sort((a, b) => a - b);
+      if (effectiveNameCols.length <= 1) return undefined;
+      const cols = [...effectiveNameCols].filter((n) => n >= 0).sort((a, b) => a - b);
       for (let i = 0; i < cols.length; i++) {
         const s = String(cells?.[cols[i]] ?? '').trim();
         if (s) return i + 1;
@@ -790,6 +866,14 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     const workEffort = effortCol >= 0 ? (toNumber(cells[effortCol]) ?? undefined) : undefined;
 
     const id = randomUUID();
+    const customFields: Record<string, string> = {};
+    for (const cc of customColumnsOpt) {
+      // 셀의 number_format이 적용된 표시값을 우선 사용("0%" → "18%", 날짜 시리얼 → "2024-10-01" 등).
+      // displayCells가 비어있거나 해당 컬럼이 없으면 raw cells로 폴백.
+      const displayV = displayCells[cc.columnIndex];
+      const v = String((displayV !== undefined && displayV !== null && displayV !== '' ? displayV : cells[cc.columnIndex]) ?? '').trim();
+      if (v) customFields[cc.id] = v;
+    }
     const task: Task = {
       id,
       projectId: '', // set by import pipeline
@@ -813,6 +897,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
       })(),
       ...(deliverables ? { deliverables } : {}),
       ...(description ? { description } : {}),
+      ...(Object.keys(customFields).length > 0 ? { customFields } : {}),
     };
 
     if (wbsKey) {
@@ -828,7 +913,7 @@ export const parseExcelWithMeta = async (file: File): Promise<ExcelImportParseRe
     tasks.push(task);
   }
 
-  const useLevelHierarchy = levelCol >= 0 || nameColsByHeader.length > 1;
+  const useLevelHierarchy = levelCol >= 0 || effectiveNameCols.length > 1;
   if (useLevelHierarchy && levelsByTaskId.size > 0) {
     applyLevelHierarchyInOrder(tasks, levelsByTaskId);
   } else if (pendingParentByWbs.size > 0) {

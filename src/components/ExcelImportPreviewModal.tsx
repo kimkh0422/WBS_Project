@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, FileSpreadsheet, Info, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, FileSpreadsheet, Info, Plus, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
-import { ExcelImportMeta } from '../lib/excel';
+import { ExcelImportMeta, type ExcelImportFieldId } from '../lib/excel';
 import type { Project } from '../types';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -11,6 +11,8 @@ type ImportFilePreview = {
   fileName: string;
   taskCount: number;
   meta: ExcelImportMeta;
+  /** 사용자가 미사용 컬럼을 사용자 정의 컬럼으로 추가한 항목들(columnIndex 기준 매칭) */
+  customColumns: Array<{ id: string; name: string; columnIndex: number }>;
 };
 
 export const IMPORT_TARGET_NEW = '__new__';
@@ -23,6 +25,12 @@ interface ExcelImportPreviewModalProps {
   files: ImportFilePreview[];
   projects: Project[];
   currentProjectId: string;
+  /** 사용자가 미리보기 행에서 직접 엑셀 컬럼을 골랐을 때 호출 */
+  onMappingChange?: (fileIndex: number, fieldId: ExcelImportFieldId, columnIndex: number) => void;
+  /** 사용자가 미사용 컬럼 chip을 클릭해 사용자 정의 컬럼으로 추가/해제 토글 */
+  onCustomColumnToggle?: (fileIndex: number, header: string, columnIndex: number) => void;
+  /** "모두 추가/해제"처럼 파일의 사용자 정의 컬럼을 한 번에 set — 연속 토글 시의 stale state 문제 회피 */
+  onCustomColumnsSet?: (fileIndex: number, items: Array<{ header: string; columnIndex: number }>) => void;
 }
 
 const colToLetter = (n: number) => {
@@ -57,6 +65,9 @@ export function ExcelImportPreviewModal({
   files,
   projects,
   currentProjectId,
+  onMappingChange,
+  onCustomColumnToggle,
+  onCustomColumnsSet,
 }: ExcelImportPreviewModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const [openFiles, setOpenFiles] = useState<Record<string, boolean>>({});
@@ -171,10 +182,12 @@ export function ExcelImportPreviewModal({
           </div>
 
           <div className="space-y-3">
-            {files.map((f) => {
+            {files.map((f, fileIndex) => {
               const isExpanded = !!openFiles[f.fileName];
               const sheet = f.meta.sheetName || '-';
               const headerRowNo = (f.meta.headerRowIndex ?? 0) + 1;
+              // select 옵션: 헤더가 비어있지 않은 컬럼만 노출 (정렬은 컬럼 인덱스 순)
+              const headerOptions = f.meta.headerRow.map((h, i) => ({ value: i, label: String(h ?? '').trim() })).filter((o) => o.label);
               return (
                 <div key={f.fileName} className="border border-slate-200 rounded-xl overflow-hidden">
                   <button
@@ -206,14 +219,14 @@ export function ExcelImportPreviewModal({
                       <div className="mt-2 overflow-hidden rounded-lg border border-slate-200">
                         <div className="grid grid-cols-12 bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                           <div className="col-span-3 px-3 py-2">앱 필드</div>
-                          <div className="col-span-7 px-3 py-2 border-l border-slate-200">엑셀 컬럼</div>
-                          <div className="col-span-2 px-3 py-2 border-l border-slate-200 text-right">열</div>
+                          <div className="col-span-9 px-3 py-2 border-l border-slate-200">엑셀 컬럼 매핑</div>
                         </div>
                         <div className="divide-y divide-slate-100">
                           {f.meta.mapped.map((m) => {
                             const ok = m.columnIndex >= 0 && String(m.header ?? '').trim();
+                            const hasMultiCols = Array.isArray(m.columnIndices) && m.columnIndices.length > 1;
                             return (
-                              <div key={m.fieldId} className="grid grid-cols-12 text-sm">
+                              <div key={m.fieldId} className="grid grid-cols-12 text-sm items-center">
                                 <div className="col-span-3 px-3 py-2 font-semibold text-slate-700 flex items-center gap-1.5">
                                   <span>{m.fieldLabel}</span>
                                   {m.fieldId === 'workEffort' && (
@@ -226,18 +239,38 @@ export function ExcelImportPreviewModal({
                                     </span>
                                   )}
                                 </div>
-                                <div className="col-span-7 px-3 py-2 border-l border-slate-200">
-                                  <span className={cn('font-medium', ok ? 'text-slate-800' : 'text-red-600')}>
-                                    {ok ? m.header : '미매칭'}
-                                  </span>
+                                <div className="col-span-9 px-3 py-2 border-l border-slate-200 flex flex-wrap items-center gap-2">
+                                  {onMappingChange ? (
+                                    <select
+                                      value={m.columnIndex >= 0 ? m.columnIndex : -1}
+                                      onChange={(e) => onMappingChange(fileIndex, m.fieldId, Number(e.target.value))}
+                                      className={cn(
+                                        'text-xs border rounded px-2 py-1 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 max-w-full',
+                                        ok ? 'border-slate-200 text-slate-800' : 'border-red-300 text-red-600',
+                                      )}
+                                    >
+                                      <option value={-1}>(매핑 안 함)</option>
+                                      {headerOptions.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                          {colToLetter(o.value)} ({o.value + 1}) — {o.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className={cn('font-medium', ok ? 'text-slate-800' : 'text-red-600')}>
+                                      {ok ? `${colToLetter(m.columnIndex)} (${m.columnIndex + 1}) — ${m.header}` : '미매칭'}
+                                    </span>
+                                  )}
+                                  {hasMultiCols && (
+                                    <span className="text-[10px] font-mono text-slate-500">
+                                      다중: {colRangeLabel(m.columnIndices, m.columnIndex)}
+                                    </span>
+                                  )}
                                   {m.note && (
-                                    <span className="ml-2 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full">
+                                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full">
                                       {m.note}
                                     </span>
                                   )}
-                                </div>
-                                <div className="col-span-2 px-3 py-2 border-l border-slate-200 text-right font-mono text-[12px] text-slate-600">
-                                  {colRangeLabel(m.columnIndices, m.columnIndex)}
                                 </div>
                               </div>
                             );
@@ -247,20 +280,90 @@ export function ExcelImportPreviewModal({
 
                       {f.meta.unmappedHeaders.length > 0 && (
                         <div className="mt-3 text-[12px] text-slate-600">
-                          <div className="font-bold text-slate-700 mb-1">미사용(미매칭) 엑셀 컬럼</div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="font-bold text-slate-700">
+                              미사용(미매칭) 엑셀 컬럼
+                              {onCustomColumnToggle && (
+                                <span className="ml-2 font-normal text-[11px] text-slate-500">
+                                  · 클릭하면 사용자 정의 컬럼으로 추가됩니다
+                                </span>
+                              )}
+                            </div>
+                            {onCustomColumnsSet &&
+                              f.meta.unmappedHeaders.length > 1 &&
+                              (() => {
+                                const addedCols = new Set(f.customColumns.map((c) => c.columnIndex));
+                                const allAdded = f.meta.unmappedHeaders.every((u) => addedCols.has(u.columnIndex));
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // 모두 추가/해제: 한 번의 콜백으로 파일의 customColumns 전체를 set (연속 토글 시 stale state 회피)
+                                      const removeCols = new Set(f.meta.unmappedHeaders.map((u) => u.columnIndex));
+                                      if (allAdded) {
+                                        // 미사용 헤더에 해당하는 항목만 제거(다른 경로로 추가된 항목은 유지)
+                                        const next = f.customColumns
+                                          .filter((c) => !removeCols.has(c.columnIndex))
+                                          .map((c) => ({ header: c.name, columnIndex: c.columnIndex }));
+                                        onCustomColumnsSet(fileIndex, next);
+                                      } else {
+                                        // 기존 항목 + 아직 안 추가된 미사용 헤더를 모두 추가
+                                        const next = [...f.customColumns.map((c) => ({ header: c.name, columnIndex: c.columnIndex }))];
+                                        for (const u of f.meta.unmappedHeaders) {
+                                          if (!addedCols.has(u.columnIndex)) next.push({ header: u.header, columnIndex: u.columnIndex });
+                                        }
+                                        onCustomColumnsSet(fileIndex, next);
+                                      }
+                                    }}
+                                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline"
+                                  >
+                                    {allAdded ? '모두 해제' : '모두 추가'}
+                                  </button>
+                                );
+                              })()}
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
-                            {f.meta.unmappedHeaders.slice(0, 24).map((u) => (
-                              <span
-                                key={`${u.columnIndex}-${u.header}`}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full"
-                              >
-                                {u.header} <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
-                              </span>
-                            ))}
+                            {f.meta.unmappedHeaders.slice(0, 24).map((u) => {
+                              const isAdded = f.customColumns.some((c) => c.columnIndex === u.columnIndex);
+                              if (onCustomColumnToggle) {
+                                return (
+                                  <button
+                                    type="button"
+                                    key={`${u.columnIndex}-${u.header}`}
+                                    onClick={() => onCustomColumnToggle(fileIndex, u.header, u.columnIndex)}
+                                    className={cn(
+                                      'inline-flex items-center gap-1 text-[11px] font-semibold border px-2 py-0.5 rounded-full transition-colors',
+                                      isAdded
+                                        ? 'text-indigo-700 bg-indigo-50 border-indigo-300 hover:bg-indigo-100'
+                                        : 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100',
+                                    )}
+                                    title={isAdded ? '사용자 정의 컬럼에서 제거' : '사용자 정의 컬럼으로 추가'}
+                                  >
+                                    {isAdded ? <Check size={11} /> : <Plus size={11} />}
+                                    {u.header}
+                                    <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
+                                  </button>
+                                );
+                              }
+                              return (
+                                <span
+                                  key={`${u.columnIndex}-${u.header}`}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full"
+                                >
+                                  {u.header} <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
+                                </span>
+                              );
+                            })}
                             {f.meta.unmappedHeaders.length > 24 && (
                               <span className="text-[11px] text-slate-400">+{f.meta.unmappedHeaders.length - 24}개</span>
                             )}
                           </div>
+                          {f.customColumns.length > 0 && (
+                            <div className="mt-2 text-[11px] text-slate-500">
+                              사용자 정의 컬럼 {f.customColumns.length}개 추가됨 — 가져오기 시 전역 표 설정에 등록되어 다른 프로젝트에서도
+                              보입니다.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

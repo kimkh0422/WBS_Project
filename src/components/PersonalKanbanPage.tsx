@@ -27,6 +27,7 @@ import {
   ChevronUp,
   ChevronDown,
   Rows3,
+  LayoutGrid,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -72,6 +73,25 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [addingRow, setAddingRow] = useState(false);
   const [newRowLabel, setNewRowLabel] = useState('');
+  // 행(스윔레인) 구분 보기 on/off. off면 행 없이 4개 상태 칸만 한 보드로 표시. localStorage에 영구.
+  const [groupByRow, setGroupByRow] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem('wbs.personalKanban.groupByRow') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const groupByRowRef = useRef(groupByRow);
+  groupByRowRef.current = groupByRow;
+  const setGroupByRowPersist = useCallback((v: boolean) => {
+    setGroupByRow(v);
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem('wbs.personalKanban.groupByRow', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const todosRef = useRef<PersonalTodo[]>([]);
   todosRef.current = todos;
@@ -115,6 +135,13 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
       todos
         .filter((t) => (t.rowId ?? null) === rowId && t.status === status)
         .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)),
+    [todos],
+  );
+
+  // 전체(행 구분 없음) 보기용: 상태별 모든 행의 카드
+  const flatItemsOf = useCallback(
+    (status: PersonalTodoStatus) =>
+      todos.filter((t) => t.status === status).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)),
     [todos],
   );
 
@@ -252,7 +279,11 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
       // 대상 칸(행·상태) 결정
       let targetRowKey: string;
       let targetStatus: PersonalTodoStatus;
-      if (overKey.startsWith('cell:')) {
+      if (overKey.startsWith('flat:')) {
+        // 전체(행 구분 없음) 보기: 상태만 바꾸고 카드의 행은 그대로 유지
+        targetStatus = overKey.slice(5) as PersonalTodoStatus;
+        targetRowKey = rowKeyOf(activeTd.rowId ?? null);
+      } else if (overKey.startsWith('cell:')) {
         const rest = overKey.slice(5);
         const ci = rest.indexOf(':');
         targetRowKey = rest.slice(0, ci);
@@ -260,8 +291,9 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
       } else {
         const overTd = current.find((t) => t.id === overKey);
         if (!overTd) return;
-        targetRowKey = rowKeyOf(overTd.rowId ?? null);
         targetStatus = overTd.status;
+        // 전체 보기에서 카드 위에 드롭해도 행은 유지(행끼리 섞이지 않도록)
+        targetRowKey = groupByRowRef.current ? rowKeyOf(overTd.rowId ?? null) : rowKeyOf(activeTd.rowId ?? null);
       }
 
       const cellKey = (t: PersonalTodo) => `${rowKeyOf(t.rowId ?? null)}:${t.status}`;
@@ -280,7 +312,7 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
       if (oldIdx >= 0) fromList.splice(oldIdx, 1);
       const toList = fromKey === toKey ? fromList : [...(cells.get(toKey) ?? [])];
       let insertIdx: number;
-      if (overKey.startsWith('cell:')) {
+      if (overKey.startsWith('cell:') || overKey.startsWith('flat:')) {
         insertIdx = toList.length;
       } else {
         const oi = toList.indexOf(overKey);
@@ -341,54 +373,79 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
             <span className="text-sm font-normal text-slate-500">개인 할일 {total}건</span>
           </h2>
           <div className="flex items-center gap-1.5">
-            {addingRow ? (
-              <div className="flex items-center gap-1.5">
-                <input
-                  autoFocus
-                  value={newRowLabel}
-                  onChange={(e) => setNewRowLabel(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void handleAddRow();
-                    }
-                    if (e.key === 'Escape') {
-                      setAddingRow(false);
-                      setNewRowLabel('');
-                    }
-                  }}
-                  placeholder="행 이름 (예: 프로젝트 A)"
-                  className="w-44 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleAddRow()}
-                  disabled={!newRowLabel.trim()}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
-                >
-                  <Check size={13} /> 추가
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddingRow(false);
-                    setNewRowLabel('');
-                  }}
-                  className="px-2 py-1.5 text-[12px] font-semibold rounded-lg text-slate-500 hover:bg-slate-100"
-                >
-                  취소
-                </button>
-              </div>
-            ) : (
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shrink-0">
               <button
                 type="button"
-                onClick={() => setAddingRow(true)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
-                title="가로 구분(행/스윔레인) 추가"
+                onClick={() => setGroupByRowPersist(true)}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-semibold rounded-md transition-colors',
+                  groupByRow ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                )}
+                title="행(스윔레인)별로 구분해서 보기"
               >
-                <Rows3 size={14} aria-hidden /> 행 추가
+                <Rows3 size={13} /> 행별
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => setGroupByRowPersist(false)}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-semibold rounded-md transition-colors',
+                  !groupByRow ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                )}
+                title="행 구분 없이 전체를 한 보드로 보기"
+              >
+                <LayoutGrid size={13} /> 전체
+              </button>
+            </div>
+            {groupByRow &&
+              (addingRow ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    value={newRowLabel}
+                    onChange={(e) => setNewRowLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleAddRow();
+                      }
+                      if (e.key === 'Escape') {
+                        setAddingRow(false);
+                        setNewRowLabel('');
+                      }
+                    }}
+                    placeholder="행 이름 (예: 프로젝트 A)"
+                    className="w-44 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleAddRow()}
+                    disabled={!newRowLabel.trim()}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
+                  >
+                    <Check size={13} /> 추가
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingRow(false);
+                      setNewRowLabel('');
+                    }}
+                    className="px-2 py-1.5 text-[12px] font-semibold rounded-lg text-slate-500 hover:bg-slate-100"
+                  >
+                    취소
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAddingRow(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+                  title="가로 구분(행/스윔레인) 추가"
+                >
+                  <Rows3 size={14} aria-hidden /> 행 추가
+                </button>
+              ))}
             <button
               type="button"
               onClick={() => void reload()}
@@ -401,8 +458,14 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
         </div>
         <p className="text-xs text-slate-500 -mt-1 mb-3 leading-relaxed">
           나만 보는 개인 할일 보드입니다. 카드를 드래그해{' '}
-          <strong className="font-semibold text-slate-600">할일 · 진행중 · 완료 · 기타</strong> 칸이나 다른{' '}
-          <strong className="font-semibold text-slate-600">행</strong>으로 옮기세요.
+          <strong className="font-semibold text-slate-600">할일 · 진행중 · 완료 · 기타</strong> 칸
+          {groupByRow ? (
+            <>
+              이나 다른 <strong className="font-semibold text-slate-600">행</strong>으로 옮기세요.
+            </>
+          ) : (
+            <>으로 옮기세요. (행 구분 없이 전체 보기 — 카드는 원래 행을 유지합니다.)</>
+          )}
         </p>
 
         {error && (
@@ -420,36 +483,54 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
           </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="space-y-4">
-              {lanes.map((lane, laneIdx) => (
-                <section key={lane.id ?? DEFAULT_ROW_KEY} className="rounded-2xl border border-slate-200/80 bg-white/40">
-                  {/* 행(스윔레인) 헤더 */}
-                  <SwimlaneHeader
-                    lane={lane}
-                    count={todos.filter((t) => (t.rowId ?? null) === lane.id).length}
-                    canMoveUp={lane.id != null && laneIdx > 1}
-                    canMoveDown={lane.id != null && laneIdx < lanes.length - 1}
-                    onRename={handleRenameRow}
-                    onMove={handleMoveRow}
-                    onDelete={handleDeleteRow}
+            {groupByRow ? (
+              <div className="space-y-4">
+                {lanes.map((lane, laneIdx) => (
+                  <section key={lane.id ?? DEFAULT_ROW_KEY} className="rounded-2xl border border-slate-200/80 bg-white/40">
+                    {/* 행(스윔레인) 헤더 */}
+                    <SwimlaneHeader
+                      lane={lane}
+                      count={todos.filter((t) => (t.rowId ?? null) === lane.id).length}
+                      canMoveUp={lane.id != null && laneIdx > 1}
+                      canMoveDown={lane.id != null && laneIdx < lanes.length - 1}
+                      onRename={handleRenameRow}
+                      onMove={handleMoveRow}
+                      onDelete={handleDeleteRow}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 p-2 pt-0 items-start">
+                      {PERSONAL_TODO_COLUMNS.map((col) => (
+                        <TodoCell
+                          key={col.key}
+                          rowId={lane.id}
+                          status={col.key}
+                          label={col.label}
+                          items={itemsOf(lane.id, col.key)}
+                          onAdd={handleAdd}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
+                {PERSONAL_TODO_COLUMNS.map((col) => (
+                  <TodoCell
+                    key={col.key}
+                    rowId={null}
+                    status={col.key}
+                    label={col.label}
+                    items={flatItemsOf(col.key)}
+                    onAdd={handleAdd}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    flat
                   />
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 p-2 pt-0 items-start">
-                    {PERSONAL_TODO_COLUMNS.map((col) => (
-                      <TodoCell
-                        key={col.key}
-                        rowId={lane.id}
-                        status={col.key}
-                        label={col.label}
-                        items={itemsOf(lane.id, col.key)}
-                        onAdd={handleAdd}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
             <DragOverlay>{activeTodo ? <TodoCardView todo={activeTodo} dragging /> : null}</DragOverlay>
           </DndContext>
         )}
@@ -587,10 +668,12 @@ interface TodoCellProps {
   onAdd: (rowId: string | null, status: PersonalTodoStatus, title: string) => void;
   onEdit: (id: string, patch: { title?: string; note?: string }) => void;
   onDelete: (id: string) => void;
+  /** 전체(행 구분 없음) 보기: droppable id를 행과 무관한 flat:상태 로 두어 드롭 시 행이 유지되게 함 */
+  flat?: boolean;
 }
 
-function TodoCell({ rowId, status, label, items, onAdd, onEdit, onDelete }: TodoCellProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: cellDroppableId(rowId, status) });
+function TodoCell({ rowId, status, label, items, onAdd, onEdit, onDelete, flat }: TodoCellProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: flat ? `flat:${status}` : cellDroppableId(rowId, status) });
   const theme = COLUMN_THEME[status];
   const [draft, setDraft] = useState('');
 

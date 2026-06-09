@@ -128,6 +128,14 @@ function isAutoComputedCell(colId: string, hasChildren: boolean): boolean {
   return false;
 }
 
+/** wbsId·name은 식별 컬럼이라 읽기전용 표시를 따로 입히지 않는다(이름은 별도 컴포넌트로 클릭 가능 영역 유지). */
+const READONLY_SHADING_SKIP_COLS = new Set<string>(['wbsId']);
+function isReadOnlyCell(colId: string, hasChildren: boolean, canEdit: boolean): boolean {
+  if (isAutoComputedCell(colId, hasChildren)) return true;
+  if (!canEdit && !READONLY_SHADING_SKIP_COLS.has(colId)) return true;
+  return false;
+}
+
 /**
  * 작업명 셀 왼쪽 들여쓰기 영역에 트리 가이드 선(│ ├ └)을 그린다.
  * 셀 패딩 영역에 absolute로만 그려 본문(작업명) 레이아웃에는 영향을 주지 않는다.
@@ -549,11 +557,6 @@ function SortableTaskRowInner({
         onSetRowAnchor?.(task.id);
       }}
       tabIndex={0}
-      onDoubleClick={() => {
-        // 대부분 셀이 더블클릭을 stopPropagation 하므로, 실질적으로는 WBS 등 일부 영역에서만 도달.
-        // 작업명은 아래 name 셀에서 직접 onEdit 호출.
-        onEdit(task);
-      }}
       onContextMenu={(e) => onContextMenu(e, task.id, undefined)}
     >
       {dropIndicator === 'before' && (
@@ -606,7 +609,7 @@ function SortableTaskRowInner({
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
         const otherPrimary = othersHere[0];
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
-        const __isAutoCell = isAutoComputedCell(colId, hasChildren);
+        const __isAutoCell = isReadOnlyCell(colId, hasChildren, canEdit);
         const __renderCell = (): React.ReactNode => {
           if (colId === 'wbsId') {
             return (

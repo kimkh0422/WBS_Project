@@ -101,6 +101,10 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
 
   const view: ViewType = useMemo(() => {
     const segmentRaw = location.pathname.replace(/^\//, '').split('/')[0] || '';
+    // 협조요청은 별도 페이지에서 대시보드 섹션으로 이전 — 옛 URL은 대시보드로.
+    if (segmentRaw === 'cooperation' || segmentRaw === 'docreview') {
+      return hiddenViews.has('dashboard') ? pickFirstVisibleView(hiddenViews) : 'dashboard';
+    }
     const segment = segmentRaw && VALID_VIEWS.has(segmentRaw) ? segmentRaw : '';
 
     if (lockMobileToDashboard) {
@@ -135,6 +139,7 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
       navigate(`/${ganttTarget}`, { replace: true });
     }
     if (path === 'guide') navigate(`/${legacyTableTarget}`, { replace: true });
+    // 협조요청 옛 URL(/cooperation, /docreview) → view useMemo에서 'dashboard'로 매핑되어 본 useEffect가 URL을 정리.
   }, [location.pathname, navigate, hiddenViews]);
 
   useEffect(() => {

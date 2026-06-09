@@ -13,6 +13,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   X,
   CornerDownRight,
   Settings2,
@@ -1132,6 +1134,85 @@ export function WBSTable({
     setContextMenu({ x: e.clientX, y: e.clientY, type: 'header', columnId });
   };
 
+  // 헤더 셀 인라인 편집(이름 바꾸기) — custom 컬럼 전용
+  const [editingHeaderColId, setEditingHeaderColId] = useState<string | null>(null);
+
+  const moveColumn = useCallback(
+    (colId: string, direction: 'left' | 'right') => {
+      const cols = wbsSettings?.tableColumns ?? [];
+      if (cols.length === 0) return;
+      const visibleIds = cols.filter((c) => c.visible !== false).map((c) => c.id);
+      const pos = visibleIds.indexOf(colId);
+      if (pos < 0) return;
+      const targetVisIdx = direction === 'left' ? pos - 1 : pos + 1;
+      if (targetVisIdx < 0 || targetVisIdx >= visibleIds.length) return;
+      const otherId = visibleIds[targetVisIdx];
+      const idxA = cols.findIndex((c) => c.id === colId);
+      const idxB = cols.findIndex((c) => c.id === otherId);
+      if (idxA < 0 || idxB < 0) return;
+      const next = [...cols];
+      [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
+      updateWbsSettings({ tableColumns: next });
+    },
+    [wbsSettings?.tableColumns, updateWbsSettings],
+  );
+
+  const insertCustomColumn = useCallback(
+    (anchorColId: string | null, side: 'left' | 'right') => {
+      const newId = `custom:${Date.now()}`;
+      const newName = '새 컬럼';
+      const customCols = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
+      const nextCustom = [...customCols, { id: newId, name: newName }];
+      const cols = wbsSettings?.tableColumns ?? [];
+      const idx = anchorColId ? cols.findIndex((c) => c.id === anchorColId) : -1;
+      let nextCols;
+      if (idx < 0) {
+        nextCols = [...cols, { id: newId, visible: true }];
+      } else {
+        const insertAt = side === 'left' ? idx : idx + 1;
+        nextCols = [...cols.slice(0, insertAt), { id: newId, visible: true }, ...cols.slice(insertAt)];
+      }
+      updateWbsSettings({ tableColumns: nextCols, customColumns: nextCustom });
+      setEditingHeaderColId(newId);
+    },
+    [wbsSettings?.customColumns, wbsSettings?.tableColumns, updateWbsSettings],
+  );
+
+  const deleteCustomColumn = useCallback(
+    (colId: string) => {
+      if (!colId.startsWith('custom:')) return;
+      const ok = window.confirm('이 컬럼을 삭제하시겠습니까? (입력된 값은 작업 데이터에 보관됩니다)');
+      if (!ok) return;
+      const customCols = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
+      const nextCustom = customCols.filter((c) => c.id !== colId);
+      const nextCols = (wbsSettings?.tableColumns ?? []).filter((c) => c.id !== colId);
+      updateWbsSettings({ tableColumns: nextCols, customColumns: nextCustom });
+    },
+    [wbsSettings?.customColumns, wbsSettings?.tableColumns, updateWbsSettings],
+  );
+
+  const commitHeaderRename = useCallback(
+    (colId: string, rawName: string) => {
+      if (!colId.startsWith('custom:')) {
+        setEditingHeaderColId(null);
+        return;
+      }
+      const trimmed = rawName.trim();
+      if (!trimmed) {
+        setEditingHeaderColId(null);
+        return;
+      }
+      const customCols = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
+      const exists = customCols.some((c) => c.id === colId);
+      const nextCustom = exists
+        ? customCols.map((c) => (c.id === colId ? { ...c, name: trimmed } : c))
+        : [...customCols, { id: colId, name: trimmed }];
+      updateWbsSettings({ customColumns: nextCustom });
+      setEditingHeaderColId(null);
+    },
+    [wbsSettings?.customColumns, updateWbsSettings],
+  );
+
   const handleDeleteClick = useCallback((taskId: string) => {
     setDeleteConfirm({ isOpen: true, taskIds: [taskId] });
   }, []);
@@ -1242,23 +1323,58 @@ export function WBSTable({
     />
   );
 
-  const renderHeaderCell = (id: TableColumnId) => (
-    <React.Fragment key={id}>
-      <HeaderCell
-        id={id}
-        label={id.startsWith('custom:') ? customColumnNameById.get(id) : undefined}
-        workEffortHeaderTitle={workEffortHeaderTitle}
-        headerSortClickEnabled={headerSortClickEnabled}
-        onSort={onSort}
-        resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
-        onColContextMenu={(ev) => handleHeaderContextMenu(ev, id)}
-        onColDoubleClick={(ev) => {
-          ev.stopPropagation();
-          handleColumnHeaderDoubleClick(id as keyof typeof columnWidths);
-        }}
-      />
-    </React.Fragment>
-  );
+  const renderHeaderCell = (id: TableColumnId) => {
+    if (editingHeaderColId === id && id.startsWith('custom:')) {
+      const initial = customColumnNameById.get(id) || id.replace(/^custom:/, '');
+      return (
+        <div key={id} className="col-header relative" onContextMenu={(e) => e.preventDefault()}>
+          <input
+            autoFocus
+            defaultValue={initial}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitHeaderRename(id, (e.currentTarget as HTMLInputElement).value);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setEditingHeaderColId(null);
+              }
+              e.stopPropagation();
+            }}
+            onBlur={(e) => commitHeaderRename(id, e.currentTarget.value)}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="w-full bg-white border border-[var(--color-accent)] rounded px-1.5 py-0.5 text-[13px] font-medium text-[var(--color-ink)] outline-none"
+            placeholder="컬럼 이름"
+          />
+          {resizeGrip(id as keyof typeof columnWidths)}
+        </div>
+      );
+    }
+    return (
+      <React.Fragment key={id}>
+        <HeaderCell
+          id={id}
+          label={id.startsWith('custom:') ? customColumnNameById.get(id) : undefined}
+          workEffortHeaderTitle={workEffortHeaderTitle}
+          headerSortClickEnabled={headerSortClickEnabled}
+          onSort={onSort}
+          resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
+          onColContextMenu={(ev) => handleHeaderContextMenu(ev, id)}
+          onColDoubleClick={(ev) => {
+            ev.stopPropagation();
+            if (id.startsWith('custom:')) {
+              setEditingHeaderColId(id);
+              return;
+            }
+            handleColumnHeaderDoubleClick(id as keyof typeof columnWidths);
+          }}
+        />
+      </React.Fragment>
+    );
+  };
 
   const content = (
     <>
@@ -2165,6 +2281,11 @@ export function WBSTable({
                   ];
                   const canSort = colId && (sortableColumns.includes(colId) || colId === 'wbsId');
                   const canHide = colId && colId !== 'name';
+                  const isCustom = !!colId && colId.startsWith('custom:');
+                  const visibleIds = (wbsSettings?.tableColumns ?? []).filter((c) => c.visible !== false).map((c) => c.id);
+                  const visPos = colId ? visibleIds.indexOf(colId) : -1;
+                  const canMoveLeft = visPos > 0;
+                  const canMoveRight = visPos >= 0 && visPos < visibleIds.length - 1;
                   const headerActions: ContextMenuAction[] = [];
                   if (colId) {
                     if (canSort) {
@@ -2174,6 +2295,42 @@ export function WBSTable({
                         onClick: () => onSort(colId === 'wbsId' ? 'wbs' : (colId as keyof Task)),
                       });
                     }
+                    if (isCustom) {
+                      headerActions.push({
+                        label: '이름 바꾸기',
+                        icon: <Edit2 size={14} />,
+                        onClick: () => setEditingHeaderColId(colId),
+                      });
+                    }
+                    if (canMoveLeft || canMoveRight) {
+                      if (headerActions.length > 0) headerActions.push({ divider: true });
+                      if (canMoveLeft) {
+                        headerActions.push({
+                          label: '왼쪽으로 이동',
+                          icon: <ArrowLeft size={14} />,
+                          onClick: () => moveColumn(colId, 'left'),
+                        });
+                      }
+                      if (canMoveRight) {
+                        headerActions.push({
+                          label: '오른쪽으로 이동',
+                          icon: <ArrowRight size={14} />,
+                          onClick: () => moveColumn(colId, 'right'),
+                        });
+                      }
+                    }
+                    headerActions.push({ divider: true });
+                    headerActions.push({
+                      label: '왼쪽에 컬럼 추가',
+                      icon: <Plus size={14} />,
+                      onClick: () => insertCustomColumn(colId, 'left'),
+                    });
+                    headerActions.push({
+                      label: '오른쪽에 컬럼 추가',
+                      icon: <Plus size={14} />,
+                      onClick: () => insertCustomColumn(colId, 'right'),
+                    });
+                    headerActions.push({ divider: true });
                     if (canHide) {
                       headerActions.push({
                         label: '컬럼 숨기기',
@@ -2193,7 +2350,14 @@ export function WBSTable({
                         },
                       });
                     }
-                    if (headerActions.length > 0) headerActions.push({ divider: true });
+                    if (isCustom) {
+                      headerActions.push({
+                        label: '컬럼 삭제',
+                        icon: <Trash2 size={14} />,
+                        danger: true,
+                        onClick: () => deleteCustomColumn(colId),
+                      });
+                    }
                   } else {
                     headerActions.push({
                       label: '전체 펼치기',
@@ -2206,10 +2370,16 @@ export function WBSTable({
                       onClick: () => expandToLevel(1),
                     });
                     headerActions.push({ divider: true });
+                    headerActions.push({
+                      label: '컬럼 추가',
+                      icon: <Plus size={14} />,
+                      onClick: () => insertCustomColumn(null, 'right'),
+                    });
                   }
                   // 숨긴 컬럼을 헤더 우클릭으로 바로 다시 표시 (컬럼 설정 모달 없이도)
                   const hiddenCols = tableColumns.filter((c) => !c.visible && c.id !== 'actions');
                   if (hiddenCols.length > 0) {
+                    headerActions.push({ divider: true });
                     for (const hc of hiddenCols) {
                       const hcId = hc.id;
                       const hcLabel =
@@ -2223,13 +2393,15 @@ export function WBSTable({
                         },
                       });
                     }
-                    headerActions.push({ divider: true });
                   }
-                  headerActions.push({
-                    label: '컬럼 설정...',
-                    icon: <Settings2 size={14} />,
-                    onClick: () => onOpenColumnSettings?.(),
-                  });
+                  if (onOpenColumnSettings) {
+                    headerActions.push({ divider: true });
+                    headerActions.push({
+                      label: '컬럼 설정...',
+                      icon: <Settings2 size={14} />,
+                      onClick: () => onOpenColumnSettings?.(),
+                    });
+                  }
                   return headerActions;
                 })()
               : [

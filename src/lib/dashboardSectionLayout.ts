@@ -10,10 +10,11 @@ export type DashboardSectionLayout = Record<DashboardSectionId, DashboardSection
 
 export const WBS_DASHBOARD_SECTION_LAYOUT_CHANGED = 'wbs-dashboard-section-layout-changed';
 
-/** PC 기본: 카드형 목록 */
+/** PC 기본: 카드형 목록 (cooperation은 표만 지원) */
 export function getDefaultDashboardSectionLayout(): DashboardSectionLayout {
   return {
     summary: 'card',
+    cooperation: 'table',
     divisions: 'card',
     projects: 'card',
   };

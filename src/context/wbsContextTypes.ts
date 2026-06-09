@@ -114,7 +114,12 @@ export interface WBSContextType {
   reparentTaskRootsUnder: (newParentId: string, orderedRootIds: string[]) => void;
   /** 루트 작업들을 대상 행과 같은 부모로 옮기고 표 순서만 before/after로 조정 */
   moveTaskRootsSibling: (orderedRootIds: string[], overId: string, position: 'before' | 'after') => void;
-  importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => Promise<void>;
+  importTasks: (
+    tasks: Task[],
+    targetProjectId?: string,
+    newProjectName?: string,
+    addCustomColumns?: Array<{ id: string; name: string }>,
+  ) => Promise<void>;
   /** 로컬에서 삭제된 작업 id 로그(삭제 반영용) */
   deletedTaskIdsByProject: Record<string, string[]>;
   /** 사용자가 WBS(프로젝트/작업)를 수정한 뒤 아직 동기화하지 않은 상태. 동기화 성공 시 false로 초기화. */

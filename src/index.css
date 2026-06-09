@@ -694,15 +694,26 @@ input[list] {
   @apply bg-indigo-100 text-indigo-800 font-medium;
 }
 
-/* 표: 자동계산 셀(계획·차이, 그리고 요약 행의 진척·날짜·공수) — 옅은 빗금으로 "입력 불필요" 표시.
-   수동 입력 셀은 깔끔한 배경 그대로라 한눈에 구분된다. */
+/* 표: 자동계산 셀(계획·차이, 요약 행의 진척·날짜·공수)·읽기전용 셀 — 옅은 빗금으로 "입력 불가" 시각화.
+   수동 입력 가능한 셀은 깔끔한 배경 그대로라 한눈에 구분된다. */
 .data-cell.wbs-cell-auto {
   background-image: repeating-linear-gradient(
     135deg,
-    rgba(100, 116, 139, 0.1) 0,
-    rgba(100, 116, 139, 0.1) 1px,
-    transparent 1px,
-    transparent 6px
+    rgba(100, 116, 139, 0.16) 0,
+    rgba(100, 116, 139, 0.16) 1.5px,
+    transparent 1.5px,
+    transparent 7px
+  );
+  cursor: not-allowed;
+}
+:root.dark .data-cell.wbs-cell-auto,
+.dark .data-cell.wbs-cell-auto {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.22) 0,
+    rgba(148, 163, 184, 0.22) 1.5px,
+    transparent 1.5px,
+    transparent 7px
   );
 }
 

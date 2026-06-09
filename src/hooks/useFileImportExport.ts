@@ -3,17 +3,29 @@ import { Task, Project, FilterState } from '../types';
 import { BackupData } from '../lib/export';
 // xlsx(약 424KB)는 무거우므로 정적 import하지 않는다. 내보내기/가져오기 시점에 동적 로드해
 // 첫 화면 진입 경로에서 vendor-xlsx 청크가 eager preload 되지 않도록 한다. (타입만 정적 import)
-import type { ExcelImportMeta } from '../lib/excel';
+import type { ExcelImportMeta, ExcelImportFieldId, ExcelImportFieldOverride, ExcelImportCustomColumnInput } from '../lib/excel';
 import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons } from '../lib/export';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
 import type { ExportScope, ExportFormat } from '../components/ExportModal';
 
+export interface ImportPreviewFile {
+  fileName: string;
+  taskCount: number;
+  meta: ExcelImportMeta;
+  /** 원본 파일 — 사용자가 모달에서 컬럼 매핑을 바꿀 때 다시 파싱하기 위해 보관 */
+  file: File;
+  /** 사용자가 모달에서 직접 지정한 컬럼 매핑(자동 매칭을 덮어씀) */
+  overrides: ExcelImportFieldOverride;
+  /** 사용자가 미사용 컬럼을 "사용자 정의 컬럼"으로 추가하기로 한 항목들 */
+  customColumns: Array<{ id: string; name: string; columnIndex: number }>;
+}
+
 export interface ImportPreviewState {
   isOpen: boolean;
   tasks: Task[];
-  files: { fileName: string; taskCount: number; meta: ExcelImportMeta }[];
+  files: ImportPreviewFile[];
 }
 
 export interface BackupConfirmState {
@@ -39,7 +51,12 @@ interface FileImportExportDeps {
   currentProjectId: string;
   wbsMap: Map<string, string>;
   pushToast: (message: string, opts?: Record<string, unknown>) => void;
-  importTasks: (tasks: Task[], targetProjectId?: string, newProjectName?: string) => Promise<void>;
+  importTasks: (
+    tasks: Task[],
+    targetProjectId?: string,
+    newProjectName?: string,
+    addCustomColumns?: Array<{ id: string; name: string }>,
+  ) => Promise<void>;
   restoreBackup: (data: BackupData) => void;
   mergeBackups: (backups: BackupData[]) => { addedProjects: number; addedTasks: number };
   exportFullBackup: () => BackupData;
@@ -218,20 +235,20 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     mergeInputRef.current?.click();
   }, []);
 
+  const remapIdsWithinFile = useCallback((tasksInFile: Task[]): Task[] => {
+    const idMap = new Map<string, string>();
+    tasksInFile.forEach((t) => idMap.set(t.id, uuidv4()));
+    return tasksInFile.map((t) => ({
+      ...t,
+      id: idMap.get(t.id)!,
+      parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
+      dependencies: (t.dependencies ?? []).filter((depId) => idMap.has(depId)).map((depId) => idMap.get(depId)!),
+      expanded: true,
+    }));
+  }, []);
+
   const importFromExcelFiles = useCallback(
     async (files: File[]) => {
-      const remapIdsWithinFile = (tasksInFile: Task[]): Task[] => {
-        const idMap = new Map<string, string>();
-        tasksInFile.forEach((t) => idMap.set(t.id, uuidv4()));
-        return tasksInFile.map((t) => ({
-          ...t,
-          id: idMap.get(t.id)!,
-          parentId: t.parentId && idMap.has(t.parentId) ? idMap.get(t.parentId)! : null,
-          dependencies: (t.dependencies ?? []).filter((depId) => idMap.has(depId)).map((depId) => idMap.get(depId)!),
-          expanded: true,
-        }));
-      };
-
       const { parseExcelWithMeta } = await import('../lib/excel');
       const parsed = await Promise.all(files.map((f) => parseExcelWithMeta(f)));
       const perFileTasks = parsed.map((p) => p.tasks);
@@ -244,10 +261,120 @@ export function useFileImportExport(deps: FileImportExportDeps) {
           fileName: files[idx]?.name || `file-${idx + 1}`,
           taskCount: p.tasks.length,
           meta: p.meta,
+          file: files[idx],
+          overrides: {},
+          customColumns: [],
         })),
       });
     },
-    [setImportPreview],
+    [setImportPreview, remapIdsWithinFile],
+  );
+
+  /** 파일별 overrides·customColumns로 모든 파일을 재파싱하여 합산 tasks/meta를 갱신하는 공통 헬퍼 */
+  const reparseAllFiles = useCallback(
+    async (
+      currentFiles: ImportPreviewFile[],
+      overridesByFile: ExcelImportFieldOverride[],
+      customColumnsByFile: Array<Array<{ id: string; name: string; columnIndex: number }>>,
+    ) => {
+      const { parseExcelWithMeta } = await import('../lib/excel');
+      const reparsed = await Promise.all(
+        currentFiles.map((f, i) =>
+          parseExcelWithMeta(f.file, {
+            overrides: overridesByFile[i],
+            customColumns: customColumnsByFile[i].map<ExcelImportCustomColumnInput>((c) => ({ id: c.id, columnIndex: c.columnIndex })),
+          }),
+        ),
+      );
+      const perFileTasks = reparsed.map((r) => r.tasks);
+      const mergedTasks = currentFiles.length > 1 ? perFileTasks.flatMap(remapIdsWithinFile) : perFileTasks.flat();
+      return { reparsed, mergedTasks };
+    },
+    [remapIdsWithinFile],
+  );
+
+  /** 사용자가 미리보기 모달에서 특정 필드의 컬럼 매핑을 바꿨을 때 호출 — 모든 파일을 각자의 overrides·customColumns로 재파싱한 뒤 합산 tasks 갱신 */
+  const handleImportMappingChange = useCallback(
+    async (fileIndex: number, fieldId: ExcelImportFieldId, columnIndex: number) => {
+      const currentFiles = importPreview.files;
+      if (!currentFiles[fileIndex]) return;
+      const overridesByFile: ExcelImportFieldOverride[] = currentFiles.map((f, i) =>
+        i === fileIndex ? { ...f.overrides, [fieldId]: columnIndex } : { ...f.overrides },
+      );
+      const customColumnsByFile = currentFiles.map((f) => f.customColumns);
+      const { reparsed, mergedTasks } = await reparseAllFiles(currentFiles, overridesByFile, customColumnsByFile);
+
+      setImportPreview((prev) => ({
+        ...prev,
+        tasks: mergedTasks,
+        files: prev.files.map((f, i) => ({
+          ...f,
+          meta: reparsed[i].meta,
+          taskCount: reparsed[i].tasks.length,
+          overrides: overridesByFile[i],
+        })),
+      }));
+    },
+    [importPreview.files, setImportPreview, reparseAllFiles],
+  );
+
+  /** 파일별 사용자 정의 컬럼 전체를 한 번에 set한 뒤 재파싱하는 공통 헬퍼 — toggle/모두 추가/모두 해제가 공유 */
+  const applyCustomColumnsForFile = useCallback(
+    async (fileIndex: number, nextForThisFile: Array<{ id: string; name: string; columnIndex: number }>) => {
+      const currentFiles = importPreview.files;
+      if (!currentFiles[fileIndex]) return;
+      const overridesByFile = currentFiles.map((f) => f.overrides);
+      const customColumnsByFile = currentFiles.map((f, i) => (i === fileIndex ? nextForThisFile : f.customColumns));
+      const { reparsed, mergedTasks } = await reparseAllFiles(currentFiles, overridesByFile, customColumnsByFile);
+
+      setImportPreview((prev) => ({
+        ...prev,
+        tasks: mergedTasks,
+        files: prev.files.map((f, i) => ({
+          ...f,
+          meta: reparsed[i].meta,
+          taskCount: reparsed[i].tasks.length,
+          customColumns: customColumnsByFile[i],
+        })),
+      }));
+    },
+    [importPreview.files, setImportPreview, reparseAllFiles],
+  );
+
+  /** 사용자가 미사용 컬럼 chip을 클릭해 "사용자 정의 컬럼"으로 추가/해제 토글 */
+  const handleImportCustomColumnToggle = useCallback(
+    async (fileIndex: number, header: string, columnIndex: number) => {
+      const cur = importPreview.files[fileIndex];
+      if (!cur) return;
+      const existsIdx = cur.customColumns.findIndex((c) => c.columnIndex === columnIndex);
+      const nextForThisFile =
+        existsIdx >= 0
+          ? cur.customColumns.filter((_, i) => i !== existsIdx)
+          : [...cur.customColumns, { id: `custom:${uuidv4()}`, name: header.trim() || `컬럼 ${columnIndex + 1}`, columnIndex }];
+      await applyCustomColumnsForFile(fileIndex, nextForThisFile);
+    },
+    [importPreview.files, applyCustomColumnsForFile],
+  );
+
+  /**
+   * 모달의 "모두 추가/모두 해제" 같이 여러 항목을 한 번에 set할 때 사용.
+   * items는 최종 customColumns의 columnIndex 목록(헤더 정보 포함). 기존 항목과 columnIndex가 매칭되면 id를 재사용.
+   * 이 함수는 단일 호출로 reparse + setState 한 번만 수행하므로 연속 호출 시의 stale state 문제가 없음.
+   */
+  const handleImportCustomColumnsSet = useCallback(
+    async (fileIndex: number, items: Array<{ header: string; columnIndex: number }>) => {
+      const cur = importPreview.files[fileIndex];
+      if (!cur) return;
+      const idByCol = new Map(cur.customColumns.map((c) => [c.columnIndex, c.id]));
+      const nameByCol = new Map(cur.customColumns.map((c) => [c.columnIndex, c.name]));
+      const nextForThisFile = items.map((it) => ({
+        id: idByCol.get(it.columnIndex) ?? `custom:${uuidv4()}`,
+        name: (nameByCol.get(it.columnIndex) ?? it.header).trim() || `컬럼 ${it.columnIndex + 1}`,
+        columnIndex: it.columnIndex,
+      }));
+      await applyCustomColumnsForFile(fileIndex, nextForThisFile);
+    },
+    [importPreview.files, applyCustomColumnsForFile],
   );
 
   const importFromBackupJsonFiles = useCallback(
@@ -330,7 +457,10 @@ export function useFileImportExport(deps: FileImportExportDeps) {
   const executeImport = useCallback(
     async (targetProjectId: string, newProjectName?: string) => {
       try {
-        await importTasks(importPreview.tasks, targetProjectId, newProjectName);
+        // 모든 파일의 사용자 정의 컬럼 정의를 합치고(같은 id는 한 번만), settings에 등록되도록 importTasks로 전달.
+        const allCustomColumns = importPreview.files.flatMap((f) => f.customColumns.map((c) => ({ id: c.id, name: c.name })));
+        const deduped = Array.from(new Map(allCustomColumns.map((c) => [c.id, c])).values());
+        await importTasks(importPreview.tasks, targetProjectId, newProjectName, deduped);
         if (targetProjectId !== '__new__') setCurrentProjectId(targetProjectId);
         setFilters((prev) => ({ ...prev, projectIds: 'all' }));
         setImportPreview({ isOpen: false, tasks: [], files: [] });
@@ -339,7 +469,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         /* onDbError handles toast */
       }
     },
-    [importTasks, importPreview.tasks, setCurrentProjectId, setFilters, setImportPreview, pushToast],
+    [importTasks, importPreview.tasks, importPreview.files, setCurrentProjectId, setFilters, setImportPreview, pushToast],
   );
 
   const executeRestoreBackup = useCallback(() => {
@@ -388,6 +518,9 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     handleFileChange,
     handleBackupFileChange,
     handleMergeFileChange,
+    handleImportMappingChange,
+    handleImportCustomColumnToggle,
+    handleImportCustomColumnsSet,
     executeMultiMerge,
     executeImport,
     executeRestoreBackup,

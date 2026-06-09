@@ -258,6 +258,32 @@ export function AppHeader({
   }, [isMobileViewport, setIsProjectDropdownOpen]);
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  // 숨김 헤더 항목(투입현황·주간보고·버그 사항) 표시 토글 — Shift+F12
+  const [showHiddenHeaderItems, setShowHiddenHeaderItems] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wbs.showHiddenHeaderItems') === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'F12') {
+        e.preventDefault();
+        setShowHiddenHeaderItems((prev) => {
+          const next = !prev;
+          try {
+            localStorage.setItem('wbs.showHiddenHeaderItems', next ? '1' : '0');
+          } catch {
+            /* ignore */
+          }
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [expandedOwnerKeys, setExpandedOwnerKeys] = useState<Set<string>>(new Set());
   const wasDropdownOpen = useRef(false);
   /** 목록 필터: 전체 / 내 프로젝트 / 관심 / 대시보드 반영 — 서로 토글(같은 버튼 다시 누르면 전체). */
@@ -1126,7 +1152,7 @@ export function AppHeader({
                 tourId="tour-nav-dashboard"
               />
             )}
-            {!hiddenViews.has('allocation') && (
+            {showHiddenHeaderItems && !hiddenViews.has('allocation') && (
               <NavButton
                 active={view === 'allocation'}
                 onClick={() => navigateWithTip('allocation')}
@@ -1197,7 +1223,7 @@ export function AppHeader({
                 tourId="tour-nav-todo"
               />
             )}
-            {!hiddenViews.has('weekreport') && (
+            {showHiddenHeaderItems && !hiddenViews.has('weekreport') && (
               <NavButton
                 active={view === 'weekreport'}
                 onClick={() => navigateWithTip('weekreport')}
@@ -1232,16 +1258,18 @@ export function AppHeader({
 
           <div className="toolbar-divider" />
 
-          {/* 버그 사항 링크 */}
-          <a
-            href="https://docs.google.com/document/d/1h_St7qRXMRxGsV6i780uCmNSYax3a4PaazTFZgT2gqQ/edit?tab=t.0"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-subdued)] hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
-            title="버그 사항 시트로 이동"
-          >
-            <span className="hidden sm:inline">버그 사항</span>
-          </a>
+          {/* 버그 사항 링크 — Shift+F12로 표시 토글 */}
+          {showHiddenHeaderItems && (
+            <a
+              href="https://docs.google.com/document/d/1h_St7qRXMRxGsV6i780uCmNSYax3a4PaazTFZgT2gqQ/edit?tab=t.0"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-subdued)] hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
+              title="버그 사항 시트로 이동"
+            >
+              <span className="hidden sm:inline">버그 사항</span>
+            </a>
+          )}
 
           {/* Filter: WBS 작업 필터 | 대시보드는 상단 도구줄(부서·프로젝트 표시)과 연동 */}
           {dashboardFilterBarMode ? (

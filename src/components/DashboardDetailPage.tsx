@@ -1004,8 +1004,8 @@ export function DashboardDetailPage({
 
         {kind === 'visitors' && (
           <div className="space-y-4">
-            <DashboardVisitTrendChart points={visitTrend} loading={dailyLoading} subtitle="세션당 하루 1회 집계" />
-            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(72vh,560px)]">
+            {/* 목록을 먼저 표시 — 접속자 수 명단/순위가 메인. 차트는 아래로 옮기고 compact 모드로 축소. */}
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col max-h-[min(80vh,760px)]">
               <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2.5 sm:px-4">
                 <div
                   className="inline-flex rounded-lg border border-slate-200 bg-slate-100/80 p-0.5"
@@ -1157,6 +1157,8 @@ export function DashboardDetailPage({
                 </div>
               )}
             </div>
+            {/* 추세 차트는 보조 자료로 목록 아래에 compact 표시 (요청: 그래프보다 명단을 우선) */}
+            <DashboardVisitTrendChart points={visitTrend} loading={dailyLoading} subtitle="세션당 하루 1회 집계" compact />
           </div>
         )}
 

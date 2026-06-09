@@ -5,13 +5,14 @@ export const DASHBOARD_SECTION_VISIBILITY_KEY = 'wbs-dashboard-section-visibilit
 /** v1 키 — v2 도입 시 한 번 읽어 이슈·액션은 끈 채로 이관 후 삭제 */
 const LEGACY_DASHBOARD_SECTION_VISIBILITY_KEY = 'wbs-dashboard-section-visibility';
 
-export const DASHBOARD_SECTION_IDS = ['summary', 'divisions', 'projects'] as const;
+export const DASHBOARD_SECTION_IDS = ['summary', 'cooperation', 'divisions', 'projects'] as const;
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
 
 export type DashboardSectionVisibility = Record<DashboardSectionId, boolean>;
 
 export const DASHBOARD_SECTION_LABELS: Record<DashboardSectionId, string> = {
   summary: '전체현황',
+  cooperation: '업무 협조 요청',
   divisions: '사업부 현황',
   projects: '프로젝트별 현황',
 };
@@ -20,8 +21,9 @@ export const WBS_DASHBOARD_SECTION_VISIBILITY_CHANGED = 'wbs-dashboard-section-v
 
 export function getDefaultDashboardSectionVisibility(): DashboardSectionVisibility {
   const all = Object.fromEntries(DASHBOARD_SECTION_IDS.map((id) => [id, false])) as DashboardSectionVisibility;
-  /** 첫 화면: 전체현황 + 사업부 현황 + 프로젝트별 현황 (투입 인원·비율은 투입현황 메뉴) */
+  /** 첫 화면: 전체현황 + 업무 협조 요청 + 사업부 현황 + 프로젝트별 현황 (투입 인원·비율은 투입현황 메뉴) */
   all.summary = true;
+  all.cooperation = true;
   all.divisions = true;
   all.projects = true;
   return all;
