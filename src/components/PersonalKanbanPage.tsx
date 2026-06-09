@@ -743,21 +743,19 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
 
   return (
     <div
+      {...(dragHandleProps ?? {})}
       className={cn(
-        'group/card rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm hover:shadow-md hover:border-slate-300 transition-all',
-        dragging && 'shadow-lg ring-2 ring-indigo-300 rotate-1',
+        // 카드와 카드가 아닌 영역(컬럼 배경) 구분: 진한 테두리 + 또렷한 그림자로 카드가 떠 보이게
+        'group/card rounded-xl border border-slate-300 bg-white p-2.5 shadow-md ring-1 ring-black/5 hover:shadow-lg hover:border-slate-400 transition-all',
+        !dragging && 'cursor-grab active:cursor-grabbing select-none',
+        dragging && 'shadow-xl ring-2 ring-indigo-300 rotate-1',
       )}
     >
       <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          className="shrink-0 mt-0.5 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing touch-none"
-          title="드래그해서 이동"
-          aria-label="드래그 핸들"
-          {...(dragHandleProps ?? {})}
-        >
+        {/* 드래그 핸들은 시각적 힌트만 — 카드 전체 영역을 잡아 이동한다 */}
+        <span className="shrink-0 mt-0.5 text-slate-300 group-hover/card:text-slate-400 pointer-events-none" aria-hidden>
           <GripVertical size={15} />
-        </button>
+        </span>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-medium text-slate-800 break-words leading-snug m-0">{todo.title || '(제목 없음)'}</p>
           {todo.note && <p className="mt-1 text-[12px] text-slate-500 break-words leading-snug whitespace-pre-wrap m-0">{todo.note}</p>}
@@ -767,6 +765,7 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
             <button
               type="button"
               onClick={startEdit}
+              onPointerDown={(e) => e.stopPropagation()}
               className="p-1 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               title="수정"
               aria-label="수정"
@@ -776,6 +775,7 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
             <button
               type="button"
               onClick={() => setConfirmDel(true)}
+              onPointerDown={(e) => e.stopPropagation()}
               className="p-1 rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600"
               title="삭제"
               aria-label="삭제"

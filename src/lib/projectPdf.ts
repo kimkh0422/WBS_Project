@@ -284,6 +284,120 @@ function formatOwnerCell(project: Project, profileMap?: Readonly<Record<string, 
 
 const REGISTRATION_PDF_WINDOW_WIDTH = 1500;
 
+/** 대시보드 전체현황·사업부별 진척/계획 요약 (PDF 상단 표) */
+export interface DashboardPdfSummary {
+  totalProjects: number;
+  totalTasks: number;
+  memberCount: number;
+  overallProgress: number;
+  overallPlanned: number;
+  divisions: { name: string; projectCount: number; taskTotal: number; progress: number; planned: number }[];
+}
+
+/** 대시보드 전체현황 + 사업부별 진척·계획 요약 블록(등록현황 PDF 상단용). */
+function buildDashboardSummaryBlock(summary: DashboardPdfSummary): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.margin = '12px auto 6px';
+  wrap.style.maxWidth = '760px';
+  wrap.style.textAlign = 'center';
+
+  const h = document.createElement('div');
+  h.textContent = '전체현황';
+  h.style.fontSize = '13px';
+  h.style.fontWeight = '700';
+  h.style.color = '#1c1917';
+  h.style.margin = '0 0 4px';
+  wrap.appendChild(h);
+
+  const kpi = document.createElement('p');
+  kpi.textContent = `프로젝트 ${summary.totalProjects} · 작업 ${summary.totalTasks} · 회원 ${summary.memberCount}`;
+  kpi.style.margin = '0 0 2px';
+  kpi.style.fontSize = '11px';
+  kpi.style.color = '#292524';
+  wrap.appendChild(kpi);
+
+  const prog = document.createElement('p');
+  prog.textContent = `전체 진척 ${formatPercent1(summary.overallProgress)}% · 계획 ${formatPercent1(summary.overallPlanned)}%`;
+  prog.style.margin = '0 0 10px';
+  prog.style.fontSize = '11px';
+  prog.style.fontWeight = '600';
+  prog.style.color = '#1c1917';
+  wrap.appendChild(prog);
+
+  if (summary.divisions.length > 0) {
+    const dh = document.createElement('div');
+    dh.textContent = '사업부별 진척·계획';
+    dh.style.fontSize = '12px';
+    dh.style.fontWeight = '700';
+    dh.style.color = '#1c1917';
+    dh.style.margin = '0 0 4px';
+    wrap.appendChild(dh);
+
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.fontSize = '9px';
+    table.style.tableLayout = 'fixed';
+
+    const colMeta: { label: string; width: string; align: 'left' | 'right' }[] = [
+      { label: '사업부', width: '40%', align: 'left' },
+      { label: '프로젝트', width: '15%', align: 'right' },
+      { label: 'Task', width: '15%', align: 'right' },
+      { label: '진척%', width: '15%', align: 'right' },
+      { label: '계획%', width: '15%', align: 'right' },
+    ];
+
+    const thead = document.createElement('thead');
+    const hrow = document.createElement('tr');
+    for (const c of colMeta) {
+      const th = document.createElement('th');
+      th.textContent = c.label;
+      th.style.width = c.width;
+      th.style.textAlign = c.align;
+      th.style.padding = '5px 4px';
+      th.style.borderBottom = '2px solid #d6d3d1';
+      th.style.background = '#f5f5f4';
+      th.style.fontWeight = '600';
+      th.style.color = '#44403c';
+      hrow.appendChild(th);
+    }
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const d of summary.divisions) {
+      const tr = document.createElement('tr');
+      const values = [
+        d.name,
+        String(d.projectCount),
+        String(d.taskTotal),
+        `${formatPercent1(d.progress)}%`,
+        `${formatPercent1(d.planned)}%`,
+      ];
+      for (let i = 0; i < values.length; i++) {
+        const td = document.createElement('td');
+        td.textContent = values[i]!;
+        td.style.padding = '4px';
+        td.style.borderBottom = '1px solid #e7e5e4';
+        td.style.textAlign = colMeta[i]!.align;
+        td.style.color = '#292524';
+        if (i === 0) td.style.wordBreak = 'break-word';
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  const divider = document.createElement('div');
+  divider.style.borderTop = '1px solid #d6d3d1';
+  divider.style.margin = '12px 0 2px';
+  wrap.appendChild(divider);
+
+  return wrap;
+}
+
 export async function downloadProjectRegistrationPdfReport(options: {
   rows: ProjectRegistrationPdfRow[];
   subtitleLines?: string[];
@@ -293,6 +407,8 @@ export async function downloadProjectRegistrationPdfReport(options: {
   orgTree?: OrgNode;
   orgMembers?: OrgMember[];
   ownerDepartmentByUserId?: Record<string, string | null | undefined>;
+  /** 대시보드 전체현황·사업부 요약 (있으면 표 상단에 추가) */
+  dashboardSummary?: DashboardPdfSummary;
 }): Promise<void> {
   const {
     rows,
@@ -302,6 +418,7 @@ export async function downloadProjectRegistrationPdfReport(options: {
     orgTree,
     orgMembers,
     ownerDepartmentByUserId,
+    dashboardSummary,
   } = options;
 
   const rowById = new Map(rows.map((r) => [r.id, r] as const));
@@ -374,6 +491,10 @@ export async function downloadProjectRegistrationPdfReport(options: {
     p.style.color = '#78716c';
     p.style.textAlign = 'center';
     root.appendChild(p);
+  }
+
+  if (dashboardSummary) {
+    root.appendChild(buildDashboardSummaryBlock(dashboardSummary));
   }
 
   const note = document.createElement('p');

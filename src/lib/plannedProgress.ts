@@ -104,19 +104,29 @@ export function computePlannedProgressMap(tasks: Task[], refDateIso?: string, ho
       // 리프: 시작/종료/기준일 기반 자동 계산. hasPlannedSchedule이 false면 undefined(빈칸).
       val = hasPlannedSchedule(t) ? clamp(computeLeafPlannedProgress(t, refDate, hol)) : undefined;
     } else {
+      // 자식 중 "계획율을 산정할 수 있는 것"만 평균에 반영한다.
+      // (자식 일정이 비어있는 경우 0으로 끌어내리던 버그 → 부모 자체 일정이 정상인데 0%로 보이던 현상 방지)
       let totalWeight = 0;
       let weightedSum = 0;
       let simpleSum = 0;
+      let countedKids = 0;
       for (const k of kids) {
-        const p = compute(k) ?? 0; // 계획율 없는 자식은 0으로
+        const p = compute(k);
+        if (typeof p !== 'number' || !Number.isFinite(p)) continue; // 계획율 산정 불가 자식은 평균에서 제외
         const effort = typeof k.workEffort === 'number' && Number.isFinite(k.workEffort) ? k.workEffort : 0;
         const w = typeof k.weight === 'number' && Number.isFinite(k.weight) ? k.weight : effort;
         totalWeight += w;
         weightedSum += p * w;
         simpleSum += p;
+        countedKids += 1;
       }
-      const useWeight = getUseWeightForProgressRollup();
-      val = clamp(useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / kids.length);
+      if (countedKids === 0) {
+        // 자식이 모두 일정 미입력이면 부모 자체 일정으로 fallback (부모 일정이라도 잡혀 있으면 계획율은 정상 표시되어야 함)
+        val = hasPlannedSchedule(t) ? clamp(computeLeafPlannedProgress(t, refDate, hol)) : undefined;
+      } else {
+        const useWeight = getUseWeightForProgressRollup();
+        val = clamp(useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / countedKids);
+      }
     }
 
     visiting.delete(t.id);
