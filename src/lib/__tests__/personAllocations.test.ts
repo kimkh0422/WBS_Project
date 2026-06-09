@@ -154,8 +154,8 @@ describe('mergePersonTaskAllocationsWithOrgDirectory', () => {
 describe('computePersonWorkEffortAllocationsFromTasks', () => {
   it('담당자·프로젝트별 workEffort 합을 M/D로 묶고 공수 큰 순으로 정렬한다', () => {
     const projects: Project[] = [
-      { id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' },
-      { id: 'p2', name: 'Beta', startDate: '', endDate: '', progress: 0, status: 'todo' },
+      { id: 'p1', name: 'Alpha', startDate: '', endDate: '' },
+      { id: 'p2', name: 'Beta', startDate: '', endDate: '' },
     ];
     const tasks: Task[] = [
       {
@@ -206,7 +206,7 @@ describe('computePersonWorkEffortAllocationsFromTasks', () => {
   });
 
   it('진척률에 따라 earnedEffortMd와 가중 진척률을 반영한다', () => {
-    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' }];
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '' }];
     const tasks: Task[] = [
       {
         id: 't1',
@@ -241,7 +241,7 @@ describe('computePersonWorkEffortAllocationsFromTasks', () => {
   });
 
   it('projects 목록에 없는 프로젝트 작업은 제외한다', () => {
-    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '', progress: 0, status: 'todo' }];
+    const projects: Project[] = [{ id: 'p1', name: 'Alpha', startDate: '', endDate: '' }];
     const tasks: Task[] = [
       {
         id: 't1',

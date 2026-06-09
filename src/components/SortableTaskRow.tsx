@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Bug, Edit2, Trash2, ListChecks } from 'lucide-react';
+import { GripVertical, Bug, Edit2, Trash2, ListChecks, ChevronRight, ChevronDown } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
@@ -12,7 +12,7 @@ import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependency
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
 import { getTaskProgressRollupTooltip } from '../lib/rollups';
 import { progressVariance } from '../lib/plannedProgress';
-import { plannedProgressDataCellTitle, progressVarianceDataCellTitle } from '../lib/plannedProgressTooltips';
+import { plannedProgressDataCellTitle, progressVarianceDataCellTitle, PLANNED_NOT_EDITABLE_TOAST } from '../lib/plannedProgressTooltips';
 import { useToast } from './Toast';
 import {
   buildOrgMemberLabelMap,
@@ -117,6 +117,15 @@ function getTaskDetailTooltip(
     lines.push(`선행작업: ${depLabels.join(', ')}`);
   }
   return lines.join('\n');
+}
+
+/** 표 셀 자동계산 판정: 계획·차이는 항상 자동, 진척·시작/종료일·공수는 요약(자식 있는) 행에서 자동 롤업.
+ *  자동 셀은 .wbs-cell-auto(옅은 빗금)로 "입력 불필요"임을 표시한다. */
+const ROLLUP_AUTO_COLS = new Set<string>(['progress', 'startDate', 'endDate', 'workEffort']);
+function isAutoComputedCell(colId: string, hasChildren: boolean): boolean {
+  if (colId === 'plannedProgress' || colId === 'progressVariance') return true;
+  if (ROLLUP_AUTO_COLS.has(colId)) return hasChildren;
+  return false;
 }
 
 /**
@@ -570,10 +579,11 @@ function SortableTaskRowInner({
             if (e.shiftKey || e.ctrlKey || e.metaKey) return;
             onSelect(task.id, true, false);
             // 체크박스만 눌러도 셀 포커스가 남아 있지 않으면 하단 서식 바가 안 뜨는 문제 방지 + 다중 선택 시 같은 열 서식 일괄 적용 기준 행 정렬
-            setFocusedCell((prev) => ({
+            setFocusedCell({
               taskId: task.id,
-              columnId: prev?.columnId && prev.columnId !== 'wbsId' ? prev.columnId : (visibleEditableColumnIds[0] ?? 'name'),
-            }));
+              columnId:
+                focusedCell?.columnId && focusedCell.columnId !== 'wbsId' ? focusedCell.columnId : (visibleEditableColumnIds[0] ?? 'name'),
+            });
           }}
           onChange={() => {
             // onClick에서 제어하므로 onChange는 비워 둔다.
@@ -596,1262 +606,1247 @@ function SortableTaskRowInner({
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
         const otherPrimary = othersHere[0];
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
-        if (colId === 'wbsId') {
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell font-mono text-[10px] text-slate-400 cursor-pointer', applyDoneAutoStrike && 'line-through')}
-              onClick={() => {
-                // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
-                const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
-                onFocusRow?.(task.id);
-                onSetRowAnchor?.(task.id);
-                setFocusedCell({ taskId: task.id, columnId: firstEditable });
-              }}
-            >
-              {wbsId}
-            </div>
-          );
-        }
-        const txtStyle = cellTextStyleToCss(task.cellTextStyles?.[colId]);
-        if (colId === 'name') {
-          const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
-          const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
-          const rawName = (task.name ?? '').trim();
-          const tableNameLabel =
-            prependDisplayWbsToTaskName && displayWbsPrefix ? (rawName ? `${displayWbsPrefix} ${rawName}` : displayWbsPrefix) : rawName;
-          // 작업명은 좌측 고정(sticky)열이라 자체 box-shadow(고정열 그림자)가 Tailwind ring(box-shadow)을 덮어
-          // 포커스 링이 보이지 않는다 → box-shadow와 독립적인 outline으로 포커스를 표시한다.
-          return (
-            <div
-              key={colId}
-              className="data-cell relative"
-              style={{
-                ...(otherRingStyle ?? {}),
-                paddingLeft: `${depth * 20 + 18}px`,
-                ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
-              }}
-              onClick={(e) => {
-                // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
-                // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
-                // 이미 작업명 input이 떠 있으면 중복 beginEdit 방지 (버블링된 클릭 등).
-                e.stopPropagation();
-                if (isInlineEditingName) return;
-                beginEdit('name');
-              }}
-              onDoubleClick={(e) => {
-                // 더블클릭: 상세(TaskModal). 작업명 인라인 편집은 F2(키보드)로 진입.
-                if (isInlineEditingName) return;
-                e.stopPropagation();
-                onFocusRow?.(task.id);
-                onSetRowAnchor?.(task.id);
-                onEdit(task);
-              }}
-              title={getTaskDetailTooltip(
-                task,
-                statusConfigs,
-                displayWbsMap,
-                criticalPathSet?.has(task.id),
-                projectEffortUnitByProjectId,
-                orgMemberDisplayMetaByName,
-              )}
-            >
-              {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
-              {isTreeView && hasChildren && (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleExpand(task.id);
-                  }}
-                  className="absolute z-[1] flex h-4 w-4 items-center justify-center rounded text-[10px] leading-none text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700"
-                  style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
-                  title={task.expanded ? '접기' : '펼치기'}
-                  aria-label={task.expanded ? '접기' : '펼치기'}
-                >
-                  {task.expanded ? '▾' : '▸'}
-                </button>
-              )}
-              {isInlineEditingName ? (
-                <input
-                  id={`wbs-edit-${task.id}-name`}
-                  autoFocus
-                  defaultValue={task.name}
-                  className="w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onPaste={(e) => {
-                    e.stopPropagation();
-                    // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
-                    setTimeout(() => {
-                      commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
-                      setInlineEditingNameId(null);
-                      setEditingCell(null);
-                      setFocusedCell({ taskId: task.id, columnId: 'name' });
-                      onFocusRow?.(task.id);
-                      requestAnimationFrame(() => {
-                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                      });
-                    }, 0);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (isComposingKeyEvent(e.nativeEvent)) return;
-                      e.preventDefault();
+        const __isAutoCell = isAutoComputedCell(colId, hasChildren);
+        const __renderCell = (): React.ReactNode => {
+          if (colId === 'wbsId') {
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell font-mono text-[10px] text-slate-400 cursor-pointer', applyDoneAutoStrike && 'line-through')}
+                onClick={() => {
+                  // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
+                  const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
+                  onFocusRow?.(task.id);
+                  onSetRowAnchor?.(task.id);
+                  setFocusedCell({ taskId: task.id, columnId: firstEditable });
+                }}
+              >
+                {wbsId}
+              </div>
+            );
+          }
+          const txtStyle = cellTextStyleToCss(task.cellTextStyles?.[colId]);
+          if (colId === 'name') {
+            const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
+            const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
+            const rawName = (task.name ?? '').trim();
+            const tableNameLabel =
+              prependDisplayWbsToTaskName && displayWbsPrefix ? (rawName ? `${displayWbsPrefix} ${rawName}` : displayWbsPrefix) : rawName;
+            // 작업명은 좌측 고정(sticky)열이라 자체 box-shadow(고정열 그림자)가 Tailwind ring(box-shadow)을 덮어
+            // 포커스 링이 보이지 않는다 → box-shadow와 독립적인 outline으로 포커스를 표시한다.
+            return (
+              <div
+                key={colId}
+                className="data-cell relative"
+                style={{
+                  ...(otherRingStyle ?? {}),
+                  paddingLeft: `${depth * 20 + 22}px`,
+                  ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
+                }}
+                onClick={(e) => {
+                  // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
+                  // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
+                  // 이미 작업명 input이 떠 있으면 중복 beginEdit 방지 (버블링된 클릭 등).
+                  e.stopPropagation();
+                  if (isInlineEditingName) return;
+                  beginEdit('name');
+                }}
+                onDoubleClick={(e) => {
+                  // 더블클릭: 상세(TaskModal). 작업명 인라인 편집은 F2(키보드)로 진입.
+                  if (isInlineEditingName) return;
+                  e.stopPropagation();
+                  onFocusRow?.(task.id);
+                  onSetRowAnchor?.(task.id);
+                  onEdit(task);
+                }}
+                title={getTaskDetailTooltip(
+                  task,
+                  statusConfigs,
+                  displayWbsMap,
+                  criticalPathSet?.has(task.id),
+                  projectEffortUnitByProjectId,
+                  orgMemberDisplayMetaByName,
+                )}
+              >
+                {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
+                {isTreeView && hasChildren && (
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
                       e.stopPropagation();
-                      // 현재 작업명을 커밋(저장)
-                      commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
-                      setInlineEditingNameId(null);
-                      setEditingCell(null);
-                      if (e.shiftKey && onInsertRowAbove) {
-                        // Shift+Enter: 현재 행 "위"에 형제 새 작업을 추가하고, 새 행을 인라인 편집 모드로.
-                        onInsertRowAbove(task.id);
-                        return;
-                      }
-                      setFocusedCell({ taskId: task.id, columnId: 'name' });
-                      onFocusRow?.(task.id);
-                      requestAnimationFrame(() => {
-                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                      });
-                    } else if (e.key === 'Escape') {
-                      setInlineEditingNameId(null);
-                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                      if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                      toggleExpand(task.id);
+                    }}
+                    className={cn(
+                      'absolute z-[1] flex h-5 w-5 items-center justify-center rounded-md shadow-sm ring-1 transition-all',
+                      task.expanded
+                        ? 'bg-slate-100 text-slate-600 ring-slate-300/70 hover:bg-slate-200 hover:text-slate-800 hover:ring-slate-400'
+                        : 'bg-indigo-50 text-indigo-600 ring-indigo-200 hover:bg-indigo-100 hover:text-indigo-700 hover:ring-indigo-300',
+                    )}
+                    style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
+                    title={task.expanded ? '접기 (하위 작업 숨기기)' : '펼치기 (하위 작업 보기)'}
+                    aria-label={task.expanded ? '접기' : '펼치기'}
+                    aria-expanded={task.expanded}
+                  >
+                    {task.expanded ? <ChevronDown size={14} strokeWidth={2.75} /> : <ChevronRight size={14} strokeWidth={2.75} />}
+                  </button>
+                )}
+                {isInlineEditingName ? (
+                  <input
+                    id={`wbs-edit-${task.id}-name`}
+                    autoFocus
+                    defaultValue={task.name}
+                    className="w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPaste={(e) => {
+                      e.stopPropagation();
+                      // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
+                      setTimeout(() => {
+                        commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
+                        setInlineEditingNameId(null);
+                        setEditingCell(null);
+                        setFocusedCell({ taskId: task.id, columnId: 'name' });
+                        onFocusRow?.(task.id);
+                        requestAnimationFrame(() => {
+                          (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                        });
+                      }, 0);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        if (isComposingKeyEvent(e.nativeEvent)) return;
                         e.preventDefault();
                         e.stopPropagation();
+                        // 현재 작업명을 커밋(저장)
+                        commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
+                        setInlineEditingNameId(null);
+                        setEditingCell(null);
+                        if (e.shiftKey && onInsertRowAbove) {
+                          // Shift+Enter: 현재 행 "위"에 형제 새 작업을 추가하고, 새 행을 인라인 편집 모드로.
+                          onInsertRowAbove(task.id);
+                          return;
+                        }
+                        setFocusedCell({ taskId: task.id, columnId: 'name' });
+                        onFocusRow?.(task.id);
+                        requestAnimationFrame(() => {
+                          (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                        });
+                      } else if (e.key === 'Escape') {
+                        setInlineEditingNameId(null);
+                      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                      } else if (e.key === ' ') {
+                        // 전역 표 단축키(Space=체크 토글)가 bubble되면 띄어쓰기가 막힐 수 있음
+                        e.stopPropagation();
                       }
-                    } else if (e.key === ' ') {
-                      // 전역 표 단축키(Space=체크 토글)가 bubble되면 띄어쓰기가 막힐 수 있음
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
+                    onClick={(e) => {
                       e.stopPropagation();
-                    }
-                  }}
-                />
-              ) : (
-                <span
-                  className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('name');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onFocusRow?.(task.id);
-                    onSetRowAnchor?.(task.id);
-                    onEdit(task);
-                  }}
-                  title={getTaskDetailTooltip(
-                    task,
-                    statusConfigs,
-                    displayWbsMap,
-                    criticalPathSet?.has(task.id),
-                    projectEffortUnitByProjectId,
-                    orgMemberDisplayMetaByName,
-                  )}
-                >
-                  {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
-                  {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
-                  {criticalPathSet?.has(task.id) && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0"
-                      title="크리티컬 패스"
-                    >
-                      크리티컬
-                    </span>
-                  )}
-                  <span className="min-w-0 truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                    {tableNameLabel ? (
-                      tableNameLabel
-                    ) : (
-                      <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
+                      beginEdit('name');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onFocusRow?.(task.id);
+                      onSetRowAnchor?.(task.id);
+                      onEdit(task);
+                    }}
+                    title={getTaskDetailTooltip(
+                      task,
+                      statusConfigs,
+                      displayWbsMap,
+                      criticalPathSet?.has(task.id),
+                      projectEffortUnitByProjectId,
+                      orgMemberDisplayMetaByName,
                     )}
+                  >
+                    {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
+                    {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
+                    {criticalPathSet?.has(task.id) && (
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0"
+                        title="크리티컬 패스"
+                      >
+                        크리티컬
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                      {tableNameLabel ? (
+                        tableNameLabel
+                      ) : (
+                        <span className="italic text-slate-400 font-normal select-none">(더블클릭: 상세 · F2로 작업명 입력)</span>
+                      )}
+                    </span>
                   </span>
-                </span>
-              )}
-              {otherPrimary && (
-                <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
-                  style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                  title={othersHere.map((o) => o.displayName).join(', ')}
-                >
-                  {otherPrimary.displayName}
-                  {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
-                </div>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'startDate') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
-          const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
-          const commitStartDateIfChanged = (raw: string) => {
-            const v = normalizeYmdInput(raw);
-            if (!v || v === (task.startDate?.slice(0, 10) ?? '')) return;
-            updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
-          };
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocused && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              style={otherRingStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('startDate');
-              }}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-startDate`}
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
-                  placeholder="YYYY-MM-DD"
-                  title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onFocus={(e) => e.currentTarget.select()}
-                  onBlur={(e) => {
-                    commitStartDateIfChanged(e.target.value);
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      // window 레벨 keydown 핸들러(useWbsTableKeyboard)와의 race로
-                      // onBlur가 실행되기 전에 input이 unmount되는 경우가 있어 직접 커밋한다.
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.nativeEvent.stopPropagation();
-                      commitStartDateIfChanged((e.target as HTMLInputElement).value);
+                )}
+                {otherPrimary && (
+                  <div
+                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                    title={othersHere.map((o) => o.displayName).join(', ')}
+                  >
+                    {otherPrimary.displayName}
+                    {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'startDate') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'startDate';
+            const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
+            const commitStartDateIfChanged = (raw: string) => {
+              const v = normalizeYmdInput(raw);
+              if (!v || v === (task.startDate?.slice(0, 10) ?? '')) return;
+              updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
+            };
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
+                  isFocused && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('startDate');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-startDate`}
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
+                    placeholder="YYYY-MM-DD"
+                    title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => {
+                      commitStartDateIfChanged(e.target.value);
                       setEditingCell(null);
-                    } else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <span className="flex w-full min-w-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEdit('startDate');
                     }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('startDate');
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        // window 레벨 keydown 핸들러(useWbsTableKeyboard)와의 race로
+                        // onBlur가 실행되기 전에 input이 unmount되는 경우가 있어 직접 커밋한다.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.nativeEvent.stopPropagation();
+                        commitStartDateIfChanged((e.target as HTMLInputElement).value);
+                        setEditingCell(null);
+                      } else if (e.key === 'Escape') setEditingCell(null);
                     }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      beginEdit('startDate');
-                    }}
-                    title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
-                  >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {formatMonthDay(task.startDate)}
-                    </span>
-                  </button>
-                </span>
-              )}
-              {otherPrimary && (
-                <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
-                  style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                  title={othersHere.map((o) => o.displayName).join(', ')}
-                >
-                  {otherPrimary.displayName}
-                </div>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'endDate') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
-          const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
-          const commitEndDateIfChanged = (raw: string) => {
-            const v = normalizeYmdInput(raw);
-            if (!v || v === (task.endDate?.slice(0, 10) ?? '')) return;
-            updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
-          };
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              style={otherRingStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('endDate');
-              }}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-endDate`}
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
-                  placeholder="YYYY-MM-DD"
-                  title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onFocus={(e) => e.currentTarget.select()}
-                  onBlur={(e) => {
-                    commitEndDateIfChanged(e.target.value);
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.nativeEvent.stopPropagation();
-                      commitEndDateIfChanged((e.target as HTMLInputElement).value);
-                      setEditingCell(null);
-                    } else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <span className="flex w-full min-w-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEdit('endDate');
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('endDate');
-                    }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      beginEdit('endDate');
-                    }}
-                    title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
-                  >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {formatMonthDay(task.endDate)}
-                    </span>
-                  </button>
-                </span>
-              )}
-              {otherPrimary && (
-                <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
-                  style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                  title={othersHere.map((o) => o.displayName).join(', ')}
-                >
-                  {otherPrimary.displayName}
-                </div>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'workEffort') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
-          const isFocusedWE = focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
-          const effortStep = effortUnitForTask === 'minute' ? 1 : 0.5;
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              style={otherRingStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('workEffort');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('workEffort');
-              }}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-workEffort`}
-                  type="number"
-                  min={0}
-                  step={effortStep}
-                  autoFocus
-                  defaultValue={task.workEffort ?? ''}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const v = parseFloat(e.target.value);
-                    if (!isNaN(v) && v >= 0) {
-                      const rounded = effortUnitForTask === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
-                      if (rounded !== (task.workEffort ?? NaN)) updateTask(task.id, { workEffort: rounded });
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <span className="flex w-full min-w-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEdit('workEffort');
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('workEffort');
-                    }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      beginEdit('workEffort');
-                    }}
-                    title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
-                  >
-                    <span className="inline-flex items-center gap-0.5 min-w-0" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
-                    </span>
-                  </button>
-                </span>
-              )}
-              {otherPrimary && (
-                <div
-                  className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
-                  style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                >
-                  {otherPrimary.displayName}
-                </div>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'weight') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'weight';
-          const isFocusedW = focusedCell?.taskId === task.id && focusedCell?.columnId === 'weight' && !isEditing;
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
-                isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('weight');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('weight');
-              }}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-weight`}
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  autoFocus
-                  defaultValue={task.weight ?? ''}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const v = parseFloat(e.target.value);
-                    if (!isNaN(v) && v >= 0) {
-                      const rounded = round1(v);
-                      if (rounded !== (task.weight ?? NaN)) updateTask(task.id, { weight: rounded });
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-indigo-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('weight');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('weight');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('weight');
-                  }}
-                  title={weightColumnTooltip}
-                >
-                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                    {task.weight != null ? formatNum1(task.weight) : '-'}
+                  />
+                ) : (
+                  <span className="flex w-full min-w-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        beginEdit('startDate');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginEditNow('startDate');
+                      }}
+                      onFocus={(e) => {
+                        e.stopPropagation();
+                        beginEdit('startDate');
+                      }}
+                      title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
+                    >
+                      <span
+                        className="inline-flex items-center gap-0.5 min-w-0"
+                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      >
+                        {formatMonthDay(task.startDate)}
+                      </span>
+                    </button>
                   </span>
-                </button>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'progress') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'progress';
-          const isFocusedProg = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progress' && !isEditing;
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-indigo-500 ring-inset')}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onContextMenu(e, task.id, 'progress');
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('progress');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('progress');
-              }}
-              title={progressColumnTooltip}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-progress`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={5}
-                  autoFocus
-                  defaultValue={typeof task.progress === 'number' ? task.progress : ''}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const v = parseFloat(e.target.value);
-                    if (!isNaN(v) && v >= 0 && v <= 100) {
-                      const rounded = round2(v);
-                      if (rounded !== (task.progress ?? NaN)) updateTask(task.id, { progress: rounded });
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <span
-                  className="px-1 inline-block w-full min-w-0 text-left truncate tabular-nums"
-                  style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                >
-                  {typeof task.progress === 'number' && Number.isFinite(task.progress) ? `${formatPercent1(task.progress)}%` : '—'}
-                </span>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'plannedProgress') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'plannedProgress';
-          const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress' && !isEditing;
-          const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
-          // 계획율: 리프는 수동 입력값만, 부모는 자식 롤업(계획율 맵에서 전달). 둘 다 없으면 빈칸.
-          const computable = hasChildren || hasManualPlanned;
-          const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
-          const plannedFmt = formatPercent1(planned);
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset')}
-              style={otherRingStyle}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('plannedProgress');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('plannedProgress');
-              }}
-              title={[
-                computable
-                  ? [plannedProgressDataCellTitle(plannedFmt), hasManualPlanned ? '(이 행은 계획율 수동 지정이 적용되어 있습니다.)' : '']
-                      .filter(Boolean)
-                      .join(' ')
-                  : '계획율 미입력. 더블클릭(또는 F2)으로 직접 입력하세요. (계획율은 수동 입력값만 사용)',
-                '',
-                '클릭: 셀 포커스 · 더블클릭 또는 F2: 계획율 수동 입력',
-              ].join('\n')}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-plannedProgress`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={5}
-                  autoFocus
-                  defaultValue={typeof task.plannedProgressOverride === 'number' ? task.plannedProgressOverride : ''}
-                  placeholder="수동 계획율 (%)"
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const val = e.target.value.trim();
-                    if (val === '') {
-                      updateTask(task.id, { plannedProgressOverride: null });
-                    } else {
-                      const v = parseFloat(val);
+                )}
+                {otherPrimary && (
+                  <div
+                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                    title={othersHere.map((o) => o.displayName).join(', ')}
+                  >
+                    {otherPrimary.displayName}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'endDate') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'endDate';
+            const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
+            const commitEndDateIfChanged = (raw: string) => {
+              const v = normalizeYmdInput(raw);
+              if (!v || v === (task.endDate?.slice(0, 10) ?? '')) return;
+              updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
+            };
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
+                  isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('endDate');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-endDate`}
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
+                    placeholder="YYYY-MM-DD"
+                    title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => {
+                      commitEndDateIfChanged(e.target.value);
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.nativeEvent.stopPropagation();
+                        commitEndDateIfChanged((e.target as HTMLInputElement).value);
+                        setEditingCell(null);
+                      } else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <span className="flex w-full min-w-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        beginEdit('endDate');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginEditNow('endDate');
+                      }}
+                      onFocus={(e) => {
+                        e.stopPropagation();
+                        beginEdit('endDate');
+                      }}
+                      title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
+                    >
+                      <span
+                        className="inline-flex items-center gap-0.5 min-w-0"
+                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      >
+                        {formatMonthDay(task.endDate)}
+                      </span>
+                    </button>
+                  </span>
+                )}
+                {otherPrimary && (
+                  <div
+                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                    title={othersHere.map((o) => o.displayName).join(', ')}
+                  >
+                    {otherPrimary.displayName}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'workEffort') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'workEffort';
+            const isFocusedWE = focusedCell?.taskId === task.id && focusedCell?.columnId === 'workEffort' && !isEditing;
+            const effortStep = effortUnitForTask === 'minute' ? 1 : 0.5;
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
+                  isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('workEffort');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('workEffort');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-workEffort`}
+                    type="number"
+                    min={0}
+                    step={effortStep}
+                    autoFocus
+                    defaultValue={task.workEffort ?? ''}
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v) && v >= 0) {
+                        const rounded = effortUnitForTask === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
+                        if (rounded !== (task.workEffort ?? NaN)) updateTask(task.id, { workEffort: rounded });
+                      }
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <span className="flex w-full min-w-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        beginEdit('workEffort');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginEditNow('workEffort');
+                      }}
+                      onFocus={(e) => {
+                        e.stopPropagation();
+                        beginEdit('workEffort');
+                      }}
+                      title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
+                    >
+                      <span
+                        className="inline-flex items-center gap-0.5 min-w-0"
+                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      >
+                        {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
+                      </span>
+                    </button>
+                  </span>
+                )}
+                {otherPrimary && (
+                  <div
+                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                  >
+                    {otherPrimary.displayName}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'weight') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'weight';
+            const isFocusedW = focusedCell?.taskId === task.id && focusedCell?.columnId === 'weight' && !isEditing;
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
+                  isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('weight');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('weight');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-weight`}
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    autoFocus
+                    defaultValue={task.weight ?? ''}
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v) && v >= 0) {
+                        const rounded = round1(v);
+                        if (rounded !== (task.weight ?? NaN)) updateTask(task.id, { weight: rounded });
+                      }
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 w-full text-left cursor-cell hover:bg-indigo-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('weight');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('weight');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('weight');
+                    }}
+                    title={weightColumnTooltip}
+                  >
+                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                      {task.weight != null ? formatNum1(task.weight) : '-'}
+                    </span>
+                  </button>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'progress') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'progress';
+            const isFocusedProg = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progress' && !isEditing;
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-indigo-500 ring-inset')}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenu(e, task.id, 'progress');
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('progress');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('progress');
+                }}
+                title={progressColumnTooltip}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-progress`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={5}
+                    autoFocus
+                    defaultValue={typeof task.progress === 'number' ? task.progress : ''}
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value);
                       if (!isNaN(v) && v >= 0 && v <= 100) {
                         const rounded = round2(v);
-                        if (rounded !== (task.plannedProgressOverride ?? NaN)) {
-                          updateTask(task.id, { plannedProgressOverride: rounded });
-                        }
-                      }
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.nativeEvent.stopPropagation();
-                      const val = (e.target as HTMLInputElement).value.trim();
-                      if (val === '') {
-                        updateTask(task.id, { plannedProgressOverride: null });
-                      } else {
-                        const v = parseFloat(val);
-                        if (!isNaN(v) && v >= 0 && v <= 100) {
-                          const rounded = round2(v);
-                          if (rounded !== (task.plannedProgressOverride ?? NaN)) {
-                            updateTask(task.id, { plannedProgressOverride: rounded });
-                          }
-                        }
+                        if (rounded !== (task.progress ?? NaN)) updateTask(task.id, { progress: rounded });
                       }
                       setEditingCell(null);
-                    } else if (e.key === 'Escape') {
-                      setEditingCell(null);
-                    }
-                  }}
-                />
-              ) : (
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="px-1 inline-block w-full min-w-0 text-left truncate tabular-nums"
+                    style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                  >
+                    {typeof task.progress === 'number' && Number.isFinite(task.progress) ? `${formatPercent1(task.progress)}%` : '—'}
+                  </span>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'plannedProgress') {
+            const isFocusedPlanned = focusedCell?.taskId === task.id && focusedCell?.columnId === 'plannedProgress';
+            // 계획율은 시작일·종료일·기준일 기반 자동 계산값만 사용(편집 불가, 표시 전용).
+            const computable = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress);
+            const planned = computable ? (plannedProgress as number) : 0;
+            const plannedFmt = formatPercent1(planned);
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell font-mono text-xs text-slate-600 min-w-0 cursor-help',
+                  isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFocusedCell({ taskId: task.id, columnId: 'plannedProgress' });
+                }}
+                onDoubleClick={(e) => {
+                  // 계획율 셀은 직접 편집 불가 — 편집 시도(더블클릭) 시 날짜 수정 안내
+                  e.stopPropagation();
+                  pushToast(PLANNED_NOT_EDITABLE_TOAST, { variant: 'info' });
+                }}
+                title={
+                  computable
+                    ? plannedProgressDataCellTitle(plannedFmt)
+                    : '계획율을 계산할 수 없습니다. 시작일·종료일을 입력하면 영업일 기준으로 자동 산정됩니다.'
+                }
+              >
                 <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
                   {computable ? `${plannedFmt}%` : '—'}
                 </span>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'progressVariance') {
-          const hasManualPlanned = typeof task.plannedProgressOverride === 'number' && Number.isFinite(task.plannedProgressOverride);
-          // 계획율이 있으면(리프 수동값 또는 부모 자식-롤업) 차이를 계산.
-          const computable = hasChildren || hasManualPlanned;
-          const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
-          const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
-          const variance = progressVariance(actual, planned);
-          const rounded = round1(variance);
-          const color = !computable ? 'text-slate-400' : rounded < 0 ? 'text-red-600' : rounded > 0 ? 'text-emerald-600' : 'text-slate-500';
-          const sign = rounded > 0 ? '+' : '';
-          const label = rounded < 0 ? '계획 대비 지연' : rounded > 0 ? '계획보다 앞섬' : '계획대로';
-          const actFmt = formatPercent1(actual);
-          const plFmt = formatPercent1(planned);
-          const varFmt = formatPercent1(variance);
-          const isFocusedVar = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progressVariance';
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell font-mono text-xs min-w-0 cursor-cell',
-                !txtStyle.color && color,
-                isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              style={otherRingStyle}
-              title={[
-                computable
-                  ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
-                  : '계획율이 입력되지 않아 차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율(수동 입력).',
-                '',
-                '클릭: 셀 포커스 · 더블클릭 또는 F2: 실제 진척률 편집',
-              ].join('\n')}
-              onClick={(e) => {
-                e.stopPropagation();
-                beginEdit('progressVariance');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                beginEditNowResolved('progressVariance');
-              }}
-            >
-              <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                {computable ? `${sign}${varFmt}%p` : '—'}
-              </span>
-            </div>
-          );
-        }
-        if (colId === 'assignee') {
-          const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
-          const assigneeOptions = Array.from(new Set([...projectAssignees, task.assignee?.trim(), ...orgMemberNames].filter(Boolean))).sort(
-            (a, b) => a.localeCompare(b, 'ko'),
-          );
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
-          const isFocusedAssignee = focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
-                isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('assignee');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                beginEditNow('assignee');
-              }}
-            >
-              {isEditing ? (
-                <>
-                  <input
-                    id={`wbs-edit-${task.id}-assignee`}
-                    type="text"
-                    list={`assignee-datalist-${task.id}`}
-                    autoFocus
-                    defaultValue={task.assignee || ''}
-                    placeholder="배정 ..."
-                    className="w-full bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none pr-6"
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v !== (task.assignee || '').trim()) {
-                        updateTask(task.id, { assignee: v });
-                      }
-                      setEditingCell(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        const el = e.currentTarget;
-                        const opts = assigneeOptions.length > 0 ? assigneeOptions : allAssignees;
-                        const picked = resolveAssigneeIfUniqueMatch(el.value, opts);
-                        if (picked) el.value = picked;
-                        el.blur();
-                        e.preventDefault();
-                      }
-                      if (e.key === 'Escape') {
-                        setEditingCell(null);
-                        e.preventDefault();
-                      }
-                      // 행(sortable)·표 전역 키보드로 버블되면 화살표가 정렬/행 이동으로 잡힐 수 있음
-                      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
-                        e.stopPropagation();
-                      }
-                    }}
-                  />
-                  <datalist id={`assignee-datalist-${task.id}`}>
-                    <option value="">배정 안됨</option>
-                    {(assigneeOptions.length > 0 ? assigneeOptions : allAssignees).map((a) => {
-                      const info = orgMemberLabelByName.get(a);
-                      return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
-                    })}
-                  </datalist>
-                </>
-              ) : (
-                <>
-                  <div
-                    className={cn('w-full px-1 py-0.5 truncate', !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'))}
-                    style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                    title={formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 안됨'}
-                  >
-                    {(task.assignee || '').trim() || '배정 ...'}
-                  </div>
-                  <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-slate-400 group-hover/assignee:text-slate-600">
-                    <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-                    </svg>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'allocation') {
-          const isEditing = isAllocEditing;
-          const isFocusedAlloc = focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
-          const persistAllocation = (rawStr: string) => {
-            if (!task.projectId) return;
-            if (!assigneeTrimForAlloc) {
-              pushToast('투입율을 저장하려면 먼저 담당자를 지정해 주세요.', { variant: 'warning' });
-              return;
-            }
-            const trimmed = rawStr.trim();
-            const raw = trimmed === '' ? 100 : parseFloat(trimmed);
-            if (!Number.isFinite(raw)) return;
-            const pct = clampAllocationPercentInt(raw);
-            const list = [...(projectAssignmentsByProjectId.get(task.projectId) ?? [])].filter(
-              (a) => (a.assignee || '').trim() !== assigneeTrimForAlloc,
+              </div>
             );
-            list.push({ assignee: assigneeTrimForAlloc, allocationPercent: pct });
-            updateProject(task.projectId, { assignments: list });
-          };
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset')}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('allocation');
-              }}
-              title="클릭하여 투입율 수정"
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-allocation`}
-                  type="text"
-                  inputMode="numeric"
-                  autoFocus
-                  value={allocationEditStr}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    if (next === '' || /^\d*$/.test(next)) setAllocationEditStr(next);
-                  }}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={() => {
-                    persistAllocation(allocationEditStr);
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-indigo-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('allocation');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('allocation');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('allocation');
-                  }}
-                >
-                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{allocationDisplayText ?? '—'}</span>
-                </button>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'status') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'status';
-          const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status' && !isEditing;
-          const currentStatusName = statusConfigs.find((c) => c.id === task.status)?.name ?? task.status ?? '—';
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded')}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('status');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('status');
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onContextMenu(e, task.id, 'status');
-              }}
-            >
-              {isEditing ? (
-                <select
-                  id={`wbs-edit-${task.id}-status`}
-                  value={task.status}
-                  autoFocus
-                  onChange={(e) => {
-                    const newStatus = e.target.value;
-                    if (newStatus !== task.status) {
-                      const config = statusConfigs.find((c) => c.id === newStatus);
-                      const updates: Partial<Task> = { status: newStatus };
-                      if (config && config.progress !== undefined) {
-                        updates.progress = config.progress;
-                      }
-                      updateTask(task.id, updates);
-                    }
-                    setEditingCell(null);
-                  }}
-                  onBlur={() => setEditingCell(null)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape' || e.key === 'Enter') {
-                      setEditingCell(null);
-                      (e.target as HTMLSelectElement).blur();
-                    }
-                  }}
-                  className="w-full bg-white p-1 ring-1 ring-indigo-500 rounded border border-transparent appearance-none text-xs"
-                >
-                  {statusConfigs.map((config) => (
-                    <option key={config.id} value={config.id}>
-                      {config.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <button
-                  type="button"
-                  className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-indigo-50/80 truncate"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('status');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('status');
-                  }}
-                  title="더블클릭 또는 F2로 상태 수정"
-                >
-                  <span className="truncate block" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                    {currentStatusName}
-                  </span>
-                </button>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'deliverables') {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'deliverables';
-          const isFocusedDel = focusedCell?.taskId === task.id && focusedCell?.columnId === 'deliverables' && !isEditing;
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-indigo-500 ring-inset')}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('deliverables');
-              }}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-deliverables`}
-                  type="text"
-                  autoFocus
-                  defaultValue={task.deliverables ?? ''}
-                  placeholder="산출물"
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v !== (task.deliverables ?? '').trim()) {
-                      updateTask(task.id, { deliverables: v || undefined });
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit('deliverables');
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow('deliverables');
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit('deliverables');
-                  }}
-                  title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
-                >
-                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{task.deliverables || '-'}</span>
-                </button>
-              )}
-            </div>
-          );
-        }
-        if (colId === 'dependencies') {
-          const selfSeq = rowIndex + 1;
-          const applyDependenciesInput = (raw: string | undefined) => {
-            const parts = (typeof raw === 'string' ? raw : '')
-              .split(/[\s,]+/)
-              .map((s) => s.trim())
-              .filter(Boolean);
-            if (
-              parts.some((p) => {
-                const n = parseInt(p, 10);
-                return !Number.isFinite(n) || n < 1;
-              })
-            ) {
-              setDepsInputValue(depsDisplayValue);
-              return;
-            }
-            const taskIds: string[] = [];
-            const seen = new Set<string>();
-            const seenNums = new Set<number>();
-            for (const p of parts) {
-              const n = parseInt(p, 10);
-              if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
-              seenNums.add(n);
-              const id = seqNumToTaskId.get(n);
-              if (id && !seen.has(id)) {
-                seen.add(id);
-                taskIds.push(id);
+          }
+          if (colId === 'progressVariance') {
+            // 계획율이 자동 계산 가능(시작·종료 있음 또는 부모 롤업) → 차이 계산
+            const computable = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress);
+            const planned = typeof plannedProgress === 'number' && Number.isFinite(plannedProgress) ? plannedProgress : 0;
+            const actual = typeof task.progress === 'number' && Number.isFinite(task.progress) ? task.progress : 0;
+            const variance = progressVariance(actual, planned);
+            const rounded = round1(variance);
+            const color = !computable
+              ? 'text-slate-400'
+              : rounded < 0
+                ? 'text-red-600'
+                : rounded > 0
+                  ? 'text-emerald-600'
+                  : 'text-slate-500';
+            const sign = rounded > 0 ? '+' : '';
+            const label = rounded < 0 ? '계획 대비 지연' : rounded > 0 ? '계획보다 앞섬' : '계획대로';
+            const actFmt = formatPercent1(actual);
+            const plFmt = formatPercent1(planned);
+            const varFmt = formatPercent1(variance);
+            const isFocusedVar = focusedCell?.taskId === task.id && focusedCell?.columnId === 'progressVariance';
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell font-mono text-xs min-w-0 cursor-cell',
+                  !txtStyle.color && color,
+                  isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                title={[
+                  computable
+                    ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
+                    : '계획율이 입력되지 않아 차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율(수동 입력).',
+                  '',
+                  '클릭: 셀 포커스 · 더블클릭 또는 F2: 실제 진척률 편집',
+                ].join('\n')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  beginEdit('progressVariance');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  beginEditNowResolved('progressVariance');
+                }}
+              >
+                <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                  {computable ? `${sign}${varFmt}%p` : '—'}
+                </span>
+              </div>
+            );
+          }
+          if (colId === 'assignee') {
+            const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
+            const assigneeOptions = Array.from(
+              new Set([...projectAssignees, task.assignee?.trim(), ...orgMemberNames].filter(Boolean)),
+            ).sort((a, b) => a.localeCompare(b, 'ko'));
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
+            const isFocusedAssignee = focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
+                  isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('assignee');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  beginEditNow('assignee');
+                }}
+              >
+                {isEditing ? (
+                  <>
+                    <input
+                      id={`wbs-edit-${task.id}-assignee`}
+                      type="text"
+                      list={`assignee-datalist-${task.id}`}
+                      autoFocus
+                      defaultValue={task.assignee || ''}
+                      placeholder="배정 ..."
+                      className="w-full bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none pr-6"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        if (v !== (task.assignee || '').trim()) {
+                          updateTask(task.id, { assignee: v });
+                        }
+                        setEditingCell(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const el = e.currentTarget;
+                          const opts = assigneeOptions.length > 0 ? assigneeOptions : allAssignees;
+                          const picked = resolveAssigneeIfUniqueMatch(el.value, opts);
+                          if (picked) el.value = picked;
+                          el.blur();
+                          e.preventDefault();
+                        }
+                        if (e.key === 'Escape') {
+                          setEditingCell(null);
+                          e.preventDefault();
+                        }
+                        // 행(sortable)·표 전역 키보드로 버블되면 화살표가 정렬/행 이동으로 잡힐 수 있음
+                        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
+                          e.stopPropagation();
+                        }
+                      }}
+                    />
+                    <datalist id={`assignee-datalist-${task.id}`}>
+                      <option value="">배정 안됨</option>
+                      {(assigneeOptions.length > 0 ? assigneeOptions : allAssignees).map((a) => {
+                        const info = orgMemberLabelByName.get(a);
+                        return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
+                      })}
+                    </datalist>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      className={cn(
+                        'w-full px-1 py-0.5 truncate',
+                        !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'),
+                      )}
+                      style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      title={formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 안됨'}
+                    >
+                      {(task.assignee || '').trim() || '배정 ...'}
+                    </div>
+                    <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center px-1 text-slate-400 group-hover/assignee:text-slate-600">
+                      <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                        <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                      </svg>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'allocation') {
+            const isEditing = isAllocEditing;
+            const isFocusedAlloc = focusedCell?.taskId === task.id && focusedCell?.columnId === 'allocation' && !isEditing;
+            const persistAllocation = (rawStr: string) => {
+              if (!task.projectId) return;
+              if (!assigneeTrimForAlloc) {
+                pushToast('투입율을 저장하려면 먼저 담당자를 지정해 주세요.', { variant: 'warning' });
+                return;
               }
-            }
-            // 접힘/필터로 화면에 보이지 않는 기존 선행작업도 유지(편집 시 손실 방지)
-            for (const id of hiddenDepIds) {
-              if (!seen.has(id)) {
-                seen.add(id);
-                taskIds.push(id);
-              }
-            }
-            const prevDeps = task.dependencies ?? [];
-            const sameLength = prevDeps.length === taskIds.length;
-            const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
-            if (noChange) return;
-            updateTask(task.id, { dependencies: taskIds });
-          };
-          const applyPickDependency = (pickedId: string) => {
-            if (pickedId === task.id) return;
-            const raw = depsInputValue ?? '';
-            const lastComma = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('，'));
-            const headPart = lastComma >= 0 ? raw.slice(0, lastComma) : '';
-            const parts = headPart
-              .split(/[\s,]+/)
-              .map((s) => s.trim())
-              .filter(Boolean);
-            const taskIds: string[] = [];
-            const seen = new Set<string>();
-            const seenNums = new Set<number>();
-            for (const p of parts) {
-              const n = parseInt(p, 10);
-              if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
-              seenNums.add(n);
-              const id = seqNumToTaskId.get(n);
-              if (id && !seen.has(id)) {
-                seen.add(id);
-                taskIds.push(id);
-              }
-            }
-            if (!seen.has(pickedId)) {
-              seen.add(pickedId);
-              taskIds.push(pickedId);
-            }
-            for (const id of hiddenDepIds) {
-              if (!seen.has(id)) {
-                seen.add(id);
-                taskIds.push(id);
-              }
-            }
-            const projectTasks = allProjectTasks.filter((t) => t.projectId === task.projectId);
-            if (hasDependencyCycle(projectTasks, task.id, taskIds)) {
-              pushToast('순환 의존관계가 발견되어 반영하지 않았습니다.', { variant: 'warning' });
-              return;
-            }
-            const prevDeps = task.dependencies ?? [];
-            const sameLength = prevDeps.length === taskIds.length;
-            const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
-            if (noChange) return;
-            updateTask(task.id, { dependencies: taskIds });
-            const visibleNums = taskIds
-              .map((tid) => taskIdToSeqNum.get(tid))
-              .filter((n): n is number => n != null)
-              .sort((a, b) => a - b);
-            setDepsInputValue(visibleNums.join(', '));
-          };
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
-          const isFocusedDep = focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies' && !isEditing;
-          // 드롭다운은 편집 중이고 input이 실제 포커스됐을 때만 열림.
-          const depsMenuOpen = isEditing && depsFocused && depSuggestionsList.length > 0;
-          const visibleDepNums = (task.dependencies ?? [])
-            .map((tid) => taskIdToSeqNum.get(tid))
-            .filter((n): n is number => n != null)
-            .sort((a, b) => a - b);
-          const depsDisplayText = visibleDepNums.length > 0 ? visibleDepNums.join(', ') : '-';
-          // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
-          // 막기 위해 Portal로 body에 렌더링하고 input의 위치를 추적해 따라가게 한다.
-          const renderDepsDropdown = depsMenuOpen
-            ? createPortal(
-                <DepsPortalDropdown
-                  inputId={`wbs-edit-${task.id}-dependencies`}
-                  items={depSuggestionsList}
-                  pickIdx={depPickIdx}
-                  setPickIdx={setDepPickIdx}
-                  onPick={(id) => applyPickDependency(id)}
-                  taskIdToSeqNum={taskIdToSeqNum}
-                  displayWbsMap={displayWbsMap}
-                />,
-                document.body,
-              )
-            : null;
-          return (
-            <div
-              key={colId}
-              className={cn(
-                'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
-                depsMenuOpen && 'z-20 overflow-visible',
-                isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit('dependencies');
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEditNow('dependencies');
-              }}
-              title={
-                hiddenDepLabels.length > 0
-                  ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
-                  : '더블클릭 또는 F2로 선행작업 수정'
-              }
-            >
-              {isEditing ? (
-                <div className="relative min-w-0 flex-1">
+              const trimmed = rawStr.trim();
+              const raw = trimmed === '' ? 100 : parseFloat(trimmed);
+              if (!Number.isFinite(raw)) return;
+              const pct = clampAllocationPercentInt(raw);
+              const list = [...(projectAssignmentsByProjectId.get(task.projectId) ?? [])].filter(
+                (a) => (a.assignee || '').trim() !== assigneeTrimForAlloc,
+              );
+              list.push({ assignee: assigneeTrimForAlloc, allocationPercent: pct });
+              updateProject(task.projectId, { assignments: list });
+            };
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('allocation');
+                }}
+                title="클릭하여 투입율 수정"
+              >
+                {isEditing ? (
                   <input
-                    id={`wbs-edit-${task.id}-dependencies`}
-                    data-deps-input="true"
+                    id={`wbs-edit-${task.id}-allocation`}
                     type="text"
+                    inputMode="numeric"
                     autoFocus
-                    value={depsInputValue ?? ''}
-                    onChange={(e) => setDepsInputValue(e.target.value)}
-                    tabIndex={0}
-                    onFocus={() => {
-                      beginFocus('dependencies');
-                      setDepsFocused(true);
+                    value={allocationEditStr}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === '' || /^\d*$/.test(next)) setAllocationEditStr(next);
                     }}
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onBlur={() => {
-                      setDepsFocused(false);
-                      applyDependenciesInput((depsInputValue ?? '').trim());
+                      persistAllocation(allocationEditStr);
                       setEditingCell(null);
                     }}
                     onKeyDown={(e) => {
-                      if (depSuggestionsList.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDepPickIdx((i) => {
-                          const len = depSuggestionsList.length;
-                          if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
-                          return Math.max(0, i - 1);
-                        });
-                        return;
-                      }
-                      if (depSuggestionsList.length > 0 && e.key === 'Enter' && depPickIdx >= 0 && depPickIdx < depSuggestionsList.length) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        applyPickDependency(depSuggestionsList[depPickIdx]!.id);
-                        // Enter로 픽한 후에는 편집 모드를 종료해 다른 셀처럼 화살표로 자유롭게 이동 가능.
-                        // (드롭다운에서 마우스 클릭으로 픽한 경우는 그대로 유지 — 연속 선택 가능)
-                        setDepsFocused(false);
-                        setEditingCell(null);
-                        e.currentTarget.blur();
-                        return;
-                      }
-                      if (e.key === 'Enter') {
-                        setDepsFocused(false);
-                        applyDependenciesInput((depsInputValue ?? '').trim());
-                        setEditingCell(null);
-                        e.currentTarget.blur();
-                      }
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
                     }}
-                    placeholder="번호 또는 이름…"
-                    className="w-full min-w-0 bg-white p-1 font-mono text-inherit border border-indigo-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 rounded focus:outline-none"
-                    autoComplete="off"
                   />
-                  {renderDepsDropdown}
-                </div>
-              ) : (
-                <span className="flex w-full min-w-0 items-center gap-0.5 font-mono">
+                ) : (
                   <button
                     type="button"
-                    className="rounded px-1 -mx-1 min-w-0 flex-1 truncate text-left cursor-cell hover:bg-indigo-50/80"
+                    className="rounded px-1 -mx-1 inline-block w-full text-left cursor-cell hover:bg-indigo-50/80"
                     onClick={(e) => {
                       e.stopPropagation();
-                      beginEdit('dependencies');
+                      beginEdit('allocation');
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      beginEditNow('dependencies');
+                      beginEditNow('allocation');
                     }}
-                    title="더블클릭 또는 F2로 선행작업 수정"
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('allocation');
+                    }}
                   >
-                    <span className="block truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {depsDisplayText}
+                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{allocationDisplayText ?? '—'}</span>
+                  </button>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'status') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'status';
+            const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status' && !isEditing;
+            const currentStatusName = statusConfigs.find((c) => c.id === task.status)?.name ?? task.status ?? '—';
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('status');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('status');
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenu(e, task.id, 'status');
+                }}
+              >
+                {isEditing ? (
+                  <select
+                    id={`wbs-edit-${task.id}-status`}
+                    value={task.status}
+                    autoFocus
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      if (newStatus !== task.status) {
+                        const config = statusConfigs.find((c) => c.id === newStatus);
+                        const updates: Partial<Task> = { status: newStatus };
+                        if (config && config.progress !== undefined) {
+                          updates.progress = config.progress;
+                        }
+                        updateTask(task.id, updates);
+                      }
+                      setEditingCell(null);
+                    }}
+                    onBlur={() => setEditingCell(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape' || e.key === 'Enter') {
+                        setEditingCell(null);
+                        (e.target as HTMLSelectElement).blur();
+                      }
+                    }}
+                    className="w-full bg-white p-1 ring-1 ring-indigo-500 rounded border border-transparent appearance-none text-xs"
+                  >
+                    {statusConfigs.map((config) => (
+                      <option key={config.id} value={config.id}>
+                        {config.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <button
+                    type="button"
+                    className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-indigo-50/80 truncate"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('status');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('status');
+                    }}
+                    title="더블클릭 또는 F2로 상태 수정"
+                  >
+                    <span className="truncate block" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                      {currentStatusName}
                     </span>
                   </button>
-                </span>
-              )}
-            </div>
-          );
+                )}
+              </div>
+            );
+          }
+          if (colId === 'deliverables') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'deliverables';
+            const isFocusedDel = focusedCell?.taskId === task.id && focusedCell?.columnId === 'deliverables' && !isEditing;
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-indigo-500 ring-inset')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('deliverables');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-deliverables`}
+                    type="text"
+                    autoFocus
+                    defaultValue={task.deliverables ?? ''}
+                    placeholder="산출물"
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (task.deliverables ?? '').trim()) {
+                        updateTask(task.id, { deliverables: v || undefined });
+                      }
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit('deliverables');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow('deliverables');
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('deliverables');
+                    }}
+                    title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
+                  >
+                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{task.deliverables || '-'}</span>
+                  </button>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'dependencies') {
+            const selfSeq = rowIndex + 1;
+            const applyDependenciesInput = (raw: string | undefined) => {
+              const parts = (typeof raw === 'string' ? raw : '')
+                .split(/[\s,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              if (
+                parts.some((p) => {
+                  const n = parseInt(p, 10);
+                  return !Number.isFinite(n) || n < 1;
+                })
+              ) {
+                setDepsInputValue(depsDisplayValue);
+                return;
+              }
+              const taskIds: string[] = [];
+              const seen = new Set<string>();
+              const seenNums = new Set<number>();
+              for (const p of parts) {
+                const n = parseInt(p, 10);
+                if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
+                seenNums.add(n);
+                const id = seqNumToTaskId.get(n);
+                if (id && !seen.has(id)) {
+                  seen.add(id);
+                  taskIds.push(id);
+                }
+              }
+              // 접힘/필터로 화면에 보이지 않는 기존 선행작업도 유지(편집 시 손실 방지)
+              for (const id of hiddenDepIds) {
+                if (!seen.has(id)) {
+                  seen.add(id);
+                  taskIds.push(id);
+                }
+              }
+              const prevDeps = task.dependencies ?? [];
+              const sameLength = prevDeps.length === taskIds.length;
+              const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
+              if (noChange) return;
+              updateTask(task.id, { dependencies: taskIds });
+            };
+            const applyPickDependency = (pickedId: string) => {
+              if (pickedId === task.id) return;
+              const raw = depsInputValue ?? '';
+              const lastComma = Math.max(raw.lastIndexOf(','), raw.lastIndexOf('，'));
+              const headPart = lastComma >= 0 ? raw.slice(0, lastComma) : '';
+              const parts = headPart
+                .split(/[\s,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const taskIds: string[] = [];
+              const seen = new Set<string>();
+              const seenNums = new Set<number>();
+              for (const p of parts) {
+                const n = parseInt(p, 10);
+                if (!Number.isFinite(n) || n < 1 || seenNums.has(n) || n === selfSeq) continue;
+                seenNums.add(n);
+                const id = seqNumToTaskId.get(n);
+                if (id && !seen.has(id)) {
+                  seen.add(id);
+                  taskIds.push(id);
+                }
+              }
+              if (!seen.has(pickedId)) {
+                seen.add(pickedId);
+                taskIds.push(pickedId);
+              }
+              for (const id of hiddenDepIds) {
+                if (!seen.has(id)) {
+                  seen.add(id);
+                  taskIds.push(id);
+                }
+              }
+              const projectTasks = allProjectTasks.filter((t) => t.projectId === task.projectId);
+              if (hasDependencyCycle(projectTasks, task.id, taskIds)) {
+                pushToast('순환 의존관계가 발견되어 반영하지 않았습니다.', { variant: 'warning' });
+                return;
+              }
+              const prevDeps = task.dependencies ?? [];
+              const sameLength = prevDeps.length === taskIds.length;
+              const noChange = sameLength && prevDeps.every((id, i) => id === taskIds[i]);
+              if (noChange) return;
+              updateTask(task.id, { dependencies: taskIds });
+              const visibleNums = taskIds
+                .map((tid) => taskIdToSeqNum.get(tid))
+                .filter((n): n is number => n != null)
+                .sort((a, b) => a - b);
+              setDepsInputValue(visibleNums.join(', '));
+            };
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
+            const isFocusedDep = focusedCell?.taskId === task.id && focusedCell?.columnId === 'dependencies' && !isEditing;
+            // 드롭다운은 편집 중이고 input이 실제 포커스됐을 때만 열림.
+            const depsMenuOpen = isEditing && depsFocused && depSuggestionsList.length > 0;
+            const visibleDepNums = (task.dependencies ?? [])
+              .map((tid) => taskIdToSeqNum.get(tid))
+              .filter((n): n is number => n != null)
+              .sort((a, b) => a - b);
+            const depsDisplayText = visibleDepNums.length > 0 ? visibleDepNums.join(', ') : '-';
+            // 표 셀의 .data-cell(overflow:hidden) + 표 컨테이너(overflow:auto)에 갇혀 드롭다운이 잘리는 것을
+            // 막기 위해 Portal로 body에 렌더링하고 input의 위치를 추적해 따라가게 한다.
+            const renderDepsDropdown = depsMenuOpen
+              ? createPortal(
+                  <DepsPortalDropdown
+                    inputId={`wbs-edit-${task.id}-dependencies`}
+                    items={depSuggestionsList}
+                    pickIdx={depPickIdx}
+                    setPickIdx={setDepPickIdx}
+                    onPick={(id) => applyPickDependency(id)}
+                    taskIdToSeqNum={taskIdToSeqNum}
+                    displayWbsMap={displayWbsMap}
+                  />,
+                  document.body,
+                )
+              : null;
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
+                  depsMenuOpen && 'z-20 overflow-visible',
+                  isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('dependencies');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('dependencies');
+                }}
+                title={
+                  hiddenDepLabels.length > 0
+                    ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
+                    : '더블클릭 또는 F2로 선행작업 수정'
+                }
+              >
+                {isEditing ? (
+                  <div className="relative min-w-0 flex-1">
+                    <input
+                      id={`wbs-edit-${task.id}-dependencies`}
+                      data-deps-input="true"
+                      type="text"
+                      autoFocus
+                      value={depsInputValue ?? ''}
+                      onChange={(e) => setDepsInputValue(e.target.value)}
+                      tabIndex={0}
+                      onFocus={() => {
+                        beginFocus('dependencies');
+                        setDepsFocused(true);
+                      }}
+                      onBlur={() => {
+                        setDepsFocused(false);
+                        applyDependenciesInput((depsInputValue ?? '').trim());
+                        setEditingCell(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (depSuggestionsList.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDepPickIdx((i) => {
+                            const len = depSuggestionsList.length;
+                            if (e.key === 'ArrowDown') return Math.min(len - 1, i + 1);
+                            return Math.max(0, i - 1);
+                          });
+                          return;
+                        }
+                        if (
+                          depSuggestionsList.length > 0 &&
+                          e.key === 'Enter' &&
+                          depPickIdx >= 0 &&
+                          depPickIdx < depSuggestionsList.length
+                        ) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          applyPickDependency(depSuggestionsList[depPickIdx]!.id);
+                          // Enter로 픽한 후에는 편집 모드를 종료해 다른 셀처럼 화살표로 자유롭게 이동 가능.
+                          // (드롭다운에서 마우스 클릭으로 픽한 경우는 그대로 유지 — 연속 선택 가능)
+                          setDepsFocused(false);
+                          setEditingCell(null);
+                          e.currentTarget.blur();
+                          return;
+                        }
+                        if (e.key === 'Enter') {
+                          setDepsFocused(false);
+                          applyDependenciesInput((depsInputValue ?? '').trim());
+                          setEditingCell(null);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      placeholder="번호 또는 이름…"
+                      className="w-full min-w-0 bg-white p-1 font-mono text-inherit border border-indigo-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 rounded focus:outline-none"
+                      autoComplete="off"
+                    />
+                    {renderDepsDropdown}
+                  </div>
+                ) : (
+                  <span className="flex w-full min-w-0 items-center gap-0.5 font-mono">
+                    <button
+                      type="button"
+                      className="rounded px-1 -mx-1 min-w-0 flex-1 truncate text-left cursor-cell hover:bg-indigo-50/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        beginEdit('dependencies');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginEditNow('dependencies');
+                      }}
+                      title="더블클릭 또는 F2로 선행작업 수정"
+                    >
+                      <span className="block truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                        {depsDisplayText}
+                      </span>
+                    </button>
+                  </span>
+                )}
+              </div>
+            );
+          }
+          if (colId.startsWith('custom:')) {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === colId;
+            const isFocusedCustom = focusedCell?.taskId === task.id && focusedCell?.columnId === colId && !isEditing;
+            const currentValue = task.customFields?.[colId] ?? '';
+            const customLabel = customColumnNameById.get(colId) ?? colId.replace(/^custom:/, '');
+            return (
+              <div
+                key={colId}
+                className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit(colId);
+                }}
+                title={customLabel}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-${colId}`}
+                    type="text"
+                    autoFocus
+                    defaultValue={currentValue}
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onBlur={(e) => {
+                      const nextValue = e.target.value ?? '';
+                      if (nextValue !== currentValue) {
+                        updateTask(task.id, {
+                          customFields: { ...(task.customFields ?? {}), [colId]: nextValue },
+                        });
+                      }
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEdit(colId);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      beginEditNow(colId);
+                    }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit(colId);
+                    }}
+                    title={currentValue || `${customLabel} 입력`}
+                  >
+                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{currentValue || '-'}</span>
+                  </button>
+                )}
+              </div>
+            );
+          }
+          return null;
+        };
+        const __rendered = __renderCell();
+        if (__isAutoCell && React.isValidElement(__rendered)) {
+          return React.cloneElement(__rendered as React.ReactElement<{ className?: string }>, {
+            className: cn((__rendered.props as { className?: string }).className, 'wbs-cell-auto'),
+          });
         }
-        if (colId.startsWith('custom:')) {
-          const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === colId;
-          const isFocusedCustom = focusedCell?.taskId === task.id && focusedCell?.columnId === colId && !isEditing;
-          const currentValue = task.customFields?.[colId] ?? '';
-          const customLabel = customColumnNameById.get(colId) ?? colId.replace(/^custom:/, '');
-          return (
-            <div
-              key={colId}
-              className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset')}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isEditing) beginEdit(colId);
-              }}
-              title={customLabel}
-            >
-              {isEditing ? (
-                <input
-                  id={`wbs-edit-${task.id}-${colId}`}
-                  type="text"
-                  autoFocus
-                  defaultValue={currentValue}
-                  className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                  onBlur={(e) => {
-                    const nextValue = e.target.value ?? '';
-                    if (nextValue !== currentValue) {
-                      updateTask(task.id, {
-                        customFields: { ...(task.customFields ?? {}), [colId]: nextValue },
-                      });
-                    }
-                    setEditingCell(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                    else if (e.key === 'Escape') setEditingCell(null);
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="rounded px-1 -mx-1 block truncate w-full text-left cursor-cell hover:bg-indigo-50/80"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    beginEdit(colId);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    beginEditNow(colId);
-                  }}
-                  onFocus={(e) => {
-                    e.stopPropagation();
-                    beginEdit(colId);
-                  }}
-                  title={currentValue || `${customLabel} 입력`}
-                >
-                  <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{currentValue || '-'}</span>
-                </button>
-              )}
-            </div>
-          );
-        }
-        return null;
+        return __rendered;
       })}
       {showActionsColumn && (
         <div

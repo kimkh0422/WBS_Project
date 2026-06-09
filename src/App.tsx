@@ -118,6 +118,7 @@ const AllocationOverviewPage = React.lazy(() =>
 );
 const SalesOutlookPage = React.lazy(() => import('./components/SalesOutlookPage').then((m) => ({ default: m.SalesOutlookPage })));
 const WeeklyReportPage = React.lazy(() => import('./components/WeeklyReportPage').then((m) => ({ default: m.WeeklyReportPage })));
+const PersonalKanbanPage = React.lazy(() => import('./components/PersonalKanbanPage').then((m) => ({ default: m.PersonalKanbanPage })));
 const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
 const VersionManager = React.lazy(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
 const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
@@ -1061,7 +1062,7 @@ function WBSApp({
       !!filters.pastDueOnly ||
       !!filters.completedThisWeekOnly ||
       !!filters.searchText);
-  const allAssignees = Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean)));
+  const allAssignees = Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean))) as string[];
   const effectiveFilters: FilterState = filterOn
     ? filters
     : {
@@ -1378,6 +1379,8 @@ function WBSApp({
                         autoFitColumnsOnMount
                         filters={effectiveFilters}
                         sortConfig={sortConfig}
+                        rowHeight={sharedRowHeight}
+                        onRowHeightChange={setSharedRowHeight}
                         onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
                         onResetFilters={resetWbsFilters}
                         scrollToTaskId={scrollToTaskId}
@@ -1452,6 +1455,10 @@ function WBSApp({
                   <ErrorBoundary viewName="주간업무보고">
                     <WeeklyReportPage userId={user?.id ?? ''} currentUserDisplay={currentUserDisplay} />
                   </ErrorBoundary>
+                ) : view === 'todo' ? (
+                  <ErrorBoundary viewName="칸반">
+                    <PersonalKanbanPage userId={user?.id ?? ''} />
+                  </ErrorBoundary>
                 ) : view === 'mindmap' ? (
                   <ErrorBoundary viewName="마인드맵">
                     <MindMapView filters={effectiveFilters} />
@@ -1464,7 +1471,7 @@ function WBSApp({
             </div>
             {isShortcutsVisible && (
               <ShortcutsSidebar
-                view={view === 'outlook' || view === 'weekreport' ? 'dashboard' : view}
+                view={view === 'outlook' || view === 'weekreport' || view === 'todo' ? 'dashboard' : view}
                 onClose={() => setIsShortcutsVisible(false)}
               />
             )}

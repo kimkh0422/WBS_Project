@@ -73,10 +73,7 @@ export function useWbsBulkEdit({
       const val = parseFloat(bulkProgress);
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
     }
-    if (bulkPlannedProgress !== '') {
-      const val = parseFloat(bulkPlannedProgress);
-      if (!isNaN(val) && val >= 0 && val <= 100) updates.plannedProgressOverride = round2(val);
-    }
+    // 계획율 일괄 입력은 더 이상 지원하지 않음(계획율은 시작일/종료일 자동 산정만 사용).
     if (bulkWeight !== '') {
       const val = parseFloat(bulkWeight);
       if (!isNaN(val) && val >= 0) updates.weight = round1(val);

@@ -160,6 +160,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    // 미리보기(devauth) 모드에서는 실제 세션이 없어 supabase.signOut만으로는 로그아웃되지 않으므로,
+    // 우회 플래그(?devauth=0)를 끄고 로그인 화면으로 되돌린다. (운영 빌드에서는 isDevAuthBypass()가 항상 false라 무영향)
+    if (isDevAuthBypass()) {
+      window.location.href = `${window.location.pathname}?devauth=0`;
+      return;
+    }
     if (!supabase) return;
     await supabase.auth.signOut();
   };

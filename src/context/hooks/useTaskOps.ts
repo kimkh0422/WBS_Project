@@ -341,7 +341,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
                 cur = byId.get(cur)?.parentId ?? null;
               }
             }
-            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, false);
+            // 자식 일정 변경 시 부모 startDate/endDate를 자식 min/max로 자동 정렬하지 않는다.
+            // (사용자가 간트에서 부모를 직접 드래그한 뒤, 일정 정합화가 자식 옛 min/max로 다시 덮어써 "원복"되어 보이는 버그 방지)
+            // 부모 일정이 자식 밖으로 벗어나는 상황은 사용자가 명시적으로 부모를 편집할 때만 반영한다.
+            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, true);
           } else if (affectsRollup) {
             const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
             const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
@@ -641,7 +644,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const bulkAlloc = options?.bulkAllocationPercent;
       if (bulkAlloc != null && Number.isFinite(bulkAlloc)) {
         const pct = clampAllocationPercentInt(bulkAlloc);
-        const taskById = new Map(allTasksRef.current.map((t) => [t.id, t]));
+        const taskById = new Map<string, Task>(allTasksRef.current.map((t): [string, Task] => [t.id, t]));
         const assigneesByProjectId = new Map<string, Set<string>>();
         for (const id of orderedTaskIds) {
           const t = taskById.get(id);

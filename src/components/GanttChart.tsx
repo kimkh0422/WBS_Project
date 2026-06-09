@@ -6,7 +6,7 @@ import { differenceInDays, eachDayOfInterval, isSameDay, parseISO, eachMonthOfIn
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu } from './ContextMenu';
-import { Edit2, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Edit2, Trash2, ZoomIn, ZoomOut, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildVisibleTasks, type TaskWithDepth } from '../lib/taskView';
 import { useLevelColors } from '../context/LevelColorsContext';
@@ -72,6 +72,7 @@ export function GanttChart({
     wbsSettings,
     canEditCurrentProject,
     projects,
+    toggleExpand,
   } = useWBS();
   const projectScheduleForTask = useCallback(
     (t: Task) => {
@@ -204,6 +205,13 @@ export function GanttChart({
     () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: true }),
     [tasks, filters, sortConfig],
   );
+
+  // 자식이 있는(=펼치기/접기 토글을 보여줄) 작업 id 집합
+  const hasChildrenSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tasks) if (t.parentId) s.add(t.parentId);
+    return s;
+  }, [tasks]);
 
   const { push: pushToast } = useToast();
 
@@ -685,9 +693,13 @@ export function GanttChart({
               </div>
               {todayIndex !== -1 && (
                 <div
-                  className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50"
+                  className="absolute top-0 bottom-0 z-20 border-l-2 border-dashed border-red-500 pointer-events-none"
                   style={{ left: todayLeft }}
-                />
+                >
+                  <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
+                    오늘
+                  </span>
+                </div>
               )}
               <svg className="absolute inset-0 z-0 pointer-events-none w-full h-full">
                 <defs>
@@ -855,7 +867,7 @@ export function GanttChart({
               />
             )}
           </div>
-          {/* 하단 수평 스크롤바 */}
+          {/* 하단 수평 스크롤바 — 좌우 이동을 항상 표시(두께 14px, 슬레이트 톤 트랙). */}
           <div
             ref={(el) => {
               bottomScrollRef.current = el;
@@ -863,8 +875,9 @@ export function GanttChart({
               if (typeof rb === 'function') rb(el);
               else if (rb) (rb as React.MutableRefObject<HTMLDivElement | null>).current = el;
             }}
-            className="flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-slate-200"
-            style={{ height: 12 }}
+            className="gantt-hscroll flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-slate-200 bg-slate-100"
+            style={{ height: 14 }}
+            title="좌우로 드래그해 간트 화면을 이동"
           >
             <div style={{ width: totalWidth, height: 1 }} />
           </div>
@@ -1045,10 +1058,10 @@ export function GanttChart({
                     return (
                       <div
                         key={t.id}
-                        className="flex items-center text-xs font-medium text-[var(--color-ink)] hover:bg-slate-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-slate-100"
+                        className="flex items-center gap-1 text-xs font-medium text-[var(--color-ink)] hover:bg-slate-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-slate-100"
                         style={{
                           height: `${effectiveRowHeights[index] ?? ROW_HEIGHT}px`,
-                          paddingLeft: `${depth * 16 + 16}px`,
+                          paddingLeft: `${depth * 16 + 8}px`,
                           paddingRight: 16,
                           borderLeftColor: ganttSidebarStripColor(level),
                         }}
@@ -1057,6 +1070,23 @@ export function GanttChart({
                           .join(' · ')}
                         onDoubleClick={() => setEditingTask(t)}
                       >
+                        {hasChildrenSet.has(t.id) ? (
+                          <button
+                            type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpand(t.id);
+                            }}
+                            className="shrink-0 flex h-4 w-4 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-colors"
+                            title={t.expanded ? '하위 작업 접기' : '하위 작업 펼치기'}
+                            aria-label={t.expanded ? '접기' : '펼치기'}
+                          >
+                            {t.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </button>
+                        ) : (
+                          <span className="shrink-0 w-4" aria-hidden />
+                        )}
                         <div className="break-words min-w-0">
                           {displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ` : ''}
                           {t.name}
@@ -1090,9 +1120,13 @@ export function GanttChart({
                 {/* Today Line */}
                 {todayIndex !== -1 && (
                   <div
-                    className="absolute top-0 bottom-0 z-10 border-l border-red-500 border-dashed pointer-events-none opacity-50"
+                    className="absolute top-0 bottom-0 z-20 border-l-2 border-dashed border-red-500 pointer-events-none"
                     style={{ left: todayLeft }}
-                  />
+                  >
+                    <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
+                      오늘
+                    </span>
+                  </div>
                 )}
 
                 {/* Dependency Lines SVG Layer */}

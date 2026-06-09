@@ -38,6 +38,7 @@ import {
   FileDown,
   TrendingUp,
   FileText,
+  ClipboardList,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -468,7 +469,7 @@ export function AppHeader({
     }
   }, [logoHomeView]);
 
-  type MobileNavKey = 'dashboard' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
+  type MobileNavKey = 'dashboard' | 'todo' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
     const dashboardTitle =
       dashboardNavLabel !== '대시보드'
@@ -476,6 +477,12 @@ export function AppHeader({
         : '프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다.';
     const items: { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] = [
       { key: 'dashboard', label: dashboardNavLabel, title: dashboardTitle, icon: <LayoutDashboard size={14} /> },
+      {
+        key: 'todo',
+        label: '칸반',
+        title: '개인 할일 칸반 보드(할일·진행중·완료·기타). 나만 보는 To-Do입니다.',
+        icon: <ClipboardList size={14} />,
+      },
       {
         key: 'table',
         label: '표',
@@ -1129,14 +1136,65 @@ export function AppHeader({
                 tourId="tour-nav-allocation"
               />
             )}
-            {!hiddenViews.has('outlook') && (
+            {/* 표 / 표+간트 / 간트 통합 로테이션 버튼: 한 번 클릭마다 다음 모드로 순환(표 → 표+간트 → 간트 → 표 …).
+                현재 모드 외 모드 중 hiddenViews에 포함되지 않은 다음 모드로 이동한다. */}
+            {(() => {
+              const cycle: Array<{
+                id: 'table' | 'tablegantt' | 'gantt';
+                label: string;
+                icon: React.ReactNode;
+                title: string;
+                tourId: string;
+              }> = [
+                {
+                  id: 'table',
+                  label: '표',
+                  icon: <CheckSquare size={14} />,
+                  title: '작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다.',
+                  tourId: 'tour-nav-table',
+                },
+                {
+                  id: 'tablegantt',
+                  label: '표+간트',
+                  icon: <Columns2 size={14} />,
+                  title: '작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)',
+                  tourId: 'tour-nav-tablegantt',
+                },
+                {
+                  id: 'gantt',
+                  label: '간트',
+                  icon: <Target size={14} />,
+                  title: '일정 막대를 드래그해 날짜를 조정하고, 선후관계를 확인합니다.',
+                  tourId: 'tour-nav-gantt',
+                },
+              ];
+              const enabled = cycle.filter((c) => !hiddenViews.has(c.id));
+              if (enabled.length === 0) return null;
+              const currentIdx = enabled.findIndex((c) => c.id === view);
+              const isCurrentInCycle = currentIdx >= 0;
+              // 작업 화면이 아닐 때(예: 대시보드)는 기본으로 '표+간트'를 표시하고, 클릭 시 표+간트로 진입한다.
+              const tableGanttEntry = enabled.find((c) => c.id === 'tablegantt') ?? enabled[0];
+              const current = isCurrentInCycle ? enabled[currentIdx] : tableGanttEntry;
+              const next = isCurrentInCycle ? enabled[(currentIdx + 1) % enabled.length] : tableGanttEntry;
+              return (
+                <NavButton
+                  active={isCurrentInCycle}
+                  onClick={() => navigateWithTip(next.id)}
+                  icon={current.icon}
+                  label={current.label}
+                  title={[current.title, '', `클릭: 다음 모드(${next.label})로 전환 — 표 → 표+간트 → 간트 순환`].join('\n')}
+                  tourId={current.tourId}
+                />
+              );
+            })()}
+            {!hiddenViews.has('todo') && (
               <NavButton
-                active={view === 'outlook'}
-                onClick={() => navigateWithTip('outlook')}
-                icon={<TrendingUp size={14} />}
-                label="영업 아웃룩"
-                title="사업부별 수주·청구 계획과 매출장을 업로드해 조회·집계합니다. (@gmtc.kr 사내 회원 전용)"
-                tourId="tour-nav-outlook"
+                active={view === 'todo'}
+                onClick={() => navigateWithTip('todo')}
+                icon={<ClipboardList size={14} />}
+                label="칸반"
+                title="개인 할일 칸반 보드(할일·진행중·완료·기타). 나만 보는 To-Do입니다."
+                tourId="tour-nav-todo"
               />
             )}
             {!hiddenViews.has('weekreport') && (
@@ -1149,34 +1207,14 @@ export function AppHeader({
                 tourId="tour-nav-weekreport"
               />
             )}
-            {!hiddenViews.has('table') && (
+            {!hiddenViews.has('outlook') && (
               <NavButton
-                active={view === 'table'}
-                onClick={() => navigateWithTip('table')}
-                icon={<CheckSquare size={14} />}
-                label="표"
-                title="작업 목록을 표 형태로만 보기. 빠른 편집·정렬·복사·붙여넣기에 적합합니다."
-                tourId="tour-nav-table"
-              />
-            )}
-            {!hiddenViews.has('tablegantt') && (
-              <NavButton
-                active={view === 'tablegantt'}
-                onClick={() => navigateWithTip('tablegantt')}
-                icon={<Columns2 size={14} />}
-                label="표+간트"
-                title="작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)"
-                tourId="tour-nav-tablegantt"
-              />
-            )}
-            {!hiddenViews.has('gantt') && (
-              <NavButton
-                active={view === 'gantt'}
-                onClick={() => navigateWithTip('gantt')}
-                icon={<Target size={14} />}
-                label="간트"
-                title="일정 막대를 드래그해 날짜를 조정하고, 선후관계를 확인합니다."
-                tourId="tour-nav-gantt"
+                active={view === 'outlook'}
+                onClick={() => navigateWithTip('outlook')}
+                icon={<TrendingUp size={14} />}
+                label="영업 아웃룩"
+                title="사업부별 수주·청구 계획과 매출장을 업로드해 조회·집계합니다. (@gmtc.kr 사내 회원 전용)"
+                tourId="tour-nav-outlook"
               />
             )}
             {!hiddenViews.has('kanban') && (

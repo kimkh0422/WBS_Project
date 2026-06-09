@@ -13,7 +13,8 @@ export type ViewType =
   | 'projects'
   | 'allocation'
   | 'outlook'
-  | 'weekreport';
+  | 'weekreport'
+  | 'todo';
 
 const VALID_VIEWS = new Set<string>([
   'table',
@@ -26,12 +27,14 @@ const VALID_VIEWS = new Set<string>([
   'allocation',
   'outlook',
   'weekreport',
+  'todo',
 ]);
 
 const MAIN_NAV_VIEW_ORDER: ViewType[] = [
   'dashboard',
   'projects',
   'allocation',
+  'todo',
   'outlook',
   'weekreport',
   'table',
@@ -42,6 +45,8 @@ const MAIN_NAV_VIEW_ORDER: ViewType[] = [
 ];
 
 function pickFirstVisibleView(hidden: Set<string>): ViewType {
+  // 최초 진입(=URL 세그먼트 없음) 기본 화면: 표+간트(작업 화면). hidden이 아니면 우선 사용.
+  if (!hidden.has('tablegantt')) return 'tablegantt';
   for (const v of MAIN_NAV_VIEW_ORDER) {
     if (!hidden.has(v)) return v;
   }
@@ -74,7 +79,7 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    set.add('tablegantt');
+    // '표+간트'(tablegantt) 모드는 기본 노출 — 헤더의 표/표+간트/간트 로테이션 토글 동작에 포함됨.
     set.add('kanban');
     set.add('outlook');
     if (!effectiveIsAdmin) {
@@ -99,7 +104,11 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
     const segment = segmentRaw && VALID_VIEWS.has(segmentRaw) ? segmentRaw : '';
 
     if (lockMobileToDashboard) {
-      if (segment && !hiddenViews.has(segment) && (segment === 'dashboard' || segment === 'projects' || segment === 'allocation')) {
+      if (
+        segment &&
+        !hiddenViews.has(segment) &&
+        (segment === 'dashboard' || segment === 'projects' || segment === 'allocation' || segment === 'todo')
+      ) {
         return segment as ViewType;
       }
       for (const v of ['dashboard', 'projects'] as const) {

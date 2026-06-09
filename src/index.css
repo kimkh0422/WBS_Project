@@ -694,6 +694,18 @@ input[list] {
   @apply bg-indigo-100 text-indigo-800 font-medium;
 }
 
+/* 표: 자동계산 셀(계획·차이, 그리고 요약 행의 진척·날짜·공수) — 옅은 빗금으로 "입력 불필요" 표시.
+   수동 입력 셀은 깔끔한 배경 그대로라 한눈에 구분된다. */
+.data-cell.wbs-cell-auto {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(100, 116, 139, 0.1) 0,
+    rgba(100, 116, 139, 0.1) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
 /* ========== 모바일 가독성·UX 개선 ========== */
 @media (max-width: 768px) {
   /* iOS: input 16px 미만 시 포커스 시 자동 줌 방지 */
@@ -811,4 +823,41 @@ input[list] {
 @keyframes viewFadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* 간트 하단 가로 스크롤바: 항상 잘 보이도록 트랙·핸들을 명시적으로 그린다.
+   (WebKit 기준 — 크롬·엣지·사파리 / Firefox는 scrollbar-color 폴백) */
+.gantt-hscroll {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: #94a3b8 #e2e8f0; /* thumb / track */
+}
+.gantt-hscroll::-webkit-scrollbar {
+  height: 14px;
+  background: #e2e8f0;
+}
+.gantt-hscroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-top: 1px solid #cbd5e1;
+}
+.gantt-hscroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 7px;
+  border: 2px solid #e2e8f0;
+}
+.gantt-hscroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+.gantt-hscroll::-webkit-scrollbar-thumb:active {
+  background: #475569;
+}
+[data-theme="dark"] .gantt-hscroll {
+  scrollbar-color: #475569 #1f2937;
+}
+[data-theme="dark"] .gantt-hscroll::-webkit-scrollbar,
+[data-theme="dark"] .gantt-hscroll::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+[data-theme="dark"] .gantt-hscroll::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-color: #1f2937;
 }

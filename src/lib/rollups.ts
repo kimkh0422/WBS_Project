@@ -531,7 +531,10 @@ export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: s
   const normalized = normalizeOrphanStatuses(tasks, statusConfigs);
   const projectIds = Array.from(new Set(normalized.map((t) => t.projectId))).filter((id): id is string => Boolean(id) && id !== 'all');
   let result = normalized;
-  for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds);
+  // 부모 작업의 startDate/endDate를 자식 min/max로 자동 정렬하지 않는다(skipScheduleRollup=true).
+  // 간트에서 부모를 드래그/리사이즈해 저장한 일정이 DB 풀/새로고침 이후 자식 min/max로 "되돌아가" 보이던 버그 방지.
+  // 진척률·공수·상태 롤업은 그대로 수행한다.
+  for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
   // 사용자가 입력한 가중치·계획율 수동값은 어떤 자동 로직(롤업/풀)으로도 사라지지 않도록 항상 마지막에 로컬 캐시 오버레이.
   return overlayPlannedOverrideFromLocal(overlayWeightFromLocal(result));
 }

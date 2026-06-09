@@ -1018,6 +1018,13 @@ export function TaskModal({
                 disabled={readOnly}
               />
             </div>
+            <p className="col-span-full -mt-0.5 flex items-start gap-1.5 text-[11px] leading-snug text-[var(--color-ink-muted)]">
+              <Info size={12} className="mt-0.5 shrink-0 text-slate-400" aria-hidden />
+              <span>
+                <strong className="font-semibold text-[var(--color-ink)]">계획율</strong>은 위 시작일·종료일로 자동 산정됩니다. 날짜를
+                바꾸면 계획율이 다시 계산돼요. <span className="text-slate-400">(특정 행만 직접 지정하려면 아래 「계획율 수동(%)」)</span>
+              </span>
+            </p>
             {taskScheduleOutsideNote && (
               <div
                 className="col-span-full flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950"

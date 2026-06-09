@@ -336,6 +336,8 @@ export function WBSTable({
 
   // Column resize hook + gridStyle — moved below allocationDisplayByTaskId/taskIdToSeqNum
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  /** 분할(표+간트) 뷰에서 표 본문의 하단 가로 스크롤바 — 헤더·본문과 scrollLeft 동기화. */
+  const tableBottomScrollRef = useRef<HTMLDivElement | null>(null);
   /** 스플릿 뷰에서 헤더 가로 스크롤 동기화용 */
   const headerScrollRef = useRef<HTMLDivElement | null>(null);
   const isSyncingScrollRef = useRef(false);
@@ -376,10 +378,27 @@ export function WBSTable({
     return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
   }, [wbsSettings, customColumnNameById]);
 
+  /** 가중치 진척 롤업 옵션의 React 거울(다른 곳에서 setter를 호출해도 UI 동기화). visibleColumnIds 메모에서 참조하므로 그 앞에 선언. */
+  const [useWeightForRollup, setUseWeightForRollupState] = useState<boolean>(() => getUseWeightForProgressRollup());
+  useEffect(() => {
+    const off = onProgressRollupOptionChange((v) => setUseWeightForRollupState(v));
+    return off;
+  }, []);
+  const toggleUseWeightForRollup = useCallback((v: boolean) => {
+    setUseWeightForProgressRollup(v); // localStorage + 이벤트 발행 → WBSContext가 재계산
+    setUseWeightForRollupState(v); // 즉시 UI 반영
+  }, []);
+
   const showActionsColumn = useMemo(() => tableColumns.some((c) => c.id === 'actions' && c.visible), [tableColumns]);
+  // 가중치 토글(OFF)이면 표에서 'weight' 컬럼도 함께 숨김(자동) — 진척률 롤업에 안 쓰이는 값이라 화면도 같이 정리.
+  // 토글 ON(기본)으로 돌리면 자동으로 다시 표시됨. 사용자의 컬럼 visibility 설정은 보존되며 토글이 ON일 때만 적용된다.
   const visibleColumnIds = useMemo(
-    () => tableColumns.filter((c) => c.visible && c.id !== 'actions').map((c) => c.id as TableColumnId),
-    [tableColumns],
+    () =>
+      tableColumns
+        .filter((c) => c.visible && c.id !== 'actions')
+        .filter((c) => useWeightForRollup || c.id !== 'weight')
+        .map((c) => c.id as TableColumnId),
+    [tableColumns, useWeightForRollup],
   );
   /** 편집 모드에서 좌우 이동 시 사용할 편집 가능 컬럼 순서 (wbsId 제외) */
   const editableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
@@ -413,17 +432,6 @@ export function WBSTable({
   }, [plannedRefDateIso]);
   /** computePlannedProgressMap에 넘길 실제 ref date — 빈 문자열이면 undefined(=오늘 자동) */
   const effectivePlannedRef = plannedRefDateIso || undefined;
-
-  /** 가중치 진척 롤업 옵션의 React 거울(다른 곳에서 setter를 호출해도 UI 동기화). */
-  const [useWeightForRollup, setUseWeightForRollupState] = useState<boolean>(() => getUseWeightForProgressRollup());
-  useEffect(() => {
-    const off = onProgressRollupOptionChange((v) => setUseWeightForRollupState(v));
-    return off;
-  }, []);
-  const toggleUseWeightForRollup = useCallback((v: boolean) => {
-    setUseWeightForProgressRollup(v); // localStorage + 이벤트 발행 → WBSContext가 재계산
-    setUseWeightForRollupState(v); // 즉시 UI 반영
-  }, []);
 
   /** DnD 일괄 이동: 체크박스 다중 선택과 동기화(간트 등에서 빈 배열로 해제된 경우도 반영) */
   const dndSelectedTaskIds = useMemo(() => new Set(sharedSelectedTaskIds ?? []), [sharedSelectedTaskIds]);
@@ -688,6 +696,15 @@ export function WBSTable({
     }
     if (showActionsColumn) parts.push(`${cw.actions}px`);
     return { gridTemplateColumns: parts.join(' ') } as React.CSSProperties;
+  }, [columnWidths, showActionsColumn, visibleColumnIds]);
+
+  /** 표 전체 그리드 가로폭(분할 뷰 하단 스크롤바의 내부 폭으로 사용) */
+  const totalGridWidth = useMemo(() => {
+    const cw = columnWidths as Record<string, number>;
+    let sum = (cw.grip ?? 0) + (cw.checkbox ?? 0) + (cw.seq ?? 0);
+    for (const id of visibleColumnIds) sum += id === 'name' ? (cw.name ?? 0) : (cw[id] ?? 120);
+    if (showActionsColumn) sum += cw.actions ?? 0;
+    return sum;
   }, [columnWidths, showActionsColumn, visibleColumnIds]);
 
   // 좌측 고정열(비분할 표): 앞 4개 컬럼(그립·체크·# + 첫 데이터열=작업명)을 가로 스크롤해도 고정.
@@ -1296,14 +1313,13 @@ export function WBSTable({
             className="flex-shrink-0 border-b border-[var(--color-line)] bg-gradient-to-b from-[var(--color-line-soft)] to-[var(--color-surface)]/90 overflow-x-auto overflow-y-hidden"
             onScroll={(e) => {
               if (isSyncingScrollRef.current) return;
-              const body = tableScrollRef.current;
-              if (body) {
-                isSyncingScrollRef.current = true;
-                body.scrollLeft = e.currentTarget.scrollLeft;
-                requestAnimationFrame(() => {
-                  isSyncingScrollRef.current = false;
-                });
-              }
+              isSyncingScrollRef.current = true;
+              const sl = e.currentTarget.scrollLeft;
+              if (tableScrollRef.current) tableScrollRef.current.scrollLeft = sl;
+              if (tableBottomScrollRef.current) tableBottomScrollRef.current.scrollLeft = sl;
+              requestAnimationFrame(() => {
+                isSyncingScrollRef.current = false;
+              });
             }}
           >
             <div className="data-header flex-shrink-0" style={headerStyle}>
@@ -1392,6 +1408,7 @@ export function WBSTable({
                 if (!isSyncingScrollRef.current) {
                   isSyncingScrollRef.current = true;
                   if (isSplitView && header) header.scrollLeft = target.scrollLeft;
+                  if (isSplitView && tableBottomScrollRef.current) tableBottomScrollRef.current.scrollLeft = target.scrollLeft;
                   requestAnimationFrame(() => {
                     isSyncingScrollRef.current = false;
                   });
@@ -1701,9 +1718,27 @@ export function WBSTable({
                 )}
               </div>
             </div>
-            {/* 표+간트: 간트 하단 수평 스크롤바(12px)와 세로 뷰포트·스크롤 범위를 맞춤 */}
+            {/* 표+간트: 표 본문 하단 가로 스크롤바 — 좌우 이동 가능. 헤더·본문과 scrollLeft 동기화.
+                간트 하단 스크롤바(14px)와 같은 높이로 두 패널의 세로 뷰포트가 행 단위로 정렬되게 한다. */}
             {isSplitView && !excelView && (
-              <div className="flex-shrink-0 border-t border-slate-200 overflow-x-hidden" style={{ height: 12 }} aria-hidden />
+              <div
+                ref={tableBottomScrollRef}
+                className="gantt-hscroll flex-shrink-0 overflow-x-scroll overflow-y-hidden border-t border-slate-200 bg-slate-100"
+                style={{ height: 14 }}
+                title="좌우로 드래그해 표 화면을 이동"
+                onScroll={(e) => {
+                  if (isSyncingScrollRef.current) return;
+                  isSyncingScrollRef.current = true;
+                  const sl = e.currentTarget.scrollLeft;
+                  if (tableScrollRef.current) tableScrollRef.current.scrollLeft = sl;
+                  if (headerScrollRef.current) headerScrollRef.current.scrollLeft = sl;
+                  requestAnimationFrame(() => {
+                    isSyncingScrollRef.current = false;
+                  });
+                }}
+              >
+                <div style={{ width: totalGridWidth, height: 1 }} />
+              </div>
             )}
           </div>
         )}
@@ -1878,26 +1913,6 @@ export function WBSTable({
                   />
                 </div>
 
-                {/* 계획율(%) — 수동 지정, 0~100 */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">계획율(%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={bulkPlannedProgress}
-                    onChange={(e) => setBulkPlannedProgress(e.target.value)}
-                    placeholder="0~100"
-                    title={[
-                      '선택한 작업에 동일한 계획율(%)을 수동으로 일괄 지정합니다.',
-                      '지정한 행은 일정·베이스라인 산정 대신 이 값을 계획(%)에 표시합니다.',
-                      '일정 기준으로 되돌리려면 작업 상세에서 「계획율 수동(%)」을 비운 뒤 저장하세요.',
-                    ].join('\n')}
-                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
-                  />
-                </div>
-
                 {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">가중치</label>
@@ -1998,45 +2013,6 @@ export function WBSTable({
                   <Unlink size={14} />
                   선행작업 지우기
                 </button>
-
-                {canEditCurrentProject && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // 선택된 각 작업의 현재 진척률을 계획율(수동) 값으로 복사 → 차이(%P) = 0.
-                      // 진척률 0%인 행도 0으로 명시 지정(=일정 자동 계산 덮어쓰기).
-                      let n = 0;
-                      for (const id of selectedTaskIds) {
-                        const t = tasks.find((x) => x.id === id);
-                        if (!t) continue;
-                        const v = round2(Number(t.progress ?? 0));
-                        if (t.plannedProgressOverride !== v) {
-                          updateTask(t.id, { plannedProgressOverride: v });
-                          n += 1;
-                        }
-                      }
-                      pushToast(n > 0 ? `계획율을 진척률로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다. (이미 계획율 = 진척률)', {
-                        variant: n > 0 ? 'success' : 'info',
-                      });
-                      // 한 번이라도 push가 PGRST204(컬럼 없음)로 실패한 적이 있으면 — 저장 후 풀에서 값이 사라질 거라 미리 경고.
-                      if (n > 0 && isTaskColumnMissingFromDb('planned_progress_override')) {
-                        pushToast(
-                          'DB에 계획율 수동 컬럼이 없어 저장 후 값이 사라집니다. SQL Editor에서 다음을 실행해 주세요: ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_progress_override numeric(6,2) NULL;',
-                          { variant: 'warning', durationMs: 12000 },
-                        );
-                      }
-                    }}
-                    className="flex items-center gap-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                    title={[
-                      '선택한 각 작업의 「계획율(%)」을 현재 「진척률(%)」 값으로 일괄 설정합니다.',
-                      '결과: 차이(%P) = 0 (계획대로 진행 중인 것으로 표시).',
-                      '실행취소(Ctrl+Z)로 되돌릴 수 있습니다.',
-                    ].join('\n')}
-                  >
-                    <Equal size={14} />
-                    계획율 = 진척률
-                  </button>
-                )}
 
                 {canEditCurrentProject && (
                   <button
@@ -2299,69 +2275,7 @@ export function WBSTable({
                         },
                       ]
                     : []),
-                  // 계획율/차이 셀에서 우클릭 시 — 현재 진척률을 계획율(수동)로 복사해 차이=0으로 맞춘다.
-                  ...(canEditCurrentProject && (contextMenu.columnId === 'plannedProgress' || contextMenu.columnId === 'progressVariance')
-                    ? [
-                        {
-                          label: '계획율 = 진척률',
-                          icon: <Equal size={14} />,
-                          onClick: () => {
-                            const ids =
-                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
-                                ? Array.from(selectedTaskIds)
-                                : contextMenu.taskId
-                                  ? [contextMenu.taskId]
-                                  : [];
-                            let n = 0;
-                            for (const id of ids) {
-                              const t = tasks.find((x) => x.id === id);
-                              if (!t) continue;
-                              const v = round2(Number(t.progress ?? 0));
-                              if (t.plannedProgressOverride !== v) {
-                                updateTask(t.id, { plannedProgressOverride: v });
-                                n += 1;
-                              }
-                            }
-                            pushToast(n > 0 ? `계획율을 진척률로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다.', {
-                              variant: n > 0 ? 'success' : 'info',
-                            });
-                            if (n > 0 && isTaskColumnMissingFromDb('planned_progress_override')) {
-                              pushToast(
-                                'DB에 계획율 수동 컬럼이 없어 저장 후 값이 사라집니다. SQL Editor에서 다음을 실행해 주세요: ALTER TABLE tasks ADD COLUMN IF NOT EXISTS planned_progress_override numeric(6,2) NULL;',
-                                { variant: 'warning', durationMs: 12000 },
-                              );
-                            }
-                            setContextMenu(null);
-                          },
-                        },
-                        {
-                          label: '계획율 자동(일정 기반)으로 되돌리기',
-                          icon: <RotateCcw size={14} />,
-                          onClick: () => {
-                            const ids =
-                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
-                                ? Array.from(selectedTaskIds)
-                                : contextMenu.taskId
-                                  ? [contextMenu.taskId]
-                                  : [];
-                            let n = 0;
-                            for (const id of ids) {
-                              const t = tasks.find((x) => x.id === id);
-                              if (!t) continue;
-                              if (t.plannedProgressOverride != null) {
-                                updateTask(t.id, { plannedProgressOverride: null });
-                                n += 1;
-                              }
-                            }
-                            pushToast(
-                              n > 0 ? `계획율 수동값을 해제했습니다. (${n}개 작업, 일정 기준 자동 산정)` : '변경 사항이 없습니다.',
-                              { variant: n > 0 ? 'success' : 'info' },
-                            );
-                            setContextMenu(null);
-                          },
-                        },
-                      ]
-                    : []),
+                  // (계획율 수동 지정 기능 제거됨 — 계획율은 시작일·종료일 기반 자동 계산만 사용)
                   {
                     label: '수정',
                     icon: <Edit2 size={14} />,

@@ -182,7 +182,7 @@ export function AllocationOverviewPage({
         ) : viewMode === 'by-project' ? (
           <div className="space-y-4">
             {projectAllocations.map(({ project, assignments, totalPercent }) => {
-              const assignedNameKeys = new Set(assignments.map((a) => (a.assignee || '').trim() || '(미지정)'));
+              const assignedNameKeys = new Set(assignments.map((a) => (a.assignee || '').trim() || '(미지정)') as string[]);
               return (
                 <div
                   key={project.id}

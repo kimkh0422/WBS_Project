@@ -30,8 +30,19 @@ export function useGanttViewport({
     () => visibleTasks.flatMap((t) => [parseISO(t.startDate), parseISO(t.endDate)]).filter((d) => !isNaN(d.getTime())),
     [visibleTasks],
   );
-  const minDate = useMemo(() => (dates.length > 0 ? startOfWeek(addDays(min(dates), -7)) : startOfWeek(new Date())), [dates]);
-  const maxDate = useMemo(() => (dates.length > 0 ? endOfWeek(addDays(max(dates), 7)) : endOfWeek(addDays(new Date(), 14))), [dates]);
+  // 간트 표시 범위에 오늘 날짜를 항상 포함(작업 일정이 모두 과거/미래여도 "오늘" 마커가 보이도록).
+  const minDate = useMemo(() => {
+    const today = new Date();
+    const base = dates.length > 0 ? min(dates) : today;
+    const earliest = base < today ? base : today;
+    return startOfWeek(addDays(earliest, -7));
+  }, [dates]);
+  const maxDate = useMemo(() => {
+    const today = new Date();
+    const base = dates.length > 0 ? max(dates) : addDays(today, 14);
+    const latest = base > today ? base : today;
+    return endOfWeek(addDays(latest, 7));
+  }, [dates]);
   const totalDays = differenceInDays(maxDate, minDate) + 1;
 
   const availableWidth = containerWidth - effectiveSidebarWidth - 20;

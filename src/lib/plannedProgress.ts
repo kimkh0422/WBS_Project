@@ -1,6 +1,6 @@
 import { parseISO, isValid } from 'date-fns';
 import type { Task } from '../types';
-import { differenceInBusinessDaysEx } from './calendar';
+import { differenceInBusinessDaysEx, getHolidaysForTaskDates } from './calendar';
 import { getUseWeightForProgressRollup } from './rollupOptions';
 
 /**
@@ -73,15 +73,12 @@ export function computeLeafPlannedProgress(task: PlannedTaskFields, refDateIso: 
 /**
  * 작업별 계획율 맵(0~100).
  *
- * - **리프(자식 없음)**: 사용자가 입력한 `plannedProgressOverride`만 사용. 없으면 맵에 넣지 않아 빈칸('—').
- *   일정 기반 자동 계산은 하지 않는다(요청: 계획율 리프는 완전 수동).
+ * - **리프(자식 없음)**: 시작일·종료일·기준일(refDate, 기본=오늘) 기반 **자동 계산**(영업일 진행률).
+ *   일정 정보가 없으면 0. 사용자 수동 입력은 받지 않는다(요청: 시작일/종료일 기준으로만 산정).
  * - **부모(자식 있음)**: 직속 자식 계획율의 (가중)평균으로 **자동 롤업**. 자식 값이 들어오면 상위가 자동 갱신된다.
  *   가중치는 자식 weight, 없으면 workEffort. 가중치 반영 여부는 진척률 롤업 옵션(가중치 ON/OFF)과 동일.
- *   계획율이 없는 자식은 0으로 본다(진척률 롤업과 동일 규칙). 부모 자신의 수동값은 무시하고 항상 자식 롤업을 쓴다.
- *
- * refDate/holidays 인자는 호출부 호환을 위해 남겨두되 더 이상 사용하지 않는다.
  */
-export function computePlannedProgressMap(tasks: Task[], _refDateIso?: string, _holidays?: Set<string>): Map<string, number> {
+export function computePlannedProgressMap(tasks: Task[], refDateIso?: string, holidays?: Set<string>): Map<string, number> {
   const childrenByParent = new Map<string, Task[]>();
   for (const t of tasks) {
     if (!t.parentId) continue;
@@ -89,24 +86,23 @@ export function computePlannedProgressMap(tasks: Task[], _refDateIso?: string, _
     if (arr) arr.push(t);
     else childrenByParent.set(t.parentId, [t]);
   }
+  const refDate = refDateIso || todayIso();
+  const hol = holidays ?? getHolidaysForTaskDates(tasks);
 
   const clamp = (x: number) => Math.min(100, Math.max(0, x));
-  const leafOverride = (t: Task): number | undefined => {
-    const ovr = t.plannedProgressOverride;
-    return typeof ovr === 'number' && Number.isFinite(ovr) ? clamp(ovr) : undefined;
-  };
 
   const memo = new Map<string, number | undefined>();
   const visiting = new Set<string>();
   const compute = (t: Task): number | undefined => {
     if (memo.has(t.id)) return memo.get(t.id);
-    if (visiting.has(t.id)) return leafOverride(t); // 순환 안전장치
+    if (visiting.has(t.id)) return clamp(computeLeafPlannedProgress(t, refDate, hol)); // 순환 안전장치
     visiting.add(t.id);
 
     const kids = childrenByParent.get(t.id);
     let val: number | undefined;
     if (!kids || kids.length === 0) {
-      val = leafOverride(t); // 리프: 수동값만(없으면 undefined=빈칸)
+      // 리프: 시작/종료/기준일 기반 자동 계산. hasPlannedSchedule이 false면 undefined(빈칸).
+      val = hasPlannedSchedule(t) ? clamp(computeLeafPlannedProgress(t, refDate, hol)) : undefined;
     } else {
       let totalWeight = 0;
       let weightedSum = 0;

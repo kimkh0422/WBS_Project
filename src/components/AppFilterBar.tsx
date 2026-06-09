@@ -3,7 +3,7 @@ import { cn } from '../lib/utils';
 import { ChevronDown, ChevronUp, Flag, Bug, Clock, X, User, SlidersHorizontal } from 'lucide-react';
 import { ProjectNameLabel } from './ProjectNameLabel';
 import { formatProjectDisplayName } from '../lib/projectKind';
-import { formatAssigneeDisplay } from '../lib/assigneeOptions';
+import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import type { Project, FilterState } from '../types';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -20,7 +20,7 @@ export interface AppFilterBarProps {
   user: SupabaseUser | null;
   profileMap: Record<string, string>;
   allAssignees: (string | number)[];
-  assigneeDisplayMetaByName: Record<string, any>;
+  assigneeDisplayMetaByName: Map<string, PersonDisplayMeta>;
   setCurrentProjectId: (id: string) => void;
   selectProject: (id: string) => void;
   projectsSortedByName: Project[];
@@ -85,7 +85,7 @@ export function AppFilterBar({
     (typeof filters.assignee === 'string' && filters.assignee !== '' && filters.assignee !== user?.id);
   const effectiveShowAdvanced = showAdvanced || advancedActive;
 
-  if (!filterOn || isFullscreen || view === 'projects' || view === 'allocation' || view === 'dashboard') {
+  if (!filterOn || isFullscreen || view === 'projects' || view === 'allocation' || view === 'dashboard' || view === 'todo') {
     return null;
   }
 
