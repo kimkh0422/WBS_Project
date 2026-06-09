@@ -349,12 +349,33 @@ export function WBSTable({
   const customColumnNameById = useMemo(() => {
     const map = new Map<string, string>();
     const customColumns = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
+    // 현재 프로젝트의 task에 실제 값이 들어있는 customField id 집합 (글로벌 레거시 컬럼의 표시 여부 판단용)
+    const customIdsWithData = new Set<string>();
+    if (currentProjectId !== 'all') {
+      for (const t of tasks) {
+        if (t.projectId !== currentProjectId) continue;
+        const cf = t.customFields;
+        if (!cf) continue;
+        for (const k of Object.keys(cf)) {
+          const v = cf[k];
+          if (typeof v === 'string' && v.trim().length > 0) customIdsWithData.add(k);
+        }
+      }
+    }
     for (const col of customColumns) {
       if (!col || typeof col.id !== 'string') continue;
+      if (col.projectId) {
+        // projectId가 있으면 그 프로젝트에서만 보임('all'에선 모두 표시).
+        if (currentProjectId !== 'all' && col.projectId !== currentProjectId) continue;
+      } else if (currentProjectId !== 'all') {
+        // projectId가 없는 레거시(이전 임포트로 글로벌이 된) 컬럼은 현재 프로젝트의 task에 실제 값이 있을 때만 표시.
+        // 다른 프로젝트에서 임포트되어 자기 데이터가 없는 컬럼은 자동으로 숨겨진다.
+        if (!customIdsWithData.has(col.id)) continue;
+      }
       map.set(col.id, (col.name || '').trim() || col.id.replace(/^custom:/, ''));
     }
     return map;
-  }, [wbsSettings?.customColumns]);
+  }, [wbsSettings?.customColumns, currentProjectId, tasks]);
 
   const tableColumns: { id: TableDisplayColumnId; visible: boolean }[] = useMemo(() => {
     const cols = wbsSettings?.tableColumns;
@@ -408,6 +429,21 @@ export function WBSTable({
   // gridStyle — moved below useColumnResize hook call
 
   // Bulk Edit State + executors — extracted to useWbsBulkEdit (declared below after useWbsSelection)
+
+  /** 일괄 수정 바 표시 토글: 기본 숨김 — Shift+F12로 켜고 끈다. 선택 해제·페이지 이탈로는 유지(다음 다중 선택 시 자동 노출).
+   *  의도: 다중 선택만으로 화면 하단 절반을 가리지 않도록, "필요한 사용자만 단축키로 열어서" 사용. */
+  const [isBulkBarVisible, setBulkBarVisible] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F12' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setBulkBarVisible((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
+  }, []);
 
   // Row height (density): 부모에서 rowHeight 전달 시 동기화, 없으면 자체 state
   const [rowHeightState, setRowHeightState] = useState<number>(20);
@@ -1162,7 +1198,13 @@ export function WBSTable({
       const newId = `custom:${Date.now()}`;
       const newName = '새 컬럼';
       const customCols = Array.isArray(wbsSettings?.customColumns) ? wbsSettings.customColumns : [];
-      const nextCustom = [...customCols, { id: newId, name: newName }];
+      // 새 컬럼은 현재 프로젝트 전속으로 등록한다(다른 프로젝트에 노출되지 않게).
+      // 전체보기('all')에서 추가한 경우는 글로벌(=projectId 없음)로 둔다.
+      const newCol: { id: string; name: string; projectId?: string } =
+        currentProjectId && currentProjectId !== 'all'
+          ? { id: newId, name: newName, projectId: currentProjectId }
+          : { id: newId, name: newName };
+      const nextCustom = [...customCols, newCol];
       const cols = wbsSettings?.tableColumns ?? [];
       const idx = anchorColId ? cols.findIndex((c) => c.id === anchorColId) : -1;
       let nextCols;
@@ -1175,7 +1217,7 @@ export function WBSTable({
       updateWbsSettings({ tableColumns: nextCols, customColumns: nextCustom });
       setEditingHeaderColId(newId);
     },
-    [wbsSettings?.customColumns, wbsSettings?.tableColumns, updateWbsSettings],
+    [wbsSettings?.customColumns, wbsSettings?.tableColumns, updateWbsSettings, currentProjectId],
   );
 
   const deleteCustomColumn = useCallback(
@@ -1893,8 +1935,10 @@ export function WBSTable({
           document.body,
         )}
 
-      {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보 */}
+      {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보.
+          기본 숨김 — Shift+F12로 토글한 후 다중 선택 시 노출(우상단 X로도 닫힘). */}
       {selectedTaskIds.size > 1 &&
+        isBulkBarVisible &&
         createPortal(
           <div
             className="fixed left-0 right-0 z-[100] pointer-events-none flex justify-center px-3 sm:px-4 animate-in slide-in-from-bottom-4 fade-in duration-300"
@@ -1914,9 +1958,10 @@ export function WBSTable({
                     onClick={() => {
                       setSelection(new Set());
                       resetBulkFields();
+                      setBulkBarVisible(false);
                     }}
                     className="text-white/60 hover:text-white transition-colors hover:rotate-90 duration-300"
-                    title="선택 해제"
+                    title="일괄 수정 닫기 (Shift+F12로 다시 열기)"
                   >
                     <X size={14} />
                   </button>

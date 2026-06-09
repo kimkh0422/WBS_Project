@@ -8,16 +8,15 @@ export interface NavButtonProps {
   label: string;
   title?: string;
   tourId?: string;
+  /** true면 모바일(< md)에서 버튼 자체를 숨김 */
+  mobileHidden?: boolean;
 }
 
-export function NavButton({ active, onClick, icon, label, title, tourId }: NavButtonProps) {
+export function NavButton({ active, onClick, icon, label, title, tourId, mobileHidden }: NavButtonProps) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "nav-pill",
-        active ? "nav-pill-active" : "nav-pill-inactive"
-      )}
+      className={cn('nav-pill', active ? 'nav-pill-active' : 'nav-pill-inactive', mobileHidden && 'hidden md:inline-flex')}
       title={title}
       data-tourid={tourId}
     >

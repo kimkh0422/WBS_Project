@@ -133,7 +133,21 @@ function TaskDescriptionCollabEditor({
   );
 }
 
-export function TaskModal({
+/**
+ * TaskModal — 사용자 요청으로 비활성화 (어떤 경우에도 팝업하지 않음).
+ * 호출처(WBSTable/GanttChart/KanbanBoard/MindMapView/WeeklyReportModal)는 그대로 두고
+ * 컴포넌트만 noop으로 만들어 표시되지 않게 한다. 인라인 편집(표·간트 등)에서 작업을 수정한다.
+ * 향후 복원하려면 아래 `_TaskModalLegacy`를 다시 export 하면 된다.
+ */
+export function TaskModal(_props: TaskModalProps): null {
+  return null;
+}
+
+/* 아래 _TaskModalLegacy는 비활성·보존 코드(호출되지 않음). 복원 시 이 disable 줄을 제거할 것.
+   미호출이라 훅이 실제로 실행되지 않으므로 rules-of-hooks를 비활성화한다. */
+/* eslint-disable react-hooks/rules-of-hooks */
+ 
+function _TaskModalLegacy({
   isOpen,
   onClose,
   onSave,

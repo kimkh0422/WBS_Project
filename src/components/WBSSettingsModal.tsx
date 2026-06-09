@@ -107,7 +107,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [projectDates, setProjectDates] = useState<Record<string, string>>({});
   const [projectEndDates, setProjectEndDates] = useState<Record<string, string>>({});
   const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
-  const [customColumns, setCustomColumns] = useState<Array<{ id: string; name: string }>>(wbsSettings.customColumns || []);
+  const [customColumns, setCustomColumns] = useState<Array<{ id: string; name: string; projectId?: string }>>(
+    wbsSettings.customColumns || [],
+  );
   const [levelColorsState, setLevelColorsState] = useState<RgbColor[]>(DEFAULT_LEVEL_COLORS);
   const [activeTab, setActiveTab] = useState<'basic' | 'columns' | 'status' | 'projects' | 'dashboard'>('basic');
   const [dashSectionVis, setDashSectionVis] = useState(() => readDashboardSectionVisibility());
@@ -259,9 +261,9 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    // 사용자 정의 컬럼은 일반 회원도 추가/수정/삭제 가능 (전역 공유)
+    // 사용자 정의 컬럼은 일반 회원도 추가/수정/삭제 가능. projectId가 있는 컬럼은 그 프로젝트 전속(엑셀 임포트로 생성된 컬럼)이므로 보존.
     const cleanedCustomColumns = customColumns
-      .map((c) => ({ id: c.id, name: c.name.trim() }))
+      .map((c) => ({ id: c.id, name: c.name.trim(), ...(c.projectId ? { projectId: c.projectId } : {}) }))
       .filter((c) => c.id.startsWith('custom:') && c.name.length > 0);
 
     // 전역 설정·색상·상태진척도 적용: 관리자만 (UI에서 입력은 disabled 처리되지만 방어적으로 한 번 더 차단)

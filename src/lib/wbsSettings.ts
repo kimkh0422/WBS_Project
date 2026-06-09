@@ -57,8 +57,12 @@ export interface WBSSettings {
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
   projectGroups?: ProjectGroup[];
-  /** 사용자 정의 표 컬럼 정의 */
-  customColumns?: Array<{ id: string; name: string }>;
+  /**
+   * 사용자 정의 표 컬럼 정의.
+   * projectId가 있으면 그 프로젝트 표·전체보기('all')에서만 노출되고 다른 프로젝트에선 자동 제외.
+   * projectId가 없으면 전역(모든 프로젝트). 엑셀 임포트로 추가된 컬럼은 자동으로 임포트 대상 프로젝트의 id가 들어간다.
+   */
+  customColumns?: Array<{ id: string; name: string; projectId?: string }>;
   /**
    * true: 작업표에서 작업명 컬럼에 표시용 WBS ID를 접두로 붙임(예: "P1 요구사항 정의").
    * WBS ID 컬럼 표기는 그대로이며, 저장되는 작업명(task.name)은 바뀌지 않음.

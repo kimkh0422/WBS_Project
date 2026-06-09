@@ -933,6 +933,7 @@ function WBSApp({
     setMultiMergeConfirm,
     setErrorAlert,
     setIsExportModalOpen,
+    onImportComplete: () => setView('table'),
     lastExportPrefs,
     setLastExportPrefs,
     importPreview,

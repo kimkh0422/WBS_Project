@@ -67,6 +67,8 @@ interface FileImportExportDeps {
   setMultiMergeConfirm: Dispatch<SetStateAction<MultiMergeConfirmState>>;
   setErrorAlert: Dispatch<SetStateAction<{ isOpen: boolean; message: string }>>;
   setIsExportModalOpen: (open: boolean) => void;
+  /** 가져오기 완료 직후 호출. 보통 App.tsx에서 setView('table')로 표 페이지로 이동시키는 데 사용. */
+  onImportComplete?: () => void;
   lastExportPrefs: LastExportPrefs | null;
   setLastExportPrefs: (prefs: LastExportPrefs) => void;
   importPreview: ImportPreviewState;
@@ -95,6 +97,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     setMultiMergeConfirm,
     setErrorAlert,
     setIsExportModalOpen,
+    onImportComplete,
     lastExportPrefs,
     setLastExportPrefs,
     importPreview,
@@ -461,15 +464,19 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         const allCustomColumns = importPreview.files.flatMap((f) => f.customColumns.map((c) => ({ id: c.id, name: c.name })));
         const deduped = Array.from(new Map(allCustomColumns.map((c) => [c.id, c])).values());
         await importTasks(importPreview.tasks, targetProjectId, newProjectName, deduped);
+        // importTasks 내부에서 '__new__' 경로면 새 프로젝트 ID로 setCurrentProjectId가 이미 호출됨.
+        // 기존 프로젝트 덮어쓰기 경로는 현재 UI에서 제거됐지만 방어적으로 유지.
         if (targetProjectId !== '__new__') setCurrentProjectId(targetProjectId);
         setFilters((prev) => ({ ...prev, projectIds: 'all' }));
         setImportPreview({ isOpen: false, tasks: [], files: [] });
+        // 가져오기 직후 새 프로젝트의 표로 이동(다른 뷰에 있었어도 즉시 표 페이지로 전환).
+        onImportComplete?.();
         pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
       } catch {
         /* onDbError handles toast */
       }
     },
-    [importTasks, importPreview.tasks, importPreview.files, setCurrentProjectId, setFilters, setImportPreview, pushToast],
+    [importTasks, importPreview.tasks, importPreview.files, setCurrentProjectId, setFilters, setImportPreview, onImportComplete, pushToast],
   );
 
   const executeRestoreBackup = useCallback(() => {

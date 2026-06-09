@@ -1113,6 +1113,24 @@ export function AppHeader({
           </div>
         </div>
 
+        {/* 모바일 전용: 대시보드 NavButton만 1개 표시. 클릭해도 페이지 전환 없음. */}
+        {!hiddenViews.has('dashboard') && (
+          <div className="flex md:hidden items-center w-full justify-center">
+            <NavButton
+              active={view === 'dashboard'}
+              onClick={() => {
+                /* 모바일: 페이지 전환 없음 (현재 화면 유지) */
+              }}
+              icon={<LayoutDashboard size={14} />}
+              label={dashboardNavLabel}
+              title={
+                dashboardNavLabel !== '대시보드'
+                  ? '사업부·팀·PM·사업 기간 등 프로젝트 현황을 한눈에 봅니다.'
+                  : '프로젝트·상태·인원별 현황을 한눈에 보는 요약 화면입니다.'
+              }
+            />
+          </div>
+        )}
         <div className="hidden md:flex flex-wrap gap-1 items-center w-full md:w-auto overflow-x-auto overflow-y-visible md:overflow-visible md:pb-0 md:mb-0">
           {/* 툴바: 되돌리기 / 다시실행 */}
           <div className="flex items-center gap-0.5 mr-0.5">
@@ -1488,23 +1506,7 @@ export function AppHeader({
             )}
           </div>
 
-          <button
-            data-tourid="tour-new-task"
-            onClick={() => {
-              if (!canEditCurrentProject) return;
-              setIsModalOpen(true);
-              if (tipOnce) tipOnce('menu.newTask', '새 작업을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있어요.');
-            }}
-            disabled={!canEditCurrentProject}
-            className="btn-primary !py-2 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              canEditCurrentProject
-                ? '현재 프로젝트에 새 작업 행을 추가합니다. 표 화면에서는 Enter로도 빠르게 추가할 수 있습니다.'
-                : '보기 권한만 있어 편집할 수 없습니다. 편집 가능한 프로젝트를 선택하거나 소유자에게 권한을 요청하세요.'
-            }
-          >
-            <Plus size={14} /> <span>새 작업</span>
-          </button>
+          {/* "+ 새 작업" 헤더 버튼은 제거됨 — 표 화면 하단의 「+ 새 작업 추가」 인라인 행과 단축키(Enter)로 추가한다. */}
 
           {headerRightSlot}
 

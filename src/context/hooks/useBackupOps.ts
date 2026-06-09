@@ -77,13 +77,15 @@ export function useBackupOps(deps: BackupOpsDeps) {
         setProjects((prev) => [...prev, newProject]);
         setCurrentProjectId(newProject.id);
       }
-      // 가져온 사용자 정의 컬럼 정의를 전역 설정에 등록:
-      //  - customColumns: 새 정의만 추가(같은 id는 건너뜀)
-      //  - tableColumns: 가져온 컬럼은 모두 visible: true로 보장(없으면 끝에 추가, 있으면 visible 켬). 사용자는 헤더 우클릭/설정에서 숨길 수 있음.
+      // 가져온 사용자 정의 컬럼 정의를 설정에 등록:
+      //  - customColumns: 새 정의만 추가(같은 id는 건너뜀). 임포트 대상 프로젝트의 id를 붙여 다른 프로젝트에선 자동 제외되게 한다.
+      //  - tableColumns: 가져온 컬럼은 모두 visible: true로 보장(없으면 끝에 추가, 있으면 visible 켬). 다른 프로젝트에서는 customColumnNameById 필터로 자동 제외돼 보이지 않음.
       if (addCustomColumns && addCustomColumns.length > 0) {
         setWbsSettings((prev) => {
           const existingCustomIds = new Set((prev.customColumns ?? []).map((c) => c.id));
-          const newCustomDefs = addCustomColumns.filter((c) => c && c.id && !existingCustomIds.has(c.id));
+          const newCustomDefs = addCustomColumns
+            .filter((c) => c && c.id && !existingCustomIds.has(c.id))
+            .map((c) => ({ id: c.id, name: c.name, projectId: effectiveProjectId }));
           const tableMap = new Map<string, { id: string; visible: boolean }>(
             (prev.tableColumns ?? []).map((c) => [c.id, { id: c.id, visible: c.visible !== false }]),
           );

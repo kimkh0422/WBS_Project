@@ -4,8 +4,6 @@ import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import { ExcelImportMeta, type ExcelImportFieldId } from '../lib/excel';
 import type { Project } from '../types';
-import { formatProjectDisplayName } from '../lib/projectKind';
-import { ConfirmDialog } from './ConfirmDialog';
 
 type ImportFilePreview = {
   fileName: string;
@@ -71,14 +69,7 @@ export function ExcelImportPreviewModal({
 }: ExcelImportPreviewModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const [openFiles, setOpenFiles] = useState<Record<string, boolean>>({});
-  const effectiveCurrent = currentProjectId === 'all' ? (projects[0]?.id ?? '') : currentProjectId;
-  const [targetProjectId, setTargetProjectId] = useState<string>(effectiveCurrent || IMPORT_TARGET_NEW);
   const [newProjectName, setNewProjectName] = useState('');
-  const [overwriteConfirm, setOverwriteConfirm] = useState<{
-    isOpen: boolean;
-    targetProjectId: string;
-    newProjectName?: string;
-  }>({ isOpen: false, targetProjectId: '' });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -108,13 +99,11 @@ export function ExcelImportPreviewModal({
     });
   }, [isOpen, files]);
 
-  // 모달이 열릴 때 덮어쓸 프로젝트를 현재 보고 있는 프로젝트로 디폴트 설정
+  // 모달이 열릴 때 새 프로젝트 이름 디폴트 채움
   useEffect(() => {
     if (!isOpen) return;
-    const defaultProjectId = effectiveCurrent || IMPORT_TARGET_NEW;
-    setTargetProjectId(defaultProjectId);
     setNewProjectName((prev) => prev || `가져온 프로젝트 (${new Date().toLocaleDateString('ko-KR')})`);
-  }, [isOpen, effectiveCurrent, projects]);
+  }, [isOpen]);
 
   const hasAnyUnmapped = useMemo(() => {
     return files.some((f) => f.meta.unmappedHeaders.length > 0);
@@ -149,28 +138,15 @@ export function ExcelImportPreviewModal({
               총 <span className="font-bold">{totalTaskCount.toLocaleString()}</span>개의 작업을 가져옵니다.
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">덮어쓸 프로젝트</label>
-              <select
-                value={targetProjectId}
-                onChange={(e) => setTargetProjectId(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {formatProjectDisplayName(p.name, p.projectKind)} (기존 덮어쓰기)
-                  </option>
-                ))}
-                <option value={IMPORT_TARGET_NEW}>+ 새 프로젝트 생성</option>
-              </select>
-              {targetProjectId === IMPORT_TARGET_NEW && (
-                <input
-                  type="text"
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="프로젝트 이름"
-                  className="mt-2 w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              )}
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">새 프로젝트 이름</label>
+              <input
+                type="text"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="프로젝트 이름"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <div className="mt-1 text-[11px] text-slate-500">가져오기는 항상 새 프로젝트로 생성됩니다.</div>
             </div>
             <div className="text-[12px] text-slate-500">아래는 엑셀 컬럼이 앱 필드로 어떻게 매칭되었는지의 자동 감지 결과입니다.</div>
             <div className="mt-2 inline-flex items-center gap-2 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
@@ -378,15 +354,8 @@ export function ExcelImportPreviewModal({
           className="flex justify-end gap-3 p-5 border-t border-slate-100 bg-slate-50/30"
           onSubmit={(e) => {
             e.preventDefault();
-            if (targetProjectId !== IMPORT_TARGET_NEW) {
-              setOverwriteConfirm({
-                isOpen: true,
-                targetProjectId,
-                newProjectName: undefined,
-              });
-              return;
-            }
-            onConfirm(targetProjectId, newProjectName);
+            // 항상 새 프로젝트로 생성 (기존 프로젝트 덮어쓰기는 지원하지 않음)
+            onConfirm(IMPORT_TARGET_NEW, newProjectName.trim() || '가져온 프로젝트');
             onClose();
           }}
         >
@@ -398,29 +367,6 @@ export function ExcelImportPreviewModal({
           </button>
         </form>
       </div>
-
-      <ConfirmDialog
-        isOpen={overwriteConfirm.isOpen}
-        onClose={() => setOverwriteConfirm((prev) => ({ ...prev, isOpen: false }))}
-        onConfirm={() => {
-          if (overwriteConfirm.targetProjectId) {
-            onConfirm(overwriteConfirm.targetProjectId, overwriteConfirm.newProjectName);
-            onClose();
-          }
-          setOverwriteConfirm({ isOpen: false, targetProjectId: '' });
-        }}
-        title="기존 프로젝트 덮어쓰기"
-        message={
-          overwriteConfirm.targetProjectId
-            ? `기존 프로젝트 "${(() => {
-                const tp = projects.find((p) => p.id === overwriteConfirm.targetProjectId);
-                return tp ? formatProjectDisplayName(tp.name, tp.projectKind) : '선택한 프로젝트';
-              })()}"을(를) 덮어쓸까요?\n기존 작업 데이터가 가져온 데이터로 대체됩니다.`
-            : ''
-        }
-        confirmLabel="가져오기"
-        isDanger={true}
-      />
     </div>
   );
 }

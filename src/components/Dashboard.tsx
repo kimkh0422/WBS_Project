@@ -2122,7 +2122,7 @@ export function Dashboard({
                               <span className="text-xs font-normal text-slate-400">({group.projects.length})</span>
                             </h3>
                             {group.projects.length > 0 ? (
-                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                                 {group.projects.map(renderProjectCard)}
                               </div>
                             ) : (
@@ -2134,7 +2134,7 @@ export function Dashboard({
                         ))}
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
                         {displayProjectStats.length === 0 ? (
                           <div className="col-span-full text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
                             {showUndeterminedPeriodProjectsOnly

@@ -112,7 +112,7 @@ export function DashboardHeroBand({
 
   return (
     <div className="rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-sm md:p-5">
-      <div className={cn('grid gap-2.5 sm:gap-3', mobileReadabilityMode ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>
+      <div className={cn('grid gap-2.5 sm:gap-3', mobileReadabilityMode ? 'grid-cols-1' : 'grid-cols-2 lg:grid-cols-4')}>
         {kpis.map((k) => {
           const Icon = k.icon;
           return (
