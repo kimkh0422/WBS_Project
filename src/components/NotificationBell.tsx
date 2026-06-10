@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Bell, Clock, AlertTriangle, CheckCircle, X, ArrowRight } from 'lucide-react';
+import { Bell, Clock, AlertTriangle, CheckCircle, X, ArrowRight, Handshake } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Task } from '../types';
+import type { CooperationRequest } from '../lib/db/cooperationRequests';
+import { computeCooperationNotifications, type CooperationNotification } from '../lib/notifications/cooperationNotifications';
 
 interface NotificationBellProps {
   allTasks: Task[];
@@ -10,6 +12,12 @@ interface NotificationBellProps {
   projectNameMap: Map<string, string>;
   statusNameMap: Map<string, string>;
   doneStatusIds: Set<string>;
+  /** 협조 요청 원본 데이터 — 다중 멤버 매칭으로 알림 추가 생성 */
+  cooperationRequests?: CooperationRequest[];
+  /** 협조 매칭에 사용되는 사용자 평문 이름 (currentUserDisplay 는 부서/직위 포함되어 다를 수 있음) */
+  currentUserPlainName?: string;
+  /** 협조 알림 클릭 시 대시보드의 협조요청 섹션으로 이동 */
+  onSelectCooperation?: (requestId: string) => void;
 }
 
 interface NotificationItem {
@@ -32,6 +40,9 @@ export function NotificationBell({
   projectNameMap,
   statusNameMap,
   doneStatusIds,
+  cooperationRequests = [],
+  currentUserPlainName,
+  onSelectCooperation,
 }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,7 +82,7 @@ export function NotificationBell({
   };
 
   const dismissAll = () => {
-    const ids = notifications.map((n) => n.id);
+    const ids = [...notifications.map((n) => n.id), ...cooperationNotifications.map((n) => n.id)];
     setDismissedIds((prev) => {
       const next = new Set(prev);
       ids.forEach((id) => next.add(id));
@@ -146,8 +157,17 @@ export function NotificationBell({
     return items;
   }, [allTasks, currentUserDisplay, doneStatusIds, projectNameMap]);
 
-  const activeNotifications = notifications.filter((n) => !dismissedIds.has(n.id));
-  const count = activeNotifications.length;
+  // 협조 요청 알림 계산 — 현재 사용자가 멤버에 포함된 미완료 요청만.
+  const cooperationNotifications = useMemo<CooperationNotification[]>(() => {
+    if (!currentUserPlainName) return [];
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return computeCooperationNotifications(cooperationRequests, currentUserPlainName, todayIso);
+  }, [cooperationRequests, currentUserPlainName]);
+
+  const activeTaskNotifications = notifications.filter((n) => !dismissedIds.has(n.id));
+  const activeCooperationNotifications = cooperationNotifications.filter((n) => !dismissedIds.has(n.id));
+  const activeNotifications = activeTaskNotifications;
+  const count = activeTaskNotifications.length + activeCooperationNotifications.length;
 
   return (
     <div ref={containerRef} className="relative">
@@ -189,56 +209,119 @@ export function NotificationBell({
 
           {/* 목록 */}
           <div className="max-h-[50vh] overflow-y-auto">
-            {activeNotifications.length === 0 ? (
+            {activeTaskNotifications.length === 0 && activeCooperationNotifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <CheckCircle size={24} className="mx-auto text-emerald-500 mb-2" />
                 <p className="text-sm text-[var(--color-ink-muted)]">긴급한 알림이 없습니다</p>
               </div>
             ) : (
-              activeNotifications.map((item) => (
-                <div
-                  key={item.id}
-                  className="px-4 py-2.5 flex items-start gap-3 hover:bg-[var(--color-line-soft)] transition-colors cursor-pointer group"
-                  onClick={() => {
-                    onSelectTask(item.taskId, item.projectId);
-                    setIsOpen(false);
-                  }}
-                >
+              <>
+                {activeCooperationNotifications.length > 0 && (
+                  <div className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)] flex items-center gap-1">
+                    <Handshake size={11} /> 업무 협조 요청
+                  </div>
+                )}
+                {activeCooperationNotifications.map((item) => (
                   <div
-                    className={cn(
-                      'w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
-                      item.type === 'overdue' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600',
-                    )}
-                  >
-                    {item.type === 'overdue' ? <AlertTriangle size={12} /> : <Clock size={12} />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-[var(--color-ink)] truncate">{item.taskName}</div>
-                    <div className="text-[11px] text-[var(--color-ink-muted)] break-words">{item.projectName}</div>
-                    <div className={cn('text-[10px] font-bold mt-0.5', item.type === 'overdue' ? 'text-red-500' : 'text-amber-600')}>
-                      {item.daysInfo} · 마감 {item.endDate}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dismiss(item.id);
+                    key={item.id}
+                    className="px-4 py-2.5 flex items-start gap-3 hover:bg-[var(--color-line-soft)] transition-colors cursor-pointer group"
+                    onClick={() => {
+                      onSelectCooperation?.(item.requestId);
+                      setIsOpen(false);
                     }}
-                    className="p-1 rounded text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    title="확인 (숨기기)"
                   >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))
+                    <div
+                      className={cn(
+                        'w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
+                        item.type === 'overdue'
+                          ? 'bg-red-100 text-red-600'
+                          : item.type === 'due-soon'
+                            ? 'bg-amber-100 text-amber-600'
+                            : 'bg-violet-100 text-violet-600',
+                      )}
+                    >
+                      {item.type === 'overdue' ? <AlertTriangle size={12} /> : <Handshake size={12} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[var(--color-ink)] truncate">{item.title}</div>
+                      <div className="text-[11px] text-[var(--color-ink-muted)] break-words truncate">{item.context}</div>
+                      <div
+                        className={cn(
+                          'text-[10px] font-bold mt-0.5',
+                          item.type === 'overdue' ? 'text-red-500' : item.type === 'due-soon' ? 'text-amber-600' : 'text-violet-600',
+                        )}
+                      >
+                        {item.daysInfo}
+                        {item.dueDate ? ` · 기한 ${item.dueDate}` : ''}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismiss(item.id);
+                      }}
+                      className="p-1 rounded text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      title="확인 (숨기기)"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+
+                {activeTaskNotifications.length > 0 && activeCooperationNotifications.length > 0 && (
+                  <div className="border-t border-[var(--color-line)] my-1" />
+                )}
+                {activeTaskNotifications.length > 0 && (
+                  <div className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)] flex items-center gap-1">
+                    <Clock size={11} /> 작업 기한 알림
+                  </div>
+                )}
+                {activeTaskNotifications.map((item) => (
+                  <div
+                    key={item.id}
+                    className="px-4 py-2.5 flex items-start gap-3 hover:bg-[var(--color-line-soft)] transition-colors cursor-pointer group"
+                    onClick={() => {
+                      onSelectTask(item.taskId, item.projectId);
+                      setIsOpen(false);
+                    }}
+                  >
+                    <div
+                      className={cn(
+                        'w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
+                        item.type === 'overdue' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600',
+                      )}
+                    >
+                      {item.type === 'overdue' ? <AlertTriangle size={12} /> : <Clock size={12} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[var(--color-ink)] truncate">{item.taskName}</div>
+                      <div className="text-[11px] text-[var(--color-ink-muted)] break-words">{item.projectName}</div>
+                      <div className={cn('text-[10px] font-bold mt-0.5', item.type === 'overdue' ? 'text-red-500' : 'text-amber-600')}>
+                        {item.daysInfo} · 마감 {item.endDate}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismiss(item.id);
+                      }}
+                      className="p-1 rounded text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      title="확인 (숨기기)"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </>
             )}
           </div>
 
           {/* 총 건수 */}
-          {notifications.length > 0 && (
+          {(notifications.length > 0 || cooperationNotifications.length > 0) && (
             <div className="px-4 py-2 border-t border-[var(--color-line)] text-[10px] text-[var(--color-ink-muted)]">
-              전체 {notifications.length}건 (확인 {dismissedIds.size}건)
+              전체 {notifications.length + cooperationNotifications.length}건 (확인 {dismissedIds.size}건)
             </div>
           )}
         </div>

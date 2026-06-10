@@ -125,6 +125,14 @@ export interface Task {
   customFields?: Record<string, string>;
   /** 표 셀 텍스트 스타일(열 id → 스타일). DB에는 custom_fields 내부 키로 직렬화 */
   cellTextStyles?: Record<string, CellTextStyle>;
+  /**
+   * 분기 자식 프로젝트의 task를 부모 프로젝트 view에 read-only로 복제할 때 채워지는
+   * "거울 task"임을 표시. 값은 원본(자식 프로젝트의) task id.
+   * 이 표시가 있는 task는 DB에 저장하지 않고 편집·삭제도 막는다.
+   */
+  mirroredFromTaskId?: string;
+  /** 거울 task의 원본 프로젝트(자식 프로젝트) id */
+  mirroredFromProjectId?: string;
 }
 
 export interface FilterState {

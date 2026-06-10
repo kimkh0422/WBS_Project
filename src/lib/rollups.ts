@@ -526,69 +526,63 @@ export function normalizeOrphanStatuses(tasks: Task[], statusConfigs?: Array<{ i
 }
 
 /**
- * 분기된(forked) 자식 프로젝트의 전체 진척률/일정/공수를 부모 task에 mirror(자식→부모 일방향)하고,
- * 변경된 부모 task의 조상 진척률·공수·일정도 다시 롤업한다.
- * - 자식 프로젝트가 비어 있으면 부모 task는 0%로 고정 (자식이 아직 작업을 추가하지 않은 상태).
- * - 부모 task의 일정: 분기 후 자식 프로젝트의 전체 task min(startDate)/max(endDate)을 따라간다.
- * - 부모 task의 공수: 자식 프로젝트의 root task들 공수 합 (= 자식 leaf 공수 총합과 동일).
+ * 분기된(forked) 자식 프로젝트의 task들을 부모 프로젝트 view에 read-only로 복제(거울)한다.
+ * - 자식 프로젝트의 각 task를 새 id(`mirror::<childPid>::<originalId>`)로 복제해 부모 프로젝트의
+ *   task 목록에 끼워넣고, 자식 프로젝트의 root task는 부모의 sourceTask에 자식으로 매단다.
+ * - 거울 task에는 `mirroredFromTaskId`/`mirroredFromProjectId` 표식을 붙여 UI/저장 로직이 식별할 수 있게 한다.
+ * - 거울 task가 부모 sourceTask 아래에 직접 매달리므로, 부모 task의 진척률·일정·공수는 syncParentRollups의
+ *   일반 규칙으로 자식 프로젝트 metrics와 자동 일치한다. 별도 progress mirror 로직 불필요.
+ * - tasks 입력은 그대로 두고 view 전용 사본을 반환한다(DB·편집 로직에는 영향 없음).
  */
 export function mirrorForkedProjectsAndRollUp(tasks: Task[], projects: Project[], doneStatusIds?: Set<string>): Task[] {
-  const forks = projects.filter((p) => p.sourceTaskId);
+  const forks = projects.filter((p) => p.sourceTaskId && p.sourceProjectId);
   if (forks.length === 0) return tasks;
 
-  let result = tasks;
-  const affectedProjectIds = new Set<string>();
+  const result: Task[] = [...tasks];
+  const affectedParentProjectIds = new Set<string>();
 
   for (const child of forks) {
     const sourceTaskId = child.sourceTaskId!;
-    const childTasks = result.filter((t) => t.projectId === child.id);
+    const parentProjectId = child.sourceProjectId!;
+    const childTasks = tasks.filter((t) => t.projectId === child.id);
+    if (childTasks.length === 0) continue;
 
-    let mirrorProgress = 0;
-    let mirrorStart: string | undefined;
-    let mirrorEnd: string | undefined;
-    let mirrorEffort: number | undefined;
+    const mirroredIdMap = new Map<string, string>();
+    for (const t of childTasks) mirroredIdMap.set(t.id, `mirror::${child.id}::${t.id}`);
 
-    if (childTasks.length > 0) {
-      const metrics = computeProjectRollupMetrics(child, childTasks);
-      mirrorProgress = metrics.progress;
-      const starts = childTasks.map((t) => t.startDate).filter(Boolean) as string[];
-      const ends = childTasks.map((t) => t.endDate).filter(Boolean) as string[];
-      mirrorStart = starts.length > 0 ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
-      mirrorEnd = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
-      const rootEffort = childTasks
-        .filter((t) => !t.parentId)
-        .reduce((s, t) => s + (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) ? t.workEffort : 0), 0);
-      mirrorEffort = round2(rootEffort);
-    }
-
-    let mirrorChanged = false;
-    const next = result.map((t) => {
-      if (t.id !== sourceTaskId) return t;
-      const newProgress = mirrorProgress;
-      const newStart = mirrorStart ?? t.startDate;
-      const newEnd = mirrorEnd ?? t.endDate;
-      const newEffort = mirrorEffort !== undefined ? mirrorEffort : t.workEffort;
-      if (t.progress === newProgress && t.startDate === newStart && t.endDate === newEnd && t.workEffort === newEffort) {
-        return t;
+    for (const t of childTasks) {
+      const newId = mirroredIdMap.get(t.id)!;
+      let newParentId: string | null;
+      if (!t.parentId) {
+        // 자식 프로젝트의 root → 부모 프로젝트의 sourceTask 아래로 매달림
+        newParentId = sourceTaskId;
+      } else if (mirroredIdMap.has(t.parentId)) {
+        newParentId = mirroredIdMap.get(t.parentId)!;
+      } else {
+        newParentId = sourceTaskId;
       }
-      mirrorChanged = true;
-      affectedProjectIds.add(t.projectId);
-      return {
+      const newDeps = (t.dependencies ?? []).map((depId) => mirroredIdMap.get(depId)).filter((id): id is string => !!id);
+      result.push({
         ...t,
-        progress: newProgress,
-        startDate: newStart,
-        endDate: newEnd,
-        workEffort: newEffort,
-      };
-    });
-    if (mirrorChanged) result = next;
+        id: newId,
+        projectId: parentProjectId,
+        parentId: newParentId,
+        dependencies: newDeps,
+        mirroredFromTaskId: t.id,
+        mirroredFromProjectId: child.id,
+        updatedAt: undefined,
+      });
+    }
+    affectedParentProjectIds.add(parentProjectId);
   }
 
-  if (affectedProjectIds.size === 0) return tasks;
-  for (const pid of affectedProjectIds) {
-    result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
+  // 거울 자식들이 sourceTask 아래에 매달렸으므로 부모 프로젝트의 롤업을 다시 수행하여
+  // 부모 task의 progress·일정·공수가 자식 프로젝트 metrics와 일치하도록 한다.
+  let rolled = result;
+  for (const pid of affectedParentProjectIds) {
+    rolled = recomputeProjectRollups(rolled, pid, doneStatusIds, undefined, true);
   }
-  return result;
+  return rolled;
 }
 
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/진척률을 하위 작업 기준으로 롤업 */

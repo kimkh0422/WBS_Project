@@ -24,18 +24,36 @@ function normalizeStatus(v: unknown): CooperationRequestStatus {
   return (COOPERATION_REQUEST_STATUSES as readonly string[]).includes(v as string) ? (v as CooperationRequestStatus) : '요청완료';
 }
 
-/** 담당 종류 — 인원 1명 또는 조직(부서/팀) 1개 */
-export const COOPERATION_ASSIGNEE_KINDS = ['person', 'org'] as const;
+/**
+ * 담당 종류 — 다중 선택 모델:
+ * - 'person' = 인원만 선택됨
+ * - 'org'    = 조직만 선택됨
+ * - 'mixed'  = 조직 + 인원 혼합
+ * 표시(아이콘 등) 보조용. 실제 선택 정보는 assigneeOrgIds + memberProgress(direct=true)에 있다.
+ */
+export const COOPERATION_ASSIGNEE_KINDS = ['person', 'org', 'mixed'] as const;
 export type CooperationAssigneeKind = (typeof COOPERATION_ASSIGNEE_KINDS)[number];
 function normalizeAssigneeKind(v: unknown): CooperationAssigneeKind {
-  return v === 'org' ? 'org' : 'person';
+  return v === 'org' || v === 'mixed' ? v : 'person';
+}
+
+/** 조직 ID(들) + 직접 추가 인원 정보에서 kind를 자동 추론. */
+export function deriveAssigneeKind(orgIds: string[], directPersonCount: number): CooperationAssigneeKind {
+  const hasOrg = orgIds.length > 0;
+  const hasPerson = directPersonCount > 0;
+  if (hasOrg && hasPerson) return 'mixed';
+  if (hasOrg) return 'org';
+  return 'person';
 }
 
 /**
- * 조직 대상일 때 멤버별 완료 추적용 1건.
+ * 멤버별 완료 추적용 1건.
  * - name/department/position: 사람 식별을 위한 표시 정보(스냅샷). 조직도가 바뀌어도 과거 이력은 그대로 보존된다.
  * - status: 협조 요청 전체 상태와 동일한 어휘. 인원 단위로 진척을 다르게 두기 위함.
  * - completedAt: '완료' 처리된 날짜.
+ * - sourceOrgIds: 이 멤버가 자동 포함된 조직(들)의 id. 다중 조직 선택 시 한 멤버가 둘 이상의 조직에 속해도 1행만 유지.
+ * - direct: 인원 picker로 직접 추가한 경우 true. 조직 자동 추가만 있다면 false.
+ *   - 조직 선택 해제 시 sourceOrgIds 갱신 후 sourceOrgIds가 비고 direct=false 이면 항목 제거.
  */
 export type CooperationMemberProgress = {
   name: string;
@@ -43,6 +61,8 @@ export type CooperationMemberProgress = {
   position: string;
   status: CooperationRequestStatus;
   completedAt: string;
+  sourceOrgIds: string[];
+  direct: boolean;
 };
 
 /** 업무 협조 요청 1건 */
@@ -58,13 +78,15 @@ export type CooperationRequest = {
   title: string;
   detail: string;
   requester: string;
-  /** 담당자(표시명). person이면 인원 이름, org이면 조직(부서) 이름. */
+  /** 담당자(표시명). 다중 선택 시 "운영기술개발실, 김길용 외 2명" 같이 합산해 표시. */
   assignee: string;
-  /** 담당 종류: 인원 또는 조직 */
+  /** 담당 종류 자동 추론값(person/org/mixed). 표시·필터링 보조용. */
   assigneeKind: CooperationAssigneeKind;
-  /** 조직 대상일 때 org_nodes.id (인원 대상이면 null) */
+  /** 선택된 조직(부서/팀) ID 0..N개. */
+  assigneeOrgIds: string[];
+  /** 호환용 단일 컬럼(첫 번째 org id). 신규 로직은 assigneeOrgIds 사용. */
   assigneeOrgId: string | null;
-  /** 조직 대상일 때 멤버별 추적. 인원 대상이면 빈 배열. */
+  /** 인원 단위 진행 추적. 조직 자동 멤버 + direct로 추가한 인원 모두 포함. */
   memberProgress: CooperationMemberProgress[];
   priority: CooperationRequestPriority;
   /** 기한·완료예정일 */
@@ -101,6 +123,7 @@ type CooperationRequestDbRow = {
   assignee: string | null;
   assignee_kind: string | null;
   assignee_org_id: string | null;
+  assignee_org_ids: string[] | null;
   member_progress: unknown;
   priority: string | null;
   due_date: string | null;
@@ -118,9 +141,12 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, member_progress, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
 
-/** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다. */
+/** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다.
+ *  과거에 sourceOrgIds/direct 없이 저장된 행도 안전하게 호환:
+ *  - sourceOrgIds 누락 → 빈 배열
+ *  - direct 누락 → false (단, sourceOrgIds도 비어 있으면 legacy 단일 조직 데이터로 간주해 direct=true로 보정) */
 function normalizeMemberProgress(raw: unknown): CooperationMemberProgress[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -129,15 +155,26 @@ function normalizeMemberProgress(raw: unknown): CooperationMemberProgress[] {
       const o = r as Record<string, unknown>;
       const name = typeof o.name === 'string' ? o.name : '';
       if (!name) return null;
+      const sourceOrgIds = Array.isArray(o.sourceOrgIds) ? o.sourceOrgIds.filter((x): x is string => typeof x === 'string') : [];
+      const directRaw = o.direct;
+      const direct = typeof directRaw === 'boolean' ? directRaw : sourceOrgIds.length === 0;
       return {
         name,
         department: typeof o.department === 'string' ? o.department : '',
         position: typeof o.position === 'string' ? o.position : '',
         status: normalizeStatus(o.status),
         completedAt: typeof o.completedAt === 'string' ? o.completedAt : '',
+        sourceOrgIds,
+        direct,
       };
     })
     .filter((x): x is CooperationMemberProgress => x !== null);
+}
+
+/** orgIds 문자열 배열 정규화. */
+function normalizeOrgIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is string => typeof x === 'string' && x.length > 0);
 }
 
 /**
@@ -169,6 +206,9 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 function mapRow(r: CooperationRequestDbRow): CooperationRequest {
+  // 마이그레이션 직후 일부 행에 assignee_org_ids 가 비어 있을 수 있어 단일 assignee_org_id 로 폴백.
+  const orgIds = normalizeOrgIds(r.assignee_org_ids);
+  const orgIdsResolved = orgIds.length > 0 ? orgIds : r.assignee_org_id ? [r.assignee_org_id] : [];
   return {
     id: r.id,
     mgmtId: str(r.mgmt_id),
@@ -180,7 +220,8 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     requester: str(r.requester),
     assignee: str(r.assignee),
     assigneeKind: normalizeAssigneeKind(r.assignee_kind),
-    assigneeOrgId: r.assignee_org_id ?? null,
+    assigneeOrgIds: orgIdsResolved,
+    assigneeOrgId: r.assignee_org_id ?? orgIdsResolved[0] ?? null,
     memberProgress: normalizeMemberProgress(r.member_progress),
     priority: normalizePriority(r.priority),
     dueDate: str(r.due_date),
@@ -229,6 +270,12 @@ function loadLocal(): CooperationRequest[] {
         requester: str(r.requester),
         assignee: str(r.assignee),
         assigneeKind: normalizeAssigneeKind(r.assigneeKind),
+        assigneeOrgIds: (() => {
+          const arr = normalizeOrgIds(r.assigneeOrgIds);
+          if (arr.length > 0) return arr;
+          const single = typeof r.assigneeOrgId === 'string' ? r.assigneeOrgId : '';
+          return single ? [single] : [];
+        })(),
         assigneeOrgId: typeof r.assigneeOrgId === 'string' ? r.assigneeOrgId : null,
         memberProgress: normalizeMemberProgress(r.memberProgress),
         priority: normalizePriority(r.priority),
@@ -298,6 +345,7 @@ export function nextMgmtId(rows: CooperationRequest[], prefix = 'REQ'): string {
 export async function insertCooperationRequest(userId: string | null, input: CooperationRequestInput): Promise<CooperationRequest> {
   if (isLocalOnly()) {
     const ts = nowIso();
+    const orgIds = normalizeOrgIds(input.assigneeOrgIds);
     const row: CooperationRequest = {
       ...input,
       progress: clampProgress(input.progress),
@@ -305,6 +353,8 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
       priority: normalizePriority(input.priority),
       status: normalizeStatus(input.status),
       assigneeKind: normalizeAssigneeKind(input.assigneeKind),
+      assigneeOrgIds: orgIds,
+      assigneeOrgId: orgIds[0] ?? input.assigneeOrgId ?? null,
       memberProgress: normalizeMemberProgress(input.memberProgress),
       id: randomUUID(),
       createdBy: userId,
@@ -316,6 +366,7 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     saveLocal(list);
     return row;
   }
+  const orgIds = normalizeOrgIds(input.assigneeOrgIds);
   const payload: Record<string, unknown> = {
     mgmt_id: input.mgmtId,
     project_id: input.projectId,
@@ -326,7 +377,8 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     requester: input.requester,
     assignee: input.assignee,
     assignee_kind: normalizeAssigneeKind(input.assigneeKind),
-    assignee_org_id: input.assigneeOrgId,
+    assignee_org_id: orgIds[0] ?? input.assigneeOrgId ?? null,
+    assignee_org_ids: orgIds,
     member_progress: normalizeMemberProgress(input.memberProgress),
     priority: normalizePriority(input.priority),
     due_date: input.dueDate || null,
@@ -341,7 +393,27 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
   };
   const { data, error } = await supabase!.from(TABLE).insert(payload).select(COLUMNS).single();
   if (error) throw error;
-  return mapRow(data as CooperationRequestDbRow);
+  const mapped = mapRow(data as CooperationRequestDbRow);
+  // 메일 알림 발송 — 실패해도 등록 자체는 성공으로 처리(메일 미설정 환경에서도 동작).
+  void notifyByEmail(mapped.id, 'created');
+  return mapped;
+}
+
+/**
+ * 협조 요청 알림 메일 — Supabase Edge Function (send-cooperation-email) 호출.
+ * 실패는 조용히 무시(메일 설정 안 된 환경에서도 협조 요청 동작은 막지 않음).
+ * 로컬 dev 우회 모드에서는 호출하지 않음.
+ */
+async function notifyByEmail(requestId: string, mode: 'created' | 'updated' | 'status-change'): Promise<void> {
+  if (isLocalOnly()) return;
+  try {
+    await supabase!.functions.invoke('send-cooperation-email', {
+      body: { requestId, mode },
+    });
+  } catch (e) {
+    // 메일 미설정·Edge Function 미배포 등은 무시
+    if (typeof console !== 'undefined' && console.warn) console.warn('[cooperation] 메일 발송 호출 실패:', e);
+  }
 }
 
 export async function updateCooperationRequest(id: string, patch: CooperationRequestPatch): Promise<CooperationRequest> {
@@ -349,6 +421,7 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
     const list = loadLocal();
     const idx = list.findIndex((r) => r.id === id);
     if (idx < 0) throw new Error('항목을 찾을 수 없습니다.');
+    const mergedOrgIds = patch.assigneeOrgIds !== undefined ? normalizeOrgIds(patch.assigneeOrgIds) : list[idx].assigneeOrgIds;
     const merged: CooperationRequest = {
       ...list[idx],
       ...patch,
@@ -357,6 +430,8 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
       priority: patch.priority !== undefined ? normalizePriority(patch.priority) : list[idx].priority,
       status: patch.status !== undefined ? normalizeStatus(patch.status) : list[idx].status,
       assigneeKind: patch.assigneeKind !== undefined ? normalizeAssigneeKind(patch.assigneeKind) : list[idx].assigneeKind,
+      assigneeOrgIds: mergedOrgIds,
+      assigneeOrgId: mergedOrgIds[0] ?? null,
       memberProgress: patch.memberProgress !== undefined ? normalizeMemberProgress(patch.memberProgress) : list[idx].memberProgress,
       updatedAt: nowIso(),
     };
@@ -374,7 +449,15 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.requester !== undefined) payload.requester = patch.requester;
   if (patch.assignee !== undefined) payload.assignee = patch.assignee;
   if (patch.assigneeKind !== undefined) payload.assignee_kind = normalizeAssigneeKind(patch.assigneeKind);
-  if (patch.assigneeOrgId !== undefined) payload.assignee_org_id = patch.assigneeOrgId;
+  if (patch.assigneeOrgIds !== undefined) {
+    const arr = normalizeOrgIds(patch.assigneeOrgIds);
+    payload.assignee_org_ids = arr;
+    // 호환을 위한 단일 컬럼도 같이 갱신(첫 번째 값).
+    payload.assignee_org_id = arr[0] ?? null;
+  } else if (patch.assigneeOrgId !== undefined) {
+    payload.assignee_org_id = patch.assigneeOrgId;
+    payload.assignee_org_ids = patch.assigneeOrgId ? [patch.assigneeOrgId] : [];
+  }
   if (patch.memberProgress !== undefined) payload.member_progress = normalizeMemberProgress(patch.memberProgress);
   if (patch.priority !== undefined) payload.priority = normalizePriority(patch.priority);
   if (patch.dueDate !== undefined) payload.due_date = patch.dueDate || null;
@@ -387,7 +470,14 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.sortOrder !== undefined) payload.sort_order = patch.sortOrder;
   const { data, error } = await supabase!.from(TABLE).update(payload).eq('id', id).select(COLUMNS).single();
   if (error) throw error;
-  return mapRow(data as CooperationRequestDbRow);
+  const mapped = mapRow(data as CooperationRequestDbRow);
+  // 현황(status) 변경 또는 멤버/제목 등 주요 필드 변경 시에만 메일 발송 — 사소한 편집은 스팸 방지로 미발송.
+  const isStatusChange = patch.status !== undefined || patch.memberProgress !== undefined;
+  const isContentChange = patch.title !== undefined || patch.detail !== undefined || patch.dueDate !== undefined;
+  if (isStatusChange || isContentChange) {
+    void notifyByEmail(mapped.id, isStatusChange && !isContentChange ? 'status-change' : 'updated');
+  }
+  return mapped;
 }
 
 export async function deleteCooperationRequest(id: string): Promise<void> {
@@ -412,6 +502,7 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     requester: '',
     assignee: '',
     assigneeKind: 'person',
+    assigneeOrgIds: [],
     assigneeOrgId: null,
     memberProgress: [],
     priority: '중',

@@ -500,19 +500,6 @@ export function WBSProvider({
     loadData();
   }, [useLocalOnly, user?.id]);
 
-  // ─── 분기 자식 프로젝트 → 부모 task mirror ────────────────────────────────
-  // forkTaskToProject로 만든 자식 프로젝트의 전체 진척률/일정/공수를 부모 task에 자동 반영.
-  // projects나 allTasks가 변할 때마다 변화가 있을 때만 setAllTasks를 호출(무한 루프 방지).
-  useEffect(() => {
-    if (isLoading) return;
-    if (!projects.some((p) => p.sourceTaskId)) return;
-    const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
-    setAllTasks((prev) => {
-      const next = mirrorForkedProjectsAndRollUp(prev, projects, doneStatusIds);
-      return next === prev ? prev : next;
-    });
-  }, [allTasks, projects, wbsSettings.statusConfigs, isLoading]);
-
   // ─── 로컬 저장 (IndexedDB/localStorage) ────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
@@ -1231,9 +1218,17 @@ export function WBSProvider({
   allTasksRef.current = allTasks;
 
   // ─── Derived 상태 ──────────────────────────────────────────────────────────
+  // 분기된 자식 프로젝트의 전체 진척률·일정·공수를 부모 task에 mirror한 view 전용 사본.
+  // raw `allTasks` state는 그대로 두고(편집·DB 저장 로직 영향 없음), 표시·집계 경로에만 mirror 적용.
+  const mirroredAllTasks = React.useMemo(() => {
+    if (!projects.some((p) => p.sourceTaskId)) return allTasks;
+    const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
+    return mirrorForkedProjectsAndRollUp(allTasks, projects, doneStatusIds);
+  }, [allTasks, projects, wbsSettings.statusConfigs]);
+
   const tasks = React.useMemo(
-    () => (currentProjectId === 'all' ? allTasks : allTasks.filter((t) => t.projectId === currentProjectId)),
-    [allTasks, currentProjectId],
+    () => (currentProjectId === 'all' ? mirroredAllTasks : mirroredAllTasks.filter((t) => t.projectId === currentProjectId)),
+    [mirroredAllTasks, currentProjectId],
   );
 
   const { wbsMap, displayWbsMap } = React.useMemo(() => {
@@ -1315,7 +1310,7 @@ export function WBSProvider({
   // ─── Context Value ─────────────────────────────────────────────────────────
   const contextValue = React.useMemo(
     () => ({
-      allTasks,
+      allTasks: mirroredAllTasks,
       tasks,
       projects,
       editableProjectIds,
@@ -1384,7 +1379,7 @@ export function WBSProvider({
       isLoading,
     }),
     [
-      allTasks,
+      mirroredAllTasks,
       tasks,
       projects,
       editableProjectIds,

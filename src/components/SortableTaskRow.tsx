@@ -764,6 +764,15 @@ function SortableTaskRowInner({
                   >
                     {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
                     {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
+                    {task.mirroredFromTaskId && task.mirroredFromProjectId && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0"
+                        title="이 행은 분기된 자식 프로젝트의 작업을 읽기 전용으로 보여줍니다. 편집하려면 자식 프로젝트에서 여세요."
+                      >
+                        <GitBranch size={11} aria-hidden />
+                        자식
+                      </span>
+                    )}
                     {forkedChildProject && (
                       <button
                         type="button"

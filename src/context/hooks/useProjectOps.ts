@@ -342,15 +342,18 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         }
       }
 
-      // 새 task id 매핑
+      // 원본 sourceTask 자체 + 모든 자손을 자식 프로젝트로 복제.
+      // 자식 프로젝트의 root = 분기한 task의 복사본 → 사용자가 자식 프로젝트의 최상위에서
+      // 원본 작업 이름·일정을 그대로 본다.
+      const tasksToClone: Task[] = [sourceTask, ...descendantTasks];
       const taskIdMap = new Map<string, string>();
-      for (const t of descendantTasks) taskIdMap.set(t.id, uuidv4());
+      for (const t of tasksToClone) taskIdMap.set(t.id, uuidv4());
 
-      const newTasks: Task[] = descendantTasks.map((t) => {
+      const newTasks: Task[] = tasksToClone.map((t) => {
         const newId = taskIdMap.get(t.id)!;
         let newParentId: string | null;
-        if (t.parentId === sourceTaskId) {
-          newParentId = null; // 분기된 자식 프로젝트의 root task가 됨
+        if (t.id === sourceTaskId) {
+          newParentId = null; // 분기한 task 자체가 자식 프로젝트의 root
         } else if (t.parentId && taskIdMap.has(t.parentId)) {
           newParentId = taskIdMap.get(t.parentId)!;
         } else {

@@ -1702,7 +1702,7 @@ export function WBSTable({
                                 rangeAnchorRef.current = id;
                                 setAnchorTaskId(id);
                               }}
-                              canEdit={canEditCurrentProject}
+                              canEdit={canEditCurrentProject && !task.mirroredFromTaskId}
                               onEdit={setEditingTask}
                               onDeleteClick={handleDeleteClick}
                               onContextMenu={handleContextMenu}
@@ -2466,197 +2466,214 @@ export function WBSTable({
                   }
                   return headerActions;
                 })()
-              : [
-                  ...(contextMenu.columnId === 'progress' || contextMenu.columnId === 'status'
-                    ? [
-                        {
-                          label: '갱신',
-                          icon: <RefreshCw size={14} />,
-                          onClick: handleSyncProgressFromStatus,
+              : (() => {
+                  // mirror task(자식 프로젝트의 거울)는 부모 프로젝트에서 read-only.
+                  // 자식 프로젝트로 이동하는 단일 메뉴만 제공한다.
+                  const taskForMenu = contextMenu.taskId ? tasks.find((t) => t.id === contextMenu.taskId) : undefined;
+                  if (taskForMenu?.mirroredFromTaskId && taskForMenu?.mirroredFromProjectId) {
+                    return [
+                      {
+                        label: '자식 프로젝트에서 열기',
+                        icon: <GitBranch size={14} />,
+                        onClick: () => {
+                          setCurrentProjectId(taskForMenu.mirroredFromProjectId!);
+                          setContextMenu(null);
                         },
-                      ]
-                    : []),
-                  // 진척 셀 우클릭 — 진척률을 현재 계획율(자동)로 일괄 설정 (종료된 작업은 100%, 진행중은 일정 진행률).
-                  ...(canEditCurrentProject && contextMenu.columnId === 'progress'
-                    ? [
-                        {
-                          label: '진척률 = 계획율(자동)',
-                          icon: <Equal size={14} />,
-                          onClick: () => {
-                            const ids =
-                              selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
-                                ? Array.from(selectedTaskIds)
-                                : contextMenu.taskId
-                                  ? [contextMenu.taskId]
-                                  : [];
-                            let n = 0;
-                            for (const id of ids) {
-                              const t = tasks.find((x) => x.id === id);
-                              if (!t) continue;
-                              const planned = plannedProgressById.get(t.id);
-                              if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
-                              const v = round2(planned);
-                              if (Number(t.progress ?? 0) !== v) {
-                                updateTask(t.id, { progress: v });
-                                n += 1;
-                              }
-                            }
-                            pushToast(n > 0 ? `진척률을 계획율로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다.', {
-                              variant: n > 0 ? 'success' : 'info',
-                            });
-                            setContextMenu(null);
+                      },
+                    ];
+                  }
+                  return [
+                    ...(contextMenu.columnId === 'progress' || contextMenu.columnId === 'status'
+                      ? [
+                          {
+                            label: '갱신',
+                            icon: <RefreshCw size={14} />,
+                            onClick: handleSyncProgressFromStatus,
                           },
-                        },
-                      ]
-                    : []),
-                  // (계획율 수동 지정 기능 제거됨 — 계획율은 시작일·종료일 기반 자동 계산만 사용)
-                  {
-                    label: '수정',
-                    icon: <Edit2 size={14} />,
-                    onClick: () => {
-                      const task = tasks.find((t) => t.id === contextMenu.taskId);
-                      if (task) setEditingTask(task);
+                        ]
+                      : []),
+                    // 진척 셀 우클릭 — 진척률을 현재 계획율(자동)로 일괄 설정 (종료된 작업은 100%, 진행중은 일정 진행률).
+                    ...(canEditCurrentProject && contextMenu.columnId === 'progress'
+                      ? [
+                          {
+                            label: '진척률 = 계획율(자동)',
+                            icon: <Equal size={14} />,
+                            onClick: () => {
+                              const ids =
+                                selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                                  ? Array.from(selectedTaskIds)
+                                  : contextMenu.taskId
+                                    ? [contextMenu.taskId]
+                                    : [];
+                              let n = 0;
+                              for (const id of ids) {
+                                const t = tasks.find((x) => x.id === id);
+                                if (!t) continue;
+                                const planned = plannedProgressById.get(t.id);
+                                if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
+                                const v = round2(planned);
+                                if (Number(t.progress ?? 0) !== v) {
+                                  updateTask(t.id, { progress: v });
+                                  n += 1;
+                                }
+                              }
+                              pushToast(n > 0 ? `진척률을 계획율로 맞췄습니다. (${n}개 작업)` : '변경 사항이 없습니다.', {
+                                variant: n > 0 ? 'success' : 'info',
+                              });
+                              setContextMenu(null);
+                            },
+                          },
+                        ]
+                      : []),
+                    // (계획율 수동 지정 기능 제거됨 — 계획율은 시작일·종료일 기반 자동 계산만 사용)
+                    {
+                      label: '수정',
+                      icon: <Edit2 size={14} />,
+                      onClick: () => {
+                        const task = tasks.find((t) => t.id === contextMenu.taskId);
+                        if (task) setEditingTask(task);
+                      },
                     },
-                  },
-                  {
-                    label: '하위 작업 추가',
-                    icon: <CornerDownRight size={14} />,
-                    onClick: () => {
-                      const parent = tasks.find((t) => t.id === contextMenu.taskId);
-                      if (parent) {
-                        const proj = projects.find((p) => p.id === (parent.projectId || currentProjectId));
-                        const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-                        setEditingTask({
-                          id: '', // New task marker
-                          parentId: parent.id,
-                          name: '',
-                          startDate: defaultDate,
-                          endDate: defaultDate,
-                          progress: 0,
-                          assignee: '',
-                          status: 'todo',
-                        } as Task);
-                      }
+                    {
+                      label: '하위 작업 추가',
+                      icon: <CornerDownRight size={14} />,
+                      onClick: () => {
+                        const parent = tasks.find((t) => t.id === contextMenu.taskId);
+                        if (parent) {
+                          const proj = projects.find((p) => p.id === (parent.projectId || currentProjectId));
+                          const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+                          setEditingTask({
+                            id: '', // New task marker
+                            parentId: parent.id,
+                            name: '',
+                            startDate: defaultDate,
+                            endDate: defaultDate,
+                            progress: 0,
+                            assignee: '',
+                            status: 'todo',
+                          } as Task);
+                        }
+                      },
                     },
-                  },
-                  ...(contextMenu.taskId && canEditCurrentProject
-                    ? (() => {
-                        const taskId = contextMenu.taskId;
-                        const already = forkedProjectsByTaskId.get(taskId);
-                        if (already) {
+                    ...(contextMenu.taskId && canEditCurrentProject
+                      ? (() => {
+                          const taskId = contextMenu.taskId;
+                          const already = forkedProjectsByTaskId.get(taskId);
+                          if (already) {
+                            return [
+                              {
+                                label: `분기 프로젝트로 이동 (${already.name})`,
+                                icon: <GitBranch size={14} />,
+                                onClick: () => {
+                                  setCurrentProjectId(already.id);
+                                  setContextMenu(null);
+                                },
+                              },
+                            ];
+                          }
                           return [
                             {
-                              label: `분기 프로젝트로 이동 (${already.name})`,
+                              label: '신규 프로젝트로 분기...',
                               icon: <GitBranch size={14} />,
                               onClick: () => {
-                                setCurrentProjectId(already.id);
+                                const task = tasks.find((t) => t.id === taskId);
+                                if (!task) return;
+                                const proj = projects.find((p) => p.id === task.projectId);
+                                if (!proj) {
+                                  pushToast('원본 프로젝트를 찾을 수 없습니다.', { variant: 'error' });
+                                  return;
+                                }
+                                // descendants 개수 계산 (안내용)
+                                const childrenBy = new Map<string, string[]>();
+                                for (const t of tasks) {
+                                  if (!t.parentId || t.projectId !== task.projectId) continue;
+                                  const arr = childrenBy.get(t.parentId);
+                                  if (arr) arr.push(t.id);
+                                  else childrenBy.set(t.parentId, [t.id]);
+                                }
+                                let count = 0;
+                                const stack = [taskId];
+                                while (stack.length) {
+                                  const id = stack.pop()!;
+                                  const ch = childrenBy.get(id);
+                                  if (!ch) continue;
+                                  for (const cid of ch) {
+                                    count++;
+                                    stack.push(cid);
+                                  }
+                                }
+                                setForkTarget({ sourceTask: task, sourceProject: proj, descendantCount: count });
                                 setContextMenu(null);
                               },
                             },
                           ];
-                        }
-                        return [
+                        })()
+                      : []),
+                    ...(canEditCurrentProject && selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                      ? [
                           {
-                            label: '신규 프로젝트로 분기...',
-                            icon: <GitBranch size={14} />,
+                            label: '선행 순차 연결',
+                            icon: <Link2 size={14} />,
                             onClick: () => {
-                              const task = tasks.find((t) => t.id === taskId);
-                              if (!task) return;
-                              const proj = projects.find((p) => p.id === task.projectId);
-                              if (!proj) {
-                                pushToast('원본 프로젝트를 찾을 수 없습니다.', { variant: 'error' });
-                                return;
-                              }
-                              // descendants 개수 계산 (안내용)
-                              const childrenBy = new Map<string, string[]>();
-                              for (const t of tasks) {
-                                if (!t.parentId || t.projectId !== task.projectId) continue;
-                                const arr = childrenBy.get(t.parentId);
-                                if (arr) arr.push(t.id);
-                                else childrenBy.set(t.parentId, [t.id]);
-                              }
-                              let count = 0;
-                              const stack = [taskId];
-                              while (stack.length) {
-                                const id = stack.pop()!;
-                                const ch = childrenBy.get(id);
-                                if (!ch) continue;
-                                for (const cid of ch) {
-                                  count++;
-                                  stack.push(cid);
-                                }
-                              }
-                              setForkTarget({ sourceTask: task, sourceProject: proj, descendantCount: count });
+                              const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+                              if (ordered.length >= 2) linkSequentialPredecessors(ordered);
                               setContextMenu(null);
                             },
                           },
-                        ];
-                      })()
-                    : []),
-                  ...(canEditCurrentProject && selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
-                    ? [
-                        {
-                          label: '선행 순차 연결',
-                          icon: <Link2 size={14} />,
-                          onClick: () => {
-                            const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
-                            if (ordered.length >= 2) linkSequentialPredecessors(ordered);
-                            setContextMenu(null);
+                        ]
+                      : []),
+                    ...(contextMenu.taskId &&
+                    !(
+                      sortConfig !== null ||
+                      filters.status !== 'all' ||
+                      filters.assignee ||
+                      filters.startDate ||
+                      filters.endDate ||
+                      !!filters.milestoneOnly ||
+                      !!filters.issueOnly
+                    )
+                      ? [
+                          {
+                            label: '위로 이동 (Alt+↑)',
+                            icon: <ArrowUp size={14} />,
+                            onClick: () => {
+                              moveTask(contextMenu.taskId!, 'up');
+                              setContextMenu(null);
+                            },
                           },
-                        },
-                      ]
-                    : []),
-                  ...(contextMenu.taskId &&
-                  !(
-                    sortConfig !== null ||
-                    filters.status !== 'all' ||
-                    filters.assignee ||
-                    filters.startDate ||
-                    filters.endDate ||
-                    !!filters.milestoneOnly ||
-                    !!filters.issueOnly
-                  )
-                    ? [
-                        {
-                          label: '위로 이동 (Alt+↑)',
-                          icon: <ArrowUp size={14} />,
-                          onClick: () => {
-                            moveTask(contextMenu.taskId!, 'up');
-                            setContextMenu(null);
+                          {
+                            label: '아래로 이동 (Alt+↓)',
+                            icon: <ArrowDown size={14} />,
+                            onClick: () => {
+                              moveTask(contextMenu.taskId!, 'down');
+                              setContextMenu(null);
+                            },
                           },
-                        },
-                        {
-                          label: '아래로 이동 (Alt+↓)',
-                          icon: <ArrowDown size={14} />,
-                          onClick: () => {
-                            moveTask(contextMenu.taskId!, 'down');
-                            setContextMenu(null);
+                        ]
+                      : []),
+                    ...(canEditCurrentProject
+                      ? [
+                          {
+                            label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
+                            icon: <Trash2 size={14} />,
+                            danger: true,
+                            onClick: () => {
+                              if (selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)) {
+                                setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
+                              } else if (contextMenu.taskId) {
+                                handleDeleteClick(contextMenu.taskId);
+                              }
+                            },
                           },
-                        },
-                      ]
-                    : []),
-                  ...(canEditCurrentProject
-                    ? [
-                        {
-                          label: `삭제 ${selectedTaskIds.size > 1 ? `(${selectedTaskIds.size})` : ''}`,
-                          icon: <Trash2 size={14} />,
-                          danger: true,
-                          onClick: () => {
-                            if (selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)) {
-                              setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
-                            } else if (contextMenu.taskId) {
-                              handleDeleteClick(contextMenu.taskId);
-                            }
-                          },
-                        },
-                      ]
-                    : []),
-                  {
-                    label: '컬럼 설정',
-                    icon: <Settings2 size={14} />,
-                    onClick: () => onOpenColumnSettings?.(),
-                  },
-                ]
+                        ]
+                      : []),
+                    {
+                      label: '컬럼 설정',
+                      icon: <Settings2 size={14} />,
+                      onClick: () => onOpenColumnSettings?.(),
+                    },
+                  ];
+                })()
           }
         />
       )}

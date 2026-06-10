@@ -15,6 +15,8 @@ export interface OrgMember {
   department: string;
   position: string;
   gender: string;
+  /** 메일 발송 수신 주소(선택). 비어 있으면 자동 메일 미발송. */
+  email?: string;
 }
 
 export interface OrgNode {

@@ -59,6 +59,7 @@ function buildTreeFromRows(nodeRows: OrgNodeRow[], memberRows: OrgMemberRow[]): 
       department: m.department,
       position: m.position,
       gender: m.gender,
+      email: m.email ?? undefined,
     }));
 
   return { tree: root ?? STATIC_ORG_TREE, members };

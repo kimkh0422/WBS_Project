@@ -86,6 +86,7 @@ import {
   getMyProjectMemberProjectIds,
   getMyEditableProjectIds,
 } from './lib/db';
+import { fetchCooperationRequests } from './lib/db/cooperationRequests';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { isDevAuthBypass } from './lib/devAuthBypass';
 import { LoginScreen } from './components/LoginScreen';
@@ -430,6 +431,26 @@ function WBSApp({
     fetchProfiles()
       .then(setProfiles)
       .catch(() => setProfiles([]));
+  }, [user?.id]);
+
+  // 협조 요청 — NotificationBell 알림 생성용. 대시보드 섹션과는 별도 fetch지만 정렬 결과 동일.
+  const [cooperationRequests, setCooperationRequests] = useState<Awaited<ReturnType<typeof fetchCooperationRequests>>>([]);
+  useEffect(() => {
+    if (!user?.id) {
+      setCooperationRequests([]);
+      return;
+    }
+    let alive = true;
+    fetchCooperationRequests()
+      .then((rows) => {
+        if (alive) setCooperationRequests(rows);
+      })
+      .catch(() => {
+        if (alive) setCooperationRequests([]);
+      });
+    return () => {
+      alive = false;
+    };
   }, [user?.id]);
 
   // 접근 가능한 프로젝트 소유자 표시명 보강 (RLS로 프로필 미조회 시에도 이름 표시)
@@ -1216,6 +1237,12 @@ function WBSApp({
               statusNameMap={notifStatusNameMap}
               doneStatusIds={notifDoneStatusIds}
               onSelectTask={navigateToTask}
+              cooperationRequests={cooperationRequests}
+              currentUserPlainName={currentUserPlainName}
+              onSelectCooperation={() => {
+                // 협조 요청은 대시보드의 섹션으로 통합되어 있어 클릭 시 대시보드로 이동.
+                setView('dashboard');
+              }}
             />
           }
           memberPreview={memberPreview}

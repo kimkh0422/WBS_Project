@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, Bold, ChevronDown, Eraser, Italic, Strikethrough, Underline } from 'lucide-react';
+import { Ban, Bold, ChevronDown, Eraser, GripVertical, Italic, Strikethrough, Underline } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -217,6 +217,68 @@ export function CellFormatToolbar({
     }
   }, [canEdit, targetTaskIds, tasks, updateTask]);
 
+  // ── 드래그 이동 (다른 UI와 겹치지 않게 사용자가 위치 조정) ─────────────
+  const DRAG_POS_KEY = 'wbs.cellFormatToolbar.pos';
+  const [dragPos, setDragPos] = useState<{ dx: number; dy: number }>(() => {
+    try {
+      const saved = localStorage.getItem(DRAG_POS_KEY);
+      if (saved) {
+        const v = JSON.parse(saved);
+        if (typeof v?.dx === 'number' && typeof v?.dy === 'number') return v;
+      }
+    } catch {
+      /* ignore */
+    }
+    return { dx: 0, dy: 0 };
+  });
+  const dragStartRef = useRef<{ startX: number; startY: number; startDx: number; startDy: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      // 우클릭/멀티터치는 무시
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragStartRef.current = { startX: e.clientX, startY: e.clientY, startDx: dragPos.dx, startDy: dragPos.dy };
+      setIsDragging(true);
+    },
+    [dragPos.dx, dragPos.dy],
+  );
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const s = dragStartRef.current;
+      if (!s) return;
+      setDragPos({ dx: s.startDx + (e.clientX - s.startX), dy: s.startDy + (e.clientY - s.startY) });
+    };
+    const onUp = () => {
+      dragStartRef.current = null;
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging]);
+
+  // 드래그 종료 시 위치 영속
+  useEffect(() => {
+    if (isDragging) return;
+    try {
+      localStorage.setItem(DRAG_POS_KEY, JSON.stringify(dragPos));
+    } catch {
+      /* ignore */
+    }
+  }, [isDragging, dragPos]);
+
+  const handleDragReset = useCallback(() => {
+    setDragPos({ dx: 0, dy: 0 });
+  }, []);
+
   if (!anchorTask || focusedCell.columnId === 'wbsId') return null;
 
   const hasTextColor = !!(style?.color && style.color.startsWith('#') && style.color.length >= 4);
@@ -232,7 +294,9 @@ export function CellFormatToolbar({
       className={cn(
         'pointer-events-auto flex max-w-[min(100vw-1.5rem,60rem)] flex-wrap items-center gap-2 rounded-2xl px-3 py-2.5 text-slate-900',
         'border border-[var(--color-line)]/70 bg-[var(--color-surface)]/92 shadow-[var(--shadow-lg),0_0_0_1px_rgba(255,255,255,0.55)_inset] backdrop-blur-xl',
+        isDragging && 'select-none cursor-grabbing',
       )}
+      style={{ transform: `translate(${dragPos.dx}px, ${dragPos.dy}px)` }}
       role="toolbar"
       aria-label="셀 서식"
       onMouseDown={(e) => {
@@ -243,6 +307,21 @@ export function CellFormatToolbar({
         e.preventDefault();
       }}
     >
+      {/* 드래그 핸들 — 좌측 그립으로 toolbar를 이동. 더블클릭으로 원위치 복귀. */}
+      <button
+        type="button"
+        onMouseDown={handleDragStart}
+        onDoubleClick={handleDragReset}
+        title="드래그하여 이동 · 더블클릭으로 원위치"
+        aria-label="서식바 위치 이동"
+        className={cn(
+          'flex h-8 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700',
+          isDragging ? 'cursor-grabbing text-indigo-600' : 'cursor-grab',
+        )}
+      >
+        <GripVertical size={14} />
+      </button>
+
       {/* 제목 + 대상 열/행 */}
       <span className="flex items-center gap-2 pr-0.5 text-sm font-bold tracking-tight text-slate-800">
         <span

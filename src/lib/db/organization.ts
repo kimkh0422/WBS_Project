@@ -15,6 +15,7 @@ export interface OrgMemberRow {
   department: string;
   position: string;
   gender: string;
+  email: string | null;
   sort_order: number;
 }
 
@@ -34,8 +35,18 @@ export async function fetchOrgMembers(): Promise<OrgMemberRow[]> {
   requireSupabase();
   const { data, error } = await supabase!
     .from('org_members')
-    .select('id, name, department, position, gender, sort_order')
+    .select('id, name, department, position, gender, email, sort_order')
     .order('sort_order', { ascending: true });
   if (error) throw error;
   return (data ?? []) as OrgMemberRow[];
+}
+
+/** 단일 org_member 의 email 만 갱신(관리자 전용). */
+export async function updateOrgMemberEmail(id: string, email: string | null): Promise<void> {
+  requireSupabase();
+  const { error } = await supabase!
+    .from('org_members')
+    .update({ email: email && email.trim() ? email.trim() : null })
+    .eq('id', id);
+  if (error) throw error;
 }
