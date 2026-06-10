@@ -14,8 +14,9 @@
  *
  * 필요 환경변수(Edge Function Secrets):
  *   - TELEGRAM_BOT_TOKEN:      BotFather 로 발급받은 봇 토큰 (예: 123456:ABC-DEF...)
- *   - TELEGRAM_DEFAULT_CHAT_ID: (선택) 팀 그룹방 chat_id. 설정 시 모든 협조요청 알림이 그룹방에도 발송됨.
- *                               멤버별 chat_id 입력 전에도 이 값 하나로 텔레그램 알림 운영 가능.
+ *   - TELEGRAM_DEFAULT_CHAT_ID: (선택) 기본 발송 대상 chat_id. 콤마(,)로 여러 개 지정 가능(개인+그룹, 다중 그룹 등).
+ *                               예) "-5223913700"  또는  "-5223913700,8110778151"
+ *                               설정 시 모든 협조요청 알림이 이 대상(들)에 항상 발송됨. 멤버별 chat_id 입력 전에도 운영 가능.
  *   - APP_URL:                 앱 접속 URL (메시지의 "앱에서 열기" 링크에 사용)
  *
  * 호출(클라이언트):
@@ -169,7 +170,11 @@ Deno.serve(async (req: Request) => {
   // @ts-expect-error — Deno 전역
   const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
   // @ts-expect-error — Deno 전역
-  const DEFAULT_CHAT_ID = (Deno.env.get('TELEGRAM_DEFAULT_CHAT_ID') ?? '').trim();
+  // 콤마(,)로 여러 chat_id 지정 가능(개인+그룹, 다중 그룹 등). 공백·빈 항목은 제거.
+  const DEFAULT_CHAT_IDS = (Deno.env.get('TELEGRAM_DEFAULT_CHAT_ID') ?? '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter((s: string) => s.length > 0);
   // @ts-expect-error — Deno 전역
   const APP_URL = Deno.env.get('APP_URL') ?? '';
 
@@ -199,7 +204,7 @@ Deno.serve(async (req: Request) => {
       .from('org_members')
       .select('name, department, position, telegram_chat_id')
       .order('sort_order', { ascending: true });
-    if (omErr && !DEFAULT_CHAT_ID) {
+    if (omErr && DEFAULT_CHAT_IDS.length === 0) {
       return jsonResponse(500, { error: 'org_members fetch failed', detail: omErr.message });
     }
     const orgMembers = (omErr ? [] : (omRows ?? [])) as OrgMemberWithChatId[];
@@ -217,8 +222,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // 그룹방(기본 chat_id)은 멤버 유무와 무관하게 항상 포함.
-  if (DEFAULT_CHAT_ID) chatIds.add(DEFAULT_CHAT_ID);
+  // 기본 발송 대상(개인·그룹 등 다중)은 멤버 유무와 무관하게 항상 포함.
+  for (const id of DEFAULT_CHAT_IDS) chatIds.add(id);
 
   if (chatIds.size === 0) {
     return jsonResponse(200, { sent: 0, skipped: 'no telegram chat ids', skippedMembers });
