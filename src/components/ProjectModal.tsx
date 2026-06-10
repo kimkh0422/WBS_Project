@@ -67,8 +67,8 @@ export function ProjectModal({
   const [allocPctInputs, setAllocPctInputs] = useState<string[]>([]);
   const [pmName, setPmName] = useState('');
   const [poName, setPoName] = useState('');
-  /** 대시보드 집계·카드 포함 여부 — 신규는 기본 false(구분 필터·「대시보드에 반영」으로 포함) */
-  const [includeInDashboard, setIncludeInDashboard] = useState(false);
+  /** 대시보드 집계·카드 포함 여부 — 신규는 기본 true(대부분의 새 프로젝트는 바로 대시보드에 노출 원함) */
+  const [includeInDashboard, setIncludeInDashboard] = useState(true);
 
   /** 월별 설정 펼친 인원 인덱스 (한 번에 하나만) */
   const [monthlyExpandedIndex, setMonthlyExpandedIndex] = useState<number | null>(null);
@@ -140,7 +140,7 @@ export function ProjectModal({
         setAllocPctInputs([]);
         setPmName(defaultPmNameForNewProject.trim());
         setPoName('');
-        setIncludeInDashboard(false);
+        setIncludeInDashboard(true);
       }
       setMonthlyExpandedIndex(null);
     }
@@ -311,6 +311,43 @@ export function ProjectModal({
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
+          {/* 대시보드 반영 — 폼 상단 강조: 신규 프로젝트는 기본 켜짐. 끄려면 클릭. */}
+          <section
+            className={cn(
+              'rounded-xl border p-4 shadow-sm transition-colors',
+              includeInDashboard
+                ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5'
+                : 'border-[var(--color-line)] bg-[var(--color-bg)]',
+            )}
+          >
+            <div className="flex gap-3">
+              <input
+                id="project-modal-include-dashboard"
+                type="checkbox"
+                checked={includeInDashboard}
+                onChange={(e) => setIncludeInDashboard(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
+              />
+              <div className="min-w-0 flex-1">
+                <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">
+                  대시보드에 반영
+                </label>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                  켜면 요약·집계·프로젝트 카드에 포함됩니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로 표시됩니다.
+                </p>
+                <details className="mt-2 group">
+                  <summary className="cursor-pointer list-none text-xs font-medium text-[var(--color-accent)] hover:opacity-80 [&::-webkit-details-marker]:hidden">
+                    <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
+                  </summary>
+                  <p className="mt-2 border-l-2 border-[var(--color-line)] pl-3 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                    대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할 수
+                    있습니다.
+                  </p>
+                </details>
+              </div>
+            </div>
+          </section>
+
           {/* 필수 */}
           <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
@@ -475,33 +512,6 @@ export function ProjectModal({
                 프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시 기간 제한
                 없음)
               </p>
-              <div className="flex gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3.5">
-                <input
-                  id="project-modal-include-dashboard"
-                  type="checkbox"
-                  checked={includeInDashboard}
-                  onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-                />
-                <div className="min-w-0 flex-1">
-                  <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">
-                    대시보드에 반영
-                  </label>
-                  <p className="mt-1 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                    켜면 요약·집계·프로젝트 카드에 포함될 수 있습니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로
-                    표시됩니다.
-                  </p>
-                  <details className="mt-2 group">
-                    <summary className="cursor-pointer list-none text-xs font-medium text-[var(--color-accent)] hover:opacity-80 [&::-webkit-details-marker]:hidden">
-                      <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
-                    </summary>
-                    <p className="mt-2 border-l-2 border-[var(--color-line)] pl-3 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                      대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할
-                      수 있습니다.
-                    </p>
-                  </details>
-                </div>
-              </div>
             </div>
           </section>
 

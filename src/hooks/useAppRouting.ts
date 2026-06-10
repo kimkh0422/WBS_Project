@@ -79,9 +79,10 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    // '표+간트'(tablegantt) 모드는 기본 노출 — 헤더의 표/표+간트/간트 로테이션 토글 동작에 포함됨.
+    // 기본 작업 화면은 '표+간트'. 헤더 토글은 '표 ↔ 표+간트'만 순환하고 '간트 단독' 모드는 숨긴다.
     set.add('kanban');
     set.add('outlook');
+    set.add('gantt');
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }

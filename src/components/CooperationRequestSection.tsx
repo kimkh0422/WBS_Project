@@ -148,6 +148,24 @@ function currentStatusSince(r: CooperationRequest): string {
   return r.createdAt || '';
 }
 
+/**
+ * 부서간 협업 프로세스(안) V1.0 의 임계 룰:
+ *   - 요청완료 상태에서 24h 경과 → 1차 스크리닝 응답 지연 ('screening')
+ *   - 진행중 상태에서 72h(3일) 경과 → 부서장 에스컬레이션 대상 ('escalation')
+ *   - 그 외 → null
+ */
+function escalationFlag(r: CooperationRequest): null | { kind: 'screening' | 'escalation'; hoursOver: number } {
+  if (r.status !== '요청완료' && r.status !== '진행중') return null;
+  const since = currentStatusSince(r);
+  if (!since) return null;
+  const t = new Date(since).getTime();
+  if (!Number.isFinite(t)) return null;
+  const hours = (Date.now() - t) / (1000 * 60 * 60);
+  if (r.status === '요청완료' && hours >= 24) return { kind: 'screening', hoursOver: Math.floor(hours - 24) };
+  if (r.status === '진행중' && hours >= 72) return { kind: 'escalation', hoursOver: Math.floor(hours - 72) };
+  return null;
+}
+
 /** 행이 '기한 초과' 여부 — 종료 상태(처리완료·확인완료·취소됨)가 아니고 기한이 오늘 이전이면 true */
 function isOverdue(r: CooperationRequest, todayIso: string): boolean {
   if (!r.dueDate) return false;
@@ -384,15 +402,13 @@ export function CooperationRequestSection({
       setBroadcastingId(row.id);
       try {
         const res = await broadcastCooperation(row.id);
-        const ok: string[] = [];
-        if (res.telegram.ok) ok.push(`텔레그램 ${res.telegram.sent}곳`);
-        if (res.email.ok) ok.push(`메일 ${res.email.sent}곳`);
-        if (ok.length > 0) {
-          pushToast(`전파 완료 — ${ok.join(' · ')}`, { variant: 'success', durationMs: 2500 });
-        } else {
-          const reason = res.telegram.error ?? res.email.error ?? res.telegram.skipped ?? res.email.skipped ?? '알 수 없는 오류';
-          pushToast(`전파 실패: ${reason}`, { variant: 'error', durationMs: 4500 });
-        }
+        const fmt = (label: string, r: { ok: boolean; sent?: number; skipped?: string; error?: string }) =>
+          r.ok ? `${label} ✓ ${r.sent}곳` : `${label} ✗ ${r.error ?? r.skipped ?? '실패'}`;
+        const anyOk = res.telegram.ok || res.email.ok;
+        pushToast(`${fmt('텔레그램', res.telegram)}  /  ${fmt('메일', res.email)}`, {
+          variant: anyOk ? 'success' : 'error',
+          durationMs: 6000,
+        });
       } finally {
         setBroadcastingId(null);
       }
@@ -795,6 +811,24 @@ export function CooperationRequestSection({
                                 </span>
                               );
                             })()}
+                            {(() => {
+                              const flag = escalationFlag(r);
+                              if (!flag) return null;
+                              const isScreening = flag.kind === 'screening';
+                              const label = isScreening ? '1차 응답 지연' : '에스컬레이션';
+                              const title = isScreening
+                                ? '요청완료 상태에서 24시간 내 1차 수락/거부 응답이 없어 지연 상태입니다 (협업 프로세스 V1.0)'
+                                : '진행중 상태에서 3일 이상 정체 — 부서장 에스컬레이션 대상 (협업 프로세스 V1.0)';
+                              return (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1 py-0.5 text-[9.5px] font-bold text-rose-700 ring-1 ring-rose-200"
+                                  title={title}
+                                >
+                                  <AlertCircle size={9} />
+                                  {label}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
@@ -962,6 +996,17 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
               rows={6}
               placeholder="협조가 필요한 업무·자료·검토 항목의 구체 내용을 적습니다."
               className={cn(inputCls, 'resize-y min-h-[140px]')}
+            />
+          </Field>
+
+          {/* 산출물 — 표준 요청서(부서간 협업 프로세스 V1.0) 4요소 중 "구체적 산출물" */}
+          <Field label="구체적 산출물 (Deliverables)">
+            <textarea
+              value={draft.deliverables}
+              onChange={(e) => onChange({ deliverables: e.target.value })}
+              rows={3}
+              placeholder="요청의 결과로 받아야 할 산출물을 명시합니다. 예) ‘TSS+ 상세설계서 PDF 1부’, ‘Q3 매출 분석 시트’."
+              className={cn(inputCls, 'resize-y min-h-[72px]')}
             />
           </Field>
 
@@ -2099,11 +2144,28 @@ function KanbanCard({
   broadcasting: boolean;
 }) {
   const overdue = isOverdue(row, todayIso);
+  const escalation = escalationFlag(row);
   return (
     <div
       onClick={onEdit}
-      className="group rounded-md border border-[var(--color-line)] bg-white px-2 py-1.5 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition"
+      className={cn(
+        'group relative rounded-md border bg-white px-2 py-1.5 shadow-sm hover:shadow-md cursor-pointer transition',
+        escalation ? 'border-rose-400 ring-1 ring-rose-200' : 'border-[var(--color-line)] hover:border-indigo-300',
+      )}
     >
+      {escalation && (
+        <div
+          className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 rounded bg-rose-600 px-1 py-0.5 text-[9px] font-bold text-white shadow-sm"
+          title={
+            escalation.kind === 'screening'
+              ? '요청완료 24시간 초과 — 1차 응답 지연 (협업 프로세스 V1.0)'
+              : '진행중 72시간 초과 — 부서장 에스컬레이션 대상 (협업 프로세스 V1.0)'
+          }
+        >
+          <AlertCircle size={9} />
+          {escalation.kind === 'screening' ? '응답지연' : '에스컬'}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-1.5">
         <div className="flex items-center gap-1 min-w-0">
           <span className="font-mono text-[10.5px] text-[var(--color-ink-muted)] tabular-nums shrink-0">{row.mgmtId || '—'}</span>

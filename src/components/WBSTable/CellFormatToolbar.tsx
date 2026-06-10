@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, Bold, ChevronDown, Eraser, GripVertical, Italic, Strikethrough, Underline } from 'lucide-react';
+import { Ban, Bold, ChevronDown, Eraser, GripVertical, Italic, Strikethrough, Trash2, Underline } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -154,6 +154,8 @@ export interface CellFormatToolbarProps {
   canEdit: boolean;
   customColumnNameById: Map<string, string>;
   updateTask: (id: string, updates: Partial<Task>) => void;
+  /** 선택 행 일괄 삭제(확인 모달은 호출부가 띄움). 미전달 시 삭제 버튼 비표시. */
+  onDeleteTargets?: (taskIds: string[]) => void;
 }
 
 export function CellFormatToolbar({
@@ -163,6 +165,7 @@ export function CellFormatToolbar({
   canEdit,
   customColumnNameById,
   updateTask,
+  onDeleteTargets,
 }: CellFormatToolbarProps) {
   /** 키보드·셀 링 기준 행(삭제 등으로 없으면 툴바 숨김) */
   const anchorTask = useMemo(() => tasks.find((t) => t.id === focusedCell.taskId), [tasks, focusedCell.taskId]);
@@ -504,6 +507,32 @@ export function CellFormatToolbar({
           <span className="sm:hidden">전체</span>
         </button>
       </div>
+
+      {/* 행 삭제 — 선택 행(없으면 포커스 행) 일괄 삭제. 호출부가 확인 모달을 띄운다. */}
+      {onDeleteTargets && (
+        <>
+          <span className="h-7 w-px bg-slate-200" aria-hidden />
+          <button
+            type="button"
+            disabled={!canEdit || targetTaskIds.length === 0}
+            title={
+              targetTaskIds.length > 1
+                ? `선택한 ${targetTaskIds.length}개 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)`
+                : '이 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)'
+            }
+            className="flex h-8 items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:border-red-400 hover:bg-red-100 hover:text-red-800 disabled:opacity-50"
+            onClick={() => onDeleteTargets(targetTaskIds)}
+          >
+            <Trash2 size={14} />
+            <span>삭제</span>
+            {targetTaskIds.length > 1 ? (
+              <span className="rounded-md bg-red-200/70 px-1.5 py-0.5 text-[10px] font-bold leading-none tabular-nums text-red-800">
+                {targetTaskIds.length}
+              </span>
+            ) : null}
+          </button>
+        </>
+      )}
     </div>
   );
 }

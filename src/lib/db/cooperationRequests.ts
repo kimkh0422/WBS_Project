@@ -120,6 +120,8 @@ export type CooperationRequest = {
   requestType: CooperationRequestType;
   title: string;
   detail: string;
+  /** 구체적 산출물(deliverable) — 표준 요청서의 핵심 4요소 중 하나. 비어 있을 수 있음. */
+  deliverables: string;
   requester: string;
   /** 담당자(표시명). 다중 선택 시 "운영기술개발실, 김길용 외 2명" 같이 합산해 표시. */
   assignee: string;
@@ -166,6 +168,7 @@ type CooperationRequestDbRow = {
   request_type: string | null;
   title: string | null;
   detail: string | null;
+  deliverables: string | null;
   requester: string | null;
   assignee: string | null;
   assignee_kind: string | null;
@@ -190,7 +193,7 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, deliverables, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
 
 /** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다.
  *  과거에 sourceOrgIds/direct 없이 저장된 행도 안전하게 호환:
@@ -314,6 +317,7 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     requestType: normalizeType(r.request_type),
     title: str(r.title),
     detail: str(r.detail),
+    deliverables: str(r.deliverables),
     requester: str(r.requester),
     assignee: str(r.assignee),
     assigneeKind: normalizeAssigneeKind(r.assignee_kind),
@@ -366,6 +370,7 @@ function loadLocal(): CooperationRequest[] {
         requestType: normalizeType(r.requestType),
         title: str(r.title),
         detail: str(r.detail),
+        deliverables: str(r.deliverables),
         requester: str(r.requester),
         assignee: str(r.assignee),
         assigneeKind: normalizeAssigneeKind(r.assigneeKind),
@@ -478,6 +483,7 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     request_type: normalizeType(input.requestType),
     title: input.title,
     detail: input.detail,
+    deliverables: input.deliverables,
     requester: input.requester,
     assignee: input.assignee,
     assignee_kind: normalizeAssigneeKind(input.assigneeKind),
@@ -628,6 +634,7 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.requestType !== undefined) payload.request_type = normalizeType(patch.requestType);
   if (patch.title !== undefined) payload.title = patch.title;
   if (patch.detail !== undefined) payload.detail = patch.detail;
+  if (patch.deliverables !== undefined) payload.deliverables = patch.deliverables;
   if (patch.requester !== undefined) payload.requester = patch.requester;
   if (patch.assignee !== undefined) payload.assignee = patch.assignee;
   if (patch.assigneeKind !== undefined) payload.assignee_kind = normalizeAssigneeKind(patch.assigneeKind);
@@ -682,6 +689,7 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     requestType: '자료',
     title: '',
     detail: '',
+    deliverables: '',
     requester: '',
     assignee: '',
     assigneeKind: 'person',

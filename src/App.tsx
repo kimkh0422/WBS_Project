@@ -105,29 +105,31 @@ import type { ExportScope, ExportFormat } from './components/ExportModal';
 import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
+import { lazyWithRetry } from './lib/lazyWithRetry';
 
 // WBSTable(+SortableTaskRow 등 대형 트리)·TableGanttSplit은 표/간트 뷰에서만 필요 → 지연 로딩으로 초기(대시보드) 번들에서 분리.
-const WBSTable = React.lazy(() => import('./components/WBSTable').then((m) => ({ default: m.WBSTable })));
-const TableGanttSplit = React.lazy(() => import('./components/TableGanttSplit').then((m) => ({ default: m.TableGanttSplit })));
-const GanttChart = React.lazy(() => import('./components/GanttChart').then((m) => ({ default: m.GanttChart })));
-const KanbanBoard = React.lazy(() => import('./components/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
-const MindMapView = React.lazy(() => import('./components/MindMapView').then((m) => ({ default: m.MindMapView })));
-const Dashboard = React.lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })));
-const ProjectsPage = React.lazy(() => import('./components/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
-const AllocationOverviewPage = React.lazy(() =>
+// lazyWithRetry: 배포 직후 옛 청크 해시를 가져오다 실패하면 1회 자동 새로고침으로 새 번들 회수.
+const WBSTable = lazyWithRetry(() => import('./components/WBSTable').then((m) => ({ default: m.WBSTable })));
+const TableGanttSplit = lazyWithRetry(() => import('./components/TableGanttSplit').then((m) => ({ default: m.TableGanttSplit })));
+const GanttChart = lazyWithRetry(() => import('./components/GanttChart').then((m) => ({ default: m.GanttChart })));
+const KanbanBoard = lazyWithRetry(() => import('./components/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
+const MindMapView = lazyWithRetry(() => import('./components/MindMapView').then((m) => ({ default: m.MindMapView })));
+const Dashboard = lazyWithRetry(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })));
+const ProjectsPage = lazyWithRetry(() => import('./components/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
+const AllocationOverviewPage = lazyWithRetry(() =>
   import('./components/AllocationOverviewPage').then((m) => ({ default: m.AllocationOverviewPage })),
 );
-const SalesOutlookPage = React.lazy(() => import('./components/SalesOutlookPage').then((m) => ({ default: m.SalesOutlookPage })));
-const WeeklyReportPage = React.lazy(() => import('./components/WeeklyReportPage').then((m) => ({ default: m.WeeklyReportPage })));
-const PersonalKanbanPage = React.lazy(() => import('./components/PersonalKanbanPage').then((m) => ({ default: m.PersonalKanbanPage })));
-const WBSSettingsModal = React.lazy(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
-const VersionManager = React.lazy(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
-const AuditLogModal = React.lazy(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
-const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
-const WeeklyReportModal = React.lazy(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
+const SalesOutlookPage = lazyWithRetry(() => import('./components/SalesOutlookPage').then((m) => ({ default: m.SalesOutlookPage })));
+const WeeklyReportPage = lazyWithRetry(() => import('./components/WeeklyReportPage').then((m) => ({ default: m.WeeklyReportPage })));
+const PersonalKanbanPage = lazyWithRetry(() => import('./components/PersonalKanbanPage').then((m) => ({ default: m.PersonalKanbanPage })));
+const WBSSettingsModal = lazyWithRetry(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
+const VersionManager = lazyWithRetry(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
+const AuditLogModal = lazyWithRetry(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
+const ExportModal = lazyWithRetry(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
+const WeeklyReportModal = lazyWithRetry(() => import('./components/WeeklyReportModal').then((m) => ({ default: m.WeeklyReportModal })));
 // 첫 화면(특히 표) 진입 경로에서 분리 — 새 작업/작업 상세 모달을 열 때만 로드(tiptap + yjs 동반).
-const TaskModal = React.lazy(() => import('./components/TaskModal').then((m) => ({ default: m.TaskModal })));
-const OrganizationModal = React.lazy(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
+const TaskModal = lazyWithRetry(() => import('./components/TaskModal').then((m) => ({ default: m.TaskModal })));
+const OrganizationModal = lazyWithRetry(() => import('./components/OrganizationModal').then((m) => ({ default: m.OrganizationModal })));
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
 /** `VITE_PROJECT_STATUS_ONLY`: "1" | "true" | "yes"(대소문자 무시)면 true */
@@ -901,6 +903,9 @@ function WBSApp({
         poName: poTrim || undefined,
         includeInDashboard,
       });
+      // 신규 프로젝트 생성 직후: addProject 내부에서 currentProjectId가 새 프로젝트로 잡힘 → 표+간트 화면으로 이동.
+      // 모바일은 작업 화면 편집이 막혀 있으므로 대시보드 유지.
+      if (!lockMobileToDashboard) setView('tablegantt');
     }
     setIsProjectModalOpen(false);
   };

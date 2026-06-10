@@ -1084,17 +1084,6 @@ export function AppHeader({
                         <>
                           <button
                             onClick={() => {
-                              setEditingProject(null);
-                              setIsProjectModalOpen(true);
-                              setIsProjectDropdownOpen(false);
-                            }}
-                            className="w-full text-left px-3 py-2 text-sm text-[var(--color-accent)] hover:bg-indigo-50 rounded-lg flex items-center gap-2 transition-colors"
-                            title="새 프로젝트를 생성합니다."
-                          >
-                            <FolderPlus size={14} /> 새 프로젝트
-                          </button>
-                          <button
-                            onClick={() => {
                               setIsProjectDropdownOpen(false);
                               setView('projects');
                             }}
@@ -1111,6 +1100,21 @@ export function AppHeader({
               )}
             </div>
           </div>
+          {/* 새 프로젝트 — 헤더 상단에 항상 노출. 드롭다운을 열지 않아도 한 번에 생성. */}
+          {!hiddenViews.has('projects') && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingProject(null);
+                setIsProjectModalOpen(true);
+              }}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm shrink-0"
+              title="새 프로젝트를 생성합니다."
+            >
+              <FolderPlus size={14} />
+              <span>새 프로젝트</span>
+            </button>
+          )}
         </div>
 
         {/* 모바일 전용: 대시보드 NavButton만 1개 표시. 클릭해도 페이지 전환 없음. */}
@@ -1226,7 +1230,7 @@ export function AppHeader({
                   onClick={() => navigateWithTip(next.id)}
                   icon={current.icon}
                   label={current.label}
-                  title={[current.title, '', `클릭: 다음 모드(${next.label})로 전환 — 표 → 표+간트 → 간트 순환`].join('\n')}
+                  title={[current.title, '', `클릭: ${next.label} 모드로 전환`].join('\n')}
                   tourId={current.tourId}
                 />
               );

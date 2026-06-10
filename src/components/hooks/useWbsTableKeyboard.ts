@@ -4,7 +4,7 @@ import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../../lib/wbsInlineNameCommit';
-import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../../lib/workEffortUnits';
+import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../../lib/workEffortUnits';
 import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
 
 /** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
@@ -282,7 +282,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // 작업명(name) 인라인 편집 중 Enter: blur 없이 커밋 후 종료(의도치 않은 중간 blur로 편집이 끊기는 것 방지)
+      // 작업명(name) 인라인 편집 중 Enter — 보호망(SortableTaskRow 로컬 핸들러가 stopPropagation 하지만 포커스 분실 등으로 전역까지 흘러오는 경우 대응).
+      // 정책: 다음 기존 행을 자동으로 편집 모드로 만들지 않는다(기존 작업명 오타 수정 사고 방지).
+      // 신규 행 생성은 로컬 핸들러의 onAdvanceInlineEditToNextRow 콜백이 담당하므로, 여기서는 현재 행 커밋 후 편집만 종료한다.
       if (e.key === 'Enter' && inlineEditingNameId && inWbsTable) {
         e.preventDefault();
         const currentTaskId = inlineEditingNameId;
@@ -923,11 +925,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           insertAfterId = baseTask?.id;
         }
 
+        const startIso = filters.startDate || defaultDate;
         const newId = addTask(
           {
             name: '',
-            startDate: filters.startDate || defaultDate,
-            endDate: filters.endDate || defaultDate,
+            startDate: startIso,
+            endDate: filters.endDate || defaultEndDateForNewTask(startIso),
             progress: 0,
             workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
             assignee: filters.assignee || '',
@@ -960,11 +963,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const currentIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
           const previousSibling = currentIndex > 0 ? visibleTasks[currentIndex - 1] : undefined;
           const insertAfterId = previousSibling?.id;
+          const startIsoUp = filters.startDate || defaultDate;
           const newId = addTask(
             {
               name: '',
-              startDate: filters.startDate || defaultDate,
-              endDate: filters.endDate || defaultDate,
+              startDate: startIsoUp,
+              endDate: filters.endDate || defaultEndDateForNewTask(startIsoUp),
               progress: 0,
               workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
               assignee: filters.assignee || '',
@@ -979,11 +983,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         } else {
           // Insert: 기준 행의 하위 작업 추가 (기준 행이 없으면 루트 하위로 추가)
           const parentForChildId = baseTask?.id ?? null;
+          const startIsoIns = filters.startDate || defaultDate;
           const newId = addTask(
             {
               name: '',
-              startDate: filters.startDate || defaultDate,
-              endDate: filters.endDate || defaultDate,
+              startDate: startIsoIns,
+              endDate: filters.endDate || defaultEndDateForNewTask(startIsoIns),
               progress: 0,
               workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
               assignee: filters.assignee || '',

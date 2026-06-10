@@ -3,14 +3,28 @@ import { formatNum2 } from './utils';
 
 export const DEFAULT_WORK_EFFORT_UNIT: WorkEffortUnit = 'day';
 
-/** 신규 작업 등에서 쓰는 저장 공수 기본값 (프로젝트 `workEffortUnit` 기준; 예: day면 1일). */
-export const DEFAULT_NEW_TASK_WORK_EFFORT = 1;
+/** 신규 작업 등에서 쓰는 저장 공수 기본값 (프로젝트 `workEffortUnit` 기준; 예: day면 5일 — "1주" 분량을 기본 견적으로 통일). */
+export const DEFAULT_NEW_TASK_WORK_EFFORT = 5;
 
 /** 신규 작업에 적용할 공수: `0`은 유지(이정표 등), 양의 유한값은 그대로, 그 외는 {@link DEFAULT_NEW_TASK_WORK_EFFORT}. */
 export function resolveWorkEffortForNewTask(workEffort: number | undefined | null): number {
   if (workEffort === 0) return 0;
   if (typeof workEffort === 'number' && Number.isFinite(workEffort) && workEffort > 0) return workEffort;
   return DEFAULT_NEW_TASK_WORK_EFFORT;
+}
+
+/** 신규 작업 시작일 기준 기본 종료일(시작일 + 기본 공수-1 캘린더일). 시작일 포맷이 잘못되면 시작일을 그대로 반환.
+ *  의도: 기본 공수와 일치하는 날짜 폭(예: 5일 공수 → 5일짜리 기간)으로 자동 세팅해 사용자가 "0일짜리" 작업을 만드는 것을 막는다. */
+export function defaultEndDateForNewTask(startDateIso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDateIso ?? '');
+  if (!m) return startDateIso;
+  const span = Math.max(0, DEFAULT_NEW_TASK_WORK_EFFORT - 1);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  d.setDate(d.getDate() + span);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 const HOURS_PER_MAN_DAY = 8;

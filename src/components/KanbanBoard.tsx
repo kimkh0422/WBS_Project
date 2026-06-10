@@ -20,7 +20,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useWBS } from '../context/WBSContext';
 import { Task, TaskStatus, FilterState } from '../types';
 import { cn, formatPercent1 } from '../lib/utils';
-import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../lib/workEffortUnits';
+import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../lib/workEffortUnits';
 import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
@@ -919,11 +919,12 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   const handleAddTask = useCallback(
     (status: TaskStatus, name: string) => {
       const today = new Date().toISOString().split('T')[0];
+      const startIso = filters.startDate || today;
       const newId = addTask({
         name,
         status,
-        startDate: filters.startDate || today,
-        endDate: filters.endDate || today,
+        startDate: startIso,
+        endDate: filters.endDate || defaultEndDateForNewTask(startIso),
         progress: 0,
         workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
@@ -944,11 +945,12 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
       }
       const today = new Date().toISOString().split('T')[0];
       const name = titleOrEmpty.trim() || defaultScreenshotCardTitle();
+      const startIso = filters.startDate || today;
       const newId = addTask({
         name,
         status,
-        startDate: filters.startDate || today,
-        endDate: filters.endDate || today,
+        startDate: startIso,
+        endDate: filters.endDate || defaultEndDateForNewTask(startIso),
         progress: 0,
         workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',

@@ -57,6 +57,7 @@ import { buildAssigneeCandidates, buildOrgMemberLabelMap, buildOrgMemberDisplayM
 import {
   buildProjectEffortUnitMap,
   DEFAULT_NEW_TASK_WORK_EFFORT,
+  defaultEndDateForNewTask,
   normalizeWorkEffortUnit,
   workEffortUnitSuffixKo,
 } from '../lib/workEffortUnits';
@@ -64,16 +65,18 @@ import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
+import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 // 첫 화면(표) 진입 경로에서 분리 — 사용자가 열 때만 로드한다.
 // 특히 TaskModal은 tiptap + yjs(협업 에디터)를 동반하므로 분리 효과가 가장 크다.
-const TaskModal = React.lazy(() => import('./TaskModal').then((m) => ({ default: m.TaskModal })));
-const MdEditModal = React.lazy(() => import('./MdEditModal').then((m) => ({ default: m.MdEditModal })));
-const WbsImprovementGuideModal = React.lazy(() =>
+// lazyWithRetry: 배포 직후 옛 청크 해시를 가져오다 실패하면 1회 자동 새로고침으로 새 번들 회수.
+const TaskModal = lazyWithRetry(() => import('./TaskModal').then((m) => ({ default: m.TaskModal })));
+const MdEditModal = lazyWithRetry(() => import('./MdEditModal').then((m) => ({ default: m.MdEditModal })));
+const WbsImprovementGuideModal = lazyWithRetry(() =>
   import('./WbsImprovementGuideModal').then((m) => ({ default: m.WbsImprovementGuideModal })),
 );
-const ExcelGrid = React.lazy(() => import('./ExcelGrid').then((m) => ({ default: m.ExcelGrid })));
-const ForkTaskToProjectModal = React.lazy(() => import('./ForkTaskToProjectModal').then((m) => ({ default: m.ForkTaskToProjectModal })));
+const ExcelGrid = lazyWithRetry(() => import('./ExcelGrid').then((m) => ({ default: m.ExcelGrid })));
+const ForkTaskToProjectModal = lazyWithRetry(() => import('./ForkTaskToProjectModal').then((m) => ({ default: m.ForkTaskToProjectModal })));
 type ForkTaskToProjectInputT = import('./ForkTaskToProjectModal').ForkTaskToProjectInput;
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
@@ -444,21 +447,6 @@ export function WBSTable({
   // gridStyle — moved below useColumnResize hook call
 
   // Bulk Edit State + executors — extracted to useWbsBulkEdit (declared below after useWbsSelection)
-
-  /** 일괄 수정 바 표시 토글: 기본 숨김 — Shift+F12로 켜고 끈다. 선택 해제·페이지 이탈로는 유지(다음 다중 선택 시 자동 노출).
-   *  의도: 다중 선택만으로 화면 하단 절반을 가리지 않도록, "필요한 사용자만 단축키로 열어서" 사용. */
-  const [isBulkBarVisible, setBulkBarVisible] = useState(false);
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F12' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        setBulkBarVisible((v) => !v);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true } as EventListenerOptions);
-  }, []);
 
   // Row height (density): 부모에서 rowHeight 전달 시 동기화, 없으면 자체 state
   const [rowHeightState, setRowHeightState] = useState<number>(20);
@@ -1033,12 +1021,13 @@ export function WBSTable({
 
     const proj = projects.find((p) => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+    const startIso = filters.startDate || defaultDate;
     const newId = addTask(
       {
         name,
         parentId,
-        startDate: filters.startDate || defaultDate,
-        endDate: filters.endDate || defaultDate,
+        startDate: startIso,
+        endDate: filters.endDate || defaultEndDateForNewTask(startIso),
         progress: 0,
         workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
@@ -1053,6 +1042,11 @@ export function WBSTable({
 
     // 포커스 행 지정 → 노란색 강조 + ↑/↓ 단축키로 즉시 이동 가능. 체크박스 자동 체크 X.
     setLastSelectedId(newId);
+    if (newId) setFocusedCell({ taskId: newId, columnId: 'name' });
+    // 표 본문에 포커스를 복귀시켜 마우스 없이 ↑/↓/F2로 연속 조작이 가능하게 한다(엑셀 스타일).
+    requestAnimationFrame(() => {
+      tableScrollRef.current?.focus();
+    });
   };
 
   const handleSave = (updates: Partial<Task>) => {
@@ -1088,10 +1082,11 @@ export function WBSTable({
 
     const proj = projects.find((p) => p.id === currentProjectId);
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+    const startIso = filters.startDate || defaultDate;
     const newId = addTask({
       name,
-      startDate: filters.startDate || defaultDate,
-      endDate: filters.endDate || defaultDate,
+      startDate: startIso,
+      endDate: filters.endDate || defaultEndDateForNewTask(startIso),
       progress: 0,
       workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
       assignee: filters.assignee || '',
@@ -1104,7 +1099,12 @@ export function WBSTable({
     if (newId) {
       // 포커스 행 지정 → 노란색 강조 + ↑/↓로 즉시 이동 가능. 체크박스는 자동 체크 X.
       setLastSelectedId(newId);
+      setFocusedCell({ taskId: newId, columnId: 'name' });
     }
+    // 표 본문에 포커스를 되돌려 줘야 마우스 없이 ↑/↓/F2로 연속 조작이 가능(엑셀 스타일).
+    requestAnimationFrame(() => {
+      tableScrollRef.current?.focus();
+    });
   };
 
   /**
@@ -1121,11 +1121,12 @@ export function WBSTable({
       const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
       const baseIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
       const insertAfterId = baseIndex > 0 ? visibleTasks[baseIndex - 1].id : undefined;
+      const startIso = filters.startDate || defaultDate;
       const newId = addTask(
         {
           name: '',
-          startDate: filters.startDate || defaultDate,
-          endDate: filters.endDate || defaultDate,
+          startDate: startIso,
+          endDate: filters.endDate || defaultEndDateForNewTask(startIso),
           progress: 0,
           workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
           assignee: filters.assignee || '',
@@ -1151,6 +1152,62 @@ export function WBSTable({
       addTask,
       setLastSelectedId,
       setInlineEditingNameIdCommitted,
+    ],
+  );
+
+  /**
+   * 작업명 인라인 편집 중 Enter 처리(엑셀 스타일 연속 입력):
+   * 항상 현재 행 바로 아래에 빈 새 작업을 만들어 그 행 인라인 편집으로 진입한다.
+   * - 다음 기존 행을 자동으로 편집 모드로 만들지 않는다(기존 작업명을 의도치 않게 수정하는 사고 방지).
+   * - 새 행은 현재 행과 동일한 부모(레벨)로 형제 삽입.
+   * - 연쇄 입력을 멈추려면 빈 입력 상태에서 Enter — SortableTaskRow의 input 핸들러가 처리.
+   */
+  const advanceInlineEditToNextRow = useCallback(
+    (currentTaskId: string) => {
+      if (!canEditCurrentProject) {
+        requestAnimationFrame(() => {
+          tableScrollRef.current?.focus();
+        });
+        return;
+      }
+      const currentTask = tasks.find((t) => t.id === currentTaskId);
+      const proj = projects.find((p) => p.id === (currentTask?.projectId || currentProjectId));
+      const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+      const startIso = filters.startDate || defaultDate;
+      const newId = addTask(
+        {
+          name: '',
+          startDate: startIso,
+          endDate: filters.endDate || defaultEndDateForNewTask(startIso),
+          progress: 0,
+          workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
+          assignee: filters.assignee || '',
+          status: 'todo',
+          parentId: currentTask?.parentId ?? null,
+        },
+        currentTaskId,
+      );
+      if (newId) {
+        setLastSelectedId(newId);
+        setFocusedCell({ taskId: newId, columnId: 'name' });
+        setInlineEditingNameIdCommitted(newId);
+        requestAnimationFrame(() => {
+          document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
+        });
+      }
+    },
+    [
+      setLastSelectedId,
+      setFocusedCell,
+      setInlineEditingNameIdCommitted,
+      canEditCurrentProject,
+      tasks,
+      projects,
+      currentProjectId,
+      filters.startDate,
+      filters.endDate,
+      filters.assignee,
+      addTask,
     ],
   );
 
@@ -1713,6 +1770,7 @@ export function WBSTable({
                               isInlineEditingName={inlineEditingNameId === task.id}
                               setInlineEditingNameId={setInlineEditingNameIdCommitted}
                               onInsertRowAbove={insertRowAbove}
+                              onAdvanceInlineEditToNextRow={advanceInlineEditToNextRow}
                               editingCell={editingCell}
                               setEditingCell={setEditingCell}
                               focusedCell={focusedCell}
@@ -1789,12 +1847,14 @@ export function WBSTable({
                                               const proj = projects.find((p) => p.id === (task.projectId || currentProjectId));
                                               const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
+                                              const startIso = filters.startDate || defaultDate;
+                                              const endIso = filters.endDate || defaultEndDateForNewTask(startIso);
                                               lines.forEach((line) => {
                                                 addTask({
                                                   name: line,
                                                   parentId: task.id,
-                                                  startDate: filters.startDate || defaultDate,
-                                                  endDate: filters.endDate || defaultDate,
+                                                  startDate: startIso,
+                                                  endDate: endIso,
                                                   progress: 0,
                                                   workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
                                                   assignee: filters.assignee || '',
@@ -1947,15 +2007,14 @@ export function WBSTable({
               canEdit={canEditCurrentProject}
               customColumnNameById={customColumnNameById}
               updateTask={updateTask}
+              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
             />
           </div>,
           document.body,
         )}
 
-      {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보.
-          기본 숨김 — Shift+F12로 토글한 후 다중 선택 시 노출(우상단 X로도 닫힘). */}
+      {/* Bulk Action Bar — body 포털: overflow-hidden 조상에 가려지지 않도록. 하단 safe-area·여백 확보. */}
       {selectedTaskIds.size > 1 &&
-        isBulkBarVisible &&
         createPortal(
           <div
             className="fixed left-0 right-0 z-[100] pointer-events-none flex justify-center px-3 sm:px-4 animate-in slide-in-from-bottom-4 fade-in duration-300"
@@ -1975,10 +2034,9 @@ export function WBSTable({
                     onClick={() => {
                       setSelection(new Set());
                       resetBulkFields();
-                      setBulkBarVisible(false);
                     }}
                     className="text-white/60 hover:text-white transition-colors hover:rotate-90 duration-300"
-                    title="일괄 수정 닫기 (Shift+F12로 다시 열기)"
+                    title="선택 해제"
                   >
                     <X size={14} />
                   </button>

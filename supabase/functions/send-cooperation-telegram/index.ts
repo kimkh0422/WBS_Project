@@ -38,6 +38,7 @@ interface RequestRow {
   request_type: string | null;
   title: string | null;
   detail: string | null;
+  deliverables: string | null;
   requester: string | null;
   assignee: string | null;
   priority: string | null;
@@ -102,9 +103,10 @@ function buildMessage(row: RequestRow, mode: string, appUrl: string): string {
     ['담당', row.assignee ?? '-'],
     ['중요도', row.priority ?? '-'],
     ['요청일', row.request_date ?? '-'],
-    ['기한', row.due_date ?? '-'],
+    ['요청기한', row.due_date ?? '-'],
     ['현황', row.status ?? '-'],
   ];
+  if (row.deliverables && row.deliverables.trim()) fields.splice(1, 0, ['산출물', row.deliverables]);
 
   const head = `📋 <b>${escapeTgHtml(action)}</b>\n\n<b>[${escapeTgHtml(mgmtId)}] ${escapeTgHtml(title)}</b>\n`;
   const body = fields.map(([k, v]) => `· ${escapeTgHtml(k)}: ${escapeTgHtml(v)}`).join('\n');
@@ -188,7 +190,9 @@ Deno.serve(async (req: Request) => {
   // 1) 협조요청 행 조회
   const { data: row, error: rowErr } = await supabase
     .from('cooperation_requests')
-    .select('id, mgmt_id, request_date, request_type, title, detail, requester, assignee, priority, due_date, status, member_progress')
+    .select(
+      'id, mgmt_id, request_date, request_type, title, detail, deliverables, requester, assignee, priority, due_date, status, member_progress',
+    )
     .eq('id', requestId)
     .single();
   if (rowErr || !row) return jsonResponse(404, { error: 'request not found', detail: rowErr?.message });
