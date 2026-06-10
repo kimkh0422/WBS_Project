@@ -58,6 +58,10 @@ import {
   type CooperationRequestPriority,
   type CooperationMemberProgress,
   type CooperationMeetingLog,
+  type CooperationMeetingAction,
+  type CooperationRaci,
+  COOPERATION_RACI_KINDS,
+  COOPERATION_RACI_LABEL,
 } from '../lib/db/cooperationRequests';
 import {
   fetchCooperationPoints,
@@ -1010,6 +1014,17 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
             />
           </Field>
 
+          {/* 참조자 — 메일 CC로 자동 반영. 쉼표·세미콜론·공백 구분 */}
+          <Field label="참조자 / 공유처 (Informed)">
+            <input
+              type="text"
+              value={draft.informees}
+              onChange={(e) => onChange({ informees: e.target.value })}
+              placeholder="이름 또는 이메일을 쉼표·세미콜론·공백으로 구분. 예) 김지영, 이상재, jeyoung@gmtc.kr"
+              className={inputCls}
+            />
+          </Field>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Field label="요청자">
               <input
@@ -1213,6 +1228,7 @@ function AssigneePicker({
           completedAt: '',
           sourceOrgIds: [],
           direct: false,
+          raci: 'R' as CooperationRaci,
         };
       collected.set(k, { ...prev, direct: true });
     }
@@ -1298,6 +1314,12 @@ function AssigneePicker({
       const completedAt = isDoneStatus(status) ? m.completedAt || new Date().toISOString().slice(0, 10) : '';
       return { ...m, status, completedAt };
     });
+    applyMemberUpdate(next, draft.assigneeOrgIds, currentDirectPersons);
+  };
+
+  /** 멤버 1명 RACI 변경 — 진척 집계에 영향 없음, 표시·알림에만 사용 */
+  const setMemberRaci = (idx: number, raci: CooperationRaci) => {
+    const next = draft.memberProgress.map((m, i): CooperationMemberProgress => (i === idx ? { ...m, raci } : m));
     applyMemberUpdate(next, draft.assigneeOrgIds, currentDirectPersons);
   };
 
@@ -1414,7 +1436,9 @@ function AssigneePicker({
         </datalist>
       </div>
 
-      {draft.memberProgress.length > 0 && <MemberChecklist memberProgress={draft.memberProgress} onChange={setMemberStatus} />}
+      {draft.memberProgress.length > 0 && (
+        <MemberChecklist memberProgress={draft.memberProgress} onChange={setMemberStatus} onRaciChange={setMemberRaci} />
+      )}
     </div>
   );
 }
@@ -1423,9 +1447,11 @@ function AssigneePicker({
 function MemberChecklist({
   memberProgress,
   onChange,
+  onRaciChange,
 }: {
   memberProgress: CooperationMemberProgress[];
   onChange: (idx: number, status: CooperationRequestStatus) => void;
+  onRaciChange?: (idx: number, raci: CooperationRaci) => void;
 }) {
   if (memberProgress.length === 0) {
     return <p className="text-[11px] text-[var(--color-ink-muted)]">선택한 조직에 등록된 인원이 없습니다.</p>;
@@ -1452,6 +1478,26 @@ function MemberChecklist({
             <div className="flex items-center gap-1.5 shrink-0">
               {(m.status === '처리완료' || m.status === '확인완료') && m.completedAt && (
                 <span className="text-[10px] tabular-nums text-emerald-700">{m.completedAt.replaceAll('-', '.')}</span>
+              )}
+              {onRaciChange && (
+                <select
+                  value={m.raci}
+                  onChange={(e) => onRaciChange(idx, e.target.value as CooperationRaci)}
+                  title={`RACI 역할 — ${COOPERATION_RACI_LABEL[m.raci]}`}
+                  className={cn(
+                    'rounded border px-1 py-0.5 text-[10px] font-bold focus:outline-none focus:ring-1 focus:ring-indigo-200',
+                    m.raci === 'R' && 'border-blue-200 bg-blue-50 text-blue-700',
+                    m.raci === 'A' && 'border-violet-200 bg-violet-50 text-violet-700',
+                    m.raci === 'C' && 'border-amber-200 bg-amber-50 text-amber-700',
+                    m.raci === 'I' && 'border-slate-200 bg-slate-50 text-slate-700',
+                  )}
+                >
+                  {COOPERATION_RACI_KINDS.map((r) => (
+                    <option key={r} value={r}>
+                      {r} — {COOPERATION_RACI_LABEL[r]}
+                    </option>
+                  ))}
+                </select>
               )}
               <select
                 value={m.status}
@@ -1491,10 +1537,11 @@ function MemberChecklist({
 function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onChange: (next: CooperationMeetingLog[]) => void }) {
   const todayIso = new Date().toISOString().slice(0, 10);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ date: string; title: string; content: string }>({
+  const [draft, setDraft] = useState<{ date: string; title: string; content: string; actions: CooperationMeetingAction[] }>({
     date: todayIso,
     title: '',
     content: '',
+    actions: [],
   });
   // 시계열: 최신순 정렬(같은 날짜면 createdAt 역순).
   const sorted = useMemo(
@@ -1510,37 +1557,51 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
 
   const startAdd = () => {
     setEditingId('__new__');
-    setDraft({ date: todayIso, title: '', content: '' });
+    setDraft({ date: todayIso, title: '', content: '', actions: [] });
   };
   const startEdit = (m: CooperationMeetingLog) => {
     setEditingId(m.id);
-    setDraft({ date: m.date || todayIso, title: m.title, content: m.content });
+    setDraft({ date: m.date || todayIso, title: m.title, content: m.content, actions: m.actions });
   };
   const cancel = () => {
     setEditingId(null);
-    setDraft({ date: todayIso, title: '', content: '' });
+    setDraft({ date: todayIso, title: '', content: '', actions: [] });
   };
+  const cleanActions = (arr: CooperationMeetingAction[]): CooperationMeetingAction[] =>
+    arr.filter((a) => a.task.trim() || a.assignee.trim());
   const save = () => {
     const content = draft.content.trim();
-    if (!content && !draft.title.trim()) return; // 빈 항목 등록 차단
+    const actions = cleanActions(draft.actions);
+    if (!content && !draft.title.trim() && actions.length === 0) return; // 빈 항목 등록 차단
     if (editingId === '__new__') {
       const entry: CooperationMeetingLog = {
         id: randomUUID(),
         date: draft.date || todayIso,
         title: draft.title.trim(),
         content,
+        actions,
         createdAt: new Date().toISOString(),
         createdBy: null,
       };
       onChange([...logs, entry]);
     } else if (editingId) {
-      onChange(logs.map((m) => (m.id === editingId ? { ...m, date: draft.date || todayIso, title: draft.title.trim(), content } : m)));
+      onChange(
+        logs.map((m) => (m.id === editingId ? { ...m, date: draft.date || todayIso, title: draft.title.trim(), content, actions } : m)),
+      );
     }
     cancel();
   };
   const remove = (id: string) => {
     onChange(logs.filter((m) => m.id !== id));
     if (editingId === id) cancel();
+  };
+  /** 표시 영역에서 액션 완료를 즉시 토글 — 편집 모드 진입 없이도 처리 가능. */
+  const toggleActionDone = (meetingId: string, actionId: string) => {
+    onChange(
+      logs.map((m) =>
+        m.id !== meetingId ? m : { ...m, actions: m.actions.map((a) => (a.id !== actionId ? a : { ...a, done: !a.done })) },
+      ),
+    );
   };
 
   return (
@@ -1584,6 +1645,7 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
             className={cn(inputCls, 'resize-y min-h-[80px]')}
             autoFocus
           />
+          <ActionPlanEditor actions={draft.actions} onChange={(actions) => setDraft((d) => ({ ...d, actions }))} />
           <div className="flex items-center justify-end gap-1.5">
             <button
               type="button"
@@ -1595,7 +1657,7 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
             <button
               type="button"
               onClick={save}
-              disabled={!draft.content.trim() && !draft.title.trim()}
+              disabled={!draft.content.trim() && !draft.title.trim() && cleanActions(draft.actions).length === 0}
               className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
             >
               저장
@@ -1637,6 +1699,7 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
                   rows={3}
                   className={cn(inputCls, 'resize-y min-h-[80px]')}
                 />
+                <ActionPlanEditor actions={draft.actions} onChange={(actions) => setDraft((d) => ({ ...d, actions }))} />
                 <div className="flex items-center justify-end gap-1.5">
                   <button
                     type="button"
@@ -1659,12 +1722,41 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
           return (
             <div key={m.id} className="group rounded-md border border-[var(--color-line)] bg-white p-2">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[11px] text-[var(--color-ink-muted)]">
                     <span className="font-mono tabular-nums">{(m.date || '').replaceAll('-', '.')}</span>
                     {m.title && <span className="font-semibold text-[var(--color-ink)] truncate">{m.title}</span>}
                   </div>
                   {m.content && <div className="mt-0.5 whitespace-pre-wrap text-xs text-[var(--color-ink)]">{m.content}</div>}
+                  {m.actions.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+                        Action Plan ({m.actions.filter((a) => a.done).length}/{m.actions.length} 완료)
+                      </div>
+                      <ul className="space-y-0.5">
+                        {m.actions.map((a) => (
+                          <li
+                            key={a.id}
+                            className={cn('flex items-center gap-1.5 text-[11px]', a.done && 'text-[var(--color-ink-muted)] line-through')}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={a.done}
+                              onChange={() => toggleActionDone(m.id, a.id)}
+                              className="size-3 accent-indigo-600"
+                            />
+                            {a.assignee && <span className="font-semibold text-[var(--color-ink)]">{a.assignee}</span>}
+                            <span>{a.task || '(내용 미지정)'}</span>
+                            {a.dueDate && (
+                              <span className="text-[10px] text-[var(--color-ink-muted)] tabular-nums">
+                                ~{a.dueDate.replaceAll('-', '.')}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
                   <button
@@ -1689,6 +1781,85 @@ function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onC
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 회의록 1건의 Action Plan 편집기 — 행 단위로 담당자·내용·기한·완료체크 입력.
+ * "회의록 = Action Plan 중심" (부서간 협업 프로세스 V1.0 단기 ③) 적용.
+ */
+function ActionPlanEditor({
+  actions,
+  onChange,
+}: {
+  actions: CooperationMeetingAction[];
+  onChange: (next: CooperationMeetingAction[]) => void;
+}) {
+  const update = (id: string, patch: Partial<CooperationMeetingAction>) =>
+    onChange(actions.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  const remove = (id: string) => onChange(actions.filter((a) => a.id !== id));
+  const add = () => onChange([...actions, { id: randomUUID(), assignee: '', task: '', dueDate: '', done: false }]);
+  return (
+    <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)]/40 p-1.5 space-y-1">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">
+          Action Plan (담당자·완료기한 명시)
+        </span>
+        <button
+          type="button"
+          onClick={add}
+          className="inline-flex items-center gap-0.5 rounded text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
+        >
+          <Plus size={10} /> Action 추가
+        </button>
+      </div>
+      {actions.length === 0 ? (
+        <p className="px-1 text-[10.5px] text-[var(--color-ink-muted)]">
+          (없음) — 회의에서 결정된 후속조치를 담당자·완료기한과 함께 적어두세요.
+        </p>
+      ) : (
+        actions.map((a) => (
+          <div key={a.id} className="flex items-center gap-1 rounded bg-white px-1 py-1">
+            <input
+              type="checkbox"
+              checked={a.done}
+              onChange={(e) => update(a.id, { done: e.target.checked })}
+              className="size-3 accent-indigo-600 shrink-0"
+              title="완료"
+            />
+            <input
+              type="text"
+              value={a.assignee}
+              onChange={(e) => update(a.id, { assignee: e.target.value })}
+              placeholder="담당자"
+              className={cn(inputCls, 'w-28 text-[11px]')}
+            />
+            <input
+              type="text"
+              value={a.task}
+              onChange={(e) => update(a.id, { task: e.target.value })}
+              placeholder="할 일"
+              className={cn(inputCls, 'flex-1 text-[11px]')}
+            />
+            <input
+              type="date"
+              value={a.dueDate}
+              onChange={(e) => update(a.id, { dueDate: e.target.value })}
+              className={cn(inputCls, 'w-32 text-[11px]')}
+              title="완료기한"
+            />
+            <button
+              type="button"
+              onClick={() => remove(a.id)}
+              className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700 shrink-0"
+              title="삭제"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        ))
+      )}
     </div>
   );
 }

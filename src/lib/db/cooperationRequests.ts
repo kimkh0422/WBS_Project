@@ -71,6 +71,31 @@ export type CooperationStatusHistoryEntry = {
   at: string;
 };
 
+/** 멤버 RACI 역할(부서간 협업 프로세스 V1.0 중기 ①). 기본값 'R'. */
+export const COOPERATION_RACI_KINDS = ['R', 'A', 'C', 'I'] as const;
+export type CooperationRaci = (typeof COOPERATION_RACI_KINDS)[number];
+export const COOPERATION_RACI_LABEL: Record<CooperationRaci, string> = {
+  R: '실무자',
+  A: '의사결정자',
+  C: '협의처',
+  I: '공유처',
+};
+function normalizeRaci(v: unknown): CooperationRaci {
+  return v === 'A' || v === 'C' || v === 'I' ? v : 'R';
+}
+
+/**
+ * 회의록 Action Plan 항목 — "회의록 = Action Plan 중심"(단기 ③) 적용.
+ * 담당자·내용·완료기한·완료체크.
+ */
+export type CooperationMeetingAction = {
+  id: string;
+  assignee: string;
+  task: string;
+  dueDate: string;
+  done: boolean;
+};
+
 /**
  * 회의록 1건 — 협조요청에 누적되는 회의 시계열 기록.
  * - id: 행 식별(편집/삭제용)
@@ -85,6 +110,8 @@ export type CooperationMeetingLog = {
   date: string;
   title: string;
   content: string;
+  /** Action Plan 항목들 — 담당자·내용·완료기한·완료체크 */
+  actions: CooperationMeetingAction[];
   createdAt: string;
   createdBy: string | null;
 };
@@ -106,6 +133,8 @@ export type CooperationMemberProgress = {
   completedAt: string;
   sourceOrgIds: string[];
   direct: boolean;
+  /** RACI 역할 (기본 'R'). UI에서 라벨 변경 가능. */
+  raci: CooperationRaci;
 };
 
 /** 업무 협조 요청 1건 */
@@ -122,6 +151,8 @@ export type CooperationRequest = {
   detail: string;
   /** 구체적 산출물(deliverable) — 표준 요청서의 핵심 4요소 중 하나. 비어 있을 수 있음. */
   deliverables: string;
+  /** 공유처/참조자 — 쉼표·세미콜론·공백 구분, 이름 또는 이메일. 알림 메일 CC로 자동 반영. */
+  informees: string;
   requester: string;
   /** 담당자(표시명). 다중 선택 시 "운영기술개발실, 김길용 외 2명" 같이 합산해 표시. */
   assignee: string;
@@ -169,6 +200,7 @@ type CooperationRequestDbRow = {
   title: string | null;
   detail: string | null;
   deliverables: string | null;
+  informees: string | null;
   requester: string | null;
   assignee: string | null;
   assignee_kind: string | null;
@@ -193,7 +225,7 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, deliverables, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
 
 /** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다.
  *  과거에 sourceOrgIds/direct 없이 저장된 행도 안전하게 호환:
@@ -218,9 +250,26 @@ function normalizeMemberProgress(raw: unknown): CooperationMemberProgress[] {
         completedAt: typeof o.completedAt === 'string' ? o.completedAt : '',
         sourceOrgIds,
         direct,
+        raci: normalizeRaci(o.raci),
       };
     })
     .filter((x): x is CooperationMemberProgress => x !== null);
+}
+
+/** 회의록 Action Plan 항목 1건 정규화. */
+function normalizeMeetingAction(raw: unknown): CooperationMeetingAction | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const task = typeof o.task === 'string' ? o.task : '';
+  const assignee = typeof o.assignee === 'string' ? o.assignee : '';
+  if (!task && !assignee) return null;
+  return {
+    id: typeof o.id === 'string' && o.id ? o.id : randomUUID(),
+    assignee,
+    task,
+    dueDate: typeof o.dueDate === 'string' ? o.dueDate : '',
+    done: o.done === true,
+  };
 }
 
 /** orgIds 문자열 배열 정규화. */
@@ -256,11 +305,15 @@ function normalizeMeetingLogs(raw: unknown): CooperationMeetingLog[] {
       const title = typeof o.title === 'string' ? o.title : '';
       const content = typeof o.content === 'string' ? o.content : '';
       if (!date && !title && !content) return null;
+      const actions: CooperationMeetingAction[] = Array.isArray(o.actions)
+        ? o.actions.map(normalizeMeetingAction).filter((x): x is CooperationMeetingAction => x !== null)
+        : [];
       return {
         id,
         date,
         title,
         content,
+        actions,
         createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString(),
         createdBy: typeof o.createdBy === 'string' ? o.createdBy : null,
       };
@@ -318,6 +371,7 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     title: str(r.title),
     detail: str(r.detail),
     deliverables: str(r.deliverables),
+    informees: str(r.informees),
     requester: str(r.requester),
     assignee: str(r.assignee),
     assigneeKind: normalizeAssigneeKind(r.assignee_kind),
@@ -371,6 +425,7 @@ function loadLocal(): CooperationRequest[] {
         title: str(r.title),
         detail: str(r.detail),
         deliverables: str(r.deliverables),
+        informees: str(r.informees),
         requester: str(r.requester),
         assignee: str(r.assignee),
         assigneeKind: normalizeAssigneeKind(r.assigneeKind),
@@ -484,6 +539,7 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     title: input.title,
     detail: input.detail,
     deliverables: input.deliverables,
+    informees: input.informees,
     requester: input.requester,
     assignee: input.assignee,
     assignee_kind: normalizeAssigneeKind(input.assigneeKind),
@@ -635,6 +691,7 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.title !== undefined) payload.title = patch.title;
   if (patch.detail !== undefined) payload.detail = patch.detail;
   if (patch.deliverables !== undefined) payload.deliverables = patch.deliverables;
+  if (patch.informees !== undefined) payload.informees = patch.informees;
   if (patch.requester !== undefined) payload.requester = patch.requester;
   if (patch.assignee !== undefined) payload.assignee = patch.assignee;
   if (patch.assigneeKind !== undefined) payload.assignee_kind = normalizeAssigneeKind(patch.assigneeKind);
@@ -690,6 +747,7 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     title: '',
     detail: '',
     deliverables: '',
+    informees: '',
     requester: '',
     assignee: '',
     assigneeKind: 'person',

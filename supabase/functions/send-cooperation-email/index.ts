@@ -43,12 +43,29 @@ interface RequestRow {
   title: string | null;
   detail: string | null;
   deliverables: string | null;
+  informees: string | null;
   requester: string | null;
   assignee: string | null;
   priority: string | null;
   due_date: string | null;
   status: string | null;
   member_progress: MemberSnap[] | null;
+  meeting_logs: MeetingLogSnap[] | null;
+}
+
+interface MeetingLogSnap {
+  id: string;
+  date: string;
+  title: string;
+  content: string;
+  actions?: MeetingActionSnap[];
+}
+
+interface MeetingActionSnap {
+  assignee: string;
+  task: string;
+  dueDate: string;
+  done: boolean;
 }
 
 interface MemberSnap {
@@ -59,6 +76,7 @@ interface MemberSnap {
   completedAt?: string;
   direct?: boolean;
   sourceOrgIds?: string[];
+  raci?: 'R' | 'A' | 'C' | 'I';
 }
 
 interface OrgMemberWithEmail {
@@ -115,6 +133,23 @@ function buildEmail(row: RequestRow, mode: string, appUrl: string): { subject: s
     ['현황', row.status ?? '-'],
   ];
   if (row.deliverables && row.deliverables.trim()) fields.splice(2, 0, ['산출물', row.deliverables]);
+  if (row.informees && row.informees.trim()) fields.push(['참조자', row.informees]);
+
+  // RACI 라벨 요약 (R/A/C/I 카운트, 있을 때만)
+  const members = Array.isArray(row.member_progress) ? row.member_progress : [];
+  if (members.length > 0) {
+    const counts: Record<string, number> = { R: 0, A: 0, C: 0, I: 0 };
+    for (const m of members) if (m.raci && counts[m.raci] !== undefined) counts[m.raci]++;
+    const total = counts.R + counts.A + counts.C + counts.I;
+    if (total > 0) {
+      const parts: string[] = [];
+      if (counts.R) parts.push(`R(실무자) ${counts.R}`);
+      if (counts.A) parts.push(`A(의사결정자) ${counts.A}`);
+      if (counts.C) parts.push(`C(협의처) ${counts.C}`);
+      if (counts.I) parts.push(`I(공유처) ${counts.I}`);
+      fields.push(['RACI', parts.join(' · ')]);
+    }
+  }
 
   const fieldsHtml = fields
     .map(
@@ -131,11 +166,40 @@ function buildEmail(row: RequestRow, mode: string, appUrl: string): { subject: s
       )}</div>`
     : '';
 
-  const link = appUrl
-    ? `<p style="margin-top:20px"><a href="${escapeHtml(
-        appUrl,
-      )}/dashboard" style="display:inline-block;padding:10px 16px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600">앱에서 열기</a></p>`
-    : '';
+  // 최근 회의록의 Action Plan 요약 (있을 때만 노출)
+  const meetingLogs = Array.isArray(row.meeting_logs) ? row.meeting_logs : [];
+  const recentActions = meetingLogs
+    .slice()
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    .slice(0, 3)
+    .flatMap((m) =>
+      (m.actions ?? []).map((a) => ({
+        date: m.date,
+        title: m.title,
+        ...a,
+      })),
+    );
+  const actionsHtml =
+    recentActions.length === 0
+      ? ''
+      : `<div style="margin-top:16px;padding:12px;background:#fff7ed;border-left:3px solid #f97316;border-radius:4px">
+        <div style="font-weight:600;color:#9a3412;margin-bottom:6px">최근 Action Plan</div>
+        <ul style="margin:0;padding-left:18px;color:#111827">
+          ${recentActions
+            .map(
+              (a) =>
+                `<li style="margin:2px 0${a.done ? ';text-decoration:line-through;color:#9ca3af' : ''}">${
+                  a.assignee ? `<strong>${escapeHtml(a.assignee)}</strong> · ` : ''
+                }${escapeHtml(a.task)}${a.dueDate ? ` <span style="color:#6b7280">(~${escapeHtml(a.dueDate)})</span>` : ''}</li>`,
+            )
+            .join('')}
+        </ul>
+      </div>`;
+
+  // 외부 링크(vercel.app)는 일부 기업 스팸필터의 accept-then-discard(수신 후 무단 폐기)를 유발 →
+  // 받은편지함 도달률을 위해 본문 외부 링크를 제거한다. (앱 접속은 사용자가 직접. 화이트리스트/도메인 평판 확보 후 재추가 가능)
+  void appUrl;
+  const link = '';
 
   const html = `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,sans-serif;color:#111827;line-height:1.55">
   <div style="max-width:640px;margin:0 auto;padding:24px">
@@ -143,6 +207,7 @@ function buildEmail(row: RequestRow, mode: string, appUrl: string): { subject: s
     <p style="margin:0 0 16px;color:#6b7280">아래 내용을 확인해 주세요.</p>
     <table style="border-collapse:collapse;width:100%;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">${fieldsHtml}</table>
     ${detailHtml}
+    ${actionsHtml}
     ${link}
     <p style="margin-top:24px;color:#9ca3af;font-size:12px">본 메일은 협조 요청 등록/변경 시 자동 발송됩니다.</p>
   </div>
@@ -155,8 +220,6 @@ ${action}.
 ${fields.map(([k, v]) => `${k}: ${v}`).join('\n')}
 
 ${row.detail ?? ''}
-
-${appUrl ? `${appUrl}/dashboard` : ''}
 `;
 
   return { subject, html, text };
@@ -216,7 +279,7 @@ Deno.serve(async (req: Request) => {
   const { data: row, error: rowErr } = await supabase
     .from('cooperation_requests')
     .select(
-      'id, mgmt_id, request_date, request_type, title, detail, deliverables, requester, assignee, priority, due_date, status, member_progress',
+      'id, mgmt_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, priority, due_date, status, member_progress, meeting_logs',
     )
     .eq('id', requestId)
     .single();
@@ -290,7 +353,21 @@ Deno.serve(async (req: Request) => {
     else skippedMembers.push(`${om.name}(${dept})`);
   }
 
-  if (toAddresses.size === 0) {
+  // 참조자(informees) 텍스트에서 이메일 주소만 추출 → CC로 추가. 이름만 입력된 토큰은 무시.
+  const informeeCc: string[] = (() => {
+    const s = (reqRow.informees ?? '').trim();
+    if (!s) return [];
+    return Array.from(
+      new Set(
+        s
+          .split(/[\s,;]+/)
+          .map((t) => t.trim())
+          .filter((t) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)),
+      ),
+    );
+  })();
+
+  if (toAddresses.size === 0 && informeeCc.length === 0) {
     return jsonResponse(200, { sent: 0, skipped: 'no recipient emails', skippedMembers });
   }
 
@@ -300,9 +377,14 @@ Deno.serve(async (req: Request) => {
 
   if (useResend) {
     // Resend 배치 API: 1인 1통으로 개별 발송(수신자끼리 주소 비노출). 요청당 최대 100건 → 100단위 청크.
+    // 참조자(informeeCc) 가 있으면 각 통화마다 CC에 함께 포함 (모두에게 가시).
     for (let i = 0; i < recipients.length; i += 100) {
       const chunk = recipients.slice(i, i + 100);
-      const payload = chunk.map((addr) => ({ from: MAIL_FROM, to: [addr], subject, html, text }));
+      const payload = chunk.map((addr) => {
+        const msg: Record<string, unknown> = { from: MAIL_FROM, to: [addr], subject, html, text };
+        if (informeeCc.length > 0) msg.cc = informeeCc;
+        return msg;
+      });
       const res = await fetch('https://api.resend.com/emails/batch', {
         method: 'POST',
         headers: { authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json' },
@@ -313,7 +395,7 @@ Deno.serve(async (req: Request) => {
         return jsonResponse(502, { error: 'resend send failed', status: res.status, detail });
       }
     }
-    return jsonResponse(200, { sent: recipients.length, recipients, skippedMembers, via: 'resend', mode });
+    return jsonResponse(200, { sent: recipients.length, recipients, cc: informeeCc, skippedMembers, via: 'resend', mode });
   }
 
   // SMTP 발송 (BCC 일괄)
@@ -328,14 +410,16 @@ Deno.serve(async (req: Request) => {
   });
 
   try {
-    await client.send({
+    const msg: Record<string, unknown> = {
       from: MAIL_FROM,
       to: MAIL_FROM, // 자기 자신
       bcc: recipients, // 실제 수신자
       subject,
       content: text,
       html,
-    });
+    };
+    if (informeeCc.length > 0) msg.cc = informeeCc;
+    await client.send(msg as Parameters<typeof client.send>[0]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     try {
@@ -348,5 +432,5 @@ Deno.serve(async (req: Request) => {
 
   await client.close();
 
-  return jsonResponse(200, { sent: recipients.length, recipients, skippedMembers, via: 'smtp', mode });
+  return jsonResponse(200, { sent: recipients.length, recipients, cc: informeeCc, skippedMembers, via: 'smtp', mode });
 });

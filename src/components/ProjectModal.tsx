@@ -238,7 +238,7 @@ export function ProjectModal({
       project?.reportTotalPeriod || undefined,
       project?.reportNameShort || undefined,
       project?.reportNameFull || undefined,
-      includeInDashboard,
+      true,
     );
     onClose();
   };
@@ -311,43 +311,6 @@ export function ProjectModal({
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
-          {/* 대시보드 반영 — 폼 상단 강조: 신규 프로젝트는 기본 켜짐. 끄려면 클릭. */}
-          <section
-            className={cn(
-              'rounded-xl border p-4 shadow-sm transition-colors',
-              includeInDashboard
-                ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5'
-                : 'border-[var(--color-line)] bg-[var(--color-bg)]',
-            )}
-          >
-            <div className="flex gap-3">
-              <input
-                id="project-modal-include-dashboard"
-                type="checkbox"
-                checked={includeInDashboard}
-                onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-              />
-              <div className="min-w-0 flex-1">
-                <label htmlFor="project-modal-include-dashboard" className="cursor-pointer text-sm font-semibold text-[var(--color-ink)]">
-                  대시보드에 반영
-                </label>
-                <p className="mt-1 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                  켜면 요약·집계·프로젝트 카드에 포함됩니다. 끄면 대시보드에서는 숨기고, WBS·간트 등 작업 화면에는 그대로 표시됩니다.
-                </p>
-                <details className="mt-2 group">
-                  <summary className="cursor-pointer list-none text-xs font-medium text-[var(--color-accent)] hover:opacity-80 [&::-webkit-details-marker]:hidden">
-                    <span className="underline-offset-2 group-open:underline">구분 필터와 항목 선택 안내</span>
-                  </summary>
-                  <p className="mt-2 border-l-2 border-[var(--color-line)] pl-3 text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                    대시보드 상단「구분」에서 해당 구분이 켜져 있어야 집계에 포함됩니다. 항목(종류) 드롭다운은 이 옵션을 켠 뒤에만 변경할 수
-                    있습니다.
-                  </p>
-                </details>
-              </div>
-            </div>
-          </section>
-
           {/* 필수 */}
           <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
@@ -365,10 +328,8 @@ export function ProjectModal({
                   id="project-modal-project-kind"
                   value={projectKind}
                   onChange={(e) => setProjectKind(e.target.value as ProjectKind)}
-                  disabled={!includeInDashboard}
-                  required={includeInDashboard}
-                  title={includeInDashboard ? undefined : '대시보드에 반영을 켜면 프로젝트 종류(항목)를 선택할 수 있습니다.'}
-                  className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-slate-100/90 opacity-70')}
+                  required
+                  className="input-field w-full"
                 >
                   {projectKindOptions.map((k) => (
                     <option key={k} value={k}>
@@ -376,13 +337,8 @@ export function ProjectModal({
                     </option>
                   ))}
                 </select>
-                {!includeInDashboard && (
-                  <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                    항목을 바꾸려면 아래「대시보드에 반영」을 켜 주세요.
-                  </p>
-                )}
               </div>
-              <div className="min-w-0 flex flex-col gap-1.5">
+              <div className="min-w-0 flex flex-col gap-1.5" data-tourid="tour-project-name">
                 <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-name">
                   가칭(약어) <span className="font-normal text-[var(--color-danger)]">*</span>
                 </label>
@@ -684,6 +640,7 @@ export function ProjectModal({
           </button>
           <button
             type="button"
+            data-tourid="tour-project-save"
             onClick={(e) => {
               e.preventDefault();
               handleSubmit(e as unknown as React.FormEvent);

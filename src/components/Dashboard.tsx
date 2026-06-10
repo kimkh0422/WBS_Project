@@ -173,10 +173,10 @@ export function Dashboard({
   const selectAllDashboardKinds = () => persistDashboardIncludedKinds(new Set(PROJECT_KINDS));
   const dashboardKindsFilterActive = useMemo(() => PROJECT_KINDS.some((k) => !dashboardIncludedKinds.has(k)), [dashboardIncludedKinds]);
 
+  // 모든 프로젝트는 대시보드에 무조건 표시 — 「대시보드 포함여부」 토글은 제거됨
   const projectsEligibleForDashboard = useMemo(
     () =>
       projects.filter((p) => {
-        if (p.includeInDashboard === false) return false;
         const kind = resolveProjectKindOrDefault(p);
         return dashboardIncludedKinds.has(kind);
       }),

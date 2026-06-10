@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, BookOpen, ChevronRight } from 'lucide-react';
+import { X, BookOpen, ChevronRight, Route } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
@@ -34,7 +34,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
       { type: 'subtitle', text: '첫 화면 구성' },
       {
         type: 'paragraph',
-        text: '상단 왼쪽의 프로젝트 이름(예: ECDIS H/W)을 클릭하면 현재 작업할 프로젝트를 바꾸거나, "새 프로젝트"·"프로젝트 관리"로 이동할 수 있습니다. "전체"를 선택하면 모든 프로젝트의 작업을 한 화면에서 볼 수 있습니다.',
+        text: '상단 왼쪽의 프로젝트 이름(예: ECDIS H/W)을 클릭하면 현재 작업할 프로젝트를 바꿀 수 있고, "전체"를 선택하면 모든 프로젝트의 작업을 한 화면에서 볼 수 있습니다. 새 프로젝트는 그 옆의 「새 프로젝트」 버튼으로 바로 만듭니다. 프로젝트 관리 화면은 Shift+F12로 숨김 메뉴를 켠 뒤 프로젝트 목록 맨 아래에서 열 수 있습니다.',
       },
       {
         type: 'paragraph',
@@ -50,9 +50,8 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
       {
         type: 'list',
         items: [
-          '상단 "프로젝트" 탭을 클릭해 프로젝트 목록 화면으로 이동합니다.',
-          '"프로젝트 추가" 버튼을 누르고, 이름·PM(필수)·PO(선택)·설명·시작일·종료일을 입력한 뒤 저장합니다. PM/PO는 WBS 작업의「담당자」와 별개이며, 대시보드·프로젝트 목록에서 확인할 수 있습니다.',
-          '프로젝트 카드를 클릭하면 해당 프로젝트가 선택되고, 표/간트 등에서 해당 프로젝트의 작업을 편집할 수 있습니다.',
+          '상단 헤더의 「새 프로젝트」 버튼을 누르고, 이름·PM(필수)·PO(선택)·설명·시작일·종료일을 입력한 뒤 저장합니다. PM/PO는 WBS 작업의「담당자」와 별개이며, 대시보드·프로젝트 목록에서 확인할 수 있습니다.',
+          '프로젝트 목록(관리) 화면은 Shift+F12로 숨김 메뉴를 켠 뒤, 프로젝트 이름 클릭 → 목록 맨 아래 「프로젝트 관리」로 엽니다. 카드를 클릭하면 해당 프로젝트가 선택되고, 표/간트 등에서 그 프로젝트의 작업을 편집할 수 있습니다.',
         ],
       },
       { type: 'subtitle', text: '수정·삭제·복사' },
@@ -247,6 +246,7 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
           ['공통', 'Ctrl+Z', '되돌리기'],
           ['공통', 'Ctrl+Y', '다시 실행'],
           ['공통', 'Ctrl+S', '즉시 서버 반영'],
+          ['공통', 'Shift+F12', '숨김 메뉴 표시 전환(투입현황·주간보고·프로젝트 관리 등)'],
           ['공통', 'Alt+1~7', '대시보드~마인드맵 뷰 전환(순서별)'],
           ['공통', 'Ctrl+Alt+1~9', '트리 1~9 레벨까지 펼치기'],
           ['공통', 'Ctrl++ / Ctrl+-', '표·간트 줄 높이 늘리기/줄이기'],
@@ -286,9 +286,11 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
 interface TutorialModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** 화면 따라하기 투어 시작(데스크톱 전용). App이 모달을 닫고 투어를 실행한다. */
+  onStartTour?: () => void;
 }
 
-export function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
+export function TutorialModal({ isOpen, onClose, onStartTour }: TutorialModalProps) {
   const [activeId, setActiveId] = useState(TUTORIAL_SECTIONS[0].id);
   const contentRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -381,13 +383,25 @@ export function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
               사용 튜토리얼
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            title="닫기"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {onStartTour && (
+              <button
+                type="button"
+                onClick={onStartTour}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-xs font-semibold transition-colors"
+                title="신규 프로젝트 생성 → 첫 작업 입력 순서를 실제 화면 위에서 단계별로 따라 해 봅니다."
+              >
+                <Route size={14} /> 화면 따라하기 투어
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              title="닫기"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-1 min-h-0">

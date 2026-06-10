@@ -1,7 +1,7 @@
 {
   "name": "wbs-mg",
   "private": true,
-  "version": "0.6.65",
+  "version": "0.6.66",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -55,7 +55,6 @@
     "motion": "^12.23.24",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-joyride": "^2.9.3",
     "react-router-dom": "^7.13.2",
     "tailwind-merge": "^3.5.0",
     "uuid": "^13.0.0",

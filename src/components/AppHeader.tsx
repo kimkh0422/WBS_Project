@@ -39,6 +39,8 @@ import {
   TrendingUp,
   FileText,
   ClipboardList,
+  BookOpen,
+  Route,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -161,6 +163,10 @@ export interface AppHeaderProps {
   setIsProjectEditAccessRequestModalOpen?: (v: boolean) => void;
   /** 프로젝트 소유자 id → profiles.department. PM이 조직 인원과 매칭되지 않을 때 조직도 분류 보조 */
   ownerDepartmentByUserId?: Record<string, string | null | undefined>;
+  /** ⋮ 메뉴 「사용 설명서」 — 텍스트 튜토리얼 모달 열기 */
+  onOpenTutorial?: () => void;
+  /** ⋮ 메뉴 「따라하기 투어」 — 신규 프로젝트→첫 작업 흐름을 실제 화면 위에서 안내(데스크톱 전용) */
+  onStartTour?: () => void;
 }
 
 export function AppHeader({
@@ -239,6 +245,8 @@ export function AppHeader({
   setIsAdminAccessRequestModalOpen,
   setIsProjectEditAccessRequestModalOpen,
   ownerDepartmentByUserId,
+  onOpenTutorial,
+  onStartTour,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
   const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
@@ -258,7 +266,7 @@ export function AppHeader({
   }, [isMobileViewport, setIsProjectDropdownOpen]);
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  // 숨김 헤더 항목(투입현황·주간보고·버그 사항) 표시 토글 — Shift+F12
+  // 숨김 헤더 항목(투입현황·주간보고·버그 사항·프로젝트 관리) 표시 토글 — Shift+F12
   const [showHiddenHeaderItems, setShowHiddenHeaderItems] = useState<boolean>(() => {
     try {
       return localStorage.getItem('wbs.showHiddenHeaderItems') === '1';
@@ -769,25 +777,6 @@ export function AppHeader({
                               {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
                             </button>
                           )}
-                          {dashboardExcludedInListCount > 0 && dashboardIncludedInListCount > 0 && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleListFilter('dashboardOn');
-                              }}
-                              className={cn(
-                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listFilter === 'dashboardOn'
-                                  ? 'bg-sky-100 text-sky-900 border border-sky-200'
-                                  : 'text-slate-400 hover:text-sky-800 border border-transparent hover:border-[var(--color-line)]',
-                              )}
-                              title={listFilter === 'dashboardOn' ? '전체 프로젝트 보기' : '대시보드 집계·카드에 포함된 프로젝트만 보기'}
-                            >
-                              <LayoutDashboard size={10} />
-                              {listFilter === 'dashboardOn' ? `반영 ${dashboardIncludedInListCount}개` : '반영만'}
-                            </button>
-                          )}
                           <span className="text-[10px] text-slate-400 shrink-0">{displayProjects.length}개</span>
                         </div>
                       </div>
@@ -844,7 +833,8 @@ export function AppHeader({
                         </div>
                       )}
                       <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
-                      <div className="max-h-[min(76vh,800px)] overflow-y-auto overscroll-contain pr-0.5">
+                      {/* 목록 높이: 뷰포트 기준으로 제한(패널 위 헤더·배너 + 목록 머리줄 + 하단 프로젝트 관리 몫 19rem 예약) — 낮은 화면에서도 패널 하단이 잘리지 않게 */}
+                      <div className="max-h-[min(calc(100vh_-_19rem),800px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
                           const renderProjectRow = (project: Project) => {
                             const pmLabel = projectDropdownPmLabel(project);
@@ -1079,16 +1069,17 @@ export function AppHeader({
                           ));
                         })()}
                       </div>
-                      <div className="border-t border-[var(--color-line)] my-1"></div>
-                      {!hiddenViews.has('projects') && (
+                      {/* 프로젝트 관리 — 초보자 동선 단순화를 위해 기본 숨김. Shift+F12(숨김 헤더 항목 표시)로 노출 */}
+                      {!hiddenViews.has('projects') && showHiddenHeaderItems && (
                         <>
+                          <div className="border-t border-[var(--color-line)] my-1"></div>
                           <button
                             onClick={() => {
                               setIsProjectDropdownOpen(false);
                               setView('projects');
                             }}
                             className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] rounded-lg flex items-center gap-2 transition-colors"
-                            title="프로젝트 관리 페이지로 이동합니다."
+                            title="프로젝트 관리 페이지로 이동합니다. (Shift+F12로 이 메뉴 표시를 켜고 끕니다)"
                           >
                             <Briefcase size={14} /> 프로젝트 관리
                           </button>
@@ -1104,6 +1095,7 @@ export function AppHeader({
           {!hiddenViews.has('projects') && (
             <button
               type="button"
+              data-tourid="tour-new-project"
               onClick={() => {
                 setEditingProject(null);
                 setIsProjectModalOpen(true);
@@ -1383,9 +1375,41 @@ export function AppHeader({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsMoreMenuOpen(false)} aria-hidden />
                 <div
-                  className="absolute top-full right-0 mt-2 w-44 bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-hidden z-50 shadow-[var(--shadow-xl)] dropdown-menu flex flex-col py-1"
+                  className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] dropdown-menu flex flex-col py-1"
                   style={{ boxShadow: 'var(--shadow-[var(--shadow-xl)])' }}
                 >
+                  {(onOpenTutorial || onStartTour) && (
+                    <>
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">도움말</div>
+                      {onOpenTutorial && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            onOpenTutorial();
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
+                          title="화면 구성·프로젝트·작업·단축키 등 사용법 전체를 글로 정리한 설명서를 엽니다."
+                        >
+                          <BookOpen size={14} /> 사용 설명서
+                        </button>
+                      )}
+                      {onStartTour && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            onStartTour();
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] hidden md:flex items-center gap-2"
+                          title="신규 프로젝트 만들기 → 첫 작업 입력 순서를 실제 화면 위에서 단계별로 안내합니다."
+                        >
+                          <Route size={14} /> 따라하기 투어
+                        </button>
+                      )}
+                      <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
+                    </>
+                  )}
                   {(userApproved || effectiveIsAdmin) && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">조직</div>

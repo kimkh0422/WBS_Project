@@ -1217,20 +1217,6 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               />
               소유자별 그룹으로 보기
             </label>
-            {dashboardExcludedProjectCount > 0 && (
-              <label
-                className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer"
-                title="대시보드 집계·카드에 포함하지 않은 프로젝트만 표시합니다."
-              >
-                <input
-                  type="checkbox"
-                  checked={showDashboardExcludedOnly}
-                  onChange={(e) => toggleShowDashboardExcludedOnly(e.target.checked)}
-                  className="rounded border-slate-300 text-orange-600"
-                />
-                대시보드 미반영만
-              </label>
-            )}
             <>
               <div className="h-4 w-px bg-slate-200/80" />
               <div className="flex flex-wrap items-center gap-2">
@@ -1341,23 +1327,6 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
               />
               소유자별 그룹
             </label>
-            {dashboardExcludedProjectCount > 0 && (
-              <>
-                <div className="h-4 w-px bg-slate-200/80" />
-                <label
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer shrink-0"
-                  title="대시보드 집계·카드에 포함하지 않은 프로젝트만 표시합니다."
-                >
-                  <input
-                    type="checkbox"
-                    checked={showDashboardExcludedOnly}
-                    onChange={(e) => toggleShowDashboardExcludedOnly(e.target.checked)}
-                    className="rounded border-slate-300 text-orange-600"
-                  />
-                  대시보드 미반영만
-                </label>
-              </>
-            )}
             <div className="h-4 w-px bg-slate-200/80" />
             <div className="flex flex-wrap items-center gap-2">
               <ArrowUpDown size={14} className="text-slate-400 shrink-0" aria-hidden />

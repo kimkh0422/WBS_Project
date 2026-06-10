@@ -273,6 +273,9 @@ export function WBSTable({
   const bottomQuickAddInputRef = useRef<HTMLInputElement>(null);
   const [insertTargetId, setInsertTargetId] = useState<string | null>(null);
   const [inlineAddingTaskId, setInlineAddingTaskId] = useState<string | null>(null);
+  /** 엑셀 스타일 — 마지막 데이터 행 아래에 비어 있는 placeholder 행을 미리 표시. ↓로 진입, 클릭/Enter/F2/문자 입력으로 즉시 새 작업 생성 + 인라인 편집. */
+  const GHOST_PLACEHOLDER_ROW_COUNT = 5;
+  const [ghostFocusIdx, setGhostFocusIdx] = useState<number | null>(null);
 
   useEffect(() => {
     setQuickAddBottomValue('');
@@ -942,6 +945,53 @@ export function WBSTable({
     pushToast,
   });
 
+  /**
+   * Ghost(placeholder) 행 활성화 — 마지막 표시 행의 형제로 빈 새 작업을 추가하고 그 행 인라인 편집으로 진입.
+   * 클릭, 또는 ↓로 ghost 포커스 진입한 뒤 Enter/F2/문자 입력 시 호출.
+   * (useWbsTableKeyboard의 deps로 전달되므로 hook 호출보다 먼저 선언)
+   */
+  const activateGhostRow = useCallback(() => {
+    if (!canEditCurrentProject) return;
+    const lastVisible = visibleTasks[visibleTasks.length - 1];
+    const proj = projects.find((p) => p.id === (lastVisible?.projectId || currentProjectId));
+    const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+    const startIso = filters.startDate || defaultDate;
+    const newId = addTask(
+      {
+        name: '',
+        startDate: startIso,
+        endDate: filters.endDate || defaultEndDateForNewTask(startIso),
+        progress: 0,
+        workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
+        assignee: filters.assignee || '',
+        status: 'todo',
+        parentId: lastVisible?.parentId ?? null,
+      },
+      lastVisible?.id,
+    );
+    if (newId) {
+      setGhostFocusIdx(null);
+      setLastSelectedId(newId);
+      setFocusedCell({ taskId: newId, columnId: 'name' });
+      setInlineEditingNameIdCommitted(newId);
+      requestAnimationFrame(() => {
+        document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
+      });
+    }
+  }, [
+    canEditCurrentProject,
+    visibleTasks,
+    projects,
+    currentProjectId,
+    filters.startDate,
+    filters.endDate,
+    filters.assignee,
+    addTask,
+    setLastSelectedId,
+    setFocusedCell,
+    setInlineEditingNameIdCommitted,
+  ]);
+
   // Keyboard Shortcuts — extracted to useWbsTableKeyboard
   useWbsTableKeyboard({
     hotkeysEnabled,
@@ -966,6 +1016,10 @@ export function WBSTable({
     canEditCurrentProject,
     inlineAddingTaskId,
     setInlineAddingTaskId,
+    ghostFocusIdx,
+    setGhostFocusIdx,
+    ghostPlaceholderRowCount: GHOST_PLACEHOLDER_ROW_COUNT,
+    activateGhostRow,
     setLastSelectedId,
     syncRangeAnchorForKeyboardFocus,
     setFocusedCell,
@@ -1900,9 +1954,12 @@ export function WBSTable({
                   })()}
                 </DndContext>
 
-                {visibleTasks.length === 0 && tasks.length === 0 && (
-                  <div className="p-12 text-center text-slate-400 italic font-serif bg-slate-50/30">
-                    등록된 작업이 없습니다. 새 작업을 추가해 보세요.
+                {visibleTasks.length === 0 && tasks.length === 0 && !canEditCurrentProject && (
+                  <div className="p-12 text-center text-slate-400 italic font-serif bg-slate-50/30">등록된 작업이 없습니다.</div>
+                )}
+                {visibleTasks.length === 0 && tasks.length === 0 && canEditCurrentProject && (
+                  <div className="px-4 py-2 text-[12px] text-slate-500 bg-slate-50/40 border-b border-slate-200/60">
+                    아래 빈 행을 클릭하면 첫 작업이 추가되고 작업명 편집 모드로 진입합니다. ↓·Enter로도 가능.
                   </div>
                 )}
                 {visibleTasks.length === 0 && tasks.length > 0 && (
@@ -1913,8 +1970,62 @@ export function WBSTable({
                     </button>
                   </div>
                 )}
+                {/* 엑셀 스타일 placeholder 행: 마지막 데이터 행 아래에 빈 셀을 미리 표시.
+                    클릭 / ↓ 화살표로 진입 → Enter/F2/문자 입력으로 즉시 새 작업 생성 + 인라인 편집.
+                    빈 표(작업 0개)에서도 행을 표시해 엑셀처럼 즉시 입력 가능하게 한다. */}
+                {(() => {
+                  const isFullyEmpty = visibleTasks.length === 0 && tasks.length === 0;
+                  const showGhost = canEditCurrentProject && (visibleTasks.length > 0 || isFullyEmpty);
+                  if (!showGhost) return null;
+                  const count = isFullyEmpty ? 10 : GHOST_PLACEHOLDER_ROW_COUNT;
+                  return Array.from({ length: count }).map((_, gi) => {
+                    const isFocused = ghostFocusIdx === gi;
+                    return (
+                      <div
+                        key={`ghost-row-${gi}`}
+                        data-ghost-row={gi}
+                        className={cn(
+                          'data-row flex-shrink-0 border-b border-dashed border-slate-200/60 cursor-cell select-none',
+                          'transition-colors hover:bg-indigo-50/40',
+                          isFocused && 'bg-indigo-50/70',
+                        )}
+                        style={{
+                          ...gridStyle,
+                          ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
+                          // 빈 표에서는 행이 더 또렷이 보이도록 opacity를 높게.
+                          opacity: isFullyEmpty ? Math.max(0.35, 0.78 - gi * 0.04) : Math.max(0.25, 0.55 - gi * 0.06),
+                        }}
+                        onClick={() => activateGhostRow()}
+                        title="클릭 또는 Enter로 새 작업 추가"
+                      >
+                        <div className="data-cell"></div>
+                        <div className="data-cell"></div>
+                        <div className="data-cell"></div>
+                        <div className="data-cell"></div>
+                        {visibleColumnIds.map((colId) => {
+                          if (colId !== 'name') return <div key={colId} className="data-cell"></div>;
+                          return (
+                            <div
+                              key={colId}
+                              className={cn(
+                                'data-cell text-xs italic text-slate-400',
+                                isFocused && 'ring-2 ring-indigo-400 ring-inset text-indigo-500',
+                              )}
+                            >
+                              {gi === 0 ? (isFullyEmpty ? '+ 첫 작업 추가 — 클릭하여 시작' : '+ 새 작업 (클릭 또는 ↓ Enter)') : ''}
+                            </div>
+                          );
+                        })}
+                        {showActionsColumn && <div className="data-cell"></div>}
+                      </div>
+                    );
+                  });
+                })()}
                 {canEditCurrentProject && (
-                  <div className="min-w-fit w-full border-t border-indigo-200/70 bg-indigo-50/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                  <div
+                    data-tourid="tour-quick-add"
+                    className="min-w-fit w-full border-t border-indigo-200/70 bg-indigo-50/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                  >
                     <div
                       className="data-row flex-shrink-0 bg-indigo-50/70 border-b border-indigo-200/70 shadow-sm box-border"
                       style={{

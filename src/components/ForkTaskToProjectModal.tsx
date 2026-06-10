@@ -113,7 +113,7 @@ export function ForkTaskToProjectModal({
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       projectKind,
-      includeInDashboard,
+      includeInDashboard: true,
     });
   };
 
@@ -166,8 +166,7 @@ export function ForkTaskToProjectModal({
                   id="fork-modal-kind"
                   value={projectKind}
                   onChange={(e) => setProjectKind(e.target.value as ProjectKind)}
-                  disabled={!includeInDashboard}
-                  className={cn('input-field w-full', !includeInDashboard && 'cursor-not-allowed bg-slate-100/90 opacity-70')}
+                  className="input-field w-full"
                 >
                   {projectKindOptions.map((k) => (
                     <option key={k} value={k}>
@@ -272,21 +271,6 @@ export function ForkTaskToProjectModal({
                   className="input-field w-full"
                 />
               </div>
-            </div>
-            <div className="flex gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-3">
-              <input
-                id="fork-modal-include-dashboard"
-                type="checkbox"
-                checked={includeInDashboard}
-                onChange={(e) => setIncludeInDashboard(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-              />
-              <label htmlFor="fork-modal-include-dashboard" className="text-sm font-medium text-[var(--color-ink)] cursor-pointer">
-                대시보드에 반영
-                <p className="mt-0.5 text-xs font-normal text-[var(--color-ink-subdued)]">
-                  켜면 요약·집계·프로젝트 카드에 포함될 수 있습니다.
-                </p>
-              </label>
             </div>
           </section>
         </div>

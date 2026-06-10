@@ -233,29 +233,6 @@ export function DashboardProjectCardDetailPanel({
           </div>
         )}
 
-        {onIncludeInDashboardChange && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 space-y-2">
-            <h4 className="text-[11px] font-bold text-slate-600">대시보드 반영</h4>
-            <label className="flex gap-2 cursor-pointer items-start">
-              <input
-                type="checkbox"
-                checked={includeInDashboard}
-                onChange={(e) => onIncludeInDashboardChange(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <span className="min-w-0 text-sm text-slate-800">
-                조직 대시보드·요약에 포함
-                <span
-                  className="block text-[11px] text-slate-500 font-normal mt-0.5"
-                  title="끄면 집계·카드·목록에서 제외됩니다. WBS·간트는 그대로입니다."
-                >
-                  끄면 집계·카드에서만 제외 (WBS 유지)
-                </span>
-              </span>
-            </label>
-          </div>
-        )}
-
         <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <div className="flex min-w-[7rem] items-center gap-2">

@@ -718,34 +718,14 @@ function SortableTaskRowInner({
                         if (isComposingKeyEvent(e.nativeEvent)) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        // 빈 입력 + 빈 작업명 상태에서 Enter — 연쇄 입력을 멈추는 종료 신호.
-                        // 새 행이 자동 생성된 직후 사용자가 더 추가할 게 없을 때 빠르게 끝내는 동작.
-                        const inputEl = e.currentTarget as HTMLInputElement;
-                        const typedValue = (inputEl.value ?? '').trim();
-                        const existingName = (task.name ?? '').trim();
-                        if (!e.shiftKey && typedValue === '' && existingName === '') {
-                          setInlineEditingNameId(null);
-                          setEditingCell(null);
-                          setFocusedCell({ taskId: task.id, columnId: 'name' });
-                          onFocusRow?.(task.id);
-                          requestAnimationFrame(() => {
-                            (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                          });
-                          return;
-                        }
-                        // 현재 작업명을 커밋(저장)
+                        // 편집 중 Enter — 저장하고 편집만 종료. 새 작업을 자동 생성하지 않는다.
+                        // (새 작업 추가는 하단 ghost placeholder 행에서 Enter/F2/문자키 또는 클릭으로 수행)
                         commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
                         setInlineEditingNameId(null);
                         setEditingCell(null);
                         if (e.shiftKey && onInsertRowAbove) {
-                          // Shift+Enter: 현재 행 "위"에 형제 새 작업을 추가하고, 새 행을 인라인 편집 모드로.
+                          // Shift+Enter는 기존 동작 유지 — 현재 행 위에 형제 새 작업 추가 + 새 행 인라인 편집.
                           onInsertRowAbove(task.id);
-                          return;
-                        }
-                        // 일반 Enter: 다음 표시 행의 이름 셀로 인라인 편집을 이어간다(엑셀 연속 입력).
-                        // 마지막 행이면 하단에 빈 새 작업을 자동 생성해 그 행 편집으로 진입(콜백 내부 처리).
-                        if (onAdvanceInlineEditToNextRow) {
-                          onAdvanceInlineEditToNextRow(task.id);
                           return;
                         }
                         setFocusedCell({ taskId: task.id, columnId: 'name' });

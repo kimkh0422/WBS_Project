@@ -94,6 +94,12 @@ export interface WbsTableKeyboardDeps {
   canEditCurrentProject: boolean;
   inlineAddingTaskId: string | null;
   setInlineAddingTaskId: (id: string | null) => void;
+  /** Excel 스타일 placeholder(ghost) 행 — 데이터 마지막 아래에서 ↓로 진입, 타이핑/Enter/F2로 새 작업 즉시 생성 */
+  ghostFocusIdx: number | null;
+  setGhostFocusIdx: (idx: number | null) => void;
+  ghostPlaceholderRowCount: number;
+  /** Ghost 행 활성화 — 새 빈 작업을 생성하고 인라인 편집으로 진입 */
+  activateGhostRow: () => void;
 
   // State setters
   setLastSelectedId: (id: string | null) => void;
@@ -156,6 +162,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     canEditCurrentProject,
     inlineAddingTaskId,
     setInlineAddingTaskId,
+    ghostFocusIdx,
+    setGhostFocusIdx,
+    ghostPlaceholderRowCount,
+    activateGhostRow,
     setLastSelectedId,
     syncRangeAnchorForKeyboardFocus,
     setFocusedCell,
@@ -203,6 +213,48 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       const inWbsTable = (target as HTMLElement).closest?.('[data-wbs-table]');
       const inQuickAdd = (target as HTMLElement).closest?.('[data-quick-add]');
+
+      // ── Ghost (Excel placeholder) 행 포커스 처리 ──
+      // ghostFocusIdx 가 설정돼 있으면 ↑/↓ 로 행 이동, Enter/F2/문자 입력은 새 작업 생성+편집, Esc 는 해제.
+      if (ghostFocusIdx !== null && !inQuickAdd) {
+        if (e.key === 'ArrowDown' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          const max = Math.max(0, ghostPlaceholderRowCount - 1);
+          setGhostFocusIdx(Math.min(max, ghostFocusIdx + 1));
+          return;
+        }
+        if (e.key === 'ArrowUp' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          if (ghostFocusIdx === 0) {
+            // 최상단 ghost — 마지막 데이터 행으로 포커스 복귀
+            const lastTask = visibleTasks[visibleTasks.length - 1];
+            setGhostFocusIdx(null);
+            if (lastTask) {
+              setFocusedCell({ taskId: lastTask.id, columnId: 'name' });
+              setLastSelectedId(lastTask.id);
+              document.getElementById(`task-row-${lastTask.id}`)?.scrollIntoView({ block: 'nearest' });
+            }
+            tableScrollRef.current?.focus();
+          } else {
+            setGhostFocusIdx(ghostFocusIdx - 1);
+          }
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setGhostFocusIdx(null);
+          tableScrollRef.current?.focus();
+          return;
+        }
+        // Enter / F2 / 인쇄 가능 문자(영숫자·한글 등) → 새 작업 생성 + 인라인 편집 진입
+        const isPrintableChar = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+        if (e.key === 'Enter' || e.key === 'F2' || isPrintableChar) {
+          e.preventDefault();
+          activateGhostRow();
+          return;
+        }
+        // 그 외 키는 무시(ghost 포커스 유지)
+      }
       /** 일괄 수정 바 등 표 밖 포커스에서도 Shift/Ctrl/Meta+↑↓ 로 범위·다중 선택 확장 (SELECT·간트 막대는 제외) */
       const rangeArrowFromOutsideTable =
         (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
@@ -443,6 +495,23 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumn));
           if (rowIdx >= 0 && colIdx >= 0) {
             const delta = e.key === 'ArrowUp' ? -1 : 1;
+            // 마지막 데이터 행에서 ↓ — Excel placeholder(ghost) 행 0번으로 진입.
+            if (
+              e.key === 'ArrowDown' &&
+              !e.shiftKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.altKey &&
+              rowIdx === visibleTasks.length - 1 &&
+              canEditCurrentProject &&
+              ghostPlaceholderRowCount > 0
+            ) {
+              e.preventDefault();
+              setFocusedCell(null);
+              setGhostFocusIdx(0);
+              tableScrollRef.current?.focus();
+              return;
+            }
             const nextRowIdx = Math.min(visibleTasks.length - 1, Math.max(0, rowIdx + delta));
             e.preventDefault();
             if (nextRowIdx !== rowIdx) {

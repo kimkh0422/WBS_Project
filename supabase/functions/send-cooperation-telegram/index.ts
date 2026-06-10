@@ -39,12 +39,22 @@ interface RequestRow {
   title: string | null;
   detail: string | null;
   deliverables: string | null;
+  informees: string | null;
   requester: string | null;
   assignee: string | null;
   priority: string | null;
   due_date: string | null;
   status: string | null;
   member_progress: MemberSnap[] | null;
+  meeting_logs: MeetingLogSnap[] | null;
+}
+
+interface MeetingLogSnap {
+  id: string;
+  date: string;
+  title: string;
+  content: string;
+  actions?: { assignee: string; task: string; dueDate: string; done: boolean }[];
 }
 
 interface MemberSnap {
@@ -107,6 +117,26 @@ function buildMessage(row: RequestRow, mode: string, appUrl: string): string {
     ['현황', row.status ?? '-'],
   ];
   if (row.deliverables && row.deliverables.trim()) fields.splice(1, 0, ['산출물', row.deliverables]);
+  if (row.informees && row.informees.trim()) fields.push(['참조자', row.informees]);
+
+  // RACI 카운트 요약
+  const members = Array.isArray(row.member_progress) ? row.member_progress : [];
+  if (members.length > 0) {
+    const c: Record<string, number> = { R: 0, A: 0, C: 0, I: 0 };
+    for (const m of members) {
+      const r = (m as { raci?: string }).raci;
+      if (r && c[r] !== undefined) c[r]++;
+    }
+    const tot = c.R + c.A + c.C + c.I;
+    if (tot > 0) {
+      const parts: string[] = [];
+      if (c.R) parts.push(`R(실무자) ${c.R}`);
+      if (c.A) parts.push(`A(의사결정자) ${c.A}`);
+      if (c.C) parts.push(`C(협의처) ${c.C}`);
+      if (c.I) parts.push(`I(공유처) ${c.I}`);
+      fields.push(['RACI', parts.join(' · ')]);
+    }
+  }
 
   const head = `📋 <b>${escapeTgHtml(action)}</b>\n\n<b>[${escapeTgHtml(mgmtId)}] ${escapeTgHtml(title)}</b>\n`;
   const body = fields.map(([k, v]) => `· ${escapeTgHtml(k)}: ${escapeTgHtml(v)}`).join('\n');
@@ -191,7 +221,7 @@ Deno.serve(async (req: Request) => {
   const { data: row, error: rowErr } = await supabase
     .from('cooperation_requests')
     .select(
-      'id, mgmt_id, request_date, request_type, title, detail, deliverables, requester, assignee, priority, due_date, status, member_progress',
+      'id, mgmt_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, priority, due_date, status, member_progress, meeting_logs',
     )
     .eq('id', requestId)
     .single();
