@@ -32,7 +32,7 @@ export type CooperationNotification = {
   memberStatus: CooperationRequestStatus;
 };
 
-const DONE_STATUSES: ReadonlySet<CooperationRequestStatus> = new Set<CooperationRequestStatus>(['완료', '회신불가']);
+const DONE_STATUSES: ReadonlySet<CooperationRequestStatus> = new Set<CooperationRequestStatus>(['처리완료', '확인완료', '취소됨']);
 
 /** 두 이름이 같은 사람인지 단순 비교. 트림·앞뒤 공백 제거 후 일치. */
 function nameMatches(a: string, b: string): boolean {

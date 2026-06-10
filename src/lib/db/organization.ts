@@ -50,3 +50,14 @@ export async function updateOrgMemberEmail(id: string, email: string | null): Pr
     .eq('id', id);
   if (error) throw error;
 }
+
+/** 단일 org_member 의 telegram_chat_id 만 갱신(관리자 전용).
+ *  컬럼은 20260610140000_org_members_telegram_chat_id.sql 마이그레이션으로 추가 — 적용 전 DB에서는 에러. */
+export async function updateOrgMemberTelegramChatId(id: string, chatId: string | null): Promise<void> {
+  requireSupabase();
+  const { error } = await supabase!
+    .from('org_members')
+    .update({ telegram_chat_id: chatId && chatId.trim() ? chatId.trim() : null })
+    .eq('id', id);
+  if (error) throw error;
+}

@@ -10,9 +10,18 @@ export type CooperationRequestType = (typeof COOPERATION_REQUEST_TYPES)[number];
 export const COOPERATION_REQUEST_PRIORITIES = ['상', '중', '하'] as const;
 export type CooperationRequestPriority = (typeof COOPERATION_REQUEST_PRIORITIES)[number];
 
-/** 현황(상태) — 엑셀 기준(요청완료/진행중/지연/완료/회신불가) */
-export const COOPERATION_REQUEST_STATUSES = ['요청완료', '진행중', '지연', '완료', '회신불가'] as const;
+/**
+ * 현황(상태) — 5단계 워크플로:
+ *   요청완료 → 진행중 → 처리완료(담당자 처리 끝) → 확인완료(요청자 최종 확인)
+ *   또는 어느 단계에서나 취소됨 으로 종료
+ *
+ * 과거 어휘(지연·완료·회신불가)는 normalizeStatus 에서 자동 이행한다.
+ */
+export const COOPERATION_REQUEST_STATUSES = ['요청완료', '진행중', '처리완료', '확인완료', '취소됨'] as const;
 export type CooperationRequestStatus = (typeof COOPERATION_REQUEST_STATUSES)[number];
+
+/** 종료 상태(완료/취소). 진척률·자동 완료일·기한초과 알림 판정에 사용. */
+export const DONE_STATUSES: ReadonlySet<CooperationRequestStatus> = new Set<CooperationRequestStatus>(['처리완료', '확인완료', '취소됨']);
 
 function normalizeType(v: unknown): CooperationRequestType {
   return (COOPERATION_REQUEST_TYPES as readonly string[]).includes(v as string) ? (v as CooperationRequestType) : '자료';
@@ -20,8 +29,14 @@ function normalizeType(v: unknown): CooperationRequestType {
 function normalizePriority(v: unknown): CooperationRequestPriority {
   return (COOPERATION_REQUEST_PRIORITIES as readonly string[]).includes(v as string) ? (v as CooperationRequestPriority) : '중';
 }
+/** 신·구 어휘 통합 매핑: '완료'→'처리완료', '회신불가'→'취소됨', '지연'→'진행중'. 알 수 없는 값은 '요청완료'. */
 function normalizeStatus(v: unknown): CooperationRequestStatus {
-  return (COOPERATION_REQUEST_STATUSES as readonly string[]).includes(v as string) ? (v as CooperationRequestStatus) : '요청완료';
+  if (typeof v !== 'string') return '요청완료';
+  if ((COOPERATION_REQUEST_STATUSES as readonly string[]).includes(v)) return v as CooperationRequestStatus;
+  if (v === '완료') return '처리완료';
+  if (v === '회신불가') return '취소됨';
+  if (v === '지연') return '진행중';
+  return '요청완료';
 }
 
 /**
@@ -178,28 +193,37 @@ function normalizeOrgIds(raw: unknown): string[] {
 }
 
 /**
- * 조직 대상 요청의 집계 진척률 계산: 완료(상태='완료') 멤버 / 전체 멤버. 분모 0이면 0.
- * 인원 대상이면 호출자가 직접 manage하는 progress를 그대로 사용한다.
+ * 조직 대상 요청의 집계 진척률 계산.
+ * - 분모: 취소되지 않은 멤버 수(취소됨 제외)
+ * - 분자: 처리완료 또는 확인완료 멤버 수
+ * - 분모 0이면 0
  */
 export function computeOrgProgress(memberProgress: CooperationMemberProgress[]): number {
   if (memberProgress.length === 0) return 0;
-  const done = memberProgress.filter((m) => m.status === '완료').length;
-  return done / memberProgress.length;
+  const active = memberProgress.filter((m) => m.status !== '취소됨');
+  if (active.length === 0) return 0;
+  const done = active.filter((m) => m.status === '처리완료' || m.status === '확인완료').length;
+  return done / active.length;
 }
 
 /**
- * 조직 대상 요청의 집계 상태(요청완료/진행중/완료) 추론:
- * - 모두 '완료' → '완료'
- * - 하나라도 '완료' 또는 '진행중' → '진행중'
- * - 그 외(전원 요청완료) → '요청완료'
- * - 멤버가 없으면 '요청완료'
+ * 조직 대상 요청의 집계 상태 추론(취소됨 멤버는 분모 제외):
+ * - 멤버 0명 → 요청완료
+ * - 전원 취소됨 → 취소됨
+ * - 활성 전원 확인완료 → 확인완료
+ * - 활성 전원 처리완료/확인완료 → 처리완료
+ * - 활성 중 진행중·처리완료·확인완료 1명이라도 → 진행중
+ * - 그 외(활성 전원 요청완료) → 요청완료
  */
 export function computeOrgStatus(memberProgress: CooperationMemberProgress[]): CooperationRequestStatus {
   if (memberProgress.length === 0) return '요청완료';
-  const allDone = memberProgress.every((m) => m.status === '완료');
-  if (allDone) return '완료';
-  const anyActive = memberProgress.some((m) => m.status === '완료' || m.status === '진행중');
-  return anyActive ? '진행중' : '요청완료';
+  const active = memberProgress.filter((m) => m.status !== '취소됨');
+  if (active.length === 0) return '취소됨';
+  if (active.every((m) => m.status === '확인완료')) return '확인완료';
+  if (active.every((m) => m.status === '처리완료' || m.status === '확인완료')) return '처리완료';
+  const anyActive = active.some((m) => m.status === '진행중' || m.status === '처리완료' || m.status === '확인완료');
+  if (anyActive) return '진행중';
+  return '요청완료';
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
@@ -394,41 +418,86 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
   const { data, error } = await supabase!.from(TABLE).insert(payload).select(COLUMNS).single();
   if (error) throw error;
   const mapped = mapRow(data as CooperationRequestDbRow);
-  // 메일 알림 발송 — 실패해도 등록 자체는 성공으로 처리(메일 미설정 환경에서도 동작).
-  void notifyByEmail(mapped.id, 'created');
+  // 알림 발송(메일·텔레그램) — 실패해도 등록 자체는 성공으로 처리(채널 미설정 환경에서도 동작).
+  void notifyCooperation(mapped.id, 'created');
   return mapped;
 }
 
-/** Edge Function 배포·메일 설정이 끝났는지 여부. 활성 조건(둘 중 하나):
- *  - 빌드 시 환경변수 `VITE_COOPERATION_EMAIL_ENABLED=1` 설정
- *  - 런타임에 `localStorage.setItem('wbs.cooperationEmail.enabled','1')` 로 토글
+/** Edge Function 배포·발송 채널 설정이 끝났는지 여부. 활성 조건(둘 중 하나):
+ *  - 빌드 시 환경변수(envKey)=1 설정 (예: VITE_COOPERATION_EMAIL_ENABLED)
+ *  - 런타임에 localStorage(storageKey)='1' 로 토글
  *  기본값은 OFF — 배포 전 fetch 가 일어나 콘솔에 CORS/네트워크 에러가 찍히는 것을 막는다. */
-function isCooperationEmailEnabled(): boolean {
+function isCooperationChannelEnabled(envKey: string, storageKey: string): boolean {
   try {
-    const env = (import.meta.env as Record<string, unknown>).VITE_COOPERATION_EMAIL_ENABLED;
+    const env = (import.meta.env as Record<string, unknown>)[envKey];
     if (env === '1' || env === 'true' || env === true) return true;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('wbs.cooperationEmail.enabled') === '1') return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey) === '1') return true;
   } catch {
     /* 안전한 기본값 OFF */
   }
   return false;
 }
 
-/**
- * 협조 요청 알림 메일 — Supabase Edge Function (send-cooperation-email) 호출.
- * 활성화 토글 OFF 또는 로컬 dev 우회 모드면 fetch 시도 자체를 건너뛴다.
- * 실패는 조용히 무시(메일 설정 안 된 환경에서도 협조 요청 등록 동작은 막지 않음).
- */
-async function notifyByEmail(requestId: string, mode: 'created' | 'updated' | 'status-change'): Promise<void> {
-  if (isLocalOnly()) return;
-  if (!isCooperationEmailEnabled()) return; // Edge Function 배포·secrets 설정 전 fetch 차단
+type CooperationNotifyMode = 'created' | 'updated' | 'status-change';
+
+/** 채널 1개(Edge Function 1개) 호출. 실패는 조용히 무시 — 알림은 협조요청 동작을 막지 않는다. */
+async function invokeCooperationNotify(fn: string, requestId: string, mode: CooperationNotifyMode): Promise<void> {
   try {
-    await supabase!.functions.invoke('send-cooperation-email', {
-      body: { requestId, mode },
-    });
+    await supabase!.functions.invoke(fn, { body: { requestId, mode } });
   } catch (e) {
-    // 메일 발송 실패는 협조요청 동작에 영향 없음
-    if (typeof console !== 'undefined' && console.warn) console.warn('[cooperation] 메일 발송 호출 실패:', e);
+    if (typeof console !== 'undefined' && console.warn) console.warn(`[cooperation] ${fn} 호출 실패:`, e);
+  }
+}
+
+/**
+ * 협조 요청 알림 — 활성화된 채널(메일·텔레그램)별 Supabase Edge Function 호출.
+ * - 메일:     send-cooperation-email     (VITE_COOPERATION_EMAIL_ENABLED / wbs.cooperationEmail.enabled)
+ * - 텔레그램: send-cooperation-telegram  (VITE_COOPERATION_TELEGRAM_ENABLED / wbs.cooperationTelegram.enabled)
+ * 채널 토글은 서로 독립. 활성화 토글 OFF 또는 로컬 dev 우회 모드면 fetch 시도 자체를 건너뛴다.
+ */
+async function notifyCooperation(requestId: string, mode: CooperationNotifyMode): Promise<void> {
+  if (isLocalOnly()) return;
+  const calls: Array<Promise<void>> = [];
+  if (isCooperationChannelEnabled('VITE_COOPERATION_EMAIL_ENABLED', 'wbs.cooperationEmail.enabled')) {
+    calls.push(invokeCooperationNotify('send-cooperation-email', requestId, mode));
+  }
+  if (isCooperationChannelEnabled('VITE_COOPERATION_TELEGRAM_ENABLED', 'wbs.cooperationTelegram.enabled')) {
+    calls.push(invokeCooperationNotify('send-cooperation-telegram', requestId, mode));
+  }
+  if (calls.length > 0) await Promise.all(calls);
+}
+
+/** 수동 전파 결과. ok=true 면 sent(발송 건수) 동반, 아니면 skipped(미발송 사유) 또는 error. */
+export type CooperationBroadcastResult = { ok: boolean; sent?: number; skipped?: string; error?: string };
+
+/**
+ * 협조 요청 텔레그램 알림을 **수동으로 즉시 전파**한다(자동 토글과 무관 — 명시적 사용자 액션이므로 항상 호출).
+ * - 대상 행은 이미 DB에 저장돼 있어야 한다(Edge Function 이 requestId 로 행을 읽음). 새 미저장 항목은 먼저 저장 필요.
+ * - 로컬 dev 우회 모드면 호출 불가 → skipped 반환.
+ * - Edge Function 미배포/미설정·수신자 없음 등은 throw 하지 않고 결과 객체로 돌려준다(호출부에서 토스트 안내).
+ */
+export async function broadcastCooperationTelegram(requestId: string): Promise<CooperationBroadcastResult> {
+  if (isLocalOnly()) return { ok: false, skipped: '로컬 모드에서는 텔레그램 전파가 불가합니다(실서버 로그인 필요).' };
+  try {
+    const { data, error } = await supabase!.functions.invoke('send-cooperation-telegram', {
+      body: { requestId, mode: 'created' },
+    });
+    if (error) {
+      // FunctionsHttpError(비2xx) 등 — 가능하면 본문의 사유를 꺼내 보여준다.
+      const ctx = (error as { context?: { error?: string; reason?: string } }).context;
+      return { ok: false, error: ctx?.error ?? ctx?.reason ?? error.message };
+    }
+    const d = (data ?? {}) as { sent?: number; skipped?: string | boolean; reason?: string; error?: string };
+    if (typeof d.sent === 'number' && d.sent > 0) return { ok: true, sent: d.sent };
+    if (d.error) return { ok: false, error: String(d.error) };
+    if (d.skipped)
+      return {
+        ok: false,
+        skipped: typeof d.skipped === 'string' ? d.skipped : (d.reason ?? '수신자가 없습니다(chat_id·기본 채팅 미설정).'),
+      };
+    return { ok: false, skipped: '수신 대상이 없습니다(담당 멤버 chat_id 또는 기본 채팅 미설정).' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '텔레그램 전파 호출에 실패했습니다.' };
   }
 }
 
@@ -487,11 +556,11 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   const { data, error } = await supabase!.from(TABLE).update(payload).eq('id', id).select(COLUMNS).single();
   if (error) throw error;
   const mapped = mapRow(data as CooperationRequestDbRow);
-  // 현황(status) 변경 또는 멤버/제목 등 주요 필드 변경 시에만 메일 발송 — 사소한 편집은 스팸 방지로 미발송.
+  // 현황(status) 변경 또는 멤버/제목 등 주요 필드 변경 시에만 알림 발송 — 사소한 편집은 스팸 방지로 미발송.
   const isStatusChange = patch.status !== undefined || patch.memberProgress !== undefined;
   const isContentChange = patch.title !== undefined || patch.detail !== undefined || patch.dueDate !== undefined;
   if (isStatusChange || isContentChange) {
-    void notifyByEmail(mapped.id, isStatusChange && !isContentChange ? 'status-change' : 'updated');
+    void notifyCooperation(mapped.id, isStatusChange && !isContentChange ? 'status-change' : 'updated');
   }
   return mapped;
 }

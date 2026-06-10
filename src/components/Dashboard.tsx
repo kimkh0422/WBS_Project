@@ -99,6 +99,7 @@ export function Dashboard({
   accessibleProjectIds,
   myInvolvedProjectIds,
   currentUserDisplay,
+  currentUserPlainName,
   profileMap,
   ownerDepartmentByUserId,
   currentUserId,
@@ -115,6 +116,7 @@ export function Dashboard({
   myInvolvedProjectIds?: Set<string>;
   /** 현재 사용자 표시 이름. 부서 매칭("내가 포함된 부서") 등에 사용. */
   currentUserDisplay?: string;
+  currentUserPlainName?: string;
   /** 프로젝트 owner_id → 프로필 표시명 (PM 미지정 시 소유자 이름 표시용). */
   profileMap?: Record<string, string>;
   /** 조직도 매칭 보조: owner_id → 프로필 부서명 */
@@ -1632,7 +1634,14 @@ export function Dashboard({
               )}
 
               {/* 업무 협조 요청 — 전체현황 바로 아래 */}
-              {showDashSection('cooperation') && <CooperationRequestSection mobileReadabilityMode={mobileReadabilityMode} />}
+              {showDashSection('cooperation') && (
+                <CooperationRequestSection
+                  mobileReadabilityMode={mobileReadabilityMode}
+                  layoutMode={dashboardSectionLayout.cooperation}
+                  onChangeLayout={(mode) => persistDashboardSectionLayout('cooperation', mode)}
+                  currentUserPlainName={currentUserPlainName}
+                />
+              )}
 
               {/* 사업부 현황 */}
               {showDashSection('divisions') && (

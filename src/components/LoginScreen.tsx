@@ -231,7 +231,7 @@ export function LoginScreen() {
       case 'signIn':
         return '로그인하여 프로젝트를 관리하세요.';
       case 'signUp':
-        return '사내 직원은 @gmtc.kr, 외주 파트너는 본인 업체 이메일로 가입할 수 있어요. 외주 계정은 초대·공유된 프로젝트만 열립니다.';
+        return '회원가입은 @gmtc.kr 사내 메일만 가능합니다.';
       case 'verifySignup':
         return '메일로 받은 인증 코드를 입력하세요.';
       case 'forgotEmail':
@@ -312,7 +312,7 @@ export function LoginScreen() {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder={isSignUp ? '이메일 (예: name@gmtc.kr 또는 name@partner.com)' : '이메일'}
+                      placeholder={isSignUp ? '이메일 (예: name@gmtc.kr)' : '이메일'}
                       className="w-full bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3.5 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500/40 transition-all"
                       autoComplete="email"
                       disabled={loading}

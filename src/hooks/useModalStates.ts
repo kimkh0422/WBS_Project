@@ -9,7 +9,8 @@ export function useModalStates() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
-  const [isShortcutsVisible, setIsShortcutsVisible] = useState(false);
+  // 단축키 사이드바는 매 세션 무조건 표시(ON). 사용자가 닫으면 그 세션 동안만 닫힘 — 새로고침·재접속 시 다시 ON.
+  const [isShortcutsVisible, setIsShortcutsVisible] = useState<boolean>(true);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);

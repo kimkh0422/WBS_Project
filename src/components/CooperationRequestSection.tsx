@@ -1,5 +1,17 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
   Handshake,
   Plus,
   RefreshCw,
@@ -7,6 +19,7 @@ import {
   X,
   Pencil,
   Trash2,
+  Send,
   AlertCircle,
   CheckCircle2,
   Clock,
@@ -16,6 +29,9 @@ import {
   ChevronDown,
   User,
   Building2,
+  Table2,
+  LayoutGrid,
+  Coins,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useToast } from './Toast';
@@ -26,6 +42,7 @@ import {
   insertCooperationRequest,
   updateCooperationRequest,
   deleteCooperationRequest,
+  broadcastCooperationTelegram,
   makeEmptyCooperationRequest,
   nextMgmtId,
   computeOrgProgress,
@@ -41,26 +58,39 @@ import {
   type CooperationRequestPriority,
   type CooperationMemberProgress,
 } from '../lib/db/cooperationRequests';
+import {
+  fetchCooperationPoints,
+  deriveCooperationPointEntries,
+  summarizeCooperationPoints,
+  COOPERATION_POINTS_BY_PRIORITY,
+  type CooperationPointEntry,
+} from '../lib/db/cooperationPoints';
 
 interface CooperationRequestSectionProps {
   /** 대시보드 섹션 헤더(전체현황 등)와 톤을 맞추기 위한 모바일 가독성 모드 */
   mobileReadabilityMode?: boolean;
+  /** 표/카드(칸반) 보기 선택. 미지정 시 'table'. */
+  layoutMode?: 'table' | 'card';
+  /** 보기 모드 변경 콜백. 외부에서 layout 상태를 보존하려면 전달. */
+  onChangeLayout?: (mode: 'table' | 'card') => void;
+  /** 현재 로그인 사용자 평문 이름(부서·직위 제외). "내 것만 보기" 필터에 사용. */
+  currentUserPlainName?: string;
 }
 
 const STATUS_STYLE: Record<CooperationRequestStatus, { dot: string; bg: string; text: string; ring: string }> = {
   요청완료: { dot: 'bg-slate-400', bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-200' },
   진행중: { dot: 'bg-blue-500', bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-200' },
-  지연: { dot: 'bg-amber-500', bg: 'bg-amber-50', text: 'text-amber-800', ring: 'ring-amber-200' },
-  완료: { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200' },
-  회신불가: { dot: 'bg-rose-500', bg: 'bg-rose-50', text: 'text-rose-700', ring: 'ring-rose-200' },
+  처리완료: { dot: 'bg-cyan-500', bg: 'bg-cyan-50', text: 'text-cyan-700', ring: 'ring-cyan-200' },
+  확인완료: { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200' },
+  취소됨: { dot: 'bg-rose-500', bg: 'bg-rose-50', text: 'text-rose-700', ring: 'ring-rose-200' },
 };
 
 const STATUS_ICON: Record<CooperationRequestStatus, React.ReactNode> = {
   요청완료: <CircleAlert size={12} />,
   진행중: <Loader2 size={12} />,
-  지연: <Clock size={12} />,
-  완료: <CheckCircle2 size={12} />,
-  회신불가: <AlertCircle size={12} />,
+  처리완료: <CheckCircle2 size={12} />,
+  확인완료: <CheckCircle2 size={12} />,
+  취소됨: <AlertCircle size={12} />,
 };
 
 const PRIORITY_STYLE: Record<CooperationRequestPriority, string> = {
@@ -87,11 +117,16 @@ function pct(v: number): number {
   return Math.round(Math.max(0, Math.min(1, v)) * 100);
 }
 
-/** 행이 '지연' 여부 추론: 상태가 '완료/회신불가'가 아니고, 기한이 오늘 이전이면 true */
+/** 행이 '기한 초과' 여부 — 종료 상태(처리완료·확인완료·취소됨)가 아니고 기한이 오늘 이전이면 true */
 function isOverdue(r: CooperationRequest, todayIso: string): boolean {
   if (!r.dueDate) return false;
-  if (r.status === '완료' || r.status === '회신불가') return false;
+  if (r.status === '처리완료' || r.status === '확인완료' || r.status === '취소됨') return false;
   return r.dueDate < todayIso;
+}
+
+/** 상태가 '종료(완료 계열)' 인지 — 완료일·진척률 100% 자동 채우기에 사용 */
+function isDoneStatus(s: CooperationRequestStatus): boolean {
+  return s === '처리완료' || s === '확인완료';
 }
 
 /** 조직 트리를 평탄화: 부모 → 자식 순서, depth(들여쓰기용) 포함. */
@@ -122,34 +157,47 @@ function getDeepMembers(node: OrgNode, allMembers: OrgMember[]): OrgMember[] {
   return [...direct, ...fromChildren];
 }
 
-/** OrgMember[] → 기본 CooperationMemberProgress[](상태=요청완료) */
-function initMemberProgress(members: OrgMember[]): CooperationMemberProgress[] {
-  return members.map((m) => ({
-    name: m.name,
-    department: m.department,
-    position: m.position,
-    status: '요청완료',
-    completedAt: '',
-  }));
-}
-
 /** 표시용: 조직 대상 행에 보여줄 '완료수/전체수' 텍스트 */
 function memberProgressLabel(m: CooperationMemberProgress[]): string {
   if (m.length === 0) return '인원 없음';
-  const done = m.filter((x) => x.status === '완료').length;
+  const done = m.filter((x) => x.status === '처리완료' || x.status === '확인완료').length;
   return `${done}/${m.length}`;
 }
 
-export function CooperationRequestSection({ mobileReadabilityMode = false }: CooperationRequestSectionProps) {
+export function CooperationRequestSection({
+  mobileReadabilityMode = false,
+  layoutMode = 'table',
+  onChangeLayout,
+  currentUserPlainName,
+}: CooperationRequestSectionProps) {
   const [rows, setRows] = useState<CooperationRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<CooperationRequestType | 'all'>('all');
+  /** "내 것만 보기" — 본인 관련 항목만. localStorage 영구. 사용자 이름이 비면 토글 표시 안 함. */
+  const [myOnly, setMyOnly] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('wbs.cooperation.myOnly') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setMyOnlyPersist = useCallback((v: boolean) => {
+    setMyOnly(v);
+    try {
+      if (typeof window !== 'undefined') window.localStorage.setItem('wbs.cooperation.myOnly', v ? '1' : '0');
+    } catch {
+      /* quota 등 무시 */
+    }
+  }, []);
   const [editing, setEditing] = useState<{ row: CooperationRequest | null; draft: CooperationRequestInput } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<CooperationRequest | null>(null);
   const [saving, setSaving] = useState(false);
+  const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
+  const [pointsOpen, setPointsOpen] = useState(false);
   const { push: pushToast } = useToast();
   const { orgTree, orgMembers } = useOrganization();
 
@@ -180,10 +228,24 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
+  /** "내 것만" 매칭 — 본인 이름이 requester/assignee/memberProgress 중 하나에라도 잡히면 true */
+  const isMine = useCallback(
+    (r: CooperationRequest): boolean => {
+      const me = (currentUserPlainName ?? '').trim();
+      if (!me) return true; // 사용자 이름 모르면 전부 보임
+      if (r.requester && r.requester.trim() === me) return true;
+      if (r.assignee && r.assignee.includes(me)) return true; // 다중 선택은 "조직, 인원" 합산이라 includes
+      if (r.memberProgress.some((m) => m.name.trim() === me)) return true;
+      return false;
+    },
+    [currentUserPlainName],
+  );
+
   /** 필터 + 검색 적용된 결과 */
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
+      if (myOnly && !isMine(r)) return false;
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
       if (typeFilter !== 'all' && r.requestType !== typeFilter) return false;
       if (q) {
@@ -192,14 +254,17 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
       }
       return true;
     });
-  }, [rows, search, statusFilter, typeFilter]);
+  }, [rows, search, statusFilter, typeFilter, myOnly, isMine]);
 
-  /** 상태별 카운트(상단 칩) */
+  /** 상태별 카운트(상단 칩). myOnly 토글에 따라 본인 관련만 집계. */
   const statusCounts = useMemo(() => {
-    const c: Record<CooperationRequestStatus, number> = { 요청완료: 0, 진행중: 0, 지연: 0, 완료: 0, 회신불가: 0 };
-    for (const r of rows) c[r.status]++;
+    const c: Record<CooperationRequestStatus, number> = { 요청완료: 0, 진행중: 0, 처리완료: 0, 확인완료: 0, 취소됨: 0 };
+    for (const r of rows) {
+      if (myOnly && !isMine(r)) continue;
+      c[r.status]++;
+    }
     return c;
-  }, [rows]);
+  }, [rows, myOnly, isMine]);
 
   const overdueCount = useMemo(() => rows.filter((r) => isOverdue(r, todayIso)).length, [rows, todayIso]);
 
@@ -213,6 +278,33 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
     setEditing({ row, draft: rest });
   }, []);
 
+  /**
+   * 저장/상태변경으로 포인트 지급·회수가 일어났는지 예측해 토스트로 알림.
+   * 실제 지급·회수는 DB 트리거(reconcile_cooperation_points)가 같은 규칙으로 수행한다.
+   */
+  const notifyPointChange = useCallback(
+    (before: CooperationRequest | null, after: CooperationRequest) => {
+      const keyOf = (e: CooperationPointEntry) => `${e.memberName}||${e.memberDepartment}||${e.memberPosition}`;
+      const prevKeys = new Set((before ? deriveCooperationPointEntries(before) : []).map(keyOf));
+      const next = deriveCooperationPointEntries(after);
+      const gained = next.filter((e) => !prevKeys.has(keyOf(e)));
+      if (gained.length > 0) {
+        const total = gained.reduce((s, e) => s + e.points, 0);
+        const names = gained
+          .slice(0, 3)
+          .map((e) => e.memberName)
+          .join(', ');
+        const suffix = gained.length > 3 ? ` 외 ${gained.length - 3}명` : '';
+        pushToast(`확인완료 — ${names}${suffix}에게 포인트 지급 (+${total}P)`, { variant: 'success', durationMs: 3000 });
+        return;
+      }
+      const nextKeys = new Set(next.map(keyOf));
+      const lost = [...prevKeys].filter((k) => !nextKeys.has(k)).length;
+      if (lost > 0) pushToast(`확인완료 해제 — ${lost}명 포인트 회수`, { variant: 'info', durationMs: 2400 });
+    },
+    [pushToast],
+  );
+
   const handleSave = useCallback(async () => {
     if (!editing) return;
     setSaving(true);
@@ -221,10 +313,12 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
         const updated = await updateCooperationRequest(editing.row.id, editing.draft);
         setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
         pushToast('협조 요청을 저장했습니다.', { variant: 'success', durationMs: 1500 });
+        notifyPointChange(editing.row, updated);
       } else {
         const created = await insertCooperationRequest(null, editing.draft);
         setRows((prev) => [...prev, created]);
         pushToast('협조 요청을 추가했습니다.', { variant: 'success', durationMs: 1500 });
+        notifyPointChange(null, created);
       }
       setEditing(null);
     } catch (e) {
@@ -233,7 +327,7 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
     } finally {
       setSaving(false);
     }
-  }, [editing, pushToast]);
+  }, [editing, pushToast, notifyPointChange]);
 
   const handleDelete = useCallback(async () => {
     if (!confirmDelete) return;
@@ -250,6 +344,24 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
     }
   }, [confirmDelete, pushToast]);
 
+  /** 텔레그램으로 협조 요청을 즉시 전파(수동). 자동 발송 토글과 무관하게 동작. */
+  const handleBroadcast = useCallback(
+    async (row: CooperationRequest) => {
+      setBroadcastingId(row.id);
+      try {
+        const res = await broadcastCooperationTelegram(row.id);
+        if (res.ok) {
+          pushToast(`텔레그램으로 전파했습니다 (${res.sent}곳).`, { variant: 'success', durationMs: 2200 });
+        } else {
+          pushToast(`텔레그램 전파 실패: ${res.error ?? res.skipped ?? '알 수 없는 오류'}`, { variant: 'error', durationMs: 4500 });
+        }
+      } finally {
+        setBroadcastingId(null);
+      }
+    },
+    [pushToast],
+  );
+
   /** 표 내 빠른 상태 변경(셀 토글 없이 드롭다운으로) */
   const handleQuickStatus = useCallback(
     async (row: CooperationRequest, next: CooperationRequestStatus) => {
@@ -257,16 +369,17 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
       setRows((cur) => cur.map((r) => (r.id === row.id ? { ...r, status: next } : r)));
       try {
         const patch: Partial<CooperationRequest> = { status: next };
-        if (next === '완료' && !row.completedDate) patch.completedDate = todayIso;
-        if (next === '완료' && row.progress < 1) patch.progress = 1;
+        if (isDoneStatus(next) && !row.completedDate) patch.completedDate = todayIso;
+        if (isDoneStatus(next) && row.progress < 1) patch.progress = 1;
         const updated = await updateCooperationRequest(row.id, patch);
         setRows((cur) => cur.map((r) => (r.id === updated.id ? updated : r)));
+        notifyPointChange(row, updated);
       } catch (e) {
         setRows(prev);
         pushToast(e instanceof Error ? e.message : '상태 변경에 실패했습니다.', { variant: 'error', durationMs: 4000 });
       }
     },
-    [pushToast, todayIso],
+    [pushToast, todayIso, notifyPointChange],
   );
 
   return (
@@ -286,6 +399,63 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
           <span className="ml-1 text-xs font-normal text-[var(--color-ink-muted)]">발주처·외주·사내 간 자료·검토·협의 요청 이력</span>
         </h2>
         <div className="flex items-center gap-2">
+          {/* "내 것만 보기" 토글 — 현재 사용자 이름을 알고 있을 때만 노출 */}
+          {currentUserPlainName && currentUserPlainName.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMyOnlyPersist(!myOnly)}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ring-1 transition',
+                myOnly
+                  ? 'bg-indigo-600 text-white ring-indigo-600 shadow-sm'
+                  : 'bg-[var(--color-surface)] text-[var(--color-ink)] ring-[var(--color-line)] hover:bg-[var(--color-surface-2)]',
+              )}
+              title={myOnly ? '전체 보기로 전환' : '나와 관련된 항목만 보기 — 요청자·담당자·멤버에 내 이름이 포함된 항목'}
+            >
+              <User size={12} />
+              {myOnly ? '내 것만' : '내 것만 보기'}
+            </button>
+          )}
+          {/* 표/카드 보기 토글 — 대시보드 다른 섹션과 같은 톤 */}
+          {onChangeLayout && (
+            <div
+              className="inline-flex gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shrink-0"
+              role="group"
+              aria-label="협조 요청 표 또는 카드 보기"
+            >
+              <button
+                type="button"
+                onClick={() => onChangeLayout('table')}
+                className={cn(
+                  'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                  layoutMode === 'table' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
+                )}
+                title="표로 보기"
+              >
+                <Table2 size={12} aria-hidden />표
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeLayout('card')}
+                className={cn(
+                  'px-2 py-1 text-[11px] font-semibold rounded-md transition-colors inline-flex items-center gap-1',
+                  layoutMode === 'card' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50',
+                )}
+                title="카드(칸반)로 보기"
+              >
+                <LayoutGrid size={12} aria-hidden />
+                카드
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setPointsOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+            title="확인완료 포인트 지급 현황 — 인원별 누적·최근 지급 내역"
+          >
+            <Coins size={13} /> 포인트 현황
+          </button>
           <button
             type="button"
             onClick={() => void reload()}
@@ -388,207 +558,239 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
 
       {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
 
-      {/* 표 */}
-      <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
-              <tr className="text-left">
-                <th className="px-2 py-2 font-semibold w-10 text-right">#</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">관리ID</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">요청일</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">구분</th>
-                <th className="px-2 py-2 font-semibold min-w-[180px]">제목</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">요청자</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">담당자</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">중요도</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">기한</th>
-                <th className="px-2 py-2 font-semibold w-[130px]">진척률</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">현황</th>
-                <th className="px-2 py-2 font-semibold whitespace-nowrap">완료일</th>
-                <th className="px-2 py-2 font-semibold w-14"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--color-line)]">
-              {loading ? (
-                <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
-                    <Loader2 size={16} className="inline animate-spin mr-2" />
-                    불러오는 중…
-                  </td>
+      {/* 표 또는 카드(칸반) */}
+      {layoutMode === 'card' ? (
+        <CooperationKanbanBoard
+          rows={visibleRows}
+          totalCount={rows.length}
+          todayIso={todayIso}
+          onEdit={handleEdit}
+          onDelete={(r) => setConfirmDelete(r)}
+          onQuickStatus={(r, next) => void handleQuickStatus(r, next)}
+          onBroadcast={(r) => void handleBroadcast(r)}
+          broadcastingId={broadcastingId}
+        />
+      ) : (
+        <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
+                <tr className="text-left">
+                  <th className="px-2 py-2 font-semibold w-10 text-right">#</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">관리ID</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">요청일</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">구분</th>
+                  <th className="px-2 py-2 font-semibold min-w-[180px]">제목</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">요청자</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">담당자</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">중요도</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">기한</th>
+                  <th className="px-2 py-2 font-semibold w-[130px]">진척률</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">현황</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">완료일</th>
+                  <th className="px-2 py-2 font-semibold w-14"></th>
                 </tr>
-              ) : visibleRows.length === 0 ? (
-                <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
-                    {rows.length === 0 ? (
-                      <div className="space-y-2">
-                        <div>등록된 협조 요청이 없습니다.</div>
-                        <button
-                          type="button"
-                          onClick={handleNew}
-                          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
-                        >
-                          <Plus size={13} /> 첫 항목 추가
-                        </button>
-                      </div>
-                    ) : (
-                      <span>조건에 맞는 항목이 없습니다.</span>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                visibleRows.map((r, i) => {
-                  const overdue = isOverdue(r, todayIso);
-                  const sty = STATUS_STYLE[r.status];
-                  return (
-                    <tr key={r.id} className="group hover:bg-indigo-50/40 cursor-pointer" onClick={() => handleEdit(r)}>
-                      <td className="px-2 py-1.5 text-right text-[var(--color-ink-muted)] tabular-nums">{i + 1}</td>
-                      <td className="px-2 py-1.5 font-mono text-[11.5px] text-[var(--color-ink)] whitespace-nowrap">
-                        {r.mgmtId || <span className="text-[var(--color-ink-muted)]">—</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">{fmtDate(r.requestDate)}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">
-                        <span className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium', TYPE_STYLE[r.requestType])}>
-                          {r.requestType}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--color-ink)] min-w-[180px] max-w-[420px]">
-                        <div className="font-medium truncate">
-                          {r.title || <span className="text-[var(--color-ink-muted)]">(제목 없음)</span>}
+              </thead>
+              <tbody className="divide-y divide-[var(--color-line)]">
+                {loading ? (
+                  <tr>
+                    <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
+                      <Loader2 size={16} className="inline animate-spin mr-2" />
+                      불러오는 중…
+                    </td>
+                  </tr>
+                ) : visibleRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
+                      {rows.length === 0 ? (
+                        <div className="space-y-2">
+                          <div>등록된 협조 요청이 없습니다.</div>
+                          <button
+                            type="button"
+                            onClick={handleNew}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+                          >
+                            <Plus size={13} /> 첫 항목 추가
+                          </button>
                         </div>
-                        {r.detail && (
-                          <div className="mt-0.5 text-[11px] text-[var(--color-ink-muted)] line-clamp-1 whitespace-pre-line">
-                            {r.detail}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--color-ink)] whitespace-nowrap">
-                        {r.requester || <span className="text-[var(--color-ink-muted)]">—</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--color-ink)] whitespace-nowrap">
-                        {r.assignee || r.memberProgress.length > 0 ? (
-                          <span className="inline-flex items-center gap-1">
-                            {r.assigneeKind === 'org' ? (
-                              <Building2 size={12} className="text-violet-600" />
-                            ) : r.assigneeKind === 'mixed' ? (
-                              <span className="inline-flex">
-                                <Building2 size={12} className="text-violet-600" />
-                                <User size={12} className="-ml-1 text-slate-500" />
-                              </span>
-                            ) : (
-                              <User size={12} className="text-slate-500" />
-                            )}
-                            <span className="truncate max-w-[200px]" title={r.assignee}>
-                              {r.assignee || '담당'}
-                            </span>
-                            {r.memberProgress.length > 0 && (
-                              <span className="ml-1 rounded bg-violet-50 px-1 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums">
-                                {memberProgressLabel(r.memberProgress)}
-                              </span>
-                            )}
+                      ) : (
+                        <span>조건에 맞는 항목이 없습니다.</span>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  visibleRows.map((r, i) => {
+                    const overdue = isOverdue(r, todayIso);
+                    const sty = STATUS_STYLE[r.status];
+                    return (
+                      <tr key={r.id} className="group hover:bg-indigo-50/40 cursor-pointer" onClick={() => handleEdit(r)}>
+                        <td className="px-2 py-1.5 text-right text-[var(--color-ink-muted)] tabular-nums">{i + 1}</td>
+                        <td className="px-2 py-1.5 font-mono text-[11.5px] text-[var(--color-ink)] whitespace-nowrap">
+                          {r.mgmtId || <span className="text-[var(--color-ink-muted)]">—</span>}
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
+                          {fmtDate(r.requestDate)}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">
+                          <span
+                            className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium', TYPE_STYLE[r.requestType])}
+                          >
+                            {r.requestType}
                           </span>
-                        ) : (
-                          <span className="text-[var(--color-ink-muted)]">—</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">
-                        <span
-                          className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-semibold', PRIORITY_STYLE[r.priority])}
-                        >
-                          {r.priority}
-                        </span>
-                      </td>
-                      <td
-                        className={cn(
-                          'px-2 py-1.5 whitespace-nowrap tabular-nums',
-                          overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink-muted)]',
-                        )}
-                        title={overdue ? '기한이 지났습니다' : undefined}
-                      >
-                        {fmtDate(r.dueDate) || '—'}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                            <div
-                              className={cn(
-                                'h-full rounded-full transition-all',
-                                r.status === '완료' ? 'bg-emerald-500' : r.status === '회신불가' ? 'bg-rose-400' : 'bg-indigo-500',
-                              )}
-                              style={{ width: `${pct(r.progress)}%` }}
-                            />
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-ink)] min-w-[180px] max-w-[420px]">
+                          <div className="font-medium truncate">
+                            {r.title || <span className="text-[var(--color-ink-muted)]">(제목 없음)</span>}
                           </div>
-                          <span className="w-9 text-right tabular-nums text-[10.5px] text-[var(--color-ink-muted)]">
-                            {pct(r.progress)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <label
-                          className={cn(
-                            'relative inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium cursor-pointer',
-                            sty.bg,
-                            sty.text,
-                            sty.ring,
+                          {r.detail && (
+                            <div className="mt-0.5 text-[11px] text-[var(--color-ink-muted)] line-clamp-1 whitespace-pre-line">
+                              {r.detail}
+                            </div>
                           )}
-                        >
-                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
-                          <span>{r.status}</span>
-                          <ChevronDown size={10} className="opacity-60" />
-                          <span aria-hidden className="absolute inset-0">
-                            {STATUS_ICON[r.status]}
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-ink)] whitespace-nowrap">
+                          {r.requester || <span className="text-[var(--color-ink-muted)]">—</span>}
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-ink)] whitespace-nowrap">
+                          {r.assignee || r.memberProgress.length > 0 ? (
+                            <span className="inline-flex items-center gap-1">
+                              {r.assigneeKind === 'org' ? (
+                                <Building2 size={12} className="text-violet-600" />
+                              ) : r.assigneeKind === 'mixed' ? (
+                                <span className="inline-flex">
+                                  <Building2 size={12} className="text-violet-600" />
+                                  <User size={12} className="-ml-1 text-slate-500" />
+                                </span>
+                              ) : (
+                                <User size={12} className="text-slate-500" />
+                              )}
+                              <span className="truncate max-w-[200px]" title={r.assignee}>
+                                {r.assignee || '담당'}
+                              </span>
+                              {r.memberProgress.length > 0 && (
+                                <span className="ml-1 rounded bg-violet-50 px-1 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums">
+                                  {memberProgressLabel(r.memberProgress)}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--color-ink-muted)]">—</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">
+                          <span
+                            className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-semibold', PRIORITY_STYLE[r.priority])}
+                          >
+                            {r.priority}
                           </span>
-                          <select
-                            value={r.status}
-                            onChange={(e) => void handleQuickStatus(r, e.target.value as CooperationRequestStatus)}
-                            className="absolute inset-0 opacity-0 cursor-pointer"
-                            title="현황 변경"
+                        </td>
+                        <td
+                          className={cn(
+                            'px-2 py-1.5 whitespace-nowrap tabular-nums',
+                            overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink-muted)]',
+                          )}
+                          title={overdue ? '기한이 지났습니다' : undefined}
+                        >
+                          {fmtDate(r.dueDate) || '—'}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-all',
+                                  r.status === '확인완료'
+                                    ? 'bg-emerald-500'
+                                    : r.status === '처리완료'
+                                      ? 'bg-cyan-500'
+                                      : r.status === '취소됨'
+                                        ? 'bg-rose-400'
+                                        : 'bg-indigo-500',
+                                )}
+                                style={{ width: `${pct(r.progress)}%` }}
+                              />
+                            </div>
+                            <span className="w-9 text-right tabular-nums text-[10.5px] text-[var(--color-ink-muted)]">
+                              {pct(r.progress)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <label
+                            className={cn(
+                              'relative inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium cursor-pointer',
+                              sty.bg,
+                              sty.text,
+                              sty.ring,
+                            )}
                           >
-                            {COOPERATION_REQUEST_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
-                        {fmtDate(r.completedDate)}
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(r)}
-                            className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
-                            title="편집"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDelete(r)}
-                            className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
-                            title="삭제"
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                            <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
+                            <span>{r.status}</span>
+                            <ChevronDown size={10} className="opacity-60" />
+                            <span aria-hidden className="absolute inset-0">
+                              {STATUS_ICON[r.status]}
+                            </span>
+                            <select
+                              value={r.status}
+                              onChange={(e) => void handleQuickStatus(r, e.target.value as CooperationRequestStatus)}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                              title="현황 변경"
+                            >
+                              {COOPERATION_REQUEST_STATUSES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </td>
+                        <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
+                          {fmtDate(r.completedDate)}
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                            <button
+                              type="button"
+                              onClick={() => void handleBroadcast(r)}
+                              disabled={broadcastingId === r.id}
+                              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
+                              title="텔레그램으로 전파"
+                            >
+                              {broadcastingId === r.id ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(r)}
+                              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
+                              title="편집"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDelete(r)}
+                              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
+                              title="삭제"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-[var(--color-ink-muted)] bg-[var(--color-surface-2)]">
+            <span>
+              표시 {visibleRows.length} / 전체 {rows.length}
+            </span>
+            <span>진척률 0~100%, 기한 초과는 노란색으로 표시</span>
+          </div>
         </div>
-        <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-[var(--color-ink-muted)] bg-[var(--color-surface-2)]">
-          <span>
-            표시 {visibleRows.length} / 전체 {rows.length}
-          </span>
-          <span>진척률 0~100%, 기한 초과는 노란색으로 표시</span>
-        </div>
-      </div>
+      )}
 
       {/* 편집 모달 */}
       {editing && (
@@ -609,6 +811,9 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
       {confirmDelete && (
         <ConfirmDeleteModal row={confirmDelete} onCancel={() => setConfirmDelete(null)} onConfirm={() => void handleDelete()} />
       )}
+
+      {/* 포인트 현황 */}
+      {pointsOpen && <CooperationPointsModal onClose={() => setPointsOpen(false)} />}
     </section>
   );
 }
@@ -759,8 +964,8 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
                 onChange={(e) => {
                   const next = e.target.value as CooperationRequestStatus;
                   const patch: Partial<CooperationRequestInput> = { status: next };
-                  if (next === '완료' && !draft.completedDate) patch.completedDate = new Date().toISOString().slice(0, 10);
-                  if (next === '완료' && draft.progress < 1) patch.progress = 1;
+                  if (isDoneStatus(next) && !draft.completedDate) patch.completedDate = new Date().toISOString().slice(0, 10);
+                  if (isDoneStatus(next) && draft.progress < 1) patch.progress = 1;
                   onChange(patch);
                 }}
                 className={inputCls}
@@ -932,7 +1137,7 @@ function AssigneePicker({
     const kind = deriveAssigneeKind(orgIds, directPersons.length);
     const progress = computeOrgProgress(nextMembers);
     const status = computeOrgStatus(nextMembers);
-    const completedDate = status === '완료' ? draft.completedDate || new Date().toISOString().slice(0, 10) : draft.completedDate;
+    const completedDate = isDoneStatus(status) ? draft.completedDate || new Date().toISOString().slice(0, 10) : draft.completedDate;
     onChange({
       assigneeOrgIds: orgIds,
       memberProgress: nextMembers,
@@ -994,7 +1199,7 @@ function AssigneePicker({
   const setMemberStatus = (idx: number, status: CooperationRequestStatus) => {
     const next = draft.memberProgress.map((m, i): CooperationMemberProgress => {
       if (i !== idx) return m;
-      const completedAt = status === '완료' ? m.completedAt || new Date().toISOString().slice(0, 10) : '';
+      const completedAt = isDoneStatus(status) ? m.completedAt || new Date().toISOString().slice(0, 10) : '';
       return { ...m, status, completedAt };
     });
     applyMemberUpdate(next, draft.assigneeOrgIds, currentDirectPersons);
@@ -1129,7 +1334,7 @@ function MemberChecklist({
   if (memberProgress.length === 0) {
     return <p className="text-[11px] text-[var(--color-ink-muted)]">선택한 조직에 등록된 인원이 없습니다.</p>;
   }
-  const doneCount = memberProgress.filter((m) => m.status === '완료').length;
+  const doneCount = memberProgress.filter((m) => m.status === '처리완료' || m.status === '확인완료').length;
   return (
     <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] overflow-hidden">
       <div className="flex items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px]">
@@ -1149,7 +1354,7 @@ function MemberChecklist({
               <div className="text-[10.5px] text-[var(--color-ink-muted)] truncate">{m.department}</div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {m.status === '완료' && m.completedAt && (
+              {(m.status === '처리완료' || m.status === '확인완료') && m.completedAt && (
                 <span className="text-[10px] tabular-nums text-emerald-700">{m.completedAt.replaceAll('-', '.')}</span>
               )}
               <select
@@ -1157,10 +1362,10 @@ function MemberChecklist({
                 onChange={(e) => onChange(idx, e.target.value as CooperationRequestStatus)}
                 className={cn(
                   'rounded border border-[var(--color-line)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-200',
-                  m.status === '완료' && 'text-emerald-700 font-medium',
+                  m.status === '확인완료' && 'text-emerald-700 font-medium',
+                  m.status === '처리완료' && 'text-cyan-700 font-medium',
                   m.status === '진행중' && 'text-blue-700',
-                  m.status === '지연' && 'text-amber-700',
-                  m.status === '회신불가' && 'text-rose-700',
+                  m.status === '취소됨' && 'text-rose-700',
                 )}
               >
                 {COOPERATION_REQUEST_STATUSES.map((s) => (
@@ -1209,6 +1414,542 @@ function ConfirmDeleteModal({ row, onCancel, onConfirm }: { row: CooperationRequ
             삭제
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 포인트 현황 모달 — 협조 요청 '확인완료' 자동 지급 포인트의 인원별 누적 랭킹 + 최근 지급 내역.
+ * 데이터는 cooperation_points ledger(DB 트리거 관리)에서 읽고, 로컬(dev 우회) 모드에서는 즉석 계산.
+ */
+function CooperationPointsModal({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<CooperationPointEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setError(null);
+      setEntries(await fetchCooperationPoints());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '포인트 현황을 불러오지 못했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const summaries = useMemo(() => summarizeCooperationPoints(entries), [entries]);
+  const totalPoints = useMemo(() => entries.reduce((s, e) => s + e.points, 0), [entries]);
+
+  /** 1~3위는 금·은·동 톤으로 강조 */
+  const rankStyle = (rank: number): string =>
+    rank === 1
+      ? 'bg-amber-100 text-amber-700 ring-amber-300'
+      : rank === 2
+        ? 'bg-slate-200 text-slate-700 ring-slate-300'
+        : rank === 3
+          ? 'bg-orange-100 text-orange-700 ring-orange-200'
+          : 'bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] ring-[var(--color-line)]';
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-line)] bg-[var(--color-surface-2)]">
+          <h2 className="text-sm font-bold text-[var(--color-ink)] inline-flex items-center gap-2">
+            <span className="inline-flex items-center justify-center size-6 rounded-lg bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+              <Coins size={14} />
+            </span>
+            협조 요청 포인트 현황
+          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-[var(--color-surface)]"
+              title="다시 불러오기"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : undefined} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-[var(--color-surface)]"
+              title="닫기 (Esc)"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-auto px-4 py-3 space-y-3">
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 m-0">
+            협조 요청이 최종 <b>확인완료</b> 되면 담당자에게 포인트가 자동 지급되고, 확인완료가 풀리면 자동 회수됩니다. 지급량은 중요도 기준
+            — 상 +{COOPERATION_POINTS_BY_PRIORITY.상}P · 중 +{COOPERATION_POINTS_BY_PRIORITY.중}P · 하 +{COOPERATION_POINTS_BY_PRIORITY.하}P
+          </p>
+
+          {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
+
+          {loading ? (
+            <div className="py-10 text-center text-xs text-[var(--color-ink-muted)]">
+              <Loader2 size={16} className="inline animate-spin mr-2" />
+              불러오는 중…
+            </div>
+          ) : entries.length === 0 ? (
+            !error && (
+              <div className="py-10 text-center text-xs text-[var(--color-ink-muted)]">
+                아직 지급된 포인트가 없습니다. 협조 요청이 '확인완료' 되면 자동으로 지급됩니다.
+              </div>
+            )
+          ) : (
+            <>
+              {/* 합계 카드 */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-2 text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">총 지급 포인트</div>
+                  <div className="mt-0.5 text-base font-bold tabular-nums text-amber-600">{totalPoints.toLocaleString()}P</div>
+                </div>
+                <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-2 text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">수령 인원</div>
+                  <div className="mt-0.5 text-base font-bold tabular-nums text-[var(--color-ink)]">{summaries.length}명</div>
+                </div>
+                <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-2 text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">지급 건수</div>
+                  <div className="mt-0.5 text-base font-bold tabular-nums text-[var(--color-ink)]">{entries.length}건</div>
+                </div>
+              </div>
+
+              {/* 인원별 누적 랭킹 */}
+              <div className="rounded-md border border-[var(--color-line)] overflow-hidden">
+                <div className="border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-ink)]">
+                  인원별 누적 포인트
+                </div>
+                <div className="max-h-64 overflow-auto divide-y divide-[var(--color-line)]">
+                  {summaries.map((s, i) => (
+                    <div key={s.key} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                      <span
+                        className={cn(
+                          'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-1 tabular-nums',
+                          rankStyle(i + 1),
+                        )}
+                      >
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1 truncate">
+                        <span className="font-medium text-[var(--color-ink)]">{s.name}</span>
+                        {(s.department || s.position) && (
+                          <span className="ml-1.5 text-[10.5px] text-[var(--color-ink-muted)]">
+                            {[s.department, s.position].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-[10.5px] text-[var(--color-ink-muted)] tabular-nums">{s.awardCount}건</span>
+                      <span className="w-16 shrink-0 text-right font-bold tabular-nums text-amber-600">
+                        {s.totalPoints.toLocaleString()}P
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 최근 지급 내역 */}
+              <div className="rounded-md border border-[var(--color-line)] overflow-hidden">
+                <div className="border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-ink)]">
+                  최근 지급 내역{entries.length > 30 ? ' (최근 30건)' : ''}
+                </div>
+                <div className="max-h-56 overflow-auto divide-y divide-[var(--color-line)]">
+                  {entries.slice(0, 30).map((e) => (
+                    <div key={e.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[11px]">
+                      <span className="shrink-0 tabular-nums text-[var(--color-ink-muted)]">{fmtDate(e.awardedAt) || '—'}</span>
+                      <div className="min-w-0 flex-1 truncate text-[var(--color-ink)]">
+                        {e.requestMgmtId && (
+                          <span className="mr-1 font-mono text-[10px] text-[var(--color-ink-muted)]">{e.requestMgmtId}</span>
+                        )}
+                        {e.requestTitle || '(제목 없음)'}
+                      </div>
+                      <span className="shrink-0 font-medium text-[var(--color-ink)]">{e.memberName}</span>
+                      <span className="w-12 shrink-0 text-right font-bold tabular-nums text-emerald-600">+{e.points}P</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 칸반 카드 보기 — 현황(요청완료/진행중/지연/완료/회신불가)을 컬럼으로 둔다.
+ * 카드 클릭 → 편집 모달 열림.
+ * 컬럼 헤더의 색은 STATUS_STYLE 과 동일한 톤.
+ */
+function CooperationKanbanBoard({
+  rows,
+  totalCount,
+  todayIso,
+  onEdit,
+  onDelete,
+  onQuickStatus,
+  onBroadcast,
+  broadcastingId,
+}: {
+  rows: CooperationRequest[];
+  totalCount: number;
+  todayIso: string;
+  onEdit: (r: CooperationRequest) => void;
+  onDelete: (r: CooperationRequest) => void;
+  onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
+  onBroadcast: (r: CooperationRequest) => void;
+  broadcastingId: string | null;
+}) {
+  // 컬럼별 그룹핑(요청완료 → 진행중 → 처리완료 → 확인완료 → 취소됨)
+  const byStatus = useMemo(() => {
+    const m: Record<CooperationRequestStatus, CooperationRequest[]> = {
+      요청완료: [],
+      진행중: [],
+      처리완료: [],
+      확인완료: [],
+      취소됨: [],
+    };
+    for (const r of rows) m[r.status].push(r);
+    return m;
+  }, [rows]);
+
+  // 드래그 중인 카드 id (DragOverlay 표시용)
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+  );
+
+  const handleDragStart = (e: DragStartEvent) => {
+    setActiveId(String(e.active.id));
+  };
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
+    const { active, over } = e;
+    if (!over) return;
+    const cardId = String(active.id).replace(/^card:/, '');
+    const overId = String(over.id);
+    const targetStatus = overId.startsWith('col:') ? (overId.replace(/^col:/, '') as CooperationRequestStatus) : null;
+    if (!targetStatus) return;
+    const row = rows.find((r) => r.id === cardId);
+    if (!row || row.status === targetStatus) return;
+    onQuickStatus(row, targetStatus);
+  };
+
+  const activeRow = activeId ? (rows.find((r) => `card:${r.id}` === activeId) ?? null) : null;
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-10 text-center text-xs text-[var(--color-ink-muted)]">
+        조건에 맞는 항목이 없습니다. (전체 {totalCount}건)
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-2 shadow-sm">
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="grid grid-flow-col auto-cols-[minmax(220px,1fr)] gap-2 overflow-x-auto">
+          {COOPERATION_REQUEST_STATUSES.map((s) => (
+            <KanbanColumn
+              key={s}
+              status={s}
+              items={byStatus[s]}
+              todayIso={todayIso}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onQuickStatus={onQuickStatus}
+              onBroadcast={onBroadcast}
+              broadcastingId={broadcastingId}
+              activeCardId={activeRow?.id ?? null}
+            />
+          ))}
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {activeRow ? (
+            <div className="opacity-90 rotate-1 scale-[1.02] shadow-xl">
+              <KanbanCard
+                row={activeRow}
+                todayIso={todayIso}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onQuickStatus={() => {}}
+                onBroadcast={() => {}}
+                broadcasting={false}
+              />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+      <div className="mt-2 flex items-center justify-between px-1 text-[10.5px] text-[var(--color-ink-muted)]">
+        <span>
+          표시 {rows.length} / 전체 {totalCount}
+        </span>
+        <span>카드를 다른 칸으로 끌어 놓으면 현황이 바로 바뀝니다 · 클릭하면 상세 편집</span>
+      </div>
+    </div>
+  );
+}
+
+/** Droppable 컬럼 — drop 시 useDroppable이 over로 감지 → 상위에서 onQuickStatus 호출 */
+function KanbanColumn({
+  status,
+  items,
+  todayIso,
+  onEdit,
+  onDelete,
+  onQuickStatus,
+  onBroadcast,
+  broadcastingId,
+  activeCardId,
+}: {
+  status: CooperationRequestStatus;
+  items: CooperationRequest[];
+  todayIso: string;
+  onEdit: (r: CooperationRequest) => void;
+  onDelete: (r: CooperationRequest) => void;
+  onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
+  onBroadcast: (r: CooperationRequest) => void;
+  broadcastingId: string | null;
+  activeCardId: string | null;
+}) {
+  const sty = STATUS_STYLE[status];
+  const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex flex-col rounded-md border min-h-[200px] transition-colors',
+        sty.bg,
+        isOver ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-[var(--color-line)]',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-[var(--color-line)]">
+        <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-bold', sty.text)}>
+          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
+          {status}
+        </span>
+        <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1', sty.text, sty.ring, 'bg-white/60')}>
+          {items.length}
+        </span>
+      </div>
+      <div className="flex-1 space-y-1.5 p-1.5">
+        {items.length === 0 ? (
+          <div className="rounded border border-dashed border-[var(--color-line)] bg-white/40 px-2 py-3 text-center text-[10.5px] text-[var(--color-ink-muted)]">
+            {isOver ? '여기에 놓기' : '(없음)'}
+          </div>
+        ) : (
+          items.map((r) => (
+            <DraggableKanbanCard
+              key={r.id}
+              row={r}
+              isDragging={activeCardId === r.id}
+              todayIso={todayIso}
+              onEdit={() => onEdit(r)}
+              onDelete={() => onDelete(r)}
+              onQuickStatus={(next) => onQuickStatus(r, next)}
+              onBroadcast={() => onBroadcast(r)}
+              broadcasting={broadcastingId === r.id}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Draggable 카드 래퍼 — 카드 외곽에 useDraggable 부착. 클릭은 distance 임계로 보존됨. */
+function DraggableKanbanCard({
+  row,
+  isDragging,
+  todayIso,
+  onEdit,
+  onDelete,
+  onQuickStatus,
+  onBroadcast,
+  broadcasting,
+}: {
+  row: CooperationRequest;
+  isDragging: boolean;
+  todayIso: string;
+  onEdit: () => void;
+  onDelete: () => void;
+  onQuickStatus: (next: CooperationRequestStatus) => void;
+  onBroadcast: () => void;
+  broadcasting: boolean;
+}) {
+  const { setNodeRef, attributes, listeners } = useDraggable({ id: `card:${row.id}` });
+  return (
+    <div ref={setNodeRef} {...attributes} {...listeners} className={cn(isDragging && 'opacity-30')}>
+      <KanbanCard
+        row={row}
+        todayIso={todayIso}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onQuickStatus={onQuickStatus}
+        onBroadcast={onBroadcast}
+        broadcasting={broadcasting}
+      />
+    </div>
+  );
+}
+
+function KanbanCard({
+  row,
+  todayIso,
+  onEdit,
+  onDelete,
+  onQuickStatus,
+  onBroadcast,
+  broadcasting,
+}: {
+  row: CooperationRequest;
+  todayIso: string;
+  onEdit: () => void;
+  onDelete: () => void;
+  onQuickStatus: (next: CooperationRequestStatus) => void;
+  onBroadcast: () => void;
+  broadcasting: boolean;
+}) {
+  const overdue = isOverdue(row, todayIso);
+  return (
+    <div
+      onClick={onEdit}
+      className="group rounded-md border border-[var(--color-line)] bg-white px-2 py-1.5 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition"
+    >
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="font-mono text-[10.5px] text-[var(--color-ink-muted)] tabular-nums shrink-0">{row.mgmtId || '—'}</span>
+          <span className={cn('inline-flex rounded px-1 py-0.5 ring-1 text-[10px] font-medium shrink-0', TYPE_STYLE[row.requestType])}>
+            {row.requestType}
+          </span>
+          <span className={cn('inline-flex rounded px-1 py-0.5 ring-1 text-[10px] font-semibold shrink-0', PRIORITY_STYLE[row.priority])}>
+            {row.priority}
+          </span>
+        </div>
+        <div
+          className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onBroadcast}
+            disabled={broadcasting}
+            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
+            title="텔레그램으로 전파"
+          >
+            {broadcasting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
+            title="편집"
+          >
+            <Pencil size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
+            title="삭제"
+          >
+            <Trash2 size={11} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-1 text-[12px] font-semibold text-[var(--color-ink)] line-clamp-2">
+        {row.title || <span className="text-[var(--color-ink-muted)]">(제목 없음)</span>}
+      </div>
+
+      {row.assignee && (
+        <div className="mt-1 flex items-center gap-1 text-[10.5px] text-[var(--color-ink-muted)]">
+          {row.assigneeKind === 'org' ? (
+            <Building2 size={10} className="text-violet-600 shrink-0" />
+          ) : row.assigneeKind === 'mixed' ? (
+            <span className="inline-flex shrink-0">
+              <Building2 size={10} className="text-violet-600" />
+              <User size={10} className="-ml-0.5 text-slate-500" />
+            </span>
+          ) : (
+            <User size={10} className="text-slate-500 shrink-0" />
+          )}
+          <span className="truncate" title={row.assignee}>
+            {row.assignee}
+          </span>
+          {row.memberProgress.length > 0 && (
+            <span className="ml-0.5 rounded bg-violet-50 px-1 py-0.5 text-[9.5px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums shrink-0">
+              {row.memberProgress.filter((m) => m.status === '처리완료' || m.status === '확인완료').length}/{row.memberProgress.length}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <div className="flex-1 h-1 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full',
+              row.status === '확인완료'
+                ? 'bg-emerald-500'
+                : row.status === '처리완료'
+                  ? 'bg-cyan-500'
+                  : row.status === '취소됨'
+                    ? 'bg-rose-400'
+                    : 'bg-indigo-500',
+            )}
+            style={{ width: `${pct(row.progress)}%` }}
+          />
+        </div>
+        <span className="w-7 text-right tabular-nums text-[10px] text-[var(--color-ink-muted)]">{pct(row.progress)}%</span>
+      </div>
+
+      <div className="mt-1 flex items-center justify-between text-[10px]">
+        <span className={cn('tabular-nums', overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink-muted)]')}>
+          {row.dueDate ? `기한 ${fmtDate(row.dueDate)}` : ''}
+          {overdue ? ' · 초과' : ''}
+        </span>
+        <label
+          className="relative inline-flex items-center gap-0.5 rounded ring-1 px-1 py-0.5 text-[9.5px] font-medium cursor-pointer bg-white"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span>{row.status}</span>
+          <ChevronDown size={9} className="opacity-60" />
+          <select
+            value={row.status}
+            onChange={(e) => onQuickStatus(e.target.value as CooperationRequestStatus)}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            title="현황 변경"
+          >
+            {COOPERATION_REQUEST_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );

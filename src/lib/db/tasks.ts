@@ -289,11 +289,36 @@ export async function upsertTasks(
   const totalRows = orderedRows.length;
   for (let i = 0; i < orderedRows.length; i += TASKS_UPSERT_BATCH_SIZE) {
     const rows = orderedRows.slice(i, i + TASKS_UPSERT_BATCH_SIZE);
-    const { error } = await retryTaskRowsWithOptionalColumnFallback(rows, async (payload) => {
-      const res = await supabase!.from('tasks').upsert(payload);
+    // 같은 배치 안에서 id가 중복되면 PostgreSQL이 21000(ON CONFLICT DO UPDATE 두 번 적용 금지)으로 409를 던진다.
+    // 상위 dedup이 있더라도 방어적으로 한 번 더 정리한다(같은 id가 보이면 마지막 row 사용).
+    const dedupedRows: typeof rows = [];
+    const seenIds = new Set<string>();
+    for (let j = rows.length - 1; j >= 0; j--) {
+      const row = rows[j];
+      if (!row || seenIds.has(row.id)) continue;
+      seenIds.add(row.id);
+      dedupedRows.unshift(row);
+    }
+    const { error } = await retryTaskRowsWithOptionalColumnFallback(dedupedRows, async (payload) => {
+      // onConflict='id'를 명시해 PostgREST가 id 충돌 시 MERGE(=UPDATE)로 처리하도록 강제한다.
+      const res = await supabase!.from('tasks').upsert(payload, { onConflict: 'id' });
       return { error: res.error };
     });
-    if (error) throw error;
+    if (error) {
+      if (import.meta.env.DEV) {
+        const dupCount = rows.length - dedupedRows.length;
+         
+        console.error('[upsertTasks] 409/오류 발생', {
+          batchIndex: Math.floor(i / TASKS_UPSERT_BATCH_SIZE),
+          rowCount: rows.length,
+          dedupedCount: dedupedRows.length,
+          duplicatesRemoved: dupCount,
+          error,
+          sampleIds: dedupedRows.slice(0, 3).map((r) => r.id),
+        });
+      }
+      throw error;
+    }
     onBatchProgress?.(Math.min(i + rows.length, totalRows), totalRows);
   }
   const projectId = tasks[0]?.projectId ?? null;

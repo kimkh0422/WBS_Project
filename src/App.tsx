@@ -1355,6 +1355,7 @@ function WBSApp({
                           : undefined
                       }
                       currentUserDisplay={currentUserDisplay}
+                      currentUserPlainName={currentUserPlainName}
                       profileMap={profileMap}
                       currentUserId={user?.id}
                       ownerDepartmentByUserId={ownerDepartmentByUserId}
