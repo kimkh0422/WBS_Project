@@ -252,7 +252,7 @@ export function CooperationRequestSection({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all' | 'overdue'>('all');
   const [typeFilter, setTypeFilter] = useState<CooperationRequestType | 'all'>('all');
   /** "내 것만 보기" — 본인 관련 항목만. localStorage 영구. 사용자 이름이 비면 토글 표시 안 함. */
   const [myOnly, setMyOnly] = useState<boolean>(() => {
@@ -324,7 +324,11 @@ export function CooperationRequestSection({
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (myOnly && !isMine(r)) return false;
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      if (statusFilter === 'overdue') {
+        if (!isOverdue(r, todayIso)) return false;
+      } else if (statusFilter !== 'all' && r.status !== statusFilter) {
+        return false;
+      }
       if (typeFilter !== 'all' && r.requestType !== typeFilter) return false;
       if (q) {
         const blob = `${r.mgmtId} ${r.title} ${r.detail} ${r.requester} ${r.assignee} ${r.result} ${r.note}`.toLowerCase();
@@ -332,7 +336,7 @@ export function CooperationRequestSection({
       }
       return true;
     });
-  }, [rows, search, statusFilter, typeFilter, myOnly, isMine]);
+  }, [rows, search, statusFilter, typeFilter, myOnly, isMine, todayIso]);
 
   /** 상태별 카운트(상단 칩). myOnly 토글에 따라 본인 관련만 집계. */
   const statusCounts = useMemo(() => {
@@ -481,7 +485,8 @@ export function CooperationRequestSection({
           업무 협조 요청
           <span className="ml-1 text-xs font-normal text-[var(--color-ink-muted)]">발주처·외주·사내 간 자료·검토·협의 요청 이력</span>
         </h2>
-        <div className="flex items-center gap-2">
+        {/* 모바일에서는 조작·필터·새 등록 버튼 모두 숨김 — 정보만 보여줌 */}
+        <div className={cn('flex items-center gap-2', mobileReadabilityMode && 'hidden')}>
           {/* "내 것만 보기" 토글 — 현재 사용자 이름을 알고 있을 때만 노출 */}
           {currentUserPlainName && currentUserPlainName.trim().length > 0 && (
             <button
@@ -557,8 +562,8 @@ export function CooperationRequestSection({
         </div>
       </div>
 
-      {/* 상태 요약 칩 */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* 상태 요약 칩 — 모바일에서는 필터링용이라 숨김(정보만 표시) */}
+      <div className={cn('flex flex-wrap items-center gap-1.5', mobileReadabilityMode && 'hidden')}>
         <button
           type="button"
           onClick={() => setStatusFilter('all')}
@@ -589,18 +594,28 @@ export function CooperationRequestSection({
             </button>
           );
         })}
-        {overdueCount > 0 && (
-          <span
-            className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200"
-            title="기한이 지났지만 완료/회신불가가 아닌 항목"
-          >
-            <Clock size={11} /> 기한 초과 {overdueCount}건
-          </span>
-        )}
+        {overdueCount > 0 &&
+          (() => {
+            const active = statusFilter === 'overdue';
+            return (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(active ? 'all' : 'overdue')}
+                className={cn(
+                  'ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition',
+                  'bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:ring-2',
+                  active && 'ring-2',
+                )}
+                title={active ? '기한 초과 필터 해제 (전체 보기)' : '기한이 지났지만 완료/회신불가가 아닌 항목만 보기'}
+              >
+                <Clock size={11} /> 기한 초과 {overdueCount}건
+              </button>
+            );
+          })()}
       </div>
 
-      {/* 검색 + 구분 필터 */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+      {/* 검색 + 구분 필터 — 모바일에서는 숨김 */}
+      <div className={cn('flex flex-col sm:flex-row sm:items-center gap-2', mobileReadabilityMode && 'hidden')}>
         <div className="relative flex-1 min-w-0">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-ink-muted)]" />
           <input
