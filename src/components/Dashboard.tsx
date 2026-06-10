@@ -125,7 +125,17 @@ export function Dashboard({
   /** App 상단 ⋮ 메뉴에서 프로젝트 등록현황 PDF 저장 시 호출할 비동기 함수를 등록 */
   projectRegistrationPdfRef?: MutableRefObject<(() => Promise<void>) | null>;
 }) {
-  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask, updateProject } = useWBS();
+  const { projects: allProjects, allTasks: allTasksRaw, wbsSettings, updateTask, updateProject, setCurrentProjectId } = useWBS();
+  const taskNameByIdForFork = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of allTasksRaw) m.set(t.id, t.name);
+    return m;
+  }, [allTasksRaw]);
+  const projectNameByIdForFork = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of allProjects) m.set(p.id, p.name);
+    return m;
+  }, [allProjects]);
   const { push: pushToast } = useToast();
   // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
   const projects = useMemo(() => {
@@ -749,17 +759,32 @@ export function Dashboard({
   ]);
 
   /** 프로젝트별 현황: 카드 1개 렌더 (목록·부서별 묶기에서 공통 사용) */
-  const renderProjectCard = (project: (typeof displayProjectStats)[number]) => (
-    <ProjectCard
-      key={project.id}
-      project={project}
-      isSelected={selectedProjectCardId === project.id}
-      onClick={() => (onNavigate ? openTableProject(project.id) : openDashboardDetail('project', { projectId: project.id }))}
-      mobileReadabilityMode={mobileReadabilityMode}
-      divisionName={projectDivisionNameById.get(project.id)}
-      pmName={resolveProjectPmRawDisplayName(project, profileMap)}
-    />
-  );
+  const renderProjectCard = (project: (typeof displayProjectStats)[number]) => {
+    const forkSource =
+      project.sourceTaskId && project.sourceProjectId
+        ? {
+            projectId: project.sourceProjectId,
+            projectName: projectNameByIdForFork.get(project.sourceProjectId) ?? '(상위 프로젝트)',
+            taskName: taskNameByIdForFork.get(project.sourceTaskId) ?? '(상위 작업)',
+          }
+        : undefined;
+    return (
+      <ProjectCard
+        key={project.id}
+        project={project}
+        isSelected={selectedProjectCardId === project.id}
+        onClick={() => (onNavigate ? openTableProject(project.id) : openDashboardDetail('project', { projectId: project.id }))}
+        mobileReadabilityMode={mobileReadabilityMode}
+        divisionName={projectDivisionNameById.get(project.id)}
+        pmName={resolveProjectPmRawDisplayName(project, profileMap)}
+        forkSource={forkSource}
+        onOpenForkSource={(sourceProjectId) => {
+          if (onNavigate) openTableProject(sourceProjectId);
+          else setCurrentProjectId(sourceProjectId);
+        }}
+      />
+    );
+  };
 
   /** 부서(사업부)별로 묶은 프로젝트 현황. divisionStats 순서를 따르고 미분류는 마지막. 등록된 프로젝트가 없는 사업부도 빈 그룹으로 표시. */
   const projectStatsGroupedByDivision = useMemo(() => {

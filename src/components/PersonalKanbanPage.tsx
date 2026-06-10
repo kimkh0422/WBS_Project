@@ -28,6 +28,9 @@ import {
   ChevronDown,
   Rows3,
   LayoutGrid,
+  Calendar as CalendarIcon,
+  CheckSquare,
+  AlignLeft,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -40,10 +43,23 @@ import {
   insertPersonalTodoRow,
   updatePersonalTodoRow,
   deletePersonalTodoRow,
+  fetchPersonalTodoLabels,
+  insertPersonalTodoLabel,
+  updatePersonalTodoLabel,
+  deletePersonalTodoLabel,
+  attachPersonalTodoLabel,
+  detachPersonalTodoLabel,
+  insertPersonalTodoChecklistItem,
+  updatePersonalTodoChecklistItem,
+  deletePersonalTodoChecklistItem,
   type PersonalTodo,
+  type PersonalTodoLabel,
+  type PersonalTodoLabelColor,
+  type PersonalTodoPatch,
   type PersonalTodoRow,
   type PersonalTodoStatus,
 } from '../lib/db/personalTodos';
+import { PersonalTodoDetailModal, getLabelPalette } from './PersonalTodoDetailModal';
 
 const COLUMN_THEME: Record<PersonalTodoStatus, { dot: string; ring: string; soft: string; count: string }> = {
   todo: { dot: 'bg-slate-400', ring: 'border-slate-200', soft: 'bg-slate-50/80', count: 'bg-slate-100 text-slate-600' },
@@ -68,9 +84,11 @@ interface Lane {
 export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
   const [todos, setTodos] = useState<PersonalTodo[]>([]);
   const [rows, setRows] = useState<PersonalTodoRow[]>([]);
+  const [labels, setLabels] = useState<PersonalTodoLabel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [addingRow, setAddingRow] = useState(false);
   const [newRowLabel, setNewRowLabel] = useState('');
   // 행(스윔레인) 구분 보기 on/off. off면 행 없이 4개 상태 칸만 한 보드로 표시. localStorage에 영구.
@@ -97,13 +115,16 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
   todosRef.current = todos;
   const rowsRef = useRef<PersonalTodoRow[]>([]);
   rowsRef.current = rows;
+  const labelsRef = useRef<PersonalTodoLabel[]>([]);
+  labelsRef.current = labels;
 
   const reload = useCallback(async () => {
     try {
       setError(null);
-      const [t, r] = await Promise.all([fetchPersonalTodos(userId), fetchPersonalTodoRows(userId)]);
+      const [t, r, l] = await Promise.all([fetchPersonalTodos(userId), fetchPersonalTodoRows(userId), fetchPersonalTodoLabels(userId)]);
       setTodos(t);
       setRows(r);
+      setLabels(l);
     } catch (e) {
       setError(e instanceof Error ? e.message : '할일을 불러오지 못했습니다.');
     } finally {
@@ -164,13 +185,132 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
   );
 
   const handleEdit = useCallback(
-    async (id: string, patch: { title?: string; note?: string }) => {
+    async (id: string, patch: PersonalTodoPatch) => {
       const prev = todosRef.current;
       setTodos((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)));
       try {
         await updatePersonalTodo(userId, id, patch);
       } catch (e) {
         setError(e instanceof Error ? e.message : '수정에 실패했습니다.');
+        setTodos(prev);
+      }
+    },
+    [userId],
+  );
+
+  // ─── 라벨 정의 CRUD ───
+  const handleCreateLabel = useCallback(
+    async (input: { title: string; color: PersonalTodoLabelColor }): Promise<PersonalTodoLabel> => {
+      const maxOrder = labelsRef.current.reduce((m, l) => Math.max(m, l.sortOrder), -1);
+      const created = await insertPersonalTodoLabel(userId, { title: input.title, color: input.color, sortOrder: maxOrder + 1 });
+      setLabels((prev) => [...prev, created]);
+      return created;
+    },
+    [userId],
+  );
+
+  const handleUpdateLabel = useCallback(
+    async (id: string, patch: { title?: string; color?: PersonalTodoLabelColor }) => {
+      const prev = labelsRef.current;
+      setLabels((cur) => cur.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+      try {
+        await updatePersonalTodoLabel(userId, id, patch);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '라벨 수정에 실패했습니다.');
+        setLabels(prev);
+      }
+    },
+    [userId],
+  );
+
+  const handleDeleteLabel = useCallback(
+    async (id: string) => {
+      const prevLabels = labelsRef.current;
+      const prevTodos = todosRef.current;
+      setLabels((cur) => cur.filter((l) => l.id !== id));
+      setTodos((cur) => cur.map((t) => (t.labelIds.includes(id) ? { ...t, labelIds: t.labelIds.filter((x) => x !== id) } : t)));
+      try {
+        await deletePersonalTodoLabel(userId, id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '라벨 삭제에 실패했습니다.');
+        setLabels(prevLabels);
+        setTodos(prevTodos);
+      }
+    },
+    [userId],
+  );
+
+  // ─── 카드 ↔ 라벨 부착/분리 ───
+  const handleAttachLabel = useCallback(
+    async (todoId: string, labelId: string) => {
+      const prev = todosRef.current;
+      setTodos((cur) =>
+        cur.map((t) => (t.id === todoId && !t.labelIds.includes(labelId) ? { ...t, labelIds: [...t.labelIds, labelId] } : t)),
+      );
+      try {
+        await attachPersonalTodoLabel(userId, todoId, labelId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '라벨 부착에 실패했습니다.');
+        setTodos(prev);
+      }
+    },
+    [userId],
+  );
+
+  const handleDetachLabel = useCallback(
+    async (todoId: string, labelId: string) => {
+      const prev = todosRef.current;
+      setTodos((cur) => cur.map((t) => (t.id === todoId ? { ...t, labelIds: t.labelIds.filter((x) => x !== labelId) } : t)));
+      try {
+        await detachPersonalTodoLabel(userId, todoId, labelId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '라벨 분리에 실패했습니다.');
+        setTodos(prev);
+      }
+    },
+    [userId],
+  );
+
+  // ─── 체크리스트 CRUD ───
+  const handleAddChecklist = useCallback(
+    async (todoId: string, text: string) => {
+      const target = todosRef.current.find((t) => t.id === todoId);
+      if (!target) return;
+      const maxOrder = target.checklist.reduce((m, c) => Math.max(m, c.sortOrder), -1);
+      try {
+        const created = await insertPersonalTodoChecklistItem(userId, { todoId, text, sortOrder: maxOrder + 1 });
+        setTodos((cur) => cur.map((t) => (t.id === todoId ? { ...t, checklist: [...t.checklist, created] } : t)));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '체크리스트 추가에 실패했습니다.');
+      }
+    },
+    [userId],
+  );
+
+  const handleUpdateChecklist = useCallback(
+    async (todoId: string, itemId: string, patch: { text?: string; done?: boolean }) => {
+      const prev = todosRef.current;
+      setTodos((cur) =>
+        cur.map((t) => (t.id === todoId ? { ...t, checklist: t.checklist.map((c) => (c.id === itemId ? { ...c, ...patch } : c)) } : t)),
+      );
+      try {
+        await updatePersonalTodoChecklistItem(userId, itemId, patch);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '체크리스트 수정에 실패했습니다.');
+        setTodos(prev);
+      }
+    },
+    [userId],
+  );
+
+  const handleDeleteChecklist = useCallback(
+    async (todoId: string, itemId: string) => {
+      const prev = todosRef.current;
+      setTodos((cur) => cur.map((t) => (t.id === todoId ? { ...t, checklist: t.checklist.filter((c) => c.id !== itemId) } : t)));
+      try {
+        await deletePersonalTodoChecklistItem(userId, itemId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '체크리스트 삭제에 실패했습니다.');
         setTodos(prev);
       }
     },
@@ -505,9 +645,11 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
                           status={col.key}
                           label={col.label}
                           items={itemsOf(lane.id, col.key)}
+                          labels={labels}
                           onAdd={handleAdd}
                           onEdit={handleEdit}
                           onDelete={handleDelete}
+                          onOpenDetail={setOpenCardId}
                         />
                       ))}
                     </div>
@@ -523,18 +665,45 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
                     status={col.key}
                     label={col.label}
                     items={flatItemsOf(col.key)}
+                    labels={labels}
                     onAdd={handleAdd}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
+                    onOpenDetail={setOpenCardId}
                     flat
                   />
                 ))}
               </div>
             )}
-            <DragOverlay>{activeTodo ? <TodoCardView todo={activeTodo} dragging /> : null}</DragOverlay>
+            <DragOverlay>{activeTodo ? <TodoCardView todo={activeTodo} labels={labels} dragging /> : null}</DragOverlay>
           </DndContext>
         )}
       </div>
+
+      {/* ─── 카드 디테일(트렐로 스타일) 모달 ─── */}
+      {openCardId &&
+        (() => {
+          const card = todos.find((t) => t.id === openCardId);
+          if (!card) return null;
+          return (
+            <PersonalTodoDetailModal
+              todo={card}
+              labels={labels}
+              rows={rows}
+              onClose={() => setOpenCardId(null)}
+              onPatch={(patch) => handleEdit(card.id, patch)}
+              onAttachLabel={(labelId) => handleAttachLabel(card.id, labelId)}
+              onDetachLabel={(labelId) => handleDetachLabel(card.id, labelId)}
+              onCreateLabel={handleCreateLabel}
+              onUpdateLabel={handleUpdateLabel}
+              onDeleteLabel={handleDeleteLabel}
+              onAddChecklist={(text) => handleAddChecklist(card.id, text)}
+              onUpdateChecklist={(itemId, patch) => handleUpdateChecklist(card.id, itemId, patch)}
+              onDeleteChecklist={(itemId) => handleDeleteChecklist(card.id, itemId)}
+              onDelete={() => handleDelete(card.id)}
+            />
+          );
+        })()}
     </div>
   );
 }
@@ -665,14 +834,16 @@ interface TodoCellProps {
   status: PersonalTodoStatus;
   label: string;
   items: PersonalTodo[];
+  labels: PersonalTodoLabel[];
   onAdd: (rowId: string | null, status: PersonalTodoStatus, title: string) => void;
-  onEdit: (id: string, patch: { title?: string; note?: string }) => void;
+  onEdit: (id: string, patch: PersonalTodoPatch) => void;
   onDelete: (id: string) => void;
+  onOpenDetail: (id: string) => void;
   /** 전체(행 구분 없음) 보기: droppable id를 행과 무관한 flat:상태 로 두어 드롭 시 행이 유지되게 함 */
   flat?: boolean;
 }
 
-function TodoCell({ rowId, status, label, items, onAdd, onEdit, onDelete, flat }: TodoCellProps) {
+function TodoCell({ rowId, status, label, items, labels, onAdd, onEdit, onDelete, onOpenDetail, flat }: TodoCellProps) {
   const { setNodeRef, isOver } = useDroppable({ id: flat ? `flat:${status}` : cellDroppableId(rowId, status) });
   const theme = COLUMN_THEME[status];
   const [draft, setDraft] = useState('');
@@ -702,7 +873,7 @@ function TodoCell({ rowId, status, label, items, onAdd, onEdit, onDelete, flat }
       <div className="space-y-1.5">
         <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {items.map((todo) => (
-            <SortableTodoCard key={todo.id} todo={todo} onEdit={onEdit} onDelete={onDelete} />
+            <SortableTodoCard key={todo.id} todo={todo} labels={labels} onEdit={onEdit} onDelete={onDelete} onOpenDetail={onOpenDetail} />
           ))}
         </SortableContext>
 
@@ -737,11 +908,13 @@ function TodoCell({ rowId, status, label, items, onAdd, onEdit, onDelete, flat }
 
 interface TodoCardProps {
   todo: PersonalTodo;
-  onEdit: (id: string, patch: { title?: string; note?: string }) => void;
+  labels: PersonalTodoLabel[];
+  onEdit: (id: string, patch: PersonalTodoPatch) => void;
   onDelete: (id: string) => void;
+  onOpenDetail: (id: string) => void;
 }
 
-function SortableTodoCard({ todo, onEdit, onDelete }: TodoCardProps) {
+function SortableTodoCard({ todo, labels, onEdit, onDelete, onOpenDetail }: TodoCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: todo.id });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -750,20 +923,29 @@ function SortableTodoCard({ todo, onEdit, onDelete }: TodoCardProps) {
   };
   return (
     <div ref={setNodeRef} style={style}>
-      <TodoCardView todo={todo} onEdit={onEdit} onDelete={onDelete} dragHandleProps={{ ...attributes, ...listeners }} />
+      <TodoCardView
+        todo={todo}
+        labels={labels}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onOpenDetail={onOpenDetail}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
     </div>
   );
 }
 
 interface TodoCardViewProps {
   todo: PersonalTodo;
+  labels?: PersonalTodoLabel[];
   dragging?: boolean;
-  onEdit?: (id: string, patch: { title?: string; note?: string }) => void;
+  onEdit?: (id: string, patch: PersonalTodoPatch) => void;
   onDelete?: (id: string) => void;
+  onOpenDetail?: (id: string) => void;
   dragHandleProps?: Record<string, unknown>;
 }
 
-function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: TodoCardViewProps) {
+function TodoCardView({ todo, labels, dragging, onEdit, onDelete, onOpenDetail, dragHandleProps }: TodoCardViewProps) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(todo.title);
   const [note, setNote] = useState(todo.note);
@@ -779,6 +961,36 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
     if (t && (t !== todo.title || note !== todo.note)) onEdit?.(todo.id, { title: t, note });
     setEditing(false);
   };
+
+  // 카드 칩 데이터
+  const labelMap = useMemo(() => new Map((labels ?? []).map((l) => [l.id, l] as const)), [labels]);
+  const cardLabels = useMemo(
+    () => todo.labelIds.map((id) => labelMap.get(id)).filter(Boolean) as PersonalTodoLabel[],
+    [todo.labelIds, labelMap],
+  );
+  const chkTotal = todo.checklist.length;
+  const chkDone = todo.checklist.filter((c) => c.done).length;
+  const dueTone = useMemo<'past' | 'today' | 'soon' | 'future' | 'none'>(() => {
+    if (!todo.dueDate) return 'none';
+    const d = new Date(todo.dueDate);
+    if (Number.isNaN(d.getTime())) return 'none';
+    const now = new Date();
+    const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+    const diff = Math.round((startOf(d).getTime() - startOf(now).getTime()) / 86400000);
+    if (diff < 0) return 'past';
+    if (diff === 0) return 'today';
+    if (diff <= 3) return 'soon';
+    return 'future';
+  }, [todo.dueDate]);
+  const dueShort = useMemo(() => {
+    if (!todo.dueDate) return '';
+    const d = new Date(todo.dueDate);
+    if (Number.isNaN(d.getTime())) return '';
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${m}-${day}`;
+  }, [todo.dueDate]);
+  const allChkDone = chkTotal > 0 && chkDone === chkTotal;
 
   if (editing) {
     return (
@@ -827,6 +1039,9 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
   return (
     <div
       {...(dragHandleProps ?? {})}
+      onClick={() => {
+        if (!dragging) onOpenDetail?.(todo.id);
+      }}
       className={cn(
         // 카드와 카드가 아닌 영역(컬럼 배경) 구분: 진한 테두리 + 또렷한 그림자로 카드가 떠 보이게
         'group/card rounded-xl border border-slate-300 bg-white p-2.5 shadow-md ring-1 ring-black/5 hover:shadow-lg hover:border-slate-400 transition-all',
@@ -834,6 +1049,24 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
         dragging && 'shadow-xl ring-2 ring-indigo-300 rotate-1',
       )}
     >
+      {/* 라벨 칩(있을 때만) */}
+      {cardLabels.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {cardLabels.map((l) => {
+            const p = getLabelPalette(l.color);
+            return (
+              <span
+                key={l.id}
+                className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold', p.bg, p.text)}
+                title={l.title || l.color}
+              >
+                {l.title || ' '}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex items-start gap-1.5">
         {/* 드래그 핸들은 시각적 힌트만 — 카드 전체 영역을 잡아 이동한다 */}
         <span className="shrink-0 mt-0.5 text-slate-300 group-hover/card:text-slate-400 pointer-events-none" aria-hidden>
@@ -841,13 +1074,21 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-medium text-slate-800 break-words leading-snug m-0">{todo.title || '(제목 없음)'}</p>
-          {todo.note && <p className="mt-1 text-[12px] text-slate-500 break-words leading-snug whitespace-pre-wrap m-0">{todo.note}</p>}
+          {todo.note && (
+            <p className="mt-1 text-[12px] text-slate-500 break-words leading-snug whitespace-pre-wrap m-0 line-clamp-2">{todo.note}</p>
+          )}
         </div>
         {!dragging && (
-          <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity">
+          <div
+            className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
-              onClick={startEdit}
+              onClick={(e) => {
+                e.stopPropagation();
+                startEdit();
+              }}
               onPointerDown={(e) => e.stopPropagation()}
               className="p-1 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               title="수정"
@@ -857,7 +1098,10 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
             </button>
             <button
               type="button"
-              onClick={() => setConfirmDel(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDel(true);
+              }}
               onPointerDown={(e) => e.stopPropagation()}
               className="p-1 rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600"
               title="삭제"
@@ -869,19 +1113,67 @@ function TodoCardView({ todo, dragging, onEdit, onDelete, dragHandleProps }: Tod
         )}
       </div>
 
+      {/* 하단 배지: 마감일·체크리스트 진행률·설명 표식 */}
+      {(todo.dueDate || chkTotal > 0 || todo.note) && (
+        <div className="mt-1.5 pl-5 flex flex-wrap items-center gap-1.5 text-[10.5px]">
+          {todo.dueDate && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold',
+                dueTone === 'past' && 'bg-rose-100 text-rose-700',
+                dueTone === 'today' && 'bg-amber-100 text-amber-800',
+                dueTone === 'soon' && 'bg-yellow-50 text-yellow-800',
+                dueTone === 'future' && 'bg-slate-100 text-slate-600',
+              )}
+              title="마감일"
+            >
+              <CalendarIcon size={10} />
+              {dueShort}
+            </span>
+          )}
+          {chkTotal > 0 && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold',
+                allChkDone ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600',
+              )}
+              title="체크리스트"
+            >
+              <CheckSquare size={10} />
+              {chkDone}/{chkTotal}
+            </span>
+          )}
+          {todo.note && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold bg-slate-100 text-slate-500"
+              title="설명 있음"
+            >
+              <AlignLeft size={10} />
+            </span>
+          )}
+        </div>
+      )}
+
       {confirmDel && (
-        <div className="mt-2 flex items-center justify-end gap-1.5 rounded-lg bg-rose-50 border border-rose-100 px-2 py-1.5">
+        <div
+          className="mt-2 flex items-center justify-end gap-1.5 rounded-lg bg-rose-50 border border-rose-100 px-2 py-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
           <span className="mr-auto text-[11px] font-medium text-rose-800">삭제할까요?</span>
           <button
             type="button"
-            onClick={() => setConfirmDel(false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDel(false);
+            }}
             className="px-2 py-0.5 text-[11px] font-semibold rounded-md text-slate-500 hover:bg-white"
           >
             취소
           </button>
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setConfirmDel(false);
               onDelete?.(todo.id);
             }}

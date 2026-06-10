@@ -24,6 +24,27 @@ function normalizeStatus(v: unknown): CooperationRequestStatus {
   return (COOPERATION_REQUEST_STATUSES as readonly string[]).includes(v as string) ? (v as CooperationRequestStatus) : '요청완료';
 }
 
+/** 담당 종류 — 인원 1명 또는 조직(부서/팀) 1개 */
+export const COOPERATION_ASSIGNEE_KINDS = ['person', 'org'] as const;
+export type CooperationAssigneeKind = (typeof COOPERATION_ASSIGNEE_KINDS)[number];
+function normalizeAssigneeKind(v: unknown): CooperationAssigneeKind {
+  return v === 'org' ? 'org' : 'person';
+}
+
+/**
+ * 조직 대상일 때 멤버별 완료 추적용 1건.
+ * - name/department/position: 사람 식별을 위한 표시 정보(스냅샷). 조직도가 바뀌어도 과거 이력은 그대로 보존된다.
+ * - status: 협조 요청 전체 상태와 동일한 어휘. 인원 단위로 진척을 다르게 두기 위함.
+ * - completedAt: '완료' 처리된 날짜.
+ */
+export type CooperationMemberProgress = {
+  name: string;
+  department: string;
+  position: string;
+  status: CooperationRequestStatus;
+  completedAt: string;
+};
+
 /** 업무 협조 요청 1건 */
 export type CooperationRequest = {
   id: string;
@@ -37,7 +58,14 @@ export type CooperationRequest = {
   title: string;
   detail: string;
   requester: string;
+  /** 담당자(표시명). person이면 인원 이름, org이면 조직(부서) 이름. */
   assignee: string;
+  /** 담당 종류: 인원 또는 조직 */
+  assigneeKind: CooperationAssigneeKind;
+  /** 조직 대상일 때 org_nodes.id (인원 대상이면 null) */
+  assigneeOrgId: string | null;
+  /** 조직 대상일 때 멤버별 추적. 인원 대상이면 빈 배열. */
+  memberProgress: CooperationMemberProgress[];
   priority: CooperationRequestPriority;
   /** 기한·완료예정일 */
   dueDate: string;
@@ -71,6 +99,9 @@ type CooperationRequestDbRow = {
   detail: string | null;
   requester: string | null;
   assignee: string | null;
+  assignee_kind: string | null;
+  assignee_org_id: string | null;
+  member_progress: unknown;
   priority: string | null;
   due_date: string | null;
   progress: number | null;
@@ -87,7 +118,52 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, member_progress, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+
+/** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다. */
+function normalizeMemberProgress(raw: unknown): CooperationMemberProgress[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r): CooperationMemberProgress | null => {
+      if (!r || typeof r !== 'object') return null;
+      const o = r as Record<string, unknown>;
+      const name = typeof o.name === 'string' ? o.name : '';
+      if (!name) return null;
+      return {
+        name,
+        department: typeof o.department === 'string' ? o.department : '',
+        position: typeof o.position === 'string' ? o.position : '',
+        status: normalizeStatus(o.status),
+        completedAt: typeof o.completedAt === 'string' ? o.completedAt : '',
+      };
+    })
+    .filter((x): x is CooperationMemberProgress => x !== null);
+}
+
+/**
+ * 조직 대상 요청의 집계 진척률 계산: 완료(상태='완료') 멤버 / 전체 멤버. 분모 0이면 0.
+ * 인원 대상이면 호출자가 직접 manage하는 progress를 그대로 사용한다.
+ */
+export function computeOrgProgress(memberProgress: CooperationMemberProgress[]): number {
+  if (memberProgress.length === 0) return 0;
+  const done = memberProgress.filter((m) => m.status === '완료').length;
+  return done / memberProgress.length;
+}
+
+/**
+ * 조직 대상 요청의 집계 상태(요청완료/진행중/완료) 추론:
+ * - 모두 '완료' → '완료'
+ * - 하나라도 '완료' 또는 '진행중' → '진행중'
+ * - 그 외(전원 요청완료) → '요청완료'
+ * - 멤버가 없으면 '요청완료'
+ */
+export function computeOrgStatus(memberProgress: CooperationMemberProgress[]): CooperationRequestStatus {
+  if (memberProgress.length === 0) return '요청완료';
+  const allDone = memberProgress.every((m) => m.status === '완료');
+  if (allDone) return '완료';
+  const anyActive = memberProgress.some((m) => m.status === '완료' || m.status === '진행중');
+  return anyActive ? '진행중' : '요청완료';
+}
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -103,6 +179,9 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     detail: str(r.detail),
     requester: str(r.requester),
     assignee: str(r.assignee),
+    assigneeKind: normalizeAssigneeKind(r.assignee_kind),
+    assigneeOrgId: r.assignee_org_id ?? null,
+    memberProgress: normalizeMemberProgress(r.member_progress),
     priority: normalizePriority(r.priority),
     dueDate: str(r.due_date),
     progress: clampProgress(num(r.progress)),
@@ -149,6 +228,9 @@ function loadLocal(): CooperationRequest[] {
         detail: str(r.detail),
         requester: str(r.requester),
         assignee: str(r.assignee),
+        assigneeKind: normalizeAssigneeKind(r.assigneeKind),
+        assigneeOrgId: typeof r.assigneeOrgId === 'string' ? r.assigneeOrgId : null,
+        memberProgress: normalizeMemberProgress(r.memberProgress),
         priority: normalizePriority(r.priority),
         dueDate: str(r.dueDate),
         progress: clampProgress(num(r.progress)),
@@ -222,6 +304,8 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
       requestType: normalizeType(input.requestType),
       priority: normalizePriority(input.priority),
       status: normalizeStatus(input.status),
+      assigneeKind: normalizeAssigneeKind(input.assigneeKind),
+      memberProgress: normalizeMemberProgress(input.memberProgress),
       id: randomUUID(),
       createdBy: userId,
       createdAt: ts,
@@ -241,6 +325,9 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     detail: input.detail,
     requester: input.requester,
     assignee: input.assignee,
+    assignee_kind: normalizeAssigneeKind(input.assigneeKind),
+    assignee_org_id: input.assigneeOrgId,
+    member_progress: normalizeMemberProgress(input.memberProgress),
     priority: normalizePriority(input.priority),
     due_date: input.dueDate || null,
     progress: clampProgress(input.progress),
@@ -269,6 +356,8 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
       requestType: patch.requestType !== undefined ? normalizeType(patch.requestType) : list[idx].requestType,
       priority: patch.priority !== undefined ? normalizePriority(patch.priority) : list[idx].priority,
       status: patch.status !== undefined ? normalizeStatus(patch.status) : list[idx].status,
+      assigneeKind: patch.assigneeKind !== undefined ? normalizeAssigneeKind(patch.assigneeKind) : list[idx].assigneeKind,
+      memberProgress: patch.memberProgress !== undefined ? normalizeMemberProgress(patch.memberProgress) : list[idx].memberProgress,
       updatedAt: nowIso(),
     };
     list[idx] = merged;
@@ -284,6 +373,9 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.detail !== undefined) payload.detail = patch.detail;
   if (patch.requester !== undefined) payload.requester = patch.requester;
   if (patch.assignee !== undefined) payload.assignee = patch.assignee;
+  if (patch.assigneeKind !== undefined) payload.assignee_kind = normalizeAssigneeKind(patch.assigneeKind);
+  if (patch.assigneeOrgId !== undefined) payload.assignee_org_id = patch.assigneeOrgId;
+  if (patch.memberProgress !== undefined) payload.member_progress = normalizeMemberProgress(patch.memberProgress);
   if (patch.priority !== undefined) payload.priority = normalizePriority(patch.priority);
   if (patch.dueDate !== undefined) payload.due_date = patch.dueDate || null;
   if (patch.progress !== undefined) payload.progress = clampProgress(patch.progress);
@@ -319,6 +411,9 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     detail: '',
     requester: '',
     assignee: '',
+    assigneeKind: 'person',
+    assigneeOrgId: null,
+    memberProgress: [],
     priority: '중',
     dueDate: '',
     progress: 0,

@@ -78,6 +78,27 @@ export interface WBSContextType {
   deleteProject: (id: string) => void;
   /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
   copyProject: (sourceProjectId: string) => void;
+  /**
+   * 특정 task를 신규 프로젝트로 분기.
+   * - 원본 task의 모든 하위 트리(자손)를 새 프로젝트의 root task들로 이전(parent_id remap)
+   * - 새 프로젝트의 sourceTaskId / sourceProjectId가 설정되어, 이후 자식 프로젝트의 진척률/일정/공수가
+   *   부모 task로 mirror된다(자식→부모 일방향).
+   * - 반환값: 생성된 신규 프로젝트 id (실패 시 undefined)
+   */
+  forkTaskToProject: (
+    sourceTaskId: string,
+    input: {
+      name: string;
+      formalName?: string;
+      description?: string;
+      pmName?: string;
+      poName?: string;
+      startDate?: string;
+      endDate?: string;
+      projectKind?: Project['projectKind'];
+      includeInDashboard?: boolean;
+    },
+  ) => string | undefined;
   addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string) => string;
   addTasks: (tasks: Task[]) => void;
   updateTask: (

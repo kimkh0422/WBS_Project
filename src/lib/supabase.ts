@@ -90,6 +90,10 @@ export interface ProjectRow {
   po_name?: string | null;
   /** false면 대시보드에 반영하지 않음 */
   include_in_dashboard?: boolean | null;
+  /** 분기 원본 task id (NULL이면 일반 프로젝트). 자식 프로젝트가 부모 task의 progress/일정/공수를 mirror */
+  source_task_id?: string | null;
+  /** 분기 원본 프로젝트 id (UI 백링크용) */
+  source_project_id?: string | null;
 }
 
 export type ProjectMemberRole = 'owner' | 'editor' | 'viewer';

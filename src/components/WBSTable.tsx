@@ -27,6 +27,7 @@ import {
   Edit2,
   Equal,
   Trash2,
+  GitBranch,
 } from 'lucide-react';
 import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
@@ -72,6 +73,8 @@ const WbsImprovementGuideModal = React.lazy(() =>
   import('./WbsImprovementGuideModal').then((m) => ({ default: m.WbsImprovementGuideModal })),
 );
 const ExcelGrid = React.lazy(() => import('./ExcelGrid').then((m) => ({ default: m.ExcelGrid })));
+const ForkTaskToProjectModal = React.lazy(() => import('./ForkTaskToProjectModal').then((m) => ({ default: m.ForkTaskToProjectModal })));
+type ForkTaskToProjectInputT = import('./ForkTaskToProjectModal').ForkTaskToProjectInput;
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
 
@@ -158,6 +161,8 @@ export function WBSTable({
     moveTaskRootsSibling,
     linkSequentialPredecessors,
     updateProject,
+    forkTaskToProject,
+    setCurrentProjectId,
   } = useWBS();
 
   const { push: pushToast } = useToast();
@@ -214,6 +219,16 @@ export function WBSTable({
   }, [currentProjectId, filters.projectIds, projects]);
 
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  /** 분기된 자식 프로젝트 lookup: 부모 task id → 자식 프로젝트 */
+  const forkedProjectsByTaskId = useMemo(() => {
+    const m = new Map<string, Project>();
+    for (const p of projects) {
+      if (p.sourceTaskId) m.set(p.sourceTaskId, p);
+    }
+    return m;
+  }, [projects]);
+  /** 분기 모달 상태: null이면 닫힘 */
+  const [forkTarget, setForkTarget] = useState<{ sourceTask: Task; sourceProject: Project; descendantCount: number } | null>(null);
   // 선택 상태/로직 — extracted to useWbsSelection (called below after tableScrollRef)
   // 스크롤은 rowVirtualizer 선언 후 별도 useEffect에서 처리 (아래 scrollToSelectedTask)
 
@@ -1719,6 +1734,8 @@ export function WBSTable({
                               rollupTooltipBaseTasks={baseTasks}
                               plannedProgress={plannedProgressById.get(task.id)}
                               showTableAutoFormatting={showTableAutoFormatting}
+                              forkedChildProject={forkedProjectsByTaskId.get(task.id)}
+                              onOpenForkedChildProject={(childId) => setCurrentProjectId(childId)}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>
@@ -2522,6 +2539,60 @@ export function WBSTable({
                       }
                     },
                   },
+                  ...(contextMenu.taskId && canEditCurrentProject
+                    ? (() => {
+                        const taskId = contextMenu.taskId;
+                        const already = forkedProjectsByTaskId.get(taskId);
+                        if (already) {
+                          return [
+                            {
+                              label: `분기 프로젝트로 이동 (${already.name})`,
+                              icon: <GitBranch size={14} />,
+                              onClick: () => {
+                                setCurrentProjectId(already.id);
+                                setContextMenu(null);
+                              },
+                            },
+                          ];
+                        }
+                        return [
+                          {
+                            label: '신규 프로젝트로 분기...',
+                            icon: <GitBranch size={14} />,
+                            onClick: () => {
+                              const task = tasks.find((t) => t.id === taskId);
+                              if (!task) return;
+                              const proj = projects.find((p) => p.id === task.projectId);
+                              if (!proj) {
+                                pushToast('원본 프로젝트를 찾을 수 없습니다.', { variant: 'error' });
+                                return;
+                              }
+                              // descendants 개수 계산 (안내용)
+                              const childrenBy = new Map<string, string[]>();
+                              for (const t of tasks) {
+                                if (!t.parentId || t.projectId !== task.projectId) continue;
+                                const arr = childrenBy.get(t.parentId);
+                                if (arr) arr.push(t.id);
+                                else childrenBy.set(t.parentId, [t.id]);
+                              }
+                              let count = 0;
+                              const stack = [taskId];
+                              while (stack.length) {
+                                const id = stack.pop()!;
+                                const ch = childrenBy.get(id);
+                                if (!ch) continue;
+                                for (const cid of ch) {
+                                  count++;
+                                  stack.push(cid);
+                                }
+                              }
+                              setForkTarget({ sourceTask: task, sourceProject: proj, descendantCount: count });
+                              setContextMenu(null);
+                            },
+                          },
+                        ];
+                      })()
+                    : []),
                   ...(canEditCurrentProject && selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
                     ? [
                         {
@@ -2603,6 +2674,27 @@ export function WBSTable({
         confirmLabel="삭제"
         isDanger={true}
       />
+
+      {forkTarget && (
+        <React.Suspense fallback={null}>
+          <ForkTaskToProjectModal
+            isOpen={!!forkTarget}
+            onClose={() => setForkTarget(null)}
+            onConfirm={(input: ForkTaskToProjectInputT) => {
+              const newId = forkTaskToProject(forkTarget.sourceTask.id, input);
+              setForkTarget(null);
+              if (newId) {
+                pushToast('작업을 신규 프로젝트로 분기했습니다. 자식 프로젝트로 이동합니다.', { variant: 'success' });
+              }
+            }}
+            sourceTask={forkTarget.sourceTask}
+            sourceProject={forkTarget.sourceProject}
+            defaultPmName={currentUserDisplayName}
+            descendantCount={forkTarget.descendantCount}
+            currentUserId={currentUserId}
+          />
+        </React.Suspense>
+      )}
     </>
   );
   return <div className={cn('flex flex-col min-h-0', fillHeight && 'h-full')}>{content}</div>;

@@ -14,9 +14,13 @@ import {
   CircleAlert,
   Filter,
   ChevronDown,
+  User,
+  Building2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useToast } from './Toast';
+import { useOrganization, getDirectMembersFromTree } from '../context/OrganizationContext';
+import type { OrgNode, OrgMember } from '../data/organization';
 import {
   fetchCooperationRequests,
   insertCooperationRequest,
@@ -24,6 +28,8 @@ import {
   deleteCooperationRequest,
   makeEmptyCooperationRequest,
   nextMgmtId,
+  computeOrgProgress,
+  computeOrgStatus,
   COOPERATION_REQUEST_TYPES,
   COOPERATION_REQUEST_PRIORITIES,
   COOPERATION_REQUEST_STATUSES,
@@ -32,6 +38,8 @@ import {
   type CooperationRequestStatus,
   type CooperationRequestType,
   type CooperationRequestPriority,
+  type CooperationAssigneeKind,
+  type CooperationMemberProgress,
 } from '../lib/db/cooperationRequests';
 
 interface CooperationRequestSectionProps {
@@ -86,6 +94,52 @@ function isOverdue(r: CooperationRequest, todayIso: string): boolean {
   return r.dueDate < todayIso;
 }
 
+/** 조직 트리를 평탄화: 부모 → 자식 순서, depth(들여쓰기용) 포함. */
+function flattenOrgTree(root: OrgNode): Array<{ node: OrgNode; depth: number }> {
+  const out: Array<{ node: OrgNode; depth: number }> = [];
+  const walk = (n: OrgNode, d: number) => {
+    out.push({ node: n, depth: d });
+    for (const c of n.children ?? []) walk(c, d + 1);
+  };
+  walk(root, 0);
+  return out;
+}
+
+/** 트리에서 id로 노드 찾기 */
+function findOrgNode(root: OrgNode, id: string): OrgNode | null {
+  if (root.id === id) return root;
+  for (const c of root.children ?? []) {
+    const f = findOrgNode(c, id);
+    if (f) return f;
+  }
+  return null;
+}
+
+/** 조직 노드의 직속 인원 + 자식 노드 인원 전체(deep). 진척 추적은 deep을 기본으로 한다. */
+function getDeepMembers(node: OrgNode, allMembers: OrgMember[]): OrgMember[] {
+  const direct = getDirectMembersFromTree(node, allMembers);
+  const fromChildren = (node.children ?? []).flatMap((c) => getDeepMembers(c, allMembers));
+  return [...direct, ...fromChildren];
+}
+
+/** OrgMember[] → 기본 CooperationMemberProgress[](상태=요청완료) */
+function initMemberProgress(members: OrgMember[]): CooperationMemberProgress[] {
+  return members.map((m) => ({
+    name: m.name,
+    department: m.department,
+    position: m.position,
+    status: '요청완료',
+    completedAt: '',
+  }));
+}
+
+/** 표시용: 조직 대상 행에 보여줄 '완료수/전체수' 텍스트 */
+function memberProgressLabel(m: CooperationMemberProgress[]): string {
+  if (m.length === 0) return '인원 없음';
+  const done = m.filter((x) => x.status === '완료').length;
+  return `${done}/${m.length}`;
+}
+
 export function CooperationRequestSection({ mobileReadabilityMode = false }: CooperationRequestSectionProps) {
   const [rows, setRows] = useState<CooperationRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +151,12 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
   const [confirmDelete, setConfirmDelete] = useState<CooperationRequest | null>(null);
   const [saving, setSaving] = useState(false);
   const { push: pushToast } = useToast();
+  const { orgTree, orgMembers } = useOrganization();
+
+  /** 조직 트리를 평탄화(부모 → 자식 순서, depth 포함). 모달의 조직 picker에 사용. */
+  const orgPickList = useMemo(() => flattenOrgTree(orgTree), [orgTree]);
+  /** 직속 인원 + 자식 인원을 합쳐 검색용으로 평탄화. */
+  const orgMemberOptions = useMemo(() => orgMembers, [orgMembers]);
 
   const rowsRef = useRef<CooperationRequest[]>([]);
   rowsRef.current = rows;
@@ -406,7 +466,23 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
                         {r.requester || <span className="text-[var(--color-ink-muted)]">—</span>}
                       </td>
                       <td className="px-2 py-1.5 text-[var(--color-ink)] whitespace-nowrap">
-                        {r.assignee || <span className="text-[var(--color-ink-muted)]">—</span>}
+                        {r.assignee ? (
+                          <span className="inline-flex items-center gap-1">
+                            {r.assigneeKind === 'org' ? (
+                              <Building2 size={12} className="text-violet-600" />
+                            ) : (
+                              <User size={12} className="text-slate-500" />
+                            )}
+                            <span>{r.assignee}</span>
+                            {r.assigneeKind === 'org' && (
+                              <span className="ml-1 rounded bg-violet-50 px-1 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums">
+                                {memberProgressLabel(r.memberProgress)}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--color-ink-muted)]">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 whitespace-nowrap">
                         <span
@@ -513,6 +589,9 @@ export function CooperationRequestSection({ mobileReadabilityMode = false }: Coo
           draft={editing.draft}
           isNew={!editing.row}
           saving={saving}
+          orgTree={orgTree}
+          orgMembers={orgMemberOptions}
+          orgPickList={orgPickList}
           onChange={(patch) => setEditing((cur) => (cur ? { ...cur, draft: { ...cur.draft, ...patch } } : cur))}
           onSave={() => void handleSave()}
           onCancel={() => setEditing(null)}
@@ -531,12 +610,15 @@ interface EditModalProps {
   draft: CooperationRequestInput;
   isNew: boolean;
   saving: boolean;
+  orgTree: OrgNode;
+  orgMembers: OrgMember[];
+  orgPickList: Array<{ node: OrgNode; depth: number }>;
   onChange: (patch: Partial<CooperationRequestInput>) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-function EditModal({ draft, isNew, saving, onChange, onSave, onCancel }: EditModalProps) {
+function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onChange, onSave, onCancel }: EditModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
@@ -618,7 +700,7 @@ function EditModal({ draft, isNew, saving, onChange, onSave, onCancel }: EditMod
             />
           </Field>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Field label="요청자">
               <input
                 type="text"
@@ -626,15 +708,6 @@ function EditModal({ draft, isNew, saving, onChange, onSave, onCancel }: EditMod
                 onChange={(e) => onChange({ requester: e.target.value })}
                 className={inputCls}
                 placeholder="예) 지엠티"
-              />
-            </Field>
-            <Field label="담당자">
-              <input
-                type="text"
-                value={draft.assignee}
-                onChange={(e) => onChange({ assignee: e.target.value })}
-                className={inputCls}
-                placeholder="예) 김영기"
               />
             </Field>
             <Field label="중요도">
@@ -654,6 +727,9 @@ function EditModal({ draft, isNew, saving, onChange, onSave, onCancel }: EditMod
               <input type="date" value={draft.dueDate} onChange={(e) => onChange({ dueDate: e.target.value })} className={inputCls} />
             </Field>
           </div>
+
+          {/* 담당 — 인원/조직 토글 + picker */}
+          <AssigneePicker draft={draft} orgTree={orgTree} orgMembers={orgMembers} orgPickList={orgPickList} onChange={onChange} />
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Field label="진척률 (%)">
@@ -763,6 +839,189 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** 담당(인원/조직) 선택 + 조직 대상 시 멤버별 진행 추적. */
+function AssigneePicker({
+  draft,
+  orgTree,
+  orgMembers,
+  orgPickList,
+  onChange,
+}: {
+  draft: CooperationRequestInput;
+  orgTree: OrgNode;
+  orgMembers: OrgMember[];
+  orgPickList: Array<{ node: OrgNode; depth: number }>;
+  onChange: (patch: Partial<CooperationRequestInput>) => void;
+}) {
+  const setKind = (kind: CooperationAssigneeKind) => {
+    if (kind === draft.assigneeKind) return;
+    if (kind === 'person') {
+      // 조직 → 인원: 조직 정보·멤버 진행은 지우고 assignee는 비움
+      onChange({ assigneeKind: 'person', assigneeOrgId: null, memberProgress: [], assignee: '' });
+    } else {
+      // 인원 → 조직: 조직 선택 전이면 picker로 선택 유도. assignee는 비움(선택 시 채움)
+      onChange({ assigneeKind: 'org', assigneeOrgId: null, memberProgress: [], assignee: '' });
+    }
+  };
+
+  const handleOrgPick = (orgId: string) => {
+    if (!orgId) {
+      onChange({ assigneeOrgId: null, assignee: '', memberProgress: [] });
+      return;
+    }
+    const node = findOrgNode(orgTree, orgId);
+    if (!node) return;
+    const members = getDeepMembers(node, orgMembers);
+    onChange({
+      assigneeKind: 'org',
+      assigneeOrgId: orgId,
+      assignee: node.name,
+      memberProgress: initMemberProgress(members),
+    });
+  };
+
+  /** 인원 1명의 상태 변경. 멤버 진척에 따라 전체 진척률·현황도 자동 갱신. */
+  const setMemberStatus = (idx: number, status: CooperationRequestStatus) => {
+    const next = draft.memberProgress.map((m, i): CooperationMemberProgress => {
+      if (i !== idx) return m;
+      const completedAt = status === '완료' ? m.completedAt || new Date().toISOString().slice(0, 10) : '';
+      return { ...m, status, completedAt };
+    });
+    const progress = computeOrgProgress(next);
+    const status2 = computeOrgStatus(next);
+    const completedDate = status2 === '완료' ? draft.completedDate || new Date().toISOString().slice(0, 10) : draft.completedDate;
+    onChange({ memberProgress: next, progress, status: status2, completedDate });
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)]/60 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">담당</span>
+        <div className="inline-flex rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] p-0.5 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setKind('person')}
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-2 py-1 transition',
+              draft.assigneeKind === 'person'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+            )}
+          >
+            <User size={12} /> 인원
+          </button>
+          <button
+            type="button"
+            onClick={() => setKind('org')}
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-2 py-1 transition',
+              draft.assigneeKind === 'org'
+                ? 'bg-violet-600 text-white shadow-sm'
+                : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+            )}
+          >
+            <Building2 size={12} /> 조직
+          </button>
+        </div>
+      </div>
+
+      {draft.assigneeKind === 'person' ? (
+        <div>
+          <input
+            type="text"
+            list="cooperation-org-members"
+            value={draft.assignee}
+            onChange={(e) => onChange({ assignee: e.target.value })}
+            placeholder="담당 인원 이름 — 조직 인원 목록에서 자동완성"
+            className={inputCls}
+          />
+          {/* datalist는 같은 모달 내 다중 인스턴스 충돌이 없도록 id를 고정 사용 */}
+          <datalist id="cooperation-org-members">
+            {orgMembers.map((m) => (
+              <option key={`${m.name}|${m.department}|${m.position}`} value={m.name}>
+                {m.department}
+                {m.position ? ` · ${m.position}` : ''}
+              </option>
+            ))}
+          </datalist>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <select value={draft.assigneeOrgId ?? ''} onChange={(e) => handleOrgPick(e.target.value)} className={inputCls}>
+            <option value="">(조직 선택)</option>
+            {orgPickList.map(({ node, depth }) => (
+              <option key={node.id} value={node.id}>
+                {' '.repeat(depth * 2)}
+                {node.name}
+              </option>
+            ))}
+          </select>
+          {draft.assigneeOrgId && <MemberChecklist memberProgress={draft.memberProgress} onChange={setMemberStatus} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 조직 대상 시 멤버별 현황 체크리스트. 각 행: 이름·부서·직위 + 상태 셀렉트. */
+function MemberChecklist({
+  memberProgress,
+  onChange,
+}: {
+  memberProgress: CooperationMemberProgress[];
+  onChange: (idx: number, status: CooperationRequestStatus) => void;
+}) {
+  if (memberProgress.length === 0) {
+    return <p className="text-[11px] text-[var(--color-ink-muted)]">선택한 조직에 등록된 인원이 없습니다.</p>;
+  }
+  const doneCount = memberProgress.filter((m) => m.status === '완료').length;
+  return (
+    <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] overflow-hidden">
+      <div className="flex items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px]">
+        <span className="font-medium text-[var(--color-ink)]">
+          멤버 진척 ({doneCount}/{memberProgress.length} 완료)
+        </span>
+        <span className="text-[var(--color-ink-muted)]">상태를 바꾸면 전체 진척률·현황이 자동 갱신됩니다</span>
+      </div>
+      <div className="max-h-56 overflow-auto divide-y divide-[var(--color-line)]">
+        {memberProgress.map((m, idx) => (
+          <div key={`${m.name}|${m.department}|${idx}`} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+            <div className="min-w-0">
+              <div className="font-medium text-[var(--color-ink)] truncate">
+                {m.name}
+                {m.position && <span className="ml-1 text-[10px] text-[var(--color-ink-muted)]">{m.position}</span>}
+              </div>
+              <div className="text-[10.5px] text-[var(--color-ink-muted)] truncate">{m.department}</div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {m.status === '완료' && m.completedAt && (
+                <span className="text-[10px] tabular-nums text-emerald-700">{m.completedAt.replaceAll('-', '.')}</span>
+              )}
+              <select
+                value={m.status}
+                onChange={(e) => onChange(idx, e.target.value as CooperationRequestStatus)}
+                className={cn(
+                  'rounded border border-[var(--color-line)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-indigo-200',
+                  m.status === '완료' && 'text-emerald-700 font-medium',
+                  m.status === '진행중' && 'text-blue-700',
+                  m.status === '지연' && 'text-amber-700',
+                  m.status === '회신불가' && 'text-rose-700',
+                )}
+              >
+                {COOPERATION_REQUEST_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

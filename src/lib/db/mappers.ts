@@ -143,6 +143,8 @@ export function toProjectRow(project: Project): ProjectRow {
     pm_name: project.pmName?.trim() ? project.pmName.trim() : null,
     po_name: project.poName?.trim() ? project.poName.trim() : null,
     include_in_dashboard: project.includeInDashboard !== false,
+    source_task_id: project.sourceTaskId ?? null,
+    source_project_id: project.sourceProjectId ?? null,
   };
 }
 
@@ -189,6 +191,8 @@ export function fromProjectRow(row: ProjectRow): Project {
     pmName: row.pm_name?.trim() ? row.pm_name.trim() : undefined,
     poName: row.po_name?.trim() ? row.po_name.trim() : undefined,
     includeInDashboard,
+    sourceTaskId: row.source_task_id ?? undefined,
+    sourceProjectId: row.source_project_id ?? undefined,
   };
 }
 

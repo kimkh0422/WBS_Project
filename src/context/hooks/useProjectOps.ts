@@ -279,5 +279,152 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     ],
   );
 
-  return { addProject, updateProject, deleteProject, copyProject };
+  const forkTaskToProject = useCallback(
+    (
+      sourceTaskId: string,
+      input: {
+        name: string;
+        formalName?: string;
+        description?: string;
+        pmName?: string;
+        poName?: string;
+        startDate?: string;
+        endDate?: string;
+        projectKind?: Project['projectKind'];
+        includeInDashboard?: boolean;
+      },
+    ): string | undefined => {
+      const projs = projectsRef.current;
+      const tasks = allTasksRef.current;
+      const sourceTask = tasks.find((t) => t.id === sourceTaskId);
+      if (!sourceTask) {
+        handleDbError(new Error('분기할 작업을 찾을 수 없습니다.'), '작업 분기에 실패했습니다.');
+        return undefined;
+      }
+      if (projs.some((p) => p.sourceTaskId === sourceTaskId)) {
+        handleDbError(new Error('이 작업은 이미 다른 프로젝트로 분기되어 있습니다.'), '작업 분기에 실패했습니다.');
+        return undefined;
+      }
+      const sourceProject = projs.find((p) => p.id === sourceTask.projectId);
+      if (!sourceProject) {
+        handleDbError(new Error('원본 프로젝트를 찾을 수 없습니다.'), '작업 분기에 실패했습니다.');
+        return undefined;
+      }
+      if (!useLocalOnlyRef.current && !ownerIdRef.current) {
+        handleDbError(new Error('로그인 세션이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.'), '프로젝트 저장에 실패했습니다.');
+        return undefined;
+      }
+      const creatorDefault = creatorDisplayNameRef.current?.trim() || undefined;
+      const resolvedPm = input.pmName?.trim() || creatorDefault || sourceProject.pmName?.trim();
+      if (!resolvedPm) {
+        handleDbError(new Error('프로젝트 PM이 비어 있습니다. PM 이름을 입력해 주세요.'), '분기 프로젝트를 만들 수 없습니다.');
+        return undefined;
+      }
+      const newProjectId = uuidv4();
+
+      // 원본 task의 자식 트리(strict descendants) 수집
+      const childrenBy = new Map<string, Task[]>();
+      for (const t of tasks) {
+        if (t.projectId !== sourceTask.projectId || !t.parentId) continue;
+        const arr = childrenBy.get(t.parentId);
+        if (arr) arr.push(t);
+        else childrenBy.set(t.parentId, [t]);
+      }
+      const descendantTasks: Task[] = [];
+      const stack = [sourceTaskId];
+      while (stack.length) {
+        const id = stack.pop()!;
+        const ch = childrenBy.get(id);
+        if (!ch) continue;
+        for (const c of ch) {
+          descendantTasks.push(c);
+          stack.push(c.id);
+        }
+      }
+
+      // 새 task id 매핑
+      const taskIdMap = new Map<string, string>();
+      for (const t of descendantTasks) taskIdMap.set(t.id, uuidv4());
+
+      const newTasks: Task[] = descendantTasks.map((t) => {
+        const newId = taskIdMap.get(t.id)!;
+        let newParentId: string | null;
+        if (t.parentId === sourceTaskId) {
+          newParentId = null; // 분기된 자식 프로젝트의 root task가 됨
+        } else if (t.parentId && taskIdMap.has(t.parentId)) {
+          newParentId = taskIdMap.get(t.parentId)!;
+        } else {
+          newParentId = null;
+        }
+        const newDeps = (t.dependencies ?? []).map((depId) => taskIdMap.get(depId)).filter((id): id is string => !!id);
+        return {
+          ...t,
+          id: newId,
+          projectId: newProjectId,
+          parentId: newParentId,
+          dependencies: newDeps,
+          updatedAt: undefined,
+        };
+      });
+
+      const newProject: Project = {
+        id: newProjectId,
+        name: (input.name ?? '').trim() || sourceTask.name,
+        formalName: input.formalName?.trim() || undefined,
+        description: input.description?.trim() || undefined,
+        startDate: input.startDate || sourceTask.startDate || sourceProject.startDate,
+        endDate: input.endDate || sourceTask.endDate || sourceProject.endDate,
+        assignments: sourceProject.assignments?.map((a) => ({ ...a })),
+        minWorkEffortDays: sourceProject.minWorkEffortDays,
+        workEffortUnit: sourceProject.workEffortUnit,
+        projectKind: input.projectKind ?? sourceProject.projectKind ?? DEFAULT_NEW_PROJECT_KIND,
+        ownerId: ownerIdRef.current ?? undefined,
+        pmName: resolvedPm,
+        poName: input.poName?.trim() || sourceProject.poName,
+        includeInDashboard: input.includeInDashboard ?? true,
+        sourceTaskId,
+        sourceProjectId: sourceProject.id,
+      };
+
+      saveHistory();
+      setProjects((prev) => [...prev, newProject]);
+      setCurrentProjectId(newProjectId);
+      const deletedIds = descendantTasks.map((t) => t.id);
+      if (deletedIds.length > 0) recordDeletedTaskIds(sourceProject.id, deletedIds);
+      setAllTasks((prev) => {
+        const withoutChildren = deletedIds.length > 0 ? prev.filter((t) => !deletedIds.includes(t.id)) : prev;
+        const combined = newTasks.length > 0 ? [...withoutChildren, ...newTasks] : withoutChildren;
+        // 분기된 자식 프로젝트의 롤업 (자체)
+        const rolledChild = recomputeProjectRollups(combined, newProjectId, undefined, undefined, true);
+        // 원본 프로젝트의 부모 task는 이제 leaf — 일정/진척은 mirror 단계가 덮어쓴다.
+        return recomputeProjectRollups(rolledChild, sourceProject.id, undefined, undefined, true);
+      });
+
+      if (!useLocalOnlyRef.current) {
+        upsertProject(newProject)
+          .then(() => (newTasks.length > 0 ? upsertTasks(newTasks) : Promise.resolve()))
+          .catch((err) => handleDbError(err, '분기 프로젝트 저장에 실패했습니다.'));
+      } else {
+        bumpDirty();
+      }
+
+      return newProjectId;
+    },
+    [
+      saveHistory,
+      bumpDirty,
+      handleDbError,
+      ownerIdRef,
+      creatorDisplayNameRef,
+      projectsRef,
+      allTasksRef,
+      useLocalOnlyRef,
+      setProjects,
+      setAllTasks,
+      setCurrentProjectId,
+      recordDeletedTaskIds,
+    ],
+  );
+
+  return { addProject, updateProject, deleteProject, copyProject, forkTaskToProject };
 }

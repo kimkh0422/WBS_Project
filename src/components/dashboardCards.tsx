@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { Activity, Briefcase, Building2, CircleHelp, ListChecks, Loader2, User } from 'lucide-react';
+import { Activity, Briefcase, Building2, CircleHelp, GitBranch, ListChecks, Loader2, User } from 'lucide-react';
 import { cn, formatPercent1 } from '../lib/utils';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import type { Project } from '../types';
@@ -144,6 +144,8 @@ export function ProjectCard({
   mobileReadabilityMode = false,
   divisionName,
   pmName,
+  forkSource,
+  onOpenForkSource,
 }: {
   project: Project & { stats: ProjectStats };
   onClick?: () => void;
@@ -153,6 +155,10 @@ export function ProjectCard({
   divisionName?: string;
   /** PM(프로젝트 책임자) 표시명 */
   pmName?: string;
+  /** 분기 원본 정보(부모 프로젝트·task 이름). 있으면 카드 상단에 "← 상위" 백링크 표시 */
+  forkSource?: { projectId: string; projectName: string; taskName: string };
+  /** 백링크 클릭 시 호출 — 보통 부모 프로젝트로 전환 */
+  onOpenForkSource?: (sourceProjectId: string) => void;
 }) {
   const s = project.stats;
 
@@ -177,6 +183,22 @@ export function ProjectCard({
         isSelected && 'ring-2 ring-indigo-400 border-indigo-300 shadow-md',
       )}
     >
+      {forkSource && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenForkSource?.(forkSource.projectId);
+          }}
+          className="mb-1.5 inline-flex items-center gap-1 self-start rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors max-w-full"
+          title={`상위 프로젝트 「${forkSource.projectName}」의 작업 「${forkSource.taskName}」에서 분기됨 — 클릭하면 상위 프로젝트로 이동합니다.`}
+        >
+          <GitBranch size={11} aria-hidden className="shrink-0" />
+          <span className="truncate">
+            ← {forkSource.projectName} · {forkSource.taskName}
+          </span>
+        </button>
+      )}
       <h3
         className={cn(
           'font-semibold text-[var(--color-ink)] mb-1.5 break-words line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug',

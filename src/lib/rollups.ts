@@ -1,10 +1,11 @@
-import { Task } from '../types';
+import { Task, Project } from '../types';
 import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round1, round2 } from './utils';
 import type { StatusConfig } from './wbsSettings';
 import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
 import { overlayWeightFromLocal } from './weightLocalCache';
 import { getUseWeightForProgressRollup } from './rollupOptions';
+import { computeProjectRollupMetrics } from './projectRollupStats';
 
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
 function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<string> {
@@ -524,8 +525,74 @@ export function normalizeOrphanStatuses(tasks: Task[], statusConfigs?: Array<{ i
   return changed ? next : tasks;
 }
 
+/**
+ * 분기된(forked) 자식 프로젝트의 전체 진척률/일정/공수를 부모 task에 mirror(자식→부모 일방향)하고,
+ * 변경된 부모 task의 조상 진척률·공수·일정도 다시 롤업한다.
+ * - 자식 프로젝트가 비어 있으면 부모 task는 0%로 고정 (자식이 아직 작업을 추가하지 않은 상태).
+ * - 부모 task의 일정: 분기 후 자식 프로젝트의 전체 task min(startDate)/max(endDate)을 따라간다.
+ * - 부모 task의 공수: 자식 프로젝트의 root task들 공수 합 (= 자식 leaf 공수 총합과 동일).
+ */
+export function mirrorForkedProjectsAndRollUp(tasks: Task[], projects: Project[], doneStatusIds?: Set<string>): Task[] {
+  const forks = projects.filter((p) => p.sourceTaskId);
+  if (forks.length === 0) return tasks;
+
+  let result = tasks;
+  const affectedProjectIds = new Set<string>();
+
+  for (const child of forks) {
+    const sourceTaskId = child.sourceTaskId!;
+    const childTasks = result.filter((t) => t.projectId === child.id);
+
+    let mirrorProgress = 0;
+    let mirrorStart: string | undefined;
+    let mirrorEnd: string | undefined;
+    let mirrorEffort: number | undefined;
+
+    if (childTasks.length > 0) {
+      const metrics = computeProjectRollupMetrics(child, childTasks);
+      mirrorProgress = metrics.progress;
+      const starts = childTasks.map((t) => t.startDate).filter(Boolean) as string[];
+      const ends = childTasks.map((t) => t.endDate).filter(Boolean) as string[];
+      mirrorStart = starts.length > 0 ? starts.reduce((a, b) => (a < b ? a : b)) : undefined;
+      mirrorEnd = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : undefined;
+      const rootEffort = childTasks
+        .filter((t) => !t.parentId)
+        .reduce((s, t) => s + (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) ? t.workEffort : 0), 0);
+      mirrorEffort = round2(rootEffort);
+    }
+
+    let mirrorChanged = false;
+    const next = result.map((t) => {
+      if (t.id !== sourceTaskId) return t;
+      const newProgress = mirrorProgress;
+      const newStart = mirrorStart ?? t.startDate;
+      const newEnd = mirrorEnd ?? t.endDate;
+      const newEffort = mirrorEffort !== undefined ? mirrorEffort : t.workEffort;
+      if (t.progress === newProgress && t.startDate === newStart && t.endDate === newEnd && t.workEffort === newEffort) {
+        return t;
+      }
+      mirrorChanged = true;
+      affectedProjectIds.add(t.projectId);
+      return {
+        ...t,
+        progress: newProgress,
+        startDate: newStart,
+        endDate: newEnd,
+        workEffort: newEffort,
+      };
+    });
+    if (mirrorChanged) result = next;
+  }
+
+  if (affectedProjectIds.size === 0) return tasks;
+  for (const pid of affectedProjectIds) {
+    result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
+  }
+  return result;
+}
+
 /** 모든 프로젝트에 대해 상위 작업의 시작일/종료일/진척률을 하위 작업 기준으로 롤업 */
-export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: string; progress?: number }>): Task[] {
+export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: string; progress?: number }>, projects?: Project[]): Task[] {
   const doneStatusIds = statusConfigs ? new Set(statusConfigs.filter((c) => c.progress === 100).map((c) => c.id)) : undefined;
   // 고아 상태(삭제된 사용자 지정 상태 참조)를 기본 상태로 정리한 뒤 롤업한다(부모 상태 롤업도 정리된 자식 기준).
   const normalized = normalizeOrphanStatuses(tasks, statusConfigs);
@@ -535,6 +602,10 @@ export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: s
   // 간트에서 부모를 드래그/리사이즈해 저장한 일정이 DB 풀/새로고침 이후 자식 min/max로 "되돌아가" 보이던 버그 방지.
   // 진척률·공수·상태 롤업은 그대로 수행한다.
   for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
+  // 분기된 자식 프로젝트가 있으면 자식 프로젝트의 metrics를 부모 task에 mirror(자식→부모 일방향).
+  if (projects && projects.length > 0) {
+    result = mirrorForkedProjectsAndRollUp(result, projects, doneStatusIds);
+  }
   // 사용자가 입력한 가중치·계획율 수동값은 어떤 자동 로직(롤업/풀)으로도 사라지지 않도록 항상 마지막에 로컬 캐시 오버레이.
   return overlayPlannedOverrideFromLocal(overlayWeightFromLocal(result));
 }

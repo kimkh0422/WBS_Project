@@ -116,6 +116,8 @@ export function MembersModal({
   type SortKey = 'full_name' | 'email' | 'created_at' | 'login_count' | 'last_visited_at' | 'approved' | 'role' | 'project_count';
   const [sortKey, setSortKey] = useState<SortKey>('last_visited_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  /** 미가입(조직도에는 있으나 회원가입 안 한) 인원만 표시하는 필터. 가입 권유 명단 추리기에 사용. */
+  const [showUnregisteredOnly, setShowUnregisteredOnly] = useState(false);
 
   /** 회원별 본인이 만든 프로젝트(소유자) 목록·갯수. `projects` prop은 RLS로 조회 가능한 범위만 포함. */
   const projectsByOwner = useMemo(() => {
@@ -338,6 +340,14 @@ export function MembersModal({
   }, [members, orgMembers, orgTree, orgDeptByName, sortProfiles]);
 
   const totalUnregistered = useMemo(() => orgSections.reduce((sum, s) => sum + s.unregisteredCount, 0), [orgSections]);
+
+  /** 미가입만 보기 토글이 켜져 있으면, 각 섹션에서 미가입 행만 남기고 비어 있는 섹션은 숨긴다. */
+  const displayedSections = useMemo<OrgSection[]>(() => {
+    if (!showUnregisteredOnly) return orgSections;
+    return orgSections
+      .map((section) => ({ ...section, rows: section.rows.filter((r) => r.kind === 'unregistered') }))
+      .filter((section) => section.rows.length > 0);
+  }, [orgSections, showUnregisteredOnly]);
 
   const loadMembers = async () => {
     setLoading(true);
@@ -824,6 +834,35 @@ export function MembersModal({
             회원 관리
           </h2>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowUnregisteredOnly((v) => !v)}
+              aria-pressed={showUnregisteredOnly}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                showUnregisteredOnly
+                  ? 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-200'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100',
+              )}
+              title={
+                showUnregisteredOnly
+                  ? '모든 회원·미가입자를 다시 표시합니다.'
+                  : '조직도엔 있으나 회원가입을 하지 않은 인원만 표시합니다. 가입 권유 명단 추리기에 사용하세요.'
+              }
+            >
+              <UserX size={14} />
+              {showUnregisteredOnly ? '전체 보기' : '미가입만 보기'}
+              {totalUnregistered > 0 ? (
+                <span
+                  className={cn(
+                    'tabular-nums rounded-md px-1.5 py-0.5 text-[10px]',
+                    showUnregisteredOnly ? 'bg-white/70 text-amber-800' : 'bg-amber-100 text-amber-700',
+                  )}
+                >
+                  {totalUnregistered}
+                </span>
+              ) : null}
+            </button>
             <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
               <X size={18} />
             </button>
@@ -850,8 +889,10 @@ export function MembersModal({
               <Loader2 size={24} className="animate-spin" />
               <span>로딩 중...</span>
             </div>
-          ) : orgSections.length === 0 ? (
-            <p className="text-slate-500 text-center py-12">등록된 회원이 없습니다.</p>
+          ) : displayedSections.length === 0 ? (
+            <p className="text-slate-500 text-center py-12">
+              {showUnregisteredOnly ? '미가입자가 없습니다. 모두 회원가입이 완료되었어요.' : '등록된 회원이 없습니다.'}
+            </p>
           ) : (
             <>
               <datalist id="wbs-profile-dept-options">
@@ -1029,7 +1070,7 @@ export function MembersModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {orgSections.map((section) => (
+                    {displayedSections.map((section) => (
                       <Fragment key={section.nodeId}>
                         <tr className="bg-gradient-to-r from-indigo-50/80 via-indigo-50/40 to-transparent">
                           <td
@@ -1041,12 +1082,20 @@ export function MembersModal({
                               <Building2 size={14} className="text-indigo-500 shrink-0" />
                               <span>{section.nodeName}</span>
                               <span className="text-slate-500 font-normal">
-                                가입 <span className="tabular-nums text-slate-700">{section.registeredCount}</span>
-                                {section.unregisteredCount > 0 ? (
+                                {showUnregisteredOnly ? (
                                   <>
-                                    {' · '}미가입 <span className="tabular-nums text-amber-700">{section.unregisteredCount}</span>
+                                    미가입 <span className="tabular-nums text-amber-700">{section.unregisteredCount}</span>
                                   </>
-                                ) : null}
+                                ) : (
+                                  <>
+                                    가입 <span className="tabular-nums text-slate-700">{section.registeredCount}</span>
+                                    {section.unregisteredCount > 0 ? (
+                                      <>
+                                        {' · '}미가입 <span className="tabular-nums text-amber-700">{section.unregisteredCount}</span>
+                                      </>
+                                    ) : null}
+                                  </>
+                                )}
                               </span>
                             </div>
                           </td>
@@ -1222,6 +1271,11 @@ export function MembersModal({
                 {' · '}미가입 <span className="font-medium text-amber-700">{totalUnregistered}명</span>
                 {' · '}총 <span className="font-medium text-slate-700">{members.length + totalUnregistered}명</span>
               </>
+            ) : null}
+            {showUnregisteredOnly ? (
+              <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-medium">
+                미가입만 표시 중
+              </span>
             ) : null}
           </p>
         </div>

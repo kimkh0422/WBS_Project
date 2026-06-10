@@ -42,7 +42,7 @@ import { isRealtimeMinimized } from '../lib/realtimePolicy';
 import { useAuth } from './AuthContext';
 import { useWbsHistory } from '../hooks/useWbsHistory';
 import { StatusConfig, WBSSettings, DEFAULT_STATUS_CONFIGS, DEFAULT_SETTINGS, parseSettings } from '../lib/wbsSettings';
-import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks } from '../lib/rollups';
+import { syncParentRollups, recomputeProjectRollups, applyRollupsToTasks, mirrorForkedProjectsAndRollUp } from '../lib/rollups';
 import { getPlannedOverrideLocal } from '../lib/plannedOverrideLocalCache';
 import { onProgressRollupOptionChange } from '../lib/rollupOptions';
 import { isDevAuthBypass } from '../lib/devAuthBypass';
@@ -499,6 +499,19 @@ export function WBSProvider({
     };
     loadData();
   }, [useLocalOnly, user?.id]);
+
+  // ─── 분기 자식 프로젝트 → 부모 task mirror ────────────────────────────────
+  // forkTaskToProject로 만든 자식 프로젝트의 전체 진척률/일정/공수를 부모 task에 자동 반영.
+  // projects나 allTasks가 변할 때마다 변화가 있을 때만 setAllTasks를 호출(무한 루프 방지).
+  useEffect(() => {
+    if (isLoading) return;
+    if (!projects.some((p) => p.sourceTaskId)) return;
+    const doneStatusIds = new Set((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id));
+    setAllTasks((prev) => {
+      const next = mirrorForkedProjectsAndRollUp(prev, projects, doneStatusIds);
+      return next === prev ? prev : next;
+    });
+  }, [allTasks, projects, wbsSettings.statusConfigs, isLoading]);
 
   // ─── 로컬 저장 (IndexedDB/localStorage) ────────────────────────────────────
   useEffect(() => {
@@ -1323,6 +1336,7 @@ export function WBSProvider({
       updateProject: projectOps.updateProject,
       deleteProject: projectOps.deleteProject,
       copyProject: projectOps.copyProject,
+      forkTaskToProject: projectOps.forkTaskToProject,
       // Task ops
       addTask: taskOps.addTask,
       addTasks: taskOps.addTasks,

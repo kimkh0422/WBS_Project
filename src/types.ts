@@ -76,6 +76,11 @@ export interface Project {
   groupId?: string;
   /** false면 대시보드 집계·프로젝트 카드 등에 포함하지 않음. 생략·undefined는 반영(기존 데이터 호환) */
   includeInDashboard?: boolean;
+  /** 분기 원본 task id. 있으면 이 프로젝트는 상위 프로젝트의 특정 task에서 분기된 자식 프로젝트이며,
+   *  자식 프로젝트의 전체 진척률·일정·공수가 부모 task에 mirror된다(자식→부모 일방향). */
+  sourceTaskId?: string;
+  /** 분기 원본 프로젝트 id. UI 백링크 표시·일관성 검증용 */
+  sourceProjectId?: string;
 }
 
 export interface Task {

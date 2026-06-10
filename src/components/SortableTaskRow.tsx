@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { GripVertical, Bug, Edit2, Trash2, ListChecks, ChevronRight, ChevronDown } from 'lucide-react';
+import { GripVertical, Bug, Edit2, Trash2, ListChecks, ChevronRight, ChevronDown, GitBranch } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
@@ -239,6 +239,10 @@ export interface SortableTaskRowProps {
   showTableAutoFormatting?: boolean;
   /** 작업명 인라인 편집 중 Shift+Enter — 현재 행 위에 형제(동일 부모) 새 작업 추가 + 새 행 인라인 편집 진입 */
   onInsertRowAbove?: (baseTaskId: string) => void;
+  /** 이 task가 분기되어 자식 프로젝트가 있으면 그 자식 프로젝트(없으면 undefined) */
+  forkedChildProject?: Project;
+  /** 분기 배지 클릭 시 호출 — 보통 자식 프로젝트로 전환 */
+  onOpenForkedChildProject?: (childProjectId: string) => void;
 }
 
 function SortableTaskRowInner({
@@ -290,6 +294,8 @@ function SortableTaskRowInner({
   plannedProgress,
   showTableAutoFormatting = true,
   onInsertRowAbove,
+  forkedChildProject,
+  onOpenForkedChildProject,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -758,6 +764,20 @@ function SortableTaskRowInner({
                   >
                     {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
                     {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
+                    {forkedChildProject && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenForkedChildProject?.(forkedChildProject.id);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors flex-shrink-0"
+                        title={`이 작업은 별도 프로젝트로 분기되어 있습니다 — 클릭하면 자식 프로젝트(${forkedChildProject.name})로 이동합니다.`}
+                      >
+                        <GitBranch size={11} aria-hidden />
+                        분기
+                      </button>
+                    )}
                     {criticalPathSet?.has(task.id) && (
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0"
@@ -1936,7 +1956,9 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName &&
     prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks &&
     prev.plannedProgress === next.plannedProgress &&
-    prev.showTableAutoFormatting === next.showTableAutoFormatting
+    prev.showTableAutoFormatting === next.showTableAutoFormatting &&
+    prev.forkedChildProject === next.forkedChildProject &&
+    prev.onOpenForkedChildProject === next.onOpenForkedChildProject
   );
 }
 
