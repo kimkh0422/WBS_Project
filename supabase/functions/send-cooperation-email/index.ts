@@ -49,6 +49,7 @@ interface RequestRow {
   priority: string | null;
   due_date: string | null;
   status: string | null;
+  assignee_org_ids: string[] | null;
   member_progress: MemberSnap[] | null;
   meeting_logs: MeetingLogSnap[] | null;
 }
@@ -279,14 +280,17 @@ Deno.serve(async (req: Request) => {
   const { data: row, error: rowErr } = await supabase
     .from('cooperation_requests')
     .select(
-      'id, mgmt_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, priority, due_date, status, member_progress, meeting_logs',
+      'id, mgmt_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, assignee_org_ids, priority, due_date, status, member_progress, meeting_logs',
     )
     .eq('id', requestId)
     .single();
   if (rowErr || !row) return jsonResponse(404, { error: 'request not found', detail: rowErr?.message });
   const reqRow = row as RequestRow;
   const members: MemberSnap[] = Array.isArray(reqRow.member_progress) ? reqRow.member_progress : [];
-  if (members.length === 0) return jsonResponse(200, { sent: 0, skipped: 'no members' });
+  const orgIds: string[] = Array.isArray(reqRow.assignee_org_ids)
+    ? reqRow.assignee_org_ids.filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : [];
+  if (members.length === 0 && orgIds.length === 0) return jsonResponse(200, { sent: 0, skipped: 'no members or orgs' });
 
   // 2) 수신자 결정 — "담당자가 속한 팀(부서) 전체"로 발송.
   //    팀원 명단은 org_members(부서=담당자 부서) 기준, 이메일은 org_members.email(수동) → profiles(가입 이메일, full_name 매칭) 순.
@@ -344,6 +348,34 @@ Deno.serve(async (req: Request) => {
       else skippedMembers.push(`${m.name}(부서없음)`);
     }
   }
+  // (c-2) 선택된 조직(assignee_org_ids)도 하위 조직까지 부서로 펼쳐 targetDepts 에 포함 — member_progress 가 비어도 조직 기준 발송.
+  if (orgIds.length > 0) {
+    const { data: nodeRows } = await supabase.from('org_nodes').select('id, parent_id, department_aliases');
+    const nodes = (nodeRows ?? []) as Array<{ id: string; parent_id: string | null; department_aliases: string[] | null }>;
+    const childrenOf = new Map<string, string[]>();
+    const aliasesOf = new Map<string, string[]>();
+    for (const n of nodes) {
+      aliasesOf.set(n.id, Array.isArray(n.department_aliases) ? n.department_aliases : []);
+      if (n.parent_id) {
+        const arr = childrenOf.get(n.parent_id) ?? [];
+        arr.push(n.id);
+        childrenOf.set(n.parent_id, arr);
+      }
+    }
+    const visited = new Set<string>();
+    const stack = [...orgIds];
+    while (stack.length > 0) {
+      const id = stack.pop() as string;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      for (const a of aliasesOf.get(id) ?? []) {
+        const dept = (a ?? '').trim();
+        if (dept) targetDepts.add(dept);
+      }
+      for (const c of childrenOf.get(id) ?? []) stack.push(c);
+    }
+  }
+
   // 담당자 부서에 속한 모든 인원을 수신자로.
   for (const om of orgMembersAll) {
     const dept = (om.department ?? '').trim();

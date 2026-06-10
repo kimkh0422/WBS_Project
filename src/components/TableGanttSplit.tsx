@@ -176,7 +176,7 @@ export function TableGanttSplit({
         onMouseDown={handleSplitterMouseDown}
       />
 
-      <div className="list-gantt-pane flex-1 min-h-0 min-w-0 h-[min(50vh,480px)] md:h-full overflow-hidden">
+      <div data-tourid="tour-gantt" className="list-gantt-pane flex-1 min-h-0 min-w-0 h-[min(50vh,480px)] md:h-full overflow-hidden">
         <GanttChart
           filters={filters}
           sortConfig={sortConfig}

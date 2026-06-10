@@ -111,6 +111,31 @@ const TYPE_STYLE: Record<CooperationRequestType, string> = {
   기타: 'bg-slate-50 text-slate-600 ring-slate-200',
 };
 
+/**
+ * 모달 backdrop "outside-click" 핸들러.
+ * mousedown 이 backdrop 자체에서 시작된 경우에만 닫는다.
+ * 내부 input 에서 마우스 드래그(텍스트 선택)로 mouseup 이 backdrop 위에서 끝나는 경우에도
+ * 모달이 사라지지 않도록 보호한다.
+ */
+function useBackdropCloseHandlers(close: () => void): {
+  onMouseDown: (e: React.MouseEvent<HTMLElement>) => void;
+  onClick: (e: React.MouseEvent<HTMLElement>) => void;
+} {
+  const downOnBackdropRef = useRef(false);
+  return useMemo(
+    () => ({
+      onMouseDown: (e: React.MouseEvent<HTMLElement>) => {
+        downOnBackdropRef.current = e.target === e.currentTarget;
+      },
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        if (downOnBackdropRef.current && e.target === e.currentTarget) close();
+        downOnBackdropRef.current = false;
+      },
+    }),
+    [close],
+  );
+}
+
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '';
   const s = String(iso);
@@ -929,9 +954,10 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
+  const backdropHandlers = useBackdropCloseHandlers(onCancel);
 
   return (
-    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" onClick={onCancel}>
+    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" {...backdropHandlers}>
       <div
         className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -1865,8 +1891,9 @@ function ActionPlanEditor({
 }
 
 function ConfirmDeleteModal({ row, onCancel, onConfirm }: { row: CooperationRequest; onCancel: () => void; onConfirm: () => void }) {
+  const backdropHandlers = useBackdropCloseHandlers(onCancel);
   return (
-    <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-3" onClick={onCancel}>
+    <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-3" {...backdropHandlers}>
       <div
         className="w-full max-w-sm rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -1946,9 +1973,10 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
         : rank === 3
           ? 'bg-orange-100 text-orange-700 ring-orange-200'
           : 'bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] ring-[var(--color-line)]';
+  const backdropHandlers = useBackdropCloseHandlers(onClose);
 
   return (
-    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" {...backdropHandlers}>
       <div
         className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
         onClick={(e) => e.stopPropagation()}

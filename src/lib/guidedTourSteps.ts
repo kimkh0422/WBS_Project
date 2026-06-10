@@ -8,7 +8,19 @@
  *             App.tsx의 투어 상태 머신이 모달 열림·프로젝트 생성·작업 추가를 감지해 자동 진행
  */
 export interface GuidedTourStep {
-  id: 'intro' | 'newProject' | 'fillName' | 'createProject' | 'addTask' | 'taskTips' | 'finish';
+  id:
+    | 'intro'
+    | 'newProject'
+    | 'fillName'
+    | 'createProject'
+    | 'addTask'
+    | 'taskTips'
+    | 'schedule'
+    | 'progressDashboard'
+    | 'cooperation'
+    | 'saveDb'
+    | 'excel'
+    | 'finish';
   target: string;
   title: string;
   body: string;
@@ -56,6 +68,41 @@ export const GUIDED_TOUR_STEPS: GuidedTourStep[] = [
     target: '[data-tourid="tour-quick-add"]',
     title: '작업을 빠르게 늘리는 요령',
     body: '행을 선택한 상태에서:\n· Enter — 아래에 새 작업 추가\n· Tab / Shift+Tab — 하위 / 상위 레벨로 이동 (1.1처럼 번호 자동 부여)\n· 더블클릭 또는 F2 — 기간·담당자·진척률 등 상세 편집',
+    mode: 'next',
+  },
+  {
+    id: 'schedule',
+    target: '[data-tourid="tour-gantt"]',
+    title: '일정을 바꾸면 계획율이 자동 집계',
+    body: '시작일·종료일은 표에서 직접 수정하거나, 이 간트 차트의 막대를 드래그해 바꿀 수 있습니다.\n일정을 넣어 두면 오늘 날짜 기준 계획율(계획 진행률)이 자동으로 집계됩니다.',
+    mode: 'next',
+  },
+  {
+    id: 'progressDashboard',
+    target: '[data-tourid="tour-nav-dashboard"]',
+    title: '진척율 입력 → 대시보드에서 비교',
+    body: '진척률(%)은 행을 더블클릭(F2)해 직접 입력합니다.\n입력해 두면 대시보드에서 프로젝트별 계획율(자동 집계)과 진척율(직접 입력)을 나란히 비교할 수 있어요.',
+    mode: 'next',
+  },
+  {
+    id: 'cooperation',
+    target: '[data-tourid="tour-nav-dashboard"]',
+    title: '업무 협조 요청 — 텔레그램·이메일 알림',
+    body: '대시보드의 「업무 협조 요청」에서 다른 팀·담당자에게 협조를 요청할 수 있습니다.\n등록하면 담당자에게 텔레그램과 이메일로 알림이 자동 발송됩니다.',
+    mode: 'next',
+  },
+  {
+    id: 'saveDb',
+    target: '[data-tourid="tour-save"]',
+    title: '꼭! 「저장」을 눌러야 서버에 반영',
+    body: '편집 내용은 우선 이 브라우저(로컬)에만 저장됩니다.\n우측 하단 「저장」 버튼 또는 Ctrl+S를 눌러야 서버(DB)에 반영되어 팀원들도 볼 수 있어요.\n(버튼은 저장할 변경이 있을 때만 나타나며, 저장 없이 창을 닫으면 경고가 표시됩니다.)',
+    mode: 'next',
+  },
+  {
+    id: 'excel',
+    target: '[data-tourid="tour-more"]',
+    title: 'Excel 보내기·가져오기',
+    body: '⋮ 메뉴 → 「보내기」로 작업표를 Excel(.xlsx)이나 JSON(백업)으로 내려받고,\n「가져오기」로 기존 Excel 일정을 불러올 수 있습니다.',
     mode: 'next',
   },
   {

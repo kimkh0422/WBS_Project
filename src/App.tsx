@@ -1243,6 +1243,7 @@ function WBSApp({
       {isSupabaseConfigured && hasLocalChangesSinceSync && (
         <button
           type="button"
+          data-tourid="tour-save"
           onClick={() => void saveNow()}
           disabled={isDbPushInProgress}
           title="변경사항을 서버에 저장합니다 (Ctrl+S)"
