@@ -221,21 +221,21 @@ Deno.serve(async (req: Request) => {
   const members: MemberSnap[] = Array.isArray(reqRow.member_progress) ? reqRow.member_progress : [];
   if (members.length === 0) return jsonResponse(200, { sent: 0, skipped: 'no members' });
 
-  // 2) 수신 이메일 결정 — 우선순위: org_members.email(수동 입력) → profiles(가입 이메일, full_name 매칭)
+  // 2) 수신자 결정 — "담당자가 속한 팀(부서) 전체"로 발송.
+  //    팀원 명단은 org_members(부서=담당자 부서) 기준, 이메일은 org_members.email(수동) → profiles(가입 이메일, full_name 매칭) 순.
   const key = (n: string, d: string, p: string) => `${n}||${d}||${p}`;
 
-  // (a) org_members.email — 수동 입력 override. email 컬럼 미적용(마이그레이션 전)이어도 죽지 않게 실패는 무시.
-  const emailByKey = new Map<string, string>();
+  // (a) org_members 로스터(+ 선택적 email override). email 컬럼 미적용(마이그레이션 전)이면 email 없이 재조회.
+  type OM = { name: string; department: string; position: string; email?: string | null };
+  let orgMembersAll: OM[] = [];
   {
-    const { data: omRows, error: omErr } = await supabase
-      .from('org_members')
-      .select('name, department, position, email')
-      .order('sort_order', { ascending: true });
-    if (!omErr) {
-      for (const om of (omRows ?? []) as OrgMemberWithEmail[]) {
-        if (om.email && om.email.trim()) emailByKey.set(key(om.name, om.department, om.position), om.email.trim());
-      }
-    }
+    let res = await supabase.from('org_members').select('name, department, position, email').order('sort_order', { ascending: true });
+    if (res.error) res = await supabase.from('org_members').select('name, department, position').order('sort_order', { ascending: true });
+    orgMembersAll = (res.data ?? []) as OM[];
+  }
+  const emailByKey = new Map<string, string>();
+  for (const om of orgMembersAll) {
+    if (om.email && om.email.trim()) emailByKey.set(key(om.name, om.department, om.position), om.email.trim());
   }
 
   // (b) profiles(가입 사용자) — full_name → 가입 이메일. 동명이인은 부서(department) 일치 우선.
@@ -258,14 +258,32 @@ Deno.serve(async (req: Request) => {
     const byDept = arr.find((x) => x.dept && dept && x.dept === dept); // 동명이인 → 부서 일치 우선
     return (byDept ?? arr[0]).email;
   };
+  const resolveEmail = (name: string, dept: string, pos: string): string | null =>
+    emailByKey.get(key(name, dept, pos)) ?? resolveProfileEmail(name, dept);
 
+  // (c) 활성 담당자의 부서(팀)를 모은 뒤, 그 팀에 속한 모든 org_member 로 수신자 확장.
+  const targetDepts = new Set<string>();
   const toAddresses = new Set<string>();
   const skippedMembers: string[] = [];
   for (const m of members) {
     if (DONE_MEMBER_STATUSES.has(m.status)) continue;
-    const e = emailByKey.get(key(m.name, m.department, m.position)) ?? resolveProfileEmail(m.name, m.department);
+    const dept = (m.department ?? '').trim();
+    if (dept) {
+      targetDepts.add(dept); // 팀 전체로 확장
+    } else {
+      // 부서 정보가 없는 담당자는 개인만 발송.
+      const e = resolveEmail(m.name, '', (m.position ?? '').trim());
+      if (e) toAddresses.add(e);
+      else skippedMembers.push(`${m.name}(부서없음)`);
+    }
+  }
+  // 담당자 부서에 속한 모든 인원을 수신자로.
+  for (const om of orgMembersAll) {
+    const dept = (om.department ?? '').trim();
+    if (!dept || !targetDepts.has(dept)) continue;
+    const e = resolveEmail(om.name, dept, (om.position ?? '').trim());
     if (e) toAddresses.add(e);
-    else skippedMembers.push(`${m.name}(${m.department})`);
+    else skippedMembers.push(`${om.name}(${dept})`);
   }
 
   if (toAddresses.size === 0) {
