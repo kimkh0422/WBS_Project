@@ -62,6 +62,34 @@ export function deriveAssigneeKind(orgIds: string[], directPersonCount: number):
 }
 
 /**
+ * 협조요청 상태(현황) 변경 이력 1건. 트리거(서버) 또는 클라이언트가 자동으로 누적.
+ * - status: 변경된 후의 새 상태
+ * - at: 변경 시각 (ISO 8601 UTC)
+ */
+export type CooperationStatusHistoryEntry = {
+  status: CooperationRequestStatus;
+  at: string;
+};
+
+/**
+ * 회의록 1건 — 협조요청에 누적되는 회의 시계열 기록.
+ * - id: 행 식별(편집/삭제용)
+ * - date: 회의일 (YYYY-MM-DD)
+ * - title: 회의 제목·안건(선택)
+ * - content: 회의 내용
+ * - createdAt: 등록 시각(ISO)
+ * - createdBy: 등록자 user.id (없으면 null)
+ */
+export type CooperationMeetingLog = {
+  id: string;
+  date: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+/**
  * 멤버별 완료 추적용 1건.
  * - name/department/position: 사람 식별을 위한 표시 정보(스냅샷). 조직도가 바뀌어도 과거 이력은 그대로 보존된다.
  * - status: 협조 요청 전체 상태와 동일한 어휘. 인원 단위로 진척을 다르게 두기 위함.
@@ -103,6 +131,10 @@ export type CooperationRequest = {
   assigneeOrgId: string | null;
   /** 인원 단위 진행 추적. 조직 자동 멤버 + direct로 추가한 인원 모두 포함. */
   memberProgress: CooperationMemberProgress[];
+  /** 회의록 누적 기록 — 진행 중 회의 결과 시계열. */
+  meetingLogs: CooperationMeetingLog[];
+  /** 현황 변경 이력 — 단계별 진입 시각 추적용. 트리거가 자동 누적. */
+  statusHistory: CooperationStatusHistoryEntry[];
   priority: CooperationRequestPriority;
   /** 기한·완료예정일 */
   dueDate: string;
@@ -140,6 +172,8 @@ type CooperationRequestDbRow = {
   assignee_org_id: string | null;
   assignee_org_ids: string[] | null;
   member_progress: unknown;
+  meeting_logs: unknown;
+  status_history: unknown;
   priority: string | null;
   due_date: string | null;
   progress: number | null;
@@ -156,7 +190,7 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
 
 /** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다.
  *  과거에 sourceOrgIds/direct 없이 저장된 행도 안전하게 호환:
@@ -190,6 +224,45 @@ function normalizeMemberProgress(raw: unknown): CooperationMemberProgress[] {
 function normalizeOrgIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === 'string' && x.length > 0);
+}
+
+/** 상태 변경 이력 배열 정규화 */
+function normalizeStatusHistory(raw: unknown): CooperationStatusHistoryEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r): CooperationStatusHistoryEntry | null => {
+      if (!r || typeof r !== 'object') return null;
+      const o = r as Record<string, unknown>;
+      const status = normalizeStatus(o.status);
+      const at = typeof o.at === 'string' ? o.at : '';
+      if (!at) return null;
+      return { status, at };
+    })
+    .filter((x): x is CooperationStatusHistoryEntry => x !== null);
+}
+
+/** 회의록 배열 정규화 — DB/localStorage 어떤 형태든 안전하게 다듬음. */
+function normalizeMeetingLogs(raw: unknown): CooperationMeetingLog[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r): CooperationMeetingLog | null => {
+      if (!r || typeof r !== 'object') return null;
+      const o = r as Record<string, unknown>;
+      const id = typeof o.id === 'string' && o.id ? o.id : randomUUID();
+      const date = typeof o.date === 'string' ? o.date : '';
+      const title = typeof o.title === 'string' ? o.title : '';
+      const content = typeof o.content === 'string' ? o.content : '';
+      if (!date && !title && !content) return null;
+      return {
+        id,
+        date,
+        title,
+        content,
+        createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString(),
+        createdBy: typeof o.createdBy === 'string' ? o.createdBy : null,
+      };
+    })
+    .filter((x): x is CooperationMeetingLog => x !== null);
 }
 
 /**
@@ -247,6 +320,8 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     assigneeOrgIds: orgIdsResolved,
     assigneeOrgId: r.assignee_org_id ?? orgIdsResolved[0] ?? null,
     memberProgress: normalizeMemberProgress(r.member_progress),
+    meetingLogs: normalizeMeetingLogs(r.meeting_logs),
+    statusHistory: normalizeStatusHistory(r.status_history),
     priority: normalizePriority(r.priority),
     dueDate: str(r.due_date),
     progress: clampProgress(num(r.progress)),
@@ -302,6 +377,8 @@ function loadLocal(): CooperationRequest[] {
         })(),
         assigneeOrgId: typeof r.assigneeOrgId === 'string' ? r.assigneeOrgId : null,
         memberProgress: normalizeMemberProgress(r.memberProgress),
+        meetingLogs: normalizeMeetingLogs(r.meetingLogs),
+        statusHistory: normalizeStatusHistory(r.statusHistory),
         priority: normalizePriority(r.priority),
         dueDate: str(r.dueDate),
         progress: clampProgress(num(r.progress)),
@@ -380,6 +457,9 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
       assigneeOrgIds: orgIds,
       assigneeOrgId: orgIds[0] ?? input.assigneeOrgId ?? null,
       memberProgress: normalizeMemberProgress(input.memberProgress),
+      meetingLogs: normalizeMeetingLogs(input.meetingLogs),
+      // localStorage 모드: 첫 상태로 history 초기화 (서버 모드는 DB 트리거가 처리)
+      statusHistory: [{ status: normalizeStatus(input.status), at: ts }],
       id: randomUUID(),
       createdBy: userId,
       createdAt: ts,
@@ -404,6 +484,7 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     assignee_org_id: orgIds[0] ?? input.assigneeOrgId ?? null,
     assignee_org_ids: orgIds,
     member_progress: normalizeMemberProgress(input.memberProgress),
+    meeting_logs: normalizeMeetingLogs(input.meetingLogs),
     priority: normalizePriority(input.priority),
     due_date: input.dueDate || null,
     progress: clampProgress(input.progress),
@@ -467,21 +548,16 @@ async function notifyCooperation(requestId: string, mode: CooperationNotifyMode)
   if (calls.length > 0) await Promise.all(calls);
 }
 
-/** 수동 전파 결과. ok=true 면 sent(발송 건수) 동반, 아니면 skipped(미발송 사유) 또는 error. */
-export type CooperationBroadcastResult = { ok: boolean; sent?: number; skipped?: string; error?: string };
+/** 채널 1개(Edge Function 1개) 수동 전파 결과. ok=true 면 sent(발송 건수), 아니면 skipped(미발송 사유) 또는 error. */
+export type ChannelBroadcastResult = { ok: boolean; sent?: number; skipped?: string; error?: string };
 
-/**
- * 협조 요청 텔레그램 알림을 **수동으로 즉시 전파**한다(자동 토글과 무관 — 명시적 사용자 액션이므로 항상 호출).
- * - 대상 행은 이미 DB에 저장돼 있어야 한다(Edge Function 이 requestId 로 행을 읽음). 새 미저장 항목은 먼저 저장 필요.
- * - 로컬 dev 우회 모드면 호출 불가 → skipped 반환.
- * - Edge Function 미배포/미설정·수신자 없음 등은 throw 하지 않고 결과 객체로 돌려준다(호출부에서 토스트 안내).
- */
-export async function broadcastCooperationTelegram(requestId: string): Promise<CooperationBroadcastResult> {
-  if (isLocalOnly()) return { ok: false, skipped: '로컬 모드에서는 텔레그램 전파가 불가합니다(실서버 로그인 필요).' };
+/** 텔레그램·메일 두 채널 동시 전파 결과. */
+export type CooperationBroadcastResult = { telegram: ChannelBroadcastResult; email: ChannelBroadcastResult };
+
+/** 단일 채널(Edge Function) 수동 호출 → sent/skipped/error 를 표준 결과로 정규화. throw 하지 않는다. */
+async function invokeBroadcastChannel(fn: string, requestId: string): Promise<ChannelBroadcastResult> {
   try {
-    const { data, error } = await supabase!.functions.invoke('send-cooperation-telegram', {
-      body: { requestId, mode: 'created' },
-    });
+    const { data, error } = await supabase!.functions.invoke(fn, { body: { requestId, mode: 'created' } });
     if (error) {
       // FunctionsHttpError(비2xx) 등 — 가능하면 본문의 사유를 꺼내 보여준다.
       const ctx = (error as { context?: { error?: string; reason?: string } }).context;
@@ -490,15 +566,29 @@ export async function broadcastCooperationTelegram(requestId: string): Promise<C
     const d = (data ?? {}) as { sent?: number; skipped?: string | boolean; reason?: string; error?: string };
     if (typeof d.sent === 'number' && d.sent > 0) return { ok: true, sent: d.sent };
     if (d.error) return { ok: false, error: String(d.error) };
-    if (d.skipped)
-      return {
-        ok: false,
-        skipped: typeof d.skipped === 'string' ? d.skipped : (d.reason ?? '수신자가 없습니다(chat_id·기본 채팅 미설정).'),
-      };
-    return { ok: false, skipped: '수신 대상이 없습니다(담당 멤버 chat_id 또는 기본 채팅 미설정).' };
+    if (d.skipped) return { ok: false, skipped: typeof d.skipped === 'string' ? d.skipped : (d.reason ?? '수신 대상 없음') };
+    return { ok: false, skipped: '수신 대상 없음' };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '텔레그램 전파 호출에 실패했습니다.' };
+    return { ok: false, error: e instanceof Error ? e.message : '전파 호출에 실패했습니다.' };
   }
+}
+
+/**
+ * 협조 요청을 **수동으로 즉시 전파**한다 — 텔레그램·메일 두 채널 동시(자동 토글과 무관, 명시적 사용자 액션).
+ * - 대상 행은 이미 DB에 저장돼 있어야 한다(Edge Function 이 requestId 로 행을 읽음). 새 미저장 항목은 먼저 저장 필요.
+ * - 로컬 dev 우회 모드면 호출 불가 → 양쪽 skipped 반환.
+ * - 각 채널의 미배포/미설정·수신자 없음 등은 throw 하지 않고 채널별 결과로 돌려준다(호출부에서 토스트 안내).
+ */
+export async function broadcastCooperation(requestId: string): Promise<CooperationBroadcastResult> {
+  if (isLocalOnly()) {
+    const skipped: ChannelBroadcastResult = { ok: false, skipped: '로컬 모드에서는 전파가 불가합니다(실서버 로그인 필요).' };
+    return { telegram: skipped, email: skipped };
+  }
+  const [telegram, email] = await Promise.all([
+    invokeBroadcastChannel('send-cooperation-telegram', requestId),
+    invokeBroadcastChannel('send-cooperation-email', requestId),
+  ]);
+  return { telegram, email };
 }
 
 export async function updateCooperationRequest(id: string, patch: CooperationRequestPatch): Promise<CooperationRequest> {
@@ -518,6 +608,13 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
       assigneeOrgIds: mergedOrgIds,
       assigneeOrgId: mergedOrgIds[0] ?? null,
       memberProgress: patch.memberProgress !== undefined ? normalizeMemberProgress(patch.memberProgress) : list[idx].memberProgress,
+      meetingLogs: patch.meetingLogs !== undefined ? normalizeMeetingLogs(patch.meetingLogs) : list[idx].meetingLogs,
+      // localStorage 모드: status가 실제로 바뀌었을 때만 history 에 한 줄 추가 (서버는 트리거가 처리)
+      statusHistory: (() => {
+        const prevHistory = list[idx].statusHistory ?? [];
+        if (patch.status === undefined || patch.status === list[idx].status) return prevHistory;
+        return [...prevHistory, { status: normalizeStatus(patch.status), at: nowIso() }];
+      })(),
       updatedAt: nowIso(),
     };
     list[idx] = merged;
@@ -544,6 +641,7 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
     payload.assignee_org_ids = patch.assigneeOrgId ? [patch.assigneeOrgId] : [];
   }
   if (patch.memberProgress !== undefined) payload.member_progress = normalizeMemberProgress(patch.memberProgress);
+  if (patch.meetingLogs !== undefined) payload.meeting_logs = normalizeMeetingLogs(patch.meetingLogs);
   if (patch.priority !== undefined) payload.priority = normalizePriority(patch.priority);
   if (patch.dueDate !== undefined) payload.due_date = patch.dueDate || null;
   if (patch.progress !== undefined) payload.progress = clampProgress(patch.progress);
@@ -590,6 +688,8 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     assigneeOrgIds: [],
     assigneeOrgId: null,
     memberProgress: [],
+    meetingLogs: [],
+    statusHistory: [],
     priority: '중',
     dueDate: '',
     progress: 0,

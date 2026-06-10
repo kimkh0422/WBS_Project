@@ -33,7 +33,7 @@ import {
   LayoutGrid,
   Coins,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, randomUUID } from '../lib/utils';
 import { useToast } from './Toast';
 import { useOrganization, getDirectMembersFromTree } from '../context/OrganizationContext';
 import type { OrgNode, OrgMember } from '../data/organization';
@@ -42,7 +42,7 @@ import {
   insertCooperationRequest,
   updateCooperationRequest,
   deleteCooperationRequest,
-  broadcastCooperationTelegram,
+  broadcastCooperation,
   makeEmptyCooperationRequest,
   nextMgmtId,
   computeOrgProgress,
@@ -57,6 +57,7 @@ import {
   type CooperationRequestType,
   type CooperationRequestPriority,
   type CooperationMemberProgress,
+  type CooperationMeetingLog,
 } from '../lib/db/cooperationRequests';
 import {
   fetchCooperationPoints,
@@ -117,6 +118,36 @@ function pct(v: number): number {
   return Math.round(Math.max(0, Math.min(1, v)) * 100);
 }
 
+/**
+ * 현재 상태로 진입한 시점부터의 경과 표시.
+ *   < 1일 → "오늘"
+ *   1~6일 → "N일"
+ *   7일 이상 → "N주" (소수점 버림)
+ */
+function formatElapsed(fromIso: string | undefined): string {
+  if (!fromIso) return '';
+  const from = new Date(fromIso);
+  if (Number.isNaN(from.getTime())) return '';
+  const days = Math.floor((Date.now() - from.getTime()) / (1000 * 60 * 60 * 24));
+  if (days < 1) return '오늘';
+  if (days < 7) return `${days}일`;
+  return `${Math.floor(days / 7)}주`;
+}
+
+/**
+ * 행의 현재 상태에 진입한 시각을 추정.
+ *   1) statusHistory 의 가장 마지막 entry 가 현재 status 와 일치하면 그 at 사용
+ *   2) 일치하는 마지막 항목 사용
+ *   3) 없으면 createdAt
+ */
+function currentStatusSince(r: CooperationRequest): string {
+  const hist = r.statusHistory ?? [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].status === r.status) return hist[i].at;
+  }
+  return r.createdAt || '';
+}
+
 /** 행이 '기한 초과' 여부 — 종료 상태(처리완료·확인완료·취소됨)가 아니고 기한이 오늘 이전이면 true */
 function isOverdue(r: CooperationRequest, todayIso: string): boolean {
   if (!r.dueDate) return false;
@@ -157,9 +188,9 @@ function getDeepMembers(node: OrgNode, allMembers: OrgMember[]): OrgMember[] {
   return [...direct, ...fromChildren];
 }
 
-/** 표시용: 조직 대상 행에 보여줄 '완료수/전체수' 텍스트 */
+/** 표시용: 담당 인원이 있으면 '완료/전체', 없으면 '담당자 미지정' */
 function memberProgressLabel(m: CooperationMemberProgress[]): string {
-  if (m.length === 0) return '인원 없음';
+  if (m.length === 0) return '담당자 미지정';
   const done = m.filter((x) => x.status === '처리완료' || x.status === '확인완료').length;
   return `${done}/${m.length}`;
 }
@@ -269,9 +300,12 @@ export function CooperationRequestSection({
   const overdueCount = useMemo(() => rows.filter((r) => isOverdue(r, todayIso)).length, [rows, todayIso]);
 
   const handleNew = useCallback(() => {
-    const draft = makeEmptyCooperationRequest({ mgmtId: nextMgmtId(rowsRef.current) });
+    const draft = makeEmptyCooperationRequest({
+      mgmtId: nextMgmtId(rowsRef.current),
+      requester: (currentUserPlainName ?? '').trim(),
+    });
     setEditing({ row: null, draft });
-  }, []);
+  }, [currentUserPlainName]);
 
   const handleEdit = useCallback((row: CooperationRequest) => {
     const { id: _id, createdAt: _ca, updatedAt: _ua, createdBy: _cb, ...rest } = row;
@@ -344,16 +378,20 @@ export function CooperationRequestSection({
     }
   }, [confirmDelete, pushToast]);
 
-  /** 텔레그램으로 협조 요청을 즉시 전파(수동). 자동 발송 토글과 무관하게 동작. */
+  /** 협조 요청을 즉시 전파(수동) — 텔레그램·메일 동시. 자동 발송 토글과 무관하게 동작. */
   const handleBroadcast = useCallback(
     async (row: CooperationRequest) => {
       setBroadcastingId(row.id);
       try {
-        const res = await broadcastCooperationTelegram(row.id);
-        if (res.ok) {
-          pushToast(`텔레그램으로 전파했습니다 (${res.sent}곳).`, { variant: 'success', durationMs: 2200 });
+        const res = await broadcastCooperation(row.id);
+        const ok: string[] = [];
+        if (res.telegram.ok) ok.push(`텔레그램 ${res.telegram.sent}곳`);
+        if (res.email.ok) ok.push(`메일 ${res.email.sent}곳`);
+        if (ok.length > 0) {
+          pushToast(`전파 완료 — ${ok.join(' · ')}`, { variant: 'success', durationMs: 2500 });
         } else {
-          pushToast(`텔레그램 전파 실패: ${res.error ?? res.skipped ?? '알 수 없는 오류'}`, { variant: 'error', durationMs: 4500 });
+          const reason = res.telegram.error ?? res.email.error ?? res.telegram.skipped ?? res.email.skipped ?? '알 수 없는 오류';
+          pushToast(`전파 실패: ${reason}`, { variant: 'error', durationMs: 4500 });
         }
       } finally {
         setBroadcastingId(null);
@@ -584,7 +622,7 @@ export function CooperationRequestSection({
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">요청자</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">담당자</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">중요도</th>
-                  <th className="px-2 py-2 font-semibold whitespace-nowrap">기한</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap">요청기한</th>
                   <th className="px-2 py-2 font-semibold w-[130px]">진척률</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">현황</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">완료일</th>
@@ -716,33 +754,48 @@ export function CooperationRequestSection({
                           </div>
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <label
-                            className={cn(
-                              'relative inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium cursor-pointer',
-                              sty.bg,
-                              sty.text,
-                              sty.ring,
-                            )}
-                          >
-                            <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
-                            <span>{r.status}</span>
-                            <ChevronDown size={10} className="opacity-60" />
-                            <span aria-hidden className="absolute inset-0">
-                              {STATUS_ICON[r.status]}
-                            </span>
-                            <select
-                              value={r.status}
-                              onChange={(e) => void handleQuickStatus(r, e.target.value as CooperationRequestStatus)}
-                              className="absolute inset-0 opacity-0 cursor-pointer"
-                              title="현황 변경"
+                          <div className="inline-flex flex-col items-start gap-0.5">
+                            <label
+                              className={cn(
+                                'relative inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium cursor-pointer',
+                                sty.bg,
+                                sty.text,
+                                sty.ring,
+                              )}
                             >
-                              {COOPERATION_REQUEST_STATUSES.map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                              <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
+                              <span>{r.status}</span>
+                              <ChevronDown size={10} className="opacity-60" />
+                              <span aria-hidden className="absolute inset-0">
+                                {STATUS_ICON[r.status]}
+                              </span>
+                              <select
+                                value={r.status}
+                                onChange={(e) => void handleQuickStatus(r, e.target.value as CooperationRequestStatus)}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                title="현황 변경"
+                              >
+                                {COOPERATION_REQUEST_STATUSES.map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {(() => {
+                              const elapsed = formatElapsed(currentStatusSince(r));
+                              if (!elapsed) return null;
+                              const text = elapsed === '오늘' ? '오늘' : `${elapsed} 경과`;
+                              return (
+                                <span
+                                  className="text-[9.5px] text-[var(--color-ink-muted)] tabular-nums"
+                                  title={`${r.status}로 진입 후 경과`}
+                                >
+                                  {text}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </td>
                         <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
                           {fmtDate(r.completedDate)}
@@ -754,7 +807,7 @@ export function CooperationRequestSection({
                               onClick={() => void handleBroadcast(r)}
                               disabled={broadcastingId === r.id}
                               className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
-                              title="텔레그램으로 전파"
+                              title="텔레그램·메일로 전파"
                             >
                               {broadcastingId === r.id ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                             </button>
@@ -842,7 +895,7 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
   return (
     <div className="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" onClick={onCancel}>
       <div
-        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
+        className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-line)] bg-[var(--color-surface-2)]">
@@ -906,9 +959,9 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
             <textarea
               value={draft.detail}
               onChange={(e) => onChange({ detail: e.target.value })}
-              rows={3}
+              rows={6}
               placeholder="협조가 필요한 업무·자료·검토 항목의 구체 내용을 적습니다."
-              className={cn(inputCls, 'resize-y min-h-[60px]')}
+              className={cn(inputCls, 'resize-y min-h-[140px]')}
             />
           </Field>
 
@@ -935,7 +988,7 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
                 ))}
               </select>
             </Field>
-            <Field label="기한(완료예정)">
+            <Field label="요청기한">
               <input type="date" value={draft.dueDate} onChange={(e) => onChange({ dueDate: e.target.value })} className={inputCls} />
             </Field>
           </div>
@@ -943,7 +996,8 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
           {/* 담당 — 인원/조직 토글 + picker */}
           <AssigneePicker draft={draft} orgTree={orgTree} orgMembers={orgMembers} orgPickList={orgPickList} onChange={onChange} />
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {/* 진척률·현황(·완료일) — 최초 등록 시엔 완료일 숨겨 2칸 그리드 */}
+          <div className={cn('grid gap-3', isNew ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}>
             <Field label="진척률 (%)">
               <input
                 type="number"
@@ -977,36 +1031,47 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
                 ))}
               </select>
             </Field>
-            <Field label="완료일">
-              <input
-                type="date"
-                value={draft.completedDate}
-                onChange={(e) => onChange({ completedDate: e.target.value })}
-                className={inputCls}
-              />
-            </Field>
+            {!isNew && (
+              <Field label="완료일">
+                <input
+                  type="date"
+                  value={draft.completedDate}
+                  onChange={(e) => onChange({ completedDate: e.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+            )}
           </div>
 
-          <Field label="결과·회신">
-            <textarea
-              value={draft.result}
-              onChange={(e) => onChange({ result: e.target.value })}
-              rows={4}
-              placeholder="회신 내용 / 결과를 적습니다. 새로운 회신은 '[11/3 회신내용] ...' 형태로 누적해 기록할 수 있습니다."
-              className={cn(inputCls, 'resize-y min-h-[72px]')}
-            />
-          </Field>
+          {/* 회의록 — 진행 중 회의 기록을 시계열로 누적. 최초 등록 시엔 숨김. */}
+          {!isNew && <MeetingLogList logs={draft.meetingLogs} onChange={(next) => onChange({ meetingLogs: next })} />}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="지연사유">
-              <input
-                type="text"
-                value={draft.delayReason}
-                onChange={(e) => onChange({ delayReason: e.target.value })}
-                className={inputCls}
-                placeholder="(필요 시)"
+          {/* 결과·회신 — 최종 회신/결과 요약. 최초 등록 시엔 숨김. */}
+          {!isNew && (
+            <Field label="결과·회신 (최종 요약)">
+              <textarea
+                value={draft.result}
+                onChange={(e) => onChange({ result: e.target.value })}
+                rows={4}
+                placeholder="회신 내용·최종 결과를 요약해 적습니다."
+                className={cn(inputCls, 'resize-y min-h-[100px]')}
               />
             </Field>
+          )}
+
+          {/* 지연사유는 최초 등록 시엔 숨김(아직 지연이 발생하지 않음). 비고는 항상 노출. */}
+          <div className={cn('grid gap-3', isNew ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2')}>
+            {!isNew && (
+              <Field label="지연사유">
+                <input
+                  type="text"
+                  value={draft.delayReason}
+                  onChange={(e) => onChange({ delayReason: e.target.value })}
+                  className={inputCls}
+                  placeholder="(필요 시)"
+                />
+              </Field>
+            )}
             <Field label="비고">
               <input
                 type="text"
@@ -1081,31 +1146,17 @@ function AssigneePicker({
 
   const memberKey = (name: string, dept: string, pos: string) => `${name}||${dept}||${pos}`;
 
-  /** 현재 선택된 멤버 진척에 (orgIds, directPersons) 조합을 반영해 새 배열 생성. 기존 상태 보존. */
-  const recalcMembers = (orgIds: string[], directPersons: OrgMember[]): CooperationMemberProgress[] => {
+  /**
+   * 부서 검토 → 담당자 지정 워크플로:
+   *   조직 선택은 알림 라우팅(부서/그룹 채팅으로 통보)에만 쓰고, memberProgress에는
+   *   부서가 검토 후 인원 picker로 직접 지정한 사람들만 들어간다(직접 추가만 누적).
+   *   조직 자동 멤버 추가는 더 이상 하지 않는다(기존 데이터는 호환 — 다른 조직 자동 멤버는
+   *   sourceOrgIds 클린업을 통해 유지/제거 결정).
+   */
+  const recalcMembers = (_orgIds: string[], directPersons: OrgMember[]): CooperationMemberProgress[] => {
     const existing = new Map(draft.memberProgress.map((m) => [memberKey(m.name, m.department, m.position), m] as const));
     const collected = new Map<string, CooperationMemberProgress>();
-    for (const orgId of orgIds) {
-      const node = findOrgNode(orgTree, orgId);
-      if (!node) continue;
-      for (const m of getDeepMembers(node, orgMembers)) {
-        const k = memberKey(m.name, m.department, m.position);
-        const prev = collected.get(k) ??
-          existing.get(k) ?? {
-            name: m.name,
-            department: m.department,
-            position: m.position,
-            status: '요청완료' as CooperationRequestStatus,
-            completedAt: '',
-            sourceOrgIds: [],
-            direct: false,
-          };
-        const nextSrc = prev.sourceOrgIds.includes(orgId)
-          ? prev.sourceOrgIds.filter((s) => orgIds.includes(s))
-          : [...prev.sourceOrgIds.filter((s) => orgIds.includes(s)), orgId];
-        collected.set(k, { ...prev, sourceOrgIds: nextSrc });
-      }
-    }
+    // 직접 추가 인원만 누적
     for (const p of directPersons) {
       const k = memberKey(p.name, p.department, p.position);
       const prev = collected.get(k) ??
@@ -1377,6 +1428,221 @@ function MemberChecklist({
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 회의록 리스트 — 등록·편집·삭제. 시계열로 누적(최신순).
+ *
+ * 각 회의록:
+ *   - date (YYYY-MM-DD, 기본 오늘)
+ *   - title (안건, 선택)
+ *   - content (내용, 필수)
+ *
+ * 새 항목 폼은 컴포넌트 내부 상태로 관리. 추가 후 입력은 초기화.
+ */
+function MeetingLogList({ logs, onChange }: { logs: CooperationMeetingLog[]; onChange: (next: CooperationMeetingLog[]) => void }) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ date: string; title: string; content: string }>({
+    date: todayIso,
+    title: '',
+    content: '',
+  });
+  // 시계열: 최신순 정렬(같은 날짜면 createdAt 역순).
+  const sorted = useMemo(
+    () =>
+      [...logs].sort((a, b) => {
+        const ad = a.date || a.createdAt || '';
+        const bd = b.date || b.createdAt || '';
+        if (ad !== bd) return bd.localeCompare(ad);
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      }),
+    [logs],
+  );
+
+  const startAdd = () => {
+    setEditingId('__new__');
+    setDraft({ date: todayIso, title: '', content: '' });
+  };
+  const startEdit = (m: CooperationMeetingLog) => {
+    setEditingId(m.id);
+    setDraft({ date: m.date || todayIso, title: m.title, content: m.content });
+  };
+  const cancel = () => {
+    setEditingId(null);
+    setDraft({ date: todayIso, title: '', content: '' });
+  };
+  const save = () => {
+    const content = draft.content.trim();
+    if (!content && !draft.title.trim()) return; // 빈 항목 등록 차단
+    if (editingId === '__new__') {
+      const entry: CooperationMeetingLog = {
+        id: randomUUID(),
+        date: draft.date || todayIso,
+        title: draft.title.trim(),
+        content,
+        createdAt: new Date().toISOString(),
+        createdBy: null,
+      };
+      onChange([...logs, entry]);
+    } else if (editingId) {
+      onChange(logs.map((m) => (m.id === editingId ? { ...m, date: draft.date || todayIso, title: draft.title.trim(), content } : m)));
+    }
+    cancel();
+  };
+  const remove = (id: string) => {
+    onChange(logs.filter((m) => m.id !== id));
+    if (editingId === id) cancel();
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)]/60 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-muted)]">회의록 ({logs.length}건)</span>
+        {editingId !== '__new__' && (
+          <button
+            type="button"
+            onClick={startAdd}
+            className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700"
+          >
+            <Plus size={12} /> 회의록 추가
+          </button>
+        )}
+      </div>
+
+      {/* 신규 입력 폼 */}
+      {editingId === '__new__' && (
+        <div className="rounded-md border border-indigo-200 bg-white p-2 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={draft.date}
+              onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+              className={cn(inputCls, 'w-36')}
+            />
+            <input
+              type="text"
+              value={draft.title}
+              onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+              placeholder="회의 안건 (선택)"
+              className={cn(inputCls, 'flex-1')}
+            />
+          </div>
+          <textarea
+            value={draft.content}
+            onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
+            placeholder="회의 내용·결정사항·후속조치 등"
+            rows={3}
+            className={cn(inputCls, 'resize-y min-h-[80px]')}
+            autoFocus
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={cancel}
+              className="rounded-md border border-[var(--color-line)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--color-ink)] hover:bg-[var(--color-surface-2)]"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={!draft.content.trim() && !draft.title.trim()}
+              className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+            >
+              저장
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 기존 회의록 목록 */}
+      {sorted.length === 0 && editingId !== '__new__' && (
+        <p className="text-[11px] text-[var(--color-ink-muted)]">
+          등록된 회의록이 없습니다. <strong>회의록 추가</strong>를 눌러 첫 회의 기록을 남기세요.
+        </p>
+      )}
+      <div className="space-y-1.5">
+        {sorted.map((m) => {
+          const isEditing = editingId === m.id;
+          if (isEditing) {
+            return (
+              <div key={m.id} className="rounded-md border border-indigo-200 bg-white p-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+                    className={cn(inputCls, 'w-36')}
+                  />
+                  <input
+                    type="text"
+                    value={draft.title}
+                    onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                    placeholder="회의 안건 (선택)"
+                    className={cn(inputCls, 'flex-1')}
+                  />
+                </div>
+                <textarea
+                  value={draft.content}
+                  onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
+                  rows={3}
+                  className={cn(inputCls, 'resize-y min-h-[80px]')}
+                />
+                <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    className="rounded-md border border-[var(--color-line)] bg-white px-2.5 py-1 text-[11px] font-medium text-[var(--color-ink)] hover:bg-[var(--color-surface-2)]"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={save}
+                    className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700"
+                  >
+                    저장
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={m.id} className="group rounded-md border border-[var(--color-line)] bg-white p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[11px] text-[var(--color-ink-muted)]">
+                    <span className="font-mono tabular-nums">{(m.date || '').replaceAll('-', '.')}</span>
+                    {m.title && <span className="font-semibold text-[var(--color-ink)] truncate">{m.title}</span>}
+                  </div>
+                  {m.content && <div className="mt-0.5 whitespace-pre-wrap text-xs text-[var(--color-ink)]">{m.content}</div>}
+                </div>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(m)}
+                    className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
+                    title="편집"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => remove(m.id)}
+                    className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
+                    title="삭제"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1857,7 +2123,7 @@ function KanbanCard({
             onClick={onBroadcast}
             disabled={broadcasting}
             className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
-            title="텔레그램으로 전파"
+            title="텔레그램·메일로 전파"
           >
             {broadcasting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
           </button>
@@ -1934,8 +2200,13 @@ function KanbanCard({
         <label
           className="relative inline-flex items-center gap-0.5 rounded ring-1 px-1 py-0.5 text-[9.5px] font-medium cursor-pointer bg-white"
           onClick={(e) => e.stopPropagation()}
+          title={`${row.status}로 진입 후 경과`}
         >
           <span>{row.status}</span>
+          {(() => {
+            const elapsed = formatElapsed(currentStatusSince(row));
+            return elapsed ? <span className="text-[var(--color-ink-muted)]">· {elapsed}</span> : null;
+          })()}
           <ChevronDown size={9} className="opacity-60" />
           <select
             value={row.status}

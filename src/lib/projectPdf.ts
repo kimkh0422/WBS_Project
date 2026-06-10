@@ -296,6 +296,111 @@ function formatOwnerCell(project: Project, profileMap?: Readonly<Record<string, 
 
 const REGISTRATION_PDF_WINDOW_WIDTH = 1500;
 
+/** PDF에 포함할 협조 요청 행(요약). Dashboard 화면의 협조 요청 섹션과 동일한 핵심 컬럼만 추출. */
+export interface CooperationRequestPdfRow {
+  mgmtId: string;
+  title: string;
+  requester: string;
+  assignee: string;
+  requestDate: string;
+  dueDate: string;
+  status: string;
+  priority: string;
+  /** 0~1 진척률 */
+  progress: number;
+}
+
+/** 협조 요청 PDF 블록(표) 생성. 비어 있어도 빈 상태 문구를 함께 표시. */
+function buildCooperationRequestsBlock(rows: CooperationRequestPdfRow[]): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.margin = '12px auto 8px';
+  wrap.style.maxWidth = '760px';
+  wrap.style.textAlign = 'center';
+
+  const h = document.createElement('div');
+  h.textContent = `업무 협조 요청 (${rows.length}건)`;
+  h.style.fontSize = '13px';
+  h.style.fontWeight = '700';
+  h.style.color = '#1c1917';
+  h.style.margin = '0 0 4px';
+  wrap.appendChild(h);
+
+  if (rows.length === 0) {
+    const empty = document.createElement('p');
+    empty.textContent = '등록된 협조 요청이 없습니다.';
+    empty.style.margin = '0 0 6px';
+    empty.style.fontSize = '11px';
+    empty.style.color = '#78716c';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.fontSize = '9px';
+  table.style.tableLayout = 'fixed';
+
+  const colMeta: { label: string; width: string; align: 'left' | 'right' | 'center' }[] = [
+    { label: '관리ID', width: '8%', align: 'left' },
+    { label: '제목', width: '30%', align: 'left' },
+    { label: '요청자', width: '10%', align: 'left' },
+    { label: '담당자', width: '14%', align: 'left' },
+    { label: '요청일', width: '8%', align: 'center' },
+    { label: '기한', width: '8%', align: 'center' },
+    { label: '상태', width: '8%', align: 'center' },
+    { label: '우선', width: '6%', align: 'center' },
+    { label: '진척%', width: '8%', align: 'right' },
+  ];
+
+  const thead = document.createElement('thead');
+  const hrow = document.createElement('tr');
+  for (const c of colMeta) {
+    const th = document.createElement('th');
+    th.textContent = c.label;
+    th.style.width = c.width;
+    th.style.textAlign = c.align;
+    th.style.padding = '5px 4px';
+    th.style.borderBottom = '2px solid #d6d3d1';
+    th.style.background = '#f5f5f4';
+    th.style.fontWeight = '600';
+    th.style.color = '#44403c';
+    hrow.appendChild(th);
+  }
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const values = [
+      r.mgmtId || '—',
+      r.title || '—',
+      r.requester || '—',
+      r.assignee || '—',
+      r.requestDate || '—',
+      r.dueDate || '—',
+      r.status || '—',
+      r.priority || '—',
+      `${formatPercent1(Math.max(0, Math.min(1, r.progress)) * 100)}%`,
+    ];
+    for (let i = 0; i < values.length; i++) {
+      const td = document.createElement('td');
+      td.textContent = values[i]!;
+      td.style.padding = '4px';
+      td.style.borderBottom = '1px solid #e7e5e4';
+      td.style.textAlign = colMeta[i]!.align;
+      td.style.color = '#292524';
+      td.style.wordBreak = 'break-word';
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
 /** 대시보드 전체현황·사업부별 진척/계획 요약 (PDF 상단 표) */
 export interface DashboardPdfSummary {
   totalProjects: number;
@@ -421,6 +526,8 @@ export async function downloadProjectRegistrationPdfReport(options: {
   ownerDepartmentByUserId?: Record<string, string | null | undefined>;
   /** 대시보드 전체현황·사업부 요약 (있으면 표 상단에 추가) */
   dashboardSummary?: DashboardPdfSummary;
+  /** 업무 협조 요청 목록 (있으면 표 상단에 추가) */
+  cooperationRequests?: CooperationRequestPdfRow[];
 }): Promise<void> {
   const {
     rows,
@@ -431,6 +538,7 @@ export async function downloadProjectRegistrationPdfReport(options: {
     orgMembers,
     ownerDepartmentByUserId,
     dashboardSummary,
+    cooperationRequests,
   } = options;
 
   const rowById = new Map(rows.map((r) => [r.id, r] as const));
@@ -503,6 +611,10 @@ export async function downloadProjectRegistrationPdfReport(options: {
     p.style.color = '#78716c';
     p.style.textAlign = 'center';
     root.appendChild(p);
+  }
+
+  if (cooperationRequests) {
+    root.appendChild(buildCooperationRequestsBlock(cooperationRequests));
   }
 
   if (dashboardSummary) {

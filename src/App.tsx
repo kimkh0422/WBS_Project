@@ -1501,7 +1501,7 @@ function WBSApp({
                   </ErrorBoundary>
                 ))}
             </div>
-            {isShortcutsVisible && (
+            {isShortcutsVisible && view !== 'dashboard' && (
               <ShortcutsSidebar
                 view={view === 'outlook' || view === 'weekreport' || view === 'todo' ? 'dashboard' : view}
                 onClose={() => setIsShortcutsVisible(false)}

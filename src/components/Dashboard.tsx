@@ -62,7 +62,8 @@ import { DashboardDetailPage, type DashboardDetailKind } from './DashboardDetail
 import { DashboardProjectCardDetailPanel } from './DashboardProjectCardDetailPanel';
 import { BaseModal } from './Base/Modal';
 import { useToast } from './Toast';
-import { downloadProjectRegistrationPdfReport } from '../lib/projectPdf';
+import { downloadProjectRegistrationPdfReport, type DashboardPdfSummary, type CooperationRequestPdfRow } from '../lib/projectPdf';
+import { fetchCooperationRequests } from '../lib/db/cooperationRequests';
 import {
   type ActionDueDateFilter,
   filterActionTasksByDuePeriod,
@@ -1101,6 +1102,44 @@ export function Dashboard({
     if (dashboardFiltersActive) {
       subtitleLines.push('대시보드 상단 필터가 적용된 표시 범위입니다.');
     }
+
+    // 대시보드 전체현황 + 사업부별 진척/계획 요약(화면의 「전체현황」·「사업부 현황」과 동일 기준)
+    const dashboardSummary: DashboardPdfSummary = {
+      totalProjects: divisionAggregatedSummary.projectSum,
+      totalTasks: divisionAggregatedSummary.taskSum,
+      memberCount,
+      overallProgress: divisionAggregatedSummary.tableProgress,
+      overallPlanned: divisionAggregatedSummary.tablePlanned,
+      divisions: displayDivisionStats
+        .filter((d) => d.projectCount > 0 || d.total > 0)
+        .map((d) => ({
+          name: d.name,
+          projectCount: d.projectCount,
+          taskTotal: d.total,
+          progress: d.progress,
+          planned: d.planned,
+        })),
+    };
+
+    // 업무 협조 요청 — PDF 생성 시점의 최신 데이터 fetch (대시보드의 협조 요청 섹션과 동일 소스)
+    let cooperationRequests: CooperationRequestPdfRow[] = [];
+    try {
+      const list = await fetchCooperationRequests();
+      cooperationRequests = list.map((r) => ({
+        mgmtId: r.mgmtId,
+        title: r.title,
+        requester: r.requester,
+        assignee: r.assignee,
+        requestDate: r.requestDate,
+        dueDate: r.dueDate,
+        status: r.status,
+        priority: r.priority,
+        progress: r.progress,
+      }));
+    } catch (e) {
+      console.warn('협조 요청 데이터를 불러오지 못해 PDF에 빈 섹션으로 포함합니다.', e);
+    }
+
     await downloadProjectRegistrationPdfReport({
       rows,
       subtitleLines,
@@ -1108,8 +1147,10 @@ export function Dashboard({
       orgTree,
       orgMembers,
       ownerDepartmentByUserId,
+      dashboardSummary,
+      cooperationRequests,
     });
-    pushToast('프로젝트 등록현황 PDF를 저장했습니다.', { variant: 'success' });
+    pushToast('대시보드 PDF를 저장했습니다.', { variant: 'success' });
   }, [
     projectStats,
     dashboardExcludedIds,
@@ -1120,6 +1161,9 @@ export function Dashboard({
     orgTree,
     orgMembers,
     ownerDepartmentByUserId,
+    divisionAggregatedSummary,
+    memberCount,
+    displayDivisionStats,
   ]);
 
   useEffect(() => {
