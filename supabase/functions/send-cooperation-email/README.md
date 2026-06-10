@@ -72,6 +72,35 @@ supabase functions deploy send-cooperation-email
 
 또는 Supabase 대시보드 → Edge Functions → New function → 코드 붙여넣기로 직접 배포해도 됩니다.
 
+## 5-1. 클라이언트에서 메일 발송 활성화
+
+배포 + Secrets 등록이 끝나면, 클라이언트에서 메일 호출을 켭니다. **두 방법 중 하나**:
+
+### A. 환경변수 (권장 — Vercel 등 빌드 시 한 번에 처리)
+
+Vercel 프로젝트 설정 → Environment Variables 에 추가:
+
+```
+VITE_COOPERATION_EMAIL_ENABLED=1
+```
+
+저장 후 재배포하면 클라이언트가 협조요청 저장 시마다 Edge Function 호출.
+
+### B. 브라우저 토글 (테스트·검증용)
+
+브라우저 콘솔에서 한 줄로:
+
+```js
+localStorage.setItem('wbs.cooperationEmail.enabled', '1');
+```
+
+해당 브라우저만 즉시 활성화. 끄려면 `'0'` 또는 `removeItem`.
+
+### 기본은 OFF인 이유
+
+Edge Function 미배포 상태에서 클라이언트가 fetch 를 시도하면 콘솔에 CORS 에러가 찍힙니다.
+이 토글이 OFF면 fetch 자체가 일어나지 않아 콘솔이 깨끗합니다. 운영에서 §5까지 마친 후 켜세요.
+
 ## 6. 동작 흐름
 
 ```

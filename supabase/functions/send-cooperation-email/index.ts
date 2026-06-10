@@ -67,10 +67,18 @@ interface OrgMemberWithEmail {
 
 const ALLOWED_MODES = new Set(['created', 'updated', 'status-change']);
 
+/** CORS: 모든 origin 허용(앱이 어떤 도메인에서 호출하든 동작). 인증은 Supabase Functions 자체가 처리. */
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age': '86400',
+};
+
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: { 'content-type': 'application/json; charset=utf-8', ...CORS_HEADERS },
   });
 }
 
@@ -149,6 +157,10 @@ ${appUrl ? `${appUrl}/dashboard` : ''}
 
 // @ts-expect-error — Deno 전역
 Deno.serve(async (req: Request) => {
+  // CORS preflight — 브라우저가 본 요청 전에 OPTIONS 로 미리 검사한다.
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   if (req.method !== 'POST') return jsonResponse(405, { error: 'method not allowed' });
 
   let body: { requestId?: string; mode?: string };

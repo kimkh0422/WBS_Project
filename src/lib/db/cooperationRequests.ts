@@ -399,19 +399,35 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
   return mapped;
 }
 
+/** Edge Function 배포·메일 설정이 끝났는지 여부. 활성 조건(둘 중 하나):
+ *  - 빌드 시 환경변수 `VITE_COOPERATION_EMAIL_ENABLED=1` 설정
+ *  - 런타임에 `localStorage.setItem('wbs.cooperationEmail.enabled','1')` 로 토글
+ *  기본값은 OFF — 배포 전 fetch 가 일어나 콘솔에 CORS/네트워크 에러가 찍히는 것을 막는다. */
+function isCooperationEmailEnabled(): boolean {
+  try {
+    const env = (import.meta.env as Record<string, unknown>).VITE_COOPERATION_EMAIL_ENABLED;
+    if (env === '1' || env === 'true' || env === true) return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('wbs.cooperationEmail.enabled') === '1') return true;
+  } catch {
+    /* 안전한 기본값 OFF */
+  }
+  return false;
+}
+
 /**
  * 협조 요청 알림 메일 — Supabase Edge Function (send-cooperation-email) 호출.
- * 실패는 조용히 무시(메일 설정 안 된 환경에서도 협조 요청 동작은 막지 않음).
- * 로컬 dev 우회 모드에서는 호출하지 않음.
+ * 활성화 토글 OFF 또는 로컬 dev 우회 모드면 fetch 시도 자체를 건너뛴다.
+ * 실패는 조용히 무시(메일 설정 안 된 환경에서도 협조 요청 등록 동작은 막지 않음).
  */
 async function notifyByEmail(requestId: string, mode: 'created' | 'updated' | 'status-change'): Promise<void> {
   if (isLocalOnly()) return;
+  if (!isCooperationEmailEnabled()) return; // Edge Function 배포·secrets 설정 전 fetch 차단
   try {
     await supabase!.functions.invoke('send-cooperation-email', {
       body: { requestId, mode },
     });
   } catch (e) {
-    // 메일 미설정·Edge Function 미배포 등은 무시
+    // 메일 발송 실패는 협조요청 동작에 영향 없음
     if (typeof console !== 'undefined' && console.warn) console.warn('[cooperation] 메일 발송 호출 실패:', e);
   }
 }
