@@ -40,11 +40,37 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
       workEffortToDurationMigrated: true,
       tableProgressLayoutMigrated: true,
       workEffortReHiddenMigrated: true,
+      workEffortReHiddenMigratedV2: true,
       allocationReHiddenMigrated: true,
       standardVisibleColumnsMigrated: true,
     };
     const s = parseSettings(raw);
     expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(true);
+  });
+
+  it('2차 재숨김: 1차 재숨김 후 다시 켜 둔 공수도 한 번 더 숨김한다', () => {
+    const raw = {
+      tableColumns: [
+        { id: 'name', visible: true },
+        { id: 'workEffort', visible: true }, // 1차 재숨김 후 사용자가 다시 켬
+      ],
+      // 1차 재숨김·표준화 등은 이미 끝난 상태로 둬서 2차 재숨김만 동작하게 한다.
+      allocationHiddenMigrated: true,
+      deliverablesHiddenMigrated: true,
+      dependenciesHiddenMigrated: true,
+      actionsHiddenMigrated: true,
+      statusHiddenMigrated: true,
+      wbsIdHiddenMigrated: true,
+      workEffortToDurationMigrated: true,
+      tableProgressLayoutMigrated: true,
+      workEffortReHiddenMigrated: true,
+      allocationReHiddenMigrated: true,
+      standardVisibleColumnsMigrated: true,
+      // workEffortReHiddenMigratedV2 없음 → 2차 재숨김만 동작해야 한다.
+    };
+    const s = parseSettings(raw);
+    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(false);
+    expect(s.workEffortReHiddenMigratedV2).toBe(true);
   });
 });
 

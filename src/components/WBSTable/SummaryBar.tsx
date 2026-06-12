@@ -65,8 +65,8 @@ interface SummaryBarProps {
   onOpenMdEditor: () => void;
   /** 등록 작업 기준 우선순위 보완 가이드(모달) */
   onOpenImprovementGuide?: () => void;
-  /** '일정 자동 맞춤' 버튼: 클릭 시 방식 선택 메뉴(하위→상위 롤업 / 상위→하위 균등 분배)를 연다.
-   *  클릭 위치에 메뉴를 띄우려고 이벤트를 전달한다. 편집 권한이 없으면 undefined로 숨김. */
+  /** '하위일정 균등분할' 버튼: 클릭 시 선택(체크·활성)한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배한다.
+   *  편집 권한이 없으면 undefined로 숨김. */
   onAutoAlignSchedule?: (e: React.MouseEvent) => void;
   /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
   tableAutoFormatting?: {
@@ -79,7 +79,7 @@ interface SummaryBarProps {
     on: boolean;
     onToggle: () => void;
   };
-  /** 고급 도구(자동 서식·보완 가이드·가중치·일정 자동 맞춤) 표시 여부. 기본 숨김, Shift+F12로 토글. */
+  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할) 표시 여부. 기본 숨김, Shift+F12로 토글. */
   showAdvancedTools?: boolean;
 }
 
@@ -131,15 +131,14 @@ export function SummaryBar({
       onClick={(e) => onAutoAlignSchedule(e)}
       className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-amber-400/30"
       title={[
-        '일정 자동 맞춤 — 클릭하면 방식을 고릅니다:',
-        '① 하위→상위 롤업: 상위(요약) 일정을 하위 기간(최소 시작~최대 종료)으로 맞추고, 선행 작업은 "선행 종료일 + 1영업일"로 이동.',
-        '② 상위→하위 균등 분배: 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 순서대로 균등 분배하고 하위끼리 선행관계로 연결.',
+        '하위일정 균등분할 — 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 순서대로 균등 분배하고, 하위끼리 선행관계(FS)로 연결합니다.',
+        '하위가 있는 상위 작업의 행을 클릭(또는 체크)한 뒤 실행하세요. 하위의 하위까지 재귀 적용됩니다.',
         '',
         '평소 셀 편집·행 이동 시에는 입력한 날짜를 자동으로 바꾸지 않습니다.',
       ].join('\n')}
     >
       <CalendarCheck2 size={12} strokeWidth={2} aria-hidden />
-      일정 자동 맞춤
+      하위일정 균등분할
     </button>
   ) : null;
   return (

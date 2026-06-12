@@ -21,13 +21,22 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   // 메뉴는 body 포털 + position:fixed로 띄운다(툴바의 overflow-x-auto에 잘리지 않도록).
-  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number; openUp: boolean } | null>(null);
 
   const computePos = useCallback(() => {
     const el = btnRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos({ left: Math.round(r.left), top: Math.round(r.bottom + 6), minWidth: Math.round(r.width) });
+    // 툴바가 화면 하단에 도킹되므로 버튼 아래 공간이 부족하면 위로 펼친다(아래로 펼치면 화면 밖으로 잘림).
+    const menuMaxH = Math.min(window.innerHeight * 0.6, 320);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < menuMaxH + 12 && r.top > spaceBelow;
+    setPos({
+      left: Math.round(r.left),
+      top: Math.round(openUp ? r.top - 6 : r.bottom + 6),
+      minWidth: Math.round(r.width),
+      openUp,
+    });
   }, []);
 
   useEffect(() => {
@@ -95,7 +104,13 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
             ref={menuRef}
             role="listbox"
             aria-label="글꼴 목록"
-            style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.minWidth }}
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              minWidth: pos.minWidth,
+              transform: pos.openUp ? 'translateY(-100%)' : undefined,
+            }}
             className="z-[300] max-h-[min(60vh,320px)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 text-[15px] leading-snug shadow-2xl ring-1 ring-black/5"
           >
             {FONT_CHOICES.map((o) => (
@@ -195,7 +210,7 @@ export interface CellFormatToolbarProps {
 }
 
 /**
- * 표 상단 도킹 서식 툴바. 한글·엑셀의 상단 Tool Bar처럼 동작한다.
+ * 표 하단 도킹 서식 툴바. 한글·엑셀의 Tool Bar처럼 동작하되, 선택 시 행이 밀리지 않도록 표 본문 아래에 붙는다.
  * 적용 범위(엑셀식 = 선택 단위가 곧 적용 단위):
  *  - 행을 체크 선택(selectedTaskIds ≥ 1)하면 → 선택한 모든 행 × 표시된 모든 데이터 열에 적용("행 전체").
  *  - 체크 없이 셀 하나만 포커스하면 → 그 셀(한 행, 한 열)에만 적용.
@@ -292,9 +307,9 @@ export function CellFormatToolbar({
   return (
     <div
       className={cn(
-        // h-14: SummaryBar(h-14)와 정확히 같은 높이 → 오버레이로 덮을 때 헤더 침범·삐져나옴 없이 깔끔히 대체.
+        // h-14: 표 SummaryBar(h-14)와 같은 높이로 본문 하단에 도킹. border-t로 위 행과 구분(위쪽으로 향한 그림자).
         'flex h-14 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap px-3 py-0 text-slate-900',
-        'border-b border-[var(--color-line)] bg-[var(--color-surface)] shadow-sm',
+        'border-t border-[var(--color-line)] bg-[var(--color-surface)] shadow-[0_-1px_3px_rgba(0,0,0,0.06)]',
       )}
       role="toolbar"
       aria-label="셀 서식"

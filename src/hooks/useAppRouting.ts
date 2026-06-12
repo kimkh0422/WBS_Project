@@ -140,6 +140,25 @@ export function useAppRouting({ effectiveIsAdmin, realIsAdmin = false, userEmail
   );
   if (view === 'dashboard') dashboardMountedOnceRef.current = true;
 
+  // 최초 진입(앱 로드/새로고침)은 무조건 '표+간트'. 직전 세션에서 '표 단독'으로 토글해 URL이 /table로 남아
+  // 있었더라도, 다시 들어오면 표+간트로 승격한다. 단, 진입 후 헤더 토글로 표 단독 보기는 그대로 허용
+  // (승격은 최초 진입 1회만). dashboardMountedOnceRef와 같은 방식으로 진입 시점의 경로를 기억한다.
+  const initialSegmentRef = useRef(typeof window !== 'undefined' ? window.location.pathname.replace(/^\//, '').split('/')[0] || '' : '');
+  const initialTablePromotedRef = useRef(false);
+  useEffect(() => {
+    if (initialTablePromotedRef.current) return;
+    if (initialSegmentRef.current !== 'table') {
+      // 최초 진입이 표 단독이 아니면 승격 로직을 비활성화(이후 세션 토글은 손대지 않음).
+      initialTablePromotedRef.current = true;
+      return;
+    }
+    // 표+간트가 가용해지는 즉시(역할 플래그 비동기 로딩 대비) 1회 승격.
+    if (!hiddenViews.has('tablegantt')) {
+      initialTablePromotedRef.current = true;
+      navigate('/tablegantt', { replace: true });
+    }
+  }, [hiddenViews, navigate]);
+
   useEffect(() => {
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
     const legacyTableTarget: ViewType = hiddenViews.has('table') ? pickFirstVisibleView(hiddenViews) : 'table';

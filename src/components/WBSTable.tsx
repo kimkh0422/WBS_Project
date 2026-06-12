@@ -140,7 +140,8 @@ export function WBSTable({
   onRowHeightChange,
   onRowHeightsChange,
   syncRowHeights,
-  onTopInsetChange,
+  onBottomInsetChange,
+  bottomDockContainer,
   hotkeysEnabled = true,
   onOpenColumnSettings,
   fillHeight = false,
@@ -173,9 +174,7 @@ export function WBSTable({
     setSelectedTaskIds: setSharedSelectedTaskIds,
     activeTaskId,
     setActiveTaskId,
-    refreshProjectSchedule,
     distributeChildrenSchedule,
-    rollupTaskSchedule,
     canEditCurrentProject,
     moveTaskRootsSibling,
     linkSequentialPredecessors,
@@ -229,8 +228,8 @@ export function WBSTable({
     setSingleClickEditState(next);
   }, []);
 
-  /** 고급 도구(자동 서식·보완 가이드·가중치·일정 자동 맞춤) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
-  const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools);
+  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
+  const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
   useEffect(() => subscribeShowAdvancedToolsChanged(() => setShowAdvancedToolsState(getShowAdvancedTools())), []);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -242,7 +241,7 @@ export function WBSTable({
         setShowAdvancedToolsState(next);
         pushToast(
           next
-            ? '고급 도구를 표시합니다. (자동 서식·보완 가이드·가중치·일정 자동 맞춤)'
+            ? '고급 도구를 표시합니다. (자동 서식·보완 가이드·가중치·하위일정 균등분할)'
             : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)',
           {
             variant: 'info',
@@ -295,28 +294,7 @@ export function WBSTable({
     /** 우클릭 '시점'에 이미 사용자가 2개 이상 선택한 상태였는지. 우클릭으로 인한 자동 선택(부모→서브트리)과 구분용. */
     multi?: boolean;
   } | null>(null);
-  /** '일정 자동 맞춤' 버튼 클릭 시 뜨는 방식 선택 메뉴(롤업/균등 분배)의 위치. */
-  const [autoAlignMenu, setAutoAlignMenu] = useState<{ x: number; y: number } | null>(null);
-
-  /** ① 하위 → 상위 롤업 (기존 '일정 자동 맞춤'): 상위 일정을 하위 min/max로 맞추고 선행(FS) 재계산. */
-  const runRollupAlign = useCallback(() => {
-    const ok = window.confirm(
-      [
-        '하위 → 상위 롤업(일정 자동 맞춤)을 실행할까요?',
-        '',
-        '· 상위(요약) 작업의 시작일·종료일을 하위 작업 기간(최소 시작~최대 종료)으로 맞춥니다.',
-        '· 선행작업이 연결된 작업은 시작일을 "선행 종료일 + 1영업일"로 이동합니다.',
-        '',
-        '직접 입력해 둔 상위 작업·후행 작업의 날짜가 이 기준으로 덮어써집니다.',
-        '실행 후 Ctrl+Z로 되돌릴 수 있습니다.',
-      ].join('\n'),
-    );
-    if (!ok) return;
-    refreshProjectSchedule();
-    pushToast('일정 자동 맞춤(하위→상위 롤업)을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.', { variant: 'success' });
-  }, [refreshProjectSchedule, pushToast]);
-
-  /** ② 상위 → 하위 균등 분배: 선택(체크)·활성(포커스) 행 중 하위가 있는 상위 작업의 기간을 영업일 기준으로 하위에 균등 분배. */
+  /** 하위일정 균등분할: 선택(체크)·활성(포커스) 행 중 하위가 있는 상위 작업의 기간을 영업일 기준으로 하위에 균등 분배. */
   const runDistributeChildren = useCallback(() => {
     const candidateIds = sharedSelectedTaskIds.length > 0 ? sharedSelectedTaskIds : activeTaskId ? [activeTaskId] : [];
     if (candidateIds.length === 0) {
@@ -340,7 +318,7 @@ export function WBSTable({
     }
     const ok = window.confirm(
       [
-        `상위 → 하위 균등 분배를 실행할까요? (대상 상위 작업 ${ready.length}개)`,
+        `하위일정 균등분할을 실행할까요? (대상 상위 작업 ${ready.length}개)`,
         '',
         '· 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 순서대로 균등 분배합니다.',
         '· 하위 작업끼리 선행관계(FS)로 연결되고, 하위의 하위까지 재귀 적용됩니다.',
@@ -352,21 +330,12 @@ export function WBSTable({
     if (!ok) return;
     const { applied, skipped } = distributeChildrenSchedule(ready);
     pushToast(
-      `상위→하위 균등 분배를 적용했습니다. (상위 ${applied}개${skipped > 0 ? `, 건너뜀 ${skipped}개` : ''}) Ctrl+Z로 되돌릴 수 있습니다.`,
+      `하위일정 균등분할을 적용했습니다. (상위 ${applied}개${skipped > 0 ? `, 건너뜀 ${skipped}개` : ''}) Ctrl+Z로 되돌릴 수 있습니다.`,
       { variant: 'success' },
     );
   }, [sharedSelectedTaskIds, activeTaskId, tasks, distributeChildrenSchedule, pushToast]);
 
-  /** 우클릭 메뉴 전용 — 특정 작업 기준 하위→상위 롤업(이 작업 서브트리만). */
-  const runRollupTask = useCallback(
-    (taskId: string) => {
-      rollupTaskSchedule(taskId);
-      pushToast('이 작업의 하위 일정으로 상위(이 작업)를 맞췄습니다. Ctrl+Z로 되돌릴 수 있습니다.', { variant: 'success' });
-    },
-    [rollupTaskSchedule, pushToast],
-  );
-
-  /** 우클릭 메뉴 전용 — 특정 작업 기준 상위→하위 균등 분배(이 작업 하위만). */
+  /** 우클릭 메뉴 전용 — 특정 작업 기준 하위일정 균등분할(이 작업 하위만). */
   const runDistributeTask = useCallback(
     (taskId: string) => {
       const t = tasks.find((x) => x.id === taskId);
@@ -594,24 +563,18 @@ export function WBSTable({
   const rowHeight = propRowHeight ?? rowHeightState;
 
   /** 계획율 기준일(YYYY-MM-DD): 표·요약의 모든 계획율(%)·차이(%P)를 이 날짜 기준으로 산정.
-   *  - 기본값: 오늘(localStorage에 저장된 값 우선) — 사용자가 입력 시 그 날짜로 즉시 재계산
-   *  - 빈 값('') = "오늘 자동" 모드(매일 자동 갱신) */
-  const [plannedRefDateIso, setPlannedRefDateIso] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    try {
-      return window.localStorage.getItem('wbs.plannedRefDate') ?? '';
-    } catch {
-      return '';
-    }
-  });
+   *  - 기본: 빈 값('') = "오늘 자동" 모드(매일 자동 갱신). 새로고침하면 항상 오늘 기준으로 시작.
+   *  - 사용자가 날짜를 입력하면 해당 세션 동안만 그 날짜 기준으로 재계산(저장하지 않음 —
+   *    며칠 전 기준일이 localStorage에 남아 계획율이 전부 0%로 보이던 문제 방지) */
+  const [plannedRefDateIso, setPlannedRefDateIso] = useState('');
   useEffect(() => {
+    // 과거 버전이 영구 저장해 둔 고정 기준일 제거(남아 있으면 매일 어긋난 기준으로 보임)
     try {
-      if (plannedRefDateIso) window.localStorage.setItem('wbs.plannedRefDate', plannedRefDateIso);
-      else window.localStorage.removeItem('wbs.plannedRefDate');
+      window.localStorage.removeItem('wbs.plannedRefDate');
     } catch {
-      /* ignore quota */
+      /* ignore */
     }
-  }, [plannedRefDateIso]);
+  }, []);
   /** computePlannedProgressMap에 넘길 실제 ref date — 빈 문자열이면 undefined(=오늘 자동) */
   const effectivePlannedRef = plannedRefDateIso || undefined;
 
@@ -973,19 +936,17 @@ export function WBSTable({
   /** 스크롤 영역 하단 패딩. 서식 툴바·일괄 수정 바 모두 상단 도킹으로 이동했으므로 하단 여백은 불필요(기본 pb-6 사용). */
   const tableScrollBottomPadding = undefined;
 
-  /** 상단 도킹 서식 툴바 표시 조건: 편집 가능 + (행 체크 선택 또는 WBS 외 셀 포커스). 엑셀뷰·행 편집 중엔 숨김. */
+  /** 하단 도킹 서식 툴바 표시 조건: 편집 가능 + (행 체크 선택 또는 WBS 외 셀 포커스). 엑셀뷰·행 편집 중엔 숨김. */
   const showCellFormatToolbar = useMemo(() => {
     if (excelView || editingTask || !canEditCurrentProject) return false;
     if (selectedTaskIds.size >= 1) return true;
     return focusedCell != null && focusedCell.columnId !== 'wbsId' && tasks.some((t) => t.id === focusedCell.taskId);
   }, [excelView, editingTask, canEditCurrentProject, selectedTaskIds, focusedCell, tasks]);
 
-  /** SummaryBar(h-14) 높이 px. 서식/일괄 바 오버레이는 이 아래(요약 바를 가리지 않게)에 도킹한다. */
-  const SUMMARY_BAR_PX = 56;
   /** 일괄 수정 바 표시 여부(2개 이상 체크 선택). */
   const showBulkBar = !excelView && selectedTaskIds.size > 1;
 
-  // 상단 도킹된 셀 서식 툴바의 실제 높이 — 일괄 수정 바를 그 바로 아래에 정확히 붙이기 위해 측정.
+  // 하단 도킹된 셀 서식 툴바의 실제 높이 — split 뷰에서 간트 하단을 같은 높이만큼 띄워 행 정렬을 맞추는 데 사용.
   const cellFormatDockRef = useRef<HTMLDivElement | null>(null);
   const [cellFormatDockHeight, setCellFormatDockHeight] = useState(0);
   useEffect(() => {
@@ -1002,7 +963,7 @@ export function WBSTable({
     return () => ro.disconnect();
   }, [showCellFormatToolbar]);
 
-  // 일괄 수정 바 높이 — 본문/간트를 그만큼 더 띄워 도킹 바가 행을 가리지 않게 한다.
+  // 일괄 수정 바 높이 — split 뷰에서 간트 하단을 그만큼 띄워 행 정렬을 맞춘다.
   const bulkBarRef = useRef<HTMLDivElement | null>(null);
   const [bulkBarHeight, setBulkBarHeight] = useState(0);
   useEffect(() => {
@@ -1019,11 +980,16 @@ export function WBSTable({
     return () => ro.disconnect();
   }, [showBulkBar]);
 
-  /** 요약 바 아래에 도킹된 서식+일괄 바의 총 높이 — 본문(스페이서)·간트 상단(inset)을 이만큼 띄워 정렬. */
-  const topDockTotalHeight = (showCellFormatToolbar ? cellFormatDockHeight : 0) + (showBulkBar ? bulkBarHeight : 0);
+  /** 표 하단에 도킹된 서식+일괄 바의 총 높이 — split 뷰에서 간트 하단(inset)을 이만큼 띄워 행 정렬(뷰포트 끝)을 맞춘다. */
+  const bottomDockTotalHeight = (showCellFormatToolbar ? cellFormatDockHeight : 0) + (showBulkBar ? bulkBarHeight : 0);
   useEffect(() => {
-    onTopInsetChange?.(topDockTotalHeight);
-  }, [onTopInsetChange, topDockTotalHeight]);
+    onBottomInsetChange?.(bottomDockTotalHeight);
+  }, [onBottomInsetChange, bottomDockTotalHeight]);
+
+  /** split 뷰: 하단 도킹 바(서식·일괄)를 표 패널 대신 전체 너비 슬롯(표+간트 아래)으로 포털한다.
+   *  슬롯이 없으면(표만 뷰) 기존처럼 표 패널 하단에 in-flow로 붙는다. */
+  const renderBottomDock = (node: React.ReactNode): React.ReactNode =>
+    bottomDockContainer ? createPortal(node, bottomDockContainer) : node;
 
   // setLastSelectedId 호출 시 activeTaskId도 같은 사이클에서 함께 set한다.
   // (양방향 동기화 effect만으로는 키보드 repeat 같은 빠른 연속 호출에서 race로 두 state가 어긋나
@@ -1943,7 +1909,7 @@ export function WBSTable({
           setIsMdEditModalOpen(true);
         }}
         onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
-        onAutoAlignSchedule={canEditCurrentProject ? (e) => setAutoAlignMenu({ x: e.clientX, y: e.clientY }) : undefined}
+        onAutoAlignSchedule={canEditCurrentProject ? () => runDistributeChildren() : undefined}
         tableAutoFormatting={{
           effectiveOn: showTableAutoFormatting,
           globalEnabled: globalAutoFormattingOn,
@@ -1959,29 +1925,6 @@ export function WBSTable({
         }
         showAdvancedTools={showAdvancedTools}
       />
-      {/* 셀 서식 툴바(상단 도킹) — 셀 포커스 또는 행 체크 선택 시에만 표시.
-          요약 바(top:0, 56px) 바로 아래(top:56)에 오버레이 → 요약 바 메뉴를 가리지 않는다.
-          아래 in-flow 스페이서가 같은 높이를 차지해 본문/헤더를 밀고, 분할뷰는 간트 상단 inset으로 행 정렬을 맞춘다. */}
-      {showCellFormatToolbar && (
-        <div ref={cellFormatDockRef} className="absolute inset-x-0 z-40" style={{ top: SUMMARY_BAR_PX }}>
-          <CellFormatToolbar
-            focusedCell={focusedCell}
-            selectedTaskIds={selectedTaskIds}
-            rowApplyColumnIds={editableColumnIds}
-            tasks={tasks}
-            canEdit={canEditCurrentProject}
-            customColumnNameById={customColumnNameById}
-            updateTask={updateTask}
-            onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
-            onClose={() => {
-              setSelection(new Set());
-              setFocusedCell(null);
-            }}
-          />
-        </div>
-      )}
-      {/* 도킹된 서식+일괄 바(오버레이)가 차지하는 만큼 본문을 아래로 밀어 행을 가리지 않게 하는 in-flow 스페이서. */}
-      {topDockTotalHeight > 0 && <div className="flex-shrink-0" style={{ height: topDockTotalHeight }} aria-hidden />}
       <div
         className={cn('w-full flex flex-col min-h-0', fillHeight && 'flex-1')}
         style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}
@@ -2416,7 +2359,7 @@ export function WBSTable({
                         onClick={() => activateGhostRow()}
                         title="클릭 또는 Enter로 새 작업 추가"
                       >
-                        <div className="data-cell"></div>
+                        {/* 리딩 고정 3칸: grip · checkbox · seq (gridStyle와 동일). 이후 visibleColumnIds(첫 칸 wbsId, 다음 name…)로 정렬 */}
                         <div className="data-cell"></div>
                         <div className="data-cell"></div>
                         <div className="data-cell"></div>
@@ -2451,7 +2394,7 @@ export function WBSTable({
                         ...(isSplitView ? { height: rowHeight, minHeight: rowHeight, maxHeight: rowHeight } : undefined),
                       }}
                     >
-                      <div className="data-cell"></div>
+                      {/* 리딩 고정 3칸: grip · checkbox · seq (gridStyle와 동일). 이후 visibleColumnIds(첫 칸 wbsId, 다음 name…)로 정렬 */}
                       <div className="data-cell"></div>
                       <div className="data-cell"></div>
                       <div className="data-cell"></div>
@@ -2515,7 +2458,28 @@ export function WBSTable({
         )}
       </div>
 
-      {/* (셀 서식 툴바는 상단 도킹 오버레이로 이동 — content 상단의 showCellFormatToolbar 블록 참조) */}
+      {/* 셀 서식 툴바(하단 도킹) — 셀 포커스 또는 행 체크 선택 시 하단에 붙는다.
+          상단이 아니라 하단에 두는 이유: 선택/해제 때 위쪽 행이 위아래로 밀리지 않게 하기 위함(본문 뷰포트만 아래에서 줄어듦).
+          split 뷰에서는 renderBottomDock로 표+간트 전체 너비 슬롯(bottomDockContainer)에 포털 렌더 — 표 패널 폭에 갇히지 않게. */}
+      {showCellFormatToolbar &&
+        renderBottomDock(
+          <div ref={cellFormatDockRef} className="flex-shrink-0 z-20">
+            <CellFormatToolbar
+              focusedCell={focusedCell}
+              selectedTaskIds={selectedTaskIds}
+              rowApplyColumnIds={editableColumnIds}
+              tasks={tasks}
+              canEdit={canEditCurrentProject}
+              customColumnNameById={customColumnNameById}
+              updateTask={updateTask}
+              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
+              onClose={() => {
+                setSelection(new Set());
+                setFocusedCell(null);
+              }}
+            />
+          </div>,
+        )}
 
       {/* 클립보드 안내 칩 — 복사하면 화면 좌측 하단에 계속 떠서 ① 복사됨 확인 ② 붙여넣기 위치 안내 ③ 붙여넣기/지우기 버튼 제공.
           토스트(잠깐 뜨고 사라짐)와 달리 복사한 작업이 남아 있는 동안 지속 표시되어 "어디서 어떻게 붙여넣는지"를 분명히 한다. */}
@@ -2570,301 +2534,300 @@ export function WBSTable({
           document.body,
         )}
 
-      {/* 일괄 수정 바 — 요약 바·서식 툴바 아래에 도킹(요약 바 메뉴를 가리지 않게 top:56 아래로). 큰 헤더 없이 한 줄. */}
-      {showBulkBar && (
-        <div
-          ref={bulkBarRef}
-          className="absolute inset-x-0 z-30 animate-in slide-in-from-top-2 fade-in duration-200"
-          style={{ top: SUMMARY_BAR_PX + (showCellFormatToolbar ? cellFormatDockHeight : 0) }}
-        >
-          <div className="flex w-full items-end gap-2.5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-b border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 shadow-sm">
-            {/* 선택 개수 */}
-            <span className="self-center shrink-0 inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-800">
-              일괄 수정 · {selectedTaskIds.size}행
-            </span>
-            <div className="h-7 w-px bg-slate-200 self-center shrink-0" />
-            {/* Fields + Actions */}
-            <div className="flex items-end gap-2.5">
-              {/* 상태 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">상태</label>
-                <select
-                  value={bulkStatus}
-                  onChange={(e) => setBulkStatus(e.target.value)}
-                  className={cn(
-                    'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer',
-                    bulkStatus ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
-                  )}
-                >
-                  <option value="">변경 없음</option>
-                  {(wbsSettings?.statusConfigs ?? []).map((config) => (
-                    <option key={config.id} value={config.id}>
-                      {config.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 작업 유형(마일스톤·이슈·액션) */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">유형</label>
-                <select
-                  value={bulkTaskKind}
-                  onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
-                  title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
-                  className={cn(
-                    'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer min-w-[8.5rem]',
-                    bulkTaskKind ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
-                  )}
-                >
-                  <option value="">변경 없음</option>
-                  <option value="plain">일반 작업</option>
-                  <option value="milestone">마일스톤</option>
-                  <option value="issue">이슈</option>
-                  <option value="action">액션 항목</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
+      {/* 일괄 수정 바(하단 도킹) — 서식 툴바 바로 아래에 붙는다(2개 이상 체크 선택 시). split 뷰에서는 renderBottomDock로 전체 너비 슬롯에 포털. */}
+      {showBulkBar &&
+        renderBottomDock(
+          <div ref={bulkBarRef} className="flex-shrink-0 z-20 animate-in slide-in-from-bottom-2 fade-in duration-200">
+            <div className="flex w-full items-end gap-2.5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-t border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 shadow-[0_-1px_3px_rgba(0,0,0,0.06)]">
+              {/* 선택 개수 */}
+              <span className="self-center shrink-0 inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-800">
+                일괄 수정 · {selectedTaskIds.size}행
+              </span>
+              <div className="h-7 w-px bg-slate-200 self-center shrink-0" />
+              {/* Fields + Actions */}
+              <div className="flex items-end gap-2.5">
+                {/* 상태 */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">담당자</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      list="all-assignees"
-                      value={bulkAssignee}
-                      onChange={(e) => setBulkAssignee(e.target.value)}
-                      placeholder="조직 회원에서 검색 또는 직접 입력"
-                      title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
-                      className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-56"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') executeBulkAssignee();
-                      }}
-                    />
-                    <datalist id="all-assignees">
-                      {bulkAssigneeCandidates.map((name) => {
-                        const label = bulkAssigneeLabelByName.get(name);
-                        return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
-                      })}
-                    </datalist>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">상태</label>
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}
+                    className={cn(
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer',
+                      bulkStatus ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
+                    )}
+                  >
+                    <option value="">변경 없음</option>
+                    {(wbsSettings?.statusConfigs ?? []).map((config) => (
+                      <option key={config.id} value={config.id}>
+                        {config.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 작업 유형(마일스톤·이슈·액션) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">유형</label>
+                  <select
+                    value={bulkTaskKind}
+                    onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
+                    title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
+                    className={cn(
+                      'px-2 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white cursor-pointer min-w-[8.5rem]',
+                      bulkTaskKind ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
+                    )}
+                  >
+                    <option value="">변경 없음</option>
+                    <option value="plain">일반 작업</option>
+                    <option value="milestone">마일스톤</option>
+                    <option value="issue">이슈</option>
+                    <option value="action">액션 항목</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">담당자</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        list="all-assignees"
+                        value={bulkAssignee}
+                        onChange={(e) => setBulkAssignee(e.target.value)}
+                        placeholder="조직 회원에서 검색 또는 직접 입력"
+                        title="조직 회원·프로젝트 등록 인원 목록에서 선택하거나 직접 입력. Enter로 적용."
+                        className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-56"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') executeBulkAssignee();
+                        }}
+                      />
+                      <datalist id="all-assignees">
+                        {bulkAssigneeCandidates.map((name) => {
+                          const label = bulkAssigneeLabelByName.get(name);
+                          return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                        })}
+                      </datalist>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* 공수 — 프로젝트 단위에 맞게 입력 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">{workEffortHeaderTitle}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={bulkWorkEffort}
-                  onChange={(e) => setBulkWorkEffort(e.target.value)}
-                  placeholder={`${workEffortHeaderTitle} 일괄`}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36"
-                />
-              </div>
+                {/* 공수 — 프로젝트 단위에 맞게 입력 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">
+                    {workEffortHeaderTitle}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={bulkWorkEffort}
+                    onChange={(e) => setBulkWorkEffort(e.target.value)}
+                    placeholder={`${workEffortHeaderTitle} 일괄`}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36"
+                  />
+                </div>
 
-              {/* 진척율(%) — 0~100 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">진척율(%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={bulkProgress}
-                  onChange={(e) => setBulkProgress(e.target.value)}
-                  placeholder="0~100"
-                  title={[
-                    '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
-                    '',
-                    PROGRESS_COLUMN_HELP_TEXT,
-                    '',
-                    '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
-                  ].join('\n')}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
-                />
-              </div>
+                {/* 진척율(%) — 0~100 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">진척율(%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bulkProgress}
+                    onChange={(e) => setBulkProgress(e.target.value)}
+                    placeholder="0~100"
+                    title={[
+                      '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
+                      '',
+                      PROGRESS_COLUMN_HELP_TEXT,
+                      '',
+                      '요약(하위 있음) 행에 적용한 뒤에도, 저장·동기화 후 자식 기준 롤업이 다시 덮어쓸 수 있습니다.',
+                    ].join('\n')}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
+                  />
+                </div>
 
-              {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">가중치</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={bulkWeight}
-                  onChange={(e) => setBulkWeight(e.target.value)}
-                  placeholder="가중치 일괄 지정..."
-                  title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-32"
-                />
-              </div>
+                {/* 가중치 — 0 이상. 비워두면 기존값 유지 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">가중치</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={bulkWeight}
+                    onChange={(e) => setBulkWeight(e.target.value)}
+                    placeholder="가중치 일괄 지정..."
+                    title={['선택한 작업에 동일한 가중치를 일괄 적용합니다.', '', WEIGHT_COLUMN_HELP_TEXT].join('\n')}
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-32"
+                  />
+                </div>
 
-              {/* 시작일 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">시작일</label>
-                <input
-                  type="date"
-                  value={bulkStartDate}
-                  onChange={(e) => setBulkStartDate(e.target.value)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
-                    bulkStartDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
-                  )}
-                />
-              </div>
+                {/* 시작일 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">시작일</label>
+                  <input
+                    type="date"
+                    value={bulkStartDate}
+                    onChange={(e) => setBulkStartDate(e.target.value)}
+                    className={cn(
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
+                      bulkStartDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
+                    )}
+                  />
+                </div>
 
-              {/* 완료일(종료일) */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">완료일</label>
-                <input
-                  type="date"
-                  value={bulkEndDate}
-                  onChange={(e) => setBulkEndDate(e.target.value)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
-                    bulkEndDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
-                  )}
-                />
-              </div>
+                {/* 완료일(종료일) */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">완료일</label>
+                  <input
+                    type="date"
+                    value={bulkEndDate}
+                    onChange={(e) => setBulkEndDate(e.target.value)}
+                    className={cn(
+                      'px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-36',
+                      bulkEndDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
+                    )}
+                  />
+                </div>
 
-              {/* 투입율(%) — 0~100 */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">투입율(%)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={bulkAllocation}
-                  onChange={(e) => setBulkAllocation(e.target.value)}
-                  placeholder="0~100"
-                  title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
-                  className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
-                />
-              </div>
+                {/* 투입율(%) — 0~100 */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-0.5">투입율(%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bulkAllocation}
+                    onChange={(e) => setBulkAllocation(e.target.value)}
+                    placeholder="0~100"
+                    title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
+                    className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-28"
+                  />
+                </div>
 
-              {/* 적용 버튼 - 상태, 유형, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
-              <button
-                onClick={executeBulkEdit}
-                disabled={
-                  !bulkStatus &&
-                  !bulkTaskKind &&
-                  !bulkAssignee.trim() &&
-                  (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
-                  (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
-                  (bulkPlannedProgress === '' || isNaN(parseFloat(bulkPlannedProgress))) &&
-                  (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
-                  !bulkStartDate.trim() &&
-                  !bulkEndDate.trim() &&
-                  (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
-                }
-                className="self-end text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
-                title="입력한 항목 모두 적용"
-              >
-                적용
-              </button>
-
-              {canEditCurrentProject && selectedTaskIds.size >= 2 && (
+                {/* 적용 버튼 - 상태, 유형, 담당자, 공수, 진척율, 가중치, 시작일, 완료일, 투입율 등 입력된 모든 항목 일괄 적용 */}
                 <button
-                  type="button"
-                  onClick={executeBulkLinkSequentialPredecessors}
-                  className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                  title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다."
+                  onClick={executeBulkEdit}
+                  disabled={
+                    !bulkStatus &&
+                    !bulkTaskKind &&
+                    !bulkAssignee.trim() &&
+                    (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
+                    (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
+                    (bulkPlannedProgress === '' || isNaN(parseFloat(bulkPlannedProgress))) &&
+                    (bulkWeight === '' || isNaN(parseFloat(bulkWeight))) &&
+                    !bulkStartDate.trim() &&
+                    !bulkEndDate.trim() &&
+                    (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
+                  }
+                  className="self-end text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 px-5 py-1.5 rounded-lg transition-colors"
+                  title="입력한 항목 모두 적용"
                 >
-                  <Link2 size={14} />
-                  선행 순차 연결
+                  적용
                 </button>
-              )}
 
-              <button
-                onClick={executeBulkClearDependencies}
-                className="flex items-center gap-2 text-amber-700 hover:text-amber-800 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                title="선택한 작업들의 선행작업을 모두 제거"
-              >
-                <Unlink size={14} />
-                선행작업 지우기
-              </button>
+                {canEditCurrentProject && selectedTaskIds.size >= 2 && (
+                  <button
+                    type="button"
+                    onClick={executeBulkLinkSequentialPredecessors}
+                    className="flex items-center gap-2 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title="표에 보이는 순서대로, 위에서 아래로 이전 행을 각 행의 선행작업으로 연결합니다."
+                  >
+                    <Link2 size={14} />
+                    선행 순차 연결
+                  </button>
+                )}
 
-              {canEditCurrentProject && (
                 <button
-                  type="button"
-                  onClick={() => {
-                    // 선택된 각 작업의 「진척률」을 「현재 계획율(자동 산정값)」으로 일괄 설정.
-                    // 종료일이 지난 작업은 100%로, 진행 중인 작업은 일정 진행률(%)로 채워진다.
-                    let n = 0;
-                    for (const id of selectedTaskIds) {
-                      const t = tasks.find((x) => x.id === id);
-                      if (!t) continue;
-                      const planned = plannedProgressById.get(t.id);
-                      if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
-                      const v = round2(planned);
-                      if (Number(t.progress ?? 0) !== v) {
-                        updateTask(t.id, { progress: v });
-                        n += 1;
+                  onClick={executeBulkClearDependencies}
+                  className="flex items-center gap-2 text-amber-700 hover:text-amber-800 hover:bg-amber-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                  title="선택한 작업들의 선행작업을 모두 제거"
+                >
+                  <Unlink size={14} />
+                  선행작업 지우기
+                </button>
+
+                {canEditCurrentProject && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 선택된 각 작업의 「진척률」을 「현재 계획율(자동 산정값)」으로 일괄 설정.
+                      // 종료일이 지난 작업은 100%로, 진행 중인 작업은 일정 진행률(%)로 채워진다.
+                      let n = 0;
+                      for (const id of selectedTaskIds) {
+                        const t = tasks.find((x) => x.id === id);
+                        if (!t) continue;
+                        const planned = plannedProgressById.get(t.id);
+                        if (typeof planned !== 'number' || !Number.isFinite(planned)) continue;
+                        const v = round2(planned);
+                        if (Number(t.progress ?? 0) !== v) {
+                          updateTask(t.id, { progress: v });
+                          n += 1;
+                        }
                       }
-                    }
-                    pushToast(
-                      n > 0
-                        ? `진척률을 현재 계획율로 맞췄습니다. (${n}개 작업, 기준일 ${effectivePlannedRef ?? '오늘'})`
-                        : '변경 사항이 없습니다. (이미 진척률 = 계획율)',
-                      { variant: n > 0 ? 'success' : 'info' },
-                    );
-                  }}
-                  className="flex items-center gap-2 text-sky-700 hover:text-sky-800 hover:bg-sky-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                  title={[
-                    '선택한 각 작업의 「진척률(%)」을 「현재 계획율(자동 산정값)」으로 일괄 설정합니다.',
-                    '- 종료일이 기준일을 지난 작업 → 100%로 채워짐',
-                    '- 진행 중인 작업 → 일정 진행률(%)로 채워짐',
-                    '- 시작 전 작업 → 0%',
-                    '결과: 차이(%P) = 0 (계획대로 진행 중인 것으로 표시).',
-                    '실행취소(Ctrl+Z)로 되돌릴 수 있습니다.',
-                  ].join('\n')}
-                >
-                  <Equal size={14} />
-                  진척률 = 계획율
-                </button>
-              )}
+                      pushToast(
+                        n > 0
+                          ? `진척률을 현재 계획율로 맞췄습니다. (${n}개 작업, 기준일 ${effectivePlannedRef ?? '오늘'})`
+                          : '변경 사항이 없습니다. (이미 진척률 = 계획율)',
+                        { variant: n > 0 ? 'success' : 'info' },
+                      );
+                    }}
+                    className="flex items-center gap-2 text-sky-700 hover:text-sky-800 hover:bg-sky-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title={[
+                      '선택한 각 작업의 「진척률(%)」을 「현재 계획율(자동 산정값)」으로 일괄 설정합니다.',
+                      '- 종료일이 기준일을 지난 작업 → 100%로 채워짐',
+                      '- 진행 중인 작업 → 일정 진행률(%)로 채워짐',
+                      '- 시작 전 작업 → 0%',
+                      '결과: 차이(%P) = 0 (계획대로 진행 중인 것으로 표시).',
+                      '실행취소(Ctrl+Z)로 되돌릴 수 있습니다.',
+                    ].join('\n')}
+                  >
+                    <Equal size={14} />
+                    진척률 = 계획율
+                  </button>
+                )}
 
-              <div className="h-4 w-px bg-slate-200" />
+                <div className="h-4 w-px bg-slate-200" />
 
-              {/* 행 단위 복사 (읽기 동작 — 권한 무관). 붙여넣기는 복사 후 화면에 떠 있는 '클립보드 안내 칩'에서 수행. */}
-              <button
-                type="button"
-                onClick={handleBulkCopySelected}
-                className="flex items-center gap-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                title={`선택한 ${selectedTaskIds.size}개 작업을 복사합니다. 복사하면 화면 좌측 하단에 '붙여넣기' 안내가 나타납니다. (하위 구조·선행관계까지 그대로 추가)`}
-              >
-                <Copy size={14} />
-                복사
-              </button>
-
-              {canEditCurrentProject && (
+                {/* 행 단위 복사 (읽기 동작 — 권한 무관). 붙여넣기는 복사 후 화면에 떠 있는 '클립보드 안내 칩'에서 수행. */}
                 <button
-                  onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
-                  className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
-                  title="선택된 모든 작업 삭제"
+                  type="button"
+                  onClick={handleBulkCopySelected}
+                  className="flex items-center gap-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                  title={`선택한 ${selectedTaskIds.size}개 작업을 복사합니다. 복사하면 화면 좌측 하단에 '붙여넣기' 안내가 나타납니다. (하위 구조·선행관계까지 그대로 추가)`}
                 >
-                  <Trash2 size={14} />
-                  삭제
+                  <Copy size={14} />
+                  복사
                 </button>
-              )}
-              <button
-                onClick={() => {
-                  setSelection(new Set());
-                  resetBulkFields();
-                }}
-                title="선택 해제"
-                className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors self-center shrink-0"
-              >
-                <X size={14} />
-              </button>
+
+                {canEditCurrentProject && (
+                  <button
+                    onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
+                    className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                    title="선택된 모든 작업 삭제"
+                  >
+                    <Trash2 size={14} />
+                    삭제
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelection(new Set());
+                    resetBulkFields();
+                  }}
+                  title="선택 해제"
+                  className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors self-center shrink-0"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+        )}
 
       {editingTask && (
         <React.Suspense fallback={null}>
@@ -2930,26 +2893,6 @@ export function WBSTable({
             onJumpToTask={scrollTaskIntoView}
           />
         </React.Suspense>
-      )}
-
-      {autoAlignMenu && (
-        <ContextMenu
-          x={autoAlignMenu.x}
-          y={autoAlignMenu.y}
-          onClose={() => setAutoAlignMenu(null)}
-          actions={[
-            {
-              label: '하위 → 상위 롤업 (기존)',
-              icon: <ArrowUp size={14} />,
-              onClick: runRollupAlign,
-            },
-            {
-              label: '상위 → 하위 균등 분배',
-              icon: <ArrowDown size={14} />,
-              onClick: runDistributeChildren,
-            },
-          ]}
-        />
       )}
 
       {contextMenu && (
@@ -3194,17 +3137,12 @@ export function WBSTable({
                             },
                           },
                         ]),
-                    // 특정 작업 범위로 한정한 '일정 자동 맞춤' — 하위가 있는 작업에서만 노출.
+                    // 특정 작업 범위로 한정한 '하위일정 균등분할' — 하위가 있는 작업에서만 노출.
                     ...(canEditCurrentProject && contextMenu.taskId && hasChildrenSet.has(contextMenu.taskId)
                       ? [
                           { divider: true },
                           {
-                            label: '하위→상위 롤업 (이 작업)',
-                            icon: <ArrowUp size={14} />,
-                            onClick: () => runRollupTask(contextMenu.taskId!),
-                          },
-                          {
-                            label: '상위→하위 균등 분배 (이 작업)',
+                            label: '하위일정 균등분할 (이 작업)',
                             icon: <ArrowDown size={14} />,
                             onClick: () => runDistributeTask(contextMenu.taskId!),
                           },

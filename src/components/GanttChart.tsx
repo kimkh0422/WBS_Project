@@ -43,8 +43,8 @@ interface GanttChartProps {
   hotkeysEnabled?: boolean;
   /** split 뷰에서 표 본문 맨 아래 [+ 새 작업 추가] 행 높이만큼 간트 하단을 띄워 행 정렬 맞춤. 0이면 띄우지 않음. */
   bottomSpacerHeight?: number;
-  /** split 뷰에서 표 상단에 도킹된 서식/일괄 바 높이만큼 간트 상단을 띄워 표·간트 행 시작 위치를 맞춤. 0이면 띄우지 않음. */
-  topInsetHeight?: number;
+  /** split 뷰에서 표 하단에 도킹된 서식/일괄 바 높이만큼 간트 하단을 띄워 표·간트 행 끝(뷰포트 높이) 위치를 맞춤. 0이면 띄우지 않음. */
+  bottomInsetHeight?: number;
 }
 
 export function GanttChart({
@@ -59,7 +59,7 @@ export function GanttChart({
   splitGanttBottomScrollRef,
   hotkeysEnabled = true,
   bottomSpacerHeight = 0,
-  topInsetHeight = 0,
+  bottomInsetHeight = 0,
 }: GanttChartProps) {
   const {
     tasks,
@@ -581,10 +581,6 @@ export function GanttChart({
     return (
       <>
         <div className="w-full h-full flex flex-col bg-white">
-          {/* 표 상단에 도킹된 서식/일괄 바 높이만큼 간트도 띄워 표·간트 행 시작 위치를 맞춘다. */}
-          {topInsetHeight > 0 && (
-            <div className="flex-shrink-0 border-b border-[var(--color-line)] bg-slate-50" style={{ height: topInsetHeight }} aria-hidden />
-          )}
           {/* 표의 Summary Bar와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 (min-h로 여유 두어 화면 잘림 방지) */}
           <div className="h-14 flex-shrink-0 flex items-center gap-3 px-4 py-0 border-b border-[var(--color-line)] bg-slate-50 overflow-x-auto overflow-y-hidden whitespace-nowrap">
             {/* 확대/축소 (너비 간격) */}
@@ -902,6 +898,14 @@ export function GanttChart({
           >
             <div style={{ width: totalWidth, height: 1 }} />
           </div>
+          {/* 표 하단에 도킹된 서식/일괄 바 높이만큼 간트 하단도 띄워 표·간트 뷰포트(행 끝) 정렬을 맞춘다. */}
+          {bottomInsetHeight > 0 && (
+            <div
+              className="flex-shrink-0 border-t border-[var(--color-line)] bg-slate-50"
+              style={{ height: bottomInsetHeight }}
+              aria-hidden
+            />
+          )}
         </div>
 
         {tappedBarPopoverEl}

@@ -4,13 +4,26 @@ import type { BackupData } from '../lib/export';
 import type { ExcelImportMeta } from '../lib/excel';
 import type { ExportScope, ExportFormat } from '../components/ExportModal';
 
+/** 단축키 사이드바 자동 표시 끔 플래그 — 「다시 보지 않기」 선택 시에만 '1' 기록. X(이번만 닫기)는 세션 동안만 닫힘 */
+export const SHORTCUTS_HIDE_KEY = 'wbs.shortcuts.hide';
+
+function readShortcutsHidden(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SHORTCUTS_HIDE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function useModalStates() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
-  // 단축키 사이드바는 매 세션 무조건 표시(ON). 사용자가 닫으면 그 세션 동안만 닫힘 — 새로고침·재접속 시 다시 ON.
-  const [isShortcutsVisible, setIsShortcutsVisible] = useState<boolean>(true);
+  // 단축키 사이드바: 기본은 매 세션 표시(ON). 단 「다시 보지 않기」를 선택했으면 자동 표시 안 함.
+  // X(닫기)는 그 세션 동안만 닫힘 — 새로고침·재접속 시 다시 ON. 메뉴(단축키)·Shift+? 로 언제든 다시 열 수 있음.
+  const [isShortcutsVisible, setIsShortcutsVisible] = useState<boolean>(() => !readShortcutsHidden());
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isDeleteProjectConfirmOpen, setIsDeleteProjectConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);

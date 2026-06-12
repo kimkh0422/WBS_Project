@@ -57,8 +57,8 @@ export function TableGanttSplit({
   const resizeClientXRef = useRef(0);
 
   const [rowHeights, setRowHeights] = useState<number[]>([]);
-  // 표 상단에 도킹된 서식/일괄 바 높이 — 간트 상단도 같은 높이만큼 띄워 행 정렬을 맞춘다.
-  const [tableTopInset, setTableTopInset] = useState(0);
+  // 하단 서식/일괄 도킹 바를 표 패널이 아니라 표+간트 전체 너비 슬롯으로 포털하기 위한 컨테이너(상태로 보관 → 마운트 시 WBSTable에 전달).
+  const [bottomDockSlot, setBottomDockSlot] = useState<HTMLDivElement | null>(null);
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
@@ -142,51 +142,57 @@ export function TableGanttSplit({
   return (
     <div
       ref={containerRef}
-      className="list-split-view flex flex-col md:flex-row h-full min-h-0 overflow-hidden bg-white"
+      className="list-split-view flex flex-col h-full min-h-0 overflow-hidden bg-white"
       style={{ ['--split-table-pct' as string]: `${tablePaneWidthPct}%` }}
     >
-      <div className="list-table-pane h-[min(50vh,480px)] md:h-full min-h-0 flex flex-col overflow-hidden max-md:w-full">
-        <WBSTable
-          fillHeight
-          filters={filters}
-          sortConfig={sortConfig}
-          onOpenColumnSettings={onOpenColumnSettings}
-          onResetFilters={onResetFilters}
-          scrollToTaskId={scrollToTaskId}
-          onSort={onSort}
-          syncScrollRef={tableScrollRef}
-          splitHeaderScrollRef={tableHeaderScrollRef}
-          rowHeight={sharedRowHeight}
-          onRowHeightChange={onRowHeightChange}
-          onRowHeightsChange={setRowHeights}
-          syncRowHeights={rowHeights}
-          onTopInsetChange={setTableTopInset}
+      {/* 패널 행(표 + 스플리터 + 간트). 하단 도킹 바를 전체 너비로 빼기 위해 패널은 이 안에 묶고, 바는 아래 슬롯에 둔다. */}
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full overflow-hidden">
+        <div className="list-table-pane h-[min(50vh,480px)] md:h-full min-h-0 flex flex-col overflow-hidden max-md:w-full">
+          <WBSTable
+            fillHeight
+            filters={filters}
+            sortConfig={sortConfig}
+            onOpenColumnSettings={onOpenColumnSettings}
+            onResetFilters={onResetFilters}
+            scrollToTaskId={scrollToTaskId}
+            onSort={onSort}
+            syncScrollRef={tableScrollRef}
+            splitHeaderScrollRef={tableHeaderScrollRef}
+            rowHeight={sharedRowHeight}
+            onRowHeightChange={onRowHeightChange}
+            onRowHeightsChange={setRowHeights}
+            syncRowHeights={rowHeights}
+            bottomDockContainer={bottomDockSlot}
+          />
+        </div>
+
+        <button
+          type="button"
+          aria-label="표와 간트 영역 너비 조절"
+          title="드래그하여 표·간트 너비 조절"
+          className="hidden md:block shrink-0 w-2 self-stretch cursor-col-resize touch-none z-[35] border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
+          onMouseDown={handleSplitterMouseDown}
         />
+
+        <div data-tourid="tour-gantt" className="list-gantt-pane flex-1 min-h-0 min-w-0 h-[min(50vh,480px)] md:h-full overflow-hidden">
+          <GanttChart
+            filters={filters}
+            sortConfig={sortConfig}
+            hideSidebar
+            syncScrollRef={ganttScrollRef}
+            splitGanttHeaderScrollRef={ganttHeaderScrollRef}
+            splitGanttBottomScrollRef={ganttBottomScrollRef}
+            rowHeight={sharedRowHeight}
+            rowHeights={rowHeights}
+            onRowHeightChange={onRowHeightChange}
+            bottomSpacerHeight={sharedRowHeight}
+            bottomInsetHeight={0}
+          />
+        </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="표와 간트 영역 너비 조절"
-        title="드래그하여 표·간트 너비 조절"
-        className="hidden md:block shrink-0 w-2 self-stretch cursor-col-resize touch-none z-[35] border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
-        onMouseDown={handleSplitterMouseDown}
-      />
-
-      <div data-tourid="tour-gantt" className="list-gantt-pane flex-1 min-h-0 min-w-0 h-[min(50vh,480px)] md:h-full overflow-hidden">
-        <GanttChart
-          filters={filters}
-          sortConfig={sortConfig}
-          hideSidebar
-          syncScrollRef={ganttScrollRef}
-          splitGanttHeaderScrollRef={ganttHeaderScrollRef}
-          splitGanttBottomScrollRef={ganttBottomScrollRef}
-          rowHeight={sharedRowHeight}
-          rowHeights={rowHeights}
-          onRowHeightChange={onRowHeightChange}
-          bottomSpacerHeight={sharedRowHeight}
-          topInsetHeight={tableTopInset}
-        />
-      </div>
+      {/* 하단 서식/일괄 도킹 바 슬롯 — 표 패널에 갇히지 않고 표+간트 전체 너비로 표시(WBSTable이 이 슬롯으로 포털 렌더). 바가 없으면 높이 0. */}
+      <div ref={setBottomDockSlot} className="w-full shrink-0 relative z-30" />
     </div>
   );
 }

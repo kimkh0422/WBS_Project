@@ -129,7 +129,7 @@ export interface WbsTableKeyboardDeps {
   handleSetRowHeight: (h: number) => void;
   handleSelectAll: () => void;
   handleSelect: (taskId: string, multi: boolean, range: boolean) => void;
-  pushToast: (msg: string, opts?: { variant?: string }) => void;
+  pushToast: (msg: string, opts?: { variant?: string; id?: string; durationMs?: number }) => void;
   loadClipboardTasks: () => Task[];
 
   // Refs
@@ -936,7 +936,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         // Shift+Enter: 동일 레벨(형제) 작업을 현재 행 "위"에 추가
         // 셀 편집·입력 중에는 비활성화 (작업명 등은 상단 별도 Enter 블록에서 처리)
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
-        if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
+        if (!canEditCurrentProject) {
+          // 조용히 무시하지 않고 이유를 안내 (사내 계정이 '회원 화면 체험' 등으로 막혀도 원인 파악이 쉽도록). id로 연타 시 중복 방지.
+          pushToast('편집 권한이 없어 새 작업을 추가할 수 없습니다.', { variant: 'info', id: 'wbs-no-edit-permission' });
+          return;
+        }
         e.preventDefault();
 
         // 기본 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행
@@ -983,7 +987,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         setInlineEditingNameId(newId);
       } else if (e.key === 'Insert') {
         if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
-        if (!canEditCurrentProject) return; // 편집 권한 없으면 새 작업 추가 비활성화
+        if (!canEditCurrentProject) {
+          // 조용히 무시하지 않고 이유를 안내 (사내 계정이 '회원 화면 체험' 등으로 막혀도 원인 파악이 쉽도록). id로 연타 시 중복 방지.
+          pushToast('편집 권한이 없어 새 작업을 추가할 수 없습니다.', { variant: 'info', id: 'wbs-no-edit-permission' });
+          return;
+        }
         e.preventDefault();
 
         // 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행

@@ -34,8 +34,10 @@ export interface WBSTableProps {
   onRowHeightsChange?: (heights: number[]) => void;
   /** split 뷰: 간트와 동일한 행 높이(가상 스크롤·총 높이 정렬) */
   syncRowHeights?: number[];
-  /** split 뷰: 표 상단에 도킹된 서식/일괄 바의 총 높이(px). 간트 상단을 같은 높이만큼 띄워 행 정렬을 맞추는 데 사용. */
-  onTopInsetChange?: (height: number) => void;
+  /** split 뷰: 표 하단에 도킹된 서식/일괄 바의 총 높이(px). 간트 하단을 같은 높이만큼 띄워 행 정렬을 맞추는 데 사용. */
+  onBottomInsetChange?: (height: number) => void;
+  /** split 뷰: 하단 서식/일괄 도킹 바를 표 패널이 아니라 이 컨테이너(표+간트 전체 너비)로 포털 렌더한다. 없으면(표만 뷰) 기존처럼 표 패널 하단에 in-flow로 붙는다. */
+  bottomDockContainer?: HTMLElement | null;
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */

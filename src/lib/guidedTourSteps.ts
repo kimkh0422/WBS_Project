@@ -60,14 +60,14 @@ export const GUIDED_TOUR_STEPS: GuidedTourStep[] = [
     id: 'addTask',
     target: '[data-tourid="tour-quick-add"]',
     title: '첫 작업 입력',
-    body: '표 맨 아래 강조된 입력란을 클릭해 작업명을 쓰고 Enter를 누르세요.\n예: 요구사항 분석',
+    body: '표 맨 아래 강조된 입력란을 클릭해 작업명을 쓰고 Enter(또는 Insert)를 누르세요.\n예: 요구사항 분석',
     mode: 'action',
   },
   {
     id: 'taskTips',
     target: '[data-tourid="tour-quick-add"]',
     title: '작업을 빠르게 늘리는 요령',
-    body: '행을 선택한 상태에서:\n· Enter — 아래에 새 작업 추가\n· Tab / Shift+Tab — 하위 / 상위 레벨로 이동 (1.1처럼 번호 자동 부여)\n· 작업명 클릭 — 바로 이름 수정\n· 더블클릭 또는 F2 — 기간·담당자·진척률 등 상세 편집',
+    body: '행을 선택한 상태에서:\n· Insert 또는 Enter — 아래에 새 작업 추가\n· Tab / Shift+Tab — 하위 / 상위 레벨로 이동 (1.1처럼 번호 자동 부여)\n· 작업명 클릭 — 바로 이름 수정\n· 더블클릭 또는 F2 — 기간·담당자·진척률 등 상세 편집',
     mode: 'next',
   },
   {

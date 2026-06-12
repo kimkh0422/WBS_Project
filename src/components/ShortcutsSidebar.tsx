@@ -85,13 +85,23 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
   );
 }
 
-export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView; onClose?: () => void }) {
+export function ShortcutsSidebar({
+  view,
+  onClose,
+  onNeverShow,
+}: {
+  view: ShortcutsContextView;
+  /** 이번만 닫기 — 세션 동안만 닫힘. 새로고침 시 다시 표시 */
+  onClose?: () => void;
+  /** 다시 보지 않기 — 다음 접속부터 자동 표시 안 함(메뉴·Shift+? 로는 다시 열 수 있음) */
+  onNeverShow?: () => void;
+}) {
   const sections = useMemo((): Section[] => {
     const commonItems: Shortcut[] = [
       { label: '되돌리기', chords: ['Ctrl', 'Z'] },
       { label: '다시 실행', chords: ['Ctrl', 'Y'] },
       { label: '레벨 펼치기', chords: ['Ctrl', 'Alt', '1~9'] },
-      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식·보완 가이드·가중치·일정 자동 맞춤' },
+      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식·보완 가이드·가중치·하위일정 균등분할' },
       { label: '이 패널', chords: ['Shift', '?'] },
     ];
 
@@ -244,8 +254,8 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
             type="button"
             onClick={onClose}
             className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-            title="닫기"
-            aria-label="단축키 패널 닫기"
+            title="이번만 닫기 — 새로고침 시 다시 표시합니다"
+            aria-label="단축키 패널 이번만 닫기"
           >
             <X size={15} />
           </button>
@@ -267,8 +277,18 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
         ))}
       </div>
 
-      <div className="px-3 py-2.5 bg-slate-100/50 border-t border-slate-200 shrink-0">
+      <div className="px-3 py-2.5 bg-slate-100/50 border-t border-slate-200 shrink-0 space-y-2">
         <p className="text-[10px] text-slate-500 leading-relaxed">{footerHint}</p>
+        {onNeverShow && (
+          <button
+            type="button"
+            onClick={onNeverShow}
+            className="text-[11px] text-slate-400 hover:text-slate-600 hover:underline"
+            title="다음 접속부터 이 패널을 자동으로 띄우지 않습니다. 메뉴 → 「단축키」 또는 Shift+? 로 언제든 다시 열 수 있어요."
+          >
+            다시 보지 않기
+          </button>
+        )}
       </div>
     </div>
   );

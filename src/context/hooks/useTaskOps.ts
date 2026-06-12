@@ -88,6 +88,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       } as Task);
       // 명시적으로 계획율을 받은 경우에만 로컬 캐시에 기록(미입력은 빈칸 유지).
       if (typeof plannedOverrideForNew === 'number') setPlannedOverrideLocal(task.id, plannedOverrideForNew);
+      let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         let nextTasks: Task[];
         if (insertAfterId) {
@@ -116,11 +117,21 @@ export function useTaskOps(deps: TaskOpsDeps) {
           undefined,
           true,
         );
+        tasksToPersist = result;
         return result;
       });
+      // 신규 작업이 로컬에만 남아 새로고침·동기화 시 사라지지 않도록 변경분을 즉시 저장 (updateTask·일정 연산과 동일 패턴).
+      if (tasksToPersist) {
+        bumpDirty();
+        if (task.projectId && !useLocalOnlyRef.current) {
+          const pid = task.projectId;
+          const rows = (tasksToPersist as Task[]).filter((t) => t.projectId === pid);
+          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+        }
+      }
       return task.id;
     },
-    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks],
+    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
   const addTasks = useCallback(

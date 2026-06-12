@@ -57,7 +57,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { usePresence } from './hooks/usePresence';
-import { useModalStates } from './hooks/useModalStates';
+import { useModalStates, SHORTCUTS_HIDE_KEY } from './hooks/useModalStates';
 import { useAppRouting, type ViewType } from './hooks/useAppRouting';
 import {
   useFileImportExport,
@@ -1624,6 +1624,19 @@ function WBSApp({
               <ShortcutsSidebar
                 view={view === 'outlook' || view === 'weekreport' || view === 'todo' || view === 'worklog' ? 'dashboard' : view}
                 onClose={() => setIsShortcutsVisible(false)}
+                onNeverShow={() => {
+                  // 다시 보지 않기: 자동 표시 끔 플래그 기록 후 닫기. 메뉴(단축키)·Shift+? 로는 계속 열 수 있음.
+                  try {
+                    window.localStorage.setItem(SHORTCUTS_HIDE_KEY, '1');
+                  } catch {
+                    /* ignore */
+                  }
+                  setIsShortcutsVisible(false);
+                  pushToast('단축키 패널을 다시 띄우지 않아요. 메뉴 → 「단축키」 또는 Shift+? 로 언제든 다시 열 수 있어요.', {
+                    variant: 'info',
+                    durationMs: 5000,
+                  });
+                }}
               />
             )}
           </div>

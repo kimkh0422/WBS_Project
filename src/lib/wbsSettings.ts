@@ -52,6 +52,8 @@ export interface WBSSettings {
   workEffortToDurationMigrated?: boolean;
   /** 공수 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
   workEffortReHiddenMigrated?: boolean;
+  /** 공수 컬럼 강제 재숨김 2차 마이그레이션 완료 여부 — 운영 요청으로 다시 전역 숨김(1차 이후 재활성화한 사용자도 1회 되돌림). 이후 컬럼 설정에서 다시 켤 수 있음 */
+  workEffortReHiddenMigratedV2?: boolean;
   /** 투입율 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
   allocationReHiddenMigrated?: boolean;
   /** 표 기본 표시 컬럼 표준화 마이그레이션 완료 여부 (WBS·작업명·시작일·종료일·기간·담당자·계획·진척·차이만 표시, 나머지 숨김) */
@@ -246,6 +248,15 @@ export function parseSettings(raw: unknown): WBSSettings {
         c && c.id === 'workEffort' ? { ...c, visible: false } : c,
       );
       base.workEffortReHiddenMigrated = true;
+    }
+
+    // 공수 컬럼 강제 재숨김 2차 (1회만 적용) — 운영 요청으로 다시 전역 숨김. 1차 이후 컬럼 설정에서 공수를 다시 켜 둔
+    // 사용자도 한 번 더 기본 숨김으로 되돌린다. 이후 사용자가 컬럼 설정에서 다시 켜면 그 선택은 유지된다.
+    if (!parsed.workEffortReHiddenMigratedV2) {
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) =>
+        c && c.id === 'workEffort' ? { ...c, visible: false } : c,
+      );
+      base.workEffortReHiddenMigratedV2 = true;
     }
 
     // 투입율 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이전에 사용자가 켜 둔 프로젝트에서도 숨김으로 되돌림. 이후 컬럼 설정에서 다시 켤 수 있음)
