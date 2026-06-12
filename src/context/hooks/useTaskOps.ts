@@ -1,5 +1,5 @@
 import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
-import { Task, Project, ProjectAssignment } from '../../types';
+import { Task, Project } from '../../types';
 import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { upsertTasks, upsertProject } from '../../lib/db';
@@ -8,9 +8,8 @@ import { setPlannedOverrideLocal } from '../../lib/plannedOverrideLocalCache';
 import { setWeightLocal } from '../../lib/weightLocalCache';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { applyDependencySchedule, distributeChildrenEvenly } from '../../lib/schedule';
-import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
 import { syncParentRollups, recomputeProjectRollups, syncParentStatus, distributeProgressDown } from '../../lib/rollups';
-import { buildProjectEffortUnitMap, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
+import { resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
 import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
 import { expandProjectStoredDatesToTaskSpan } from '../../lib/projectPeriod';
 
@@ -341,10 +340,11 @@ export function useTaskOps(deps: TaskOpsDeps) {
                 cur = byId.get(cur)?.parentId ?? null;
               }
             }
-            // 자식(하위) 일정 변경 시에도 상위(조상) 시작일·종료일은 자동으로 바꾸지 않는다(skipScheduleRollup=true).
-            // 직접 입력해 둔 상위 날짜가 자식 min/max로 덮어써져 "입력한 날짜가 사라지는" 문제 방지.
-            // 상위 일정 맞춤은 표 상단 '일정 자동 맞춤' 메뉴(refreshProjectSchedule)로만 수행한다.
-            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, true);
+            // 하위 날짜 편집 시 상위(조상) 일정은 'growOnly'(확장만): 상위가 하위 트리를 항상 포함하도록 넓히되,
+            // 직접 입력해 둔 더 넓은 상위 날짜는 자식 min/max로 줄이지 않는다(저장 후 재조회 시 값이 줄어 사라지는 문제 방지).
+            // 편집한 행(task) 자신은 syncParentRollups가 task.parentId부터 올라가므로 그대로 보존된다.
+            // 상위를 자식에 '정확히' 맞추는 축소 정렬은 '일정 자동 맞춤' 메뉴(refreshProjectSchedule)·우클릭 롤업으로만 명시 수행한다.
+            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, 'growOnly');
           } else if (affectsRollup) {
             const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
             const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
@@ -570,29 +570,18 @@ export function useTaskOps(deps: TaskOpsDeps) {
     if (projectIds.length === 0) return;
     saveHistory();
     setAllTasks((prev) => {
-      const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(
-        projectsRef.current.map((p) => [p.id, p.assignments ?? []]),
-      );
-      const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projectsRef.current);
-      const scheduleOpts = { linkEffortToSchedule: wbsSettingsRef.current.linkEffortToSchedule === true } as const;
       let result = prev;
       for (const effectiveProjectId of projectIds) {
         const projectTasks = result.filter((t) => t.projectId === effectiveProjectId);
         if (projectTasks.length === 0) continue;
-        const adjusted = applyDependencySchedule(
-          projectTasks,
-          projectAssignmentsByProjectId,
-          undefined,
-          projectEffortUnitByProjectId,
-          scheduleOpts,
-        );
+        const adjusted = applyDependencySchedule(projectTasks);
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         result = result.map((t) => (t.projectId === effectiveProjectId ? (adjustedById.get(t.id) ?? t) : t));
         result = recomputeProjectRollups(result, effectiveProjectId);
       }
       return result;
     });
-  }, [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks]);
+  }, [saveHistory, currentProjectIdRef, projectsRef, setAllTasks]);
 
   /** '상위→하위 균등 분배' 메뉴 전용(명시 실행): 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고
    *  하위끼리 선행관계(FS)로 연결. 하위의 하위까지 재귀. 상위 작업 자신의 날짜는 유지한다.
@@ -636,18 +625,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         // 서브트리만 추출하되, 루트(taskId)는 부모가 서브트리 밖에 있으므로 parentId=null로 둬야
         // applyDependencySchedule의 상위 롤업 순회(부모 null부터 깊이 우선)가 루트를 포함한다. 병합 시 원래 parentId 복원.
         const subtree = prev.filter((t) => subtreeIds.has(t.id)).map((t) => (t.id === taskId ? { ...t, parentId: null } : t));
-        const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(
-          projectsRef.current.map((p) => [p.id, p.assignments ?? []]),
-        );
-        const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projectsRef.current);
-        const scheduleOpts = { linkEffortToSchedule: wbsSettingsRef.current.linkEffortToSchedule === true } as const;
-        const adjusted = applyDependencySchedule(
-          subtree,
-          projectAssignmentsByProjectId,
-          undefined,
-          projectEffortUnitByProjectId,
-          scheduleOpts,
-        );
+        const adjusted = applyDependencySchedule(subtree);
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         return prev.map((t) => {
           const a = adjustedById.get(t.id);
@@ -656,42 +634,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
         });
       });
     },
-    [saveHistory, setAllTasks, projectsRef, wbsSettingsRef],
-  );
-
-  const fixOverload = useCallback(
-    (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => {
-      if (overloadsToFix.length === 0) return;
-      saveHistory();
-      const extendOverloads = overloadsToFix.filter((x) => x.strategy === 'extend').map((x) => x.overload);
-      const allocationOverloads = overloadsToFix.filter((x) => x.strategy === 'increaseAllocation').map((x) => x.overload);
-      setAllTasks((prev) => {
-        const projs = projectsRef.current;
-        const settings = wbsSettingsRef.current;
-        let result = [...prev];
-        const allocationTaskIds = new Set(allocationOverloads.flatMap((o) => o.taskIds));
-        if (extendOverloads.length > 0) {
-          result = fixOverloadByExtending(result, projs, extendOverloads);
-        }
-        if (allocationOverloads.length > 0) {
-          const { overloads: currentOverloads } = computeWorkloadOverloads(result, projs);
-          const toAllocate = currentOverloads.filter((o) => o.taskIds.some((tid) => allocationTaskIds.has(tid)));
-          if (toAllocate.length > 0) {
-            result = fixOverloadByIncreasingAllocation(result, projs, toAllocate);
-          }
-        }
-        const pids = Array.from(new Set(result.map((t) => t.projectId))).filter(Boolean) as string[];
-        const doneStatusIds: Set<string> = new Set(
-          ((settings.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
-        );
-        for (const pid of pids) {
-          // 과부하 해소로 연장된 작업의 진척·공수만 롤업. 부모 일정은 '일정 자동 맞춤' 메뉴로만 변경.
-          result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
-        }
-        return result;
-      });
-    },
-    [saveHistory, projectsRef, wbsSettingsRef, setAllTasks],
+    [saveHistory, setAllTasks],
   );
 
   /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). 잠금된 시작일·종료일은 applyDependencySchedule에서 그대로 유지된다. */
@@ -747,8 +690,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
-        const projectAssignmentsMap = new Map<string, ProjectAssignment[]>(projs.map((p) => [p.id, p.assignments ?? []]));
-        const unitMap = buildProjectEffortUnitMap(projs);
         const taskById = new Map<string, Task>(prev.map((t) => [t.id, t] as const));
 
         const resolved: Task[] = [];
@@ -789,11 +730,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
         });
 
         const projectTaskList = nextTasks.filter((t) => t.projectId === projectId);
-        // 선행 순차 연결: 공수·투입률로 종료일 산정. 공수 없이 시작·종료만 있는 체인 작업만 기간(달력 간격) 유지(chainLinkRespectBothDates).
-        const adjusted = applyDependencySchedule(projectTaskList, projectAssignmentsMap, undefined, unitMap, {
-          linkEffortToSchedule: true,
-          chainLinkRespectBothDates: true,
-        });
+        // 선행 순차 연결: FS로 시작일만 옮기고 각 작업의 기존 영업일 기간을 유지(공수는 일정에 미사용).
+        const adjusted = applyDependencySchedule(projectTaskList);
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
         nextTasks = nextTasks.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
 
@@ -819,30 +757,21 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const doneStatusIds: Set<string> = new Set(
         ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
       );
-      const projs = projectsRef.current;
-      const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(projs.map((p) => [p.id, p.assignments ?? []]));
-      const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projs);
-      const scheduleOpts = { linkEffortToSchedule: wbsSettingsRef.current.linkEffortToSchedule === true } as const;
       setAllTasks((prev) => {
         const projectTasks = prev.filter((t) => t.projectId === projectId);
         if (projectTasks.length === 0) return prev;
         let result = prev;
         if (!skipDependencySchedule) {
-          const adjusted = applyDependencySchedule(
-            projectTasks,
-            projectAssignmentsByProjectId,
-            undefined,
-            projectEffortUnitByProjectId,
-            scheduleOpts,
-          );
+          const adjusted = applyDependencySchedule(projectTasks);
           const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
           result = prev.map((t) => (t.projectId === projectId ? (adjustedById.get(t.id) ?? t) : t));
         }
-        result = recomputeProjectRollups(result, projectId, doneStatusIds, undefined, skipDependencySchedule);
+        // 간트에서 막대만 이동(skipDependencySchedule)한 경우 상위 일정은 'growOnly'(확장만) — 막대가 상위 밖으로 나가면 포함하도록 넓히되 직접입력 상위값은 축소 안 함.
+        result = recomputeProjectRollups(result, projectId, doneStatusIds, undefined, skipDependencySchedule ? 'growOnly' : false);
         return result;
       });
     },
-    [saveHistory, setAllTasks, wbsSettingsRef, projectsRef],
+    [saveHistory, setAllTasks, wbsSettingsRef],
   );
 
   const deleteTask = useCallback(
@@ -876,7 +805,6 @@ export function useTaskOps(deps: TaskOpsDeps) {
     refreshProjectSchedule,
     distributeChildrenSchedule,
     rollupTaskSchedule,
-    fixOverload,
     deleteTask,
     flushProjectTaskRollups,
   };

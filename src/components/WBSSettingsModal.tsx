@@ -103,7 +103,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   const [level3, setLevel3] = useState(wbsSettings.level3Prefix);
   const [maxLevel, setMaxLevel] = useState(wbsSettings.maxLevel);
   const [statusConfigs, setStatusConfigs] = useState(wbsSettings.statusConfigs);
-  const [linkEffortToSchedule, setLinkEffortToSchedule] = useState(wbsSettings.linkEffortToSchedule === true);
   const [projectDates, setProjectDates] = useState<Record<string, string>>({});
   const [projectEndDates, setProjectEndDates] = useState<Record<string, string>>({});
   const [tableColumns, setTableColumns] = useState<{ id: string; visible: boolean }[]>(wbsSettings.tableColumns || []);
@@ -214,7 +213,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       setLevel3(wbsSettings.level3Prefix);
       setMaxLevel(wbsSettings.maxLevel);
       setStatusConfigs(wbsSettings.statusConfigs);
-      setLinkEffortToSchedule(wbsSettings.linkEffortToSchedule === true);
       setTableColumns(wbsSettings.tableColumns || DEFAULT_TABLE_COLUMNS);
       setCustomColumns(wbsSettings.customColumns || []);
       setLevelColorsState(levelColors && levelColors.length >= 5 ? [...levelColors] : [...DEFAULT_LEVEL_COLORS]);
@@ -281,7 +279,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         statusConfigs: statusConfigs,
         // 상태↔진척률 자동 연동 제거: 항상 false로 저장
         linkStatusAndProgress: false,
-        linkEffortToSchedule,
         tableColumns: normalizedTableColumns,
         customColumns: cleanedCustomColumns,
       });
@@ -773,19 +770,6 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                   <div className="flex justify-between items-center border-b border-[var(--color-line)] pb-2">
                     <div className="flex flex-col gap-1">
                       <h3 className="font-bold text-sm text-[var(--color-ink)]">상태 명칭·색상</h3>
-                      <div className="flex flex-col gap-1.5 text-[11px] text-[var(--color-ink-subdued)]">
-                        <label className="inline-flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                            checked={linkEffortToSchedule}
-                            onChange={(e) => setLinkEffortToSchedule(e.target.checked)}
-                          />
-                          <span className="font-semibold text-[var(--color-ink-subdued)]">
-                            일정 자동 연동 (시작·종료·공수 편집 시 공수·투입률로 나머지 일정 필드 보정)
-                          </span>
-                        </label>
-                      </div>
                     </div>
                     <button
                       type="button"

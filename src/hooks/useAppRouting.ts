@@ -14,7 +14,8 @@ export type ViewType =
   | 'allocation'
   | 'outlook'
   | 'weekreport'
-  | 'todo';
+  | 'todo'
+  | 'worklog';
 
 const VALID_VIEWS = new Set<string>([
   'table',
@@ -28,6 +29,7 @@ const VALID_VIEWS = new Set<string>([
   'outlook',
   'weekreport',
   'todo',
+  'worklog',
 ]);
 
 const MAIN_NAV_VIEW_ORDER: ViewType[] = [
@@ -42,6 +44,7 @@ const MAIN_NAV_VIEW_ORDER: ViewType[] = [
   'gantt',
   'kanban',
   'mindmap',
+  'worklog',
 ];
 
 function pickFirstVisibleView(hidden: Set<string>): ViewType {
@@ -55,11 +58,13 @@ function pickFirstVisibleView(hidden: Set<string>): ViewType {
 
 interface UseAppRoutingProps {
   effectiveIsAdmin: boolean;
+  /** 운영자(실제 is_admin/관리자 모드) 여부 — 작업 로그(worklog) 전용 뷰 노출 게이트 */
+  realIsAdmin?: boolean;
   userEmail?: string;
   isProjectStatusOnly: boolean;
 }
 
-export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly }: UseAppRoutingProps) {
+export function useAppRouting({ effectiveIsAdmin, realIsAdmin = false, userEmail, isProjectStatusOnly }: UseAppRoutingProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -86,6 +91,10 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }
+    // 작업 로그: 운영자(realIsAdmin)에게만. 그 외에는 URL 직접 진입도 차단(첫 화면으로 리다이렉트).
+    if (!realIsAdmin) {
+      set.add('worklog');
+    }
     if (!isInternalCompanyEmail(userEmail ?? '')) {
       set.add('weekreport');
     }
@@ -95,7 +104,7 @@ export function useAppRouting({ effectiveIsAdmin, userEmail, isProjectStatusOnly
       }
     }
     return set;
-  }, [effectiveIsAdmin, userEmail, isProjectStatusOnly]);
+  }, [effectiveIsAdmin, realIsAdmin, userEmail, isProjectStatusOnly]);
 
   const isMobileLayout = useMatchMedia('(max-width: 767px)');
   const lockMobileToDashboard = isMobileLayout && !hiddenViews.has('dashboard');

@@ -22,11 +22,6 @@ export interface WBSSettings {
   statusConfigs: StatusConfig[];
   /** @deprecated 상태↔진척률 자동 연동 기능은 제거됨. 항상 false로 읽히며 상태 변경 시 진척률을 자동 설정하지 않음(진척률은 수동 입력 기준). */
   linkStatusAndProgress?: boolean;
-  /**
-   * true: 시작일·종료일·공수 중 하나를 바꿀 때 나머지 일정 필드를 공수·투입률 기준으로 자동 보정(기존 동작).
-   * false(기본): 시작일·종료일·공수는 각각 독립 저장. 간트/선행 재계산 시에도 공수로 종료일을 덮어쓰지 않음.
-   */
-  linkEffortToSchedule?: boolean;
   tableColumns?: { id: string; visible: boolean }[];
   /** 예전 설정 호환용. 항상 false로 읽히며 UI에서 변경 불가 */
   showCriticalPath?: boolean;
@@ -55,6 +50,12 @@ export interface WBSSettings {
   wbsIdHiddenMigrated?: boolean;
   /** 공수 컬럼 숨김 + 기간(duration) 컬럼 추가 마이그레이션 완료 여부 */
   workEffortToDurationMigrated?: boolean;
+  /** 공수 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
+  workEffortReHiddenMigrated?: boolean;
+  /** 투입율 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
+  allocationReHiddenMigrated?: boolean;
+  /** 표 기본 표시 컬럼 표준화 마이그레이션 완료 여부 (WBS·작업명·시작일·종료일·기간·담당자·계획·진척·차이만 표시, 나머지 숨김) */
+  standardVisibleColumnsMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -92,15 +93,16 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: false,
-  linkEffortToSchedule: false,
+  // 기본 표시 컬럼: WBS·작업명·시작일·종료일·기간·담당자·계획율·진척율·차이(+선택박스는 항상 표시).
+  // 나머지(공수·가중치·투입율·상태·산출물·선행작업·관리)는 기본 숨김 — 컬럼 설정에서 켤 수 있음.
   tableColumns: [
-    { id: 'wbsId', visible: false },
+    { id: 'wbsId', visible: true },
     { id: 'name', visible: true },
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
     { id: 'duration', visible: true },
     { id: 'workEffort', visible: false },
-    { id: 'weight', visible: true },
+    { id: 'weight', visible: false },
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
     { id: 'status', visible: false },
@@ -167,7 +169,6 @@ export function parseSettings(raw: unknown): WBSSettings {
       wrapTextInCells: parsed.wrapTextInCells === true,
       // 상태↔진척률 자동 연동 기능 제거: 저장값과 무관하게 항상 false(수동 진척)로 고정
       linkStatusAndProgress: false,
-      linkEffortToSchedule: parsed.linkEffortToSchedule === true,
       prependDisplayWbsToTaskName: parsed.prependDisplayWbsToTaskName === true,
       showTableAutoFormatting: parsed.showTableAutoFormatting === false ? false : true,
     };
@@ -237,6 +238,47 @@ export function parseSettings(raw: unknown): WBSSettings {
         c && c.id === 'allocation' ? { ...c, visible: false } : c,
       );
       base.tableProgressLayoutMigrated = true;
+    }
+
+    // 공수 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이전에 사용자가 켜 둔 프로젝트에서도 숨김으로 되돌림. 이후 컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.workEffortReHiddenMigrated) {
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) =>
+        c && c.id === 'workEffort' ? { ...c, visible: false } : c,
+      );
+      base.workEffortReHiddenMigrated = true;
+    }
+
+    // 투입율 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이전에 사용자가 켜 둔 프로젝트에서도 숨김으로 되돌림. 이후 컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.allocationReHiddenMigrated) {
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) =>
+        c && c.id === 'allocation' ? { ...c, visible: false } : c,
+      );
+      base.allocationReHiddenMigrated = true;
+    }
+
+    // 표 기본 표시 컬럼 표준화 (1회만 적용 — 이후 컬럼 설정에서 자유롭게 변경 가능).
+    // 표시: WBS·작업명·시작일·종료일·기간·담당자·계획율·진척율·차이 / 숨김: 공수·가중치·투입율·상태·산출물·선행작업·관리.
+    // 사용자 정의(custom:*) 컬럼은 건드리지 않는다.
+    if (!parsed.standardVisibleColumnsMigrated) {
+      const STD_VISIBLE = new Set([
+        'wbsId',
+        'name',
+        'startDate',
+        'endDate',
+        'duration',
+        'assignee',
+        'plannedProgress',
+        'progress',
+        'progressVariance',
+      ]);
+      const STD_HIDDEN = new Set(['workEffort', 'weight', 'allocation', 'status', 'deliverables', 'dependencies', 'actions']);
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) => {
+        if (!c) return c;
+        if (STD_VISIBLE.has(c.id)) return { ...c, visible: true };
+        if (STD_HIDDEN.has(c.id)) return { ...c, visible: false };
+        return c; // custom:* 등은 그대로 유지
+      });
+      base.standardVisibleColumnsMigrated = true;
     }
 
     // 진척 현황 3종(계획·진척·차이)은 항상 계획→진척→차이 순서로 한데 묶어 표시한다.

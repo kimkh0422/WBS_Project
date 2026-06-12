@@ -2,7 +2,7 @@ import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction 
 import { Task, Project } from '../../types';
 import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
-import { upsertProject, upsertTasks } from '../../lib/db';
+import { upsertProject, upsertTasks, deleteProjectFromDB } from '../../lib/db';
 import { recomputeProjectRollups } from '../../lib/rollups';
 import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
 
@@ -21,7 +21,6 @@ export interface ProjectOpsDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setCurrentProjectId: (id: string) => void;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
-  setDeletedProjectIds: Dispatch<SetStateAction<string[]>>;
 }
 
 export function useProjectOps(deps: ProjectOpsDeps) {
@@ -39,7 +38,6 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     setAllTasks,
     setCurrentProjectId,
     recordDeletedTaskIds,
-    setDeletedProjectIds,
   } = deps;
 
   const addProject = useCallback(
@@ -185,28 +183,38 @@ export function useProjectOps(deps: ProjectOpsDeps) {
   const deleteProject = useCallback(
     (id: string) => {
       if (projectsRef.current.length <= 1) return; // 최소 1개 프로젝트 유지
-      bumpDirty();
-      const idsToDelete = allTasksRef.current.filter((t) => t.projectId === id).map((t) => t.id);
-      if (idsToDelete.length > 0) recordDeletedTaskIds(id, idsToDelete);
-      setDeletedProjectIds((prev) => {
-        if (!id) return prev;
-        return prev.includes(id) ? prev : [...prev, id];
-      });
+
+      // 실패 시 UI 원복용 원본 보관 (확인 직후 즉시 삭제하므로 별도 저장 버튼은 띄우지 않는다)
+      const removedProject = projectsRef.current.find((p) => p.id === id);
+      const removedTasks = allTasksRef.current.filter((t) => t.projectId === id);
+      const prevCurrent = currentProjectIdRef.current;
+
+      // 로컬 상태에서 즉시 제거 (반응형 UI). bumpDirty 미호출 → '저장(Ctrl+S)' 버튼 활성화 안 됨.
       setProjects((prev) => prev.filter((p) => p.id !== id));
       setAllTasks((prev) => prev.filter((t) => t.projectId !== id));
-      if (currentProjectIdRef.current === id) setCurrentProjectId(projectsRef.current.find((p) => p.id !== id)?.id || '');
+      if (prevCurrent === id) setCurrentProjectId(projectsRef.current.find((p) => p.id !== id)?.id || '');
+
+      // 로컬 전용(devauth 등): 위 상태 변경이 localStorage 영속 effect를 트리거 → 별도 DB 작업 불필요.
+      if (useLocalOnlyRef.current) return;
+
+      // 원격: 확인 즉시 DB에 반영. tasks.project_id가 ON DELETE CASCADE라 프로젝트만 지우면 작업도 함께 삭제됨.
+      deleteProjectFromDB(id).catch((err) => {
+        // 실패(권한·네트워크 등): 로컬 상태를 원복해 실제 DB와 일치시키고 사용자에게 알린다.
+        if (removedProject) {
+          setProjects((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, removedProject]));
+        }
+        if (removedTasks.length > 0) {
+          setAllTasks((prev) => {
+            const have = new Set(prev.map((t) => t.id));
+            const restore = removedTasks.filter((t) => !have.has(t.id));
+            return restore.length > 0 ? [...prev, ...restore] : prev;
+          });
+        }
+        if (prevCurrent === id) setCurrentProjectId(id);
+        handleDbError(err, '프로젝트 삭제에 실패했습니다.');
+      });
     },
-    [
-      bumpDirty,
-      recordDeletedTaskIds,
-      projectsRef,
-      allTasksRef,
-      currentProjectIdRef,
-      setProjects,
-      setAllTasks,
-      setCurrentProjectId,
-      setDeletedProjectIds,
-    ],
+    [handleDbError, projectsRef, allTasksRef, currentProjectIdRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId],
   );
 
   const copyProject = useCallback(

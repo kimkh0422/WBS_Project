@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WBSTable } from './WBSTable';
 import { GanttChart } from './GanttChart';
-import { mirrorScrollTop, useScrollSync, useSplitHorizontalScrollSync } from '../hooks/useScrollSync';
+import { mirrorScrollTop, useScrollSync } from '../hooks/useScrollSync';
 import type { FilterState, SortConfig, Task } from '../types';
 
 const SPLIT_TABLE_WIDTH_KEY = 'wbs.split.wbsTableWidth';
@@ -63,18 +63,11 @@ export function TableGanttSplit({
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
 
+  // 세로(행) 스크롤만 표↔간트 동기화한다.
   useScrollSync(tableScrollRef, ganttScrollRef, true, containerRef);
 
-  useSplitHorizontalScrollSync(
-    {
-      tableHeader: tableHeaderScrollRef,
-      tableBody: tableScrollRef,
-      ganttHeader: ganttHeaderScrollRef,
-      ganttBottom: ganttBottomScrollRef,
-    },
-    true,
-    [tablePaneWidthPct, rowHeights.length],
-  );
+  // 가로 스크롤은 표(컬럼)와 간트(타임라인)가 서로 무관하므로 동기화하지 않는다.
+  // 각 패널은 내부적으로(헤더↔본문↔하단) 자체 가로 동기를 유지하며, 간트를 좌우로 스크롤해도 표는 움직이지 않는다.
 
   // 줄바꿈 등으로 행 높이가 갱신되면 스크롤 위치를 다시 맞춤
   useEffect(() => {

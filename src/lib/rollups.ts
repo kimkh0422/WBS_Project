@@ -34,7 +34,10 @@ function collectStrictDescendantIds(rootId: string, allTasks: Task[]): Set<strin
  * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID. 본인이면 갱신을 건너뛰되,
  *                        조상 롤업 재귀는 계속 진행한다(상위 영향은 따로 반영).
  * @param skipWorkEffortRollupParentIds 이 ID의 부모 행은 공수만 자식 합으로 덮어쓰지 않음(해당 행에서 공수를 직접 저장한 경우).
- * @param skipScheduleRollup true면 부모의 시작일·종료일을 자식 min/max로 맞추지 않음(진척·공수 롤업은 그대로).
+ * @param skipScheduleRollup 일정(시작·종료) 롤업 모드:
+ *   - true        → 부모 일정을 건드리지 않음(진척·공수 롤업만).
+ *   - false/생략   → 부모를 자식 트리 min/max에 '정확히' 맞춤(자식이 짧아지면 부모도 줄어듦). '일정 자동 맞춤' 등 명시 경로용.
+ *   - 'growOnly'  → '확장만'. 부모가 자식 트리를 항상 포함하도록 넓히되, 직접 입력한 더 넓은 부모 값은 줄이지 않음(저장값 보존).
  */
 export function syncParentRollups(
   allTasks: Task[],
@@ -43,7 +46,7 @@ export function syncParentRollups(
   _forceProgress = false,
   excludeParentIds?: Set<string>,
   skipWorkEffortRollupParentIds?: Set<string>,
-  skipScheduleRollup?: boolean,
+  skipScheduleRollup?: boolean | 'growOnly',
 ): Task[] {
   if (!parentId) return allTasks;
   // 사용자가 막 편집한 부모는 자식 min/max로 덮어쓰지 않는다. 조상은 계속 롤업.
@@ -115,16 +118,20 @@ export function syncParentRollups(
   if (!skipEffortRollup) {
     alignedWorkEffort = sumChildEffort;
   }
-  // 부모 일정: 이 노드 아래 전체 하위 트리의 min(start)·max(end)에 맞춘다(문서 FR-SCHED-06 / PROGRAM_LOGIC 9.2와 동일).
-  // 하위가 짧아지면 상위 종료일도 함께 줄어든다.
+  // 부모 일정: 이 노드 아래 전체 하위 트리의 min(start)·max(end)를 기준으로 맞춘다(문서 FR-SCHED-06 / PROGRAM_LOGIC 9.2).
+  //   - 완전 정렬(false): 부모 = 자식 min/max 그대로(하위가 짧아지면 상위도 줄어듦).
+  //   - 확장만('growOnly'): 부모가 자식 트리를 항상 포함하도록 넓히되, 직접 입력한 더 넓은 부모 값은 줄이지 않는다.
   let alignedStart = parent.startDate;
   let alignedEnd = parent.endDate;
-  if (!skipScheduleRollup) {
+  if (skipScheduleRollup !== true) {
+    const growOnly = skipScheduleRollup === 'growOnly';
     if (minStart !== undefined) {
-      alignedStart = minStart;
+      // 확장만: 부모가 더 이르면(작으면) 유지, 자식이 더 이르면 자식으로 당겨 포함.
+      alignedStart = growOnly && parent.startDate && parent.startDate < minStart ? parent.startDate : minStart;
     }
     if (maxEnd !== undefined) {
-      alignedEnd = maxEnd;
+      // 확장만: 부모가 더 늦으면(크면) 유지, 자식이 더 늦으면 자식으로 늘려 포함.
+      alignedEnd = growOnly && parent.endDate && parent.endDate > maxEnd ? parent.endDate : maxEnd;
     }
     if (alignedStart && alignedEnd && alignedStart > alignedEnd) {
       alignedEnd = alignedStart;
@@ -460,13 +467,13 @@ export function redistributeWeightsDown(tasks: Task[], parentId: string, parentW
 
 /** 특정 프로젝트의 모든 부모 작업을 자식 기준으로 롤업 재계산.
  * @param excludeParentIds 사용자가 직접 편집한 부모 작업 ID들. 이 ID들은 롤업을 건너뛴다(자식 min/max로 덮어쓰지 않음).
- * @param skipScheduleRollup true면 부모 시작일·종료일을 자식 기간에 맞추지 않음. */
+ * @param skipScheduleRollup 일정 롤업 모드: true=안 함 / false=자식에 정확히 맞춤(축소 포함) / 'growOnly'=확장만(상위가 하위 포함, 직접입력값은 축소 안 함). syncParentRollups로 그대로 전달. */
 export function recomputeProjectRollups(
   allTasks: Task[],
   projectId: string,
   doneStatusIds?: Set<string>,
   excludeParentIds?: Set<string>,
-  skipScheduleRollup?: boolean,
+  skipScheduleRollup?: boolean | 'growOnly',
 ): Task[] {
   if (!projectId || projectId === 'all') return allTasks;
   const projectTasks = allTasks.filter((t) => t.projectId === projectId);
@@ -592,10 +599,10 @@ export function applyRollupsToTasks(tasks: Task[], statusConfigs?: Array<{ id: s
   const normalized = normalizeOrphanStatuses(tasks, statusConfigs);
   const projectIds = Array.from(new Set(normalized.map((t) => t.projectId))).filter((id): id is string => Boolean(id) && id !== 'all');
   let result = normalized;
-  // 부모 작업의 startDate/endDate를 자식 min/max로 자동 정렬하지 않는다(skipScheduleRollup=true).
-  // 간트에서 부모를 드래그/리사이즈해 저장한 일정이 DB 풀/새로고침 이후 자식 min/max로 "되돌아가" 보이던 버그 방지.
-  // 진척률·공수·상태 롤업은 그대로 수행한다.
-  for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
+  // 상위 작업 일정은 'growOnly'(확장만): 상위가 하위 트리를 항상 포함하도록 넓히되, 직접 입력한 더 넓은 상위 값은 줄이지 않는다.
+  // → 새로고침·DB풀 때 상위가 자식 min/max로 '축소되어 되돌아가던' 일은 없고(확장만 하므로), 하위가 상위 밖으로 나간 기존 데이터는 자동으로 포함되도록 보정된다.
+  // 자식에 '정확히' 맞추는 축소 정렬은 '일정 자동 맞춤' 메뉴에서만. 진척률·공수·상태 롤업은 그대로 수행한다.
+  for (const pid of projectIds) result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, 'growOnly');
   // 분기된 자식 프로젝트가 있으면 자식 프로젝트의 metrics를 부모 task에 mirror(자식→부모 일방향).
   if (projects && projects.length > 0) {
     result = mirrorForkedProjectsAndRollUp(result, projects, doneStatusIds);

@@ -88,6 +88,18 @@ class ProjectUpdatePermissionError extends Error {
   }
 }
 
+/**
+ * 삭제 권한 부족(소유자/운영자 아님)으로 RLS가 DELETE를 0행으로 막은 경우.
+ * 의도적으로 code를 42501로 두지 않는다 — handleDbError/toUserFacingDbError가 42501을
+ * "편집 권한" 문구로 덮어쓰기 때문. code 없이 이 message가 그대로 사용자에게 노출된다.
+ */
+class ProjectDeletePermissionError extends Error {
+  constructor() {
+    super('이 프로젝트를 삭제할 권한이 없습니다. 소유자 또는 운영자만 삭제할 수 있습니다.');
+    this.name = 'ProjectDeletePermissionError';
+  }
+}
+
 async function updateProjectRowWithSchemaFallback(
   projectId: string,
   row: Record<string, unknown>,
@@ -232,8 +244,14 @@ export async function upsertProject(project: Project, opts?: { detectPermissionD
 export async function deleteProjectFromDB(id: string): Promise<void> {
   requireSupabase();
   const { data: project } = await supabase!.from('projects').select('id, name').eq('id', id).maybeSingle();
-  const { error } = await supabase!.from('projects').delete().eq('id', id);
+  const { data: deleted, error } = await supabase!.from('projects').delete().eq('id', id).select('id');
   if (error) throw error;
+  // RLS(projects_delete: 운영자 또는 소유자만)가 막으면 오류 없이 0행이 삭제된다.
+  // 읽기로는 보였는데(project 존재) 0행 삭제면 권한 부족 → 명시적으로 올려서
+  // 서버 풀(mergeProjectsDelta)이 로컬에서 지운 프로젝트를 조용히 되살리는 대신 알린다.
+  if (project && Array.isArray(deleted) && deleted.length === 0) {
+    throw new ProjectDeletePermissionError();
+  }
   const row = project as { id: string; name: string } | null;
   // project_id는 null로 기록한다. wbs_audit_log.project_id는 projects(id) ON DELETE CASCADE FK라,
   // 방금 삭제된 프로젝트 id를 넣으면 외래키 위반(409)이 나고(설령 통과해도 CASCADE로 즉시 삭제됨).

@@ -273,7 +273,6 @@ export function WBSProvider({
     setAllTasks,
     setCurrentProjectId,
     recordDeletedTaskIds,
-    setDeletedProjectIds,
   });
 
   const taskOps = useTaskOps({
@@ -1346,7 +1345,6 @@ export function WBSProvider({
       refreshProjectSchedule: taskOps.refreshProjectSchedule,
       distributeChildrenSchedule: taskOps.distributeChildrenSchedule,
       rollupTaskSchedule: taskOps.rollupTaskSchedule,
-      fixOverload: taskOps.fixOverload,
       // Task movement
       moveTask: taskMovement.moveTask,
       reorderTask: taskMovement.reorderTask,

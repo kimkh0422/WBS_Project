@@ -1,108 +1,10 @@
 import { parseISO, format, isValid } from 'date-fns';
-import type { Task, ProjectAssignment as TaskAssignment, WorkEffortUnit } from '../types';
-import { taskStoredEffortAsManDays } from './workEffortUnits';
-import {
-  addBusinessDaysEx,
-  subtractBusinessDaysEx,
-  differenceInBusinessDaysEx,
-  getBusinessDayStringsEx,
-  getHolidaysForTaskDates,
-  getKoreanHolidaysSet,
-} from './calendar';
+import type { Task } from '../types';
+import { addBusinessDaysEx, differenceInBusinessDaysEx, getBusinessDayStringsEx, getHolidaysForTaskDates } from './calendar';
 import { applyMilestoneDateInvariant } from './milestoneDates';
 
 /** 월별·빠른 선택 UI용 투입비율 옵션: 0~100% 정수 */
 export const ALLOCATION_OPTIONS = Array.from({ length: 101 }, (_, i) => i);
-
-/**
- * 총 투입비율(0~1) 계산. assignments가 없거나 비어 있으면 1 (100%)로 간주.
- */
-export function getTotalAllocationRatio(assignments: TaskAssignment[] | undefined): number {
-  if (!assignments || assignments.length === 0) return 1;
-  const sum = assignments.reduce((s, a) => s + (a.allocationPercent || 0), 0);
-  return Math.min(100, Math.max(0, sum)) / 100;
-}
-
-/**
- * 작업 공수(MD)와 투입비율로 소요 영업일 수 계산.
- * - 공수(workEffort) = Man-Day(MD): 100% 투입 시 1 영업일 = 1 MD (1인일, 하루 8시간 가정).
- * - 10% 투입이면 1 MD를 하려면 1/0.1 = 10 영업일 소요.
- * - duration = ceil(workEffort / totalAllocation). totalAllocation 0이면 workEffort 그대로.
- */
-export function computeDurationBusinessDays(workEffort: number, assignments: TaskAssignment[] | undefined): number {
-  if (!Number.isFinite(workEffort) || workEffort <= 0) return 0;
-  const ratio = getTotalAllocationRatio(assignments);
-  if (ratio <= 0) return Math.ceil(workEffort);
-  return Math.ceil(workEffort / ratio);
-}
-
-/**
- * 시작일 + 작업공수 + 투입비율 → 종료일(영업일 기준) 계산.
- * 100% = 1 MD당 1 영업일, 10% = 1 MD당 10 영업일. 토·일·공휴일 제외. holidays 미지정 시 한국 공휴일 사용.
- */
-export function computeEndDateFromEffort(
-  startDate: string,
-  workEffort: number,
-  assignments: TaskAssignment[] | undefined,
-  holidays?: Set<string>,
-): string {
-  const start = parseISO(startDate);
-  if (!isValid(start)) return startDate;
-  const days = computeDurationBusinessDays(workEffort, assignments);
-  if (days <= 0) return startDate;
-  const hol = holidays ?? getKoreanHolidaysSet(start.getFullYear() - 1, start.getFullYear() + 2);
-  const end = addBusinessDaysEx(start, days - 1, hol);
-  return format(end, 'yyyy-MM-dd');
-}
-
-/**
- * 종료일 + 기간(영업일) → 시작일 역산.
- * workEffort가 있으면 공수·투입비율로 기간 계산, 없으면 originalStart~originalEnd 기간 사용.
- */
-export function computeStartDateFromEndDate(
-  endDate: string,
-  workEffort: number | undefined,
-  assignments: TaskAssignment[] | undefined,
-  holidays?: Set<string>,
-  originalStart?: string,
-  originalEnd?: string,
-): string {
-  const end = parseISO(endDate);
-  if (!isValid(end)) return endDate;
-  const hol = holidays ?? getKoreanHolidaysSet(end.getFullYear() - 1, end.getFullYear() + 2);
-  let durationDays: number;
-  if (typeof workEffort === 'number' && workEffort > 0) {
-    durationDays = Math.max(1, computeDurationBusinessDays(workEffort, assignments));
-  } else if (originalStart && originalEnd) {
-    const s = parseISO(originalStart);
-    const e = parseISO(originalEnd);
-    durationDays = isValid(s) && isValid(e) ? Math.max(1, differenceInBusinessDaysEx(s, e, hol)) : 1;
-  } else {
-    return endDate; // 기간 없으면 역산 불가
-  }
-  const start = subtractBusinessDaysEx(end, durationDays - 1, hol);
-  return format(start, 'yyyy-MM-dd');
-}
-
-/**
- * 시작일·종료일 + 투입비율 → 작업 공수(MD) 역산.
- * 투입공수(MD) = 영업일 수 × (투입비율/100). 100% 1일 = 1 MD. 토·일·공휴일 제외. holidays 미지정 시 한국 공휴일 사용.
- */
-export function computeWorkEffortFromDates(
-  startDate: string,
-  endDate: string,
-  assignments: TaskAssignment[] | undefined,
-  holidays?: Set<string>,
-): number {
-  const start = parseISO(startDate);
-  const end = parseISO(endDate);
-  if (!isValid(start) || !isValid(end)) return 0;
-  const hol = holidays ?? getKoreanHolidaysSet(start.getFullYear() - 1, end.getFullYear() + 2);
-  const businessDays = differenceInBusinessDaysEx(start, end, hol);
-  if (businessDays <= 0) return 0;
-  const ratio = getTotalAllocationRatio(assignments);
-  return Math.round(businessDays * ratio * 10) / 10;
-}
 
 /**
  * 의존성 그래프 기준 위상 정렬: 선행 작업이 먼저 오는 순서.
@@ -145,13 +47,9 @@ export function getTopologicalOrder(tasks: Task[]): string[] {
 /**
  * 크리티컬 패스(임계 경로) 계산: 슬랙이 0인 작업 ID 집합 반환.
  * 선행관계(FS)와 영업일 기준 기간으로 전진/후진 패스 후 슬랙 = LS - ES === 0 인 작업을 크리티컬로 간주.
+ * 작업 기간은 공수가 아니라 실제 시작·종료일(영업일 간격)로 산정한다.
  */
-export function getCriticalPathTaskIds(
-  tasks: Task[],
-  projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>,
-  /** 프로젝트별 공수 숫자 단위(없으면 일 단위로 간주) */
-  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
-): Set<string> {
+export function getCriticalPathTaskIds(tasks: Task[]): Set<string> {
   if (tasks.length === 0) return new Set();
   const byId = new Map<string, Task>();
   tasks.forEach((t) => byId.set(t.id, t));
@@ -185,15 +83,12 @@ export function getCriticalPathTaskIds(
     return differenceInBusinessDaysEx(startDate, d, holidays);
   }
 
+  // 작업 기간은 공수가 아니라 실제 시작·종료일의 영업일 간격으로 산정.
   const durationById = new Map<string, number>();
   for (const t of tasks) {
-    const assignments = getAssignmentsForTask(t, projectAssignmentsByProjectId);
     let dur: number;
     if (t.isMilestone) {
       dur = 0;
-    } else if (typeof t.workEffort === 'number' && t.workEffort > 0) {
-      const md = taskStoredEffortAsManDays(t, projectEffortUnitByProjectId);
-      dur = Math.max(1, computeDurationBusinessDays(md, assignments));
     } else {
       const s = parseISO(t.startDate);
       const e = parseISO(t.endDate);
@@ -237,57 +132,19 @@ export function getCriticalPathTaskIds(
   return critical;
 }
 
-/** 작업별 투입비율: 담당자가 있으면 해당 인원의 프로젝트 투입율만 사용 */
-function getAssignmentsForTask(task: Task, projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>): TaskAssignment[] | undefined {
-  const assignee = (task.assignee || '').trim();
-  if (projectAssignmentsByProjectId && task.projectId) {
-    const pa = projectAssignmentsByProjectId.get(task.projectId);
-    if (pa && pa.length > 0) {
-      if (assignee) {
-        const match = pa.find((a) => (a.assignee || '').trim() === assignee);
-        return [{ assignee, allocationPercent: match?.allocationPercent ?? 100 }];
-      }
-      return pa;
-    }
-  }
-  if (assignee) {
-    return [{ assignee, allocationPercent: 100 }];
-  }
-  return undefined;
-}
-
-export type ApplyDependencyScheduleOptions = {
-  /**
-   * false: 공수·투입률로 종료일을 일괄 재계산하지 않음(시작/종료/공수 독립).
-   * 기본 true(옵션 생략 시): 기존처럼 workEffort 기준으로 endDate를 맞춤.
-   */
-  linkEffortToSchedule?: boolean;
-  /**
-   * true이고 linkEffortToSchedule이 true일 때만 적용.
-   * 선행 순차 연결 등: 선행이 있고 입력에 시작·종료가 모두 있으며 **저장 공수(MD)가 없을 때만** FS로 시작일을 맞춘 뒤 기존 영업일 기간을 유지한다.
-   * 공수가 있으면(>0 MD) 같은 옵션이어도 공수·투입률로 종료일을 산정한다.
-   */
-  chainLinkRespectBothDates?: boolean;
-};
-
 /**
- * 선행관계(FS)에 따라 시작일을 일관되게 조정하고,
- * 투입공수(workEffort)와 투입비율(assignments)로 완료일을 계상.
- * - 선행 작업 종료일 이후에만 시작.
- * - 기간 = 작업공수 / 총투입비율(영업일). 완료일 = 시작일 + 기간.
- * - `chainLinkRespectBothDates`: 선행 순차 연결 시, 선행이 있고 시작·종료가 모두 있어도 **공수(MD)>0이면 공수로 종료일 산정**. 공수가 없을 때만 기존 영업일 기간 유지.
- * - 상위 작업은 하위 작업 구간으로 맞춤.
+ * 선행관계(FS)에 따라 시작일을 일관되게 조정한다.
+ * - 선행 작업 종료일 다음 영업일부터 시작.
+ * - 시작일이 옮겨진 작업은 기존 영업일 기간(달력상 길이)을 유지해 종료일을 다시 계산한다.
+ * - 상위 작업은 직속 하위 구간(min 시작 ~ max 종료)으로 맞춘다.
+ *
+ * 공수(workEffort)는 일정 계산에 전혀 관여하지 않는다 — 시작·종료·기간은 오직 날짜와 선행관계로만 결정된다.
  */
 export function applyDependencySchedule(
   tasks: Task[],
-  projectAssignmentsByProjectId?: Map<string, TaskAssignment[]>,
   /** 이번에 delta로 옮긴 작업(34번+하위 등). 재계산에서 제외해 덮어쓰지 않음 */
   excludeFromRecalc?: Set<string>,
-  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
-  options?: ApplyDependencyScheduleOptions,
 ): Task[] {
-  const linkEffortToSchedule = options?.linkEffortToSchedule !== false;
-  const chainLinkRespectBothDates = options?.chainLinkRespectBothDates === true;
   const byId = new Map<string, Task>();
   const result = tasks.map((t) => {
     const copy = { ...t };
@@ -303,58 +160,27 @@ export function applyDependencySchedule(
   const order = getTopologicalOrder(result);
   const holidays = getHolidaysForTaskDates(result);
 
-  // 위상 순서대로: 선행 종료일(이미 공수 반영된 값) → 시작일 이동 → 종료일 산정
+  // 위상 순서대로: 선행 종료일 다음 영업일로 시작일 이동 → 기존 영업일 기간 유지로 종료일 산정
   for (const id of order) {
     const task = byId.get(id)!;
     if (excludeFromRecalc?.has(id)) continue;
 
     const predIds = deps.get(id);
-    let startShifted = false;
+    if (!predIds || predIds.length === 0) continue;
 
-    if (predIds && predIds.length > 0) {
-      let maxPredEnd = '';
-      for (const predId of predIds) {
-        const pred = byId.get(predId);
-        if (!pred?.endDate) continue;
-        if (!maxPredEnd || pred.endDate > maxPredEnd) maxPredEnd = pred.endDate;
-      }
-      if (maxPredEnd) {
-        task.startDate = format(addBusinessDaysEx(parseISO(maxPredEnd), 1, holidays), 'yyyy-MM-dd');
-        startShifted = true;
-      }
+    let maxPredEnd = '';
+    for (const predId of predIds) {
+      const pred = byId.get(predId);
+      if (!pred?.endDate) continue;
+      if (!maxPredEnd || pred.endDate > maxPredEnd) maxPredEnd = pred.endDate;
     }
+    if (!maxPredEnd) continue;
 
+    task.startDate = format(addBusinessDaysEx(parseISO(maxPredEnd), 1, holidays), 'yyyy-MM-dd');
+
+    // 옮긴 시작일 기준으로, 원래 입력돼 있던 영업일 기간만큼 종료일을 다시 잡는다(공수 미사용).
     const originalTask = tasks.find((t) => t.id === id);
-    let hadBothDatesOnInput = false;
     if (originalTask?.startDate && originalTask?.endDate) {
-      const s0 = parseISO(originalTask.startDate);
-      const e0 = parseISO(originalTask.endDate);
-      hadBothDatesOnInput = isValid(s0) && isValid(e0) && originalTask.startDate <= originalTask.endDate;
-    }
-    /** 선행 순차 연결: 공수가 없을 때만 — 시작·종료가 모두 있으면 FS 후 기존 영업일 기간 유지. 공수(MD)>0이면 공수로 종료일 산정 */
-    const effortMdForChainRespect = taskStoredEffortAsManDays(originalTask ?? task, projectEffortUnitByProjectId);
-    const respectExistingSpanForChain =
-      chainLinkRespectBothDates &&
-      linkEffortToSchedule &&
-      hadBothDatesOnInput &&
-      predIds &&
-      predIds.length > 0 &&
-      !(effortMdForChainRespect > 0);
-
-    const workEffort = typeof task.workEffort === 'number' && task.workEffort > 0 ? task.workEffort : undefined;
-    if (linkEffortToSchedule && workEffort != null && !respectExistingSpanForChain) {
-      const effortMd = taskStoredEffortAsManDays(task, projectEffortUnitByProjectId);
-      if (effortMd > 0) {
-        const assignments = getAssignmentsForTask(task, projectAssignmentsByProjectId);
-        const start = parseISO(task.startDate);
-        if (isValid(start)) {
-          task.endDate = computeEndDateFromEffort(task.startDate, effortMd, assignments, holidays);
-        }
-        continue;
-      }
-    }
-
-    if (startShifted && originalTask) {
       const s = parseISO(originalTask.startDate);
       const e = parseISO(originalTask.endDate);
       if (isValid(s) && isValid(e)) {
@@ -384,8 +210,6 @@ export function applyDependencySchedule(
   for (let i = allIdsByDepth.length - 1; i >= 0; i--) {
     const id = allIdsByDepth[i];
     // 사용자가 직접 편집한 부모 작업(excludeFromRecalc)은 자식 min/max로 덮어쓰지 않는다.
-    // 잠금 필드와 별개로, "이번에 변경된 작업 자신"을 보호하기 위한 가드.
-    // 잠금이 즉시 적용되지 못한 케이스(상태 업데이트 타이밍, 외부 호출 경로)를 모두 막는다.
     if (excludeFromRecalc?.has(id)) continue;
     const task = byId.get(id)!;
     const children = byParent.get(id) ?? [];

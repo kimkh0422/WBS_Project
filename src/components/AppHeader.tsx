@@ -167,6 +167,8 @@ export interface AppHeaderProps {
   onOpenTutorial?: () => void;
   /** ⋮ 메뉴 「따라하기 투어」 — 신규 프로젝트→첫 작업 흐름을 실제 화면 위에서 안내(데스크톱 전용) */
   onStartTour?: () => void;
+  /** ⋮ 관리자 메뉴 「작업 로그」 — 회원들의 프로젝트·작업 생성·수정·삭제 변경 이력(전체)을 조회. 운영자(realIsAdmin)에게만 노출 */
+  onOpenAuditLog?: () => void;
 }
 
 export function AppHeader({
@@ -247,6 +249,7 @@ export function AppHeader({
   ownerDepartmentByUserId,
   onOpenTutorial,
   onStartTour,
+  onOpenAuditLog,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
   const canSwitchAdminMemberView = (isAdmin || adminOverride) && !!setMemberPreview && !!user?.id;
@@ -445,6 +448,10 @@ export function AppHeader({
   const isProjectOwner = (p: Project) => !!user?.id && p.ownerId === user.id;
   const canManageProject = (p: Project) => effectiveIsAdmin || isProjectOwner(p);
   const canEditProject = canManageProject;
+  // 삭제는 편집보다 엄격: 만든 사람(소유자)과 운영자(실제 is_admin / 관리자 모드)만.
+  // 사내(@gmtc.kr) 일반 계정은 편집은 되어도 남의 프로젝트를 삭제하지 못한다(DB projects_delete와 일치).
+  const realIsAdmin = (isAdmin || adminOverride) && !memberPreview;
+  const canDeleteProject = (p: Project) => realIsAdmin || isProjectOwner(p);
 
   useEffect(() => {
     if (isProjectDropdownOpen && !wasDropdownOpen.current) {
@@ -931,7 +938,7 @@ export function AppHeader({
                                       <Edit size={12} />
                                     </button>
                                   )}
-                                  {canManageProject(project) && projectsSortedByName.length > 1 && (
+                                  {canDeleteProject(project) && projectsSortedByName.length > 1 && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -1510,6 +1517,20 @@ export function AppHeader({
                       >
                         <Users size={14} /> 회원 관리
                       </button>
+                      {/* 작업 로그(변경 이력): 회원들이 언제 무엇을 생성·수정·삭제했는지 전체 조회. 운영자(realIsAdmin)만. */}
+                      {realIsAdmin && onOpenAuditLog && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            onOpenAuditLog();
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
+                          title="회원들이 언제 무엇을 생성·수정·삭제했는지(프로젝트·작업) 전체 변경 이력을 조회합니다. 운영자만 볼 수 있습니다."
+                        >
+                          <History size={14} /> 작업 로그
+                        </button>
+                      )}
                       {/* 일반 사용자 화면 진입은 Shift+F12만 (계정 메뉴에서는 미리보기 중일 때만 관리자 화면으로 복귀) */}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>

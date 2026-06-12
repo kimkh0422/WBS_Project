@@ -68,7 +68,6 @@ import {
 } from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useMatchMedia } from './hooks/useMatchMedia';
-import { computeWorkloadOverloads, fixOverloadByExtending } from './lib/workload';
 import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
 import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
 import { isProjectMineForUserListFilter } from './lib/projectMineFilter';
@@ -123,6 +122,7 @@ const AllocationOverviewPage = lazyWithRetry(() =>
 const SalesOutlookPage = lazyWithRetry(() => import('./components/SalesOutlookPage').then((m) => ({ default: m.SalesOutlookPage })));
 const WeeklyReportPage = lazyWithRetry(() => import('./components/WeeklyReportPage').then((m) => ({ default: m.WeeklyReportPage })));
 const PersonalKanbanPage = lazyWithRetry(() => import('./components/PersonalKanbanPage').then((m) => ({ default: m.PersonalKanbanPage })));
+const AuditLogPage = lazyWithRetry(() => import('./components/AuditLogPage').then((m) => ({ default: m.AuditLogPage })));
 const WBSSettingsModal = lazyWithRetry(() => import('./components/WBSSettingsModal').then((m) => ({ default: m.WBSSettingsModal })));
 const VersionManager = lazyWithRetry(() => import('./components/VersionManager').then((m) => ({ default: m.VersionManager })));
 const AuditLogModal = lazyWithRetry(() => import('./components/AuditLogModal').then((m) => ({ default: m.AuditLogModal })));
@@ -187,11 +187,18 @@ function WBSApp({
   // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
   // gmtc.kr 사내 회원은 관리자와 동일하게 모든 메뉴·정보 표시(요청사항). 외부 도메인은 기존 권한 유지.
   const effectiveIsAdmin = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
+  /**
+   * 프로젝트 "삭제" 전용 권한: 만든 사람(소유자)과 운영자(실제 is_admin / 관리자 모드)만.
+   * effectiveIsAdmin과 달리 사내(@gmtc.kr) 일반 계정은 제외한다 — 편집은 되어도 삭제는 불가.
+   * DB의 projects_delete 정책(is_admin_user() OR owner)과 일치.
+   */
+  const realIsAdmin = (isAdmin || adminOverride) && !memberPreview;
   /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
   const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
 
   const { view, setView, hiddenViews, lockMobileToDashboard, dashboardMountedOnceRef } = useAppRouting({
     effectiveIsAdmin,
+    realIsAdmin,
     userEmail: user?.email,
     isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
   });
@@ -671,8 +678,8 @@ function WBSApp({
     // 작업이 있는 프로젝트만 표시. 관리자가 아니면 본인이 만든 프로젝트로 한정
     return projectsSortedByName
       .filter((p) => (taskCountByProject[p.id] ?? 0) > 0)
-      .filter((p) => effectiveIsAdmin || (user?.id ? p.ownerId === user.id : false));
-  }, [projectsSortedByName, taskCountByProject, effectiveIsAdmin, user?.id]);
+      .filter((p) => realIsAdmin || (user?.id ? p.ownerId === user.id : false));
+  }, [projectsSortedByName, taskCountByProject, realIsAdmin, user?.id]);
 
   // 초대 링크 수락 (?invite=token)
   useEffect(() => {
@@ -1323,6 +1330,7 @@ function WBSApp({
           setIsMembersModalOpen={setIsMembersModalOpen}
           setIsResetConfirmOpen={setIsResetConfirmOpen}
           setIsDeleteChoiceOpen={setIsDeleteChoiceOpen}
+          onOpenAuditLog={() => setView('worklog')}
           canEditCurrentProject={canEditCurrentProject}
           setIsModalOpen={setIsModalOpen}
           themeMode={activeThemeMode}
@@ -1599,6 +1607,13 @@ function WBSApp({
                   <ErrorBoundary viewName="마인드맵">
                     <MindMapView filters={effectiveFilters} />
                   </ErrorBoundary>
+                ) : view === 'worklog' ? (
+                  <ErrorBoundary viewName="작업 로그">
+                    <AuditLogPage
+                      isOperator={realIsAdmin}
+                      projectNameMap={Object.fromEntries(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]))}
+                    />
+                  </ErrorBoundary>
                 ) : (
                   <ErrorBoundary viewName="칸반">
                     <KanbanBoard filters={effectiveFilters} />
@@ -1607,7 +1622,7 @@ function WBSApp({
             </div>
             {isShortcutsVisible && view !== 'dashboard' && (
               <ShortcutsSidebar
-                view={view === 'outlook' || view === 'weekreport' || view === 'todo' ? 'dashboard' : view}
+                view={view === 'outlook' || view === 'weekreport' || view === 'todo' || view === 'worklog' ? 'dashboard' : view}
                 onClose={() => setIsShortcutsVisible(false)}
               />
             )}
@@ -1705,9 +1720,9 @@ function WBSApp({
         {isDeleteChoiceOpen &&
           (() => {
             const isCurrentProjectOwner = !!currentProject && !!user?.id && currentProject.ownerId === user.id;
-            const canDeleteCurrentProject = !!currentProject && (effectiveIsAdmin || isCurrentProjectOwner);
+            const canDeleteCurrentProject = !!currentProject && (realIsAdmin || isCurrentProjectOwner);
             const hasAnyOption =
-              effectiveIsAdmin || canDeleteCurrentProject || deletableProjects.length > 0 || (!!currentProject && canEditCurrentProject);
+              realIsAdmin || canDeleteCurrentProject || deletableProjects.length > 0 || (!!currentProject && canEditCurrentProject);
             return (
               <div className="modal-overlay">
                 <div className="modal-content max-w-md">
@@ -1730,7 +1745,7 @@ function WBSApp({
                           삭제 권한이 있는 항목이 없습니다. 본인이 만든 프로젝트만 삭제할 수 있어요.
                         </div>
                       )}
-                      {effectiveIsAdmin && (
+                      {realIsAdmin && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1763,7 +1778,7 @@ function WBSApp({
                           <span className="block font-semibold">현재 보고 있는 프로젝트 삭제</span>
                           <span className="block text-xs text-red-600 mt-0.5">
                             '{currentProject.name}' 프로젝트와 소속된 모든 작업을 삭제합니다.
-                            {effectiveIsAdmin && currentProject.ownerId && (
+                            {realIsAdmin && currentProject.ownerId && (
                               <span className="block text-red-500/80 mt-0.5">
                                 소유:{' '}
                                 {currentProject.ownerId === user?.id
@@ -1779,7 +1794,7 @@ function WBSApp({
                       {deletableProjects.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-xs font-medium text-slate-500 mt-3">
-                            프로젝트 선택해서 삭제 {effectiveIsAdmin ? '(전체)' : '(내 프로젝트)'}
+                            프로젝트 선택해서 삭제 {realIsAdmin ? '(전체)' : '(내 프로젝트)'}
                           </p>
                           {deletableProjects.map((project) => (
                             <button
@@ -1797,7 +1812,7 @@ function WBSApp({
                               </span>
                               <span className="block text-xs text-red-600 mt-0.5">
                                 프로젝트와 소속된 모든 작업을 삭제합니다.
-                                {effectiveIsAdmin && project.ownerId && (
+                                {realIsAdmin && project.ownerId && (
                                   <span className="block text-red-500/80 mt-0.5">
                                     소유:{' '}
                                     {project.ownerId === user?.id

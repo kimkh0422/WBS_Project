@@ -232,15 +232,11 @@ export function GanttChart({
   const [showBaseline, setShowBaseline] = useState(false);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
 
-  const projectAssignmentsByProjectId = useMemo(() => new Map(projects.map((p) => [p.id, p.assignments ?? []])), [projects]);
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
   const criticalPathSet = useMemo(
-    () =>
-      showCriticalPath
-        ? getCriticalPathTaskIds(tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId)
-        : EMPTY_CRITICAL_PATH_SET,
-    [showCriticalPath, tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId],
+    () => (showCriticalPath ? getCriticalPathTaskIds(tasks) : EMPTY_CRITICAL_PATH_SET),
+    [showCriticalPath, tasks],
   );
   const effectiveCriticalPathSet = criticalPathSet;
 
@@ -468,45 +464,63 @@ export function GanttChart({
   ]);
 
   // Split view: 날짜 헤더(상단 가로 스크롤) ↔ 본문 ↔ 하단 스크롤바 수평 동기화.
-  // 상단·하단 어디서 스크롤해도 셋이 같이 움직이도록 유지.
+  // 본문(main)은 overflow-x-hidden이라 가로 스크롤이 헤더/하단에만 있고, 그 위치를 본문에 JS로 반영한다.
+  // 빈/로딩 상태로 첫 렌더된 뒤 데이터가 도착해 스크롤 엘리먼트가 늦게 붙는 경우를 위해
+  // RAF로 attach를 재시도하고, 작업·날짜 개수(0→N) 변화에도 리스너를 다시 붙인다.
+  // (deps가 [isSplitView]뿐이면 새로고침 진입 시 본문에 리스너가 영영 안 붙어 바가 안 따라오던 회귀)
   // NOTE: Rules of Hooks - early return 이전에 위치해야 함
   useEffect(() => {
     if (!isSplitView) return;
-    const mainEl = mainScrollRef.current;
-    if (!mainEl) return;
-    const onMainScroll = () => {
-      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = mainEl.scrollLeft;
-      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = mainEl.scrollLeft;
-    };
-    mainEl.addEventListener('scroll', onMainScroll, { passive: true });
-    return () => mainEl.removeEventListener('scroll', onMainScroll);
-  }, [isSplitView, syncScrollRef]);
+    let cancelled = false;
+    let raf = 0;
+    let attempts = 0;
+    let cleanup: (() => void) | undefined;
 
-  useEffect(() => {
-    if (!isSplitView) return;
-    const bottomEl = bottomScrollRef.current;
-    const mainEl = mainScrollRef.current;
-    if (!bottomEl || !mainEl) return;
-    const onBottomScroll = () => {
-      mainEl.scrollLeft = bottomEl.scrollLeft;
-      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = bottomEl.scrollLeft;
-    };
-    bottomEl.addEventListener('scroll', onBottomScroll, { passive: true });
-    return () => bottomEl.removeEventListener('scroll', onBottomScroll);
-  }, [isSplitView, syncScrollRef]);
+    const attach = () => {
+      const main = mainScrollRef.current;
+      const header = headerScrollRef.current;
+      const bottom = bottomScrollRef.current;
+      if (!main || !header || !bottom) {
+        if (!cancelled && attempts < 120) {
+          attempts += 1;
+          raf = requestAnimationFrame(attach);
+        }
+        return;
+      }
 
-  useEffect(() => {
-    if (!isSplitView) return;
-    const headerEl = headerScrollRef.current;
-    const mainEl = mainScrollRef.current;
-    if (!headerEl || !mainEl) return;
-    const onHeaderScroll = () => {
-      mainEl.scrollLeft = headerEl.scrollLeft;
-      if (bottomScrollRef.current) bottomScrollRef.current.scrollLeft = headerEl.scrollLeft;
+      let syncing = false;
+      const applyLeft = (left: number) => {
+        if (syncing) return;
+        syncing = true;
+        if (main.scrollLeft !== left) main.scrollLeft = left;
+        if (header.scrollLeft !== left) header.scrollLeft = left;
+        if (bottom.scrollLeft !== left) bottom.scrollLeft = left;
+        syncing = false;
+      };
+
+      const onMain = () => applyLeft(main.scrollLeft);
+      const onHeader = () => applyLeft(header.scrollLeft);
+      const onBottom = () => applyLeft(bottom.scrollLeft);
+
+      main.addEventListener('scroll', onMain, { passive: true });
+      header.addEventListener('scroll', onHeader, { passive: true });
+      bottom.addEventListener('scroll', onBottom, { passive: true });
+
+      cleanup = () => {
+        main.removeEventListener('scroll', onMain);
+        header.removeEventListener('scroll', onHeader);
+        bottom.removeEventListener('scroll', onBottom);
+      };
     };
-    headerEl.addEventListener('scroll', onHeaderScroll, { passive: true });
-    return () => headerEl.removeEventListener('scroll', onHeaderScroll);
-  }, [isSplitView, syncScrollRef]);
+
+    attach();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      cleanup?.();
+    };
+  }, [isSplitView, syncScrollRef, visibleTasks.length, dates.length]);
 
   const tappedBarPopoverEl =
     tappedBar &&
@@ -1015,6 +1029,32 @@ export function GanttChart({
           // bar/sidebar 어디를 클릭해도 키보드 이동이 동작하도록 컨테이너 자체로 포커스를 가져온다.
           // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록.
           onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
+          // 가로 틸트/좌우 스크롤 휠(deltaX) → 타임라인 좌우 이동. 평범한 세로 휠(deltaY) → 좌우 이동. Shift+세로 휠 → 세로(행) 이동.
+          onWheel={(e) => {
+            if (e.ctrlKey) return;
+            const el = e.currentTarget;
+            const scrollH = (delta: number) => {
+              const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+              if (maxLeft > 0) {
+                el.scrollLeft = Math.min(maxLeft, Math.max(0, el.scrollLeft + delta));
+                e.preventDefault();
+              }
+            };
+            if (e.deltaX !== 0) {
+              scrollH(e.deltaX); // 마우스 가로 스크롤(좌우 틸트)
+              return;
+            }
+            if (e.deltaY === 0) return;
+            if (e.shiftKey) {
+              const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+              if (maxTop > 0) {
+                el.scrollTop = Math.min(maxTop, Math.max(0, el.scrollTop + e.deltaY));
+                e.preventDefault();
+              }
+            } else {
+              scrollH(e.deltaY); // 평범한 세로 휠 → 좌우 이동
+            }
+          }}
           className="flex-1 min-h-0 overflow-auto bg-white pb-40 outline-none focus:ring-0"
         >
           <div className="min-w-max flex flex-col">

@@ -182,14 +182,30 @@ export function useScrollSync(
       const paneEls = [a, b];
 
       const onRootWheel = (e: WheelEvent) => {
-        if (e.deltaY === 0 || e.ctrlKey) return;
+        if (e.ctrlKey) return; // Ctrl+휠은 브라우저 확대/축소 등 기본 동작 유지
+        if (e.deltaX === 0 && e.deltaY === 0) return;
         const target = e.target;
         if (!(target instanceof HTMLElement) || !root?.contains(target)) return;
         if (isForeignNestedScrollable(target, root, paneEls)) return;
 
+        const inGantt = ganttPane?.contains(target) ?? false;
+
+        // 가로 이동량: 마우스 가로 틸트/좌우 스크롤 휠(deltaX)이 있으면 그 값을,
+        // 없으면 간트 위에서의 평범한 세로 휠(deltaY, Shift 없음)을 가로 이동으로 사용한다.
+        const horizontalDelta = e.deltaX !== 0 ? e.deltaX : inGantt && !e.shiftKey ? e.deltaY : 0;
+
+        // 타임라인 좌우 이동 — 간트 본문(b)은 overflow-x-hidden이지만 scrollLeft는 프로그램적으로 설정 가능하며,
+        // GanttChart 내부 가로 동기 effect가 날짜 헤더·하단 바·표 가로 위치를 함께 맞춘다.
+        if (horizontalDelta !== 0) {
+          e.preventDefault();
+          const maxLeft = Math.max(0, b.scrollWidth - b.clientWidth);
+          if (maxLeft > 0) b.scrollLeft = Math.min(maxLeft, Math.max(0, b.scrollLeft + horizontalDelta));
+          return;
+        }
+
+        if (e.deltaY === 0) return;
         e.preventDefault();
 
-        const inGantt = ganttPane?.contains(target) ?? false;
         const source: 1 | 2 = inGantt ? 2 : 1;
         const primary = source === 1 ? a : b;
 

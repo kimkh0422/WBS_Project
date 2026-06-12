@@ -5,10 +5,8 @@ import {
   computeEndDateFromEffort,
   computeStartDateFromEndDate,
   computeWorkEffortFromDates,
-  getTopologicalOrder,
-  applyDependencySchedule,
-  distributeChildrenEvenly,
-} from '../schedule';
+} from '../effortSchedule';
+import { getTopologicalOrder, applyDependencySchedule, distributeChildrenEvenly } from '../schedule';
 
 const noHolidays = new Set<string>();
 
@@ -100,132 +98,47 @@ describe('applyDependencySchedule', () => {
     status: 'todo',
   };
 
-  it('FS 체인에서 공수·100% 투입율로 시작·종료일 연쇄 산정', () => {
-    const tasks = [
-      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 5 },
-      { ...baseTask, id: 't2', name: 'T2', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 3, dependencies: ['t1'] },
-    ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: true });
-    expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-03');
-    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
-    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
-  });
-
-  it('FS 체인에서 linkEffortToSchedule false면 공수가 작아도 기존 달력 간격으로 종료일 유지', () => {
+  it('FS 체인: 선행 종료일 다음 영업일로 시작 이동 + 기존 영업일 기간 유지(공수 무시)', () => {
     const tasks = [
       { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 0.5 },
       { ...baseTask, id: 't2', name: 'T2', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 0.5, dependencies: ['t1'] },
     ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: false });
+    const result = applyDependencySchedule(tasks);
+    // t1: 선행 없음 → 그대로
     expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-10');
+    // t2: t1 종료(4/10 금) 다음 영업일 4/13(월)로 시작, 입력 기간 10영업일 유지 → 4/24(금)
     expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-13');
     expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-24');
   });
 
-  it('선행 순차 연결용: 공수가 있으면 시작·종료가 있어도 공수로 종료일 산정', () => {
+  it('FS 체인: 3영업일 작업의 기간을 유지한 채 시작만 이동', () => {
     const tasks = [
-      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-03', workEffort: 5 },
-      {
-        ...baseTask,
-        id: 't2',
-        name: 'T2',
-        startDate: '2026-03-30',
-        endDate: '2026-04-01',
-        workEffort: 20,
-        dependencies: ['t1'],
-      },
+      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-03' },
+      { ...baseTask, id: 't2', name: 'T2', startDate: '2026-03-30', endDate: '2026-04-01', dependencies: ['t1'] },
     ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, {
-      linkEffortToSchedule: true,
-      chainLinkRespectBothDates: true,
-    });
-    expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-03');
-    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
-    // 20MD 100%: 2026-04-06(월)부터 20영업일(한국 공휴일 반영)
-    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-05-01');
-  });
-
-  it('선행 순차 연결용: 공수 없이 시작·종료만 있으면 기존 영업일 기간 유지', () => {
-    const tasks = [
-      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-03', workEffort: 5 },
-      {
-        ...baseTask,
-        id: 't2',
-        name: 'T2',
-        startDate: '2026-03-30',
-        endDate: '2026-04-01',
-        dependencies: ['t1'],
-      },
-    ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, {
-      linkEffortToSchedule: true,
-      chainLinkRespectBothDates: true,
-    });
+    const result = applyDependencySchedule(tasks);
     expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-03');
     expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
     // 입력 기간 3영업일(3/30월~4/1수) 유지: 4/6(월)+2영업일 = 4/8(수)
     expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
   });
 
-  it('선행 순차 연결용: 체인 작업에 시작·종료가 비어 있으면 공수로 종료일 산정', () => {
-    const tasks = [
-      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-03', workEffort: 5 },
-      {
-        ...baseTask,
-        id: 't2',
-        name: 'T2',
-        startDate: '',
-        endDate: '',
-        workEffort: 3,
-        dependencies: ['t1'],
-      },
-    ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, {
-      linkEffortToSchedule: true,
-      chainLinkRespectBothDates: true,
-    });
-    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
-    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
-  });
-
-  it('선행(FS) 반영 후 종료일은 저장 공수 기준으로 산정', () => {
-    const tasks = [
-      { ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-03', workEffort: 5 },
-      {
-        ...baseTask,
-        id: 't2',
-        name: 'T2',
-        startDate: '2026-03-30',
-        endDate: '2026-04-10',
-        workEffort: 3,
-        dependencies: ['t1'],
-      },
-    ];
-    const assignments = new Map([['p1', [{ assignee: 'Alice', allocationPercent: 100 }]]]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: true });
-    expect(result.find((t) => t.id === 't2')!.startDate).toBe('2026-04-06');
-    expect(result.find((t) => t.id === 't2')!.endDate).toBe('2026-04-08');
-  });
-
-  it('담당자 투입율만 반영해 기간 산정 (다른 인원 투입율 합산 제외)', () => {
-    const tasks = [{ ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 5 }];
-    const assignments = new Map([
-      [
-        'p1',
-        [
-          { assignee: 'Alice', allocationPercent: 50 },
-          { assignee: 'Bob', allocationPercent: 50 },
-        ],
-      ],
-    ]);
-    const result = applyDependencySchedule(tasks, assignments, undefined, undefined, { linkEffortToSchedule: true });
-    // 5MD / 50% = 10영업일 → 2026-03-30(월) + 9영업일 = 2026-04-10
+  it('공수는 일정에 영향을 주지 않는다(선행 없는 작업의 종료일 불변)', () => {
+    const tasks = [{ ...baseTask, id: 't1', name: 'T1', startDate: '2026-03-30', endDate: '2026-04-10', workEffort: 100 }];
+    const result = applyDependencySchedule(tasks);
+    expect(result.find((t) => t.id === 't1')!.startDate).toBe('2026-03-30');
     expect(result.find((t) => t.id === 't1')!.endDate).toBe('2026-04-10');
+  });
+
+  it('상위 작업은 직속 하위 구간(min 시작 ~ max 종료)으로 맞춘다', () => {
+    const tasks = [
+      { ...baseTask, id: 'P', name: 'P', startDate: '', endDate: '' },
+      { ...baseTask, id: 'c1', name: 'c1', parentId: 'P', startDate: '2026-03-30', endDate: '2026-04-01' },
+      { ...baseTask, id: 'c2', name: 'c2', parentId: 'P', startDate: '2026-04-06', endDate: '2026-04-10' },
+    ];
+    const result = applyDependencySchedule(tasks);
+    expect(result.find((t) => t.id === 'P')!.startDate).toBe('2026-03-30');
+    expect(result.find((t) => t.id === 'P')!.endDate).toBe('2026-04-10');
   });
 });
 

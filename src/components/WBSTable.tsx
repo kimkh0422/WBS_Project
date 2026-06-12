@@ -209,12 +209,12 @@ export function WBSTable({
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   const criticalPathSet = useMemo(() => {
     try {
-      const set = getCriticalPathTaskIds(tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId);
+      const set = getCriticalPathTaskIds(tasks);
       return set instanceof Set ? set : new Set<string>();
     } catch {
       return new Set<string>();
     }
-  }, [tasks, projectAssignmentsByProjectId, projectEffortUnitByProjectId]);
+  }, [tasks]);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const { showTableAutoFormatting, globalAutoFormattingOn, toggleUserHide } = useWbsTableAutoFormatting(wbsSettings);

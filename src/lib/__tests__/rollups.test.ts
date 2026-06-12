@@ -112,6 +112,53 @@ describe('syncParentRollups', () => {
     expect(gp.endDate).toBe('2050-04-01');
   });
 
+  it("'growOnly'(확장만): 부모가 자식보다 넓으면(직접 입력값) 자식 min/max로 줄이지 않고 유지", () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', startDate: '2026-03-29', endDate: '2026-08-31' }),
+      makeTask({ id: 'c1', parentId: 'parent', startDate: '2026-05-08', endDate: '2026-07-19' }),
+    ];
+    // 완전 정렬(false)이라면 부모 종료일이 자식 max(7/19)로 줄지만, growOnly는 직접 입력한 8/31을 보존한다.
+    const result = syncParentRollups(tasks, 'parent', undefined, false, undefined, undefined, 'growOnly');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.startDate).toBe('2026-03-29');
+    expect(parent.endDate).toBe('2026-08-31');
+  });
+
+  it("'growOnly'(확장만): 자식이 부모 종료일 밖으로 나가면 부모가 자식을 포함하도록 확장", () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', startDate: '2026-03-29', endDate: '2026-08-11' }),
+      makeTask({ id: 'c1', parentId: 'parent', startDate: '2026-05-08', endDate: '2026-08-31' }),
+    ];
+    // 부모 종료일(8/11) < 자식(8/31) → 부모가 8/31까지 확장. 시작일은 부모(3/29)가 더 이르므로 유지.
+    const result = syncParentRollups(tasks, 'parent', undefined, false, undefined, undefined, 'growOnly');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.startDate).toBe('2026-03-29');
+    expect(parent.endDate).toBe('2026-08-31');
+  });
+
+  it("'growOnly'(확장만): 자식이 부모보다 일찍 시작하면 부모 시작일을 자식으로 당겨 포함", () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', startDate: '2026-05-01', endDate: '2026-08-31' }),
+      makeTask({ id: 'c1', parentId: 'parent', startDate: '2026-03-01', endDate: '2026-06-01' }),
+    ];
+    // 자식 시작(3/1) < 부모(5/1) → 부모 시작이 3/1로 확장. 종료는 부모(8/31)가 더 늦으므로 유지.
+    const result = syncParentRollups(tasks, 'parent', undefined, false, undefined, undefined, 'growOnly');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.startDate).toBe('2026-03-01');
+    expect(parent.endDate).toBe('2026-08-31');
+  });
+
+  it('applyRollupsToTasks(로드): 상위가 하위 밖이면 확장하되 상위가 더 넓으면 축소 안 함(growOnly)', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', startDate: '2026-03-29', endDate: '2026-08-11', workEffort: 1 }),
+      makeTask({ id: 'c1', parentId: 'parent', startDate: '2026-05-08', endDate: '2026-08-31', workEffort: 1 }),
+    ];
+    const result = applyRollupsToTasks(tasks, DEFAULT_STATUS_CONFIGS);
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.startDate).toBe('2026-03-29'); // 부모가 더 이름 → 유지
+    expect(parent.endDate).toBe('2026-08-31'); // 자식이 더 늦음 → 확장 포함
+  });
+
   it('parentId가 null이면 변경 없음', () => {
     const tasks: Task[] = [makeTask({ id: 'a' })];
     const result = syncParentRollups(tasks, null);

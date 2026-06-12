@@ -1,7 +1,6 @@
 import { Task, Project } from '../types';
 import { BackupData } from '../lib/export';
 import { WBSSettings } from '../lib/wbsSettings';
-import { type WorkloadDay } from '../lib/workload';
 
 /** Supabase Realtime postgres_changes 콜백 페이로드 */
 export interface RealtimeChangePayload {
@@ -184,7 +183,5 @@ export interface WBSContextType {
   distributeChildrenSchedule: (parentIds: string[]) => { applied: number; skipped: number };
   /** 특정 작업 기준 하위→상위 롤업: 그 작업과 하위(서브트리)만 대상으로 선행 재계산+상위 일정을 하위 min/max로 정렬(서브트리 밖은 유지) */
   rollupTaskSchedule: (taskId: string) => void;
-  /** 과부하 자동 수정: 항목별로 선택한 전략(기간 연장/투입율 증가) 적용 */
-  fixOverload: (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => void;
   isLoading: boolean;
 }
