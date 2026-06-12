@@ -57,6 +57,8 @@ export function TableGanttSplit({
   const resizeClientXRef = useRef(0);
 
   const [rowHeights, setRowHeights] = useState<number[]>([]);
+  // 표 상단에 도킹된 서식/일괄 바 높이 — 간트 상단도 같은 높이만큼 띄워 행 정렬을 맞춘다.
+  const [tableTopInset, setTableTopInset] = useState(0);
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
@@ -165,6 +167,7 @@ export function TableGanttSplit({
           onRowHeightChange={onRowHeightChange}
           onRowHeightsChange={setRowHeights}
           syncRowHeights={rowHeights}
+          onTopInsetChange={setTableTopInset}
         />
       </div>
 
@@ -188,6 +191,7 @@ export function TableGanttSplit({
           rowHeights={rowHeights}
           onRowHeightChange={onRowHeightChange}
           bottomSpacerHeight={sharedRowHeight}
+          topInsetHeight={tableTopInset}
         />
       </div>
     </div>

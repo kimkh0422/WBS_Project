@@ -74,3 +74,41 @@ export function subscribeSingleClickEditChanged(fn: () => void): () => void {
     window.removeEventListener('storage', onStorage);
   };
 }
+
+/** 이 브라우저에서만: 고급 도구(자동 서식·보완 가이드·가중치·일정 자동 맞춤) 버튼을 툴바에 표시. 기본 숨김, Shift+F12로 토글 */
+const ADVANCED_TOOLS_KEY = 'wbs-show-advanced-tools';
+const ADVANCED_TOOLS_CHANGED_EVENT = 'wbs-show-advanced-tools-changed';
+
+export function getShowAdvancedTools(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(ADVANCED_TOOLS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setShowAdvancedTools(on: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (on) window.localStorage.setItem(ADVANCED_TOOLS_KEY, '1');
+    else window.localStorage.removeItem(ADVANCED_TOOLS_KEY);
+    window.dispatchEvent(new Event(ADVANCED_TOOLS_CHANGED_EVENT));
+  } catch {
+    // ignore
+  }
+}
+
+export function subscribeShowAdvancedToolsChanged(fn: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const onCustom = () => fn();
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === ADVANCED_TOOLS_KEY) fn();
+  };
+  window.addEventListener(ADVANCED_TOOLS_CHANGED_EVENT, onCustom);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(ADVANCED_TOOLS_CHANGED_EVENT, onCustom);
+    window.removeEventListener('storage', onStorage);
+  };
+}

@@ -10,6 +10,7 @@ import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
 import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { inclusiveCalendarDays, endYmdFromInclusiveDuration } from '../lib/durationDays';
 import { getTaskProgressRollupTooltip } from '../lib/rollups';
 import { progressVariance } from '../lib/plannedProgress';
 import { plannedProgressDataCellTitle, progressVarianceDataCellTitle, PLANNED_NOT_EDITABLE_TOAST } from '../lib/plannedProgressTooltips';
@@ -121,7 +122,7 @@ function getTaskDetailTooltip(
 
 /** 표 셀 자동계산 판정: 계획·차이는 항상 자동, 진척·시작/종료일·공수는 요약(자식 있는) 행에서 자동 롤업.
  *  자동 셀은 .wbs-cell-auto(옅은 빗금)로 "입력 불필요"임을 표시한다. */
-const ROLLUP_AUTO_COLS = new Set<string>(['progress', 'startDate', 'endDate', 'workEffort']);
+const ROLLUP_AUTO_COLS = new Set<string>(['progress', 'startDate', 'endDate', 'duration', 'workEffort']);
 function isAutoComputedCell(colId: string, hasChildren: boolean): boolean {
   if (colId === 'plannedProgress' || colId === 'progressVariance') return true;
   if (ROLLUP_AUTO_COLS.has(colId)) return hasChildren;
@@ -144,7 +145,8 @@ function isReadOnlyCell(colId: string, hasChildren: boolean, canEdit: boolean): 
 function TreeGuides({ guide, depth, hasChildren, expanded }: { guide: string; depth: number; hasChildren: boolean; expanded?: boolean }) {
   const showChildStub = hasChildren && !!expanded;
   if (!guide && !showChildStub) return null;
-  const lineColor = 'rgba(148, 163, 184, 0.55)';
+  // 체브런을 차분하게 바꾼 뒤 레벨 구분은 이 연결선이 주로 담당하므로 약간 더 또렷하게.
+  const lineColor = 'rgba(100, 116, 139, 0.7)';
   const lines: React.ReactNode[] = [];
   for (let i = 0; i < guide.length; i++) {
     const c = guide[i];
@@ -177,6 +179,8 @@ export interface SortableTaskRowProps {
   dropIndicator?: 'before' | 'after' | null;
   wbsId?: string;
   displayWbsId?: string;
+  /** # 칸에 순번 대신 표시할 순수 계층 WBS 번호(1 · 1.1 · 1.1.1, 접두어 없음) */
+  wbsSeqLabel?: string;
   displayWbsMap: Map<string, string>;
   taskIdToSeqNum: TaskIdToSeqNum;
   seqNumToTaskId: SeqNumToTaskId;
@@ -191,8 +195,8 @@ export interface SortableTaskRowProps {
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
   /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Shift+행클릭 시 시작 행 */
   onSetRowAnchor?: (taskId: string) => void;
-  /** 행 클릭 시 포커스만 이동 (선택/체크는 체크박스 클릭으로만) */
-  onFocusRow?: (taskId: string) => void;
+  /** 행 클릭 시 포커스 이동. 수정키 없는 일반 클릭은 체크박스 다중 선택을 자동 해제하고, Shift/Ctrl 클릭은 keepSelection으로 보존한다. */
+  onFocusRow?: (taskId: string, opts?: { keepSelection?: boolean }) => void;
   canEdit: boolean;
   onEdit: (task: Task) => void;
   onDeleteClick: (taskId: string) => void;
@@ -255,6 +259,7 @@ function SortableTaskRowInner({
   dropIndicator,
   wbsId,
   displayWbsId,
+  wbsSeqLabel,
   displayWbsMap,
   taskIdToSeqNum,
   seqNumToTaskId,
@@ -562,10 +567,10 @@ function SortableTaskRowInner({
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) return;
         if (e.shiftKey) {
           onSelect(task.id, false, true);
-          onFocusRow?.(task.id);
+          onFocusRow?.(task.id, { keepSelection: true });
         } else {
           onSelect(task.id, true, false);
-          onFocusRow?.(task.id);
+          onFocusRow?.(task.id, { keepSelection: true });
         }
         e.preventDefault();
         e.stopPropagation();
@@ -612,7 +617,12 @@ function SortableTaskRowInner({
           }}
         />
       </div>
-      <div className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums">{rowIndex + 1}</div>
+      <div
+        className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
+        title={wbsSeqLabel ? `WBS ${wbsSeqLabel} · 표시 순번 ${rowIndex + 1}` : undefined}
+      >
+        {wbsSeqLabel || rowIndex + 1}
+      </div>
       {visibleColumnIds.map((colId) => {
         const otherFocusKey = `${task.id}::${colId}`;
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
@@ -690,17 +700,16 @@ function SortableTaskRowInner({
                       toggleExpand(task.id);
                     }}
                     className={cn(
-                      'absolute z-[1] flex h-5 w-5 items-center justify-center rounded-md shadow-sm ring-1 transition-all',
-                      task.expanded
-                        ? 'bg-slate-100 text-slate-600 ring-slate-300/70 hover:bg-slate-200 hover:text-slate-800 hover:ring-slate-400'
-                        : 'bg-indigo-50 text-indigo-600 ring-indigo-200 hover:bg-indigo-100 hover:text-indigo-700 hover:ring-indigo-300',
+                      // 레벨 구분이 흐려지지 않도록 차분한 무채색으로 통일.
+                      // 펼침/접힘은 색이 아니라 방향(▾/▸)으로만 구분한다(같은 레벨 형제가 상태에 따라 다른 색으로 보이지 않게).
+                      'absolute z-[1] flex h-5 w-5 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-800',
                     )}
                     style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
                     title={task.expanded ? '접기 (하위 작업 숨기기)' : '펼치기 (하위 작업 보기)'}
                     aria-label={task.expanded ? '접기' : '펼치기'}
                     aria-expanded={task.expanded}
                   >
-                    {task.expanded ? <ChevronDown size={14} strokeWidth={2.75} /> : <ChevronRight size={14} strokeWidth={2.75} />}
+                    {task.expanded ? <ChevronDown size={13} strokeWidth={2.5} /> : <ChevronRight size={13} strokeWidth={2.5} />}
                   </button>
                 )}
                 {isInlineEditingName ? (
@@ -1003,6 +1012,100 @@ function SortableTaskRowInner({
                     className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                     style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
                     title={othersHere.map((o) => o.displayName).join(', ')}
+                  >
+                    {otherPrimary.displayName}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (colId === 'duration') {
+            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'duration';
+            const isFocusedDur = focusedCell?.taskId === task.id && focusedCell?.columnId === 'duration' && !isEditing;
+            const durationDays = inclusiveCalendarDays(task.startDate, task.endDate);
+            const commitDurationIfChanged = (raw: string) => {
+              const n = parseInt(raw, 10);
+              if (!Number.isFinite(n) || n < 1) return;
+              if (!task.startDate) return; // 시작일이 없으면 종료일을 역산할 수 없음
+              const newYmd = endYmdFromInclusiveDuration(task.startDate, n);
+              if (!newYmd) return;
+              const newEnd = newYmd + (task.endDate?.slice(10) || '');
+              if (newEnd === (task.endDate ?? '')) return;
+              updateTask(task.id, { endDate: newEnd });
+            };
+            return (
+              <div
+                key={colId}
+                className={cn(
+                  'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
+                  isFocusedDur && 'ring-2 ring-indigo-500 ring-inset',
+                )}
+                style={otherRingStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEdit('duration');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (!isEditing) beginEditNow('duration');
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    id={`wbs-edit-${task.id}-duration`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    autoFocus
+                    defaultValue={durationDays ?? ''}
+                    title="시작일 기준 기간(일). Enter로 확정하면 종료일이 자동 계산됩니다."
+                    className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => {
+                      commitDurationIfChanged(e.target.value);
+                      setEditingCell(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                      else if (e.key === 'Escape') setEditingCell(null);
+                    }}
+                  />
+                ) : (
+                  <span className="flex w-full min-w-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      className="rounded px-1 -mx-1 min-w-0 flex-1 text-left cursor-cell hover:bg-indigo-50/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        beginEdit('duration');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        beginEditNow('duration');
+                      }}
+                      onFocus={(e) => {
+                        e.stopPropagation();
+                        beginEdit('duration');
+                      }}
+                      title={
+                        task.startDate
+                          ? '클릭하여 기간(일) 수정 — 시작일 기준으로 종료일이 자동 계산됩니다.'
+                          : '시작일을 먼저 입력하면 기간으로 종료일을 계산할 수 있습니다.'
+                      }
+                    >
+                      <span
+                        className="inline-flex items-center gap-0.5 min-w-0"
+                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      >
+                        {durationDays != null ? durationDays : '-'}
+                      </span>
+                    </button>
+                  </span>
+                )}
+                {otherPrimary && (
+                  <div
+                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
                   >
                     {otherPrimary.displayName}
                   </div>
@@ -1971,6 +2074,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.deliverables === next.task.deliverables &&
     prev.task.customFields === next.task.customFields &&
     prev.taskIdToSeqNum === next.taskIdToSeqNum &&
+    prev.wbsSeqLabel === next.wbsSeqLabel &&
     prev.seqNumToTaskId === next.seqNumToTaskId &&
     prev.task.dependencies === next.task.dependencies &&
     prev.task.isMilestone === next.task.isMilestone &&

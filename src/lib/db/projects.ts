@@ -235,8 +235,11 @@ export async function deleteProjectFromDB(id: string): Promise<void> {
   const { error } = await supabase!.from('projects').delete().eq('id', id);
   if (error) throw error;
   const row = project as { id: string; name: string } | null;
+  // project_id는 null로 기록한다. wbs_audit_log.project_id는 projects(id) ON DELETE CASCADE FK라,
+  // 방금 삭제된 프로젝트 id를 넣으면 외래키 위반(409)이 나고(설령 통과해도 CASCADE로 즉시 삭제됨).
+  // 삭제된 프로젝트 식별 정보는 FK가 없는 entity_id·entity_name에 보존한다.
   await insertAuditLog({
-    project_id: id,
+    project_id: null,
     entity_type: 'project',
     entity_id: id,
     entity_name: row?.name ?? null,

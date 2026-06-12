@@ -1,16 +1,19 @@
--- 협조 포인트: 항상 '사람'에게만 지급(조직 이름 미지급) + 인원별 보강.
+-- 협조 포인트: '처리완료' 시점 지급 + 항상 '사람'에게만 지급(조직 이름 미지급) + 인원별 보강.
 --
--- 두 가지를 한 번에 교정한다(reconcile_cooperation_points 교체 + 전체 재정산):
---   1) 조직(부서) 담당 요청은 조직 이름에 지급하지 않는다.
+-- 세 가지를 한 번에 교정한다(reconcile_cooperation_points 교체 + 전체 재정산):
+--   1) 지급 시점을 '확인완료'(요청자 최종 확인) → '처리완료'(담당자 자체 완료)로 당긴다.
+--      담당자가 처리완료로 표시하면 바로 지급, 처리완료가 풀리면(진행중 등) 자동 회수.
+--      '확인완료'는 처리완료의 다음 단계라 함께 포함한다(둘 다 지급 대상).
+--   2) 조직(부서) 담당 요청은 조직 이름에 지급하지 않는다.
 --      조직 지정은 알림 라우팅용 — 팀장/사업부장이 담당자를 member_progress 로 지정하면
 --      그 담당자(개인)에게만 지급한다. 담당자 지정 전에는 지급 대상이 없다.
 --      → 기존에 조직 이름("영업대표 - 공공사업" 등)으로 지급된 ledger 행은 재정산 시 자동 회수된다.
---   2) 순수 레거시(조직 지정도 없고 member_progress 도 빈) 행의 assignee 텍스트에 여러 명이 있으면
+--   3) 순수 레거시(조직 지정도 없고 member_progress 도 빈) 행의 assignee 텍스트에 여러 명이 있으면
 --      ("김길용, 홍길동") 한 덩어리가 아니라 개인 이름으로 분해해(쉼표·세미콜론·슬래시·가운뎃점 구분,
 --      '외 N명' 꼬리표 제거) 각 사람에게 따로 지급한다.
 --
--- 클라이언트 짝 코드: src/lib/db/cooperationPoints.ts (splitAssigneeNames · deriveCooperationPointEntries)
---   — 분해 규칙·조직 게이팅을 바꾸면 양쪽을 같이 바꾼다.
+-- 클라이언트 짝 코드: src/lib/db/cooperationPoints.ts (POINT_AWARD_STATUSES · splitAssigneeNames · deriveCooperationPointEntries)
+--   — 지급 시점·분해 규칙·조직 게이팅을 바꾸면 양쪽을 같이 바꾼다.
 
 CREATE OR REPLACE FUNCTION reconcile_cooperation_points(req cooperation_requests)
 RETURNS void
@@ -35,14 +38,15 @@ BEGIN
     FROM regexp_split_to_table(coalesce(req.assignee, ''), '[,;/·]') AS t
   ),
   deserving AS (
+    -- 지급 시점: 담당자 '처리완료'(또는 다음 단계 '확인완료'). '취소됨'은 제외.
     SELECT name, department, position FROM members
-    WHERE status = '확인완료'
-       OR (req.status = '확인완료' AND status <> '취소됨')
+    WHERE status IN ('처리완료', '확인완료')
+       OR (req.status IN ('처리완료', '확인완료') AND status <> '취소됨')
     UNION
     -- 순수 레거시 행만: 조직 지정이 없고(assignee_org_ids 비어 있음) member_progress 도 비어 있을 때.
     SELECT ln.name, '' AS department, '' AS position
     FROM legacy_names ln
-    WHERE req.status = '확인완료'
+    WHERE req.status IN ('처리완료', '확인완료')
       AND ln.name <> ''
       AND coalesce(array_length(req.assignee_org_ids, 1), 0) = 0
       AND NOT EXISTS (SELECT 1 FROM members)

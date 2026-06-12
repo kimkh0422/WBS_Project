@@ -5,7 +5,15 @@ import {
   COOPERATION_REQUEST_PRIORITIES,
   type CooperationRequest,
   type CooperationRequestPriority,
+  type CooperationRequestStatus,
 } from './cooperationRequests';
+
+/**
+ * 포인트 지급 트리거 상태 — 담당자가 '처리완료'(자체 완료)하면 지급한다.
+ * '확인완료'(요청자 최종 확인)는 처리완료의 다음 단계이므로 함께 포함, '취소됨'은 제외.
+ * DB reconcile_cooperation_points 의 status 조건과 짝 — 한쪽을 바꾸면 양쪽을 바꾼다.
+ */
+export const POINT_AWARD_STATUSES: ReadonlySet<CooperationRequestStatus> = new Set<CooperationRequestStatus>(['처리완료', '확인완료']);
 
 /**
  * 중요도별 지급 포인트 — DB 함수 cooperation_point_value 와 짝
@@ -65,20 +73,21 @@ export function splitAssigneeNames(assignee: string): string[] {
 
 /**
  * 협조 요청 1건에서 '지급 대상' 집합을 계산 — DB reconcile_cooperation_points 와 동일 규칙:
- *   1) 멤버 본인 상태가 '확인완료' → 지급
- *   2) 요청 전체가 '확인완료' → 취소되지 않은 모든 담당 멤버(member_progress) 지급
+ *   1) 멤버 본인 상태가 '처리완료'(또는 '확인완료') → 지급 (담당자가 자체 완료하면 바로 받음)
+ *   2) 요청 전체가 '처리완료'(또는 '확인완료') → 취소되지 않은 모든 담당 멤버(member_progress) 지급
  *   3) memberProgress 가 비어 있고 **조직 지정도 없는**(assigneeOrgIds 비어 있음) 순수 레거시 행만
- *      요청 '확인완료' 시 assignee 텍스트를 개인 이름으로 분해해(splitAssigneeNames) 각 사람에게 지급
+ *      요청이 '처리완료'(또는 '확인완료')일 때 assignee 텍스트를 개인 이름으로 분해해(splitAssigneeNames) 각 사람에게 지급
  *
+ * 지급 시점은 담당자의 '처리완료'(POINT_AWARD_STATUSES) — 처리완료가 풀리면(진행중 등) 자동 회수된다.
  * 포인트는 항상 '사람'에게만 간다 — 조직(부서)을 담당으로 지정한 요청은 그 조직 이름으로 지급하지 않는다.
- * 조직 지정 워크플로: 조직 지정 → 팀장/사업부장이 담당자를 member_progress 로 지정 → 그 담당자에게 지급.
+ * 조직 지정 워크플로: 조직 지정 → 팀장/사업부장이 담당자를 member_progress 로 지정 → 그 담당자가 처리완료 시 지급.
  * 담당자가 지정되기 전(member_progress 비어 있음)에는 지급 대상이 없다.
  *
  * 로컬(dev 우회) 모드의 현황 계산과, 저장 직후 지급/회수 토스트 예측에 사용한다.
  */
 export function deriveCooperationPointEntries(r: CooperationRequest): CooperationPointEntry[] {
   const points = cooperationPointValue(r.priority);
-  const confirmed = r.status === '확인완료';
+  const reqAwarded = POINT_AWARD_STATUSES.has(r.status);
   const fallbackDate = r.completedDate || (r.updatedAt || '').slice(0, 10);
   const out = new Map<string, CooperationPointEntry>();
   const add = (name: string, department: string, position: string, completedAt: string) => {
@@ -100,9 +109,9 @@ export function deriveCooperationPointEntries(r: CooperationRequest): Cooperatio
   if (r.memberProgress.length > 0) {
     for (const m of r.memberProgress) {
       if (!m.name) continue;
-      if (m.status === '확인완료' || (confirmed && m.status !== '취소됨')) add(m.name, m.department, m.position, m.completedAt);
+      if (POINT_AWARD_STATUSES.has(m.status) || (reqAwarded && m.status !== '취소됨')) add(m.name, m.department, m.position, m.completedAt);
     }
-  } else if (confirmed && r.assigneeOrgIds.length === 0) {
+  } else if (reqAwarded && r.assigneeOrgIds.length === 0) {
     // 조직 지정이 없는 순수 레거시(엑셀 가져오기 등) 행만 assignee 텍스트로 지급.
     // 조직이 지정된 요청은 담당자가 member_progress 로 지정되어야 그 담당자에게 지급된다(조직엔 미지급).
     for (const name of splitAssigneeNames(r.assignee)) add(name, '', '', '');

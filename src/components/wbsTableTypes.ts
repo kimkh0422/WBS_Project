@@ -6,6 +6,7 @@ export type BuiltInTableColumnId =
   | 'name'
   | 'startDate'
   | 'endDate'
+  | 'duration'
   | 'workEffort'
   | 'weight'
   | 'assignee'
@@ -33,6 +34,8 @@ export interface WBSTableProps {
   onRowHeightsChange?: (heights: number[]) => void;
   /** split 뷰: 간트와 동일한 행 높이(가상 스크롤·총 높이 정렬) */
   syncRowHeights?: number[];
+  /** split 뷰: 표 상단에 도킹된 서식/일괄 바의 총 높이(px). 간트 상단을 같은 높이만큼 띄워 행 정렬을 맞추는 데 사용. */
+  onTopInsetChange?: (height: number) => void;
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */

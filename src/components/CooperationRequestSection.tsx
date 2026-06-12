@@ -35,6 +35,7 @@ import {
   Table2,
   LayoutGrid,
   Coins,
+  ListChecks,
 } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
 import { useToast } from './Toast';
@@ -102,6 +103,38 @@ const STATUS_ICON: Record<CooperationRequestStatus, React.ReactNode> = {
   확인완료: <CheckCircle2 size={12} />,
   취소됨: <AlertCircle size={12} />,
 };
+
+/**
+ * 6단계 워크플로의 진행 단계번호. 취소됨은 정상 흐름 밖(어느 단계에서나 종료)이라 번호를 부여하지 않는다(null).
+ *   1 접수 → 2 담당자 지정 → 3 진행중 → 4 처리완료 → 5 확인완료
+ */
+const STATUS_STEP: Record<CooperationRequestStatus, number | null> = {
+  요청완료: 1,
+  '담당자 지정완료': 2,
+  진행중: 3,
+  처리완료: 4,
+  확인완료: 5,
+  취소됨: null,
+};
+
+/**
+ * 화면 표시용 단계 이름 — 저장되는 상태값(요청완료/담당자 지정완료)과 별개의 표시 라벨.
+ * '요청완료'→'접수', '담당자 지정완료'→'담당자 지정'. 나머지는 동일.
+ */
+const STATUS_DISPLAY_NAME: Record<CooperationRequestStatus, string> = {
+  요청완료: '접수',
+  '담당자 지정완료': '담당자 지정',
+  진행중: '진행중',
+  처리완료: '처리완료',
+  확인완료: '확인완료',
+  취소됨: '취소됨',
+};
+
+/** 단계번호 + 표시 이름 (예: '1. 접수'). 취소됨은 번호 없이 '취소됨'. */
+function statusStepLabel(s: CooperationRequestStatus): string {
+  const step = STATUS_STEP[s];
+  return step ? `${step}. ${STATUS_DISPLAY_NAME[s]}` : STATUS_DISPLAY_NAME[s];
+}
 
 /**
  * 모달 backdrop "outside-click" 핸들러.
@@ -252,6 +285,34 @@ function memberProgressLabel(m: CooperationMemberProgress[]): string {
   return `${done}/${m.length}`;
 }
 
+/** 멤버 1명의 상태를 바꾼 새 memberProgress 배열 — 완료 계열이면 완료일 자동 채움(비어 있을 때만). */
+function withMemberStatus(
+  members: CooperationMemberProgress[],
+  idx: number,
+  status: CooperationRequestStatus,
+  todayIso: string,
+): CooperationMemberProgress[] {
+  return members.map((m, i) => {
+    if (i !== idx) return m;
+    const completedAt = isDoneStatus(status) ? m.completedAt || todayIso : '';
+    return { ...m, status, completedAt };
+  });
+}
+
+/**
+ * 멤버 진척으로부터 요청 단위 롤업 패치(진척률·현황·완료일) 계산.
+ * AssigneePicker.applyMemberUpdate 와 동일 규칙 — 카드/표의 담당자별 진행 패널에서 재사용.
+ */
+function memberRollupPatch(
+  members: CooperationMemberProgress[],
+  prevCompletedDate: string,
+  todayIso: string,
+): Pick<CooperationRequest, 'memberProgress' | 'progress' | 'status' | 'completedDate'> {
+  const status = computeOrgStatus(members);
+  const completedDate = isDoneStatus(status) ? prevCompletedDate || todayIso : prevCompletedDate;
+  return { memberProgress: members, progress: computeOrgProgress(members), status, completedDate };
+}
+
 export function CooperationRequestSection({
   mobileReadabilityMode = false,
   layoutMode = 'table',
@@ -286,6 +347,8 @@ export function CooperationRequestSection({
   const [saving, setSaving] = useState(false);
   const [broadcastingId, setBroadcastingId] = useState<string | null>(null);
   const [pointsOpen, setPointsOpen] = useState(false);
+  /** '담당자별 진행' 빠른 패널 대상 행 id — rows 에서 라이브로 다시 찾아 항상 최신 멤버 상태를 보여준다. */
+  const [memberPanelId, setMemberPanelId] = useState<string | null>(null);
   const { push: pushToast } = useToast();
   const { orgTree, orgMembers } = useOrganization();
 
@@ -397,12 +460,12 @@ export function CooperationRequestSection({
           .map((e) => e.memberName)
           .join(', ');
         const suffix = gained.length > 3 ? ` 외 ${gained.length - 3}명` : '';
-        pushToast(`확인완료 — ${names}${suffix}에게 포인트 지급 (+${total}P)`, { variant: 'success', durationMs: 3000 });
+        pushToast(`처리완료 — ${names}${suffix}에게 포인트 지급 (+${total}P)`, { variant: 'success', durationMs: 3000 });
         return;
       }
       const nextKeys = new Set(next.map(keyOf));
       const lost = [...prevKeys].filter((k) => !nextKeys.has(k)).length;
-      if (lost > 0) pushToast(`확인완료 해제 — ${lost}명 포인트 회수`, { variant: 'info', durationMs: 2400 });
+      if (lost > 0) pushToast(`처리완료 해제 — ${lost}명 포인트 회수`, { variant: 'info', durationMs: 2400 });
     },
     [pushToast],
   );
@@ -486,6 +549,48 @@ export function CooperationRequestSection({
     [pushToast, todayIso, notifyPointChange],
   );
 
+  /** '담당자별 진행' 패널 대상 행 — rows 변경 시 자동으로 최신 상태 반영(삭제되면 null로 닫힘). */
+  const memberPanelRow = useMemo(() => rows.find((r) => r.id === memberPanelId) ?? null, [rows, memberPanelId]);
+
+  /**
+   * 담당자(멤버) 1명 상태 변경 — 카드/표의 담당자별 진행 패널에서 호출.
+   * 멤버 상태 → 요청 현황·진척률 자동 롤업 후 저장. 처리완료 전환 시 포인트 토스트.
+   */
+  const handleMemberStatus = useCallback(
+    async (row: CooperationRequest, idx: number, status: CooperationRequestStatus) => {
+      const nextMembers = withMemberStatus(row.memberProgress, idx, status, todayIso);
+      const patch = memberRollupPatch(nextMembers, row.completedDate, todayIso);
+      const prev = rowsRef.current;
+      setRows((cur) => cur.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+      try {
+        const updated = await updateCooperationRequest(row.id, patch);
+        setRows((cur) => cur.map((r) => (r.id === updated.id ? updated : r)));
+        notifyPointChange(row, updated);
+      } catch (e) {
+        setRows(prev);
+        pushToast(e instanceof Error ? e.message : '담당자 진행 변경에 실패했습니다.', { variant: 'error', durationMs: 4000 });
+      }
+    },
+    [pushToast, todayIso, notifyPointChange],
+  );
+
+  /** 담당자(멤버) 1명 RACI 변경 — 진척 집계엔 영향 없음, memberProgress 만 저장. */
+  const handleMemberRaci = useCallback(
+    async (row: CooperationRequest, idx: number, raci: CooperationRaci) => {
+      const nextMembers = row.memberProgress.map((m, i): CooperationMemberProgress => (i === idx ? { ...m, raci } : m));
+      const prev = rowsRef.current;
+      setRows((cur) => cur.map((r) => (r.id === row.id ? { ...r, memberProgress: nextMembers } : r)));
+      try {
+        const updated = await updateCooperationRequest(row.id, { memberProgress: nextMembers });
+        setRows((cur) => cur.map((r) => (r.id === updated.id ? updated : r)));
+      } catch (e) {
+        setRows(prev);
+        pushToast(e instanceof Error ? e.message : 'RACI 변경에 실패했습니다.', { variant: 'error', durationMs: 4000 });
+      }
+    },
+    [pushToast],
+  );
+
   return (
     <section className="space-y-3">
       {/* 섹션 헤더 — 대시보드의 '전체현황' 등과 같은 스타일 */}
@@ -557,7 +662,7 @@ export function CooperationRequestSection({
             type="button"
             onClick={() => setPointsOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
-            title="확인완료 포인트 지급 현황 — 인원별 누적·최근 지급 내역"
+            title="처리완료 포인트 지급 현황 — 인원별 누적·최근 지급 내역"
           >
             <Coins size={13} /> 포인트 현황
           </button>
@@ -607,7 +712,7 @@ export function CooperationRequestSection({
               )}
             >
               <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
-              {s} <span className="opacity-80">{statusCounts[s]}</span>
+              {statusStepLabel(s)} <span className="opacity-80">{statusCounts[s]}</span>
             </button>
           );
         })}
@@ -683,6 +788,7 @@ export function CooperationRequestSection({
           onDelete={(r) => setConfirmDelete(r)}
           onQuickStatus={(r, next) => void handleQuickStatus(r, next)}
           onBroadcast={(r) => void handleBroadcast(r)}
+          onOpenMembers={(r) => setMemberPanelId(r.id)}
           broadcastingId={broadcastingId}
         />
       ) : (
@@ -777,9 +883,18 @@ export function CooperationRequestSection({
                                 {r.assignee || '담당'}
                               </span>
                               {r.memberProgress.length > 0 && (
-                                <span className="ml-1 rounded bg-violet-50 px-1 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMemberPanelId(r.id);
+                                  }}
+                                  className="ml-1 inline-flex items-center gap-0.5 rounded bg-violet-50 px-1 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums transition hover:bg-violet-100 hover:ring-violet-300"
+                                  title="담당자별 진행 관리 — 클릭"
+                                >
+                                  <ListChecks size={10} />
                                   {memberProgressLabel(r.memberProgress)}
-                                </span>
+                                </button>
                               )}
                             </span>
                           ) : (
@@ -821,7 +936,7 @@ export function CooperationRequestSection({
                               )}
                             >
                               <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
-                              <span>{r.status}</span>
+                              <span>{statusStepLabel(r.status)}</span>
                               <ChevronDown size={10} className="opacity-60" />
                               <span aria-hidden className="absolute inset-0">
                                 {STATUS_ICON[r.status]}
@@ -834,7 +949,7 @@ export function CooperationRequestSection({
                               >
                                 {COOPERATION_REQUEST_STATUSES.map((s) => (
                                   <option key={s} value={s}>
-                                    {s}
+                                    {statusStepLabel(s)}
                                   </option>
                                 ))}
                               </select>
@@ -922,6 +1037,20 @@ export function CooperationRequestSection({
       {/* 삭제 확인 */}
       {confirmDelete && (
         <ConfirmDeleteModal row={confirmDelete} onCancel={() => setConfirmDelete(null)} onConfirm={() => void handleDelete()} />
+      )}
+
+      {/* 담당자별 진행 빠른 패널 — 카드/표에서 바로 멤버 상태 관리 */}
+      {memberPanelRow && (
+        <MemberProgressModal
+          row={memberPanelRow}
+          onChangeStatus={(idx, status) => void handleMemberStatus(memberPanelRow, idx, status)}
+          onChangeRaci={(idx, raci) => void handleMemberRaci(memberPanelRow, idx, raci)}
+          onEditFull={() => {
+            setMemberPanelId(null);
+            handleEdit(memberPanelRow);
+          }}
+          onClose={() => setMemberPanelId(null)}
+        />
       )}
 
       {/* 포인트 현황 */}
@@ -1108,7 +1237,7 @@ function EditModal({ draft, isNew, saving, orgTree, orgMembers, orgPickList, onC
               >
                 {COOPERATION_REQUEST_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {statusStepLabel(s)}
                   </option>
                 ))}
               </select>
@@ -1592,13 +1721,122 @@ function MemberChecklist({
                 {/* '담당자 지정완료'는 요청 단위 집계 단계라 개별 멤버 상태에는 노출하지 않는다 */}
                 {COOPERATION_REQUEST_STATUSES.filter((s) => s !== '담당자 지정완료').map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {statusStepLabel(s)}
                   </option>
                 ))}
               </select>
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 담당자별 진행 빠른 패널 — 카드/표의 멤버 배지에서 바로 열어, 지정된 담당자 각각의 상태를 관리.
+ * 전체 편집 모달을 거치지 않는 경량 모달. 변경은 즉시 저장되고 요청 현황·진척률이 자동 롤업된다.
+ * 멤버 행 UI는 편집 모달과 동일한 MemberChecklist 를 재사용해 일관성을 맞춘다.
+ */
+function MemberProgressModal({
+  row,
+  onChangeStatus,
+  onChangeRaci,
+  onEditFull,
+  onClose,
+}: {
+  row: CooperationRequest;
+  onChangeStatus: (idx: number, status: CooperationRequestStatus) => void;
+  onChangeRaci: (idx: number, raci: CooperationRaci) => void;
+  onEditFull: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const backdropHandlers = useBackdropCloseHandlers(onClose);
+  const sty = STATUS_STYLE[row.status];
+  const total = row.memberProgress.length;
+  const done = row.memberProgress.filter((m) => m.status === '처리완료' || m.status === '확인완료').length;
+
+  return (
+    <div className="fixed inset-0 z-[65] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-3" {...backdropHandlers}>
+      <div
+        className="w-full max-w-lg max-h-[88vh] overflow-hidden rounded-xl bg-[var(--color-surface)] shadow-2xl border border-[var(--color-line)] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-[var(--color-line)] bg-[var(--color-surface-2)]">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center size-6 rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                <ListChecks size={14} />
+              </span>
+              <h2 className="text-sm font-bold text-[var(--color-ink)] m-0">담당자별 진행</h2>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ring-1',
+                  sty.bg,
+                  sty.text,
+                  sty.ring,
+                )}
+              >
+                <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
+                {statusStepLabel(row.status)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] min-w-0">
+              {row.mgmtId && <span className="font-mono text-[var(--color-ink-muted)] shrink-0">{row.mgmtId}</span>}
+              <span className="truncate text-[var(--color-ink)]">{row.title || '(제목 없음)'}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-[var(--color-surface)] shrink-0"
+            title="닫기 (Esc)"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="overflow-auto px-4 py-3">
+          <p className="mb-2 text-[11px] text-[var(--color-ink-muted)]">
+            각 담당자의 상태를 바꾸면 요청 전체 현황·진척률이 자동으로 갱신됩니다. ‘처리완료’ 시 해당 담당자에게 포인트가 지급됩니다.
+          </p>
+          {total === 0 ? (
+            <p className="py-6 text-center text-xs text-[var(--color-ink-muted)]">
+              지정된 담당자가 없습니다. ‘담당자 추가·변경’에서 담당자를 지정하세요.
+            </p>
+          ) : (
+            <MemberChecklist memberProgress={row.memberProgress} onChange={onChangeStatus} onRaciChange={onChangeRaci} />
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-[var(--color-line)] bg-[var(--color-surface-2)]">
+          <span className="text-[11px] tabular-nums text-[var(--color-ink-muted)]">
+            완료 {done}/{total} · 진척률 {pct(row.progress)}%
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onEditFull}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink)] hover:bg-[var(--color-surface-2)]"
+            >
+              <Pencil size={12} /> 담당자 추가·변경
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1983,7 +2221,7 @@ function ConfirmDeleteModal({ row, onCancel, onConfirm }: { row: CooperationRequ
 }
 
 /**
- * 포인트 현황 모달 — 협조 요청 '확인완료' 자동 지급 포인트의 인원별 누적 랭킹 + 최근 지급 내역.
+ * 포인트 현황 모달 — 협조 요청 '처리완료' 자동 지급 포인트의 인원별 누적 랭킹 + 최근 지급 내역.
  * 데이터는 cooperation_points ledger(DB 트리거 관리)에서 읽고, 로컬(dev 우회) 모드에서는 즉석 계산.
  */
 function CooperationPointsModal({ onClose }: { onClose: () => void }) {
@@ -2071,8 +2309,8 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
 
         <div className="overflow-auto px-4 py-3 space-y-3">
           <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 m-0">
-            협조 요청이 최종 <b>확인완료</b> 되면 담당자에게 포인트가 자동 지급되고, 확인완료가 풀리면 자동 회수됩니다. 지급량은 중요도 기준
-            — 상 +{COOPERATION_POINTS_BY_PRIORITY.상}P · 중 +{COOPERATION_POINTS_BY_PRIORITY.중}P · 하 +{COOPERATION_POINTS_BY_PRIORITY.하}P
+            담당자가 <b>처리완료</b>하면 그 담당자에게 포인트가 자동 지급되고, 처리완료가 풀리면 자동 회수됩니다. 지급량은 중요도 기준 — 상
+            +{COOPERATION_POINTS_BY_PRIORITY.상}P · 중 +{COOPERATION_POINTS_BY_PRIORITY.중}P · 하 +{COOPERATION_POINTS_BY_PRIORITY.하}P
             <br />
             <span className="text-[10.5px]">
               포인트는 항상 <b>개인</b>에게 지급됩니다. 조직(부서)을 담당으로 지정한 경우, 담당자로 지정된 인원에게만 지급되며 조직 자체에는
@@ -2090,7 +2328,7 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
           ) : entries.length === 0 ? (
             !error && (
               <div className="py-10 text-center text-xs text-[var(--color-ink-muted)]">
-                아직 지급된 포인트가 없습니다. 협조 요청이 '확인완료' 되면 자동으로 지급됩니다.
+                아직 지급된 포인트가 없습니다. 담당자가 '처리완료'하면 자동으로 지급됩니다.
               </div>
             )
           ) : (
@@ -2216,6 +2454,7 @@ function CooperationKanbanBoard({
   onDelete,
   onQuickStatus,
   onBroadcast,
+  onOpenMembers,
   broadcastingId,
 }: {
   rows: CooperationRequest[];
@@ -2225,6 +2464,7 @@ function CooperationKanbanBoard({
   onDelete: (r: CooperationRequest) => void;
   onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
   onBroadcast: (r: CooperationRequest) => void;
+  onOpenMembers: (r: CooperationRequest) => void;
   broadcastingId: string | null;
 }) {
   // 컬럼별 그룹핑(요청완료 → 담당자 지정완료 → 진행중 → 처리완료 → 확인완료 → 취소됨)
@@ -2288,6 +2528,7 @@ function CooperationKanbanBoard({
               onDelete={onDelete}
               onQuickStatus={onQuickStatus}
               onBroadcast={onBroadcast}
+              onOpenMembers={onOpenMembers}
               broadcastingId={broadcastingId}
               activeCardId={activeRow?.id ?? null}
             />
@@ -2303,6 +2544,7 @@ function CooperationKanbanBoard({
                 onDelete={() => {}}
                 onQuickStatus={() => {}}
                 onBroadcast={() => {}}
+                onOpenMembers={() => {}}
                 broadcasting={false}
               />
             </div>
@@ -2328,6 +2570,7 @@ function KanbanColumn({
   onDelete,
   onQuickStatus,
   onBroadcast,
+  onOpenMembers,
   broadcastingId,
   activeCardId,
 }: {
@@ -2338,6 +2581,7 @@ function KanbanColumn({
   onDelete: (r: CooperationRequest) => void;
   onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
   onBroadcast: (r: CooperationRequest) => void;
+  onOpenMembers: (r: CooperationRequest) => void;
   broadcastingId: string | null;
   activeCardId: string | null;
 }) {
@@ -2355,7 +2599,7 @@ function KanbanColumn({
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-[var(--color-line)]">
         <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-bold', sty.text)}>
           <span className={cn('inline-block h-1.5 w-1.5 rounded-full', sty.dot)} />
-          {status}
+          {statusStepLabel(status)}
         </span>
         <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1', sty.text, sty.ring, 'bg-white/60')}>
           {items.length}
@@ -2377,6 +2621,7 @@ function KanbanColumn({
               onDelete={() => onDelete(r)}
               onQuickStatus={(next) => onQuickStatus(r, next)}
               onBroadcast={() => onBroadcast(r)}
+              onOpenMembers={() => onOpenMembers(r)}
               broadcasting={broadcastingId === r.id}
             />
           ))
@@ -2395,6 +2640,7 @@ function DraggableKanbanCard({
   onDelete,
   onQuickStatus,
   onBroadcast,
+  onOpenMembers,
   broadcasting,
 }: {
   row: CooperationRequest;
@@ -2404,6 +2650,7 @@ function DraggableKanbanCard({
   onDelete: () => void;
   onQuickStatus: (next: CooperationRequestStatus) => void;
   onBroadcast: () => void;
+  onOpenMembers: () => void;
   broadcasting: boolean;
 }) {
   const { setNodeRef, attributes, listeners } = useDraggable({ id: `card:${row.id}` });
@@ -2416,6 +2663,7 @@ function DraggableKanbanCard({
         onDelete={onDelete}
         onQuickStatus={onQuickStatus}
         onBroadcast={onBroadcast}
+        onOpenMembers={onOpenMembers}
         broadcasting={broadcasting}
       />
     </div>
@@ -2428,6 +2676,7 @@ function KanbanCard({
   onEdit,
   onDelete,
   onBroadcast,
+  onOpenMembers,
   broadcasting,
 }: {
   row: CooperationRequest;
@@ -2437,6 +2686,8 @@ function KanbanCard({
   /** 칸반에서는 컬럼=현황이라 카드 내 직접 변경은 두지 않는다(드래그로 변경). 시그니처 유지용. */
   onQuickStatus: (next: CooperationRequestStatus) => void;
   onBroadcast: () => void;
+  /** 담당자별 진행 패널 열기 — 멤버 배지 클릭. */
+  onOpenMembers: () => void;
   broadcasting: boolean;
 }) {
   const overdue = isOverdue(row, todayIso);
@@ -2559,9 +2810,18 @@ function KanbanCard({
           {assigneeIcon}
           <span className="truncate">{row.assignee || '미지정'}</span>
           {row.memberProgress.length > 0 && (
-            <span className="ml-0.5 rounded bg-violet-50 px-1 py-0.5 text-[9px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenMembers();
+              }}
+              className="ml-0.5 inline-flex items-center gap-0.5 rounded bg-violet-50 px-1 py-0.5 text-[9px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums shrink-0 transition hover:bg-violet-100 hover:ring-violet-300"
+              title="담당자별 진행 관리 — 클릭"
+            >
+              <ListChecks size={9} />
               {memberDone}/{row.memberProgress.length}
-            </span>
+            </button>
           )}
         </span>
       </div>

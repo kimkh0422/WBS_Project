@@ -180,6 +180,10 @@ export interface WBSContextType {
   renameAssignee: (oldName: string, newName: string) => void;
   /** 선후관계·기간을 반영해 현재 프로젝트 일정을 앞당기도록 재계산 */
   refreshProjectSchedule: () => void;
+  /** 상위→하위 균등 분배: 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고 하위끼리 선행관계로 연결(재귀). 반환은 적용·건너뜀 수 */
+  distributeChildrenSchedule: (parentIds: string[]) => { applied: number; skipped: number };
+  /** 특정 작업 기준 하위→상위 롤업: 그 작업과 하위(서브트리)만 대상으로 선행 재계산+상위 일정을 하위 min/max로 정렬(서브트리 밖은 유지) */
+  rollupTaskSchedule: (taskId: string) => void;
   /** 과부하 자동 수정: 항목별로 선택한 전략(기간 연장/투입율 증가) 적용 */
   fixOverload: (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => void;
   isLoading: boolean;

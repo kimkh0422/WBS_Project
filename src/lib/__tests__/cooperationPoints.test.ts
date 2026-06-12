@@ -32,9 +32,24 @@ function member(overrides: Partial<CooperationMemberProgress> = {}): Cooperation
 }
 
 describe('deriveCooperationPointEntries — DB reconcile 와 동일한 지급 규칙', () => {
-  it('확인완료가 아니면 지급하지 않는다', () => {
+  it('처리완료 이전(요청완료·진행중)에는 지급하지 않는다', () => {
     expect(deriveCooperationPointEntries(req({ status: '진행중', assignee: '홍길동' }))).toEqual([]);
-    expect(deriveCooperationPointEntries(req({ status: '처리완료', memberProgress: [member({ status: '처리완료' })] }))).toEqual([]);
+    expect(deriveCooperationPointEntries(req({ status: '진행중', memberProgress: [member({ status: '진행중' })] }))).toEqual([]);
+  });
+
+  it('담당자가 처리완료하면 확인완료(요청자 확인) 전이라도 그 담당자에게 지급한다', () => {
+    const entries = deriveCooperationPointEntries(
+      req({
+        status: '진행중',
+        memberProgress: [
+          member({ name: '홍길동', status: '처리완료', completedAt: '2026-06-08' }),
+          member({ name: '이몽룡', status: '진행중' }),
+        ],
+      }),
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].memberName).toBe('홍길동');
+    expect(entries[0].awardedAt).toBe('2026-06-08');
   });
 
   it('멤버 본인 상태가 확인완료면 요청 전체 상태와 무관하게 그 멤버에게 지급한다', () => {

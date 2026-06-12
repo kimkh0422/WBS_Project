@@ -122,6 +122,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       name: '작업명',
       startDate: '시작일',
       endDate: '종료일',
+      duration: '기간',
       workEffort: '공수(d)',
       assignee: '담당자',
       allocation: '투입율',
@@ -143,7 +144,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'name', visible: true },
       { id: 'startDate', visible: true },
       { id: 'endDate', visible: true },
-      { id: 'workEffort', visible: true },
+      { id: 'duration', visible: true },
+      { id: 'workEffort', visible: false },
       { id: 'assignee', visible: true },
       { id: 'allocation', visible: false },
       // 투입율 바로 다음에 가중치

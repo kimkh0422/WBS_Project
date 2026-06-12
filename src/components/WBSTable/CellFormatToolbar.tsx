@@ -162,6 +162,7 @@ function builtinColumnLabel(id: TableColumnId): string {
     name: '작업명',
     startDate: '시작일',
     endDate: '종료일',
+    duration: '기간',
     workEffort: '공수',
     weight: '가중치',
     assignee: '담당',
@@ -291,8 +292,8 @@ export function CellFormatToolbar({
   return (
     <div
       className={cn(
-        // min-h-[3.5rem]: 분할뷰 SummaryBar(h-14)를 빈틈없이 덮도록 같은 높이 확보.
-        'flex min-h-[3.5rem] w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap px-3 py-2 text-slate-900',
+        // h-14: SummaryBar(h-14)와 정확히 같은 높이 → 오버레이로 덮을 때 헤더 침범·삐져나옴 없이 깔끔히 대체.
+        'flex h-14 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap px-3 py-0 text-slate-900',
         'border-b border-[var(--color-line)] bg-[var(--color-surface)] shadow-sm',
       )}
       role="toolbar"

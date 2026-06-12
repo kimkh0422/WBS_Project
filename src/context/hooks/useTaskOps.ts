@@ -7,7 +7,7 @@ import { round1, round2 } from '../../lib/utils';
 import { setPlannedOverrideLocal } from '../../lib/plannedOverrideLocalCache';
 import { setWeightLocal } from '../../lib/weightLocalCache';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
-import { applyDependencySchedule } from '../../lib/schedule';
+import { applyDependencySchedule, distributeChildrenEvenly } from '../../lib/schedule';
 import { computeWorkloadOverloads, fixOverloadByExtending, fixOverloadByIncreasingAllocation, type WorkloadDay } from '../../lib/workload';
 import { syncParentRollups, recomputeProjectRollups, syncParentStatus, distributeProgressDown } from '../../lib/rollups';
 import { buildProjectEffortUnitMap, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
@@ -594,6 +594,71 @@ export function useTaskOps(deps: TaskOpsDeps) {
     });
   }, [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks]);
 
+  /** '상위→하위 균등 분배' 메뉴 전용(명시 실행): 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고
+   *  하위끼리 선행관계(FS)로 연결. 하위의 하위까지 재귀. 상위 작업 자신의 날짜는 유지한다.
+   *  반환: 실제 적용한 상위 작업 수(applied)와 하위 없음·일정 없음 등으로 건너뛴 수(skipped). */
+  const distributeChildrenSchedule = useCallback(
+    (parentIds: string[]): { applied: number; skipped: number } => {
+      const ids = Array.from(new Set(parentIds.filter(Boolean)));
+      if (ids.length === 0) return { applied: 0, skipped: 0 };
+      let applied = 0;
+      let skipped = 0;
+      saveHistory();
+      setAllTasks((prev) => {
+        let result = prev;
+        for (const pid of ids) {
+          const parent = result.find((t) => t.id === pid);
+          const hasKids = parent ? result.some((t) => t.parentId === pid) : false;
+          if (!parent || !hasKids || !parent.startDate || !parent.endDate) {
+            skipped += 1;
+            continue;
+          }
+          result = distributeChildrenEvenly(result, pid);
+          applied += 1;
+        }
+        return result;
+      });
+      return { applied, skipped };
+    },
+    [saveHistory, setAllTasks],
+  );
+
+  /** 특정 작업 기준 '하위 → 상위 롤업'(우클릭 메뉴 전용): 그 작업과 하위(서브트리)만 대상으로
+   *  선행(FS) 재계산 + 상위(이 작업·중간 요약)의 시작·종료를 하위 min/max로 정렬한다.
+   *  서브트리 밖(이 작업의 상위·형제)은 건드리지 않아 '특정 작업 범위'로 한정된다. */
+  const rollupTaskSchedule = useCallback(
+    (taskId: string) => {
+      if (!taskId) return;
+      saveHistory();
+      setAllTasks((prev) => {
+        const subtreeIds = collectDescendantTaskIds([taskId], prev);
+        if (subtreeIds.size <= 1) return prev; // 하위가 없으면 롤업할 것이 없음
+        // 서브트리만 추출하되, 루트(taskId)는 부모가 서브트리 밖에 있으므로 parentId=null로 둬야
+        // applyDependencySchedule의 상위 롤업 순회(부모 null부터 깊이 우선)가 루트를 포함한다. 병합 시 원래 parentId 복원.
+        const subtree = prev.filter((t) => subtreeIds.has(t.id)).map((t) => (t.id === taskId ? { ...t, parentId: null } : t));
+        const projectAssignmentsByProjectId = new Map<string, ProjectAssignment[]>(
+          projectsRef.current.map((p) => [p.id, p.assignments ?? []]),
+        );
+        const projectEffortUnitByProjectId = buildProjectEffortUnitMap(projectsRef.current);
+        const scheduleOpts = { linkEffortToSchedule: wbsSettingsRef.current.linkEffortToSchedule === true } as const;
+        const adjusted = applyDependencySchedule(
+          subtree,
+          projectAssignmentsByProjectId,
+          undefined,
+          projectEffortUnitByProjectId,
+          scheduleOpts,
+        );
+        const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
+        return prev.map((t) => {
+          const a = adjustedById.get(t.id);
+          if (!a) return t;
+          return t.id === taskId ? { ...a, parentId: t.parentId } : a;
+        });
+      });
+    },
+    [saveHistory, setAllTasks, projectsRef, wbsSettingsRef],
+  );
+
   const fixOverload = useCallback(
     (overloadsToFix: Array<{ overload: WorkloadDay; strategy: 'extend' | 'increaseAllocation' }>) => {
       if (overloadsToFix.length === 0) return;
@@ -809,6 +874,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
     setBaselineForAllTasks,
     renameAssignee,
     refreshProjectSchedule,
+    distributeChildrenSchedule,
+    rollupTaskSchedule,
     fixOverload,
     deleteTask,
     flushProjectTaskRollups,

@@ -65,9 +65,9 @@ interface SummaryBarProps {
   onOpenMdEditor: () => void;
   /** 등록 작업 기준 우선순위 보완 가이드(모달) */
   onOpenImprovementGuide?: () => void;
-  /** '일정 자동 맞춤' 메뉴: 상위 일정 롤업·선행(FS) 재계산을 명시적으로 실행.
-   *  자동 실행 경로는 없으며 이 버튼으로만 동작. 편집 권한이 없으면 undefined로 숨김. */
-  onAutoAlignSchedule?: () => void;
+  /** '일정 자동 맞춤' 버튼: 클릭 시 방식 선택 메뉴(하위→상위 롤업 / 상위→하위 균등 분배)를 연다.
+   *  클릭 위치에 메뉴를 띄우려고 이벤트를 전달한다. 편집 권한이 없으면 undefined로 숨김. */
+  onAutoAlignSchedule?: (e: React.MouseEvent) => void;
   /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
   tableAutoFormatting?: {
     effectiveOn: boolean;
@@ -79,6 +79,8 @@ interface SummaryBarProps {
     on: boolean;
     onToggle: () => void;
   };
+  /** 고급 도구(자동 서식·보완 가이드·가중치·일정 자동 맞춤) 표시 여부. 기본 숨김, Shift+F12로 토글. */
+  showAdvancedTools?: boolean;
 }
 
 export function SummaryBar({
@@ -87,7 +89,6 @@ export function SummaryBar({
   setPlannedRefDateIso,
   useWeightForRollup,
   setUseWeightForRollup,
-  isSplitView,
   maxTreeLevel,
   treeExpandLevel,
   setTreeExpandLevel,
@@ -101,6 +102,7 @@ export function SummaryBar({
   onAutoAlignSchedule,
   tableAutoFormatting,
   cellClickEdit,
+  showAdvancedTools,
 }: SummaryBarProps) {
   const cellClickEditButton = cellClickEdit ? (
     <button
@@ -126,12 +128,12 @@ export function SummaryBar({
   const autoAlignButton = onAutoAlignSchedule ? (
     <button
       type="button"
-      onClick={onAutoAlignSchedule}
+      onClick={(e) => onAutoAlignSchedule(e)}
       className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-amber-400/30"
       title={[
-        '일정 자동 맞춤(클릭 시에만 실행):',
-        '· 상위(요약) 작업의 시작일·종료일을 하위 작업 기간(최소 시작~최대 종료)으로 맞춥니다.',
-        '· 선행작업이 연결된 작업은 시작일을 "선행 종료일 + 1영업일"로 이동합니다.',
+        '일정 자동 맞춤 — 클릭하면 방식을 고릅니다:',
+        '① 하위→상위 롤업: 상위(요약) 일정을 하위 기간(최소 시작~최대 종료)으로 맞추고, 선행 작업은 "선행 종료일 + 1영업일"로 이동.',
+        '② 상위→하위 균등 분배: 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 순서대로 균등 분배하고 하위끼리 선행관계로 연결.',
         '',
         '평소 셀 편집·행 이동 시에는 입력한 날짜를 자동으로 바꾸지 않습니다.',
       ].join('\n')}
@@ -143,10 +145,9 @@ export function SummaryBar({
   return (
     <div
       className={cn(
-        // split view에서는 높이를 고정해 간트와 행 시작 위치를 완전히 맞춤
-        isSplitView
-          ? 'h-14 flex items-center gap-1.5 border-b px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap'
-          : 'flex items-center gap-1.5 border-b px-4 py-2.5 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-wrap flex-shrink-0',
+        // 한 줄 고정(줄바꿈 X) + 가로 스크롤, 높이 h-14. 줄바꿈하면 높이가 커져 상단 도킹 서식/일괄 바 오버레이
+        // 아래로 요약 바 하단 줄이 삐져나와(잘려) 보인다. 분할뷰는 간트 행 정렬을 위해서도 h-14가 필요.
+        'h-14 flex items-center gap-1.5 border-b px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap',
         'border-[var(--color-line)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
       )}
     >
@@ -259,8 +260,8 @@ export function SummaryBar({
               ))}
             </div>
             <Divider />
-            {autoAlignButton}
-            {onOpenImprovementGuide && (
+            {showAdvancedTools && autoAlignButton}
+            {showAdvancedTools && onOpenImprovementGuide && (
               <button
                 type="button"
                 onClick={onOpenImprovementGuide}
@@ -272,27 +273,29 @@ export function SummaryBar({
               </button>
             )}
             {/* 가중치 진척 롤업 토글: 켜짐=가중평균, 꺼짐=단순평균. 변경 시 모든 부모 진척·계획율 즉시 재계산 */}
-            <button
-              type="button"
-              onClick={() => setUseWeightForRollup(!useWeightForRollup)}
-              aria-pressed={useWeightForRollup}
-              className={cn(
-                'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-                useWeightForRollup
-                  ? 'border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
-              )}
-              title={
-                useWeightForRollup
-                  ? '가중치 ON: 부모 진척률 = 자식의 (progress × weight) 가중평균.\n— 클릭하면 가중치를 무시한 단순 평균으로 전환합니다.'
-                  : '가중치 OFF: 부모 진척률 = 자식 progress의 단순 평균(가중치 무시).\n— 클릭하면 가중치 기반 가중평균으로 전환합니다.'
-              }
-            >
-              <Scale size={12} strokeWidth={2} aria-hidden />
-              가중치 {useWeightForRollup ? 'ON' : 'OFF'}
-            </button>
+            {showAdvancedTools && (
+              <button
+                type="button"
+                onClick={() => setUseWeightForRollup(!useWeightForRollup)}
+                aria-pressed={useWeightForRollup}
+                className={cn(
+                  'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+                  useWeightForRollup
+                    ? 'border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+                )}
+                title={
+                  useWeightForRollup
+                    ? '가중치 ON: 부모 진척률 = 자식의 (progress × weight) 가중평균.\n— 클릭하면 가중치를 무시한 단순 평균으로 전환합니다.'
+                    : '가중치 OFF: 부모 진척률 = 자식 progress의 단순 평균(가중치 무시).\n— 클릭하면 가중치 기반 가중평균으로 전환합니다.'
+                }
+              >
+                <Scale size={12} strokeWidth={2} aria-hidden />
+                가중치 {useWeightForRollup ? 'ON' : 'OFF'}
+              </button>
+            )}
             {cellClickEditButton}
-            {tableAutoFormatting && (
+            {showAdvancedTools && tableAutoFormatting && (
               <button
                 type="button"
                 onClick={tableAutoFormatting.onToggle}
@@ -339,8 +342,8 @@ export function SummaryBar({
         // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
         <>
           <div className="flex-1" />
-          {autoAlignButton}
-          {onOpenImprovementGuide && (
+          {showAdvancedTools && autoAlignButton}
+          {showAdvancedTools && onOpenImprovementGuide && (
             <button
               type="button"
               onClick={onOpenImprovementGuide}
@@ -352,7 +355,7 @@ export function SummaryBar({
             </button>
           )}
           {cellClickEditButton}
-          {tableAutoFormatting && (
+          {showAdvancedTools && tableAutoFormatting && (
             <button
               type="button"
               onClick={tableAutoFormatting.onToggle}

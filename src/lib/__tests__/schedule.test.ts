@@ -7,6 +7,7 @@ import {
   computeWorkEffortFromDates,
   getTopologicalOrder,
   applyDependencySchedule,
+  distributeChildrenEvenly,
 } from '../schedule';
 
 const noHolidays = new Set<string>();
@@ -282,5 +283,77 @@ describe('getTopologicalOrder', () => {
     const order = getTopologicalOrder(tasks);
     expect(order).toContain('x');
     expect(order).toContain('y');
+  });
+});
+
+describe('distributeChildrenEvenly', () => {
+  const base = {
+    projectId: 'p1',
+    parentId: null as string | null,
+    progress: 0,
+    assignee: '',
+    status: 'todo',
+  };
+  // 공휴일 제외(주말만)로 결정적 검증. 2026-03-02(월) ~ 2026-03-13(금) = 영업일 10일.
+  const find = (arr: ReturnType<typeof distributeChildrenEvenly>, id: string) => arr.find((t) => t.id === id)!;
+
+  it('나머지 없는 균등 분배 + 형제 FS 체인', () => {
+    const tasks = [
+      { ...base, id: 'P', name: 'P', startDate: '2026-03-02', endDate: '2026-03-13' },
+      { ...base, id: 'c1', name: 'c1', parentId: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'c2', name: 'c2', parentId: 'P', startDate: '', endDate: '' },
+    ];
+    const out = distributeChildrenEvenly(tasks, 'P', noHolidays);
+    // 상위 자신의 날짜는 유지
+    expect(find(out, 'P').startDate).toBe('2026-03-02');
+    expect(find(out, 'P').endDate).toBe('2026-03-13');
+    // 10 영업일 / 2 = 각 5영업일, 순차 배치
+    expect(find(out, 'c1').startDate).toBe('2026-03-02');
+    expect(find(out, 'c1').endDate).toBe('2026-03-06');
+    expect(find(out, 'c2').startDate).toBe('2026-03-09');
+    expect(find(out, 'c2').endDate).toBe('2026-03-13');
+    // 둘째부터 직전 형제를 선행으로
+    expect(find(out, 'c1').dependencies ?? []).toEqual([]);
+    expect(find(out, 'c2').dependencies).toEqual(['c1']);
+  });
+
+  it('나머지는 앞쪽 하위부터 1일씩 더 가져감 (10영업일 / 3 → 4,3,3)', () => {
+    const tasks = [
+      { ...base, id: 'P', name: 'P', startDate: '2026-03-02', endDate: '2026-03-13' },
+      { ...base, id: 'c1', name: 'c1', parentId: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'c2', name: 'c2', parentId: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'c3', name: 'c3', parentId: 'P', startDate: '', endDate: '' },
+    ];
+    const out = distributeChildrenEvenly(tasks, 'P', noHolidays);
+    expect([find(out, 'c1').startDate, find(out, 'c1').endDate]).toEqual(['2026-03-02', '2026-03-05']); // 4영업일
+    expect([find(out, 'c2').startDate, find(out, 'c2').endDate]).toEqual(['2026-03-06', '2026-03-10']); // 3영업일
+    expect([find(out, 'c3').startDate, find(out, 'c3').endDate]).toEqual(['2026-03-11', '2026-03-13']); // 3영업일
+    expect(find(out, 'c3').dependencies).toEqual(['c2']);
+  });
+
+  it('하위의 하위까지 재귀 적용 (각 하위 구간 안에서 다시 분배)', () => {
+    const tasks = [
+      { ...base, id: 'P', name: 'P', startDate: '2026-03-02', endDate: '2026-03-13' },
+      { ...base, id: 'A', name: 'A', parentId: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'B', name: 'B', parentId: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'A1', name: 'A1', parentId: 'A', startDate: '', endDate: '' },
+      { ...base, id: 'A2', name: 'A2', parentId: 'A', startDate: '', endDate: '' },
+    ];
+    const out = distributeChildrenEvenly(tasks, 'P', noHolidays);
+    // A = 2026-03-02 ~ 03-06 (5영업일), 그 안에서 A1/A2 분배(5/2 → 3,2)
+    expect([find(out, 'A').startDate, find(out, 'A').endDate]).toEqual(['2026-03-02', '2026-03-06']);
+    expect([find(out, 'A1').startDate, find(out, 'A1').endDate]).toEqual(['2026-03-02', '2026-03-04']);
+    expect([find(out, 'A2').startDate, find(out, 'A2').endDate]).toEqual(['2026-03-05', '2026-03-06']);
+    expect(find(out, 'A2').dependencies).toEqual(['A1']);
+  });
+
+  it('하위가 없거나 상위 일정이 없으면 입력 그대로', () => {
+    const noKids = [{ ...base, id: 'P', name: 'P', startDate: '2026-03-02', endDate: '2026-03-13' }];
+    expect(distributeChildrenEvenly(noKids, 'P', noHolidays)).toBe(noKids);
+    const noDate = [
+      { ...base, id: 'P', name: 'P', startDate: '', endDate: '' },
+      { ...base, id: 'c1', name: 'c1', parentId: 'P', startDate: '', endDate: '' },
+    ];
+    expect(distributeChildrenEvenly(noDate, 'P', noHolidays)).toBe(noDate);
   });
 });

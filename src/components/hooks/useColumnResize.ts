@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type RefObject } from 'react';
 import { type BuiltInTableColumnId, type TableColumnId } from '../wbsTableTypes';
 import { formatDate, formatNum1, formatPercent1 } from '../../lib/utils';
+import { inclusiveCalendarDays } from '../../lib/durationDays';
 import type { Task } from '../../types';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../../lib/assigneeOptions';
 
@@ -14,6 +15,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   name: 380,
   startDate: 85,
   endDate: 85,
+  duration: 64,
   workEffort: 56,
   weight: 56,
   assignee: 70,
@@ -33,6 +35,7 @@ export const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   name: '작업명',
   startDate: '시작일',
   endDate: '종료일',
+  duration: '기간',
   workEffort: '공수(d)',
   weight: '가중치',
   assignee: '담당자',
@@ -248,7 +251,10 @@ export function useColumnResize({
           extraW = nameColumnExtraWidth(task, criticalPathTaskIds);
         } else if (colId === 'startDate') cellText = formatDate(task.startDate);
         else if (colId === 'endDate') cellText = formatDate(task.endDate);
-        else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
+        else if (colId === 'duration') {
+          const d = inclusiveCalendarDays(task.startDate, task.endDate);
+          cellText = d != null ? String(d) : '-';
+        } else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
         else if (colId === 'weight') cellText = task.weight != null ? formatNum1(task.weight) : '-';
         else if (colId === 'assignee') {
           cellText = formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '—';

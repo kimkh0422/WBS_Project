@@ -411,3 +411,90 @@ export function applyDependencySchedule(
   }
   return result.map((t) => applyMilestoneDateInvariant(t, { hasChildTasks: hasChildIds.has(t.id) }));
 }
+
+/**
+ * 상위→하위 균등 분배(스켈레톤 세팅 전용, 명시 실행).
+ * 선택한 상위 작업의 기간을 **직속 하위에 순서대로 균등 분배**하고, 하위끼리 **선행관계(FS)** 로 연결한다.
+ * 하위가 다시 하위를 가지면 그 구간 안에서 **재귀**로 같은 규칙을 적용한다.
+ *
+ * - 상위 작업 자신의 시작일·종료일은 **바꾸지 않는다**(사용자가 등록한 일정을 그대로 둠).
+ * - **영업일**(주말·공휴일 제외) 기준으로 구간을 자른다. 나머지 영업일은 앞쪽 하위부터 하루씩 더 가져간다.
+ * - 하위 수가 구간 영업일 수보다 많으면 각 하위에 1영업일씩 순차 배치한다(상위 종료일을 넘길 수 있음 — 드문 경우).
+ * - 첫 하위의 선행관계는 보존하고, 둘째부터는 **직전 형제만** 선행으로 설정해 깔끔한 순차 체인을 만든다.
+ * - 이정표(milestone) 하위는 종료일=시작일 불변식을 유지한다.
+ *
+ * 순수 함수: 입력 tasks를 변경하지 않고 갱신된 새 배열을 반환한다. 변경이 없으면 입력 배열을 그대로 반환.
+ */
+export function distributeChildrenEvenly(tasks: Task[], rootParentId: string, holidays?: Set<string>): Task[] {
+  const root = tasks.find((t) => t.id === rootParentId);
+  if (!root || !root.startDate || !root.endDate) return tasks;
+
+  const hol = holidays ?? getHolidaysForTaskDates(tasks);
+
+  // 부모 id → 직속 하위(입력 배열 순서 = 형제 표시 순서)
+  const childrenByParent = new Map<string, Task[]>();
+  for (const t of tasks) {
+    const pid = t.parentId;
+    if (!pid) continue;
+    let arr = childrenByParent.get(pid);
+    if (!arr) childrenByParent.set(pid, (arr = []));
+    arr.push(t);
+  }
+
+  const updates = new Map<string, Partial<Task>>();
+
+  const distribute = (parentId: string, spanStartIso: string, spanEndIso: string) => {
+    const kids = childrenByParent.get(parentId);
+    if (!kids || kids.length === 0) return;
+    const s = parseISO(spanStartIso);
+    const e = parseISO(spanEndIso);
+    if (!isValid(s) || !isValid(e) || s.getTime() > e.getTime()) return;
+
+    const n = kids.length;
+    const totalBiz = differenceInBusinessDaysEx(s, e, hol);
+    const segments: Array<{ start: string; end: string }> = [];
+
+    if (totalBiz >= n && totalBiz > 0) {
+      // 구간 영업일을 n개 그룹으로 분할(앞쪽 rem개 그룹이 1일씩 더 가져감)
+      const bizDays = getBusinessDayStringsEx(spanStartIso, totalBiz, hol);
+      const base = Math.floor(totalBiz / n);
+      const rem = totalBiz % n;
+      let idx = 0;
+      for (let i = 0; i < n; i++) {
+        const size = base + (i < rem ? 1 : 0);
+        const startStr = bizDays[idx] ?? bizDays[bizDays.length - 1] ?? spanStartIso;
+        const endStr = bizDays[Math.min(idx + size - 1, bizDays.length - 1)] ?? startStr;
+        segments.push({ start: startStr, end: endStr });
+        idx += size;
+      }
+    } else {
+      // 하위 수 > 영업일 수: 각 1영업일씩 순차(상위 종료일을 넘길 수 있음)
+      const bizDays = getBusinessDayStringsEx(spanStartIso, n, hol);
+      for (let i = 0; i < n; i++) {
+        const d = bizDays[i] ?? bizDays[bizDays.length - 1] ?? spanStartIso;
+        segments.push({ start: d, end: d });
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const kid = kids[i];
+      const seg = segments[i];
+      updates.set(kid.id, { startDate: seg.start, endDate: seg.end, ...(i > 0 ? { dependencies: [kids[i - 1].id] } : {}) });
+      distribute(kid.id, seg.start, seg.end);
+    }
+  };
+
+  distribute(root.id, root.startDate.slice(0, 10), root.endDate.slice(0, 10));
+
+  if (updates.size === 0) return tasks;
+
+  const hasChildIds = new Set<string>();
+  for (const t of tasks) {
+    if (t.parentId) hasChildIds.add(t.parentId);
+  }
+  return tasks.map((t) => {
+    const u = updates.get(t.id);
+    const next = u ? { ...t, ...u } : t;
+    return applyMilestoneDateInvariant(next, { hasChildTasks: hasChildIds.has(t.id) });
+  });
+}

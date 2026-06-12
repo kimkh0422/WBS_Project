@@ -27,6 +27,7 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   name: '작업명',
   startDate: '시작일',
   endDate: '종료일',
+  duration: '기간 = 시작일~종료일(양 끝 포함) 일수. 값을 바꾸면 시작일 기준으로 종료일이 자동 계산됩니다.',
   workEffort: '프로젝트 공수 단위(분·시간·일·주)',
   weight: WEIGHT_COLUMN_HELP_TEXT,
   assignee: '담당자',
@@ -131,6 +132,18 @@ export function HeaderCell({
           title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.endDate : '종료일 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
         >
           종료일
+          {resizeGrip}
+        </div>
+      );
+    case 'duration':
+      return (
+        <div
+          className="col-header relative"
+          onDoubleClick={onColDoubleClick}
+          onContextMenu={onColContextMenu}
+          title={COLUMN_TOOLTIPS.duration + ' · 더블클릭: 너비 자동'}
+        >
+          기간
           {resizeGrip}
         </div>
       );

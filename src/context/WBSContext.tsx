@@ -1344,6 +1344,8 @@ export function WBSProvider({
       setBaselineForAllTasks: taskOps.setBaselineForAllTasks,
       renameAssignee: taskOps.renameAssignee,
       refreshProjectSchedule: taskOps.refreshProjectSchedule,
+      distributeChildrenSchedule: taskOps.distributeChildrenSchedule,
+      rollupTaskSchedule: taskOps.rollupTaskSchedule,
       fixOverload: taskOps.fixOverload,
       // Task movement
       moveTask: taskMovement.moveTask,

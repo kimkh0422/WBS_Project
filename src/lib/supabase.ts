@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createRememberAwareAuthStorage } from './authPersistence';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -46,6 +47,10 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
       auth: {
         // Typed via GoTrueClientOptions.lock (serializes auth in-tab; avoids Web Locks + Strict Mode noise)
         lock: createInProcessAuthLock() as NonNullable<NonNullable<Parameters<typeof createClient>[2]>['auth']>['lock'],
+        // 세션 지속(자동로그인). '로그인 상태 유지' 설정에 따라 localStorage(유지)/sessionStorage(임시)로 라우팅.
+        persistSession: true,
+        autoRefreshToken: true,
+        storage: createRememberAwareAuthStorage(),
       },
       global: {
         fetch: makeApikeyGuardedFetch(supabaseAnonKey),

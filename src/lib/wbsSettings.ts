@@ -53,6 +53,8 @@ export interface WBSSettings {
   statusHiddenMigrated?: boolean;
   /** WBS(ID) 컬럼 기본 숨김 마이그레이션 완료 여부 */
   wbsIdHiddenMigrated?: boolean;
+  /** 공수 컬럼 숨김 + 기간(duration) 컬럼 추가 마이그레이션 완료 여부 */
+  workEffortToDurationMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -96,7 +98,8 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'name', visible: true },
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
-    { id: 'workEffort', visible: true },
+    { id: 'duration', visible: true },
+    { id: 'workEffort', visible: false },
     { id: 'weight', visible: true },
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
@@ -211,6 +214,21 @@ export function parseSettings(raw: unknown): WBSSettings {
       const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
       base.tableColumns = cols.map((c) => (c && c.id === 'wbsId' ? { ...c, visible: false } : c));
       base.wbsIdHiddenMigrated = true;
+    }
+
+    // 공수 컬럼 숨김 + 기간(duration) 컬럼 추가 마이그레이션 (1회만 적용 — 이후 컬럼 설정에서 공수를 다시 켤 수 있음)
+    if (!parsed.workEffortToDurationMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? [...base.tableColumns] : [];
+      // 공수 숨김
+      let next = cols.map((c) => (c && c.id === 'workEffort' ? { ...c, visible: false } : c));
+      // 기간 컬럼이 없으면 종료일 바로 뒤에 삽입(종료일이 없으면 맨 끝)
+      if (!next.some((c) => c && c.id === 'duration')) {
+        const endIdx = next.findIndex((c) => c && c.id === 'endDate');
+        const durationCol = { id: 'duration', visible: true };
+        next = endIdx >= 0 ? [...next.slice(0, endIdx + 1), durationCol, ...next.slice(endIdx + 1)] : [...next, durationCol];
+      }
+      base.tableColumns = next;
+      base.workEffortToDurationMigrated = true;
     }
 
     // 투입율 컬럼을 다시 기본 숨김 처리 (1회만 적용 — 이후 사용자가 컬럼 설정에서 다시 켤 수 있음)

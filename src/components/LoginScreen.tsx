@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, ArrowLeft, KeyRound, MailCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { getRememberMe } from '../lib/authPersistence';
 import logo from '../assets/logo.png';
 import { isAllowedSignupEmail, SIGNUP_EMAIL_FORMAT_ERROR } from '../lib/emailDomain';
 import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
@@ -35,6 +36,7 @@ export function LoginScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => getRememberMe());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export function LoginScreen() {
       }
       setLoading(true);
       try {
-        const result = await signInWithEmail(email.trim(), password);
+        const result = await signInWithEmail(email.trim(), password, rememberMe);
         if (result?.error) setError(formatSignInErrorMessage(result.error));
       } finally {
         setLoading(false);
@@ -386,6 +388,21 @@ export function LoginScreen() {
                         {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
+                  )}
+
+                  {/* 로그인 상태 유지: 체크 시 다음 방문에도 자동로그인(localStorage), 해제 시 브라우저 종료 시 로그아웃(sessionStorage) */}
+                  {isSignIn && (
+                    <label className="flex items-center gap-2 px-0.5 cursor-pointer select-none -mt-1">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        disabled={loading}
+                        className="h-4 w-4 rounded border-white/20 bg-white/[0.06] text-indigo-500 focus:ring-2 focus:ring-indigo-500/40 focus:ring-offset-0 cursor-pointer"
+                        aria-label="로그인 상태 유지"
+                      />
+                      <span className="text-sm text-slate-300">로그인 상태 유지</span>
+                    </label>
                   )}
 
                   {/* 새 비밀번호 입력: 비밀번호 재설정 마지막 단계 */}

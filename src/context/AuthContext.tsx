@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isDevAuthBypass, DEV_BYPASS_USER_ID } from '../lib/devAuthBypass';
+import { setRememberMe } from '../lib/authPersistence';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
+  /** rememberMe=true면 세션을 localStorage에 저장(자동로그인 유지), false면 sessionStorage(브라우저 닫으면 로그아웃) */
+  signInWithEmail: (email: string, password: string, rememberMe?: boolean) => Promise<{ error?: string }>;
   signUpWithEmail: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
   /** 회원가입 OTP(6자리) 검증. 성공 시 세션 발급되어 자동 로그인 */
   verifySignupOtp: (email: string, token: string) => Promise<{ error?: string }>;
@@ -101,8 +103,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithEmail = async (email: string, password: string) => {
+  const signInWithEmail = async (email: string, password: string, rememberMe = true) => {
     if (!supabase) return { error: 'Supabase not configured' };
+    // 토큰 기록 전에 저장 위치를 먼저 결정해야 한다(storage 어댑터가 이 플래그를 읽음).
+    setRememberMe(rememberMe);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message };
   };
