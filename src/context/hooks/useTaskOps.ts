@@ -569,6 +569,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     const projectIds = cpi === 'all' ? projs.map((p) => p.id).filter(Boolean) : [cpi].filter(Boolean);
     if (projectIds.length === 0) return;
     saveHistory();
+    let tasksToPersist: Task[] | null = null;
     setAllTasks((prev) => {
       let result = prev;
       for (const effectiveProjectId of projectIds) {
@@ -579,9 +580,17 @@ export function useTaskOps(deps: TaskOpsDeps) {
         result = result.map((t) => (t.projectId === effectiveProjectId ? (adjustedById.get(t.id) ?? t) : t));
         result = recomputeProjectRollups(result, effectiveProjectId);
       }
+      tasksToPersist = result;
       return result;
     });
-  }, [saveHistory, currentProjectIdRef, projectsRef, setAllTasks]);
+    // '일정 자동 맞춤'은 다른 수정과 달리 DB에 저장되지 않아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
+    if (tasksToPersist && !useLocalOnlyRef.current) {
+      bumpDirty();
+      const affected = new Set(projectIds);
+      const rows = tasksToPersist.filter((t) => t.projectId != null && affected.has(t.projectId));
+      if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '일정 자동 맞춤 저장에 실패했습니다.'));
+    }
+  }, [saveHistory, currentProjectIdRef, projectsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
 
   /** '상위→하위 균등 분배' 메뉴 전용(명시 실행): 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고
    *  하위끼리 선행관계(FS)로 연결. 하위의 하위까지 재귀. 상위 작업 자신의 날짜는 유지한다.
@@ -593,6 +602,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       let applied = 0;
       let skipped = 0;
       saveHistory();
+      let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         let result = prev;
         for (const pid of ids) {
@@ -605,11 +615,25 @@ export function useTaskOps(deps: TaskOpsDeps) {
           result = distributeChildrenEvenly(result, pid);
           applied += 1;
         }
+        tasksToPersist = result;
         return result;
       });
+      // 균등 분배 결과는 기존엔 로컬 상태에만 남아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
+      if (applied > 0 && tasksToPersist && !useLocalOnlyRef.current) {
+        const affected = new Set<string>();
+        for (const pid of ids) {
+          const parent = tasksToPersist.find((t) => t.id === pid);
+          if (parent?.projectId) affected.add(parent.projectId);
+        }
+        if (affected.size > 0) {
+          bumpDirty();
+          const rows = tasksToPersist.filter((t) => t.projectId != null && affected.has(t.projectId));
+          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '균등 분배 저장에 실패했습니다.'));
+        }
+      }
       return { applied, skipped };
     },
-    [saveHistory, setAllTasks],
+    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
   /** 특정 작업 기준 '하위 → 상위 롤업'(우클릭 메뉴 전용): 그 작업과 하위(서브트리)만 대상으로
@@ -619,6 +643,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     (taskId: string) => {
       if (!taskId) return;
       saveHistory();
+      let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         const subtreeIds = collectDescendantTaskIds([taskId], prev);
         if (subtreeIds.size <= 1) return prev; // 하위가 없으면 롤업할 것이 없음
@@ -627,14 +652,25 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const subtree = prev.filter((t) => subtreeIds.has(t.id)).map((t) => (t.id === taskId ? { ...t, parentId: null } : t));
         const adjusted = applyDependencySchedule(subtree);
         const adjustedById = new Map(adjusted.map((t) => [t.id, t]));
-        return prev.map((t) => {
+        const next = prev.map((t) => {
           const a = adjustedById.get(t.id);
           if (!a) return t;
           return t.id === taskId ? { ...a, parentId: t.parentId } : a;
         });
+        tasksToPersist = next;
+        return next;
       });
+      // 우클릭 '하위→상위 롤업'도 DB에 저장되지 않아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
+      if (tasksToPersist && !useLocalOnlyRef.current) {
+        const projectId = tasksToPersist.find((t) => t.id === taskId)?.projectId ?? null;
+        if (projectId) {
+          bumpDirty();
+          const rows = tasksToPersist.filter((t) => t.projectId === projectId);
+          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '일정 롤업 저장에 실패했습니다.'));
+        }
+      }
     },
-    [saveHistory, setAllTasks],
+    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
   /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). 잠금된 시작일·종료일은 applyDependencySchedule에서 그대로 유지된다. */
@@ -688,6 +724,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
         }
       }
 
+      let tasksToPersist: Task[] | null = null;
+      let persistProjectId: string | null = null;
       setAllTasks((prev) => {
         const wSettings = wbsSettingsRef.current;
         const taskById = new Map<string, Task>(prev.map((t) => [t.id, t] as const));
@@ -738,10 +776,20 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const doneStatusIds = new Set(
           ((wSettings.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
         );
-        return recomputeProjectRollups(nextTasks, projectId, doneStatusIds);
+        const finalTasks = recomputeProjectRollups(nextTasks, projectId, doneStatusIds);
+        tasksToPersist = finalTasks;
+        persistProjectId = projectId;
+        return finalTasks;
       });
+      // 선행 FS 연결도 일정·의존성을 바꾸지만 기존엔 task가 저장되지 않아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
+      if (tasksToPersist && persistProjectId && !useLocalOnlyRef.current) {
+        bumpDirty();
+        const pid: string = persistProjectId;
+        const rows = tasksToPersist.filter((t) => t.projectId === pid);
+        if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '선행 연결 저장에 실패했습니다.'));
+      }
     },
-    [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError],
+    [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError, bumpDirty],
   );
 
   /**
