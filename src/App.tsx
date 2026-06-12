@@ -1025,6 +1025,8 @@ function WBSApp({
     if (projectToDelete) {
       deleteProject(projectToDelete.id);
       setProjectToDelete(null);
+      // 삭제 후 currentProjectId는 남은 프로젝트로 자동 전환되지만 작업 화면에 그대로 머물면 혼란 → 대시보드로 이동
+      setView('dashboard');
     }
     setIsDeleteProjectConfirmOpen(false);
   };
@@ -1571,6 +1573,7 @@ function WBSApp({
                           setView('table');
                         }
                       }}
+                      onNavigateToDashboard={() => setView('dashboard')}
                     />
                   </ErrorBoundary>
                 ) : view === 'allocation' ? (
@@ -2184,7 +2187,9 @@ function AppWithProviders() {
     if (!user?.id) return;
     void getMyEditableProjectIds()
       .then((ids) => setMyEditableProjectIds(ids))
-      .catch(() => setMyEditableProjectIds(undefined));
+      .catch(() => {
+        // 일시적 RPC 실패 시 직전에 조회된 편집 권한을 그대로 유지(권한 강등 방지). 다음 포커스/새로고침에 재시도.
+      });
   }, [user?.id]);
 
   const [isOrgScopedManager, setIsOrgScopedManager] = useState(false);
@@ -2268,7 +2273,9 @@ function AppWithProviders() {
           if (!cancelled) setMyEditableProjectIds(ids);
         })
         .catch(() => {
-          if (!cancelled) setMyEditableProjectIds(undefined);
+          // 탭 복귀·창 포커스 시 재조회가 일시적으로 실패해도(특히 인증 토큰 갱신과 겹칠 때)
+          // 직전 편집 권한을 유지한다. undefined/[]로 덮어쓰면 멤버·에디터의
+          // canEditCurrentProject가 false로 뒤집혀 Insert/Enter 새 작업 추가가 새로고침 전까지 막히던 버그가 있었음.
         });
     };
     refresh();

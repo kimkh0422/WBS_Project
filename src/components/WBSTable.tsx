@@ -67,6 +67,7 @@ import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { pasteClipboardTasks } from '../lib/wbsClipboard';
+import type { WbsCellClipboardData } from '../lib/wbsCellClipboard';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import {
   getSingleClickEdit,
@@ -206,6 +207,8 @@ export function WBSTable({
     return m;
   }, [projects]);
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
+  /** 셀 복사/붙여넣기 등에서 쓰는 상태 설정 — 매 렌더 새 배열이 되지 않도록 메모 */
+  const statusConfigsList = useMemo<StatusConfig[]>(() => wbsSettings?.statusConfigs ?? [], [wbsSettings?.statusConfigs]);
   const criticalPathSet = useMemo(() => {
     try {
       const set = getCriticalPathTaskIds(tasks);
@@ -228,7 +231,7 @@ export function WBSTable({
     setSingleClickEditState(next);
   }, []);
 
-  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
+  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
   useEffect(() => subscribeShowAdvancedToolsChanged(() => setShowAdvancedToolsState(getShowAdvancedTools())), []);
   useEffect(() => {
@@ -241,7 +244,7 @@ export function WBSTable({
         setShowAdvancedToolsState(next);
         pushToast(
           next
-            ? '고급 도구를 표시합니다. (자동 서식·보완 가이드·가중치·하위일정 균등분할)'
+            ? '고급 도구를 표시합니다. (자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집)'
             : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)',
           {
             variant: 'info',
@@ -373,6 +376,18 @@ export function WBSTable({
     if (typeof window === 'undefined') return [];
     return loadClipboardTasks();
   });
+  /** 엑셀식 셀 단위 클립보드 — 행(작업) 클립보드와 둘 중 "가장 최근 복사"만 유효 (서로 대체) */
+  const [copiedCell, setCopiedCell] = useState<WbsCellClipboardData | null>(null);
+
+  /** 행(작업) 클립보드 비우기 — 안내 칩의 '지우기'·복사 취소·셀 복사 시 행 클립보드 대체 */
+  const clearTaskClipboard = useCallback(() => {
+    setCopiedTasks([]);
+    try {
+      localStorage.removeItem(CLIPBOARD_KEY);
+    } catch {
+      // ignore
+    }
+  }, [CLIPBOARD_KEY]);
 
   /** 하단/인라인「새 작업」입력은 제어 컴포넌트로 두어, 제출·프로젝트 전환 후에도 값이 남는 현상을 방지 */
   const [quickAddBottomValue, setQuickAddBottomValue] = useState('');
@@ -1172,6 +1187,11 @@ export function WBSTable({
     editableColumnIds,
     deleteConfirm,
     copiedTasks,
+    copiedCell,
+    setCopiedCell,
+    clearTaskClipboard,
+    statusConfigs: statusConfigsList,
+    projectEffortUnitByProjectId,
     tasks,
     sortConfig,
     filters,
@@ -1224,6 +1244,7 @@ export function WBSTable({
       return rest as Task;
     });
     setCopiedTasks(selected);
+    setCopiedCell(null); // 가장 최근 복사(행)만 유효 — 셀 클립보드 대체
     try {
       const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
       localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
@@ -1268,6 +1289,7 @@ export function WBSTable({
         return rest as Task;
       });
       setCopiedTasks(selected);
+      setCopiedCell(null); // 가장 최근 복사(행)만 유효 — 셀 클립보드 대체
       try {
         const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
         localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
@@ -1340,16 +1362,6 @@ export function WBSTable({
     pushToast,
   ]);
 
-  /** 클립보드 비우기 — 안내 칩의 '지우기'·복사 취소 */
-  const clearTaskClipboard = useCallback(() => {
-    setCopiedTasks([]);
-    try {
-      localStorage.removeItem(CLIPBOARD_KEY);
-    } catch {
-      // ignore
-    }
-  }, [CLIPBOARD_KEY]);
-
   /** 붙여넣기 대상 위치 안내 문구 — 포커스(노란 강조) 행 바로 아래, 없으면 맨 아래 */
   const pasteTargetLabel = useMemo(() => {
     const t = lastSelectedId ? tasks.find((x) => x.id === lastSelectedId) : null;
@@ -1383,12 +1395,24 @@ export function WBSTable({
         focusedCell,
         lastSelectedId,
         tasks,
+        statusConfigs: statusConfigsList,
+        visibleTaskIds: visibleTasks.map((t) => t.id),
       });
       if (!packed) return;
       e.preventDefault();
       e.clipboardData.setData('text/plain', packed.text);
     },
-    [hotkeysEnabled, excelView, focusedCell, lastSelectedId, tasks, selectedTaskIds, copyCheckedRowsToTaskClipboard],
+    [
+      hotkeysEnabled,
+      excelView,
+      focusedCell,
+      lastSelectedId,
+      tasks,
+      selectedTaskIds,
+      copyCheckedRowsToTaskClipboard,
+      statusConfigsList,
+      visibleTasks,
+    ],
   );
 
   /** 빈 영역 클릭 판정: 행(.data-row)·헤더(.data-header)·입력/버튼 등 상호작용 요소 밖 */

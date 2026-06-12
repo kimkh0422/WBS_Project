@@ -64,20 +64,9 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
     (taskId: string, multi: boolean, range: boolean) => {
       let newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
 
-      // 계층 구조: 상위 작업 선택 시 하위 작업 전체를 함께 선택/해제
+      // 체크박스·클릭은 클릭한 행만 개별 토글한다(하위 작업을 자동으로 함께 선택하지 않음).
+      // 하위 동반 처리가 필요한 동작(삭제 등)은 각 동작에서 별도로 하위를 수집한다.
       const currentIndex = visibleTasks.findIndex((t) => t.id === taskId);
-      const currentTask = currentIndex !== -1 ? visibleTasks[currentIndex] : null;
-      const currentDepth = currentTask?.depth ?? 0;
-
-      const descendantIds: string[] = [];
-      if (currentTask) {
-        for (let i = currentIndex + 1; i < visibleTasks.length; i++) {
-          const t = visibleTasks[i];
-          const depth = t.depth ?? 0;
-          if (depth <= currentDepth) break;
-          descendantIds.push(t.id);
-        }
-      }
 
       if (range) {
         // 앵커 후보: ref → state → 포커스 행 순. 표에 없는 ID(필터·접기·간트만 조작 후 옛 ref)는 건너뛰어
@@ -104,20 +93,14 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
         }
       } else {
         const wasSelected = selectedTaskIds.has(taskId);
-        const idsToToggle = [taskId, ...descendantIds];
 
         if (multi) {
-          if (wasSelected) {
-            idsToToggle.forEach((id) => newSelected.delete(id));
-          } else {
-            idsToToggle.forEach((id) => newSelected.add(id));
-          }
+          // 체크박스·Ctrl 클릭: 클릭한 행만 토글
+          if (wasSelected) newSelected.delete(taskId);
+          else newSelected.add(taskId);
         } else {
-          const next = new Set<string>();
-          if (!wasSelected) {
-            idsToToggle.forEach((id) => next.add(id));
-          }
-          newSelected = next;
+          // 단일 클릭: 그 행만 선택 (이미 선택돼 있었으면 해제)
+          newSelected = wasSelected ? new Set<string>() : new Set<string>([taskId]);
         }
 
         rangeAnchorRef.current = taskId;

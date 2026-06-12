@@ -1,11 +1,18 @@
 import { useEffect, type RefObject } from 'react';
-import type { Task, TaskStatus, FilterState, SortConfig, Project } from '../../types';
+import type { Task, TaskStatus, FilterState, SortConfig, Project, WorkEffortUnit } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../../lib/wbsInlineNameCommit';
 import { pasteClipboardTasks } from '../../lib/wbsClipboard';
-import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../../lib/workEffortUnits';
+import {
+  buildWbsCellPasteUpdate,
+  getWbsCellClipboardData,
+  isCellClipboardColumn,
+  type WbsCellClipboardData,
+  type WbsStatusConfigLite,
+} from '../../lib/wbsCellClipboard';
+import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
 import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
 
 /** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
@@ -55,15 +62,27 @@ function hasNonEmptyTextSelectionInEditableControl(root: HTMLElement | null): bo
   return !!(edA && edA === edF && root.contains(edA));
 }
 
-/** 시스템 클립보드용: 포커스 셀 → 없으면 키보드 포커스 행의 작업명만 (체크박스 다중 선택과 무관) */
+/** 시스템 클립보드용: 포커스가 값 셀이면 그 셀의 값, 그 외에는 키보드 포커스 행의 작업명 (체크박스 다중 선택과 무관) */
 export function getWbsTableCopyPlainText(opts: {
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   lastSelectedId: string | null;
   tasks: Task[];
+  /** 둘 다 주어지면 값 셀 포커스 시 작업명 대신 그 셀 값 텍스트를 복사 (우클릭·메뉴 복사를 Ctrl+C와 일치시킴) */
+  statusConfigs?: WbsStatusConfigLite[];
+  visibleTaskIds?: string[];
 }): { text: string; count: number } | null {
   const cursorTaskId = opts.focusedCell?.taskId ?? opts.lastSelectedId;
   if (!cursorTaskId) return null;
-  const name = (opts.tasks.find((t) => t.id === cursorTaskId)?.name ?? '').trim();
+  const task = opts.tasks.find((t) => t.id === cursorTaskId);
+  if (!task) return null;
+  if (opts.focusedCell && opts.statusConfigs && opts.visibleTaskIds && isCellClipboardColumn(opts.focusedCell.columnId)) {
+    const cell = getWbsCellClipboardData(task, opts.focusedCell.columnId, {
+      statusConfigs: opts.statusConfigs,
+      visibleTaskIds: opts.visibleTaskIds,
+    });
+    if (cell) return { text: cell.text, count: 1 };
+  }
+  const name = (task.name ?? '').trim();
   if (!name) return null;
   return { text: name, count: 1 };
 }
@@ -86,6 +105,13 @@ export interface WbsTableKeyboardDeps {
   editableColumnIds: TableColumnId[];
   deleteConfirm: { isOpen: boolean; taskIds: string[] };
   copiedTasks: Task[];
+  /** 엑셀식 셀 단위 클립보드 — 행(작업) 클립보드와 둘 중 "가장 최근 복사"만 유효 */
+  copiedCell: WbsCellClipboardData | null;
+  setCopiedCell: (cell: WbsCellClipboardData | null) => void;
+  /** 셀 복사 시 행(작업) 클립보드를 비워 최근 복사만 남긴다 (안내 칩도 함께 닫힘) */
+  clearTaskClipboard: () => void;
+  statusConfigs: WbsStatusConfigLite[];
+  projectEffortUnitByProjectId: Map<string, WorkEffortUnit>;
   tasks: Task[];
   sortConfig: SortConfig | null;
   filters: FilterState;
@@ -154,6 +180,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     editableColumnIds,
     deleteConfirm,
     copiedTasks,
+    copiedCell,
+    setCopiedCell,
+    clearTaskClipboard,
+    statusConfigs,
+    projectEffortUnitByProjectId,
     tasks,
     sortConfig,
     filters,
@@ -588,17 +619,73 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       // Allow paste even when no row is selected (e.g. focus on empty space)
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // 0) 셀 클립보드(가장 최근 복사가 셀)가 있으면 커서 셀에 셀 단위 붙여넣기 — 엑셀과 동일
         // 1) 내부 작업 클립보드(Ctrl+X 등)가 있으면 기존처럼 작업 단위 붙여넣기
-        // 2) 없으면 시스템 클립보드 텍스트를 현재 커서 행의 작업명에 반영 (Ctrl+C로 복사한 작업명 등)
+        // 2) 없으면 시스템 클립보드 텍스트를 현재 커서 셀(없으면 작업명)에 반영
         e.preventDefault();
+        if (copiedCell) {
+          if (!canEditCurrentProject) {
+            pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
+            return;
+          }
+          // 체크 다중 선택이 있으면 그 행들의 "복사한 컬럼"에 일괄 적용, 없으면 커서 셀 하나에(다른 컬럼도 허용).
+          const checkedRows = selectedTaskIds.size > 0 ? visibleTasks.filter((t) => selectedTaskIds.has(t.id)) : [];
+          const singleTarget = focusedCell ?? (lastSelectedId ? { taskId: lastSelectedId, columnId: copiedCell.columnId } : null);
+          const targets: Array<{ taskId: string; columnId: TableColumnId }> =
+            checkedRows.length > 0
+              ? checkedRows.map((t) => ({ taskId: t.id, columnId: copiedCell.columnId }))
+              : singleTarget
+                ? [singleTarget]
+                : [];
+          if (targets.length === 0) {
+            pushToast('붙여넣을 셀을 먼저 클릭하세요.', { variant: 'info' });
+            return;
+          }
+          const visibleTaskIds = visibleTasks.map((t) => t.id);
+          let applied = 0;
+          let failed = 0;
+          let firstError: string | null = null;
+          for (const tgt of targets) {
+            const t = tasks.find((x) => x.id === tgt.taskId);
+            if (!t) continue;
+            const res = buildWbsCellPasteUpdate(t, tgt.columnId, copiedCell, {
+              tasks,
+              visibleTaskIds,
+              statusConfigs,
+              effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
+            });
+            if (res.error) {
+              failed += 1;
+              if (!firstError) firstError = res.error;
+              continue;
+            }
+            if (res.updates) {
+              updateTask(t.id, res.updates);
+              applied += 1;
+            }
+          }
+          if (applied === 0 && failed > 0) {
+            pushToast(firstError ?? '붙여넣지 못했습니다.', { variant: 'warning' });
+          } else if (targets.length > 1) {
+            pushToast(`${applied}개 행에 셀 값을 붙여넣었습니다${failed > 0 ? ` (${failed}개 실패)` : ''}.`, { variant: 'success' });
+          } else if (applied > 0) {
+            pushToast('셀 값을 붙여넣었습니다.', { variant: 'success' });
+          } else {
+            pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
+          }
+          return;
+        }
         const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
         if (clipboard.length === 0) {
+          // 시스템 클립보드 텍스트를 커서 셀(컬럼)에 붙여넣기 — 엑셀 등 외부 앱에서 복사한 값
           const cursorTaskId = focusedCell?.taskId ?? lastSelectedId;
           if (!cursorTaskId) {
             pushToast('작업을 선택한 뒤 붙여넣기 하세요.', { variant: 'info' });
             return;
           }
           if (!canEditCurrentProject) return;
+          const targetColumnId: TableColumnId = focusedCell?.columnId ?? 'name';
+          const visibleTaskIds = visibleTasks.map((t) => t.id);
           void (async () => {
             let text = '';
             try {
@@ -612,8 +699,29 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               pushToast('붙여넣을 텍스트가 없습니다.', { variant: 'info' });
               return;
             }
-            updateTask(cursorTaskId, { name: firstLine });
-            pushToast('작업명을 붙여넣었습니다.', { variant: 'success' });
+            const t = tasks.find((x) => x.id === cursorTaskId);
+            if (!t) return;
+            const res = buildWbsCellPasteUpdate(
+              t,
+              targetColumnId,
+              { text: firstLine },
+              {
+                tasks,
+                visibleTaskIds,
+                statusConfigs,
+                effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
+              },
+            );
+            if (res.error) {
+              pushToast(res.error, { variant: 'warning' });
+              return;
+            }
+            if (res.updates) {
+              updateTask(t.id, res.updates);
+              pushToast(targetColumnId === 'name' ? '작업명을 붙여넣었습니다.' : '셀에 붙여넣었습니다.', { variant: 'success' });
+            } else {
+              pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
+            }
           })();
           return;
         }
@@ -665,6 +773,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           return rest as Task;
         });
         setCopiedTasks(selected);
+        setCopiedCell(null); // 가장 최근 복사(행)만 유효 — 셀 클립보드 대체
         try {
           const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
           localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
@@ -694,12 +803,34 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // Copy — 다중 선택이든 단일 포커스 행이든 동일하게 동작:
-      // - 체크 선택 행들(없으면 포커스 행 + 펼쳐진 하위)을 작업 단위로 복사 → 안내 칩 표시 + Ctrl+V로 행 붙여넣기 (계층·선행 유지)
-      // - 작업명은 시스템 클립보드에도 넣어 다른 앱(엑셀·메모장 등)에 붙여넣기 가능
+      // Copy — 엑셀식 셀/행 복사:
+      // - 체크 다중 선택이 없고 커서가 값 셀(작업명·파생 제외)에 있으면 그 셀 값만 복사 → 다른 셀로 이동 후 Ctrl+V로 그 셀에 붙여넣기
+      // - 체크 선택 행들(없으면 포커스 행 + 펼쳐진 하위)은 작업 단위로 복사 → 안내 칩 표시 + Ctrl+V로 행 붙여넣기 (계층·선행 유지)
+      // - 복사 텍스트는 시스템 클립보드에도 넣어 다른 앱(엑셀·메모장 등)에 붙여넣기 가능
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (deferCutCopyToBrowser) return;
         e.preventDefault();
+        if (selectedTaskIds.size === 0 && focusedCell && isCellClipboardColumn(focusedCell.columnId)) {
+          const sourceTask = tasks.find((t) => t.id === focusedCell.taskId);
+          const cell = sourceTask
+            ? getWbsCellClipboardData(sourceTask, focusedCell.columnId, {
+                statusConfigs,
+                visibleTaskIds: visibleTasks.map((t) => t.id),
+              })
+            : null;
+          if (cell) {
+            setCopiedCell(cell);
+            clearTaskClipboard(); // 가장 최근 복사(셀)만 유효 — 행 클립보드·안내 칩 정리
+            try {
+              void navigator.clipboard?.writeText(cell.text);
+            } catch {
+              // ignore clipboard errors (permissions, insecure context)
+            }
+            const shown = cell.text.length > 24 ? `${cell.text.slice(0, 24)}…` : cell.text;
+            pushToast(`셀 값을 복사했습니다${shown ? `: ${shown}` : ' (빈 값)'} — 붙여넣을 셀에서 Ctrl+V`, { variant: 'success' });
+            return;
+          }
+        }
         const copied = copySelectionToClipboard();
         if (copied.length > 0) {
           const namesText = copied
@@ -1081,6 +1212,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     sortConfig,
     filters,
     copiedTasks,
+    copiedCell,
+    setCopiedCell,
+    clearTaskClipboard,
+    statusConfigs,
+    projectEffortUnitByProjectId,
     addTask,
     rowHeight,
     handleSetRowHeight,

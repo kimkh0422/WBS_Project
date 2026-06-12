@@ -384,6 +384,11 @@ export type ExcelImportMeta = {
   mode: 'known' | 'smart';
   mapped: ExcelImportMappingItem[];
   unmappedHeaders: { header: string; columnIndex: number }[];
+  /**
+   * 컬럼(columnIndex 기준)별 대표 예시 값들 — 미리보기에서 "이 컬럼이 맞나?"를 데이터로 확인하기 위함.
+   * 표시 서식(raw:false)이 적용된 값을 중복 없이 컬럼당 최대 3개까지 담는다. 비어있는 컬럼은 빈 배열.
+   */
+  samplesByColumn: string[][];
 };
 
 export type ExcelImportParseResult = {
@@ -475,6 +480,39 @@ const firstNonEmptyInColumns = (cells: unknown[], cols: number[]) => {
   return '';
 };
 
+// 컬럼별 대표 예시 값 수집 — 미리보기에서 매칭 검증용.
+// displayRows(표시 서식 적용)를 우선 사용하고 비면 rawRows로 폴백. 컬럼당 중복 없이 maxPerColumn개,
+// 너무 긴 값은 잘라서 보관. 데이터 행(headerRowIndex 다음 행)부터 최대 300행까지 스캔.
+const collectColumnSamples = (
+  displayRows: unknown[][],
+  rawRows: unknown[][],
+  headerRowIndex: number,
+  colCount: number,
+  maxPerColumn = 3,
+  maxLen = 40,
+): string[][] => {
+  const samples: string[][] = Array.from({ length: Math.max(0, colCount) }, () => []);
+  if (colCount <= 0) return samples;
+  const start = headerRowIndex + 1;
+  const end = Math.min(start + 300, Math.max(displayRows.length, rawRows.length));
+  for (let r = start; r < end; r++) {
+    const dRow = Array.isArray(displayRows[r]) ? (displayRows[r] as unknown[]) : [];
+    const rRow = Array.isArray(rawRows[r]) ? (rawRows[r] as unknown[]) : [];
+    for (let c = 0; c < colCount; c++) {
+      if (samples[c].length >= maxPerColumn) continue;
+      const dv = dRow[c];
+      const raw = dv !== undefined && dv !== null && dv !== '' ? dv : rRow[c];
+      let v = String(raw ?? '').trim();
+      if (!v) continue;
+      if (v.length > maxLen) v = `${v.slice(0, maxLen - 1)}…`;
+      if (samples[c].includes(v)) continue; // 고유값만 — 종류를 한눈에
+      samples[c].push(v);
+    }
+    if (samples.every((s) => s.length >= maxPerColumn)) break;
+  }
+  return samples;
+};
+
 export const parseExcelWithMeta = async (
   file: File,
   options?: { overrides?: ExcelImportFieldOverride; customColumns?: ExcelImportCustomColumnInput[] },
@@ -496,6 +534,7 @@ export const parseExcelWithMeta = async (
         mode: 'smart',
         mapped: [],
         unmappedHeaders: [],
+        samplesByColumn: [],
       },
     };
   }
@@ -514,6 +553,7 @@ export const parseExcelWithMeta = async (
         mode: 'smart',
         mapped: [],
         unmappedHeaders: [],
+        samplesByColumn: [],
       },
     };
   }
@@ -521,6 +561,8 @@ export const parseExcelWithMeta = async (
   const headerRowIndex = Math.max(0, Math.min(picked.headerRowIndex, rawRows.length - 1));
   const headerRowRaw = (rawRows[headerRowIndex] ?? []).map((h) => String(h ?? '').trim());
   const headerRow = fillMergedHeaders(headerRowRaw);
+  // 컬럼별 예시 값(표시 서식 적용) — known/smart 양 분기의 meta에 함께 실어 미리보기에서 데이터로 매칭 검증.
+  const samplesByColumn = collectColumnSamples(displayRows, rawRows, headerRowIndex, headerRow.length);
 
   // Detect whether this is our exported format (Korean headers).
   // 우리 내보내기 포맷은 정확히 '작업명' 헤더를 포함하므로 그것을 필수로 요구. 변형 헤더(WBS 활동명/진척률 등)는
@@ -683,6 +725,7 @@ export const parseExcelWithMeta = async (
           headerRow,
           mapped.map((m) => m.columnIndex),
         ),
+        samplesByColumn,
       },
     };
   }
@@ -937,6 +980,7 @@ export const parseExcelWithMeta = async (
         headerRow,
         mapped.flatMap((m) => (Array.isArray(m.columnIndices) && m.columnIndices.length > 0 ? m.columnIndices : [m.columnIndex])),
       ),
+      samplesByColumn,
     },
   };
 };

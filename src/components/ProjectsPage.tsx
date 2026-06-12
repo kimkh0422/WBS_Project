@@ -62,9 +62,11 @@ type ProjectsColumnSortKey = 'name' | 'kind' | 'group' | 'tasks' | 'input' | 'ow
 interface ProjectsPageProps {
   /** preferView: 작업 화면 도착 시 선호 뷰('tablegantt'=표+간트). 미지정 시 기본 작업 화면(표). */
   onNavigateToWork?: (projectId?: string, preferView?: 'table' | 'tablegantt') => void;
+  /** 프로젝트 삭제 후 대시보드로 이동 */
+  onNavigateToDashboard?: () => void;
 }
 
-export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
+export function ProjectsPage({ onNavigateToWork, onNavigateToDashboard }: ProjectsPageProps) {
   const { user } = useAuth();
   const { projects, allTasks, addProject, updateProject, deleteProject, copyProject, setCurrentProjectId, wbsSettings } = useWBS();
   const { push: pushToast } = useToast();
@@ -706,6 +708,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     if (projectToDelete) {
       deleteProject(projectToDelete.id);
       setProjectToDelete(null);
+      // 삭제 후 대시보드로 이동
+      onNavigateToDashboard?.();
     }
     setIsDeleteConfirmOpen(false);
   };
@@ -726,6 +730,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
     setSelectedProjectIds(new Set());
     setIsBulkDeleteConfirmOpen(false);
     pushToast(`${ids.length}개 프로젝트가 삭제되었습니다.`, { variant: 'success' });
+    // 삭제 후 대시보드로 이동
+    onNavigateToDashboard?.();
   };
 
   // 일괄 삭제 선택 가능한 프로젝트(소유자·관리자만)

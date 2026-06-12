@@ -11,14 +11,19 @@ export interface TaskMovementDeps {
   currentProjectIdRef: MutableRefObject<string>;
   allTasksRef: MutableRefObject<Task[]>;
   setTreeExpandLevel: (level: number) => void;
+  /** 레벨 변경(들여쓰기/내어쓰기)도 로컬 변경으로 표시 — 저장 버튼 활성·백그라운드 풀의 덮어쓰기 방지 */
+  bumpDirty: () => void;
 }
 
 /**
  * 들여쓰기/내어쓰기 후 평탄 배열에서의 재배치.
  * 형제 표시 순서는 (선행작업이 없으면) 배열 순서를 따르는데, 하위 작업은 생성 시 배열 끝에
  * 추가된 경우가 많아 parentId만 바꾸면 레벨 변경된 작업이 새 형제들 맨 아래로 표시된다.
- * → 내어쓰기: 옛 부모 "바로 다음 형제"가 되도록 부모 바로 뒤로 이동 (제자리 유지).
  * → 들여쓰기: 새 부모의 "마지막 자식"이 되도록 부모·기존 직계 자식들 뒤로 이동 (제자리 유지).
+ *
+ * ※ 내어쓰기는 재배치하지 않는다(outdentTask/outdentTasks 참고). 대상 "뒤"의 형제들을
+ *    대상의 자식으로 흡수하면 배열 순서가 그대로라 트리 순회에서 모든 행이 제자리에 남고
+ *    대상의 레벨만 한 단계 내려간다(MS Project식 Shift+Tab).
  */
 function repositionAfter(tasks: Task[], taskId: string, afterIndexOf: (arr: Task[]) => number): Task[] {
   const moved = tasks.find((t) => t.id === taskId);
@@ -27,11 +32,6 @@ function repositionAfter(tasks: Task[], taskId: string, afterIndexOf: (arr: Task
   const anchorIdx = afterIndexOf(without);
   if (anchorIdx < 0) return tasks;
   return [...without.slice(0, anchorIdx + 1), moved, ...without.slice(anchorIdx + 1)];
-}
-
-/** 내어쓰기: 작업을 옛 부모 바로 뒤로 */
-function repositionAfterParent(tasks: Task[], taskId: string, parentId: string): Task[] {
-  return repositionAfter(tasks, taskId, (arr) => arr.findIndex((t) => t.id === parentId));
 }
 
 /** 들여쓰기: 작업을 새 부모와 그 직계 자식들 중 가장 뒤 위치로 (= 마지막 자식) */
@@ -45,8 +45,58 @@ function repositionAsLastChild(tasks: Task[], taskId: string, newParentId: strin
   });
 }
 
+/**
+ * 내어쓰기(Shift+Tab) 변환 — 대상의 레벨만 한 단계 내리고 표(트리)에서의 '행 위치'는 그대로 둔다.
+ *
+ * 표시는 평탄 배열을 트리 순회(DFS, 형제는 배열 순서)한 결과라, parentId만 조부모로 바꾸고
+ * 재배치하면 대상이 옛 형제들의 서브트리 "아래"로 밀려난다(= 위치 변경 버그).
+ * 이를 막기 위해 대상 "뒤"의 형제들을 대상의 자식으로 흡수한다: 배열 순서를 건드리지 않으므로
+ * 트리 순회에서 대상과 흡수된 형제 모두 제자리에 남고, 대상의 레벨만 내려간다(MS Project식).
+ *
+ * 다중 선택 시: 각 대상은 조부모로 올라가고, 대상 "뒤"의 비선택 형제는 (다음 선택 형제 전까지)
+ * 그 대상이 흡수한다. 부모도 함께 선택된 작업은 부모를 따라 내려가므로 건너뛴다(이중 적용 방지).
+ *
+ * 순수 함수(단위 테스트 대상). recomputeProjectRollups·setAllTasks 등 부수효과는 호출부가 담당.
+ * @param projectTasks 한 프로젝트의 작업들(다른 프로젝트는 제외하고 넘길 것)
+ * @param ids 내어쓸 대상 id들(표시 순서 권장)
+ * @returns changed=false면 내어쓸 대상이 없어 변화 없음
+ */
+export function outdentTasksKeepingPosition(projectTasks: Task[], ids: string[]): { tasks: Task[]; changed: boolean } {
+  const selectedIds = new Set(ids);
+  const parentChange = new Map<string, string | null>();
+  const capturedParents = new Set<string>(); // 형제를 새로 흡수한 대상 → 펼침
+  for (const taskId of ids) {
+    const task = projectTasks.find((t) => t.id === taskId);
+    if (!task || !task.parentId) continue; // 루트는 더 못 올림
+    if (selectedIds.has(task.parentId)) continue; // 부모도 함께 선택됨 → 부모 따라 내려감
+    const parent = projectTasks.find((t) => t.id === task.parentId);
+    if (!parent) continue;
+    parentChange.set(taskId, parent.parentId ?? null);
+    const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
+    const idx = siblings.findIndex((t) => t.id === taskId);
+    for (let i = idx + 1; i < siblings.length; i += 1) {
+      const sib = siblings[i];
+      if (selectedIds.has(sib.id)) break; // 다음 선택 형제부터는 그쪽이 흡수
+      parentChange.set(sib.id, taskId);
+      capturedParents.add(taskId);
+    }
+  }
+  if (parentChange.size === 0) return { tasks: projectTasks, changed: false };
+  const tasks = projectTasks.map((t) => {
+    const hasNewParent = parentChange.has(t.id);
+    const gainsChildren = capturedParents.has(t.id);
+    if (!hasNewParent && !gainsChildren) return t;
+    return {
+      ...t,
+      ...(hasNewParent ? { parentId: parentChange.get(t.id)! } : null),
+      ...(gainsChildren ? { expanded: true } : null),
+    };
+  });
+  return { tasks, changed: true };
+}
+
 export function useTaskMovement(deps: TaskMovementDeps) {
-  const { saveHistory, setAllTasks, currentProjectIdRef, allTasksRef, setTreeExpandLevel } = deps;
+  const { saveHistory, setAllTasks, currentProjectIdRef, allTasksRef, setTreeExpandLevel, bumpDirty } = deps;
 
   const moveTask = useCallback(
     (id: string, direction: 'up' | 'down') => {
@@ -97,6 +147,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
   const indentTask = useCallback(
     (id: string) => {
       saveHistory();
+      let changed = false;
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -113,34 +164,38 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           return t;
         });
         updated = repositionAsLastChild(updated, id, newParent.id);
+        changed = true;
         return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
       });
+      if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
+  // 내어쓰기: 대상의 레벨만 한 단계 내리고 표에서의 '행 위치'는 그대로 둔다.
+  // (핵심 로직은 outdentTasksKeepingPosition 참고 — 대상 "뒤"의 형제를 자식으로 흡수해 제자리 유지)
   const outdentTask = useCallback(
     (id: string) => {
       saveHistory();
+      let changed = false;
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const task = projectTasks.find((t) => t.id === id);
-        if (!task || !task.parentId) return prev;
-        const parent = projectTasks.find((t) => t.id === task.parentId);
-        if (!parent) return prev;
-        let updated = projectTasks.map((t) => (t.id === id ? { ...t, parentId: parent.parentId } : t));
-        updated = repositionAfterParent(updated, id, parent.id);
-        return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
+        const res = outdentTasksKeepingPosition(projectTasks, [id]);
+        if (!res.changed) return prev;
+        changed = true;
+        return recomputeProjectRollups([...otherTasks, ...res.tasks], cpi, undefined, undefined, true);
       });
+      if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   const indentTasks = useCallback(
     (ids: string[]) => {
       saveHistory();
+      let changed = false;
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         let projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -159,36 +214,34 @@ export function useTaskMovement(deps: TaskMovementDeps) {
               return t;
             });
             projectTasks = repositionAsLastChild(projectTasks, taskId, newParent.id);
+            changed = true;
           }
         }
+        if (!changed) return prev;
         return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi, undefined, undefined, true);
       });
+      if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
+  // 내어쓰기(다중): outdentTask와 같은 '흡수' 방식 — 행 위치는 그대로, 레벨만 한 단계 내림.
   const outdentTasks = useCallback(
     (ids: string[]) => {
       saveHistory();
+      let changed = false;
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
-        let projectTasks = prev.filter((t) => t.projectId === cpi);
+        const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const selectedIds = new Set(ids);
-        // 뒤에서부터 처리: 같은 부모의 여러 작업을 내어쓸 때 각각 "부모 바로 뒤"로 끼워 넣어도
-        // 원래 상대 순서가 유지된다 (ids는 표시 순서).
-        for (const taskId of [...ids].reverse()) {
-          const task = projectTasks.find((t) => t.id === taskId);
-          if (!task || !task.parentId || selectedIds.has(task.parentId)) continue;
-          const parent = projectTasks.find((t) => t.id === task.parentId);
-          if (!parent) continue;
-          projectTasks = projectTasks.map((t) => (t.id === taskId ? { ...t, parentId: parent.parentId } : t));
-          projectTasks = repositionAfterParent(projectTasks, taskId, parent.id);
-        }
-        return recomputeProjectRollups([...otherTasks, ...projectTasks], cpi, undefined, undefined, true);
+        const res = outdentTasksKeepingPosition(projectTasks, ids);
+        if (!res.changed) return prev;
+        changed = true;
+        return recomputeProjectRollups([...otherTasks, ...res.tasks], cpi, undefined, undefined, true);
       });
+      if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   const toggleExpand = useCallback(

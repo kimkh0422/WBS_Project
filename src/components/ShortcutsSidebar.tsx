@@ -101,7 +101,7 @@ export function ShortcutsSidebar({
       { label: '되돌리기', chords: ['Ctrl', 'Z'] },
       { label: '다시 실행', chords: ['Ctrl', 'Y'] },
       { label: '레벨 펼치기', chords: ['Ctrl', 'Alt', '1~9'] },
-      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식·보완 가이드·가중치·하위일정 균등분할' },
+      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집' },
       { label: '이 패널', chords: ['Shift', '?'] },
     ];
 
@@ -141,7 +141,7 @@ export function ShortcutsSidebar({
             ['Ctrl', 'C'],
             ['Ctrl', 'V'],
           ],
-          hint: '체크 다중 선택 시 행 단위 복사(일괄 수정 바 버튼으로도 가능), 단일 행은 작업명만',
+          hint: '값 셀은 셀 값 복사 → 이동 후 그 셀에 붙여넣기(체크한 여러 행엔 일괄). 작업명 셀·체크 선택은 행 단위 복사(하위·선행 유지)',
         },
         {
           label: '순서 변경',

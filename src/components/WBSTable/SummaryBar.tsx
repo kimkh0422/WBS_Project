@@ -79,7 +79,7 @@ interface SummaryBarProps {
     on: boolean;
     onToggle: () => void;
   };
-  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할) 표시 여부. 기본 숨김, Shift+F12로 토글. */
+  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집) 표시 여부. 기본 숨김, Shift+F12로 토글. */
   showAdvancedTools?: boolean;
 }
 
@@ -293,7 +293,7 @@ export function SummaryBar({
                 가중치 {useWeightForRollup ? 'ON' : 'OFF'}
               </button>
             )}
-            {cellClickEditButton}
+            {showAdvancedTools && cellClickEditButton}
             {showAdvancedTools && tableAutoFormatting && (
               <button
                 type="button"
@@ -353,7 +353,7 @@ export function SummaryBar({
               가이드
             </button>
           )}
-          {cellClickEditButton}
+          {showAdvancedTools && cellClickEditButton}
           {showAdvancedTools && tableAutoFormatting && (
             <button
               type="button"

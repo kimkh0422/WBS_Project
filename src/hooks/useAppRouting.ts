@@ -140,24 +140,17 @@ export function useAppRouting({ effectiveIsAdmin, realIsAdmin = false, userEmail
   );
   if (view === 'dashboard') dashboardMountedOnceRef.current = true;
 
-  // 최초 진입(앱 로드/새로고침)은 무조건 '표+간트'. 직전 세션에서 '표 단독'으로 토글해 URL이 /table로 남아
-  // 있었더라도, 다시 들어오면 표+간트로 승격한다. 단, 진입 후 헤더 토글로 표 단독 보기는 그대로 허용
-  // (승격은 최초 진입 1회만). dashboardMountedOnceRef와 같은 방식으로 진입 시점의 경로를 기억한다.
-  const initialSegmentRef = useRef(typeof window !== 'undefined' ? window.location.pathname.replace(/^\//, '').split('/')[0] || '' : '');
-  const initialTablePromotedRef = useRef(false);
+  // 최초 진입(앱 로드·새로고침)은 사용자의 마지막 보기와 무관하게 무조건 '표+간트'로 1회 강제한다.
+  // ref 가드로 최초 1회만 실행 — 이후에는 사용자가 헤더·내비로 대시보드·칸반 등 어떤 보기로든 자유롭게 전환할 수 있다.
+  // 예외: 모바일 대시보드 고정·표+간트 미가용(상태 전용 사용자)일 때는 강제하지 않는다.
+  const initialForcedRef = useRef(false);
   useEffect(() => {
-    if (initialTablePromotedRef.current) return;
-    if (initialSegmentRef.current !== 'table') {
-      // 최초 진입이 표 단독이 아니면 승격 로직을 비활성화(이후 세션 토글은 손대지 않음).
-      initialTablePromotedRef.current = true;
-      return;
-    }
-    // 표+간트가 가용해지는 즉시(역할 플래그 비동기 로딩 대비) 1회 승격.
-    if (!hiddenViews.has('tablegantt')) {
-      initialTablePromotedRef.current = true;
-      navigate('/tablegantt', { replace: true });
-    }
-  }, [hiddenViews, navigate]);
+    if (initialForcedRef.current) return;
+    initialForcedRef.current = true;
+    if (lockMobileToDashboard || hiddenViews.has('tablegantt')) return;
+    const seg = window.location.pathname.replace(/^\//, '').split('/')[0] || '';
+    if (seg !== 'tablegantt') navigate('/tablegantt', { replace: true });
+  }, [hiddenViews, lockMobileToDashboard, navigate]);
 
   useEffect(() => {
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';

@@ -376,11 +376,14 @@ export async function getMyProjectMemberProjectIds(): Promise<string[]> {
   return ((data ?? []) as { project_id: string }[]).map((r) => r.project_id);
 }
 
-/** 편집 가능한 프로젝트 ID 목록 (소유자 또는 승인된 멤버: viewer/editor 포함). DB RPC와 동일. */
+/** 편집 가능한 프로젝트 ID 목록 (소유자 또는 승인된 멤버: viewer/editor 포함). DB RPC와 동일.
+ * 주의: RPC 에러 시 빈 배열로 삼키지 말고 throw 한다 — 호출부(App.tsx)가 '일시적 실패'와
+ * '진짜 편집권한 없음([])'을 구분해, 탭 복귀/포커스 재조회가 잠깐 실패해도 직전 권한을
+ * 강등하지 않도록 하기 위함(멤버·에디터의 Insert/Enter 새 작업 추가가 새로고침 전까지 막히던 버그 방지). */
 export async function getMyEditableProjectIds(): Promise<string[]> {
   requireSupabase();
   const { data, error } = await supabase!.rpc('get_user_editable_project_ids');
-  if (error) return [];
+  if (error) throw error;
   return Array.isArray(data) ? (data as string[]) : [];
 }
 

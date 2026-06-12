@@ -55,6 +55,24 @@ const colRangeLabel = (indices?: number[], fallback?: number) => {
   return `${colToLetter(cols[0])}~${colToLetter(cols[cols.length - 1])} (${cols[0] + 1}~${cols[cols.length - 1] + 1})`;
 };
 
+/** 매핑된 필드의 컬럼(다중 포함)에서 중복 없는 대표 예시 값을 최대 max개 모은다. */
+const samplesForField = (samplesByColumn: string[][] | undefined, columnIndex: number, columnIndices?: number[], max = 3): string[] => {
+  if (!samplesByColumn) return [];
+  const cols = Array.isArray(columnIndices) && columnIndices.length > 0 ? columnIndices : [columnIndex];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of cols) {
+    if (c < 0) continue;
+    for (const v of samplesByColumn[c] ?? []) {
+      if (seen.has(v)) continue;
+      seen.add(v);
+      out.push(v);
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+};
+
 export function ExcelImportPreviewModal({
   isOpen,
   onClose,
@@ -162,8 +180,11 @@ export function ExcelImportPreviewModal({
               const isExpanded = !!openFiles[f.fileName];
               const sheet = f.meta.sheetName || '-';
               const headerRowNo = (f.meta.headerRowIndex ?? 0) + 1;
-              // select 옵션: 헤더가 비어있지 않은 컬럼만 노출 (정렬은 컬럼 인덱스 순)
-              const headerOptions = f.meta.headerRow.map((h, i) => ({ value: i, label: String(h ?? '').trim() })).filter((o) => o.label);
+              // select 옵션: 헤더가 비어있지 않은 컬럼만 노출 (정렬은 컬럼 인덱스 순). 첫 예시값을 함께 표기해 데이터로 식별.
+              const samplesByColumn = f.meta.samplesByColumn ?? [];
+              const headerOptions = f.meta.headerRow
+                .map((h, i) => ({ value: i, label: String(h ?? '').trim(), sample: (samplesByColumn[i] ?? [])[0] ?? '' }))
+                .filter((o) => o.label);
               return (
                 <div key={f.fileName} className="border border-slate-200 rounded-xl overflow-hidden">
                   <button
@@ -226,11 +247,16 @@ export function ExcelImportPreviewModal({
                                       )}
                                     >
                                       <option value={-1}>(매핑 안 함)</option>
-                                      {headerOptions.map((o) => (
-                                        <option key={o.value} value={o.value}>
-                                          {colToLetter(o.value)} ({o.value + 1}) — {o.label}
-                                        </option>
-                                      ))}
+                                      {headerOptions.map((o) => {
+                                        const ex = o.sample
+                                          ? ` · 예: ${o.sample.length > 16 ? `${o.sample.slice(0, 15)}…` : o.sample}`
+                                          : '';
+                                        return (
+                                          <option key={o.value} value={o.value}>
+                                            {`${colToLetter(o.value)} (${o.value + 1}) — ${o.label}${ex}`}
+                                          </option>
+                                        );
+                                      })}
                                     </select>
                                   ) : (
                                     <span className={cn('font-medium', ok ? 'text-slate-800' : 'text-red-600')}>
@@ -247,6 +273,26 @@ export function ExcelImportPreviewModal({
                                       {m.note}
                                     </span>
                                   )}
+                                  {(() => {
+                                    const ex = samplesForField(f.meta.samplesByColumn, m.columnIndex, m.columnIndices);
+                                    if (ex.length === 0) return null;
+                                    return (
+                                      <div className="w-full flex items-start gap-1.5 text-[11px] leading-relaxed">
+                                        <span className="shrink-0 pt-0.5 font-semibold text-slate-400">예시</span>
+                                        <div className="flex flex-wrap gap-1">
+                                          {ex.map((v, i) => (
+                                            <span
+                                              key={i}
+                                              className="inline-block max-w-[200px] truncate rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-slate-600"
+                                              title={v}
+                                            >
+                                              {v}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             );
@@ -301,6 +347,8 @@ export function ExcelImportPreviewModal({
                           <div className="flex flex-wrap gap-1.5">
                             {f.meta.unmappedHeaders.slice(0, 24).map((u) => {
                               const isAdded = f.customColumns.some((c) => c.columnIndex === u.columnIndex);
+                              const ex = samplesForField(f.meta.samplesByColumn, u.columnIndex);
+                              const exText = ex.length > 0 ? ` · 예: ${ex.join(', ')}` : '';
                               if (onCustomColumnToggle) {
                                 return (
                                   <button
@@ -313,11 +361,14 @@ export function ExcelImportPreviewModal({
                                         ? 'text-indigo-700 bg-indigo-50 border-indigo-300 hover:bg-indigo-100'
                                         : 'text-slate-600 bg-slate-50 border-slate-200 hover:bg-slate-100',
                                     )}
-                                    title={isAdded ? '사용자 정의 컬럼에서 제거' : '사용자 정의 컬럼으로 추가'}
+                                    title={`${isAdded ? '사용자 정의 컬럼에서 제거' : '사용자 정의 컬럼으로 추가'}${exText}`}
                                   >
                                     {isAdded ? <Check size={11} /> : <Plus size={11} />}
                                     {u.header}
                                     <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
+                                    {ex[0] && (
+                                      <span className="font-normal text-[10px] text-slate-400 truncate max-w-[120px]">{ex[0]}</span>
+                                    )}
                                   </button>
                                 );
                               }
@@ -325,8 +376,10 @@ export function ExcelImportPreviewModal({
                                 <span
                                   key={`${u.columnIndex}-${u.header}`}
                                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full"
+                                  title={exText ? `예: ${ex.join(', ')}` : undefined}
                                 >
                                   {u.header} <span className="font-mono text-[10px] text-slate-400">{colToLetter(u.columnIndex)}</span>
+                                  {ex[0] && <span className="font-normal text-[10px] text-slate-400 truncate max-w-[120px]">{ex[0]}</span>}
                                 </span>
                               );
                             })}

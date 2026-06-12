@@ -295,6 +295,7 @@ export function WBSProvider({
     currentProjectIdRef,
     allTasksRef,
     setTreeExpandLevel,
+    bumpDirty,
   });
 
   const backupOps = useBackupOps({
