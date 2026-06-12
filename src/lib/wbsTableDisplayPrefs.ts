@@ -36,3 +36,41 @@ export function subscribeTableAutoFormattingChanged(fn: () => void): () => void 
     window.removeEventListener('storage', onStorage);
   };
 }
+
+/** 이 브라우저에서만: 셀을 한 번 클릭하면 바로 편집(켜짐) vs 더블클릭·F2로만 편집(꺼짐, 기본) */
+const SINGLE_CLICK_EDIT_KEY = 'wbs-single-click-edit';
+const SINGLE_CLICK_EDIT_CHANGED_EVENT = 'wbs-single-click-edit-changed';
+
+export function getSingleClickEdit(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SINGLE_CLICK_EDIT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setSingleClickEdit(on: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (on) window.localStorage.setItem(SINGLE_CLICK_EDIT_KEY, '1');
+    else window.localStorage.removeItem(SINGLE_CLICK_EDIT_KEY);
+    window.dispatchEvent(new Event(SINGLE_CLICK_EDIT_CHANGED_EVENT));
+  } catch {
+    // ignore
+  }
+}
+
+export function subscribeSingleClickEditChanged(fn: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const onCustom = () => fn();
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === SINGLE_CLICK_EDIT_KEY) fn();
+  };
+  window.addEventListener(SINGLE_CLICK_EDIT_CHANGED_EVENT, onCustom);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(SINGLE_CLICK_EDIT_CHANGED_EVENT, onCustom);
+    window.removeEventListener('storage', onStorage);
+  };
+}

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, Bold, ChevronDown, Eraser, GripVertical, Italic, Strikethrough, Trash2, Underline } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Ban, Bold, ChevronDown, Eraser, Italic, Strikethrough, Trash2, Underline, X } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -17,33 +18,57 @@ const FONT_CHOICES = [
 
 function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled: boolean; onPick: (next: string) => void }) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
+  // 메뉴는 body 포털 + position:fixed로 띄운다(툴바의 overflow-x-auto에 잘리지 않도록).
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number } | null>(null);
+
+  const computePos = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({ left: Math.round(r.left), top: Math.round(r.bottom + 6), minWidth: Math.round(r.width) });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
+    computePos();
     const closeIfOutside = (ev: MouseEvent | TouchEvent) => {
       const t = ev.target as Node | null;
-      if (t && rootRef.current?.contains(t)) return;
+      if (t && (btnRef.current?.contains(t) || menuRef.current?.contains(t))) return;
       setOpen(false);
     };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') setOpen(false);
     };
+    // 툴바 가로 스크롤·창 리사이즈 시 메뉴 위치 추적(capture로 스크롤 컨테이너 포함).
+    const onReflow = () => computePos();
     document.addEventListener('mousedown', closeIfOutside);
     document.addEventListener('touchstart', closeIfOutside);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('scroll', onReflow, true);
     return () => {
       document.removeEventListener('mousedown', closeIfOutside);
       document.removeEventListener('touchstart', closeIfOutside);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onReflow, true);
     };
-  }, [open]);
+  }, [open, computePos]);
 
-  const currentLabel = useMemo(() => FONT_CHOICES.find((o) => o.value === value)?.label ?? FONT_CHOICES[0].label, [value]);
+  // 현재 폰트 라벨: 목록에 있으면 그 라벨, 사용자 지정(목록 밖) 폰트면 앞쪽 패밀리명만 표기.
+  const currentLabel = useMemo(() => {
+    const matched = FONT_CHOICES.find((o) => o.value === value);
+    if (matched) return matched.label;
+    if (value) return value.split(',')[0].replace(/['"]/g, '').trim() || FONT_CHOICES[0].label;
+    return FONT_CHOICES[0].label;
+  }, [value]);
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
@@ -63,34 +88,39 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
         </span>
         <ChevronDown className={cn('size-4 shrink-0 text-slate-500 transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
-      {open && (
-        <ul
-          role="listbox"
-          aria-label="글꼴 목록"
-          className="absolute bottom-full left-0 z-[200] mb-2 max-h-[min(50vh,280px)] min-w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 text-[15px] leading-snug shadow-2xl ring-1 ring-black/5"
-        >
-          {FONT_CHOICES.map((o) => (
-            <li key={o.value || 'default'} role="presentation">
-              <button
-                type="button"
-                role="option"
-                aria-selected={value === o.value}
-                style={{ fontFamily: o.value || undefined }}
-                className={cn(
-                  'flex w-full items-center px-3.5 py-2.5 text-left text-slate-900 hover:bg-indigo-50',
-                  value === o.value && 'bg-indigo-50 font-semibold text-indigo-950',
-                )}
-                onClick={() => {
-                  onPick(o.value);
-                  setOpen(false);
-                }}
-              >
-                {o.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <ul
+            ref={menuRef}
+            role="listbox"
+            aria-label="글꼴 목록"
+            style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.minWidth }}
+            className="z-[300] max-h-[min(60vh,320px)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1.5 text-[15px] leading-snug shadow-2xl ring-1 ring-black/5"
+          >
+            {FONT_CHOICES.map((o) => (
+              <li key={o.value || 'default'} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={value === o.value}
+                  style={{ fontFamily: o.value || undefined }}
+                  className={cn(
+                    'flex w-full items-center px-3.5 py-2.5 text-left text-slate-900 hover:bg-indigo-50',
+                    value === o.value && 'bg-indigo-50 font-semibold text-indigo-950',
+                  )}
+                  onClick={() => {
+                    onPick(o.value);
+                    setOpen(false);
+                  }}
+                >
+                  {o.label}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -147,70 +177,96 @@ function builtinColumnLabel(id: TableColumnId): string {
 }
 
 export interface CellFormatToolbarProps {
-  focusedCell: { taskId: string; columnId: TableColumnId };
-  /** 체크박스로 2개 이상 선택된 경우, 포커스한 열(columnId) 기준으로 선택된 모든 행에 동일 서식 적용 */
+  /** 단일 셀 포커스(없으면 null). 행만 체크 선택한 경우 null일 수 있다. */
+  focusedCell: { taskId: string; columnId: TableColumnId } | null;
+  /** 체크박스로 선택된 행. 1개 이상이면 "행 전체(엑셀식)" 모드로 동작한다. */
   selectedTaskIds: Set<string>;
+  /** 행 전체 모드에서 서식을 적용할 표시 데이터 컬럼들(wbsId 제외). */
+  rowApplyColumnIds: TableColumnId[];
   tasks: Task[];
   canEdit: boolean;
   customColumnNameById: Map<string, string>;
   updateTask: (id: string, updates: Partial<Task>) => void;
   /** 선택 행 일괄 삭제(확인 모달은 호출부가 띄움). 미전달 시 삭제 버튼 비표시. */
   onDeleteTargets?: (taskIds: string[]) => void;
+  /** 툴바 닫기(선택·포커스 해제). */
+  onClose?: () => void;
 }
 
+/**
+ * 표 상단 도킹 서식 툴바. 한글·엑셀의 상단 Tool Bar처럼 동작한다.
+ * 적용 범위(엑셀식 = 선택 단위가 곧 적용 단위):
+ *  - 행을 체크 선택(selectedTaskIds ≥ 1)하면 → 선택한 모든 행 × 표시된 모든 데이터 열에 적용("행 전체").
+ *  - 체크 없이 셀 하나만 포커스하면 → 그 셀(한 행, 한 열)에만 적용.
+ */
 export function CellFormatToolbar({
   focusedCell,
   selectedTaskIds,
+  rowApplyColumnIds,
   tasks,
   canEdit,
   customColumnNameById,
   updateTask,
   onDeleteTargets,
+  onClose,
 }: CellFormatToolbarProps) {
-  /** 키보드·셀 링 기준 행(삭제 등으로 없으면 툴바 숨김) */
-  const anchorTask = useMemo(() => tasks.find((t) => t.id === focusedCell.taskId), [tasks, focusedCell.taskId]);
+  // 행을 체크 선택했으면 "행 전체" 모드(엑셀식). 아니면 포커스 셀 단일 모드.
+  const rowMode = selectedTaskIds.size >= 1;
+
+  // rowApplyColumnIds 누락(예: HMR 중간 상태)에도 안전하도록 빈 배열로 정규화.
+  const rowCols = useMemo(() => rowApplyColumnIds ?? [], [rowApplyColumnIds]);
+
+  const targetTaskIds = useMemo(() => {
+    if (rowMode) return Array.from(selectedTaskIds);
+    return focusedCell ? [focusedCell.taskId] : [];
+  }, [rowMode, selectedTaskIds, focusedCell]);
+
+  /** 적용 대상 열: 행 모드면 표시된 모든 데이터 열, 셀 모드면 포커스한 열 하나. */
+  const targetColumnIds = useMemo<TableColumnId[]>(() => {
+    if (rowMode) return rowCols;
+    return focusedCell ? [focusedCell.columnId] : [];
+  }, [rowMode, rowCols, focusedCell]);
+
+  /** 컨트롤 표시(on/off·색)용 대표 셀: 행 모드면 첫 선택 행의 작업명(없으면 첫 열). */
+  const previewColumnId = useMemo<TableColumnId | undefined>(() => {
+    if (rowMode) return rowCols.includes('name' as TableColumnId) ? ('name' as TableColumnId) : rowCols[0];
+    return focusedCell?.columnId;
+  }, [rowMode, rowCols, focusedCell]);
+
+  const previewTask = useMemo(() => {
+    const id = rowMode ? targetTaskIds[0] : focusedCell?.taskId;
+    return id ? tasks.find((t) => t.id === id) : undefined;
+  }, [rowMode, targetTaskIds, focusedCell, tasks]);
+
+  const style = previewColumnId ? previewTask?.cellTextStyles?.[previewColumnId] : undefined;
 
   const columnTitle = useMemo(() => {
-    const id = focusedCell.columnId;
+    const id = focusedCell?.columnId;
+    if (!id) return '';
     if (typeof id === 'string' && id.startsWith('custom:')) {
       return customColumnNameById.get(id) ?? id.replace(/^custom:/, '');
     }
     return builtinColumnLabel(id);
-  }, [focusedCell.columnId, customColumnNameById]);
+  }, [focusedCell, customColumnNameById]);
 
-  const targetTaskIds = useMemo(() => {
-    if (selectedTaskIds.size > 1) return Array.from(selectedTaskIds);
-    return [focusedCell.taskId];
-  }, [selectedTaskIds, focusedCell.taskId]);
-
-  /** 컨트롤에 보여 줄 서식: 체크만 하고 포커스 셀은 다른 행일 수 있어, 그때는 선택된 첫 행 기준 */
-  const stylePreviewTaskId = useMemo(() => {
-    if (selectedTaskIds.size > 1 && !selectedTaskIds.has(focusedCell.taskId)) {
-      const [first] = Array.from(selectedTaskIds);
-      return first ?? focusedCell.taskId;
-    }
-    return focusedCell.taskId;
-  }, [selectedTaskIds, focusedCell.taskId]);
-
-  const stylePreviewTask = useMemo(
-    () => tasks.find((t) => t.id === stylePreviewTaskId) ?? anchorTask,
-    [tasks, stylePreviewTaskId, anchorTask],
-  );
-  const style = stylePreviewTask?.cellTextStyles?.[focusedCell.columnId];
-
+  /** 한 작업의 여러 열에 동일 patch를 누적 적용해 단일 cellTextStyles로 만든다. */
   const applyPatch = useCallback(
     (patch: Partial<CellTextStyle> | null) => {
       if (!canEdit) return;
       for (const id of targetTaskIds) {
         const t = tasks.find((x) => x.id === id);
         if (!t) continue;
-        updateTask(id, mergeTaskCellTextStyles(t, focusedCell.columnId, patch));
+        let acc = t.cellTextStyles;
+        for (const col of targetColumnIds) {
+          acc = mergeTaskCellTextStyles({ ...t, cellTextStyles: acc } as Task, col, patch).cellTextStyles;
+        }
+        updateTask(id, { cellTextStyles: acc });
       }
     },
-    [canEdit, targetTaskIds, tasks, updateTask, focusedCell.columnId],
+    [canEdit, targetTaskIds, targetColumnIds, tasks, updateTask],
   );
 
-  /** 대상 행(선택 행, 없으면 포커스 행)의 모든 열 서식 제거. 전체 선택 후 누르면 표 전체가 초기화된다. */
+  /** 대상 행의 모든 열 서식 제거. */
   const clearAllForTargets = useCallback(() => {
     if (!canEdit) return;
     for (const id of targetTaskIds) {
@@ -220,69 +276,9 @@ export function CellFormatToolbar({
     }
   }, [canEdit, targetTaskIds, tasks, updateTask]);
 
-  // ── 드래그 이동 (다른 UI와 겹치지 않게 사용자가 위치 조정) ─────────────
-  const DRAG_POS_KEY = 'wbs.cellFormatToolbar.pos';
-  const [dragPos, setDragPos] = useState<{ dx: number; dy: number }>(() => {
-    try {
-      const saved = localStorage.getItem(DRAG_POS_KEY);
-      if (saved) {
-        const v = JSON.parse(saved);
-        if (typeof v?.dx === 'number' && typeof v?.dy === 'number') return v;
-      }
-    } catch {
-      /* ignore */
-    }
-    return { dx: 0, dy: 0 };
-  });
-  const dragStartRef = useRef<{ startX: number; startY: number; startDx: number; startDy: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-
-  const handleDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      // 우클릭/멀티터치는 무시
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      dragStartRef.current = { startX: e.clientX, startY: e.clientY, startDx: dragPos.dx, startDy: dragPos.dy };
-      setIsDragging(true);
-    },
-    [dragPos.dx, dragPos.dy],
-  );
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const s = dragStartRef.current;
-      if (!s) return;
-      setDragPos({ dx: s.startDx + (e.clientX - s.startX), dy: s.startDy + (e.clientY - s.startY) });
-    };
-    const onUp = () => {
-      dragStartRef.current = null;
-      setIsDragging(false);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [isDragging]);
-
-  // 드래그 종료 시 위치 영속
-  useEffect(() => {
-    if (isDragging) return;
-    try {
-      localStorage.setItem(DRAG_POS_KEY, JSON.stringify(dragPos));
-    } catch {
-      /* ignore */
-    }
-  }, [isDragging, dragPos]);
-
-  const handleDragReset = useCallback(() => {
-    setDragPos({ dx: 0, dy: 0 });
-  }, []);
-
-  if (!anchorTask || focusedCell.columnId === 'wbsId') return null;
+  if (targetTaskIds.length === 0 || targetColumnIds.length === 0) return null;
+  // 셀 모드에서 WBS 열은 서식 대상이 아니다.
+  if (!rowMode && focusedCell?.columnId === 'wbsId') return null;
 
   const hasTextColor = !!(style?.color && style.color.startsWith('#') && style.color.length >= 4);
   const textColor = hasTextColor ? style!.color! : '#1e293b';
@@ -295,38 +291,21 @@ export function CellFormatToolbar({
   return (
     <div
       className={cn(
-        'pointer-events-auto flex max-w-[min(100vw-1.5rem,60rem)] flex-wrap items-center gap-2 rounded-2xl px-3 py-2.5 text-slate-900',
-        'border border-[var(--color-line)]/70 bg-[var(--color-surface)]/92 shadow-[var(--shadow-lg),0_0_0_1px_rgba(255,255,255,0.55)_inset] backdrop-blur-xl',
-        isDragging && 'select-none cursor-grabbing',
+        // min-h-[3.5rem]: 분할뷰 SummaryBar(h-14)를 빈틈없이 덮도록 같은 높이 확보.
+        'flex min-h-[3.5rem] w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap px-3 py-2 text-slate-900',
+        'border-b border-[var(--color-line)] bg-[var(--color-surface)] shadow-sm',
       )}
-      style={{ transform: `translate(${dragPos.dx}px, ${dragPos.dy}px)` }}
       role="toolbar"
       aria-label="셀 서식"
       onMouseDown={(e) => {
-        // 표 셀 포커스를 유지하려고 전체에 preventDefault를 쓰면, 숫자·글꼴 등 폼 컨트롤이
-        // mousedown 기본 동작(포커스·드롭다운)을 받지 못해 크기 입력 등이 동작하지 않는다.
+        // 폼 컨트롤(입력·드롭다운)은 기본 동작 유지, 그 외 영역은 표 셀 포커스 유지를 위해 기본 동작 차단.
         const el = e.target as HTMLElement | null;
         if (el?.closest('input, select, textarea, label, button')) return;
         e.preventDefault();
       }}
     >
-      {/* 드래그 핸들 — 좌측 그립으로 toolbar를 이동. 더블클릭으로 원위치 복귀. */}
-      <button
-        type="button"
-        onMouseDown={handleDragStart}
-        onDoubleClick={handleDragReset}
-        title="드래그하여 이동 · 더블클릭으로 원위치"
-        aria-label="서식바 위치 이동"
-        className={cn(
-          'flex h-8 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700',
-          isDragging ? 'cursor-grabbing text-indigo-600' : 'cursor-grab',
-        )}
-      >
-        <GripVertical size={14} />
-      </button>
-
-      {/* 제목 + 대상 열/행 */}
-      <span className="flex items-center gap-2 pr-0.5 text-sm font-bold tracking-tight text-slate-800">
+      {/* 제목 + 대상 표시 */}
+      <span className="flex shrink-0 items-center gap-2 pr-0.5 text-sm font-bold tracking-tight text-slate-800">
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm"
           aria-hidden
@@ -335,9 +314,13 @@ export function CellFormatToolbar({
         </span>
         <span className="hidden whitespace-nowrap sm:inline">
           서식
-          <span className="ml-1 font-semibold text-slate-500">· {columnTitle}</span>
+          {rowMode ? (
+            <span className="ml-1 font-semibold text-slate-500">· 행 전체</span>
+          ) : columnTitle ? (
+            <span className="ml-1 font-semibold text-slate-500">· {columnTitle}</span>
+          ) : null}
         </span>
-        {targetTaskIds.length > 1 ? (
+        {rowMode ? (
           <span className="whitespace-nowrap rounded-md border border-indigo-200/80 bg-indigo-50 px-1.5 py-0.5 text-xs font-semibold text-indigo-800">
             {targetTaskIds.length}행
           </span>
@@ -345,7 +328,7 @@ export function CellFormatToolbar({
       </span>
 
       {/* 글꼴 · 크기 */}
-      <div className={groupClass}>
+      <div className={cn(groupClass, 'shrink-0')}>
         <FontFamilyPicker
           value={style?.fontFamily ?? ''}
           disabled={!canEdit}
@@ -384,7 +367,7 @@ export function CellFormatToolbar({
       </div>
 
       {/* 글자색 · 배경색 */}
-      <div className={groupClass}>
+      <div className={cn(groupClass, 'shrink-0')}>
         <label
           title="글자 색"
           className={cn(
@@ -419,8 +402,7 @@ export function CellFormatToolbar({
             style={
               hasBg
                 ? { backgroundColor: bgColor }
-                : // 배경 없음: 옅은 체크무늬로 "투명"임을 표시
-                  {
+                : {
                     backgroundImage:
                       'linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%)',
                     backgroundSize: '6px 6px',
@@ -451,7 +433,7 @@ export function CellFormatToolbar({
       </div>
 
       {/* 글자 스타일 토글 */}
-      <div className={groupClass}>
+      <div className={cn(groupClass, 'shrink-0')}>
         <SegToggle active={style?.bold} disabled={!canEdit} title="진하게" onClick={() => applyPatch({ bold: style?.bold ? false : true })}>
           <Bold size={16} strokeWidth={2.75} />
         </SegToggle>
@@ -481,15 +463,15 @@ export function CellFormatToolbar({
         </SegToggle>
       </div>
 
-      <span className="h-7 w-px bg-slate-200" aria-hidden />
+      <span className="h-7 w-px shrink-0 bg-slate-200" aria-hidden />
 
       {/* 서식 지우기 */}
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
           disabled={!canEdit}
-          title="이 셀(열) 서식 지우기"
-          aria-label="이 셀 서식 지우기"
+          title={rowMode ? '선택한 행의 서식을 지웁니다' : '이 셀(열) 서식 지우기'}
+          aria-label="서식 지우기"
           className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50"
           onClick={() => applyPatch(null)}
         >
@@ -498,7 +480,7 @@ export function CellFormatToolbar({
         <button
           type="button"
           disabled={!canEdit}
-          title="선택한 행의 모든 열 서식을 지웁니다 (헤더 체크박스로 전체 선택 후 누르면 표 전체 초기화 · 실행취소 가능)"
+          title="선택한 행의 모든 열 서식을 지웁니다 (실행취소 가능)"
           className="flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50"
           onClick={clearAllForTargets}
         >
@@ -511,7 +493,7 @@ export function CellFormatToolbar({
       {/* 행 삭제 — 선택 행(없으면 포커스 행) 일괄 삭제. 호출부가 확인 모달을 띄운다. */}
       {onDeleteTargets && (
         <>
-          <span className="h-7 w-px bg-slate-200" aria-hidden />
+          <span className="h-7 w-px shrink-0 bg-slate-200" aria-hidden />
           <button
             type="button"
             disabled={!canEdit || targetTaskIds.length === 0}
@@ -520,7 +502,7 @@ export function CellFormatToolbar({
                 ? `선택한 ${targetTaskIds.length}개 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)`
                 : '이 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)'
             }
-            className="flex h-8 items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:border-red-400 hover:bg-red-100 hover:text-red-800 disabled:opacity-50"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:border-red-400 hover:bg-red-100 hover:text-red-800 disabled:opacity-50"
             onClick={() => onDeleteTargets(targetTaskIds)}
           >
             <Trash2 size={14} />
@@ -532,6 +514,19 @@ export function CellFormatToolbar({
             ) : null}
           </button>
         </>
+      )}
+
+      {/* 닫기(선택 해제) — 우측 끝 */}
+      {onClose && (
+        <button
+          type="button"
+          title="서식 바 닫기 (선택 해제)"
+          aria-label="서식 바 닫기"
+          className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
       )}
     </div>
   );

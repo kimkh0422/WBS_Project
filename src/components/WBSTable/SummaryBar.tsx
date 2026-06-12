@@ -1,5 +1,17 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Edit2, Target, ListOrdered, Sparkles, Scale } from 'lucide-react';
+import {
+  CalendarDays,
+  CalendarCheck2,
+  Clock,
+  TrendingUp,
+  ListChecks,
+  Edit2,
+  Target,
+  ListOrdered,
+  Sparkles,
+  Scale,
+  MousePointerClick,
+} from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -53,10 +65,18 @@ interface SummaryBarProps {
   onOpenMdEditor: () => void;
   /** 등록 작업 기준 우선순위 보완 가이드(모달) */
   onOpenImprovementGuide?: () => void;
+  /** '일정 자동 맞춤' 메뉴: 상위 일정 롤업·선행(FS) 재계산을 명시적으로 실행.
+   *  자동 실행 경로는 없으며 이 버튼으로만 동작. 편집 권한이 없으면 undefined로 숨김. */
+  onAutoAlignSchedule?: () => void;
   /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
   tableAutoFormatting?: {
     effectiveOn: boolean;
     globalEnabled: boolean;
+    onToggle: () => void;
+  };
+  /** 클릭 편집 모드: 켜면 셀 한 번 클릭으로 바로 편집, 끄면 더블클릭·F2로만 편집. 편집 권한 없으면 undefined로 숨김. */
+  cellClickEdit?: {
+    on: boolean;
     onToggle: () => void;
   };
 }
@@ -78,8 +98,48 @@ export function SummaryBar({
   handleSetRowHeight,
   onOpenMdEditor,
   onOpenImprovementGuide,
+  onAutoAlignSchedule,
   tableAutoFormatting,
+  cellClickEdit,
 }: SummaryBarProps) {
+  const cellClickEditButton = cellClickEdit ? (
+    <button
+      type="button"
+      onClick={cellClickEdit.onToggle}
+      aria-pressed={cellClickEdit.on}
+      className={cn(
+        'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
+        cellClickEdit.on
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+          : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+      )}
+      title={
+        cellClickEdit.on
+          ? '클릭 편집이 켜져 있습니다. 셀을 한 번 클릭하면 바로 편집됩니다. 클릭하면 끕니다(더블클릭·F2로 편집).'
+          : '클릭 편집이 꺼져 있습니다. 더블클릭 또는 F2로 편집합니다. 클릭하면 켭니다(한 번 클릭으로 바로 편집).'
+      }
+    >
+      <MousePointerClick size={12} strokeWidth={2} aria-hidden />
+      클릭 편집
+    </button>
+  ) : null;
+  const autoAlignButton = onAutoAlignSchedule ? (
+    <button
+      type="button"
+      onClick={onAutoAlignSchedule}
+      className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+      title={[
+        '일정 자동 맞춤(클릭 시에만 실행):',
+        '· 상위(요약) 작업의 시작일·종료일을 하위 작업 기간(최소 시작~최대 종료)으로 맞춥니다.',
+        '· 선행작업이 연결된 작업은 시작일을 "선행 종료일 + 1영업일"로 이동합니다.',
+        '',
+        '평소 셀 편집·행 이동 시에는 입력한 날짜를 자동으로 바꾸지 않습니다.',
+      ].join('\n')}
+    >
+      <CalendarCheck2 size={12} strokeWidth={2} aria-hidden />
+      일정 자동 맞춤
+    </button>
+  ) : null;
   return (
     <div
       className={cn(
@@ -199,6 +259,7 @@ export function SummaryBar({
               ))}
             </div>
             <Divider />
+            {autoAlignButton}
             {onOpenImprovementGuide && (
               <button
                 type="button"
@@ -230,6 +291,7 @@ export function SummaryBar({
               <Scale size={12} strokeWidth={2} aria-hidden />
               가중치 {useWeightForRollup ? 'ON' : 'OFF'}
             </button>
+            {cellClickEditButton}
             {tableAutoFormatting && (
               <button
                 type="button"
@@ -277,6 +339,7 @@ export function SummaryBar({
         // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
         <>
           <div className="flex-1" />
+          {autoAlignButton}
           {onOpenImprovementGuide && (
             <button
               type="button"
@@ -288,6 +351,7 @@ export function SummaryBar({
               가이드
             </button>
           )}
+          {cellClickEditButton}
           {tableAutoFormatting && (
             <button
               type="button"

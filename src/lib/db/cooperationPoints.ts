@@ -50,10 +50,30 @@ function normalizePriority(v: unknown): CooperationRequestPriority {
 }
 
 /**
+ * 레거시 assignee 텍스트를 개인 이름들로 분해 — 포인트는 항상 '사람 단위'로 지급하기 위함.
+ * 쉼표·세미콜론·슬래시·가운뎃점 구분, 각 토큰의 '외 N명' 꼬리표 제거.
+ * DB reconcile_cooperation_points(마이그레이션 20260612100000) 의 regexp 규칙과 짝 — 같이 바꾼다.
+ */
+export function splitAssigneeNames(assignee: string): string[] {
+  const out: string[] = [];
+  for (const raw of assignee.split(/[,;/·]/)) {
+    const name = raw.replace(/\s*외\s*\d+\s*명$/, '').trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
  * 협조 요청 1건에서 '지급 대상' 집합을 계산 — DB reconcile_cooperation_points 와 동일 규칙:
  *   1) 멤버 본인 상태가 '확인완료' → 지급
- *   2) 요청 전체가 '확인완료' → 취소되지 않은 모든 담당 멤버 지급
- *   3) memberProgress 가 비어 있으면(레거시/단순 행) 요청 '확인완료' 시 assignee 텍스트 1건 지급
+ *   2) 요청 전체가 '확인완료' → 취소되지 않은 모든 담당 멤버(member_progress) 지급
+ *   3) memberProgress 가 비어 있고 **조직 지정도 없는**(assigneeOrgIds 비어 있음) 순수 레거시 행만
+ *      요청 '확인완료' 시 assignee 텍스트를 개인 이름으로 분해해(splitAssigneeNames) 각 사람에게 지급
+ *
+ * 포인트는 항상 '사람'에게만 간다 — 조직(부서)을 담당으로 지정한 요청은 그 조직 이름으로 지급하지 않는다.
+ * 조직 지정 워크플로: 조직 지정 → 팀장/사업부장이 담당자를 member_progress 로 지정 → 그 담당자에게 지급.
+ * 담당자가 지정되기 전(member_progress 비어 있음)에는 지급 대상이 없다.
+ *
  * 로컬(dev 우회) 모드의 현황 계산과, 저장 직후 지급/회수 토스트 예측에 사용한다.
  */
 export function deriveCooperationPointEntries(r: CooperationRequest): CooperationPointEntry[] {
@@ -82,8 +102,10 @@ export function deriveCooperationPointEntries(r: CooperationRequest): Cooperatio
       if (!m.name) continue;
       if (m.status === '확인완료' || (confirmed && m.status !== '취소됨')) add(m.name, m.department, m.position, m.completedAt);
     }
-  } else if (confirmed && r.assignee.trim()) {
-    add(r.assignee.trim(), '', '', '');
+  } else if (confirmed && r.assigneeOrgIds.length === 0) {
+    // 조직 지정이 없는 순수 레거시(엑셀 가져오기 등) 행만 assignee 텍스트로 지급.
+    // 조직이 지정된 요청은 담당자가 member_progress 로 지정되어야 그 담당자에게 지급된다(조직엔 미지급).
+    for (const name of splitAssigneeNames(r.assignee)) add(name, '', '', '');
   }
   return Array.from(out.values());
 }
@@ -140,20 +162,27 @@ export async function fetchCooperationPoints(): Promise<CooperationPointEntry[]>
   }));
 }
 
-/** 인원별 합산 + 정렬(포인트 합 ↓ → 건수 ↓ → 이름 가나다). */
+/**
+ * 인원별 합산 + 정렬(포인트 합 ↓ → 건수 ↓ → 이름 가나다).
+ * 묶음 키는 '이름'만 사용 — 부서·직위는 지급 당시 스냅샷이라 조직 개편·레거시 공백으로 달라질 수 있고,
+ * 그때마다 같은 사람이 여러 줄로 갈라지면 인원별 현황이 깨진다(동명이인 합산보다 훨씬 흔한 문제).
+ * 부서·직위 표시는 비어 있지 않은 첫 항목 — fetch가 최신 지급 순으로 주므로 최신 스냅샷이 잡힌다.
+ */
 export function summarizeCooperationPoints(entries: CooperationPointEntry[]): CooperationPointPersonSummary[] {
   const map = new Map<string, CooperationPointPersonSummary>();
   for (const e of entries) {
-    const key = personKey(e.memberName, e.memberDepartment, e.memberPosition);
+    const key = e.memberName.trim();
     const cur = map.get(key);
     if (cur) {
       cur.totalPoints += e.points;
       cur.awardCount += 1;
       if ((e.awardedAt || '') > cur.lastAwardedAt) cur.lastAwardedAt = e.awardedAt || '';
+      if (!cur.department && e.memberDepartment) cur.department = e.memberDepartment;
+      if (!cur.position && e.memberPosition) cur.position = e.memberPosition;
     } else {
       map.set(key, {
         key,
-        name: e.memberName,
+        name: key,
         department: e.memberDepartment,
         position: e.memberPosition,
         totalPoints: e.points,

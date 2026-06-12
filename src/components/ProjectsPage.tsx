@@ -60,7 +60,8 @@ import { checkIsAdmin, fetchProfiles, getProjectOwnerDisplayNames } from '../lib
 type ProjectsColumnSortKey = 'name' | 'kind' | 'group' | 'tasks' | 'input' | 'owner' | 'start' | 'end' | 'pm' | 'po';
 
 interface ProjectsPageProps {
-  onNavigateToWork?: (projectId?: string) => void;
+  /** preferView: 작업 화면 도착 시 선호 뷰('tablegantt'=표+간트). 미지정 시 기본 작업 화면(표). */
+  onNavigateToWork?: (projectId?: string, preferView?: 'table' | 'tablegantt') => void;
 }
 
 export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
@@ -712,7 +713,8 @@ export function ProjectsPage({ onNavigateToWork }: ProjectsPageProps) {
   const handleCopyProject = () => {
     if (projectToCopy) {
       copyProject(projectToCopy.id);
-      onNavigateToWork?.();
+      // 복사 직후: copyProject 내부에서 새 복사본이 currentProjectId로 잡힘 → 표+간트 작업 화면으로 이동.
+      onNavigateToWork?.(undefined, 'tablegantt');
       setProjectToCopy(null);
     }
     setIsCopyConfirmOpen(false);

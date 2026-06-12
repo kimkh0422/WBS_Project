@@ -4,6 +4,7 @@ import type { TableColumnId } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
 import { isComposingKeyEvent } from '../../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../../lib/wbsInlineNameCommit';
+import { pasteClipboardTasks } from '../../lib/wbsClipboard';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../../lib/workEffortUnits';
 import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
 
@@ -617,66 +618,21 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           return;
         }
 
-        // Paste target: if a row is selected, insert after it; otherwise append to the end.
-        const fallbackInsertAfterId = visibleTasks.length > 0 ? visibleTasks[visibleTasks.length - 1].id : undefined;
-        const baseInsertAfterId: string | undefined = lastSelectedId ?? fallbackInsertAfterId;
-
-        // If a row is selected, paste as siblings under its parent; otherwise paste as root items.
-        const selectedTask = lastSelectedId ? tasks.find((t) => t.id === lastSelectedId) : undefined;
-        const pasteParentId: string | null = selectedTask?.parentId ?? null;
-
-        // IMPORTANT:
-        // addTask() generates a NEW id. If we precompute ids and set parentId/dependencies
-        // with those fake ids, children become orphans and won't render.
-        // So we build mapping from OLD -> ACTUAL NEW id returned from addTask().
-        const clipboardIdSet = new Set(clipboard.map((t) => t.id));
-        const idToNewId = new Map<string, string>();
-
-        let insertAfterId: string | undefined = baseInsertAfterId;
-        const addedIds: string[] = [];
-
-        // Add tasks ensuring parents are created before children.
-        const pending = [...clipboard];
-        let safety = 0;
-        while (pending.length > 0 && safety < clipboard.length * 4) {
-          const idx = pending.findIndex((t) => !t.parentId || !clipboardIdSet.has(t.parentId) || idToNewId.has(t.parentId));
-          const t = idx === -1 ? pending[0] : pending[idx];
-          pending.splice(idx === -1 ? 0 : idx, 1);
-
-          const isRootOfCopy = !(t.parentId && clipboardIdSet.has(t.parentId));
-          const newParentId = isRootOfCopy ? pasteParentId : (idToNewId.get(t.parentId!) ?? pasteParentId);
-
-          // Strip fields that shouldn't be copied as-is / computed fields.
-          // We also postpone dependency remap until all ids exist.
-          const { id: _id, projectId: _pid, depth: _depth, dependencies: _deps, ...rest } = t as Task & { depth?: number };
-          const addedId = addTask(
-            {
-              ...rest,
-              parentId: newParentId,
-              expanded: true,
-              dependencies: undefined,
-            },
-            isRootOfCopy ? insertAfterId : undefined,
-          );
-
-          if (isRootOfCopy) insertAfterId = addedId;
-          idToNewId.set(t.id, addedId);
-          addedIds.push(addedId);
-          safety += 1;
+        // 작업 단위 붙여넣기는 편집 권한이 있을 때만 (보기 전용 프로젝트 차단)
+        if (!canEditCurrentProject) {
+          pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
+          return;
         }
 
-        // Remap dependencies inside the copied set after all ids are known
-        for (const t of clipboard) {
-          const newId = idToNewId.get(t.id);
-          if (!newId) continue;
-          const mappedDeps = (t.dependencies ?? [])
-            .filter((depId) => clipboardIdSet.has(depId))
-            .map((depId) => idToNewId.get(depId))
-            .filter(Boolean) as string[];
-          if (mappedDeps.length > 0) {
-            updateTask(newId, { dependencies: mappedDeps });
-          }
-        }
+        // 트리·선행관계를 보존하는 작업 단위 붙여넣기 (공용 함수). 기준 행은 키보드 포커스 행(lastSelectedId).
+        const addedIds = pasteClipboardTasks({
+          clipboard,
+          targetId: lastSelectedId,
+          visibleTaskIds: visibleTasks.map((t) => t.id),
+          tasks,
+          addTask,
+          updateTask,
+        });
 
         // Select newly pasted tasks
         if (addedIds.length > 0) {
@@ -684,6 +640,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           const lastPasted = addedIds[addedIds.length - 1];
           setLastSelectedId(lastPasted);
           syncRangeAnchorForKeyboardFocus?.(lastPasted);
+          pushToast(`${addedIds.length}개 작업을 붙여넣었습니다.`, { variant: 'success' });
         }
         return;
       }
@@ -697,12 +654,12 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
       const effectiveSelectedIds = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : sharedSelectedTaskIds || [];
 
-      const copySelectionToClipboard = () => {
+      const copySelectionToClipboard = (): Task[] => {
         // 체크박스 다중 선택이 없어도, 행 클릭·↑↓로 포커스된 행(lastSelectedId)이 있으면 그 행(및 펼쳐진 하위)을 행 단위 복사
         const rowsFromCheckbox = selectedTaskIds.size > 0 ? visibleTasks.filter((t) => selectedTaskIds.has(t.id)) : [];
         const rows =
           rowsFromCheckbox.length > 0 ? rowsFromCheckbox : lastSelectedId ? collectVisibleSubtreeRows(visibleTasks, lastSelectedId) : [];
-        if (rows.length === 0) return;
+        if (rows.length === 0) return [];
         const selected = rows.map((t) => {
           const { depth: _depth, ...rest } = t as TaskWithDepth;
           return rest as Task;
@@ -714,6 +671,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         } catch {
           // ignore storage errors (private mode, quota, etc.)
         }
+        return selected;
       };
 
       const wbsTableEl = document.querySelector('[data-wbs-table]') as HTMLElement | null;
@@ -736,23 +694,35 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         return;
       }
 
-      // Copy: 행 전체가 아니라 '작업명'만 시스템 클립보드로 복사 (요청사항)
+      // Copy — 다중 선택이든 단일 포커스 행이든 동일하게 동작:
+      // - 체크 선택 행들(없으면 포커스 행 + 펼쳐진 하위)을 작업 단위로 복사 → 안내 칩 표시 + Ctrl+V로 행 붙여넣기 (계층·선행 유지)
+      // - 작업명은 시스템 클립보드에도 넣어 다른 앱(엑셀·메모장 등)에 붙여넣기 가능
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (deferCutCopyToBrowser) return;
         e.preventDefault();
+        const copied = copySelectionToClipboard();
+        if (copied.length > 0) {
+          const namesText = copied
+            .map((t) => (t.name ?? '').trim())
+            .filter(Boolean)
+            .join('\n');
+          if (namesText) {
+            try {
+              void navigator.clipboard?.writeText(namesText);
+            } catch {
+              // ignore clipboard errors (permissions, insecure context)
+            }
+          }
+          pushToast(`${copied.length}개 작업을 복사했습니다. 붙여넣기(Ctrl+V)로 추가할 수 있습니다.`, { variant: 'success' });
+          return;
+        }
+        // 복사할 행이 전혀 없을 때(포커스도 없음): 포커스 셀의 작업명만이라도 시스템 클립보드에
         const packed = getWbsTableCopyPlainText({ focusedCell, lastSelectedId, tasks });
         if (!packed) return;
         try {
           void navigator.clipboard?.writeText(packed.text);
         } catch {
           // ignore clipboard errors (permissions, insecure context)
-        }
-        // 작업명만 복사할 때는 Ctrl+V가 작업 단위 붙여넣기로 오인되지 않도록 내부 작업 클립보드 비움
-        setCopiedTasks([]);
-        try {
-          localStorage.removeItem(CLIPBOARD_KEY);
-        } catch {
-          // ignore
         }
         pushToast('작업명을 복사했습니다.', { variant: 'success' });
         return;

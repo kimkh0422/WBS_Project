@@ -28,6 +28,8 @@ import {
   Equal,
   Trash2,
   GitBranch,
+  Copy,
+  ClipboardPaste,
 } from 'lucide-react';
 import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
@@ -64,7 +66,9 @@ import {
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
+import { pasteClipboardTasks } from '../lib/wbsClipboard';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
+import { getSingleClickEdit, setSingleClickEdit, subscribeSingleClickEditChanged } from '../lib/wbsTableDisplayPrefs';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 // 첫 화면(표) 진입 경로에서 분리 — 사용자가 열 때만 로드한다.
@@ -203,6 +207,15 @@ export function WBSTable({
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const { showTableAutoFormatting, globalAutoFormattingOn, toggleUserHide } = useWbsTableAutoFormatting(wbsSettings);
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
+
+  /** 클릭 편집 모드: 켜면 셀 한 번 클릭으로 바로 편집, 끄면(기본) 더블클릭·F2로만 편집. 이 브라우저에만 저장. */
+  const [singleClickEdit, setSingleClickEditState] = useState(getSingleClickEdit);
+  useEffect(() => subscribeSingleClickEditChanged(() => setSingleClickEditState(getSingleClickEdit())), []);
+  const toggleSingleClickEdit = useCallback(() => {
+    const next = !getSingleClickEdit();
+    setSingleClickEdit(next);
+    setSingleClickEditState(next);
+  }, []);
 
   // visibleTasks must be defined early - used by many hooks below
   // preserveDepthOnFiltered: 필터 후에도 레벨(depth)·색상 유지 (간트와 동기화)
@@ -819,20 +832,21 @@ export function WBSTable({
     tableScrollRef,
   });
 
-  /** 하단 고정 셀 서식 툴·일괄 수정 바 뒤에 행·퀵추가가 숨지 않도록 스크롤 영역 하단 패딩 */
+  /** 하단 일괄 수정 바 뒤에 행·퀵추가가 숨지 않도록 스크롤 영역 하단 패딩.
+   *  (서식 툴바는 상단 도킹으로 이동했으므로 더 이상 하단 여백에 영향을 주지 않는다.) */
   const tableScrollBottomPadding = useMemo(() => {
     if (excelView || editingTask) return undefined;
     const bulk = selectedTaskIds.size > 1;
-    const showCellFormat = focusedCell != null && focusedCell.columnId !== 'wbsId' && tasks.some((t) => t.id === focusedCell.taskId);
-    if (!showCellFormat && !bulk) return undefined;
-    if (showCellFormat && bulk) {
-      return 'calc(min(42dvh, 24rem) + env(safe-area-inset-bottom, 0px))';
-    }
-    if (showCellFormat) {
-      return 'calc(7.5rem + env(safe-area-inset-bottom, 0px))';
-    }
+    if (!bulk) return undefined;
     return 'calc(12rem + env(safe-area-inset-bottom, 0px))';
-  }, [excelView, editingTask, focusedCell, selectedTaskIds.size, tasks]);
+  }, [excelView, editingTask, selectedTaskIds.size]);
+
+  /** 상단 도킹 서식 툴바 표시 조건: 편집 가능 + (행 체크 선택 또는 WBS 외 셀 포커스). 엑셀뷰·행 편집 중엔 숨김. */
+  const showCellFormatToolbar = useMemo(() => {
+    if (excelView || editingTask || !canEditCurrentProject) return false;
+    if (selectedTaskIds.size >= 1) return true;
+    return focusedCell != null && focusedCell.columnId !== 'wbsId' && tasks.some((t) => t.id === focusedCell.taskId);
+  }, [excelView, editingTask, canEditCurrentProject, selectedTaskIds, focusedCell, tasks]);
 
   // setLastSelectedId 호출 시 activeTaskId도 같은 사이클에서 함께 set한다.
   // (양방향 동기화 effect만으로는 키보드 repeat 같은 빠른 연속 호출에서 race로 두 state가 어긋나
@@ -1049,12 +1063,121 @@ export function WBSTable({
     CLIPBOARD_KEY,
   });
 
-  /** 우클릭·메뉴 복사 등: 셀 드래그 TSV 대신 작업명만 클립보드에 넣음 (인라인 편집 필드는 제외) */
+  /** 체크박스로 선택된 표시 행들을 작업 단위 클립보드(내부 state + localStorage)에 저장. 복사된 작업 배열 반환 — Ctrl+C·우클릭 복사 공용 */
+  const copyCheckedRowsToTaskClipboard = useCallback((): Task[] => {
+    const rows = visibleTasks.filter((t) => selectedTaskIds.has(t.id));
+    if (rows.length === 0) return [];
+    const selected = rows.map((t) => {
+      const { depth: _depth, ...rest } = t;
+      return rest as Task;
+    });
+    setCopiedTasks(selected);
+    try {
+      const payload: ClipboardPayloadV1 = { version: 1, copiedAt: new Date().toISOString(), tasks: selected };
+      localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage errors (private mode, quota, etc.)
+    }
+    return selected;
+  }, [visibleTasks, selectedTaskIds, CLIPBOARD_KEY]);
+
+  /** 일괄 복사 버튼·우클릭 메뉴 공용: 체크 선택 행을 작업 단위 복사 + 작업명을 시스템 클립보드에도 넣고 토스트 표시 */
+  const handleBulkCopySelected = useCallback(() => {
+    const copied = copyCheckedRowsToTaskClipboard();
+    if (copied.length === 0) return;
+    const namesText = copied
+      .map((t) => (t.name ?? '').trim())
+      .filter(Boolean)
+      .join('\n');
+    if (namesText) {
+      try {
+        void navigator.clipboard?.writeText(namesText);
+      } catch {
+        // ignore clipboard errors (permissions, insecure context)
+      }
+    }
+    pushToast(`${copied.length}개 작업을 복사했습니다. 붙여넣기(Ctrl+V)로 추가할 수 있습니다.`, { variant: 'success' });
+  }, [copyCheckedRowsToTaskClipboard, pushToast]);
+
+  /** 일괄 붙여넣기 버튼 공용: 내부 작업 클립보드를 기준 행 뒤에 트리·선행관계 보존하며 붙여넣고 새 작업을 선택 */
+  const handlePasteTasksFromClipboard = useCallback(() => {
+    if (!canEditCurrentProject) {
+      pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
+      return;
+    }
+    const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
+    if (clipboard.length === 0) {
+      pushToast('붙여넣을 작업이 없습니다. 먼저 작업을 복사하세요.', { variant: 'info' });
+      return;
+    }
+    const addedIds = pasteClipboardTasks({
+      clipboard,
+      targetId: lastSelectedId,
+      visibleTaskIds: visibleTasks.map((t) => t.id),
+      tasks,
+      addTask,
+      updateTask,
+    });
+    if (addedIds.length > 0) {
+      setSelection(new Set(addedIds));
+      const lastPasted = addedIds[addedIds.length - 1];
+      setLastSelectedId(lastPasted);
+      syncRangeAnchorForKeyboardFocus(lastPasted);
+      pushToast(`${addedIds.length}개 작업을 붙여넣었습니다.`, { variant: 'success' });
+    }
+  }, [
+    canEditCurrentProject,
+    copiedTasks,
+    lastSelectedId,
+    visibleTasks,
+    tasks,
+    addTask,
+    updateTask,
+    setSelection,
+    setLastSelectedId,
+    syncRangeAnchorForKeyboardFocus,
+    pushToast,
+  ]);
+
+  /** 클립보드 비우기 — 안내 칩의 '지우기'·복사 취소 */
+  const clearTaskClipboard = useCallback(() => {
+    setCopiedTasks([]);
+    try {
+      localStorage.removeItem(CLIPBOARD_KEY);
+    } catch {
+      // ignore
+    }
+  }, [CLIPBOARD_KEY]);
+
+  /** 붙여넣기 대상 위치 안내 문구 — 포커스(노란 강조) 행 바로 아래, 없으면 맨 아래 */
+  const pasteTargetLabel = useMemo(() => {
+    const t = lastSelectedId ? tasks.find((x) => x.id === lastSelectedId) : null;
+    const name = (t?.name ?? '').trim();
+    if (!name) return '목록 맨 아래';
+    const short = name.length > 14 ? `${name.slice(0, 14)}…` : name;
+    return `「${short}」 바로 아래`;
+  }, [lastSelectedId, tasks]);
+
+  /** 우클릭·메뉴 복사 등: 체크박스 다중 선택 시 행(작업) 단위 복사, 그 외에는 작업명만 클립보드에 넣음 (인라인 편집 필드는 제외) */
   const handleWbsTableCopyCapture = useCallback(
     (e: React.ClipboardEvent) => {
       if (!hotkeysEnabled || excelView) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (selectedTaskIds.size >= 2) {
+        const copied = copyCheckedRowsToTaskClipboard();
+        if (copied.length > 0) {
+          e.preventDefault();
+          e.clipboardData.setData(
+            'text/plain',
+            copied
+              .map((t) => (t.name ?? '').trim())
+              .filter(Boolean)
+              .join('\n'),
+          );
+          return;
+        }
+      }
       const packed = getWbsTableCopyPlainText({
         focusedCell,
         lastSelectedId,
@@ -1064,8 +1187,16 @@ export function WBSTable({
       e.preventDefault();
       e.clipboardData.setData('text/plain', packed.text);
     },
-    [hotkeysEnabled, excelView, focusedCell, lastSelectedId, tasks],
+    [hotkeysEnabled, excelView, focusedCell, lastSelectedId, tasks, selectedTaskIds, copyCheckedRowsToTaskClipboard],
   );
+
+  /** 빈 영역 클릭 판정: 행(.data-row)·헤더(.data-header)·입력/버튼 등 상호작용 요소 밖 */
+  const isWbsTableEmptyArea = (target: EventTarget | null): boolean => {
+    const el = target as HTMLElement | null;
+    return !!el && !el.closest?.('.data-row, .data-header, input, button, select, textarea, form, a');
+  };
+  /** 빈 영역에서 누르기 시작했는지 추적 — 행 드래그 후 빈 곳에서 놓을 때 click이 컨테이너로 합성돼 선택이 풀리는 것 방지 */
+  const emptyAreaPressRef = useRef(false);
 
   const handleInlineQuickAdd = (e: React.FormEvent, parentId: string | null) => {
     e.preventDefault();
@@ -1575,12 +1706,60 @@ export function WBSTable({
           setIsMdEditModalOpen(true);
         }}
         onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
+        onAutoAlignSchedule={
+          canEditCurrentProject
+            ? () => {
+                const ok = window.confirm(
+                  [
+                    '일정 자동 맞춤을 실행할까요?',
+                    '',
+                    '· 상위(요약) 작업의 시작일·종료일을 하위 작업 기간(최소 시작~최대 종료)으로 맞춥니다.',
+                    '· 선행작업이 연결된 작업은 시작일을 "선행 종료일 + 1영업일"로 이동합니다.',
+                    '',
+                    '직접 입력해 둔 상위 작업·후행 작업의 날짜가 이 기준으로 덮어써집니다.',
+                    '실행 후 Ctrl+Z로 되돌릴 수 있습니다.',
+                  ].join('\n'),
+                );
+                if (!ok) return;
+                refreshProjectSchedule();
+                pushToast('일정 자동 맞춤을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.', { variant: 'success' });
+              }
+            : undefined
+        }
         tableAutoFormatting={{
           effectiveOn: showTableAutoFormatting,
           globalEnabled: globalAutoFormattingOn,
           onToggle: toggleUserHide,
         }}
+        cellClickEdit={
+          canEditCurrentProject
+            ? {
+                on: singleClickEdit,
+                onToggle: toggleSingleClickEdit,
+              }
+            : undefined
+        }
       />
+      {/* 셀 서식 툴바(상단 도킹) — 셀 포커스 또는 행 체크 선택 시에만 표시.
+          루트(relative) 최상단을 덮는 오버레이라 표 본문/헤더 위치를 밀지 않는다(분할뷰 표·간트 행 정렬 보존). */}
+      {showCellFormatToolbar && (
+        <div className="absolute inset-x-0 top-0 z-40">
+          <CellFormatToolbar
+            focusedCell={focusedCell}
+            selectedTaskIds={selectedTaskIds}
+            rowApplyColumnIds={editableColumnIds}
+            tasks={tasks}
+            canEdit={canEditCurrentProject}
+            customColumnNameById={customColumnNameById}
+            updateTask={updateTask}
+            onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
+            onClose={() => {
+              setSelection(new Set());
+              setFocusedCell(null);
+            }}
+          />
+        </div>
+      )}
       <div
         className={cn('w-full flex flex-col min-h-0', fillHeight && 'flex-1')}
         style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}
@@ -1675,6 +1854,18 @@ export function WBSTable({
               tabIndex={0}
               data-wbs-table
               onCopyCapture={handleWbsTableCopyCapture}
+              onMouseDown={(e) => {
+                emptyAreaPressRef.current = isWbsTableEmptyArea(e.target);
+              }}
+              onClick={(e) => {
+                // 체크박스 다중 선택 상태에서 행·헤더·입력 요소 밖 빈 영역 클릭 → 체크 해제 (행 포커스·셀 링은 유지)
+                const pressedOnEmpty = emptyAreaPressRef.current;
+                emptyAreaPressRef.current = false;
+                if (!pressedOnEmpty || !isWbsTableEmptyArea(e.target)) return;
+                if (selectedTaskIds.size === 0) return;
+                setSelection(new Set());
+                resetBulkFields();
+              }}
               className={cn(
                 // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
                 isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
@@ -1846,6 +2037,7 @@ export function WBSTable({
                               rollupTooltipBaseTasks={baseTasks}
                               plannedProgress={plannedProgressById.get(task.id)}
                               showTableAutoFormatting={showTableAutoFormatting}
+                              singleClickEdit={singleClickEdit}
                               forkedChildProject={forkedProjectsByTaskId.get(task.id)}
                               onOpenForkedChildProject={(childId) => setCurrentProjectId(childId)}
                             />
@@ -2097,29 +2289,61 @@ export function WBSTable({
         )}
       </div>
 
-      {/* 포커스된 표 데이터 셀 서식(하단 고정). 다중 선택 시 일괄 수정 바(z-100)보다 위 레이어·충분한 bottom으로 가리지 않게 함 */}
-      {focusedCell &&
+      {/* (셀 서식 툴바는 상단 도킹 오버레이로 이동 — content 상단의 showCellFormatToolbar 블록 참조) */}
+
+      {/* 클립보드 안내 칩 — 복사하면 화면 좌측 하단에 계속 떠서 ① 복사됨 확인 ② 붙여넣기 위치 안내 ③ 붙여넣기/지우기 버튼 제공.
+          토스트(잠깐 뜨고 사라짐)와 달리 복사한 작업이 남아 있는 동안 지속 표시되어 "어디서 어떻게 붙여넣는지"를 분명히 한다. */}
+      {copiedTasks.length > 0 &&
         !excelView &&
-        !editingTask &&
         createPortal(
           <div
-            className="fixed left-0 right-0 z-[110] pointer-events-none flex justify-center px-3 sm:px-4"
+            className="fixed z-[95] pointer-events-none"
             style={{
+              left: 'max(12px, env(safe-area-inset-left, 0px))',
+              // 일괄 수정 바(하단 중앙, 높이 ~183px)가 떠 있으면 그 위로 올려 겹침 방지.
               bottom:
                 selectedTaskIds.size > 1
-                  ? 'calc(clamp(200px, 34dvh, 380px) + env(safe-area-inset-bottom, 0px))'
-                  : 'max(16px, calc(16px + env(safe-area-inset-bottom, 0px)))',
+                  ? 'calc(clamp(215px, 30dvh, 340px) + env(safe-area-inset-bottom, 0px))'
+                  : 'max(12px, calc(12px + env(safe-area-inset-bottom, 0px)))',
             }}
           >
-            <CellFormatToolbar
-              focusedCell={focusedCell}
-              selectedTaskIds={selectedTaskIds}
-              tasks={tasks}
-              canEdit={canEditCurrentProject}
-              customColumnNameById={customColumnNameById}
-              updateTask={updateTask}
-              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
-            />
+            <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-emerald-200/80 bg-white/95 backdrop-blur-md shadow-xl ring-1 ring-emerald-500/10 px-3 py-2.5 animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-[min(92vw,440px)]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <ClipboardPaste size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[12px] font-bold text-slate-800 leading-tight">작업 {copiedTasks.length}개 복사됨</div>
+                <div className="text-[11px] text-slate-500 leading-snug truncate">
+                  {canEditCurrentProject ? (
+                    <>
+                      붙여넣기 → <span className="font-semibold text-emerald-700">{pasteTargetLabel}</span>에 추가
+                    </>
+                  ) : (
+                    '보기 전용 프로젝트 — 붙여넣기 불가'
+                  )}
+                </div>
+              </div>
+              {canEditCurrentProject && (
+                <button
+                  type="button"
+                  onClick={handlePasteTasksFromClipboard}
+                  className="shrink-0 flex items-center gap-1.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 px-3.5 py-1.5 rounded-lg transition-colors shadow-sm"
+                  title={`복사한 ${copiedTasks.length}개 작업을 ${pasteTargetLabel}에 붙여넣습니다. 다른 행을 클릭하면 그 행 아래로 위치가 바뀝니다. (트리·선행관계 보존 · 단축키 Ctrl+V)`}
+                >
+                  <ClipboardPaste size={14} />
+                  붙여넣기
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={clearTaskClipboard}
+                className="shrink-0 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                title="복사 취소 (클립보드 비우기)"
+                aria-label="클립보드 비우기"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>,
           document.body,
         )}
@@ -2403,10 +2627,21 @@ export function WBSTable({
 
                 <div className="h-4 w-px bg-slate-200" />
 
+                {/* 행 단위 복사 (읽기 동작 — 권한 무관). 붙여넣기는 복사 후 화면에 떠 있는 '클립보드 안내 칩'에서 수행. */}
+                <button
+                  type="button"
+                  onClick={handleBulkCopySelected}
+                  className="flex items-center gap-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
+                  title={`선택한 ${selectedTaskIds.size}개 작업을 복사합니다. 복사하면 화면 좌측 하단에 '붙여넣기' 안내가 나타납니다. (하위 구조·선행관계까지 그대로 추가)`}
+                >
+                  <Copy size={14} />
+                  복사
+                </button>
+
                 {canEditCurrentProject && (
                   <button
                     onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
-                    className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium self-end"
                     title="선택된 모든 작업 삭제"
                   >
                     <Trash2 size={14} />
@@ -2415,7 +2650,7 @@ export function WBSTable({
                 )}
                 <button
                   onClick={() => setSelection(new Set())}
-                  className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                  className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors self-end"
                 >
                   <X size={14} />
                 </button>
@@ -2778,6 +3013,32 @@ export function WBSTable({
                           ];
                         })()
                       : []),
+                    // 체크박스 다중 선택 행 복사 — Ctrl+C와 동일 (복사는 읽기 동작이므로 편집 권한 불필요)
+                    ...(selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                      ? [
+                          {
+                            label: `복사 (${selectedTaskIds.size})`,
+                            icon: <Copy size={14} />,
+                            onClick: () => {
+                              handleBulkCopySelected();
+                              setContextMenu(null);
+                            },
+                          },
+                        ]
+                      : []),
+                    // 복사된 작업이 있으면 우클릭 메뉴에서도 붙여넣기 (기준 행 뒤에 추가)
+                    ...(canEditCurrentProject && contextMenu.taskId && copiedTasks.length > 0
+                      ? [
+                          {
+                            label: `붙여넣기 (${copiedTasks.length})`,
+                            icon: <ClipboardPaste size={14} />,
+                            onClick: () => {
+                              handlePasteTasksFromClipboard();
+                              setContextMenu(null);
+                            },
+                          },
+                        ]
+                      : []),
                     ...(canEditCurrentProject && selectedTaskIds.size >= 2 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
                       ? [
                           {
@@ -2883,5 +3144,6 @@ export function WBSTable({
       )}
     </>
   );
-  return <div className={cn('flex flex-col min-h-0', fillHeight && 'h-full')}>{content}</div>;
+  // relative: 상단 도킹 서식 툴바 오버레이(absolute)의 기준 컨테이너.
+  return <div className={cn('relative flex flex-col min-h-0', fillHeight && 'h-full')}>{content}</div>;
 }

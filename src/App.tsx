@@ -1026,6 +1026,9 @@ function WBSApp({
     if (projectToCopy) {
       copyProject(projectToCopy.id);
       setProjectToCopy(null);
+      // 복사 직후: copyProject 내부에서 새 복사본이 currentProjectId로 잡힘 → 표+간트 작업 화면으로 이동.
+      // 모바일은 작업 화면 편집이 막혀 있으므로 대시보드 유지.
+      if (!lockMobileToDashboard) setView('tablegantt');
     }
     setIsCopyProjectConfirmOpen(false);
     setIsProjectDropdownOpen(false);
@@ -1539,7 +1542,7 @@ function WBSApp({
                 ) : view === 'projects' ? (
                   <ErrorBoundary viewName="프로젝트 관리">
                     <ProjectsPage
-                      onNavigateToWork={(projectId) => {
+                      onNavigateToWork={(projectId, preferView) => {
                         if (projectId) setCurrentProjectId(projectId);
                         if (lockMobileToDashboard || hiddenViews.has('table')) {
                           pushToast(
@@ -1553,6 +1556,9 @@ function WBSApp({
                             },
                           );
                           setView('dashboard');
+                        } else if (preferView === 'tablegantt' && !hiddenViews.has('tablegantt')) {
+                          // 복사 등 표+간트 선호 진입
+                          setView('tablegantt');
                         } else {
                           setView('table');
                         }

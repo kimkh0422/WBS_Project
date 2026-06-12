@@ -11,13 +11,13 @@ export const COOPERATION_REQUEST_PRIORITIES = ['상', '중', '하'] as const;
 export type CooperationRequestPriority = (typeof COOPERATION_REQUEST_PRIORITIES)[number];
 
 /**
- * 현황(상태) — 5단계 워크플로:
- *   요청완료 → 진행중 → 처리완료(담당자 처리 끝) → 확인완료(요청자 최종 확인)
+ * 현황(상태) — 6단계 워크플로:
+ *   요청완료 → 담당자 지정완료 → 진행중 → 처리완료(담당자 처리 끝) → 확인완료(요청자 최종 확인)
  *   또는 어느 단계에서나 취소됨 으로 종료
  *
  * 과거 어휘(지연·완료·회신불가)는 normalizeStatus 에서 자동 이행한다.
  */
-export const COOPERATION_REQUEST_STATUSES = ['요청완료', '진행중', '처리완료', '확인완료', '취소됨'] as const;
+export const COOPERATION_REQUEST_STATUSES = ['요청완료', '담당자 지정완료', '진행중', '처리완료', '확인완료', '취소됨'] as const;
 export type CooperationRequestStatus = (typeof COOPERATION_REQUEST_STATUSES)[number];
 
 /** 종료 상태(완료/취소). 진척률·자동 완료일·기한초과 알림 판정에 사용. */
@@ -342,7 +342,7 @@ export function computeOrgProgress(memberProgress: CooperationMemberProgress[]):
  * - 활성 전원 확인완료 → 확인완료
  * - 활성 전원 처리완료/확인완료 → 처리완료
  * - 활성 중 진행중·처리완료·확인완료 1명이라도 → 진행중
- * - 그 외(활성 전원 요청완료) → 요청완료
+ * - 그 외(담당자 지정됨·아직 미착수) → 담당자 지정완료
  */
 export function computeOrgStatus(memberProgress: CooperationMemberProgress[]): CooperationRequestStatus {
   if (memberProgress.length === 0) return '요청완료';
@@ -352,7 +352,8 @@ export function computeOrgStatus(memberProgress: CooperationMemberProgress[]): C
   if (active.every((m) => m.status === '처리완료' || m.status === '확인완료')) return '처리완료';
   const anyActive = active.some((m) => m.status === '진행중' || m.status === '처리완료' || m.status === '확인완료');
   if (anyActive) return '진행중';
-  return '요청완료';
+  // 멤버(담당자)가 지정됐으나 전원 아직 미착수(요청완료) → 담당자 지정완료
+  return '담당자 지정완료';
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));

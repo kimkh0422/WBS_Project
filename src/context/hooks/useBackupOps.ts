@@ -111,9 +111,13 @@ export function useBackupOps(deps: BackupOpsDeps) {
         const nextProjectTaskIds = tasksWithProject.map((t) => t.id);
         const removed = prevProjectTaskIds.filter((id) => !new Set(nextProjectTaskIds).has(id));
         if (removed.length > 0) recordDeletedTaskIds(effectiveProjectId, removed);
+        // 가져온 파일에 적힌 시작일·종료일을 그대로 보존(skipScheduleRollup=true). 진척·공수만 롤업.
         return recomputeProjectRollups(
           [...prev.filter((t) => t.projectId !== effectiveProjectId), ...tasksWithProject],
           effectiveProjectId,
+          undefined,
+          undefined,
+          true,
         );
       });
     },
@@ -216,7 +220,8 @@ export function useBackupOps(deps: BackupOpsDeps) {
       bumpDirty();
       const projectIds = Array.from(new Set(data.tasks.map((t) => t.projectId))).filter(Boolean) as string[];
       let rolled = data.tasks;
-      for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid);
+      // 백업에 저장된 시작일·종료일 그대로 복원(skipScheduleRollup=true). 진척·공수만 롤업.
+      for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid, undefined, undefined, true);
       setProjects(data.projects);
       setAllTasks(rolled);
       setWbsSettings(parseSettings(data.settings));

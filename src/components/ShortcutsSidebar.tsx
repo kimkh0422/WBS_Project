@@ -125,6 +125,14 @@ export function ShortcutsSidebar({ view, onClose }: { view: ShortcutsContextView
         },
         { label: '체크 토글', chords: ['Space'] },
         {
+          label: '복사 · 붙여넣기',
+          chords: [
+            ['Ctrl', 'C'],
+            ['Ctrl', 'V'],
+          ],
+          hint: '체크 다중 선택 시 행 단위 복사(일괄 수정 바 버튼으로도 가능), 단일 행은 작업명만',
+        },
+        {
           label: '순서 변경',
           chords: [
             ['Alt', <ArrowUp size={12} key="au" />],

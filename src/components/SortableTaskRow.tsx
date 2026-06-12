@@ -237,6 +237,8 @@ export interface SortableTaskRowProps {
   plannedProgress?: number;
   /** false면 레벨 배경·완료 시 자동 취소선 등 숨김(셀 서식 도구로 넣은 취소선은 유지) */
   showTableAutoFormatting?: boolean;
+  /** true면 셀 한 번 클릭으로 바로 편집, false(기본)면 더블클릭·F2로만 편집 */
+  singleClickEdit?: boolean;
   /** 작업명 인라인 편집 중 Shift+Enter — 현재 행 위에 형제(동일 부모) 새 작업 추가 + 새 행 인라인 편집 진입 */
   onInsertRowAbove?: (baseTaskId: string) => void;
   /** 작업명 인라인 편집 중 Enter — 다음 표시 행의 이름 셀로 인라인 편집을 이어간다(엑셀 연속 입력). */
@@ -295,6 +297,7 @@ function SortableTaskRowInner({
   rollupTooltipBaseTasks,
   plannedProgress,
   showTableAutoFormatting = true,
+  singleClickEdit = false,
   onInsertRowAbove,
   onAdvanceInlineEditToNextRow,
   forkedChildProject,
@@ -327,10 +330,17 @@ function SortableTaskRowInner({
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
 
   /**
-   * 단일 클릭 진입점: 행/셀 포커스만 옮긴다. 편집 진입은 더블클릭(beginEditNow)이나 F2/Enter로만.
-   * (Excel 패턴의 2단계 진입은 사용자가 의도치 않게 편집 모드로 들어가는 경우가 잦아 제거)
+   * 단일 클릭 진입점.
+   * - 클릭 편집 모드(singleClickEdit)가 켜져 있고 편집 권한이 있으면: 한 번 클릭으로 즉시 편집 진입.
+   * - 꺼져 있으면(기본): 행/셀 포커스만 옮긴다. 편집은 더블클릭(beginEditNow)이나 F2/Enter로.
+   *   (Excel식 2단계 진입은 의도치 않은 편집 진입이 잦아 기본은 포커스만.)
+   * ※ beginEditNowResolved는 아래에 정의되지만, 이 함수는 이벤트 핸들러에서만 호출되어(렌더 후) 참조에 문제없음.
    */
   const beginEdit = (columnId: TableColumnId) => {
+    if (singleClickEdit && canEdit) {
+      beginEditNowResolved(columnId);
+      return;
+    }
     setFocusedCell({ taskId: task.id, columnId });
     onFocusRow?.(task.id);
     onSetRowAnchor?.(task.id);
@@ -646,15 +656,17 @@ function SortableTaskRowInner({
                   ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
                 }}
                 onClick={(e) => {
-                  // 다른 행이면 1단계 포커스만; 같은 행 포커스 시 2단계에서 인라인 편집·편집 모드 진입.
+                  // 클릭 편집 모드면 한 번 클릭으로 작업명 편집 진입, 아니면 포커스만(더블클릭·F2로 편집) — beginEdit가 모드에 따라 분기.
+                  // Ctrl/Shift/Meta 클릭은 다중·구간 선택용이므로 편집 진입하지 않음 (행 pointerdown 캡처가 선택 처리).
                   // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
-                  // 이미 작업명 input이 떠 있으면 중복 beginEdit 방지 (버블링된 클릭 등).
+                  // 이미 작업명 input이 떠 있으면 중복 진입 방지 (버블링된 클릭 등).
                   e.stopPropagation();
+                  if (e.ctrlKey || e.metaKey || e.shiftKey) return;
                   if (isInlineEditingName) return;
                   beginEdit('name');
                 }}
                 onDoubleClick={(e) => {
-                  // 더블클릭은 상세 모달을 열지 않음 — 다른 셀과 동일하게 인라인 편집 진입. 상세는 행 우측 '수정' 버튼으로만 진입.
+                  // 더블클릭은 상세 모달을 열지 않음 — 모드와 무관하게 항상 인라인 편집 진입. 상세는 행 우측 '수정' 버튼으로만 진입.
                   if (isInlineEditingName) return;
                   e.stopPropagation();
                   beginEditNow('name');
@@ -751,6 +763,7 @@ function SortableTaskRowInner({
                     className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
                       beginEdit('name');
                     }}
                     onDoubleClick={(e) => {
@@ -803,7 +816,9 @@ function SortableTaskRowInner({
                       {tableNameLabel ? (
                         tableNameLabel
                       ) : (
-                        <span className="italic text-slate-400 font-normal select-none">(클릭 또는 F2: 작업명 입력)</span>
+                        <span className="italic text-slate-400 font-normal select-none">
+                          {singleClickEdit ? '(클릭 또는 F2: 작업명 입력)' : '(더블클릭 또는 F2: 작업명 입력)'}
+                        </span>
                       )}
                     </span>
                   </span>
@@ -1970,6 +1985,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks &&
     prev.plannedProgress === next.plannedProgress &&
     prev.showTableAutoFormatting === next.showTableAutoFormatting &&
+    prev.singleClickEdit === next.singleClickEdit &&
     prev.forkedChildProject === next.forkedChildProject &&
     prev.onOpenForkedChildProject === next.onOpenForkedChildProject
   );

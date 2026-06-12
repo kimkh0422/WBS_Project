@@ -341,10 +341,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
                 cur = byId.get(cur)?.parentId ?? null;
               }
             }
-            // 자식(하위) 일정 변경은 상위(조상) 일정을 자식 min/max로 자동 확장/축소한다.
-            // 사용자가 부모를 직접 드래그한 케이스는 아래 recomputeProjectRollups 호출에서
-            // excludeFromRollup으로 그 부모 행만 보호되므로 "원복" 문제는 발생하지 않는다.
-            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, false);
+            // 자식(하위) 일정 변경 시에도 상위(조상) 시작일·종료일은 자동으로 바꾸지 않는다(skipScheduleRollup=true).
+            // 직접 입력해 둔 상위 날짜가 자식 min/max로 덮어써져 "입력한 날짜가 사라지는" 문제 방지.
+            // 상위 일정 맞춤은 표 상단 '일정 자동 맞춤' 메뉴(refreshProjectSchedule)로만 수행한다.
+            result = syncParentRollups(result, task.parentId, doneStatusIds, true, undefined, skipEffortIds, true);
           } else if (affectsRollup) {
             const hasChildTasks = prev.some((t) => t.parentId === id && t.projectId === task.projectId);
             const isDirectProgressEdit = Object.prototype.hasOwnProperty.call(updates, 'progress');
@@ -357,9 +357,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
             }
           }
           if (parentIdChanged) {
-            // 부모가 바뀌면 옛 부모는 자식이 줄어들고 새 부모는 늘어나므로 일정 정합화도 함께 수행한다.
-            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds, false, undefined, undefined, false);
-            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds, false, undefined, undefined, false);
+            // 부모가 바뀌면 옛/새 부모의 진척·공수만 다시 롤업한다.
+            // 일정(시작·종료)은 자동으로 맞추지 않음 — '일정 자동 맞춤' 메뉴로만 수행.
+            if (task.parentId) result = syncParentRollups(result, task.parentId, doneStatusIds, false, undefined, undefined, true);
+            if (updates.parentId) result = syncParentRollups(result, updates.parentId, doneStatusIds, false, undefined, undefined, true);
           }
         }
 
@@ -385,15 +386,12 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        // 일정 필드 변경 시 의존 작업/연쇄 작업이 다른 가지에 있을 수 있어
-        // 해당 가지의 상위 작업 기간 롤업이 누락되지 않도록 프로젝트 단위로 최종 정합화한다.
-        // 단, 사용자가 직접 편집한 부모 작업(자식이 있는 경우)은 자식 min/max로 덮어쓰지 않도록 제외.
+        // 일정 필드 변경 시 프로젝트 단위 최종 정합화는 진척·공수·마일스톤 보정만 수행한다(skipScheduleRollup=true).
+        // 부모 시작일·종료일은 어떤 자동 경로로도 덮어쓰지 않는다 — '일정 자동 맞춤' 메뉴로만 수행.
         if (hasScheduleChange && task.projectId && !deferScheduleSync) {
           const hasChildTasks = nextTasks.some((t) => t.parentId === id && t.projectId === task.projectId);
           const excludeFromRollup = hasChildTasks ? new Set([id]) : undefined;
-          // 자식 일정 변경이 다른 가지 의존 작업·조상 일정에까지 반영되도록 부모 일정 정합화를 켠다.
-          // 사용자가 직접 편집한 부모 행은 excludeFromRollup으로 자식 min/max 덮어쓰기에서 보호된다.
-          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, false);
+          result = recomputeProjectRollups(result, task.projectId, doneStatusIds, excludeFromRollup, true);
 
           const projRow = projectsRef.current.find((p) => p.id === task.projectId);
           const tasksInProject = result.filter((t) => t.projectId === task.projectId);
@@ -563,6 +561,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, handleDbError, useLocalOnlyRef, setProjects, setAllTasks],
   );
 
+  /** '일정 자동 맞춤' 메뉴 전용(명시 실행): 선행(FS) 일정 재계산 + 상위 작업 시작·종료를 하위 min/max로 정렬.
+   *  셀 편집·행 이동·가져오기 등 자동 경로에서는 일정이 절대 변경되지 않으며, 이 함수로만 자동 정렬이 수행된다. */
   const refreshProjectSchedule = useCallback(() => {
     const cpi = currentProjectIdRef.current;
     const projs = projectsRef.current;
@@ -620,7 +620,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
           ((settings.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
         );
         for (const pid of pids) {
-          result = recomputeProjectRollups(result, pid, doneStatusIds);
+          // 과부하 해소로 연장된 작업의 진척·공수만 롤업. 부모 일정은 '일정 자동 맞춤' 메뉴로만 변경.
+          result = recomputeProjectRollups(result, pid, doneStatusIds, undefined, true);
         }
         return result;
       });

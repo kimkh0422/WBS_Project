@@ -20,7 +20,9 @@ import {
   Pencil,
   Trash2,
   Send,
+  ArrowRight,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Loader2,
@@ -28,6 +30,7 @@ import {
   Filter,
   ChevronDown,
   User,
+  UserCheck,
   Building2,
   Table2,
   LayoutGrid,
@@ -84,6 +87,7 @@ interface CooperationRequestSectionProps {
 
 const STATUS_STYLE: Record<CooperationRequestStatus, { dot: string; bg: string; text: string; ring: string }> = {
   요청완료: { dot: 'bg-slate-400', bg: 'bg-slate-100', text: 'text-slate-700', ring: 'ring-slate-200' },
+  '담당자 지정완료': { dot: 'bg-violet-500', bg: 'bg-violet-50', text: 'text-violet-700', ring: 'ring-violet-200' },
   진행중: { dot: 'bg-blue-500', bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-200' },
   처리완료: { dot: 'bg-cyan-500', bg: 'bg-cyan-50', text: 'text-cyan-700', ring: 'ring-cyan-200' },
   확인완료: { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200' },
@@ -92,23 +96,11 @@ const STATUS_STYLE: Record<CooperationRequestStatus, { dot: string; bg: string; 
 
 const STATUS_ICON: Record<CooperationRequestStatus, React.ReactNode> = {
   요청완료: <CircleAlert size={12} />,
+  '담당자 지정완료': <UserCheck size={12} />,
   진행중: <Loader2 size={12} />,
   처리완료: <CheckCircle2 size={12} />,
   확인완료: <CheckCircle2 size={12} />,
   취소됨: <AlertCircle size={12} />,
-};
-
-const PRIORITY_STYLE: Record<CooperationRequestPriority, string> = {
-  상: 'bg-rose-100 text-rose-700 ring-rose-200',
-  중: 'bg-amber-100 text-amber-700 ring-amber-200',
-  하: 'bg-slate-100 text-slate-600 ring-slate-200',
-};
-
-const TYPE_STYLE: Record<CooperationRequestType, string> = {
-  자료: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
-  검토: 'bg-violet-50 text-violet-700 ring-violet-200',
-  협의: 'bg-sky-50 text-sky-700 ring-sky-200',
-  기타: 'bg-slate-50 text-slate-600 ring-slate-200',
 };
 
 /**
@@ -200,6 +192,24 @@ function isOverdue(r: CooperationRequest, todayIso: string): boolean {
   if (!r.dueDate) return false;
   if (r.status === '처리완료' || r.status === '확인완료' || r.status === '취소됨') return false;
   return r.dueDate < todayIso;
+}
+
+/** 종료 상태가 아닌 행이 며칠 지났는지(초과 일수). 기한 없거나 초과 아님이면 0. */
+function overdueDaysOf(r: CooperationRequest, todayIso: string): number {
+  if (!isOverdue(r, todayIso) || !r.dueDate) return 0;
+  return Math.max(0, Math.round((Date.parse(todayIso) - Date.parse(r.dueDate)) / 86400000));
+}
+
+/**
+ * 요청기한까지 남은 일수. 진행 중(요청완료·진행중)이고 아직 기한 전일 때만 값을 준다.
+ *   0 → '오늘 마감', N → 'N일 남음'. 종료 상태·기한 미설정·이미 초과면 null.
+ */
+function dueRemaining(r: CooperationRequest, todayIso: string): { days: number; label: string } | null {
+  if (!r.dueDate) return null;
+  if (r.status === '처리완료' || r.status === '확인완료' || r.status === '취소됨') return null;
+  const diff = Math.round((Date.parse(r.dueDate) - Date.parse(todayIso)) / 86400000);
+  if (diff < 0) return null; // 초과는 별도 표기
+  return { days: diff, label: diff === 0 ? '오늘 마감' : `${diff}일 남음` };
 }
 
 /** 상태가 '종료(완료 계열)' 인지 — 완료일·진척률 100% 자동 채우기에 사용 */
@@ -340,7 +350,14 @@ export function CooperationRequestSection({
 
   /** 상태별 카운트(상단 칩). myOnly 토글에 따라 본인 관련만 집계. */
   const statusCounts = useMemo(() => {
-    const c: Record<CooperationRequestStatus, number> = { 요청완료: 0, 진행중: 0, 처리완료: 0, 확인완료: 0, 취소됨: 0 };
+    const c: Record<CooperationRequestStatus, number> = {
+      요청완료: 0,
+      '담당자 지정완료': 0,
+      진행중: 0,
+      처리완료: 0,
+      확인완료: 0,
+      취소됨: 0,
+    };
     for (const r of rows) {
       if (myOnly && !isMine(r)) continue;
       c[r.status]++;
@@ -677,29 +694,25 @@ export function CooperationRequestSection({
                   <th className="px-2 py-2 font-semibold w-10 text-right">#</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">관리ID</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">요청일</th>
-                  <th className="px-2 py-2 font-semibold whitespace-nowrap">구분</th>
                   <th className="px-2 py-2 font-semibold min-w-[180px]">제목</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">요청자</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">담당자</th>
-                  <th className="px-2 py-2 font-semibold whitespace-nowrap">중요도</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">요청기한</th>
-                  <th className="px-2 py-2 font-semibold w-[130px]">진척률</th>
                   <th className="px-2 py-2 font-semibold whitespace-nowrap">현황</th>
-                  <th className="px-2 py-2 font-semibold whitespace-nowrap">완료일</th>
                   <th className="px-2 py-2 font-semibold w-14"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-line)]">
                 {loading ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
+                    <td colSpan={9} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
                       <Loader2 size={16} className="inline animate-spin mr-2" />
                       불러오는 중…
                     </td>
                   </tr>
                 ) : visibleRows.length === 0 ? (
                   <tr>
-                    <td colSpan={13} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
+                    <td colSpan={9} className="px-4 py-10 text-center text-[var(--color-ink-muted)]">
                       {rows.length === 0 ? (
                         <div className="space-y-2">
                           <div>등록된 협조 요청이 없습니다.</div>
@@ -726,15 +739,13 @@ export function CooperationRequestSection({
                         <td className="px-2 py-1.5 font-mono text-[11.5px] text-[var(--color-ink)] whitespace-nowrap">
                           {r.mgmtId || <span className="text-[var(--color-ink-muted)]">—</span>}
                         </td>
-                        <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
-                          {fmtDate(r.requestDate)}
-                        </td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">
-                          <span
-                            className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-medium', TYPE_STYLE[r.requestType])}
-                          >
-                            {r.requestType}
-                          </span>
+                        <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">
+                          <div className="text-[var(--color-ink)]">{fmtDate(r.requestDate)}</div>
+                          {(() => {
+                            const el = formatElapsed(r.requestDate || r.createdAt);
+                            if (!el) return null;
+                            return <div className="text-[10px] text-[var(--color-ink-muted)]">{el === '오늘' ? '오늘' : `${el} 경과`}</div>;
+                          })()}
                         </td>
                         <td className="px-2 py-1.5 text-[var(--color-ink)] min-w-[180px] max-w-[420px]">
                           <div className="font-medium truncate">
@@ -775,43 +786,29 @@ export function CooperationRequestSection({
                             <span className="text-[var(--color-ink-muted)]">—</span>
                           )}
                         </td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">
-                          <span
-                            className={cn('inline-flex rounded px-1.5 py-0.5 ring-1 text-[11px] font-semibold', PRIORITY_STYLE[r.priority])}
-                          >
-                            {r.priority}
-                          </span>
-                        </td>
-                        <td
-                          className={cn(
-                            'px-2 py-1.5 whitespace-nowrap tabular-nums',
-                            overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink-muted)]',
-                          )}
-                          title={overdue ? '기한이 지났습니다' : undefined}
-                        >
-                          {fmtDate(r.dueDate) || '—'}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className={cn(
-                                  'h-full rounded-full transition-all',
-                                  r.status === '확인완료'
-                                    ? 'bg-emerald-500'
-                                    : r.status === '처리완료'
-                                      ? 'bg-cyan-500'
-                                      : r.status === '취소됨'
-                                        ? 'bg-rose-400'
-                                        : 'bg-indigo-500',
-                                )}
-                                style={{ width: `${pct(r.progress)}%` }}
-                              />
-                            </div>
-                            <span className="w-9 text-right tabular-nums text-[10.5px] text-[var(--color-ink-muted)]">
-                              {pct(r.progress)}%
-                            </span>
+                        <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" title={overdue ? '기한이 지났습니다' : undefined}>
+                          <div className={cn(overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink)]')}>
+                            {fmtDate(r.dueDate) || '—'}
                           </div>
+                          {overdue
+                            ? (() => {
+                                const d = overdueDaysOf(r, todayIso);
+                                return (
+                                  <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-amber-500 px-1 py-0.5 text-[9.5px] font-bold text-white">
+                                    <AlertTriangle size={9} />
+                                    {d > 0 ? `${d}일 초과` : '기한 초과'}
+                                  </span>
+                                );
+                              })()
+                            : (() => {
+                                const rem = dueRemaining(r, todayIso);
+                                if (!rem) return null;
+                                return (
+                                  <div className={cn('text-[10px] font-semibold', rem.days <= 2 ? 'text-amber-600' : 'text-emerald-600')}>
+                                    {rem.label}
+                                  </div>
+                                );
+                              })()}
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex flex-col items-start gap-0.5">
@@ -843,19 +840,6 @@ export function CooperationRequestSection({
                               </select>
                             </label>
                             {(() => {
-                              const elapsed = formatElapsed(currentStatusSince(r));
-                              if (!elapsed) return null;
-                              const text = elapsed === '오늘' ? '오늘' : `${elapsed} 경과`;
-                              return (
-                                <span
-                                  className="text-[9.5px] text-[var(--color-ink-muted)] tabular-nums"
-                                  title={`${r.status}로 진입 후 경과`}
-                                >
-                                  {text}
-                                </span>
-                              );
-                            })()}
-                            {(() => {
                               const flag = escalationFlag(r);
                               if (!flag) return null;
                               const isScreening = flag.kind === 'screening';
@@ -874,9 +858,6 @@ export function CooperationRequestSection({
                               );
                             })()}
                           </div>
-                        </td>
-                        <td className="px-2 py-1.5 text-[var(--color-ink-muted)] whitespace-nowrap tabular-nums">
-                          {fmtDate(r.completedDate)}
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
@@ -918,7 +899,7 @@ export function CooperationRequestSection({
             <span>
               표시 {visibleRows.length} / 전체 {rows.length}
             </span>
-            <span>진척률 0~100%, 기한 초과는 노란색으로 표시</span>
+            <span>요청일 기준 경과일 표시 · 기한 초과 시 강조 배지</span>
           </div>
         </div>
       )}
@@ -1366,6 +1347,33 @@ function AssigneePicker({
 
   const availableOrgs = orgPickList.filter(({ node }) => !draft.assigneeOrgIds.includes(node.id));
 
+  /**
+   * 지정한 조직(들)의 소속 인원(하위 부서 포함) 중 아직 담당자로 추가되지 않은 사람 — 빠른 지정 후보.
+   * 워크플로: 조직에 요청 → 그 조직에서 담당자(개인)를 지정 → 그 담당자에게만 포인트가 간다.
+   */
+  const alreadyMemberKeys = new Set(draft.memberProgress.map((m) => memberKey(m.name, m.department, m.position)));
+  const orgCandidateMembers: OrgMember[] = (() => {
+    const seen = new Set<string>();
+    const out: OrgMember[] = [];
+    for (const id of draft.assigneeOrgIds) {
+      const node = findOrgNode(orgTree, id);
+      if (!node) continue;
+      for (const m of getDeepMembers(node, orgMembers)) {
+        const k = memberKey(m.name, m.department, m.position);
+        if (alreadyMemberKeys.has(k) || seen.has(k)) continue;
+        seen.add(k);
+        out.push(m);
+      }
+    }
+    return out;
+  })();
+
+  /** 빠른 지정: 조직 후보 인원 1명을 담당자(member_progress, direct)로 추가. */
+  const designatePerson = (m: OrgMember) => {
+    const directPersons = [...currentDirectPersons, m];
+    applyMemberUpdate(recalcMembers(draft.assigneeOrgIds, directPersons), draft.assigneeOrgIds, directPersons);
+  };
+
   return (
     <div className="space-y-3 rounded-md border border-[var(--color-line)] bg-[var(--color-surface-2)]/60 p-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -1475,6 +1483,36 @@ function AssigneePicker({
             </option>
           ))}
         </datalist>
+
+        {/* 지정한 조직의 담당자 빠른 선택 — "조직에 요청 → 조직이 담당자 지정" 워크플로 지원 */}
+        {draft.assigneeOrgIds.length > 0 && (
+          <div className="rounded-md border border-violet-200/70 bg-violet-50/50 px-2 py-1.5">
+            <div className="mb-1 inline-flex items-center gap-1 text-[10.5px] font-medium text-violet-700">
+              <User size={11} /> 지정한 조직의 담당자 선택 — 클릭하면 담당자로 지정됩니다
+            </div>
+            {orgCandidateMembers.length === 0 ? (
+              <div className="text-[10.5px] text-[var(--color-ink-muted)]">
+                {draft.memberProgress.length > 0 ? '조직 인원을 모두 담당자로 지정했습니다.' : '선택한 조직에 등록된 인원이 없습니다.'}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1 max-h-28 overflow-auto">
+                {orgCandidateMembers.map((m) => (
+                  <button
+                    key={`cand|${m.name}|${m.department}|${m.position}`}
+                    type="button"
+                    onClick={() => designatePerson(m)}
+                    className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface)] px-2 py-0.5 text-[11px] text-[var(--color-ink)] ring-1 ring-violet-200 hover:bg-violet-100"
+                    title={`${m.department}${m.position ? ' · ' + m.position : ''} — 담당자로 지정`}
+                  >
+                    <Plus size={10} className="text-violet-600" />
+                    {m.name}
+                    {m.position && <span className="text-[9.5px] text-[var(--color-ink-muted)]">{m.position}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {draft.memberProgress.length > 0 && (
@@ -1551,7 +1589,8 @@ function MemberChecklist({
                   m.status === '취소됨' && 'text-rose-700',
                 )}
               >
-                {COOPERATION_REQUEST_STATUSES.map((s) => (
+                {/* '담당자 지정완료'는 요청 단위 집계 단계라 개별 멤버 상태에는 노출하지 않는다 */}
+                {COOPERATION_REQUEST_STATUSES.filter((s) => s !== '담당자 지정완료').map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -1951,6 +1990,8 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<CooperationPointEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 랭킹에서 클릭한 사람 이름 — 선택 시 지급 내역이 그 사람 것만으로 바뀐다. */
+  const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1978,6 +2019,11 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
 
   const summaries = useMemo(() => summarizeCooperationPoints(entries), [entries]);
   const totalPoints = useMemo(() => entries.reduce((s, e) => s + e.points, 0), [entries]);
+  /** 선택된 사람의 지급 내역(전체) — 미선택이면 null. */
+  const personEntries = useMemo(
+    () => (selectedPerson ? entries.filter((e) => e.memberName.trim() === selectedPerson) : null),
+    [entries, selectedPerson],
+  );
 
   /** 1~3위는 금·은·동 톤으로 강조 */
   const rankStyle = (rank: number): string =>
@@ -2027,6 +2073,11 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
           <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 m-0">
             협조 요청이 최종 <b>확인완료</b> 되면 담당자에게 포인트가 자동 지급되고, 확인완료가 풀리면 자동 회수됩니다. 지급량은 중요도 기준
             — 상 +{COOPERATION_POINTS_BY_PRIORITY.상}P · 중 +{COOPERATION_POINTS_BY_PRIORITY.중}P · 하 +{COOPERATION_POINTS_BY_PRIORITY.하}P
+            <br />
+            <span className="text-[10.5px]">
+              포인트는 항상 <b>개인</b>에게 지급됩니다. 조직(부서)을 담당으로 지정한 경우, 담당자로 지정된 인원에게만 지급되며 조직 자체에는
+              지급되지 않습니다.
+            </span>
           </p>
 
           {error && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
@@ -2060,14 +2111,25 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
-              {/* 인원별 누적 랭킹 */}
+              {/* 인원별 누적 랭킹 — 이름 클릭 시 아래 지급 내역이 그 사람 것만으로 필터링 */}
               <div className="rounded-md border border-[var(--color-line)] overflow-hidden">
                 <div className="border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-ink)]">
                   인원별 누적 포인트
+                  <span className="ml-1.5 font-normal text-[10px] text-[var(--color-ink-muted)]">이름을 클릭하면 개인별 내역을 봅니다</span>
                 </div>
                 <div className="max-h-64 overflow-auto divide-y divide-[var(--color-line)]">
                   {summaries.map((s, i) => (
-                    <div key={s.key} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => setSelectedPerson((prev) => (prev === s.name ? null : s.name))}
+                      aria-pressed={selectedPerson === s.name}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors',
+                        selectedPerson === s.name ? 'bg-amber-50' : 'hover:bg-[var(--color-surface-2)]',
+                      )}
+                      title={`${s.name} 지급 내역 보기`}
+                    >
                       <span
                         className={cn(
                           'inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-1 tabular-nums',
@@ -2088,18 +2150,37 @@ function CooperationPointsModal({ onClose }: { onClose: () => void }) {
                       <span className="w-16 shrink-0 text-right font-bold tabular-nums text-amber-600">
                         {s.totalPoints.toLocaleString()}P
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              {/* 최근 지급 내역 */}
+              {/* 지급 내역 — 기본은 전체 최근 30건, 위 랭킹에서 사람을 선택하면 그 사람의 전체 내역 */}
               <div className="rounded-md border border-[var(--color-line)] overflow-hidden">
-                <div className="border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-ink)]">
-                  최근 지급 내역{entries.length > 30 ? ' (최근 30건)' : ''}
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--color-ink)]">
+                  {personEntries ? (
+                    <>
+                      <span className="truncate">
+                        {selectedPerson} 지급 내역 ({personEntries.length}건 ·{' '}
+                        <span className="text-amber-600">{personEntries.reduce((s, e) => s + e.points, 0).toLocaleString()}P</span>)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPerson(null)}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-ink-muted)] ring-1 ring-[var(--color-line)] hover:bg-[var(--color-surface)]"
+                      >
+                        전체 보기
+                      </button>
+                    </>
+                  ) : (
+                    <span>최근 지급 내역{entries.length > 30 ? ' (최근 30건)' : ''}</span>
+                  )}
                 </div>
                 <div className="max-h-56 overflow-auto divide-y divide-[var(--color-line)]">
-                  {entries.slice(0, 30).map((e) => (
+                  {personEntries && personEntries.length === 0 && (
+                    <div className="px-2.5 py-3 text-center text-[11px] text-[var(--color-ink-muted)]">지급 내역이 없습니다.</div>
+                  )}
+                  {(personEntries ?? entries.slice(0, 30)).map((e) => (
                     <div key={e.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[11px]">
                       <span className="shrink-0 tabular-nums text-[var(--color-ink-muted)]">{fmtDate(e.awardedAt) || '—'}</span>
                       <div className="min-w-0 flex-1 truncate text-[var(--color-ink)]">
@@ -2146,10 +2227,11 @@ function CooperationKanbanBoard({
   onBroadcast: (r: CooperationRequest) => void;
   broadcastingId: string | null;
 }) {
-  // 컬럼별 그룹핑(요청완료 → 진행중 → 처리완료 → 확인완료 → 취소됨)
+  // 컬럼별 그룹핑(요청완료 → 담당자 지정완료 → 진행중 → 처리완료 → 확인완료 → 취소됨)
   const byStatus = useMemo(() => {
     const m: Record<CooperationRequestStatus, CooperationRequest[]> = {
       요청완료: [],
+      '담당자 지정완료': [],
       진행중: [],
       처리완료: [],
       확인완료: [],
@@ -2345,7 +2427,6 @@ function KanbanCard({
   todayIso,
   onEdit,
   onDelete,
-  onQuickStatus,
   onBroadcast,
   broadcasting,
 }: {
@@ -2353,150 +2434,160 @@ function KanbanCard({
   todayIso: string;
   onEdit: () => void;
   onDelete: () => void;
+  /** 칸반에서는 컬럼=현황이라 카드 내 직접 변경은 두지 않는다(드래그로 변경). 시그니처 유지용. */
   onQuickStatus: (next: CooperationRequestStatus) => void;
   onBroadcast: () => void;
   broadcasting: boolean;
 }) {
   const overdue = isOverdue(row, todayIso);
   const escalation = escalationFlag(row);
+  // "요청 후 경과" — 요청일(없으면 생성일) 기준
+  const reqElapsed = formatElapsed(row.requestDate || row.createdAt);
+  // 기한 초과 일수 / 남은 일수
+  const overdueDays = overdueDaysOf(row, todayIso);
+  const remaining = dueRemaining(row, todayIso);
+  const memberDone = row.memberProgress.filter((m) => m.status === '처리완료' || m.status === '확인완료').length;
+
+  // 담당자 종류 아이콘(조직/혼합/인원)
+  const assigneeIcon =
+    row.assigneeKind === 'org' ? (
+      <Building2 size={11} className="text-violet-600 shrink-0" />
+    ) : row.assigneeKind === 'mixed' ? (
+      <span className="inline-flex shrink-0">
+        <Building2 size={11} className="text-violet-600" />
+        <User size={11} className="-ml-0.5 text-slate-500" />
+      </span>
+    ) : (
+      <User size={11} className="text-slate-500 shrink-0" />
+    );
+
   return (
     <div
       onClick={onEdit}
       className={cn(
-        'group relative rounded-md border bg-white px-2 py-1.5 shadow-sm hover:shadow-md cursor-pointer transition',
-        escalation ? 'border-rose-400 ring-1 ring-rose-200' : 'border-[var(--color-line)] hover:border-indigo-300',
+        'group relative rounded-lg border bg-white p-2.5 shadow-sm hover:shadow-md cursor-pointer transition',
+        escalation
+          ? 'border-rose-300 ring-1 ring-rose-200'
+          : overdue
+            ? 'border-amber-300'
+            : 'border-[var(--color-line)] hover:border-indigo-300',
       )}
     >
-      {escalation && (
-        <div
-          className="absolute -top-1 -right-1 inline-flex items-center gap-0.5 rounded bg-rose-600 px-1 py-0.5 text-[9px] font-bold text-white shadow-sm"
-          title={
-            escalation.kind === 'screening'
-              ? '요청완료 24시간 초과 — 1차 응답 지연 (협업 프로세스 V1.0)'
-              : '진행중 72시간 초과 — 부서장 에스컬레이션 대상 (협업 프로세스 V1.0)'
-          }
-        >
-          <AlertCircle size={9} />
-          {escalation.kind === 'screening' ? '응답지연' : '에스컬'}
-        </div>
-      )}
-      <div className="flex items-start justify-between gap-1.5">
+      {/* 헤더: (좌) 응답지연/에스컬 플래그 강조 / (우) 기한초과 배지 ↔ hover 액션. 구분·중요도 칩은 표시하지 않음. */}
+      <div className="flex items-center justify-between gap-1.5 min-h-[20px]">
         <div className="flex items-center gap-1 min-w-0">
-          <span className="font-mono text-[10.5px] text-[var(--color-ink-muted)] tabular-nums shrink-0">{row.mgmtId || '—'}</span>
-          <span className={cn('inline-flex rounded px-1 py-0.5 ring-1 text-[10px] font-medium shrink-0', TYPE_STYLE[row.requestType])}>
-            {row.requestType}
-          </span>
-          <span className={cn('inline-flex rounded px-1 py-0.5 ring-1 text-[10px] font-semibold shrink-0', PRIORITY_STYLE[row.priority])}>
-            {row.priority}
-          </span>
+          {escalation && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm shrink-0"
+              title={
+                escalation.kind === 'screening'
+                  ? '요청완료 24시간 초과 — 1차 응답 지연 (협업 프로세스 V1.0)'
+                  : '진행중 72시간 초과 — 부서장 에스컬레이션 대상 (협업 프로세스 V1.0)'
+              }
+            >
+              <AlertCircle size={11} />
+              {escalation.kind === 'screening' ? '응답지연' : '에스컬'}
+            </span>
+          )}
         </div>
-        <div
-          className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={onBroadcast}
-            disabled={broadcasting}
-            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
-            title="텔레그램·메일로 전파"
+        <div className="flex items-center gap-1 shrink-0">
+          {/* 기한 초과 배지(강조) — hover 시 액션 버튼으로 대체 */}
+          {overdue && (
+            <span
+              className="group-hover:hidden inline-flex items-center gap-1 rounded-md bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm"
+              title={overdueDays > 0 ? `기한이 ${overdueDays}일 지났습니다` : '기한이 지났습니다'}
+            >
+              <AlertTriangle size={11} />
+              {overdueDays > 0 ? `${overdueDays}일 초과` : '기한 초과'}
+            </span>
+          )}
+          <div
+            className={cn(
+              'items-center gap-0.5 transition',
+              overdue ? 'hidden group-hover:flex' : 'flex opacity-0 group-hover:opacity-100',
+            )}
+            onClick={(e) => e.stopPropagation()}
           >
-            {broadcasting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
-          </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
-            title="편집"
-          >
-            <Pencil size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
-            title="삭제"
-          >
-            <Trash2 size={11} />
-          </button>
+            <button
+              type="button"
+              onClick={onBroadcast}
+              disabled={broadcasting}
+              className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
+              title="텔레그램·메일로 전파"
+            >
+              {broadcasting ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+            </button>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-indigo-100 hover:text-indigo-700"
+              title="편집"
+            >
+              <Pencil size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-rose-100 hover:text-rose-700"
+              title="삭제"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="mt-1 text-[12px] font-semibold text-[var(--color-ink)] line-clamp-2">
+      {/* 제목 */}
+      <div className="mt-1.5 text-[12.5px] font-semibold leading-snug text-[var(--color-ink)] line-clamp-2">
         {row.title || <span className="text-[var(--color-ink-muted)]">(제목 없음)</span>}
       </div>
 
-      {row.assignee && (
-        <div className="mt-1 flex items-center gap-1 text-[10.5px] text-[var(--color-ink-muted)]">
-          {row.assigneeKind === 'org' ? (
-            <Building2 size={10} className="text-violet-600 shrink-0" />
-          ) : row.assigneeKind === 'mixed' ? (
-            <span className="inline-flex shrink-0">
-              <Building2 size={10} className="text-violet-600" />
-              <User size={10} className="-ml-0.5 text-slate-500" />
-            </span>
-          ) : (
-            <User size={10} className="text-slate-500 shrink-0" />
-          )}
-          <span className="truncate" title={row.assignee}>
-            {row.assignee}
-          </span>
+      {/* 요청자 → 담당자 */}
+      <div className="mt-2 flex items-center gap-1 text-[10.5px]">
+        <span
+          className="inline-flex items-center gap-0.5 min-w-0 max-w-[45%] text-[var(--color-ink-muted)]"
+          title={`요청자: ${row.requester || '미지정'}`}
+        >
+          <User size={11} className="text-slate-400 shrink-0" />
+          <span className="truncate">{row.requester || '미지정'}</span>
+        </span>
+        <ArrowRight size={11} className="text-slate-300 shrink-0" />
+        <span
+          className="inline-flex items-center gap-0.5 min-w-0 flex-1 font-medium text-[var(--color-ink)]"
+          title={`담당자: ${row.assignee || '미지정'}`}
+        >
+          {assigneeIcon}
+          <span className="truncate">{row.assignee || '미지정'}</span>
           {row.memberProgress.length > 0 && (
-            <span className="ml-0.5 rounded bg-violet-50 px-1 py-0.5 text-[9.5px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums shrink-0">
-              {row.memberProgress.filter((m) => m.status === '처리완료' || m.status === '확인완료').length}/{row.memberProgress.length}
+            <span className="ml-0.5 rounded bg-violet-50 px-1 py-0.5 text-[9px] font-medium text-violet-700 ring-1 ring-violet-200 tabular-nums shrink-0">
+              {memberDone}/{row.memberProgress.length}
             </span>
           )}
-        </div>
-      )}
-
-      <div className="mt-1.5 flex items-center gap-1.5">
-        <div className="flex-1 h-1 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className={cn(
-              'h-full rounded-full',
-              row.status === '확인완료'
-                ? 'bg-emerald-500'
-                : row.status === '처리완료'
-                  ? 'bg-cyan-500'
-                  : row.status === '취소됨'
-                    ? 'bg-rose-400'
-                    : 'bg-indigo-500',
-            )}
-            style={{ width: `${pct(row.progress)}%` }}
-          />
-        </div>
-        <span className="w-7 text-right tabular-nums text-[10px] text-[var(--color-ink-muted)]">{pct(row.progress)}%</span>
+        </span>
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px]">
-        <span className={cn('tabular-nums', overdue ? 'text-amber-700 font-semibold' : 'text-[var(--color-ink-muted)]')}>
-          {row.dueDate ? `기한 ${fmtDate(row.dueDate)}` : ''}
-          {overdue ? ' · 초과' : ''}
-        </span>
-        <label
-          className="relative inline-flex items-center gap-0.5 rounded ring-1 px-1 py-0.5 text-[9.5px] font-medium cursor-pointer bg-white"
-          onClick={(e) => e.stopPropagation()}
-          title={`${row.status}로 진입 후 경과`}
+      {/* 푸터: 요청 후 경과(강조) / 기한 */}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[10px]">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-bold tabular-nums shrink-0',
+            reqElapsed === '오늘' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-600',
+          )}
+          title={`요청일: ${fmtDate(row.requestDate) || '—'}`}
         >
-          <span>{row.status}</span>
-          {(() => {
-            const elapsed = formatElapsed(currentStatusSince(row));
-            return elapsed ? <span className="text-[var(--color-ink-muted)]">· {elapsed}</span> : null;
-          })()}
-          <ChevronDown size={9} className="opacity-60" />
-          <select
-            value={row.status}
-            onChange={(e) => onQuickStatus(e.target.value as CooperationRequestStatus)}
-            className="absolute inset-0 opacity-0 cursor-pointer"
-            title="현황 변경"
-          >
-            {COOPERATION_REQUEST_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Clock size={11} className="shrink-0" />
+          {reqElapsed ? (reqElapsed === '오늘' ? '오늘 요청' : `요청 후 ${reqElapsed} 경과`) : '요청일 미상'}
+        </span>
+        {row.dueDate && (
+          <span className={cn('tabular-nums shrink-0', overdue ? 'font-bold text-amber-600' : 'text-[var(--color-ink-muted)]')}>
+            기한 {fmtDate(row.dueDate)}
+            {remaining && (
+              <span className={cn('ml-1 font-semibold', remaining.days <= 2 ? 'text-amber-600' : 'text-emerald-600')}>
+                · {remaining.label}
+              </span>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );
