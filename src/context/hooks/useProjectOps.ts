@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project } from '../../types';
 import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
@@ -437,5 +437,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     ],
   );
 
-  return { addProject, updateProject, deleteProject, copyProject, forkTaskToProject };
+  return useMemo(
+    () => ({ addProject, updateProject, deleteProject, copyProject, forkTaskToProject }),
+    [addProject, updateProject, deleteProject, copyProject, forkTaskToProject],
+  );
 }

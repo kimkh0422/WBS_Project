@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import type { Task, FilterState, SortConfig } from '../../types';
 import { recomputeProjectRollups } from '../../lib/rollups';
 import { buildVisibleTasks, primeWbsSiblingOrderTieBreak } from '../../lib/taskView';
@@ -423,16 +423,30 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     [saveHistory, setAllTasks, currentProjectIdRef, setTreeExpandLevel],
   );
 
-  return {
-    moveTask,
-    reorderTask,
-    indentTask,
-    outdentTask,
-    indentTasks,
-    outdentTasks,
-    reparentTaskRootsUnder,
-    moveTaskRootsSibling,
-    toggleExpand,
-    expandToLevel,
-  };
+  return useMemo(
+    () => ({
+      moveTask,
+      reorderTask,
+      indentTask,
+      outdentTask,
+      indentTasks,
+      outdentTasks,
+      reparentTaskRootsUnder,
+      moveTaskRootsSibling,
+      toggleExpand,
+      expandToLevel,
+    }),
+    [
+      moveTask,
+      reorderTask,
+      indentTask,
+      outdentTask,
+      indentTasks,
+      outdentTasks,
+      reparentTaskRootsUnder,
+      moveTaskRootsSibling,
+      toggleExpand,
+      expandToLevel,
+    ],
+  );
 }

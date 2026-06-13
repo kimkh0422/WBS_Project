@@ -580,7 +580,9 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        'bg-[var(--color-surface)]/90 backdrop-blur-2xl border-b border-[var(--color-line)]/50 safe-top transition-all duration-300',
+        'border-b border-[var(--color-line)]/50 safe-top transition-all duration-300',
+        /* 프로젝트 목록 스크림과 이중 블러되지 않게: 열릴 때는 헤더를 불투명 면으로 */
+        isProjectDropdownOpen ? 'bg-[var(--color-surface)]' : 'bg-[var(--color-surface)]/90 backdrop-blur-2xl',
         /* 표+간트 등 본문 sticky(z-60)보다 위: 프로젝트·더보기·계정 드롭다운이 헤더 아래로 펼칠 때 헤더 전체 z 상승 */
         isProjectDropdownOpen || isMoreMenuOpen || isUserMenuOpen ? 'z-[80]' : 'z-50',
         isHeaderCollapsed ? 'py-1 px-3 md:py-1.5 md:px-6' : 'px-3 md:px-6 py-1 md:py-1',
@@ -705,7 +707,7 @@ export function AppHeader({
               {isProjectDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-md dark:bg-black/60"
+                    className="fixed inset-0 z-40 bg-slate-950/50 dark:bg-black/55 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
                     onClick={() => setIsProjectDropdownOpen(false)}
                     aria-hidden
                   />

@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
 import { differenceInDays, eachDayOfInterval, isSameDay, parseISO, eachMonthOfInterval, eachWeekOfInterval } from 'date-fns';
@@ -329,12 +328,16 @@ export function GanttChart({
 
   const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 
-  const ganttVirtualizer = useVirtualizer({
-    count: visibleTasks.length,
-    getScrollElement: () => mainScrollRef.current ?? null,
-    estimateSize: (i) => effectiveRowHeights[i] ?? ROW_HEIGHT,
-    overscan: 10,
-  });
+  /** 표+간트 split: TanStack Virtual은 스크롤 동기·ResizeObserver·가변 행높이와 겹치면 가시 행이 흔들려 깜빡일 수 있어 전부 그린다(일반 프로젝트 행 수에서 충분히 빠름). */
+  const splitGanttRowLayout = useMemo(() => {
+    let top = VIEW_PADDING_TOP;
+    return visibleTasks.map((_, i) => {
+      const size = effectiveRowHeights[i] ?? ROW_HEIGHT;
+      const row = { index: i, start: top, size };
+      top += size;
+      return row;
+    });
+  }, [visibleTasks, effectiveRowHeights, ROW_HEIGHT, VIEW_PADDING_TOP]);
 
   const isSplitView = !!syncScrollRef;
 
@@ -656,14 +659,7 @@ export function GanttChart({
                   />
                 ))}
               </svg>
-              {(visibleTasks.length > 50
-                ? ganttVirtualizer.getVirtualItems()
-                : visibleTasks.map((_, i) => ({
-                    index: i,
-                    start: effectiveRowHeights.slice(0, i).reduce((a, b) => a + b, 0),
-                    size: effectiveRowHeights[i],
-                  }))
-              ).map((virtualRow) => {
+              {splitGanttRowLayout.map((virtualRow) => {
                 const index = virtualRow.index;
                 const task = visibleTasks[index];
                 if (!task) return null;

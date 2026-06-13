@@ -9,10 +9,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { SearchModal } from './components/SearchModal';
 import { NotificationBell } from './components/NotificationBell';
 import { ProjectModal } from './components/ProjectModal';
-import { ProjectNameLabel } from './components/ProjectNameLabel';
 import { AppSkeleton } from './components/AppSkeleton';
 import { AppFilterBar } from './components/AppFilterBar';
 import { AppLayout } from './components/AppLayout';
+import { UnsavedProjectSwitchDialog } from './components/UnsavedProjectSwitchDialog';
+import { DeleteScopeDialog } from './components/DeleteScopeDialog';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import {
   List,
@@ -43,7 +44,6 @@ import {
   Maximize2,
   Minimize2,
   Flag,
-  AlertTriangle,
   LogOut,
   Users,
   User,
@@ -67,34 +67,29 @@ import {
   type LastExportPrefs,
 } from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
+import { useInitialDbSync } from './hooks/useInitialDbSync';
+import { useGuidedTour } from './hooks/useGuidedTour';
+import { useProjectDerivations } from './hooks/useProjectDerivations';
+import { useViewerDirectory } from './hooks/useViewerDirectory';
+import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
+import { useViewerStatus } from './hooks/useViewerStatus';
+import { useEditableProjectIds } from './hooks/useEditableProjectIds';
+import { useExternalPartnerAllowlist } from './hooks/useExternalPartnerAllowlist';
+import { useVisitLogging } from './hooks/useVisitLogging';
+import { useWbsViewFilters } from './hooks/useWbsViewFilters';
+import { useDashboardFilterToolbar } from './hooks/useDashboardFilterToolbar';
 import { useMatchMedia } from './hooks/useMatchMedia';
-import { useFocusTrap } from './hooks/useFocusTrap';
 import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
-import {
-  MODAL_BACKDROP_CLASS,
-  MODAL_PANEL_BASE_CLASS,
-  MODAL_HEADER_CLASS,
-  MODAL_FOOTER_CLASS,
-  MODAL_CLOSE_BUTTON_CLASS,
-} from './lib/modalChrome';
-import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
+import { formatProjectDisplayName } from './lib/projectKind';
 import { isProjectMineForUserListFilter } from './lib/projectMineFilter';
 import { isInternalCompanyEmail } from './lib/emailDomain';
 import { useOrganization } from './context/OrganizationContext';
-import { buildOrgMemberDisplayMetaMap, buildProfileDisplayById, formatAssigneeDisplay, formatPersonDisplay } from './lib/assigneeOptions';
-import { Task, Project, FilterState, TaskStatus, SortConfig } from './types';
+import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from './lib/assigneeOptions';
+import { Task, Project, FilterState, TaskStatus } from './types';
 import { clearAllLocalData } from './lib/persist';
-import {
-  acceptInvite,
-  checkIsAdmin,
-  fetchProfiles,
-  getProfileStatus,
-  getProjectOwnerDisplayNames,
-  getMyProjectMemberProjectIds,
-  getMyEditableProjectIds,
-} from './lib/db';
+import { acceptInvite, getMyProjectMemberProjectIds } from './lib/db';
 import { fetchCooperationRequests } from './lib/db/cooperationRequests';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { isSupabaseConfigured } from './lib/supabase';
 import { isDevAuthBypass } from './lib/devAuthBypass';
 import { LoginScreen } from './components/LoginScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
@@ -109,11 +104,9 @@ import { AdminPasswordModal } from './components/AdminPasswordModal';
 import { AdminAccessRequestModal } from './components/AdminAccessRequestModal';
 import { ProjectEditAccessRequestModal } from './components/ProjectEditAccessRequestModal';
 import type { ExportScope, ExportFormat } from './components/ExportModal';
-import { v4 as uuidv4 } from 'uuid';
 import { format, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import logo from './assets/logo.png';
 import { lazyWithRetry } from './lib/lazyWithRetry';
-import { GUIDED_TOUR_STEPS, TOUR_INDEX } from './lib/guidedTourSteps';
 
 // WBSTable(+SortableTaskRow 등 대형 트리)·TableGanttSplit은 표/간트 뷰에서만 필요 → 지연 로딩으로 초기(대시보드) 번들에서 분리.
 // lazyWithRetry: 배포 직후 옛 청크 해시를 가져오다 실패하면 1회 자동 새로고침으로 새 번들 회수.
@@ -142,9 +135,6 @@ const OrganizationModal = lazyWithRetry(() => import('./components/OrganizationM
 // 초보자 가이드: 사용 설명서(텍스트)와 따라하기 투어(화면 위 단계별 안내) — 열 때만 로드
 const TutorialModal = lazyWithRetry(() => import('./components/TutorialModal').then((m) => ({ default: m.TutorialModal })));
 const GuidedTour = lazyWithRetry(() => import('./components/GuidedTour').then((m) => ({ default: m.GuidedTour })));
-const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
-/** 따라하기 투어 자동 표시 끔 플래그 — 「다시 보지 않기」 선택 또는 완주 시에만 기록. 그냥 닫으면(X·Esc) 다음 접속 때 다시 시작 */
-const GUIDED_TOUR_HIDE_KEY = 'wbs.guided-tour.v1.hide';
 
 /** `VITE_PROJECT_STATUS_ONLY`: "1" | "true" | "yes"(대소문자 무시)면 true */
 function viteEnvTruthy(key: string): boolean {
@@ -281,9 +271,6 @@ function WBSApp({
   } = modals;
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [isDbSyncing, setIsDbSyncing] = useState(false);
-  const [dbSyncStep, setDbSyncStep] = useState<{ pct: number; msg: string } | null>(null);
-  const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
 
   /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
   useEffect(() => {
@@ -329,16 +316,11 @@ function WBSApp({
     pushChangesToDb,
     discardUnsavedChangesReloadFromServer,
   } = useWBS();
-  const currentProjectIdRef = useRef(currentProjectId);
-  currentProjectIdRef.current = currentProjectId;
 
   // URL 라우팅 + 회원(프로필)·소유자 표시명·내 멤버 프로젝트 상태.
   // (아래 라우팅 보정/프로필 로딩 useEffect·메모에서 사용됨 — 선언 누락으로 인한 'navigate is not defined' 등 런타임 크래시 복구)
   const navigate = useNavigate();
   const location = useLocation();
-  const [profiles, setProfiles] = useState<Awaited<ReturnType<typeof fetchProfiles>>>([]);
-  const [ownerDisplayNames, setOwnerDisplayNames] = useState<Record<string, string>>({});
-  const [myMemberProjectIds, setMyMemberProjectIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
@@ -347,89 +329,18 @@ function WBSApp({
     return window.matchMedia('(max-width: 767px)').matches;
   });
 
-  // ── 초보자 따라하기 투어 ─────────────────────────────────────────────
-  // 신규 프로젝트 생성 → 첫 작업 입력 순서를 실제 화면 위에서 안내(GuidedTour).
-  // action 단계는 아래 effect가 모달 열림·프로젝트 생성·작업 추가를 감지해 자동 진행한다.
-  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
-  const [tour, setTour] = useState<{ run: boolean; step: number }>({ run: false, step: 0 });
-  /** 투어 시작 시점의 프로젝트·작업 수 — 생성/추가 감지 기준 */
-  const tourBaselineRef = useRef({ projects: 0, tasks: 0 });
-
-  const startGuidedTour = useCallback(() => {
-    tourBaselineRef.current = { projects: projects.length, tasks: allTasks.length };
-    setIsTutorialOpen(false);
-    setIsProjectDropdownOpen(false);
-    setIsMoreMenuOpen(false);
-    setIsHeaderCollapsed(false); // 접힌 헤더에서는 1단계 대상(프로젝트 메뉴)이 보이지 않음
-    setTour({ run: true, step: 0 });
-  }, [projects.length, allTasks.length]);
-
-  /**
-   * 투어 종료.
-   * - completed: 끝까지 봄 → 다음 접속부터 자동 표시 안 함
-   * - never: 「다시 보지 않기」 선택 → 자동 표시 안 함
-   * - skipped: X·Esc로 이번만 닫음 → 다음 접속 때 다시 자동 시작
-   */
-  const endGuidedTour = useCallback(
-    (mode: 'completed' | 'skipped' | 'never') => {
-      setTour({ run: false, step: 0 });
-      if (mode !== 'skipped') {
-        try {
-          localStorage.setItem(GUIDED_TOUR_HIDE_KEY, '1');
-        } catch {
-          /* 저장 불가(시크릿 모드 등)면 다음 접속에 다시 자동 노출될 뿐 — 무시 */
-        }
-      }
-      if (mode === 'completed') pushToast('투어 완료! 이제 직접 프로젝트를 채워 보세요.', { variant: 'success', durationMs: 4000 });
-      else if (mode === 'never')
-        pushToast('투어를 다시 자동 표시하지 않습니다. ⋮ 메뉴 → 「따라하기 투어」로 언제든 볼 수 있어요.', {
-          variant: 'info',
-          durationMs: 4500,
-        });
-      else
-        pushToast('투어를 닫았습니다. 다음 접속 때 다시 안내해요 — 끄려면 투어의 「다시 보지 않기」를 누르세요.', {
-          variant: 'info',
-          durationMs: 4500,
-        });
-    },
-    [pushToast],
-  );
-
-  /** 안내형(next) 단계의 「다음」 — 마지막 단계의 완료는 GuidedTour의 onFinish가 처리 */
-  const handleTourNext = useCallback(() => {
-    setTour((t) => (t.run && t.step < GUIDED_TOUR_STEPS.length - 1 ? { run: true, step: t.step + 1 } : t));
-  }, []);
-
-  // action 단계 자동 진행: 입력창 열림 → 이름 단계 / 닫힘 → 생성됐으면 작업 단계·취소면 버튼 단계로 복귀 / 작업 추가 → 요령 단계
-  useEffect(() => {
-    if (!tour.run) return;
-    if (tour.step <= TOUR_INDEX.newProject && isProjectModalOpen) {
-      setTour({ run: true, step: TOUR_INDEX.fillName });
-    } else if ((tour.step === TOUR_INDEX.fillName || tour.step === TOUR_INDEX.createProject) && !isProjectModalOpen) {
-      setTour({
-        run: true,
-        step: projects.length > tourBaselineRef.current.projects ? TOUR_INDEX.addTask : TOUR_INDEX.newProject,
-      });
-    } else if (tour.step === TOUR_INDEX.addTask && allTasks.length > tourBaselineRef.current.tasks) {
-      setTour({ run: true, step: TOUR_INDEX.taskTips });
-    }
-  }, [tour, isProjectModalOpen, projects.length, allTasks.length]);
-
-  // 데스크톱 접속마다 무조건 자동 시작 — 「다시 보지 않기」를 선택했거나 투어를 완주한 사용자만 제외
-  const tourAutoStartCheckedRef = useRef(false);
-  useEffect(() => {
-    if (isLoading || tourAutoStartCheckedRef.current) return;
-    tourAutoStartCheckedRef.current = true;
-    if (VITE_PROJECT_STATUS_ONLY || hiddenViews.has('projects')) return;
-    if (window.matchMedia('(max-width: 767px)').matches) return; // 모바일은 작업 편집 화면이 잠겨 있어 투어 비대상
-    try {
-      if (localStorage.getItem(GUIDED_TOUR_HIDE_KEY)) return;
-    } catch {
-      return;
-    }
-    const timer = setTimeout(() => startGuidedTour(), 1800);
-    return () => clearTimeout(timer);
-  }, [isLoading, hiddenViews, startGuidedTour]);
+  // 초보자 따라하기 투어 — useGuidedTour로 분리(동작 동일)
+  const { isTutorialOpen, setIsTutorialOpen, tour, startGuidedTour, endGuidedTour, handleTourNext } = useGuidedTour({
+    projects,
+    allTasks,
+    isLoading,
+    hiddenViews,
+    isProjectModalOpen,
+    isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
+    setIsProjectDropdownOpen,
+    setIsMoreMenuOpen,
+    setIsHeaderCollapsed,
+  });
 
   // NotificationBell용 메모
   const notifProjectNameMap = React.useMemo(
@@ -445,173 +356,29 @@ function WBSApp({
     [wbsSettings.statusConfigs],
   );
 
-  const pushChangesToDbRef = useRef(pushChangesToDb);
-  pushChangesToDbRef.current = pushChangesToDb;
-
-  /** 저장 모델: 편집마다 자동 DB push 하던 방식을 "수동 저장"으로 전환해 편집 중 렉을 제거한다.
-   *  - 로컬 변경은 WBSContext가 즉시 localStorage에 보존하므로 새로고침해도 데이터는 유지된다.
-   *  - 서버(DB) 반영은 Ctrl+S 또는 우측 하단 "저장" 버튼으로만 수행한다.
-   *  - 미저장 상태로 헤더·필터 등에서 다른 프로젝트를 선택할 때 확인 모달로 저장을 유도한다(requestProjectSwitch).
-   *  - 미저장 상태로 창을 닫거나 새로고침하면 브라우저 경고로 이탈 전 저장을 유도한다. */
-  const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
-  hasLocalChangesRef.current = hasLocalChangesSinceSync;
-
-  /** 표 셀 인라인 편집 값이 React 상태에 커밋된 뒤 DB 동기화를 돌리기 위한 짧은 대기 (Ctrl+S와 동일). */
-  const flushInlineCellEditsBeforeSave = useCallback(async () => {
-    const ae = document.activeElement as HTMLElement | null;
-    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) {
-      ae.blur();
-    }
-    await new Promise<void>((r) => {
-      window.setTimeout(r, 60);
-    });
-  }, []);
-
-  const saveNow = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
-    if (!hasLocalChangesRef.current) {
-      pushToast('변경사항이 없습니다.', { variant: 'info', durationMs: 1500, id: 'manual-save' });
-      return;
-    }
-    setIsDbPushInProgress(true);
-    try {
-      await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
-      pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-      // 본인 프로젝트는 정상 저장되고 타인 프로젝트만 RLS로 거부될 수 있으므로 권한 메시지는 성공으로 간주.
-      if (/편집 권한이 없습니다/.test(msg)) {
-        pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
-      } else {
-        pushToast(msg, { variant: 'error', durationMs: 6000, id: `db-push:${msg}` });
-      }
-    } finally {
-      setIsDbPushInProgress(false);
-    }
-  }, [pushToast, flushInlineCellEditsBeforeSave]);
-
-  // Ctrl/Cmd+S: 수동 저장(브라우저 기본 저장 대화상자 차단). 편집 중이면 먼저 blur로 입력을 확정한 뒤 저장.
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
-        e.preventDefault();
-        void saveNow();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [saveNow]);
-
-  // 앱 내 화면(URL) 이동 시 미저장 확인은 Data Router의 useBlocker가 필요했으나, RouterProvider 전환이
-  // React 19에서 초기 렌더 크래시(removeChild)를 일으켜 BrowserRouter로 되돌렸다. 따라서 URL 이동 가드는
-  // 제거한다. 프로젝트 전환 확인(requestProjectSwitch)과 새로고침·닫기 경고(beforeunload)는 그대로 동작한다.
-
-  /** 서버 미반영 편집이 있을 때 다른 프로젝트로 바꾸기 전 확인 */
-  const pendingProjectSwitchRunRef = useRef<(() => void) | null>(null);
-  const [projectSwitchPrompt, setProjectSwitchPrompt] = useState<{ targetProjectId: string } | null>(null);
-  /** 프로젝트 전환 확인 모달: 저장 또는「저장 안 함」처리 중 이중 클릭·닫기 방지 */
-  const [projectSwitchAction, setProjectSwitchAction] = useState<'save' | 'discard' | null>(null);
-  const projectSwitchBusy = projectSwitchAction !== null;
-  const projectSwitchDialogRef = useRef<HTMLDivElement>(null);
-
-  const requestProjectSwitch = useCallback((targetProjectId: string, run: () => void) => {
-    if (targetProjectId === currentProjectIdRef.current) {
-      run();
-      return;
-    }
-    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
-      run();
-      return;
-    }
-    pendingProjectSwitchRunRef.current = run;
-    setProjectSwitchPrompt({ targetProjectId });
-  }, []);
-
-  useFocusTrap(projectSwitchDialogRef, !!projectSwitchPrompt);
-
-  useEffect(() => {
-    if (!projectSwitchPrompt) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (projectSwitchBusy) return;
-        e.preventDefault();
-        pendingProjectSwitchRunRef.current = null;
-        setProjectSwitchPrompt(null);
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [projectSwitchPrompt, projectSwitchBusy]);
-
-  const handleProjectSwitchSaveAndProceed = useCallback(async () => {
-    if (projectSwitchBusy || !projectSwitchPrompt) return;
-    setProjectSwitchAction('save');
-    try {
-      await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
-      const run = pendingProjectSwitchRunRef.current;
-      pendingProjectSwitchRunRef.current = null;
-      setProjectSwitchPrompt(null);
-      run?.();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-      if (/편집 권한이 없습니다/.test(msg)) {
-        const run = pendingProjectSwitchRunRef.current;
-        pendingProjectSwitchRunRef.current = null;
-        setProjectSwitchPrompt(null);
-        run?.();
-      } else {
-        pushToast(msg, { variant: 'error', durationMs: 6000 });
-      }
-    } finally {
-      setProjectSwitchAction(null);
-    }
-  }, [projectSwitchBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
-
-  const handleProjectSwitchDiscardProceed = useCallback(async () => {
-    if (projectSwitchBusy || !projectSwitchPrompt) return;
-    setProjectSwitchAction('discard');
-    try {
-      await discardUnsavedChangesReloadFromServer();
-      const run = pendingProjectSwitchRunRef.current;
-      pendingProjectSwitchRunRef.current = null;
-      setProjectSwitchPrompt(null);
-      run?.();
-    } catch {
-      /* handleDbError에서 토스트 처리 */
-    } finally {
-      setProjectSwitchAction(null);
-    }
-  }, [projectSwitchBusy, projectSwitchPrompt, discardUnsavedChangesReloadFromServer]);
-
-  const handleProjectSwitchCancel = useCallback(() => {
-    if (projectSwitchBusy) return;
-    pendingProjectSwitchRunRef.current = null;
-    setProjectSwitchPrompt(null);
-  }, [projectSwitchBusy]);
-
-  const setCurrentProjectIdGuarded = useCallback(
-    (id: string) => {
-      requestProjectSwitch(id, () => setCurrentProjectId(id));
-    },
-    [requestProjectSwitch, setCurrentProjectId],
-  );
-
-  // 미저장 상태에서 창 닫기/새로고침/이탈 시 브라우저 경고 → 저장하지 않은 변경 손실 방지.
-  useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasLocalChangesRef.current) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, []);
-  const initialDbSyncDoneRef = useRef(false);
+  // 미저장 변경 가드(수동 저장·프로젝트 전환 확인·새로고침/닫기 경고) — useUnsavedChangesGuard로 분리(동작 동일)
+  const {
+    saveNow,
+    isDbPushInProgress,
+    requestRefresh,
+    requestProjectSwitch,
+    setCurrentProjectIdGuarded,
+    projectSwitchPrompt,
+    projectSwitchAction,
+    projectSwitchBusy,
+    projectSwitchDialogRef,
+    projectSwitchTargetLabel,
+    handleProjectSwitchSaveAndProceed,
+    handleProjectSwitchDiscardProceed,
+    handleProjectSwitchCancel,
+  } = useUnsavedChangesGuard({
+    currentProjectId,
+    projects,
+    hasLocalChangesSinceSync,
+    pushChangesToDb,
+    discardUnsavedChangesReloadFromServer,
+    setCurrentProjectId,
+  });
 
   // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동 — 프로젝트 현황 전용 모드에서는 대시보드에 머무름
   useEffect(() => {
@@ -633,13 +400,18 @@ function WBSApp({
     }
   }, [location.pathname, view, navigate]);
 
-  // 회원(프로필) 목록 로드: 관리자는 전체, 일반 사용자는 본인 프로필만 (현재 로그인 사용자 표시용)
-  useEffect(() => {
-    if (!user?.id) return;
-    fetchProfiles()
-      .then(setProfiles)
-      .catch(() => setProfiles([]));
-  }, [user?.id]);
+  // 로그인 사용자·회원 표시명 디렉터리 — useViewerDirectory로 분리(동작 동일)
+  const {
+    profiles,
+    myMemberProjectIds,
+    setMyMemberProjectIds,
+    profileMap,
+    registeredMemberDisplayNames,
+    profileDisplayById,
+    ownerDepartmentByUserId,
+    currentUserPlainName,
+    currentUserDisplay,
+  } = useViewerDirectory({ user, projects, orgMembers, assigneeDisplayMetaByName });
 
   // 협조 요청 — NotificationBell 알림 생성용. 대시보드 섹션과는 별도 fetch지만 정렬 결과 동일.
   const [cooperationRequests, setCooperationRequests] = useState<Awaited<ReturnType<typeof fetchCooperationRequests>>>([]);
@@ -661,134 +433,12 @@ function WBSApp({
     };
   }, [user?.id]);
 
-  // 접근 가능한 프로젝트 소유자 표시명 보강 (RLS로 프로필 미조회 시에도 이름 표시)
-  useEffect(() => {
-    if (!user?.id || !projects.length) {
-      setOwnerDisplayNames({});
-      return;
-    }
-    const knownIds = new Set(profiles.map((p) => p.id));
-    const ownerIds: string[] = projects.map((p) => p.ownerId).filter((id): id is string => typeof id === 'string' && id.length > 0);
-    const uniqueOwnerIds = Array.from(new Set(ownerIds));
-    const missingOwnerIds = uniqueOwnerIds.filter((id) => !knownIds.has(id));
-    if (missingOwnerIds.length === 0) {
-      setOwnerDisplayNames({});
-      return;
-    }
-    getProjectOwnerDisplayNames(missingOwnerIds).then(setOwnerDisplayNames);
-  }, [user?.id, projects, profiles]);
-
-  // 내가 멤버인 프로젝트 ID (권한 요청 배너 표시 여부 판단용)
-  useEffect(() => {
-    if (!user?.id) {
-      setMyMemberProjectIds([]);
-      return;
-    }
-    getMyProjectMemberProjectIds()
-      .then(setMyMemberProjectIds)
-      .catch(() => setMyMemberProjectIds([]));
-  }, [user?.id]);
-
-  const profileMap = React.useMemo(() => {
-    const m: Record<string, string> = {};
-    profiles.forEach((p) => {
-      const name = p.full_name && String(p.full_name).trim();
-      m[p.id] = name || p.email || '(이메일 없음)';
-    });
-    Object.assign(m, ownerDisplayNames);
-    return m;
-  }, [profiles, ownerDisplayNames]);
-
-  /** 대시보드 인원별 투입 현황에 표시할 등록 회원 표시명 집합 (profiles 기준) */
-  const registeredMemberDisplayNames = React.useMemo(() => {
-    const names = new Set<string>();
-    profiles.forEach((p) => {
-      const name = (p.full_name && String(p.full_name).trim()) || p.email || '(이메일 없음)';
-      names.add(name);
-    });
-    return names;
-  }, [profiles]);
-
-  const profileDisplayById = React.useMemo(
-    () => buildProfileDisplayById(profiles, orgMembers, ownerDisplayNames),
-    [profiles, orgMembers, ownerDisplayNames],
-  );
-
-  /** 프로젝트 목록 조직도 보기: 소유자 부서 보조 매칭 */
-  const ownerDepartmentByUserId = React.useMemo(() => {
-    const m: Record<string, string | null> = {};
-    for (const p of profiles) {
-      const d = p.department != null ? String(p.department).trim() : '';
-      m[p.id] = d.length > 0 ? d : null;
-    }
-    return m;
-  }, [profiles]);
-
-  /** 필터·담당자 매칭·PM 기본값 등 저장/비교용 평문 표시명 */
-  const currentUserPlainName = React.useMemo(() => {
-    if (!user) return '';
-    const profile = profiles.find((p) => p.id === user.id) as { full_name?: string | null } | undefined;
-    const name = profile?.full_name || (user.user_metadata as { full_name?: string } | undefined)?.full_name;
-    return ((name && String(name).trim()) || user.email || '사용자').trim();
-  }, [user, profiles]);
-
-  const currentUserDisplay = React.useMemo(() => {
-    if (!user) return '';
-    const profile = profiles.find((p) => p.id === user.id) as { full_name?: string | null; department?: string | null } | undefined;
-    const plain =
-      (profile?.full_name && String(profile.full_name).trim()) ||
-      (user.user_metadata as { full_name?: string } | undefined)?.full_name ||
-      '';
-    const base = (plain && String(plain).trim()) || user.email || '사용자';
-    return formatPersonDisplay(base, { orgMetaByName: assigneeDisplayMetaByName, fallbackDepartment: profile?.department });
-  }, [user, profiles, assigneeDisplayMetaByName]);
-
   // 동시에 이 프로젝트를 보고 있는 다른 사용자 (Supabase Presence)
   const { others: presenceOthers } = usePresence(currentProjectId === 'all' ? '' : currentProjectId, user?.id, currentUserDisplay);
 
-  const taskCountByProject = React.useMemo(() => {
-    const m: Record<string, number> = {};
-    projects.forEach((p) => {
-      m[p.id] = 0;
-    });
-    allTasks.forEach((t) => {
-      if (t.projectId && m[t.projectId] !== undefined) m[t.projectId]++;
-    });
-    return m;
-  }, [projects, allTasks]);
-
-  /** 목록에 없는 projectId 또는 projectId 없음 (드롭다운 합계 ≠ 전체일 때 표시) */
-  const orphanAndUnassignedTaskCount = React.useMemo(() => {
-    const ids = new Set(projects.map((p) => p.id));
-    return allTasks.filter((t) => !t.projectId || !ids.has(t.projectId)).length;
-  }, [projects, allTasks]);
-
-  // 프로젝트 목록: id 기준으로만 표시 (이름+소유자로 묶지 않음 → 사용자별 복사본이 원본과 합쳐지지 않음)
-  const uniqueProjects = React.useMemo(() => {
-    const seen = new Set<string>();
-    return projects.filter((p) => {
-      if (isPrivateProjectHiddenFromViewer(p, user?.id)) return false;
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
-  }, [projects, user?.id]);
-
-  // 권한 등급과 무관하게 동일한 목록: 소유자 그룹 없이 이름순 단일 목록 (이름 같으면 id로 2차 정렬해 순서 고정)
-  const projectsSortedByName = React.useMemo(() => {
-    return [...uniqueProjects].sort((a, b) => {
-      const byName = (a.name ?? '').localeCompare(b.name ?? '', 'ko');
-      return byName !== 0 ? byName : (a.id ?? '').localeCompare(b.id ?? '', 'ko');
-    });
-  }, [uniqueProjects]);
-
-  const deletableProjects = React.useMemo(() => {
-    // "프로젝트 선택해서 삭제"는 실제로 '프로젝트+소속 작업 삭제'이므로,
-    // 작업이 있는 프로젝트만 표시. 관리자가 아니면 본인이 만든 프로젝트로 한정
-    return projectsSortedByName
-      .filter((p) => (taskCountByProject[p.id] ?? 0) > 0)
-      .filter((p) => realIsAdmin || (user?.id ? p.ownerId === user.id : false));
-  }, [projectsSortedByName, taskCountByProject, realIsAdmin, user?.id]);
+  // 프로젝트 목록 파생값 — useProjectDerivations로 분리(동작 동일)
+  const { taskCountByProject, orphanAndUnassignedTaskCount, uniqueProjects, projectsSortedByName, deletableProjects } =
+    useProjectDerivations({ projects, allTasks, userId: user?.id, realIsAdmin });
 
   // 초대 링크 수락 (?invite=token)
   useEffect(() => {
@@ -895,22 +545,26 @@ function WBSApp({
     return () => window.removeEventListener('keydown', handleSearchHotkey);
   }, []);
 
-  // Filter State
-  const [filters, setFilters] = useState<FilterState>({
-    projectIds: 'all',
-    status: 'all',
-    assignee: '',
-    startDate: '',
-    endDate: '',
-    milestoneOnly: false,
-    issueOnly: false,
-    level: 'all',
-    pastDueOnly: false,
-    completedThisWeekOnly: false,
-    notStartedYetOnly: false,
-  });
-
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'wbs', direction: 'asc' });
+  // 작업 보기 필터·정렬 상태 — useWbsViewFilters로 분리(동작 동일)
+  const {
+    filters,
+    setFilters,
+    sortConfig,
+    setSortConfig,
+    filterOn,
+    setFilterOn,
+    isProjectFilterDropdownOpen,
+    setIsProjectFilterDropdownOpen,
+    projectFilterDropdownRef,
+    projectFilterAllCheckboxRef,
+    headerProjectFilterSyncKey,
+    hasActiveFilters,
+    allAssignees,
+    effectiveFilters,
+    resetWbsFilters,
+  } = useWbsViewFilters({ tasks, currentProjectId });
+  // 대시보드 필터 도구줄 표시 상태 — useDashboardFilterToolbar로 분리(동작 동일)
+  const { dashboardFiltersActive, showDashboardFilterToolbar, onDashboardFilterToolbarClick } = useDashboardFilterToolbar(view);
 
   const selectProject = useCallback(
     (projectId: string) => {
@@ -926,40 +580,6 @@ function WBSApp({
     },
     [requestProjectSwitch, setCurrentProjectId, setView, lockMobileToDashboard],
   );
-
-  // Filter on/off (when on, filter bar and filters apply)
-  const [filterOn, setFilterOn] = useState(false);
-  const [isProjectFilterDropdownOpen, setIsProjectFilterDropdownOpen] = useState(false);
-  const projectFilterDropdownRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isProjectFilterDropdownOpen) return;
-    const close = (e: MouseEvent) => {
-      if (projectFilterDropdownRef.current && !projectFilterDropdownRef.current.contains(e.target as Node)) {
-        setIsProjectFilterDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [isProjectFilterDropdownOpen]);
-
-  const [dashboardFiltersActive, setDashboardFiltersActive] = useState(false);
-  /** 대시보드 부서·프로젝트 표시 도구줄: 기본 숨김, 헤더 필터 버튼으로만 표시 */
-  const [showDashboardFilterToolbar, setShowDashboardFilterToolbar] = useState(false);
-  useEffect(() => {
-    if (view !== 'dashboard') {
-      setDashboardFiltersActive(false);
-      setShowDashboardFilterToolbar(false);
-    }
-  }, [view]);
-
-  useEffect(() => {
-    const h = (e: Event) => {
-      const ev = e as CustomEvent<{ active?: boolean }>;
-      if (ev.detail && typeof ev.detail.active === 'boolean') setDashboardFiltersActive(ev.detail.active);
-    };
-    window.addEventListener('wbs-dashboard-filters-active', h as EventListener);
-    return () => window.removeEventListener('wbs-dashboard-filters-active', h as EventListener);
-  }, []);
 
   /** 대시보드 마운트 시 등록 — ⋮ 메뉴에서 프로젝트 등록현황 PDF */
   const projectRegistrationPdfRef = useRef<(() => Promise<void>) | null>(null);
@@ -987,19 +607,6 @@ function WBSApp({
     }
     navigateWithTip('dashboard');
   }, [hiddenViews, pushToast, navigateWithTip]);
-
-  const onDashboardFilterToolbarClick = useCallback(() => {
-    setShowDashboardFilterToolbar((wasOpen) => {
-      const next = !wasOpen;
-      if (next) {
-        tipOnce('menu.filter.dashboard', '상단 도구줄에서 부서·프로젝트 표시 범위를 조정할 수 있어요.');
-        setTimeout(() => {
-          document.getElementById('dashboard-filter-toolbar-host')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 0);
-      }
-      return next;
-    });
-  }, [tipOnce]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
@@ -1212,46 +819,8 @@ function WBSApp({
     executeRestoreBackupIntoProject,
   } = fileIO;
 
-  const executeDbSync = useCallback(
-    async (scope: 'current' | 'all'): Promise<boolean> => {
-      // 동기화 진행/완료 토스트는 노이즈가 커서 일시 숨김 처리.
-      // 진행률 state(setDbSyncStep)는 다른 UI에서 참조될 수 있어 유지.
-      setIsDbSyncing(true);
-      setDbSyncStep({ pct: 0, msg: '시작…' });
-      try {
-        await syncWithDb(scope, (pct, message) => {
-          setDbSyncStep({ pct, msg: message });
-        });
-        return true;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'DB 동기화에 실패했습니다.';
-        // 실패만 사용자에게 알림(같은 id로 누적 디바운스).
-        pushToast(msg, { variant: 'error', id: 'db-sync', durationMs: 8000 });
-        return false;
-      } finally {
-        setIsDbSyncing(false);
-        setDbSyncStep(null);
-      }
-    },
-    [syncWithDb, pushToast],
-  );
-
-  // 최초 페이지 접속 시 DB 자동 동기화 (로그인 + Supabase 설정 완료)
-  useEffect(() => {
-    if (initialDbSyncDoneRef.current) return;
-    if (window.localStorage.getItem(WBS_INITIAL_DB_SYNC_ONCE_KEY) === '1') {
-      initialDbSyncDoneRef.current = true;
-      return;
-    }
-    if (!isSupabaseConfigured) return;
-    if (isLoading) return;
-    initialDbSyncDoneRef.current = true;
-    void (async () => {
-      const ok = await executeDbSync('all');
-      if (ok) window.localStorage.setItem(WBS_INITIAL_DB_SYNC_ONCE_KEY, '1');
-      else initialDbSyncDoneRef.current = false;
-    })();
-  }, [isLoading, executeDbSync, isSupabaseConfigured]);
+  // 최초 접속 시 DB 자동 동기화(1회) — useInitialDbSync로 분리
+  useInitialDbSync({ isLoading, syncWithDb });
 
   // View switch, Ctrl+S preventDefault — now in useAppKeyboardShortcuts
 
@@ -1292,85 +861,6 @@ function WBSApp({
     // 사용자가 필요하면 필터 토글을 직접 켜서 미리 채워진 조건을 적용할 수 있다.
   };
 
-  /** 헤더 프로젝트가 바뀔 때만 필터 동기화 (필터에서 다중 선택한 뒤 헤더는 그대로일 때는 유지) */
-  const headerProjectFilterSyncKey = useRef<string | null>(null);
-  const projectFilterAllCheckboxRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const key = !currentProjectId || currentProjectId === 'all' ? '__all__' : currentProjectId;
-    if (headerProjectFilterSyncKey.current === key) return;
-    headerProjectFilterSyncKey.current = key;
-    setFilters((prev) => ({
-      ...prev,
-      projectIds: key === '__all__' ? 'all' : [currentProjectId],
-    }));
-  }, [currentProjectId]);
-
-  const hasActiveFilters =
-    filterOn &&
-    (filters.projectIds !== 'all' ||
-      filters.status !== 'all' ||
-      filters.assignee ||
-      filters.startDate ||
-      filters.endDate ||
-      !!filters.milestoneOnly ||
-      !!filters.issueOnly ||
-      typeof filters.level === 'number' ||
-      !!filters.pastDueOnly ||
-      !!filters.completedThisWeekOnly ||
-      !!filters.searchText);
-  const allAssignees = Array.from(new Set(tasks.map((t) => t.assignee).filter(Boolean))) as string[];
-  const effectiveFilters: FilterState = filterOn
-    ? filters
-    : {
-        ...filters,
-        status: 'all',
-        assignee: '',
-        startDate: '',
-        endDate: '',
-        milestoneOnly: false,
-        issueOnly: false,
-        level: 'all',
-        pastDueOnly: false,
-        completedThisWeekOnly: false,
-        notStartedYetOnly: false,
-      };
-
-  const resetWbsFilters = useCallback(() => {
-    setFilters((prev) => ({
-      ...prev,
-      projectIds: 'all',
-      status: 'all',
-      assignee: '',
-      assigneeUnassignedOnly: false,
-      startDate: '',
-      endDate: '',
-      milestoneOnly: false,
-      issueOnly: false,
-      level: 'all',
-      pastDueOnly: false,
-      completedThisWeekOnly: false,
-      notStartedYetOnly: false,
-      searchText: '',
-    }));
-  }, []);
-
-  const requestRefresh = useCallback(async () => {
-    if (hasLocalChangesSinceSync && isSupabaseConfigured) {
-      try {
-        await pushChangesToDbRef.current('all');
-      } catch {
-        /* reload anyway */
-      }
-    }
-    window.location.reload();
-  }, [hasLocalChangesSinceSync, isSupabaseConfigured]);
-
-  const projectSwitchTargetLabel = React.useMemo(() => {
-    if (!projectSwitchPrompt) return '';
-    const p = projects.find((x) => x.id === projectSwitchPrompt.targetProjectId);
-    return p ? formatProjectDisplayName(p.name, p.projectKind) : projectSwitchPrompt.targetProjectId;
-  }, [projectSwitchPrompt, projects]);
-
   if (isLoading) {
     return <AppSkeleton isSupabaseConfigured={isSupabaseConfigured} />;
   }
@@ -1383,52 +873,15 @@ function WBSApp({
       )}
     >
       {projectSwitchPrompt && (
-        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[80]')}>
-          <div
-            ref={projectSwitchDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="project-switch-unsaved-title"
-            className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}
-          >
-            <div className={MODAL_HEADER_CLASS}>
-              <h2 id="project-switch-unsaved-title" className="text-lg font-bold text-[var(--color-ink)]">
-                저장되지 않음
-              </h2>
-              <button
-                type="button"
-                aria-label="전환 취소"
-                onClick={handleProjectSwitchCancel}
-                disabled={projectSwitchBusy}
-                className={MODAL_CLOSE_BUTTON_CLASS}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="px-5 py-5 sm:px-6">
-              <p className="text-sm text-slate-600 leading-relaxed">서버에는 아직 반영되지 않았습니다. 저장할까요?</p>
-              <p className="mt-2 text-xs text-slate-500">전환: {projectSwitchTargetLabel}</p>
-            </div>
-            <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() => void handleProjectSwitchDiscardProceed()}
-                disabled={projectSwitchBusy}
-              >
-                {projectSwitchAction === 'discard' ? '되돌리는 중…' : '저장 안 함'}
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => void handleProjectSwitchSaveAndProceed()}
-                disabled={projectSwitchBusy}
-              >
-                {projectSwitchAction === 'save' ? '저장 중…' : '저장'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UnsavedProjectSwitchDialog
+          dialogRef={projectSwitchDialogRef}
+          targetLabel={projectSwitchTargetLabel}
+          busy={projectSwitchBusy}
+          action={projectSwitchAction}
+          onCancel={handleProjectSwitchCancel}
+          onDiscard={() => void handleProjectSwitchDiscardProceed()}
+          onSave={() => void handleProjectSwitchSaveAndProceed()}
+        />
       )}
       {isSupabaseConfigured && hasLocalChangesSinceSync && (
         <button
@@ -1927,143 +1380,30 @@ function WBSApp({
         )}
         {isVersionHistoryOpen && <VersionManager isOpen onClose={() => setIsVersionHistoryOpen(false)} currentVersion={APP_VERSION} />}
 
-        {/* 삭제 유형 선택: 전체 삭제(관리자) / 현재 프로젝트 삭제(소유자·관리자) / 프로젝트 선택 삭제(소유자·관리자) / 현재 프로젝트 작업 삭제(편집자) */}
-        {isDeleteChoiceOpen &&
-          (() => {
-            const isCurrentProjectOwner = !!currentProject && !!user?.id && currentProject.ownerId === user.id;
-            const canDeleteCurrentProject = !!currentProject && (realIsAdmin || isCurrentProjectOwner);
-            const hasAnyOption =
-              realIsAdmin || canDeleteCurrentProject || deletableProjects.length > 0 || (!!currentProject && canEditCurrentProject);
-            return (
-              <div className="modal-overlay">
-                <div className="modal-content max-w-md">
-                  <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/30">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
-                        <AlertTriangle className="text-red-500" size={18} />
-                      </div>
-                      <h2 className="text-lg font-bold text-[var(--color-ink)]">삭제 유형 선택</h2>
-                    </div>
-                    <button onClick={() => setIsDeleteChoiceOpen(false)} className="icon-btn text-slate-400 hover:text-slate-700">
-                      <X size={18} />
-                    </button>
-                  </div>
-                  <div className="p-6 max-h-[60vh] overflow-y-auto">
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">삭제 방식을 선택하세요.</p>
-                    <div className="mt-4 space-y-2">
-                      {!hasAnyOption && (
-                        <div className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">
-                          삭제 권한이 있는 항목이 없습니다. 본인이 만든 프로젝트만 삭제할 수 있어요.
-                        </div>
-                      )}
-                      {realIsAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsDeleteChoiceOpen(false);
-                            setIsDeleteAllProjectsConfirmOpen(true);
-                          }}
-                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                        >
-                          <span className="block font-semibold">
-                            전체 삭제{' '}
-                            <span className="text-[10px] font-bold uppercase ml-1 px-1.5 py-0.5 bg-red-200 text-red-800 rounded">
-                              관리자
-                            </span>
-                          </span>
-                          <span className="block text-xs text-red-600 mt-0.5">
-                            모든 프로젝트/작업을 삭제하고 '새 프로젝트'로 초기화합니다.
-                          </span>
-                        </button>
-                      )}
-                      {canDeleteCurrentProject && currentProject && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsDeleteChoiceOpen(false);
-                            setProjectToDelete(currentProject);
-                            setIsDeleteProjectConfirmOpen(true);
-                          }}
-                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors mt-3"
-                        >
-                          <span className="block font-semibold">현재 보고 있는 프로젝트 삭제</span>
-                          <span className="block text-xs text-red-600 mt-0.5">
-                            '{currentProject.name}' 프로젝트와 소속된 모든 작업을 삭제합니다.
-                            {realIsAdmin && currentProject.ownerId && (
-                              <span className="block text-red-500/80 mt-0.5">
-                                소유:{' '}
-                                {currentProject.ownerId === user?.id
-                                  ? '내 프로젝트'
-                                  : currentProject.ownerId
-                                    ? (profileMap[currentProject.ownerId] ?? '다른 사용자')
-                                    : '소유자 없음'}
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      )}
-                      {deletableProjects.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-medium text-slate-500 mt-3">
-                            프로젝트 선택해서 삭제 {realIsAdmin ? '(전체)' : '(내 프로젝트)'}
-                          </p>
-                          {deletableProjects.map((project) => (
-                            <button
-                              key={project.id}
-                              type="button"
-                              onClick={() => {
-                                setIsDeleteChoiceOpen(false);
-                                setProjectToDelete(project);
-                                setIsDeleteProjectConfirmOpen(true);
-                              }}
-                              className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                            >
-                              <span className="block font-semibold">
-                                <ProjectNameLabel project={project} name={project.name} />
-                              </span>
-                              <span className="block text-xs text-red-600 mt-0.5">
-                                프로젝트와 소속된 모든 작업을 삭제합니다.
-                                {realIsAdmin && project.ownerId && (
-                                  <span className="block text-red-500/80 mt-0.5">
-                                    소유:{' '}
-                                    {project.ownerId === user?.id
-                                      ? '내 프로젝트'
-                                      : project.ownerId
-                                        ? (profileMap[project.ownerId] ?? '다른 사용자')
-                                        : '소유자 없음'}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {currentProject && canEditCurrentProject && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsDeleteChoiceOpen(false);
-                            setIsDeleteAllConfirmOpen(true);
-                          }}
-                          className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50/80 hover:bg-red-100 text-red-700 font-medium text-sm transition-colors"
-                        >
-                          <span className="block font-semibold">현재 프로젝트 작업만 삭제</span>
-                          <span className="block text-xs text-red-600 mt-0.5">
-                            '{currentProject.name}'의 작업만 삭제하고 프로젝트는 유지합니다.
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex justify-end p-5 border-t border-slate-100 bg-slate-50/30">
-                    <button type="button" onClick={() => setIsDeleteChoiceOpen(false)} className="btn-ghost">
-                      취소
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+        {isDeleteChoiceOpen && (
+          <DeleteScopeDialog
+            currentProject={currentProject}
+            userId={user?.id}
+            realIsAdmin={realIsAdmin}
+            canEditCurrentProject={canEditCurrentProject}
+            deletableProjects={deletableProjects}
+            profileMap={profileMap}
+            onClose={() => setIsDeleteChoiceOpen(false)}
+            onChooseDeleteAllProjects={() => {
+              setIsDeleteChoiceOpen(false);
+              setIsDeleteAllProjectsConfirmOpen(true);
+            }}
+            onChooseDeleteProject={(project) => {
+              setIsDeleteChoiceOpen(false);
+              setProjectToDelete(project);
+              setIsDeleteProjectConfirmOpen(true);
+            }}
+            onChooseDeleteCurrentTasks={() => {
+              setIsDeleteChoiceOpen(false);
+              setIsDeleteAllConfirmOpen(true);
+            }}
+          />
+        )}
         <ConfirmDialog
           isOpen={isDeleteAllConfirmOpen}
           onClose={() => setIsDeleteAllConfirmOpen(false)}
@@ -2349,9 +1689,6 @@ function WBSApp({
 function AppWithProviders() {
   const { user, loading, isResettingPassword } = useAuth();
   const { push: pushToast } = useToast();
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [userApproved, setUserApproved] = useState(false);
-  const [isExternalPartner, setIsExternalPartner] = useState(false);
   /** 관리자 비밀번호로 임시 관리자 모드에 진입한 상태 (sessionStorage 기반) */
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   /** 관리자가 회원 화면을 체험 중인 상태 (sessionStorage 기반). 켜져 있으면 관리자라도 화면상 비관리자처럼 동작. */
@@ -2361,6 +1698,10 @@ function AppWithProviders() {
     if (v) sessionStorage.setItem('wbs-member-preview', 'true');
     else sessionStorage.removeItem('wbs-member-preview');
   }, []);
+
+  // 로그인 사용자 권한 상태(관리자·승인·외주·조직 책임자) — useViewerStatus로 분리(동작 동일)
+  const { isAdmin, userApproved, isExternalPartner, isOrgScopedManager, currentUserManagedOrgNodeId } = useViewerStatus(user?.id);
+
   // WBSProvider 콜백은 useCallback으로 안정화 — 인라인 함수면 매 렌더마다 새 참조가 되어
   // Provider 내부의 데이터 로딩 effect가 재실행되고 스켈레톤이 깜빡임.
   const handleConcurrentConflict = useCallback(() => {
@@ -2377,150 +1718,14 @@ function AppWithProviders() {
   );
   // gmtc.kr 사내 회원은 관리자와 동일 노출(요청사항) — WBSProvider.isAdmin으로 전파되어 컴포넌트 전반에 동일 적용.
   const effectiveIsAdminGlobal = (isAdmin || adminOverride || isInternalCompanyEmail(user?.email ?? '')) && !memberPreview;
-  /** undefined: 로딩 전(편집 제한 미적용). 로드 후 배열로 멤버십 기반 편집 가능 프로젝트 */
-  const [myEditableProjectIds, setMyEditableProjectIds] = useState<string[] | undefined>(undefined);
 
-  const refreshEditableProjectIds = useCallback(() => {
-    if (!user?.id) return;
-    void getMyEditableProjectIds()
-      .then((ids) => setMyEditableProjectIds(ids))
-      .catch(() => {
-        // 일시적 RPC 실패 시 직전에 조회된 편집 권한을 그대로 유지(권한 강등 방지). 다음 포커스/새로고침에 재시도.
-      });
-  }, [user?.id]);
+  // 편집 가능 프로젝트 ID + 탭 복귀·포커스 재조회 — useEditableProjectIds로 분리(동작 동일)
+  const { myEditableProjectIds, refreshEditableProjectIds } = useEditableProjectIds(user?.id);
+  // 외주 계정 클라이언트 allowlist — useExternalPartnerAllowlist로 분리(동작 동일)
+  const clientProjectAllowlist = useExternalPartnerAllowlist({ userId: user?.id, isExternalPartner, effectiveIsAdminGlobal });
 
-  const [isOrgScopedManager, setIsOrgScopedManager] = useState(false);
-  const [currentUserManagedOrgNodeId, setCurrentUserManagedOrgNodeId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setIsAdmin(false);
-      setUserApproved(false);
-      setIsExternalPartner(false);
-      setIsOrgScopedManager(false);
-      setCurrentUserManagedOrgNodeId(null);
-      return;
-    }
-    getProfileStatus()
-      .then((status) => {
-        if (status) {
-          setIsAdmin(status.isAdmin);
-          setIsExternalPartner(status.isExternalPartner);
-          // 외주 계정은 승인(approved)이어도 멤버로 공유된 프로젝트만 열람·편집 (전사 탐색·조직도 UI 제외)
-          setUserApproved(status.approved && !status.isExternalPartner);
-          setIsOrgScopedManager(status.isOrgScopeManager);
-          setCurrentUserManagedOrgNodeId(status.managedOrgNodeId);
-        }
-      })
-      .catch(() => {});
-  }, [user?.id]);
-
-  /** 외주: 공유(project_members) 프로젝트 ID — RLS/캐시와 무관하게 클라이언트에서 목록·상태를 한 번 더 제한 */
-  const [externalPartnerBrowseIds, setExternalPartnerBrowseIds] = useState<string[] | undefined>(undefined);
-  const [externalPartnerBrowseLoaded, setExternalPartnerBrowseLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setExternalPartnerBrowseIds(undefined);
-      setExternalPartnerBrowseLoaded(false);
-      return;
-    }
-    if (!isExternalPartner || effectiveIsAdminGlobal) {
-      setExternalPartnerBrowseIds(undefined);
-      setExternalPartnerBrowseLoaded(false);
-      return;
-    }
-    let cancelled = false;
-    setExternalPartnerBrowseLoaded(false);
-    getMyProjectMemberProjectIds()
-      .then((ids) => {
-        if (!cancelled) {
-          setExternalPartnerBrowseIds(ids);
-          setExternalPartnerBrowseLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setExternalPartnerBrowseIds([]);
-          setExternalPartnerBrowseLoaded(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, isExternalPartner, effectiveIsAdminGlobal]);
-
-  const externalBrowseKey = externalPartnerBrowseIds === undefined ? '' : [...externalPartnerBrowseIds].sort().join(',');
-
-  const clientProjectAllowlist = useMemo(() => {
-    if (!isExternalPartner || effectiveIsAdminGlobal) return undefined;
-    if (!externalPartnerBrowseLoaded) return undefined;
-    return externalPartnerBrowseIds ?? [];
-  }, [isExternalPartner, effectiveIsAdminGlobal, externalPartnerBrowseLoaded, externalBrowseKey]);
-
-  useEffect(() => {
-    if (!user?.id) {
-      setMyEditableProjectIds(undefined);
-      return;
-    }
-    let cancelled = false;
-    const refresh = () => {
-      getMyEditableProjectIds()
-        .then((ids) => {
-          if (!cancelled) setMyEditableProjectIds(ids);
-        })
-        .catch(() => {
-          // 탭 복귀·창 포커스 시 재조회가 일시적으로 실패해도(특히 인증 토큰 갱신과 겹칠 때)
-          // 직전 편집 권한을 유지한다. undefined/[]로 덮어쓰면 멤버·에디터의
-          // canEditCurrentProject가 false로 뒤집혀 Insert/Enter 새 작업 추가가 새로고침 전까지 막히던 버그가 있었음.
-        });
-    };
-    refresh();
-    // 다른 세션·다른 사용자에 의해 권한이 변경됐을 가능성 — 탭 복귀·창 포커스 시 재조회
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [user?.id]);
-
-  // 접속 기록: 로그인 후 앱 진입 시 한 번 기록 + 주기적 활동 하트비트(관리자용 현재 접속자 판별)
-  useEffect(() => {
-    if (!isSupabaseConfigured || !supabase || !user?.id) return;
-    let sessionId = sessionStorage.getItem('wbs-visit-session-id');
-    if (!sessionId) {
-      sessionId = uuidv4();
-      sessionStorage.setItem('wbs-visit-session-id', sessionId);
-    }
-    const sid = sessionId;
-    void (async () => {
-      try {
-        await supabase.rpc('record_visit', { p_session_id: sid });
-      } catch {
-        // best-effort; ignore visit logging failures
-      }
-      try {
-        await supabase.rpc('pulse_presence', { p_session_id: sid });
-      } catch {
-        // best-effort; DB에 마이그레이션 전이면 무시
-      }
-    })();
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        try {
-          await supabase.rpc('pulse_presence', { p_session_id: sid });
-        } catch {
-          /* ignore */
-        }
-      })();
-    }, 45_000);
-    return () => window.clearInterval(intervalId);
-  }, [user?.id]);
+  // 접속 기록·현재 접속자 하트비트 — useVisitLogging으로 분리(동작 동일)
+  useVisitLogging(user?.id);
 
   if (!isSupabaseConfigured) {
     return <SupabaseSetupScreen />;

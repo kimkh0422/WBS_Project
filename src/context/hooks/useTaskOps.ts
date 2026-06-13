@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project } from '../../types';
 import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
@@ -918,20 +918,38 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, setAllTasks, recordDeletedTaskIds],
   );
 
-  return {
-    addTask,
-    insertPastedTasksInOrder,
-    addTasks,
-    updateTask,
-    updateTasksBulk,
-    linkSequentialPredecessors,
-    setBaselineForTasks,
-    setBaselineForAllTasks,
-    renameAssignee,
-    refreshProjectSchedule,
-    distributeChildrenSchedule,
-    rollupTaskSchedule,
-    deleteTask,
-    flushProjectTaskRollups,
-  };
+  return useMemo(
+    () => ({
+      addTask,
+      insertPastedTasksInOrder,
+      addTasks,
+      updateTask,
+      updateTasksBulk,
+      linkSequentialPredecessors,
+      setBaselineForTasks,
+      setBaselineForAllTasks,
+      renameAssignee,
+      refreshProjectSchedule,
+      distributeChildrenSchedule,
+      rollupTaskSchedule,
+      deleteTask,
+      flushProjectTaskRollups,
+    }),
+    [
+      addTask,
+      insertPastedTasksInOrder,
+      addTasks,
+      updateTask,
+      updateTasksBulk,
+      linkSequentialPredecessors,
+      setBaselineForTasks,
+      setBaselineForAllTasks,
+      renameAssignee,
+      refreshProjectSchedule,
+      distributeChildrenSchedule,
+      rollupTaskSchedule,
+      deleteTask,
+      flushProjectTaskRollups,
+    ],
+  );
 }

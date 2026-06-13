@@ -716,6 +716,9 @@ export function WBSTable({
       if (onRowHeightsChange && !wrapTextInCells) onRowHeightsChange([]);
       return;
     }
+    /** 스크롤바·서브픽셀로 offsetHeight가 1px 왔다 갔다 하면 간트↔표 ResizeObserver가 연쇄되어 깜빡일 수 있음 */
+    const HEIGHT_EPS = 1;
+    let roRaf = 0;
     const measure = () => {
       const scrollEl = tableScrollRef.current;
       if (!scrollEl) return;
@@ -724,21 +727,30 @@ export function WBSTable({
       if (heights.length === 0) return;
       // 변경된 경우에만 콜백 호출 (Maximum update depth 방지)
       const prev = lastHeightsRef.current;
-      if (prev.length !== heights.length || prev.some((h, i) => h !== heights[i])) {
+      const changed = prev.length !== heights.length || prev.some((h, i) => Math.abs(h - (heights[i] ?? 0)) > HEIGHT_EPS);
+      if (changed) {
         lastHeightsRef.current = heights;
         // 다음 틱으로 지연해 동기적 setState 루프 방지
         const cb = onRowHeightsChange;
         queueMicrotask(() => cb(heights));
       }
     };
+    const scheduleMeasure = () => {
+      if (roRaf) return;
+      roRaf = requestAnimationFrame(() => {
+        roRaf = 0;
+        measure();
+      });
+    };
     const raf = requestAnimationFrame(() => {
       measure();
       requestAnimationFrame(measure); // 한 프레임 더 대기 (줄바꿈 레이아웃 완료)
     });
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(tableScrollRef.current);
     return () => {
       cancelAnimationFrame(raf);
+      if (roRaf) cancelAnimationFrame(roRaf);
       observer.disconnect();
     };
   }, [wrapTextInCells, syncScrollRef, visibleTaskIdsKey, onRowHeightsChange, rowHeight]);

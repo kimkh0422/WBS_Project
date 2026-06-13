@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import type { Task } from '../types';
 import { upsertTasks, deleteTasksFromDB } from '../lib/db';
 
@@ -77,5 +77,8 @@ export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnl
     setCanRedo(false);
   }, []);
 
-  return { saveHistory, undo, redo, canUndo, canRedo, resetHistory };
+  return useMemo(
+    () => ({ saveHistory, undo, redo, canUndo, canRedo, resetHistory }),
+    [saveHistory, undo, redo, canUndo, canRedo, resetHistory],
+  );
 }

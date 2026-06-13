@@ -1,4 +1,4 @@
-import { useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project } from '../../types';
 import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { WBSSettings, parseSettings } from '../../lib/wbsSettings';
@@ -282,13 +282,16 @@ export function useBackupOps(deps: BackupOpsDeps) {
     [bumpDirty, ownerIdRef, wbsSettingsRef, setProjects, setAllTasks, setCurrentProjectId],
   );
 
-  return {
-    importTasks,
-    deleteAllTasks,
-    deleteAllTasksInAllProjects,
-    resetAllProjectsToNew,
-    restoreBackup,
-    exportFullBackup,
-    mergeBackups,
-  };
+  return useMemo(
+    () => ({
+      importTasks,
+      deleteAllTasks,
+      deleteAllTasksInAllProjects,
+      resetAllProjectsToNew,
+      restoreBackup,
+      exportFullBackup,
+      mergeBackups,
+    }),
+    [importTasks, deleteAllTasks, deleteAllTasksInAllProjects, resetAllProjectsToNew, restoreBackup, exportFullBackup, mergeBackups],
+  );
 }
