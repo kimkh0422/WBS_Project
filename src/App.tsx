@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
-import { useLocation, useNavigate, useBlocker } from 'react-router-dom';
-import type { BlockerFunction } from 'react-router';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { APP_VERSION, APP_COMMIT_DATE } from './appRelease';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
@@ -451,8 +450,7 @@ function WBSApp({
   /** 저장 모델: 편집마다 자동 DB push 하던 방식을 "수동 저장"으로 전환해 편집 중 렉을 제거한다.
    *  - 로컬 변경은 WBSContext가 즉시 localStorage에 보존하므로 새로고침해도 데이터는 유지된다.
    *  - 서버(DB) 반영은 Ctrl+S 또는 우측 하단 "저장" 버튼으로만 수행한다.
-   *  - 미저장 상태로 다른 화면(URL)으로 이동·뒤로 가기 시 확인 모달(useBlocker)로 저장을 유도한다.
-   *  - 미저장 상태로 헤더·필터 등에서 다른 프로젝트를 선택할 때도 동일하게 확인(requestProjectSwitch).
+   *  - 미저장 상태로 헤더·필터 등에서 다른 프로젝트를 선택할 때 확인 모달로 저장을 유도한다(requestProjectSwitch).
    *  - 미저장 상태로 창을 닫거나 새로고침하면 브라우저 경고로 이탈 전 저장을 유도한다. */
   const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
   hasLocalChangesRef.current = hasLocalChangesSinceSync;
@@ -505,56 +503,9 @@ function WBSApp({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [saveNow]);
 
-  const navSaveDialogRef = useRef<HTMLDivElement>(null);
-  const [isNavBlockSaveBusy, setIsNavBlockSaveBusy] = useState(false);
-  const shouldBlockInAppNavigation = useCallback<BlockerFunction>(
-    ({ currentLocation, nextLocation }) =>
-      isSupabaseConfigured && hasLocalChangesRef.current && currentLocation.pathname !== nextLocation.pathname,
-    [isSupabaseConfigured],
-  );
-  const navBlocker = useBlocker(shouldBlockInAppNavigation);
-  const navBlockerRef = useRef(navBlocker);
-  navBlockerRef.current = navBlocker;
-  useFocusTrap(navSaveDialogRef, navBlocker.state === 'blocked');
-
-  useEffect(() => {
-    if (navBlocker.state !== 'blocked') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        navBlockerRef.current.reset();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [navBlocker.state]);
-
-  const handleNavBlockSaveAndProceed = useCallback(async () => {
-    if (isNavBlockSaveBusy) return;
-    setIsNavBlockSaveBusy(true);
-    try {
-      await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
-      navBlockerRef.current.proceed();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-      if (/편집 권한이 없습니다/.test(msg)) {
-        navBlockerRef.current.proceed();
-      } else {
-        pushToast(msg, { variant: 'error', durationMs: 6000 });
-      }
-    } finally {
-      setIsNavBlockSaveBusy(false);
-    }
-  }, [isNavBlockSaveBusy, flushInlineCellEditsBeforeSave, pushToast]);
-
-  const handleNavBlockDiscardProceed = useCallback(() => {
-    navBlockerRef.current.proceed();
-  }, []);
-
-  const handleNavBlockCancel = useCallback(() => {
-    navBlockerRef.current.reset();
-  }, []);
+  // 앱 내 화면(URL) 이동 시 미저장 확인은 Data Router의 useBlocker가 필요했으나, RouterProvider 전환이
+  // React 19에서 초기 렌더 크래시(removeChild)를 일으켜 BrowserRouter로 되돌렸다. 따라서 URL 이동 가드는
+  // 제거한다. 프로젝트 전환 확인(requestProjectSwitch)과 새로고침·닫기 경고(beforeunload)는 그대로 동작한다.
 
   /** 서버 미반영 편집이 있을 때 다른 프로젝트로 바꾸기 전 확인 */
   const pendingProjectSwitchRunRef = useRef<(() => void) | null>(null);
@@ -1417,48 +1368,6 @@ function WBSApp({
         isFullscreen && 'fixed inset-0 z-50',
       )}
     >
-      {navBlocker.state === 'blocked' && (
-        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[80]')}>
-          <div
-            ref={navSaveDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="nav-unsaved-title"
-            className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}
-          >
-            <div className={MODAL_HEADER_CLASS}>
-              <h2 id="nav-unsaved-title" className="text-lg font-bold text-[var(--color-ink)]">
-                저장되지 않음
-              </h2>
-              <button
-                type="button"
-                aria-label="이동 취소"
-                onClick={handleNavBlockCancel}
-                disabled={isNavBlockSaveBusy}
-                className={MODAL_CLOSE_BUTTON_CLASS}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="px-5 py-5 sm:px-6">
-              <p className="text-sm text-slate-600 leading-relaxed">서버에는 아직 반영되지 않았습니다. 저장할까요?</p>
-            </div>
-            <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
-              <button type="button" className="btn-ghost" onClick={handleNavBlockDiscardProceed} disabled={isNavBlockSaveBusy}>
-                저장 안 함
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => void handleNavBlockSaveAndProceed()}
-                disabled={isNavBlockSaveBusy}
-              >
-                {isNavBlockSaveBusy ? '저장 중…' : '저장'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {projectSwitchPrompt && (
         <div className={cn(MODAL_BACKDROP_CLASS, 'z-[80]')}>
           <div
