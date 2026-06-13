@@ -89,7 +89,7 @@ export function getWbsTableCopyPlainText(opts: {
 
 /**
  * 타이핑 즉시 편집(type-to-edit) 대상 컬럼 — 셀 편집기가 uncontrolled(`defaultValue`) 텍스트/숫자 input이라
- * 첫 글자를 native value로 주입할 수 있는 컬럼, 또는 allocation·dependencies처럼 `typeToEditSeed`로
+ * 첫 글자를 native value로 주입할 수 있는 컬럼, 또는 allocation·진척률·dependencies처럼 `typeToEditSeed`로
  * controlled 편집기에 넘기는 컬럼. status(select)·파생(계획율·차이) 셀은 제외.
  */
 const TYPE_TO_EDIT_COLUMNS = new Set<string>([
@@ -106,7 +106,7 @@ const TYPE_TO_EDIT_COLUMNS = new Set<string>([
   'dependencies',
 ]);
 /** 첫 글자는 DOM seed 대신 `editingCell.typeToEditSeed`로 행에 전달(controlled input). */
-const TYPE_TO_EDIT_SEED_CONTROLLED_COLUMNS = new Set<string>(['allocation', 'dependencies']);
+const TYPE_TO_EDIT_SEED_CONTROLLED_COLUMNS = new Set<string>(['allocation', 'progress', 'dependencies']);
 /** 요약(자식 있는) 행에서도 편집 가능 — 저장 후 롤업은 rollups.ts·useTaskOps의 growOnly·exclude 규칙을 따름 */
 export function canTypeToEditColumn(columnId: TableColumnId, _hasChildren: boolean): boolean {
   const isCustom = columnId.startsWith('custom:');
@@ -1043,10 +1043,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             }
             setInlineEditingNameId(null);
             if (TYPE_TO_EDIT_SEED_CONTROLLED_COLUMNS.has(col)) {
-              if (col === 'allocation' && !/^\d$/.test(ch)) {
-                setEditingCell({ taskId, columnId: col });
-              } else {
+              const useSeed = col === 'allocation' ? /^\d$/.test(ch) : col === 'progress' ? /^[\d.]$/.test(ch) : true;
+              if (useSeed) {
                 setEditingCell({ taskId, columnId: col, typeToEditSeed: ch });
+              } else {
+                setEditingCell({ taskId, columnId: col });
               }
             } else {
               setEditingCell({ taskId, columnId: col });

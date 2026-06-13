@@ -428,6 +428,30 @@ function SortableTaskRowInner({
     }
   }, [isAllocEditing, task.id, primaryPercentForAlloc, editingCell, setEditingCell]);
 
+  /** 진척률: type-to-edit 시 첫 글자가 유실되지 않도록 allocation과 동일하게 문자열 controlled 편집 */
+  const isProgEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'progress';
+  const [progressEditStr, setProgressEditStr] = useState('');
+  const progEditSessionRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!isProgEditing) {
+      progEditSessionRef.current = null;
+      return;
+    }
+    const sessionKey = `${task.id}:progress`;
+    if (progEditSessionRef.current === sessionKey) return;
+    progEditSessionRef.current = sessionKey;
+    const seed = editingCell?.taskId === task.id && editingCell?.columnId === 'progress' ? editingCell.typeToEditSeed : undefined;
+    if (typeof seed === 'string' && seed.length === 1 && /^[\d.]$/.test(seed)) {
+      setProgressEditStr(seed);
+    } else {
+      const p = task.progress;
+      setProgressEditStr(typeof p === 'number' && Number.isFinite(p) ? String(p) : '');
+    }
+    if (editingCell && editingCell.taskId === task.id && editingCell.columnId === 'progress' && 'typeToEditSeed' in editingCell) {
+      setEditingCell({ taskId: editingCell.taskId, columnId: 'progress' });
+    }
+  }, [isProgEditing, task.id, task.progress, editingCell, setEditingCell]);
+
   // React `autoFocus`는 useEffect 이후에 실행된다. type-to-edit으로 연 직후 연속 키(예: 진척률 "50")가
   // 아직 표 스크롤 영역에 포커스일 때 두 번째 글자가 유실될 수 있어, 커밋 직후 동기로 편집기에 포커스한다.
   useLayoutEffect(() => {
@@ -1336,18 +1360,23 @@ function SortableTaskRowInner({
                 {isEditing ? (
                   <input
                     id={`wbs-edit-${task.id}-progress`}
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={5}
+                    type="text"
+                    inputMode="decimal"
                     autoFocus
-                    defaultValue={typeof task.progress === 'number' ? task.progress : ''}
+                    value={progressEditStr}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === '' || /^\d*([.]\d*)?$/.test(next)) setProgressEditStr(next);
+                    }}
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                    onBlur={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v >= 0 && v <= 100) {
-                        const rounded = round2(v);
-                        if (rounded !== (task.progress ?? NaN)) updateTask(task.id, { progress: rounded });
+                    onBlur={() => {
+                      const raw = progressEditStr.trim();
+                      if (raw !== '') {
+                        const v = parseFloat(raw);
+                        if (!isNaN(v) && v >= 0 && v <= 100) {
+                          const rounded = round2(v);
+                          if (rounded !== (task.progress ?? NaN)) updateTask(task.id, { progress: rounded });
+                        }
                       }
                       setEditingCell(null);
                     }}

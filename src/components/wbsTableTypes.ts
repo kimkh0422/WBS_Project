@@ -19,7 +19,7 @@ export type BuiltInTableColumnId =
   | 'dependencies';
 export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;
 
-/** 인라인 편집 중인 셀. `typeToEditSeed`는 controlled 편집기(allocation·선행작업)용 첫 글자 주입 후 즉시 제거된다. */
+/** 인라인 편집 중인 셀. `typeToEditSeed`는 controlled 편집기(allocation·진척률·선행작업)용 첫 글자 주입 후 즉시 제거된다. */
 export type WbsEditingCellPayload = { taskId: string; columnId: TableColumnId; typeToEditSeed?: string };
 export type TableDisplayColumnId = TableColumnId | 'actions';
 

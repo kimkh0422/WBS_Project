@@ -159,6 +159,11 @@ export interface WBSContextType {
   ) => Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }>;
   /** 업로드만 수행(전체 재조회 없음). 실시간 협업·백그라운드 저장용. */
   pushChangesToDb: (scope: 'current' | 'all') => Promise<{ projects: Project[]; allTasks: Task[]; summary: DbSyncSummary }>;
+  /**
+   * DB에 올리지 않은 로컬 편집을 버리고 서버 스냅샷으로 덮어씀(미저장 플래그 해제·IndexedDB 동기화).
+   * 프로젝트 전환 확인에서「저장 안 함」처리 등에 사용한다.
+   */
+  discardUnsavedChangesReloadFromServer: () => Promise<void>;
   /** 편집 시마다 증가 — 자동 저장 디바운스 리셋용 */
   collabPushNonce: number;
   deleteAllTasks: () => void;

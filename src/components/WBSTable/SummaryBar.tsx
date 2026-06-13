@@ -1,5 +1,5 @@
 import React from 'react';
-import { CalendarDays, Clock, TrendingUp, ListChecks, Target, Sparkles, Scale, MousePointerClick } from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Target, Sparkles } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -38,9 +38,6 @@ interface SummaryBarProps {
   /** 계획율 기준일(YYYY-MM-DD). 빈 문자열이면 "오늘 자동" 모드. */
   plannedRefDateIso: string;
   setPlannedRefDateIso: (iso: string) => void;
-  /** 가중치 진척 롤업 사용 여부 (true=가중평균 / false=단순평균) */
-  useWeightForRollup: boolean;
-  setUseWeightForRollup: (v: boolean) => void;
   isSplitView: boolean;
   maxTreeLevel: number;
   treeExpandLevel: number;
@@ -57,12 +54,7 @@ interface SummaryBarProps {
     globalEnabled: boolean;
     onToggle: () => void;
   };
-  /** 클릭 편집 모드: 켜면 셀 한 번 클릭으로 바로 편집, 끄면 더블클릭·F2로만 편집. 편집 권한 없으면 undefined로 숨김. */
-  cellClickEdit?: {
-    on: boolean;
-    onToggle: () => void;
-  };
-  /** 고급 도구(자동 서식·가중치·클릭 편집) 표시. 기본 숨김, Shift+F12로 토글. */
+  /** 고급 도구(자동 서식) 표시. 기본 숨김, Shift+F12로 토글. */
   showAdvancedTools?: boolean;
   /** 표+간트 통합 상단 줄 왼쪽 칸에 넣을 때: 높이·테두리를 부모에 맞춤 */
   chromeEmbed?: boolean;
@@ -72,8 +64,6 @@ export function SummaryBar({
   summaryStats,
   plannedRefDateIso,
   setPlannedRefDateIso,
-  useWeightForRollup,
-  setUseWeightForRollup,
   isSplitView: _isSplitView,
   maxTreeLevel,
   treeExpandLevel,
@@ -85,126 +75,120 @@ export function SummaryBar({
   handleSetRowHeight,
   onOpenMdEditor,
   tableAutoFormatting,
-  cellClickEdit,
   showAdvancedTools,
   chromeEmbed = false,
 }: SummaryBarProps) {
-  const cellClickEditButton = cellClickEdit ? (
-    <button
-      type="button"
-      onClick={cellClickEdit.onToggle}
-      aria-pressed={cellClickEdit.on}
-      className={cn(
-        'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-        cellClickEdit.on
-          ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-          : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
-      )}
-      title={
-        cellClickEdit.on
-          ? '클릭 편집이 켜져 있습니다. 셀을 한 번 클릭하면 바로 편집됩니다. 클릭하면 끕니다(더블클릭·F2로 편집).'
-          : '클릭 편집이 꺼져 있습니다. 더블클릭 또는 F2로 편집합니다. 클릭하면 켭니다(한 번 클릭으로 바로 편집).'
-      }
-    >
-      <MousePointerClick size={12} strokeWidth={2} aria-hidden />
-      클릭 편집
-    </button>
-  ) : null;
   return (
     <div
       className={cn(
         chromeEmbed
-          ? 'h-full min-h-0 flex items-center justify-end gap-1.5 px-3 py-0 text-xs bg-transparent flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap border-0 shadow-none'
+          ? 'h-full min-h-0 w-full min-w-0 flex items-center justify-between gap-2 px-3 py-0 text-xs bg-transparent flex-shrink-0 overflow-x-hidden overflow-y-hidden border-0 shadow-none'
           : // 한 줄 고정(줄바꿈 X) + 가로 스크롤, 높이 h-14.
             'h-14 flex items-center gap-1.5 border-b border-[var(--color-line)] px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
       )}
     >
       {summaryStats ? (
         <>
-          <StatChip icon={<ListChecks size={12} />} label="작업" value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`} />
-          <Divider />
-          <StatChip
-            icon={<Clock size={12} />}
-            label="총 공수"
-            value={`${Number(summaryStats.effortDisplayAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${summaryStats.effortDisplayLabel}`}
-          />
-          <Divider />
-          <StatChip
-            icon={<TrendingUp size={12} />}
-            label="전체 진척율"
-            value={`${formatPercent1(summaryStats.avgProgress)}%`}
-            hint={summaryStats.avgProgressTooltip}
-          />
-          <Divider />
-          <StatChip
-            icon={<Target size={12} />}
-            label="전체 계획율"
-            value={`${formatPercent1(summaryStats.avgPlanned)}%`}
-            hint={SUMMARY_BAR_PLANNED_HINT}
-          />
-          <Divider />
-          <StatChip
-            icon={<TrendingUp size={12} />}
-            label="계획대비"
-            value={`${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}%p`}
-            valueClassName={
-              summaryStats.progressVariance < 0 ? 'text-red-600' : summaryStats.progressVariance > 0 ? 'text-emerald-600' : undefined
-            }
-            hint={summaryBarVarianceHint(
-              formatPercent1(summaryStats.avgProgress),
-              formatPercent1(summaryStats.avgPlanned),
-              `${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}`,
-              summaryStats.progressVariance < 0 ? '계획 대비 지연' : summaryStats.progressVariance > 0 ? '계획보다 앞섬' : '계획대로',
-            )}
-          />
-          <Divider />
-          <StatChip
-            icon={<CalendarDays size={12} />}
-            label="기간"
-            value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`}
-          />
-          <Divider />
-          {/* 계획율 기준일 — 이 날짜 기준으로 모든 계획율(%)·차이(%P)가 즉시 재계산됨. */}
           <div
             className={cn(
-              'flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border',
-              plannedRefDateIso ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-white',
+              'flex items-center gap-1.5 min-w-0 whitespace-nowrap',
+              chromeEmbed ? 'flex-1 overflow-x-auto overflow-y-hidden' : 'overflow-x-auto overflow-y-hidden',
             )}
-            title={
-              plannedRefDateIso
-                ? `계획율 기준일: ${plannedRefDateIso}\n— 이 날짜 시점의 영업일 진행률로 계획(%)·차이(%P)가 산정됩니다.\n— 비우면 "오늘 자동" 모드(매일 자동 갱신).`
-                : '계획율 기준일이 비어 있어 "오늘 자동" 모드입니다. 날짜를 입력하면 그 시점 기준으로 모든 계획율이 즉시 재계산됩니다.'
-            }
           >
-            <CalendarDays size={12} className={plannedRefDateIso ? 'text-indigo-600' : 'text-slate-400'} />
-            <span
-              className={cn('text-[10px] font-bold uppercase tracking-[0.06em]', plannedRefDateIso ? 'text-indigo-700' : 'text-slate-500')}
-            >
-              기준일
-            </span>
-            <input
-              type="date"
-              value={plannedRefDateIso}
-              onChange={(e) => setPlannedRefDateIso(e.target.value)}
-              className={cn(
-                'h-6 px-1 text-[11px] rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400/30',
-                plannedRefDateIso ? 'border-indigo-300 bg-white text-indigo-800 font-semibold' : 'border-slate-200 bg-white text-slate-600',
-              )}
-              aria-label="계획율 기준일"
+            <StatChip
+              icon={<ListChecks size={12} />}
+              label="작업"
+              value={`${summaryStats.taskCount}개 (단말 ${summaryStats.leafCount}개)`}
             />
-            {plannedRefDateIso && (
-              <button
-                type="button"
-                onClick={() => setPlannedRefDateIso('')}
-                className="text-[10px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 px-1 py-0.5 rounded"
-                title="기준일 비우기 → 오늘 자동"
+            <Divider />
+            <StatChip
+              icon={<Clock size={12} />}
+              label="총 공수"
+              value={`${Number(summaryStats.effortDisplayAmount ?? 0).toLocaleString(undefined, { useGrouping: false, maximumFractionDigits: 2 })} ${summaryStats.effortDisplayLabel}`}
+            />
+            <Divider />
+            <StatChip
+              icon={<TrendingUp size={12} />}
+              label="전체 진척율"
+              value={`${formatPercent1(summaryStats.avgProgress)}%`}
+              hint={summaryStats.avgProgressTooltip}
+            />
+            <Divider />
+            <StatChip
+              icon={<Target size={12} />}
+              label="전체 계획율"
+              value={`${formatPercent1(summaryStats.avgPlanned)}%`}
+              hint={SUMMARY_BAR_PLANNED_HINT}
+            />
+            <Divider />
+            <StatChip
+              icon={<TrendingUp size={12} />}
+              label="계획대비"
+              value={`${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}%p`}
+              valueClassName={
+                summaryStats.progressVariance < 0 ? 'text-red-600' : summaryStats.progressVariance > 0 ? 'text-emerald-600' : undefined
+              }
+              hint={summaryBarVarianceHint(
+                formatPercent1(summaryStats.avgProgress),
+                formatPercent1(summaryStats.avgPlanned),
+                `${summaryStats.progressVariance > 0 ? '+' : ''}${formatPercent1(summaryStats.progressVariance)}`,
+                summaryStats.progressVariance < 0 ? '계획 대비 지연' : summaryStats.progressVariance > 0 ? '계획보다 앞섬' : '계획대로',
+              )}
+            />
+            <Divider />
+            <StatChip
+              icon={<CalendarDays size={12} />}
+              label="기간"
+              value={`${formatSummaryDate(summaryStats.startDate)} ~ ${formatSummaryDate(summaryStats.endDate)}`}
+            />
+            <Divider />
+            {/* 계획율 기준일 — 이 날짜 기준으로 모든 계획율(%)·차이(%P)가 즉시 재계산됨. */}
+            <div
+              className={cn(
+                'flex items-center gap-1.5 px-1.5 py-0.5 rounded-md border',
+                plannedRefDateIso ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-white',
+              )}
+              title={
+                plannedRefDateIso
+                  ? `계획율 기준일: ${plannedRefDateIso}\n— 이 날짜 시점의 영업일 진행률로 계획(%)·차이(%P)가 산정됩니다.\n— 비우면 "오늘 자동" 모드(매일 자동 갱신).`
+                  : '계획율 기준일이 비어 있어 "오늘 자동" 모드입니다. 날짜를 입력하면 그 시점 기준으로 모든 계획율이 즉시 재계산됩니다.'
+              }
+            >
+              <CalendarDays size={12} className={plannedRefDateIso ? 'text-indigo-600' : 'text-slate-400'} />
+              <span
+                className={cn(
+                  'text-[10px] font-bold uppercase tracking-[0.06em]',
+                  plannedRefDateIso ? 'text-indigo-700' : 'text-slate-500',
+                )}
               >
-                오늘
-              </button>
-            )}
+                기준일
+              </span>
+              <input
+                type="date"
+                value={plannedRefDateIso}
+                onChange={(e) => setPlannedRefDateIso(e.target.value)}
+                className={cn(
+                  'h-6 px-1 text-[11px] rounded border focus:outline-none focus:ring-2 focus:ring-indigo-400/30',
+                  plannedRefDateIso
+                    ? 'border-indigo-300 bg-white text-indigo-800 font-semibold'
+                    : 'border-slate-200 bg-white text-slate-600',
+                )}
+                aria-label="계획율 기준일"
+              />
+              {plannedRefDateIso && (
+                <button
+                  type="button"
+                  onClick={() => setPlannedRefDateIso('')}
+                  className="text-[10px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 px-1 py-0.5 rounded"
+                  title="기준일 비우기 → 오늘 자동"
+                >
+                  오늘
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className={cn('flex items-center gap-2.5 pl-2', !chromeEmbed && 'ml-auto')}>
+          <div className={cn('flex items-center gap-2.5 pl-2 shrink-0 whitespace-nowrap', !chromeEmbed && 'ml-auto')}>
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.06em]">레벨 펼치기</span>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map((lv) => (
@@ -228,29 +212,6 @@ export function SummaryBar({
               ))}
             </div>
             <Divider />
-            {/* 가중치 진척 롤업 토글: 켜짐=가중평균, 꺼짐=단순평균. 변경 시 모든 부모 진척·계획율 즉시 재계산 */}
-            {showAdvancedTools && (
-              <button
-                type="button"
-                onClick={() => setUseWeightForRollup(!useWeightForRollup)}
-                aria-pressed={useWeightForRollup}
-                className={cn(
-                  'inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500/20',
-                  useWeightForRollup
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
-                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
-                )}
-                title={
-                  useWeightForRollup
-                    ? '가중치 ON: 부모 진척률 = 자식의 (progress × weight) 가중평균.\n— 클릭하면 가중치를 무시한 단순 평균으로 전환합니다.'
-                    : '가중치 OFF: 부모 진척률 = 자식 progress의 단순 평균(가중치 무시).\n— 클릭하면 가중치 기반 가중평균으로 전환합니다.'
-                }
-              >
-                <Scale size={12} strokeWidth={2} aria-hidden />
-                가중치 {useWeightForRollup ? 'ON' : 'OFF'}
-              </button>
-            )}
-            {showAdvancedTools && cellClickEditButton}
             {showAdvancedTools && tableAutoFormatting && (
               <button
                 type="button"
@@ -298,7 +259,6 @@ export function SummaryBar({
         // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
         <>
           <div className="flex-1" />
-          {showAdvancedTools && cellClickEditButton}
           {showAdvancedTools && tableAutoFormatting && (
             <button
               type="button"

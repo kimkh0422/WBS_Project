@@ -7,6 +7,11 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
     expect(we?.visible).toBe(false);
   });
 
+  it('기본 설정에서 진척차이(%p) 컬럼은 숨김이다', () => {
+    const pv = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === 'progressVariance');
+    expect(pv?.visible).toBe(false);
+  });
+
   it('공수→기간 마이그레이션이 끝난 뒤 사용자가 다시 켜 둔 공수 컬럼도 재숨김한다', () => {
     const raw = {
       tableColumns: [
@@ -109,7 +114,9 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     expect(vis('weight')).toBe(false);
     expect(vis('status')).toBe(false);
     expect(vis('custom:abc')).toBe(true); // 사용자 정의 컬럼 보존
+    expect(vis('progressVariance')).toBe(false); // 별도 마이그레이션으로 진척차이 열 기본 숨김
     expect(s.standardVisibleColumnsMigrated).toBe(true);
+    expect(s.progressVarianceHiddenMigrated).toBe(true);
   });
 
   it('표준화가 1회 적용된 뒤에는 사용자가 다시 켠 컬럼(가중치 등)을 유지한다', () => {

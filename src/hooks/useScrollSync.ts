@@ -13,19 +13,26 @@ export function mirrorScrollTop(source: HTMLElement, target: HTMLElement) {
   const sourceMax = maxScrollTop(source);
   const targetMax = maxScrollTop(target);
 
+  const apply = (next: number) => {
+    const clamped = Math.min(targetMax, Math.max(0, next));
+    // ResizeObserver·서브픽셀 레이아웃에서 scrollTop만 미세하게 흔들리면 하단 행이 깜빡인다.
+    if (Math.abs(target.scrollTop - clamped) < 0.75) return;
+    target.scrollTop = clamped;
+  };
+
   if (sourceMax <= 0) {
-    target.scrollTop = 0;
+    apply(0);
     return;
   }
 
   // 높이가 같으면 비율 계산 없이 그대로 복사(지연·떨림 최소화)
   if (Math.abs(sourceMax - targetMax) <= 1) {
-    target.scrollTop = Math.min(source.scrollTop, targetMax);
+    apply(Math.min(source.scrollTop, targetMax));
     return;
   }
 
   const ratio = source.scrollTop / sourceMax;
-  target.scrollTop = ratio * targetMax;
+  apply(ratio * targetMax);
 }
 
 export type SplitHorizontalScrollRefs = {

@@ -152,7 +152,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'status', visible: true },
       { id: 'plannedProgress', visible: true },
       { id: 'progress', visible: true },
-      { id: 'progressVariance', visible: true },
+      { id: 'progressVariance', visible: false },
       { id: 'deliverables', visible: false },
       { id: 'dependencies', visible: false },
       { id: 'actions', visible: false },

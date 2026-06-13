@@ -69,5 +69,13 @@ export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnl
     }
   }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
 
-  return { saveHistory, undo, redo, canUndo, canRedo };
+  /** 서버로 되돌리기 등으로 로컬 미저장 편집을 버릴 때 — 실행 취소로 폐기된 내용이 되살아나지 않도록 스택을 비운다. */
+  const resetHistory = useCallback(() => {
+    historyRef.current = [];
+    redoRef.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
+  }, []);
+
+  return { saveHistory, undo, redo, canUndo, canRedo, resetHistory };
 }

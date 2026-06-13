@@ -223,7 +223,7 @@ export function WBSProvider({
     creatorDisplayNameRef.current = fromMeta || (user.email && String(user.email).trim()) || undefined;
   }, [user]);
 
-  const { saveHistory, undo, redo, canUndo, canRedo } = useWbsHistory({
+  const { saveHistory, undo, redo, canUndo, canRedo, resetHistory } = useWbsHistory({
     allTasksRef,
     setAllTasks,
     bumpDirty,
@@ -1186,6 +1186,49 @@ export function WBSProvider({
     [],
   );
 
+  /** 서버에 반영하지 않은 편집을 폐기하고 DB 최신으로 맞춘다(로컬 전용 모드에서는 플래그만 내린다). */
+  const discardUnsavedChangesReloadFromServer = useCallback(async () => {
+    dirtyEpochRef.current += 1;
+    resetHistory();
+    if (useLocalOnly || !isSupabaseConfigured || !supabase || !user?.id) {
+      setHasLocalChangesSinceSync(false);
+      return;
+    }
+    try {
+      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
+      if (!Array.isArray(dbProjects) || dbProjects.length === 0) {
+        setHasLocalChangesSinceSync(false);
+        return;
+      }
+      const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettingsRef.current, dbSettings) : wbsSettingsRef.current;
+      const snapshotTasks = applyRollupsToTasks(
+        (Array.isArray(dbTaskRows) ? dbTaskRows : []).map(fromTaskRow),
+        effectiveSettings.statusConfigs,
+      );
+      const snapshotTasksExpanded = preserveLocalExpanded(snapshotTasks);
+      setProjects(dbProjects);
+      setAllTasks(snapshotTasksExpanded);
+      if (dbSettings) {
+        setWbsSettings(effectiveSettings);
+      }
+      setDeletedTaskIdsByProject({});
+      setDeletedProjectIds([]);
+      clearInitBlankSessionFlag();
+      await Promise.allSettled([
+        saveJsonWithIdbFallback('wbs-projects', dbProjects),
+        saveJsonWithIdbFallback('wbs-tasks', snapshotTasksExpanded),
+        saveJsonWithIdbFallback('wbs-settings', effectiveSettings),
+        saveJsonWithIdbFallback('wbs-deleted-task-ids', {}),
+        saveJsonWithIdbFallback('wbs-deleted-project-ids', []),
+      ]);
+      setHasLocalChangesSinceSync(false);
+      lastServerPullAtRef.current = Date.now();
+    } catch (e) {
+      handleDbError(e, '서버에서 최신 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      throw e;
+    }
+  }, [useLocalOnly, user?.id, preserveLocalExpanded, resetHistory, handleDbError]);
+
   useEffect(() => {
     if (currentProjectId) {
       try {
@@ -1371,6 +1414,7 @@ export function WBSProvider({
       hasLocalChangesSinceSync,
       syncWithDb: stableSyncWithDb,
       pushChangesToDb,
+      discardUnsavedChangesReloadFromServer,
       collabPushNonce,
       wbsMap,
       displayWbsMap,
@@ -1405,6 +1449,7 @@ export function WBSProvider({
       hasLocalChangesSinceSync,
       stableSyncWithDb,
       pushChangesToDb,
+      discardUnsavedChangesReloadFromServer,
       collabPushNonce,
       wbsMap,
       displayWbsMap,

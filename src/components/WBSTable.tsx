@@ -71,7 +71,6 @@ import type { WbsCellClipboardData } from '../lib/wbsCellClipboard';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import {
   getSingleClickEdit,
-  setSingleClickEdit,
   subscribeSingleClickEditChanged,
   getShowAdvancedTools,
   setShowAdvancedTools,
@@ -126,7 +125,7 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'status', visible: true },
   { id: 'plannedProgress', visible: true },
   { id: 'progress', visible: true },
-  { id: 'progressVariance', visible: true },
+  { id: 'progressVariance', visible: false },
   { id: 'deliverables', visible: false },
   { id: 'dependencies', visible: false },
   { id: 'actions', visible: false },
@@ -228,13 +227,8 @@ export function WBSTable({
   /** 클릭 편집 모드: 켜면 셀 한 번 클릭으로 바로 편집, 끄면(기본) 더블클릭·F2로만 편집. 이 브라우저에만 저장. */
   const [singleClickEdit, setSingleClickEditState] = useState(getSingleClickEdit);
   useEffect(() => subscribeSingleClickEditChanged(() => setSingleClickEditState(getSingleClickEdit())), []);
-  const toggleSingleClickEdit = useCallback(() => {
-    const next = !getSingleClickEdit();
-    setSingleClickEdit(next);
-    setSingleClickEditState(next);
-  }, []);
 
-  /** 고급 도구(자동 서식·가중치·클릭 편집) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
+  /** 고급 도구(자동 서식) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
   useEffect(() => subscribeShowAdvancedToolsChanged(() => setShowAdvancedToolsState(getShowAdvancedTools())), []);
   useEffect(() => {
@@ -250,7 +244,7 @@ export function WBSTable({
       const next = !getShowAdvancedTools();
       setShowAdvancedTools(next);
       setShowAdvancedToolsState(next);
-      pushToast(next ? '고급 도구를 표시합니다. (가중치·클릭 편집·자동 서식)' : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)', {
+      pushToast(next ? '고급 도구를 표시합니다. (자동 서식)' : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)', {
         variant: 'info',
       });
     };
@@ -989,16 +983,28 @@ export function WBSTable({
   }, [showCellFormatToolbar]);
 
   // 일괄 수정 바 높이 — split 뷰에서 간트 하단을 그만큼 띄워 행 정렬을 맞춘다.
+  // 가로 스크롤바·레이아웃이 한 프레임만 달라져도 offsetHeight가 왔다 갔다 하면
+  // 간트 bottomInset ↔ 표·간트 ResizeObserver ↔ mirrorScrollTop 이 연쇄되어 하단이 깜빡일 수 있다.
+  // 같은 표시 세션에서는 측정값의 최댓값만 쓰면(단조 증가) 높이가 안정된다.
   const bulkBarRef = useRef<HTMLDivElement | null>(null);
+  const bulkBarHeightMaxRef = useRef(0);
   const [bulkBarHeight, setBulkBarHeight] = useState(0);
   useEffect(() => {
     if (!showBulkBar) {
+      bulkBarHeightMaxRef.current = 0;
       setBulkBarHeight(0);
       return;
     }
+    bulkBarHeightMaxRef.current = 0;
     const el = bulkBarRef.current;
     if (!el) return;
-    const measure = () => setBulkBarHeight(el.offsetHeight);
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (h < 1) return;
+      if (h <= bulkBarHeightMaxRef.current) return;
+      bulkBarHeightMaxRef.current = h;
+      setBulkBarHeight(h);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -1996,8 +2002,6 @@ export function WBSTable({
             summaryStats={summaryStats}
             plannedRefDateIso={plannedRefDateIso}
             setPlannedRefDateIso={setPlannedRefDateIso}
-            useWeightForRollup={useWeightForRollup}
-            setUseWeightForRollup={toggleUseWeightForRollup}
             isSplitView={isSplitView}
             maxTreeLevel={maxTreeLevel}
             treeExpandLevel={treeExpandLevel}
@@ -2018,14 +2022,6 @@ export function WBSTable({
               globalEnabled: globalAutoFormattingOn,
               onToggle: toggleUserHide,
             }}
-            cellClickEdit={
-              canEditCurrentProject
-                ? {
-                    on: singleClickEdit,
-                    onToggle: toggleSingleClickEdit,
-                  }
-                : undefined
-            }
             showAdvancedTools={showAdvancedTools}
             chromeEmbed
           />,
@@ -2036,8 +2032,6 @@ export function WBSTable({
           summaryStats={summaryStats}
           plannedRefDateIso={plannedRefDateIso}
           setPlannedRefDateIso={setPlannedRefDateIso}
-          useWeightForRollup={useWeightForRollup}
-          setUseWeightForRollup={toggleUseWeightForRollup}
           isSplitView={isSplitView}
           maxTreeLevel={maxTreeLevel}
           treeExpandLevel={treeExpandLevel}
@@ -2058,14 +2052,6 @@ export function WBSTable({
             globalEnabled: globalAutoFormattingOn,
             onToggle: toggleUserHide,
           }}
-          cellClickEdit={
-            canEditCurrentProject
-              ? {
-                  on: singleClickEdit,
-                  onToggle: toggleSingleClickEdit,
-                }
-              : undefined
-          }
           showAdvancedTools={showAdvancedTools}
         />
       )}
@@ -2628,8 +2614,8 @@ export function WBSTable({
       {/* 일괄 수정 바 — 서식 툴바 바로 아래(또는 상단 도킹 시 아래). */}
       {showBulkBar &&
         renderBulkChromeDock(
-          <div ref={bulkBarRef} className="flex-shrink-0 z-20 animate-in slide-in-from-bottom-2 fade-in duration-200">
-            <div className="flex w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-t border-[var(--color-line)] bg-[var(--color-surface)] px-2 py-1 shadow-[0_-1px_3px_rgba(0,0,0,0.06)]">
+          <div ref={bulkBarRef} className="flex-shrink-0 z-20">
+            <div className="flex w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-t border-[var(--color-line)] bg-[var(--color-surface)] px-2 py-1 shadow-[0_-1px_3px_rgba(0,0,0,0.06)] [scrollbar-gutter:stable]">
               <span className="shrink-0 inline-flex items-center gap-0.5 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-800">
                 일괄 수정 · {selectedTaskIds.size}행
               </span>

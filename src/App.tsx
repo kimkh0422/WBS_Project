@@ -327,6 +327,7 @@ function WBSApp({
     canEditCurrentProject,
     hasLocalChangesSinceSync,
     pushChangesToDb,
+    discardUnsavedChangesReloadFromServer,
   } = useWBS();
   const currentProjectIdRef = useRef(currentProjectId);
   currentProjectIdRef.current = currentProjectId;
@@ -510,7 +511,9 @@ function WBSApp({
   /** 서버 미반영 편집이 있을 때 다른 프로젝트로 바꾸기 전 확인 */
   const pendingProjectSwitchRunRef = useRef<(() => void) | null>(null);
   const [projectSwitchPrompt, setProjectSwitchPrompt] = useState<{ targetProjectId: string } | null>(null);
-  const [isProjectSwitchSaveBusy, setIsProjectSwitchSaveBusy] = useState(false);
+  /** 프로젝트 전환 확인 모달: 저장 또는「저장 안 함」처리 중 이중 클릭·닫기 방지 */
+  const [projectSwitchAction, setProjectSwitchAction] = useState<'save' | 'discard' | null>(null);
+  const projectSwitchBusy = projectSwitchAction !== null;
   const projectSwitchDialogRef = useRef<HTMLDivElement>(null);
 
   const requestProjectSwitch = useCallback((targetProjectId: string, run: () => void) => {
@@ -532,6 +535,7 @@ function WBSApp({
     if (!projectSwitchPrompt) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (projectSwitchBusy) return;
         e.preventDefault();
         pendingProjectSwitchRunRef.current = null;
         setProjectSwitchPrompt(null);
@@ -539,11 +543,11 @@ function WBSApp({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [projectSwitchPrompt]);
+  }, [projectSwitchPrompt, projectSwitchBusy]);
 
   const handleProjectSwitchSaveAndProceed = useCallback(async () => {
-    if (isProjectSwitchSaveBusy || !projectSwitchPrompt) return;
-    setIsProjectSwitchSaveBusy(true);
+    if (projectSwitchBusy || !projectSwitchPrompt) return;
+    setProjectSwitchAction('save');
     try {
       await flushInlineCellEditsBeforeSave();
       await pushChangesToDbRef.current('all');
@@ -562,21 +566,31 @@ function WBSApp({
         pushToast(msg, { variant: 'error', durationMs: 6000 });
       }
     } finally {
-      setIsProjectSwitchSaveBusy(false);
+      setProjectSwitchAction(null);
     }
-  }, [isProjectSwitchSaveBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
+  }, [projectSwitchBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
 
-  const handleProjectSwitchDiscardProceed = useCallback(() => {
-    const run = pendingProjectSwitchRunRef.current;
-    pendingProjectSwitchRunRef.current = null;
-    setProjectSwitchPrompt(null);
-    run?.();
-  }, []);
+  const handleProjectSwitchDiscardProceed = useCallback(async () => {
+    if (projectSwitchBusy || !projectSwitchPrompt) return;
+    setProjectSwitchAction('discard');
+    try {
+      await discardUnsavedChangesReloadFromServer();
+      const run = pendingProjectSwitchRunRef.current;
+      pendingProjectSwitchRunRef.current = null;
+      setProjectSwitchPrompt(null);
+      run?.();
+    } catch {
+      /* handleDbError에서 토스트 처리 */
+    } finally {
+      setProjectSwitchAction(null);
+    }
+  }, [projectSwitchBusy, projectSwitchPrompt, discardUnsavedChangesReloadFromServer]);
 
   const handleProjectSwitchCancel = useCallback(() => {
+    if (projectSwitchBusy) return;
     pendingProjectSwitchRunRef.current = null;
     setProjectSwitchPrompt(null);
-  }, []);
+  }, [projectSwitchBusy]);
 
   const setCurrentProjectIdGuarded = useCallback(
     (id: string) => {
@@ -1385,7 +1399,7 @@ function WBSApp({
                 type="button"
                 aria-label="전환 취소"
                 onClick={handleProjectSwitchCancel}
-                disabled={isProjectSwitchSaveBusy}
+                disabled={projectSwitchBusy}
                 className={MODAL_CLOSE_BUTTON_CLASS}
               >
                 <X size={18} />
@@ -1396,16 +1410,21 @@ function WBSApp({
               <p className="mt-2 text-xs text-slate-500">전환: {projectSwitchTargetLabel}</p>
             </div>
             <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
-              <button type="button" className="btn-ghost" onClick={handleProjectSwitchDiscardProceed} disabled={isProjectSwitchSaveBusy}>
-                저장 안 함
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => void handleProjectSwitchDiscardProceed()}
+                disabled={projectSwitchBusy}
+              >
+                {projectSwitchAction === 'discard' ? '되돌리는 중…' : '저장 안 함'}
               </button>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => void handleProjectSwitchSaveAndProceed()}
-                disabled={isProjectSwitchSaveBusy}
+                disabled={projectSwitchBusy}
               >
-                {isProjectSwitchSaveBusy ? '저장 중…' : '저장'}
+                {projectSwitchAction === 'save' ? '저장 중…' : '저장'}
               </button>
             </div>
           </div>

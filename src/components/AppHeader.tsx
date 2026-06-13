@@ -41,6 +41,7 @@ import {
   ClipboardList,
   BookOpen,
   Route,
+  Search,
 } from 'lucide-react';
 import { NavButton } from './NavButton';
 import { ProjectNameLabel } from './ProjectNameLabel';
@@ -341,6 +342,8 @@ export function AppHeader({
     }
   });
   const [expandedOrgNodeKeys, setExpandedOrgNodeKeys] = useState<Set<string>>(new Set());
+  /** 프로젝트 드롭다운 목록만 필터(닫을 때 초기화) */
+  const [projectListSearch, setProjectListSearch] = useState('');
 
   const { orgTree, orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -393,6 +396,20 @@ export function AppHeader({
     return base;
   }, [projectsSortedByName, listFilter, favoriteIds, user?.id, currentUserPlainName]);
 
+  const projectListSearchTrimmed = projectListSearch.trim();
+  const displayProjectsForDropdown = useMemo(() => {
+    if (!projectListSearchTrimmed) return displayProjects;
+    const q = projectListSearchTrimmed.toLowerCase();
+    return displayProjects.filter((p) => {
+      if ((p.name ?? '').toLowerCase().includes(q)) return true;
+      const pmRaw = (p.pmName ?? '').trim();
+      if (pmRaw.toLowerCase().includes(q)) return true;
+      const pmLabel = pmRaw ? formatPersonDisplay(pmRaw, { orgMetaByName: assigneeDisplayMetaByName }) : '미지정';
+      if (pmLabel.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [displayProjects, projectListSearchTrimmed, assigneeDisplayMetaByName]);
+
   const dashboardExcludedInListCount = useMemo(
     () => projectsSortedByName.filter((p) => p.includeInDashboard === false).length,
     [projectsSortedByName],
@@ -403,18 +420,18 @@ export function AppHeader({
     [projectsSortedByName],
   );
 
-  const projectsByKindSections = useMemo(() => groupProjectsForKindListView(displayProjects), [displayProjects]);
+  const projectsByKindSections = useMemo(() => groupProjectsForKindListView(displayProjectsForDropdown), [displayProjectsForDropdown]);
 
   const projectsByParticipantSections = useMemo(
-    () => groupProjectsByParticipantCount(displayProjects, allTasks),
-    [displayProjects, allTasks],
+    () => groupProjectsByParticipantCount(displayProjectsForDropdown, allTasks),
+    [displayProjectsForDropdown, allTasks],
   );
 
   const topLevelDivisions = useMemo(() => orgTree.children?.[0]?.children ?? [], [orgTree]);
 
   const orgChartListModel = useMemo(
-    () => buildOrgChartProjectListBlocks(displayProjects, orgTree, orgMembers, ownerDepartmentByUserId),
-    [displayProjects, orgTree, orgMembers, ownerDepartmentByUserId],
+    () => buildOrgChartProjectListBlocks(displayProjectsForDropdown, orgTree, orgMembers, ownerDepartmentByUserId),
+    [displayProjectsForDropdown, orgTree, orgMembers, ownerDepartmentByUserId],
   );
 
   const toggleOrgExpanded = (key: string) => {
@@ -425,6 +442,10 @@ export function AppHeader({
       return n;
     });
   };
+
+  useEffect(() => {
+    if (!isProjectDropdownOpen) setProjectListSearch('');
+  }, [isProjectDropdownOpen]);
 
   // 드롭다운 열릴 때 조직도 레이아웃: 모든 조직 섹션을 펼친다
   useEffect(() => {
@@ -560,8 +581,8 @@ export function AppHeader({
     <header
       className={cn(
         'bg-[var(--color-surface)]/90 backdrop-blur-2xl border-b border-[var(--color-line)]/50 safe-top transition-all duration-300',
-        /* 드롭다운 오버레이·패널이 표+간트 등 본문 sticky(z-60) 위로 오도록 프로젝트 목록 열릴 때만 상승 */
-        isProjectDropdownOpen ? 'z-[80]' : 'z-50',
+        /* 표+간트 등 본문 sticky(z-60)보다 위: 프로젝트·더보기·계정 드롭다운이 헤더 아래로 펼칠 때 헤더 전체 z 상승 */
+        isProjectDropdownOpen || isMoreMenuOpen || isUserMenuOpen ? 'z-[80]' : 'z-50',
         isHeaderCollapsed ? 'py-1 px-3 md:py-1.5 md:px-6' : 'px-3 md:px-6 py-1 md:py-1',
       )}
       style={{ boxShadow: 'var(--shadow-md), inset 0 -1px 0 rgba(0,0,0,0.02)' }}
@@ -782,21 +803,43 @@ export function AppHeader({
                             {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
                           </button>
                         )}
-                        <span className="text-[10px] text-slate-400 shrink-0">{displayProjects.length}개</span>
+                        <span
+                          className="text-[10px] text-slate-400 shrink-0 tabular-nums"
+                          title={
+                            projectListSearchTrimmed ? '검색 일치 수 / 현재 목록 필터 적용 후 전체' : '현재 목록 필터 적용 후 프로젝트 수'
+                          }
+                        >
+                          {projectListSearchTrimmed
+                            ? `${displayProjectsForDropdown.length}/${displayProjects.length}`
+                            : `${displayProjects.length}`}
+                          개
+                        </span>
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-600 bg-[var(--color-surface)]">
+                      <label htmlFor="wbs-project-list-search" className="sr-only">
+                        프로젝트 검색
+                      </label>
+                      <div className="relative">
+                        <Search
+                          size={14}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                          aria-hidden
+                        />
+                        <input
+                          id="wbs-project-list-search"
+                          type="search"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder="이름·PM으로 검색…"
+                          value={projectListSearch}
+                          onChange={(e) => setProjectListSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900/80 py-1.5 pl-8 pr-2 text-xs text-[var(--color-ink)] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-400"
+                        />
                       </div>
                     </div>
                     <div className="p-1">
-                      {projectsSortedByName.length >= 25 && (
-                        <div
-                          className="mx-2 mb-1 px-2 py-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-line)] text-[10px] text-[var(--color-ink-subdued)] leading-snug"
-                          title="관리자 승인 계정은 서버에 등록된 전체 프로젝트를 볼 수 있습니다."
-                        >
-                          <strong className="text-[var(--color-ink)]">왜 이렇게 많나요?</strong> 승인된 계정은 조직의{' '}
-                          <strong>전체 프로젝트</strong>가 표시됩니다. 복사본·테스트 프로젝트까지 합쳐지면 수가 커질 수 있어요. 아래는{' '}
-                          <strong>만든 사람(소유자)</strong>
-                          별로 묶어 두었습니다.
-                        </div>
-                      )}
                       <div
                         role="option"
                         aria-selected={currentProjectId === 'all'}
@@ -842,6 +885,13 @@ export function AppHeader({
                       {/* 목록 높이: 뷰포트 기준으로 제한(패널 위 헤더·배너 + 목록 머리줄 + 하단 프로젝트 관리 몫 19rem 예약) — 낮은 화면에서도 패널 하단이 잘리지 않게 */}
                       <div className="max-h-[min(calc(100vh_-_19rem),800px)] overflow-y-auto overscroll-contain pr-0.5">
                         {(() => {
+                          if (projectListSearchTrimmed && displayProjectsForDropdown.length === 0) {
+                            return (
+                              <div className="px-3 py-6 text-center text-xs text-[var(--color-ink-subdued)] leading-relaxed">
+                                검색과 일치하는 프로젝트가 없습니다.
+                              </div>
+                            );
+                          }
                           const renderProjectRow = (project: Project) => {
                             const pmLabel = projectDropdownPmLabel(project);
                             const isCurrentProject = currentProjectId === project.id;

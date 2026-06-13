@@ -58,8 +58,10 @@ export interface WBSSettings {
   workEffortReHiddenMigratedV2?: boolean;
   /** 투입율 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
   allocationReHiddenMigrated?: boolean;
-  /** 표 기본 표시 컬럼 표준화 마이그레이션 완료 여부 (WBS·작업명·시작일·종료일·기간·담당자·계획·진척·차이만 표시, 나머지 숨김) */
+  /** 표 기본 표시 컬럼 표준화 마이그레이션 완료 여부 (작업명·일정·담당·계획·진척 등 기본 표시 집합 정리) */
   standardVisibleColumnsMigrated?: boolean;
+  /** 진척차이(%p) 컬럼 기본 숨김 마이그레이션 (1회 — 이후 컬럼 설정에서 다시 켤 수 있음) */
+  progressVarianceHiddenMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -97,8 +99,8 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: false,
-  // 기본 표시 컬럼: 작업명·시작일·종료일·기간·담당자·계획율·진척율·차이(+그립·체크·계층 WBS 번호 칸은 항상).
-  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 나머지(공수·가중치·투입율·상태·산출물·선행작업·관리)는 기본 숨김.
+  // 기본 표시 컬럼: 작업명·시작일·종료일·기간·담당자·계획율·진척율(+그립·체크·계층 WBS 번호 칸은 항상).
+  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 진척차이·공수·가중치·투입율·상태·산출물·선행작업·관리는 기본 숨김.
   tableColumns: [
     { id: 'wbsId', visible: false },
     { id: 'name', visible: true },
@@ -112,7 +114,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
     { id: 'status', visible: false },
     { id: 'plannedProgress', visible: true },
     { id: 'progress', visible: true },
-    { id: 'progressVariance', visible: true },
+    { id: 'progressVariance', visible: false },
     { id: 'deliverables', visible: false },
     { id: 'dependencies', visible: false },
     { id: 'actions', visible: false },
@@ -271,6 +273,7 @@ export function parseSettings(raw: unknown): WBSSettings {
 
     // 표 기본 표시 컬럼 표준화 (1회만 적용 — 이후 컬럼 설정에서 자유롭게 변경 가능).
     // 표시: 작업명·시작일·종료일·기간·담당자·계획율·진척율·차이 / 숨김: 접두어 WBS ID·공수·가중치·투입율·상태·산출물·선행작업·관리.
+    // (이후 `progressVarianceHiddenMigrated`로 진척차이 열은 기본 숨김으로 한 번 더 정리)
     // 사용자 정의(custom:*) 컬럼은 건드리지 않는다.
     if (!parsed.standardVisibleColumnsMigrated) {
       const STD_VISIBLE = new Set([
@@ -311,10 +314,18 @@ export function parseSettings(raw: unknown): WBSSettings {
         const firstTrioIdx = cols.findIndex(inTrio);
         const insertAt = cols.slice(0, firstTrioIdx).filter((c) => !inTrio(c)).length;
         const rest = cols.filter((c) => !inTrio(c));
-        const block = trio.map((id) => existing.get(id) ?? { id, visible: true });
+        const block = trio.map((id) => existing.get(id) ?? { id, visible: id !== 'progressVariance' });
         rest.splice(insertAt, 0, ...block);
         base.tableColumns = rest;
       }
+    }
+
+    // 진척차이(%p) 컬럼 기본 숨김 (1회만 적용 — 이전에 켜 둔 프로젝트도 한 번 숨김으로 맞춤. 이후 컬럼 설정에서 다시 켤 수 있음)
+    if (!parsed.progressVarianceHiddenMigrated) {
+      base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) =>
+        c && c.id === 'progressVariance' ? { ...c, visible: false } : c,
+      );
+      base.progressVarianceHiddenMigrated = true;
     }
 
     // 컬럼 너비 저장은 예전부터 있었으나 암묵적 자동맞춤 플래그는 이번에 추가됨 → 기존 저장이 있으면 덮어쓰지 않도록 기본 잠금
