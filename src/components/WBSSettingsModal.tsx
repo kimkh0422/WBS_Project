@@ -198,11 +198,15 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       }
     }
 
-    // 정의가 제거된 사용자 컬럼은 목록에서 제거; name은 항상 표시
+    // 정의가 제거된 사용자 컬럼은 목록에서 제거; name은 항상 표시. 접두어 WBS ID 컬럼은 표에 두지 않음(계층 번호 칸만 사용).
     return cleaned
       .filter((c) => !c.id.startsWith('custom:') || customIds.has(c.id))
-      .map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
+      .map((c) => (c.id === 'name' ? { ...c, visible: true } : c))
+      .map((c) => (c.id === 'wbsId' ? { ...c, visible: false } : c));
   }, [tableColumns, customColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
+
+  /** 설정 UI에만 노출 — 접두어 WBS ID 컬럼은 목록에서 제외(순서 화살표 인덱스와 실제 배열 길이 일치). */
+  const tableColumnsSettingsList = useMemo(() => normalizedTableColumns.filter((c) => c.id !== 'wbsId'), [normalizedTableColumns]);
 
   useEffect(() => {
     if (isOpen) {
@@ -495,8 +499,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     </label>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    WBS ID 컬럼은 그대로 두고, 작업명 컬럼에만 &quot;P1 요구사항 정의&quot;처럼 표시용 번호를 붙입니다. 실제 저장되는
-                    작업명은 바뀌지 않습니다.
+                    작업명 앞에만 &quot;P1 요구사항 정의&quot;처럼 표시용 번호를 붙입니다. 별도의 접두어 ID 컬럼은 쓰지 않으며, 실제
+                    저장되는 작업명은 바뀌지 않습니다.
                   </p>
 
                   <div className="flex items-center gap-3 pt-3 border-t border-[var(--color-line)]/60">
@@ -616,7 +620,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                   </div>
 
                   <div className="flex flex-col gap-2.5">
-                    {normalizedTableColumns.map((col, idx) => {
+                    {tableColumnsSettingsList.map((col, idx) => {
                       const custom = customColumns.find((c) => c.id === col.id);
                       const label = custom?.name || TABLE_COLUMN_LABELS[col.id] || col.id;
                       const isName = col.id === 'name';
@@ -681,7 +685,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                             </button>
                             <button
                               type="button"
-                              disabled={idx === normalizedTableColumns.length - 1}
+                              disabled={idx === tableColumnsSettingsList.length - 1}
                               onClick={() => {
                                 setTableColumns((prev) => {
                                   const arr = [...(prev || normalizedTableColumns)];
@@ -703,7 +707,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     })}
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시 반영됩니다.
+                    WBS 계층 번호(1·1.1)는 항상 표 왼쪽에 표시됩니다. 작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시
+                    반영됩니다.
                   </p>
                 </fieldset>
 

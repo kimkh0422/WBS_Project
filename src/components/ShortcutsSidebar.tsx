@@ -101,7 +101,7 @@ export function ShortcutsSidebar({
       { label: '되돌리기', chords: ['Ctrl', 'Z'] },
       { label: '다시 실행', chords: ['Ctrl', 'Y'] },
       { label: '레벨 펼치기', chords: ['Ctrl', 'Alt', '1~9'] },
-      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집' },
+      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '하위일정 균등분할·가중치·클릭 편집·자동 서식 (보완 가이드는 항상 표시)' },
       { label: '이 패널', chords: ['Shift', '?'] },
     ];
 
@@ -161,6 +161,11 @@ export function ShortcutsSidebar({
         },
         { label: '작업명 편집 저장·닫기', chords: ['Enter'], hint: 'F2 인라인 편집 중' },
         { label: '인라인 수정', chords: ['F2'] },
+        {
+          label: '타이핑 즉시 편집',
+          chords: [['A'], ['1']],
+          hint: '셀 선택 후 영문·숫자를 치면 바로 입력(날짜·공수·진척 등 대체). 한글 텍스트는 클릭 또는 F2 후 입력',
+        },
         { label: '삭제', chords: ['Del'] },
         { label: '편집 · 선택 해제', chords: ['Esc'] },
       ],

@@ -36,11 +36,12 @@
 
 ```
 <StrictMode>
-  <BrowserRouter>
-    <AuthProvider>            ← Supabase 세션·로그인/회원가입 OTP
-      <OrganizationProvider>  ← 조직도(부서) 데이터·캐시
-        <LevelColorsProvider> ← 사용자 정의 레벨별 색상
-          <App />             ← WBSProvider + 라우팅 + 모달들
+  <RouterProvider>          ← createBrowserRouter(Data Router). useBlocker 등은 이 컨텍스트 필요
+    └─ 라우트 `/` + 자식 `*`
+        <AuthProvider>            ← Supabase 세션·로그인/회원가입 OTP
+          <OrganizationProvider>  ← 조직도(부서) 데이터·캐시
+            <LevelColorsProvider> ← 사용자 정의 레벨별 색상
+              <App />             ← WBSProvider + 라우팅 + 모달들
 ```
 
 `<App />` 내부에서 `<WBSProvider>`가 한 번 더 감싸며, **편집 가능한 프로젝트 ID 목록(`editableProjectIds`)·관리자 여부(`isAdmin`)를 props로 주입**한다. 이 분리 덕에 권한 체크는 컨텍스트 외부(=상위)에서 정해진 결과만 받아 적용된다.

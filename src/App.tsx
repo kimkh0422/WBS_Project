@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useBlocker } from 'react-router-dom';
+import type { BlockerFunction } from 'react-router';
 import { APP_VERSION, APP_COMMIT_DATE } from './appRelease';
 import { NavButton } from './components/NavButton';
 import { AppHeader } from './components/AppHeader';
@@ -68,7 +69,15 @@ import {
 } from './hooks/useFileImportExport';
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useMatchMedia } from './hooks/useMatchMedia';
+import { useFocusTrap } from './hooks/useFocusTrap';
 import { cn, formatTodayKoLongWithWeekday, formatReleaseDateDotKo } from './lib/utils';
+import {
+  MODAL_BACKDROP_CLASS,
+  MODAL_PANEL_BASE_CLASS,
+  MODAL_HEADER_CLASS,
+  MODAL_FOOTER_CLASS,
+  MODAL_CLOSE_BUTTON_CLASS,
+} from './lib/modalChrome';
 import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from './lib/projectKind';
 import { isProjectMineForUserListFilter } from './lib/projectMineFilter';
 import { isInternalCompanyEmail } from './lib/emailDomain';
@@ -202,6 +211,8 @@ function WBSApp({
     userEmail: user?.email,
     isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
   });
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -318,6 +329,8 @@ function WBSApp({
     hasLocalChangesSinceSync,
     pushChangesToDb,
   } = useWBS();
+  const currentProjectIdRef = useRef(currentProjectId);
+  currentProjectIdRef.current = currentProjectId;
 
   // URL 라우팅 + 회원(프로필)·소유자 표시명·내 멤버 프로젝트 상태.
   // (아래 라우팅 보정/프로필 로딩 useEffect·메모에서 사용됨 — 선언 누락으로 인한 'navigate is not defined' 등 런타임 크래시 복구)
@@ -438,6 +451,8 @@ function WBSApp({
   /** 저장 모델: 편집마다 자동 DB push 하던 방식을 "수동 저장"으로 전환해 편집 중 렉을 제거한다.
    *  - 로컬 변경은 WBSContext가 즉시 localStorage에 보존하므로 새로고침해도 데이터는 유지된다.
    *  - 서버(DB) 반영은 Ctrl+S 또는 우측 하단 "저장" 버튼으로만 수행한다.
+   *  - 미저장 상태로 다른 화면(URL)으로 이동·뒤로 가기 시 확인 모달(useBlocker)로 저장을 유도한다.
+   *  - 미저장 상태로 헤더·필터 등에서 다른 프로젝트를 선택할 때도 동일하게 확인(requestProjectSwitch).
    *  - 미저장 상태로 창을 닫거나 새로고침하면 브라우저 경고로 이탈 전 저장을 유도한다. */
   const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
   hasLocalChangesRef.current = hasLocalChangesSinceSync;
@@ -489,6 +504,135 @@ function WBSApp({
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [saveNow]);
+
+  const navSaveDialogRef = useRef<HTMLDivElement>(null);
+  const [isNavBlockSaveBusy, setIsNavBlockSaveBusy] = useState(false);
+  const shouldBlockInAppNavigation = useCallback<BlockerFunction>(
+    ({ currentLocation, nextLocation }) =>
+      isSupabaseConfigured && hasLocalChangesRef.current && currentLocation.pathname !== nextLocation.pathname,
+    [isSupabaseConfigured],
+  );
+  const navBlocker = useBlocker(shouldBlockInAppNavigation);
+  const navBlockerRef = useRef(navBlocker);
+  navBlockerRef.current = navBlocker;
+  useFocusTrap(navSaveDialogRef, navBlocker.state === 'blocked');
+
+  useEffect(() => {
+    if (navBlocker.state !== 'blocked') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        navBlockerRef.current.reset();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [navBlocker.state]);
+
+  const handleNavBlockSaveAndProceed = useCallback(async () => {
+    if (isNavBlockSaveBusy) return;
+    setIsNavBlockSaveBusy(true);
+    try {
+      await flushInlineCellEditsBeforeSave();
+      await pushChangesToDbRef.current('all');
+      navBlockerRef.current.proceed();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
+      if (/편집 권한이 없습니다/.test(msg)) {
+        navBlockerRef.current.proceed();
+      } else {
+        pushToast(msg, { variant: 'error', durationMs: 6000 });
+      }
+    } finally {
+      setIsNavBlockSaveBusy(false);
+    }
+  }, [isNavBlockSaveBusy, flushInlineCellEditsBeforeSave, pushToast]);
+
+  const handleNavBlockDiscardProceed = useCallback(() => {
+    navBlockerRef.current.proceed();
+  }, []);
+
+  const handleNavBlockCancel = useCallback(() => {
+    navBlockerRef.current.reset();
+  }, []);
+
+  /** 서버 미반영 편집이 있을 때 다른 프로젝트로 바꾸기 전 확인 */
+  const pendingProjectSwitchRunRef = useRef<(() => void) | null>(null);
+  const [projectSwitchPrompt, setProjectSwitchPrompt] = useState<{ targetProjectId: string } | null>(null);
+  const [isProjectSwitchSaveBusy, setIsProjectSwitchSaveBusy] = useState(false);
+  const projectSwitchDialogRef = useRef<HTMLDivElement>(null);
+
+  const requestProjectSwitch = useCallback((targetProjectId: string, run: () => void) => {
+    if (targetProjectId === currentProjectIdRef.current) {
+      run();
+      return;
+    }
+    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
+      run();
+      return;
+    }
+    pendingProjectSwitchRunRef.current = run;
+    setProjectSwitchPrompt({ targetProjectId });
+  }, []);
+
+  useFocusTrap(projectSwitchDialogRef, !!projectSwitchPrompt);
+
+  useEffect(() => {
+    if (!projectSwitchPrompt) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        pendingProjectSwitchRunRef.current = null;
+        setProjectSwitchPrompt(null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [projectSwitchPrompt]);
+
+  const handleProjectSwitchSaveAndProceed = useCallback(async () => {
+    if (isProjectSwitchSaveBusy || !projectSwitchPrompt) return;
+    setIsProjectSwitchSaveBusy(true);
+    try {
+      await flushInlineCellEditsBeforeSave();
+      await pushChangesToDbRef.current('all');
+      const run = pendingProjectSwitchRunRef.current;
+      pendingProjectSwitchRunRef.current = null;
+      setProjectSwitchPrompt(null);
+      run?.();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
+      if (/편집 권한이 없습니다/.test(msg)) {
+        const run = pendingProjectSwitchRunRef.current;
+        pendingProjectSwitchRunRef.current = null;
+        setProjectSwitchPrompt(null);
+        run?.();
+      } else {
+        pushToast(msg, { variant: 'error', durationMs: 6000 });
+      }
+    } finally {
+      setIsProjectSwitchSaveBusy(false);
+    }
+  }, [isProjectSwitchSaveBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
+
+  const handleProjectSwitchDiscardProceed = useCallback(() => {
+    const run = pendingProjectSwitchRunRef.current;
+    pendingProjectSwitchRunRef.current = null;
+    setProjectSwitchPrompt(null);
+    run?.();
+  }, []);
+
+  const handleProjectSwitchCancel = useCallback(() => {
+    pendingProjectSwitchRunRef.current = null;
+    setProjectSwitchPrompt(null);
+  }, []);
+
+  const setCurrentProjectIdGuarded = useCallback(
+    (id: string) => {
+      requestProjectSwitch(id, () => setCurrentProjectId(id));
+    },
+    [requestProjectSwitch, setCurrentProjectId],
+  );
 
   // 미저장 상태에서 창 닫기/새로고침/이탈 시 브라우저 경고 → 저장하지 않은 변경 손실 방지.
   useEffect(() => {
@@ -690,8 +834,10 @@ function WBSApp({
     acceptInvite(token)
       .then((result) => {
         if (result.success && result.projectId) {
-          setCurrentProjectId(result.projectId);
-          pushToast('프로젝트에 참여했습니다.', { variant: 'success' });
+          requestProjectSwitch(result.projectId, () => {
+            setCurrentProjectId(result.projectId);
+            pushToast('프로젝트에 참여했습니다.', { variant: 'success' });
+          });
         } else {
           pushToast(result.error || '초대 수락에 실패했습니다.', { variant: 'error' });
         }
@@ -704,7 +850,7 @@ function WBSApp({
         params.delete('invite');
         window.history.replaceState({}, '', window.location.pathname);
       });
-  }, [isLoading, setCurrentProjectId, pushToast]);
+  }, [isLoading, setCurrentProjectId, pushToast, requestProjectSwitch]);
 
   const [sharedRowHeight, setSharedRowHeight] = useState<number>(() => {
     if (typeof window === 'undefined') return 25;
@@ -803,15 +949,17 @@ function WBSApp({
 
   const selectProject = useCallback(
     (projectId: string) => {
-      setCurrentProjectId(projectId);
-      // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
-      // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
-      const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
-      if (!taskViews.includes(view)) {
-        setView(lockMobileToDashboard ? 'dashboard' : 'table');
-      }
+      requestProjectSwitch(projectId, () => {
+        setCurrentProjectId(projectId);
+        // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
+        // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
+        const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
+        if (!taskViews.includes(viewRef.current)) {
+          setView(lockMobileToDashboard ? 'dashboard' : 'table');
+        }
+      });
     },
-    [setCurrentProjectId, setView, view, lockMobileToDashboard],
+    [requestProjectSwitch, setCurrentProjectId, setView, lockMobileToDashboard],
   );
 
   // Filter on/off (when on, filter bar and filters apply)
@@ -911,34 +1059,45 @@ function WBSApp({
   /** 검색/알림에서 작업 선택 시 공통 동작 */
   const navigateToTask = useCallback(
     (taskId: string, projectId: string) => {
-      if (lockMobileToDashboard || hiddenViews.has('table')) {
+      requestProjectSwitch(projectId, () => {
+        if (lockMobileToDashboard || hiddenViews.has('table')) {
+          setCurrentProjectId(projectId);
+          setView('dashboard');
+          pushToast(
+            lockMobileToDashboard
+              ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 상세·편집은 PC에서 이용해 주세요.'
+              : '현재 화면에서는 프로젝트 현황(대시보드)만 제공됩니다. 작업 표는 사용할 수 없습니다.',
+            {
+              variant: 'default',
+              durationMs: 5000,
+              id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+            },
+          );
+          return;
+        }
         setCurrentProjectId(projectId);
-        setView('dashboard');
-        pushToast(
-          lockMobileToDashboard
-            ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 상세·편집은 PC에서 이용해 주세요.'
-            : '현재 화면에서는 프로젝트 현황(대시보드)만 제공됩니다. 작업 표는 사용할 수 없습니다.',
-          {
-            variant: 'default',
-            durationMs: 5000,
-            id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
-          },
-        );
-        return;
-      }
-      setCurrentProjectId(projectId);
-      setSelectedTaskIds([taskId]);
-      expandAncestors(taskId);
-      setScrollToTaskId(taskId);
-      setView('table');
-      // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
-      setTimeout(() => {
-        setScrollToTaskId(null);
-        const table = document.querySelector<HTMLElement>('[data-wbs-table]');
-        table?.focus();
-      }, 500);
+        setSelectedTaskIds([taskId]);
+        expandAncestors(taskId);
+        setScrollToTaskId(taskId);
+        setView('table');
+        // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
+        setTimeout(() => {
+          setScrollToTaskId(null);
+          const table = document.querySelector<HTMLElement>('[data-wbs-table]');
+          table?.focus();
+        }, 500);
+      });
     },
-    [setCurrentProjectId, setSelectedTaskIds, expandAncestors, setView, lockMobileToDashboard, hiddenViews, pushToast],
+    [
+      requestProjectSwitch,
+      setCurrentProjectId,
+      setSelectedTaskIds,
+      expandAncestors,
+      setView,
+      lockMobileToDashboard,
+      hiddenViews,
+      pushToast,
+    ],
   );
 
   const handleSaveProject = (
@@ -1159,7 +1318,7 @@ function WBSApp({
 
     // 특정 프로젝트 카드일 경우, 현재 프로젝트도 함께 전환
     if (dashPid && dashPid !== 'all') {
-      setCurrentProjectId(dashPid);
+      requestProjectSwitch(dashPid, () => setCurrentProjectId(dashPid));
     }
 
     // 대시보드 진입 시 필터를 자동으로 켜지 않는다(사용자 요청).
@@ -1241,6 +1400,12 @@ function WBSApp({
     window.location.reload();
   }, [hasLocalChangesSinceSync, isSupabaseConfigured]);
 
+  const projectSwitchTargetLabel = React.useMemo(() => {
+    if (!projectSwitchPrompt) return '';
+    const p = projects.find((x) => x.id === projectSwitchPrompt.targetProjectId);
+    return p ? formatProjectDisplayName(p.name, p.projectKind) : projectSwitchPrompt.targetProjectId;
+  }, [projectSwitchPrompt, projects]);
+
   if (isLoading) {
     return <AppSkeleton isSupabaseConfigured={isSupabaseConfigured} />;
   }
@@ -1252,6 +1417,91 @@ function WBSApp({
         isFullscreen && 'fixed inset-0 z-50',
       )}
     >
+      {navBlocker.state === 'blocked' && (
+        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[80]')}>
+          <div
+            ref={navSaveDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="nav-unsaved-title"
+            className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}
+          >
+            <div className={MODAL_HEADER_CLASS}>
+              <h2 id="nav-unsaved-title" className="text-lg font-bold text-[var(--color-ink)]">
+                저장되지 않음
+              </h2>
+              <button
+                type="button"
+                aria-label="이동 취소"
+                onClick={handleNavBlockCancel}
+                disabled={isNavBlockSaveBusy}
+                className={MODAL_CLOSE_BUTTON_CLASS}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-5 sm:px-6">
+              <p className="text-sm text-slate-600 leading-relaxed">서버에는 아직 반영되지 않았습니다. 저장할까요?</p>
+            </div>
+            <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
+              <button type="button" className="btn-ghost" onClick={handleNavBlockDiscardProceed} disabled={isNavBlockSaveBusy}>
+                저장 안 함
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handleNavBlockSaveAndProceed()}
+                disabled={isNavBlockSaveBusy}
+              >
+                {isNavBlockSaveBusy ? '저장 중…' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {projectSwitchPrompt && (
+        <div className={cn(MODAL_BACKDROP_CLASS, 'z-[80]')}>
+          <div
+            ref={projectSwitchDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-switch-unsaved-title"
+            className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-md overflow-hidden')}
+          >
+            <div className={MODAL_HEADER_CLASS}>
+              <h2 id="project-switch-unsaved-title" className="text-lg font-bold text-[var(--color-ink)]">
+                저장되지 않음
+              </h2>
+              <button
+                type="button"
+                aria-label="전환 취소"
+                onClick={handleProjectSwitchCancel}
+                disabled={isProjectSwitchSaveBusy}
+                className={MODAL_CLOSE_BUTTON_CLASS}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-5 sm:px-6">
+              <p className="text-sm text-slate-600 leading-relaxed">서버에는 아직 반영되지 않았습니다. 저장할까요?</p>
+              <p className="mt-2 text-xs text-slate-500">전환: {projectSwitchTargetLabel}</p>
+            </div>
+            <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
+              <button type="button" className="btn-ghost" onClick={handleProjectSwitchDiscardProceed} disabled={isProjectSwitchSaveBusy}>
+                저장 안 함
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handleProjectSwitchSaveAndProceed()}
+                disabled={isProjectSwitchSaveBusy}
+              >
+                {isProjectSwitchSaveBusy ? '저장 중…' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {isSupabaseConfigured && hasLocalChangesSinceSync && (
         <button
           type="button"
@@ -1390,7 +1640,7 @@ function WBSApp({
         profileMap={profileMap}
         allAssignees={allAssignees}
         assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-        setCurrentProjectId={setCurrentProjectId}
+        setCurrentProjectId={setCurrentProjectIdGuarded}
         selectProject={selectProject}
         projectsSortedByName={projectsSortedByName}
         uniqueProjects={uniqueProjects}
@@ -1553,25 +1803,29 @@ function WBSApp({
                   <ErrorBoundary viewName="프로젝트 관리">
                     <ProjectsPage
                       onNavigateToWork={(projectId, preferView) => {
-                        if (projectId) setCurrentProjectId(projectId);
-                        if (lockMobileToDashboard || hiddenViews.has('table')) {
-                          pushToast(
-                            lockMobileToDashboard
-                              ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
-                              : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
-                            {
-                              variant: 'default',
-                              durationMs: 5000,
-                              id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
-                            },
-                          );
-                          setView('dashboard');
-                        } else if (preferView === 'tablegantt' && !hiddenViews.has('tablegantt')) {
-                          // 복사 등 표+간트 선호 진입
-                          setView('tablegantt');
-                        } else {
-                          setView('table');
-                        }
+                        const apply = () => {
+                          if (projectId) setCurrentProjectId(projectId);
+                          if (lockMobileToDashboard || hiddenViews.has('table')) {
+                            pushToast(
+                              lockMobileToDashboard
+                                ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
+                                : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
+                              {
+                                variant: 'default',
+                                durationMs: 5000,
+                                id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+                              },
+                            );
+                            setView('dashboard');
+                          } else if (preferView === 'tablegantt' && !hiddenViews.has('tablegantt')) {
+                            // 복사 등 표+간트 선호 진입
+                            setView('tablegantt');
+                          } else {
+                            setView('table');
+                          }
+                        };
+                        if (projectId) requestProjectSwitch(projectId, apply);
+                        else apply();
                       }}
                       onNavigateToDashboard={() => setView('dashboard')}
                     />
@@ -1589,8 +1843,10 @@ function WBSApp({
                         setIsProjectModalOpen(true);
                       }}
                       onNavigateToWork={(projectId) => {
-                        setCurrentProjectId(projectId);
-                        setView(hiddenViews.has('table') ? 'dashboard' : 'table');
+                        requestProjectSwitch(projectId, () => {
+                          setCurrentProjectId(projectId);
+                          setView(hiddenViews.has('table') ? 'dashboard' : 'table');
+                        });
                       }}
                     />
                   </ErrorBoundary>
@@ -1652,22 +1908,24 @@ function WBSApp({
           onClose={() => setIsSearchOpen(false)}
           onSelectTask={navigateToTask}
           onSelectProject={(projectId) => {
-            setCurrentProjectId(projectId);
-            if (lockMobileToDashboard || hiddenViews.has('table')) {
-              setView('dashboard');
-              pushToast(
-                lockMobileToDashboard
-                  ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
-                  : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
-                {
-                  variant: 'default',
-                  durationMs: 5000,
-                  id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
-                },
-              );
-            } else {
-              setView('table');
-            }
+            requestProjectSwitch(projectId, () => {
+              setCurrentProjectId(projectId);
+              if (lockMobileToDashboard || hiddenViews.has('table')) {
+                setView('dashboard');
+                pushToast(
+                  lockMobileToDashboard
+                    ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
+                    : '현재 화면에서는 프로젝트 현황만 제공됩니다.',
+                  {
+                    variant: 'default',
+                    durationMs: 5000,
+                    id: lockMobileToDashboard ? 'mobile-dashboard-only' : 'project-status-only',
+                  },
+                );
+              } else {
+                setView('table');
+              }
+            });
           }}
         />
       )}
@@ -1697,6 +1955,15 @@ function WBSApp({
           allProjects={projects}
           defaultPmNameForNewProject={currentUserPlainName}
           currentUserId={user?.id}
+          canDelete={!!editingProject && projects.length > 1 && (realIsAdmin || (!!user?.id && editingProject.ownerId === user.id))}
+          onDelete={() => {
+            if (!editingProject) return;
+            const target = editingProject;
+            setIsProjectModalOpen(false);
+            setEditingProject(null);
+            setProjectToDelete(target);
+            setIsDeleteProjectConfirmOpen(true);
+          }}
         />
       )}
       {isTutorialOpen && (
@@ -2024,13 +2291,15 @@ function WBSApp({
             profileMap={profileMap}
             profileDisplayById={profileDisplayById}
             onNavigateToProject={(projectId) => {
-              setCurrentProjectId(projectId);
-              setIsMembersModalOpen(false);
-              if (lockMobileToDashboard || hiddenViews.has('table')) {
-                setView('dashboard');
-              } else {
-                setView('table');
-              }
+              requestProjectSwitch(projectId, () => {
+                setCurrentProjectId(projectId);
+                setIsMembersModalOpen(false);
+                if (lockMobileToDashboard || hiddenViews.has('table')) {
+                  setView('dashboard');
+                } else {
+                  setView('table');
+                }
+              });
             }}
             onDeleted={() => {
               pushToast('회원이 삭제되었습니다.', { variant: 'success' });

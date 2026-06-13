@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { TableColumnId } from '../wbsTableTypes';
+import type { TableColumnId, WbsEditingCellPayload } from '../wbsTableTypes';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { isRealtimeMinimized } from '../../lib/realtimePolicy';
 
@@ -17,7 +17,7 @@ interface UseRealtimeCellFocusParams {
   currentProjectId: string;
   currentUserId: string;
   currentUserDisplayName: string;
-  editingCell: { taskId: string; columnId: TableColumnId } | null;
+  editingCell: WbsEditingCellPayload | null;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
 }
 

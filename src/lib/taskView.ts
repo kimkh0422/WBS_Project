@@ -177,8 +177,30 @@ function createDepthGetter(taskMap: Map<string, Task>) {
   return getDepth;
 }
 
+/** Tab/Shift+Tab 직후 한 번: WBS 형제 정렬의 최종 타이브레이커(인덱스 작을수록 위) */
+let pendingWbsSiblingTieBreak: Map<string, number> | null = null;
+
+export function primeWbsSiblingOrderTieBreak(idsInVisualOrder: string[]): void {
+  if (idsInVisualOrder.length === 0) {
+    pendingWbsSiblingTieBreak = null;
+    return;
+  }
+  pendingWbsSiblingTieBreak = new Map(idsInVisualOrder.map((id, i) => [id, i]));
+}
+
+function takeWbsSiblingOrderTieBreak(): Map<string, number> | null {
+  const t = pendingWbsSiblingTieBreak;
+  pendingWbsSiblingTieBreak = null;
+  return t;
+}
+
 /** 형제 노드 정렬: 컬럼 정렬 또는 WBS(선행작업·시작일) 순 — 필터/비필터 트리 순회 공통 */
-function orderSiblingsForTree(childrenByParent: Map<string | null, Task[]>, baseTasks: Task[], sortConfig: SortConfig) {
+function orderSiblingsForTree(
+  childrenByParent: Map<string | null, Task[]>,
+  baseTasks: Task[],
+  sortConfig: SortConfig,
+  siblingTieBreak: Map<string, number> | null,
+) {
   const compare = createTaskComparator(sortConfig);
   const useWbsOrder = !sortConfig || sortConfig.key === 'wbs';
   if (sortConfig && !useWbsOrder) {
@@ -194,7 +216,14 @@ function orderSiblingsForTree(childrenByParent: Map<string | null, Task[]>, base
         const tiA = topoIndex.get(a.id) ?? 1e9;
         const tiB = topoIndex.get(b.id) ?? 1e9;
         if (tiA !== tiB) return tiA - tiB;
-        return (a.startDate || '').localeCompare(b.startDate || '');
+        const sd = (a.startDate || '').localeCompare(b.startDate || '');
+        if (sd !== 0) return sd;
+        if (siblingTieBreak) {
+          const ra = siblingTieBreak.get(a.id);
+          const rb = siblingTieBreak.get(b.id);
+          if (ra !== undefined && rb !== undefined && ra !== rb) return ra - rb;
+        }
+        return 0;
       });
     }
   }
@@ -224,12 +253,13 @@ export function buildVisibleTasks(
   const levelFilter = typeof filters.level === 'number';
   const targetLevel = levelFilter ? filters.level! : 0;
   const compare = createTaskComparator(sortConfig);
+  const siblingTieBreak = takeWbsSiblingOrderTieBreak();
 
   if (hasFilters) {
     if (preserveDepthOnFiltered) {
       // 표·간트: 필터 중에도 트리 + expanded·「레벨 N까지 펼치기」가 동작하도록 순회
       const childrenByParent = buildChildrenByParent(baseTasks);
-      orderSiblingsForTree(childrenByParent, baseTasks, sortConfig);
+      orderSiblingsForTree(childrenByParent, baseTasks, sortConfig, siblingTieBreak);
       const taskMap = buildTaskIndex(baseTasks);
       const getDepth = createDepthGetter(taskMap);
 
@@ -293,7 +323,7 @@ export function buildVisibleTasks(
   }
 
   const childrenByParent = buildChildrenByParent(baseTasks);
-  orderSiblingsForTree(childrenByParent, baseTasks, sortConfig);
+  orderSiblingsForTree(childrenByParent, baseTasks, sortConfig, siblingTieBreak);
 
   const visibleTasks: TaskWithDepth[] = [];
   const stack = [...(childrenByParent.get(null) ?? [])].reverse().map((task) => ({ task, depth: 0 }));

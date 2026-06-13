@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRe
 import { addDays, differenceInDays, format, isValid, parseISO } from 'date-fns';
 import type { Task } from '../../types';
 import type { TaskWithDepth } from '../../lib/taskView';
-import type { DragState, TaskDragInfo } from '../Gantt/ZOOM_LEVELS';
+import type { DragState, DragType, TaskDragInfo } from '../Gantt/ZOOM_LEVELS';
 
 interface UseGanttDragOptions {
   selectedSet: Set<string>;
@@ -34,6 +34,8 @@ interface UseGanttDragOptions {
 
 interface UseGanttDragResult {
   dragPreview: Map<string, { startDate: string; endDate: string }> | null;
+  /** 드래그/리사이즈 중 포인터가 움직인 뒤에만 설정됨(막대 색·하위 안내용 기준 작업) */
+  dragSession: { primaryTaskId: string; type: DragType } | null;
   suppressBarPopoverClickRef: MutableRefObject<boolean>;
   anchorTaskIdRef: MutableRefObject<string | null>;
   handleBarMouseDown: (e: React.MouseEvent, task: Task) => void;
@@ -57,6 +59,7 @@ export function useGanttDrag({
   setSidebarWidth,
 }: UseGanttDragOptions): UseGanttDragResult {
   const [dragPreview, setDragPreview] = useState<Map<string, { startDate: string; endDate: string }> | null>(null);
+  const [dragSession, setDragSession] = useState<{ primaryTaskId: string; type: DragType } | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const anchorTaskIdRef = useRef<string | null>(null);
   /** true after significant pointer move during bar drag/resize, or mousedown on resize handle — suppress tap-to-preview */
@@ -81,6 +84,8 @@ export function useGanttDrag({
 
   const handleBarMouseDown = useCallback(
     (e: React.MouseEvent, task: Task) => {
+      // 우클릭 등: mousedown에서 preventDefault 하면 contextmenu가 막힌다.
+      if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       suppressBarPopoverClickRef.current = false;
@@ -137,6 +142,7 @@ export function useGanttDrag({
 
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, task: Task, type: 'resize-left' | 'resize-right') => {
+      if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       suppressBarPopoverClickRef.current = true;
@@ -266,6 +272,7 @@ export function useGanttDrag({
       }
 
       setDragPreview(nextPreview);
+      setDragSession({ primaryTaskId: drag.taskId, type: drag.type });
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -387,6 +394,7 @@ export function useGanttDrag({
         }
         dragStateRef.current = null;
         setDragPreview(null);
+        setDragSession(null);
       }
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -402,6 +410,7 @@ export function useGanttDrag({
 
   return {
     dragPreview,
+    dragSession,
     suppressBarPopoverClickRef,
     anchorTaskIdRef,
     handleBarMouseDown,

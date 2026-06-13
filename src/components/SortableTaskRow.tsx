@@ -5,7 +5,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, type Project, type WorkEffortUnit } from '../types';
 import type { StatusConfig } from '../lib/wbsSettings';
-import { cn, formatDate, formatMonthDay, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
+import { cn, formatDate, formatNum1, formatPercent1, round1, round2 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
@@ -22,7 +22,7 @@ import {
   resolveAssigneeIfUniqueMatch,
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
-import { type TableColumnId } from './wbsTableTypes';
+import { type TableColumnId, type WbsEditingCellPayload } from './wbsTableTypes';
 import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
@@ -85,23 +85,6 @@ function getTaskDetailTooltip(
     lines.push(`선행작업: ${depLabels.join(', ')}`);
   }
   return lines.join('\n');
-}
-
-/** 표 셀 자동계산 판정: 계획·차이는 항상 자동, 진척·시작/종료일·공수는 요약(자식 있는) 행에서 자동 롤업.
- *  자동 셀은 .wbs-cell-auto(옅은 빗금)로 "입력 불필요"임을 표시한다. */
-const ROLLUP_AUTO_COLS = new Set<string>(['progress', 'startDate', 'endDate', 'duration', 'workEffort']);
-function isAutoComputedCell(colId: string, hasChildren: boolean): boolean {
-  if (colId === 'plannedProgress' || colId === 'progressVariance') return true;
-  if (ROLLUP_AUTO_COLS.has(colId)) return hasChildren;
-  return false;
-}
-
-/** wbsId·name은 식별 컬럼이라 읽기전용 표시를 따로 입히지 않는다(이름은 별도 컴포넌트로 클릭 가능 영역 유지). */
-const READONLY_SHADING_SKIP_COLS = new Set<string>(['wbsId']);
-function isReadOnlyCell(colId: string, hasChildren: boolean, canEdit: boolean): boolean {
-  if (isAutoComputedCell(colId, hasChildren)) return true;
-  if (!canEdit && !READONLY_SHADING_SKIP_COLS.has(colId)) return true;
-  return false;
 }
 
 /**
@@ -174,8 +157,8 @@ export interface SortableTaskRowProps {
   showActionsColumn?: boolean;
   isInlineEditingName: boolean;
   setInlineEditingNameId: (id: string | null) => void;
-  editingCell: { taskId: string; columnId: TableColumnId } | null;
-  setEditingCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
+  editingCell: WbsEditingCellPayload | null;
+  setEditingCell: (v: WbsEditingCellPayload | null) => void;
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   setFocusedCell: (v: { taskId: string; columnId: TableColumnId } | null) => void;
   allAssignees: string[];
@@ -276,30 +259,45 @@ function SortableTaskRowInner({
   onOpenForkedChildProject,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  // 순서 이동(정렬)은 첫 열 손잡이([data-row-grip])에서만 시작한다 — listeners/attributes는 그립 셀에만 부착.
+  // 본문 드래그는 useWbsDragRangeSelect(엑셀식 범위 다중 선택)가 담당한다.
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     disabled: !canEdit,
   });
 
-  /** 그립뿐 아니라 행(작업명·빈 영역 등)에서도 드래그 시작 — 입력·버튼·링크는 제외 */
-  const rowDragListeners = useMemo(() => {
-    if (!canEdit || !listeners) return undefined;
-    const raw = listeners as Record<string, unknown>;
-    const rawPd = raw.onPointerDown as ((e: React.PointerEvent<HTMLElement>) => void) | undefined;
-    if (!rawPd) return listeners;
-    return {
-      ...listeners,
-      onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
-        const t = e.target as HTMLElement | null;
-        if (!t) return;
-        if (t.closest('input, textarea, select, button, a, option, [role="listbox"], [role="option"], [data-deps-input="true"]')) return;
-        rawPd(e);
-      },
-    };
-  }, [canEdit, listeners]);
-
   const { orgMembers } = useOrganization();
   const { levelRowBg: levelRowBgCtx } = useLevelColors();
+
+  // ── 엑셀식 즉시 타이핑(작업명 셀) ──
+  // 작업명 셀이 '포커스만' 된 상태(armed)에서도 숨은 input을 미리 포커스해 둔다.
+  // 같은 input이 그대로 편집기로 전환되므로 한글 IME 조합 첫 자모도 유실되지 않는다(포커스를 옮기지 않음).
+  const nameEditRef = useRef<HTMLInputElement | null>(null);
+  const isNameArmed = canEdit && !isInlineEditingName && focusedCell?.taskId === task.id && focusedCell?.columnId === 'name';
+
+  // armed가 되면 숨은 작업명 input을 포커스해 둔다(전체 선택은 onFocus에서).
+  // 다른 입력(검색창 등)에 포커스가 있으면 가로채지 않는다 — 표 컨테이너/본문에 있을 때만.
+  useEffect(() => {
+    if (!(canEdit && !isInlineEditingName && focusedCell?.taskId === task.id && focusedCell?.columnId === 'name')) return;
+    const el = nameEditRef.current;
+    if (!el || document.activeElement === el) return;
+    const active = document.activeElement as HTMLElement | null;
+    const safeToFocus =
+      !active ||
+      active === document.body ||
+      !!active.hasAttribute?.('data-wbs-table') ||
+      (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA' && active.tagName !== 'SELECT');
+    if (safeToFocus) el.focus({ preventScroll: true });
+  }, [focusedCell, isInlineEditingName, canEdit, task.id]);
+
+  /** armed(편집 전) 작업명 input에서 첫 입력/IME 조합 시작 시 실제 편집으로 승격 — 같은 element라 조합이 유지된다. */
+  const promoteArmedNameToEditing = () => {
+    setFocusedCell({ taskId: task.id, columnId: 'name' });
+    onFocusRow?.(task.id);
+    onSetRowAnchor?.(task.id);
+    setEditingCell(null);
+    setInlineEditingNameId(task.id);
+  };
 
   /**
    * 단일 클릭 진입점.
@@ -417,11 +415,36 @@ function SortableTaskRowInner({
       return;
     }
     const sessionKey = `${task.id}:allocation`;
-    if (allocEditSessionRef.current !== sessionKey) {
-      allocEditSessionRef.current = sessionKey;
+    if (allocEditSessionRef.current === sessionKey) return;
+    allocEditSessionRef.current = sessionKey;
+    const seed = editingCell?.taskId === task.id && editingCell?.columnId === 'allocation' ? editingCell.typeToEditSeed : undefined;
+    if (typeof seed === 'string' && seed.length === 1 && /^\d$/.test(seed)) {
+      setAllocationEditStr(seed);
+    } else {
       setAllocationEditStr(String(primaryPercentForAlloc));
     }
-  }, [isAllocEditing, task.id, primaryPercentForAlloc]);
+    if (editingCell && editingCell.taskId === task.id && editingCell.columnId === 'allocation' && 'typeToEditSeed' in editingCell) {
+      setEditingCell({ taskId: editingCell.taskId, columnId: 'allocation' });
+    }
+  }, [isAllocEditing, task.id, primaryPercentForAlloc, editingCell, setEditingCell]);
+
+  // React `autoFocus`는 useEffect 이후에 실행된다. type-to-edit으로 연 직후 연속 키(예: 진척률 "50")가
+  // 아직 표 스크롤 영역에 포커스일 때 두 번째 글자가 유실될 수 있어, 커밋 직후 동기로 편집기에 포커스한다.
+  useLayoutEffect(() => {
+    if (editingCell?.taskId === task.id) {
+      const el = document.getElementById(`wbs-edit-${task.id}-${editingCell.columnId}`);
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+        el.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (isInlineEditingName) {
+      const el = document.getElementById(`wbs-edit-${task.id}-name`);
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        el.focus({ preventScroll: true });
+      }
+    }
+  }, [editingCell, isInlineEditingName, task.id]);
 
   // 의존(선행) 작업을 화면에 보이는 행과 보이지 않는(접힘/필터) 작업으로 분류.
   // 보이지 않는 작업은 표 행 번호가 없으므로 별도 표기(WBS 코드)로 노출하며,
@@ -450,6 +473,28 @@ function SortableTaskRowInner({
   const [depsInputValue, setDepsInputValue] = useState(depsDisplayValue);
   const [depsFocused, setDepsFocused] = useState(false);
   const [depPickIdx, setDepPickIdx] = useState(0);
+  const isDepsEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies';
+  const depsEditSessionRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (!isDepsEditing) {
+      depsEditSessionRef.current = null;
+      return;
+    }
+    const sessionKey = `${task.id}:dependencies`;
+    if (depsEditSessionRef.current === sessionKey) return;
+    depsEditSessionRef.current = sessionKey;
+    const seed = editingCell?.taskId === task.id && editingCell?.columnId === 'dependencies' ? editingCell.typeToEditSeed : undefined;
+    if (typeof seed === 'string' && seed.length >= 1) {
+      setDepsInputValue(seed);
+    } else {
+      setDepsInputValue(depsDisplayValue);
+    }
+    if (editingCell && editingCell.taskId === task.id && editingCell.columnId === 'dependencies' && 'typeToEditSeed' in editingCell) {
+      setEditingCell({ taskId: editingCell.taskId, columnId: 'dependencies' });
+    }
+  }, [isDepsEditing, task.id, depsDisplayValue, editingCell, setEditingCell]);
+
   const { push: pushToast } = useToast();
   const projectPickCandidates = useMemo(
     () => allProjectTasks.filter((t) => t.projectId === task.projectId && t.id !== task.id),
@@ -464,8 +509,9 @@ function SortableTaskRowInner({
     setDepPickIdx(0);
   }, [depTokenTable, depSuggestionsList.length]);
   useEffect(() => {
-    if (!depsFocused) setDepsInputValue(depsDisplayValue);
-  }, [depsDisplayValue, depsFocused]);
+    if (isDepsEditing) return;
+    setDepsInputValue(depsDisplayValue);
+  }, [depsDisplayValue, isDepsEditing]);
 
   const depth = task.depth || 0;
   const level = depth + 1;
@@ -512,11 +558,9 @@ function SortableTaskRowInner({
       ref={setNodeRef}
       style={style}
       id={`task-row-${task.id}`}
-      {...attributes}
-      {...(rowDragListeners ?? {})}
       className={cn(
         'data-row group outline-none transition-colors relative',
-        canEdit ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
+        // 본문은 끌어서 다중 선택(엑셀식) — 순서 이동은 첫 열 손잡이 전용이므로 행 전체엔 grab 커서를 주지 않는다.
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
         isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
@@ -557,9 +601,18 @@ function SortableTaskRowInner({
         <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 pointer-events-none z-10" aria-hidden />
       )}
       <div
-        className="data-cell justify-center text-slate-300 hover:text-slate-500 select-none"
-        title={canEdit ? '행을 잡고 드래그해 목록에서 위·아래 순서를 바꿉니다' : undefined}
-        aria-hidden
+        ref={canEdit ? setActivatorNodeRef : undefined}
+        className={cn(
+          'data-cell justify-center select-none touch-none',
+          canEdit ? 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-500' : 'text-slate-200',
+        )}
+        title={canEdit ? '이 손잡이를 잡고 위·아래로 끌어 작업 순서를 바꿉니다' : undefined}
+        aria-label={canEdit ? '드래그하여 순서 변경' : undefined}
+        data-row-grip
+        {...(canEdit ? attributes : {})}
+        {...(canEdit ? listeners : {})}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
       >
         <GripVertical size={14} />
       </div>
@@ -595,7 +648,6 @@ function SortableTaskRowInner({
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
         const otherPrimary = othersHere[0];
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
-        const __isAutoCell = isReadOnlyCell(colId, hasChildren, canEdit);
         const __renderCell = (): React.ReactNode => {
           if (colId === 'wbsId') {
             return (
@@ -679,12 +731,39 @@ function SortableTaskRowInner({
                     {task.expanded ? <ChevronDown size={13} strokeWidth={2.5} /> : <ChevronRight size={13} strokeWidth={2.5} />}
                   </button>
                 )}
-                {isInlineEditingName ? (
+                {(isInlineEditingName || isNameArmed) && (
                   <input
+                    ref={nameEditRef}
                     id={`wbs-edit-${task.id}-name`}
                     autoFocus
                     defaultValue={task.name}
-                    className="w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1"
+                    data-wbs-armed={!isInlineEditingName ? 'true' : undefined}
+                    tabIndex={isInlineEditingName ? undefined : -1}
+                    className={
+                      isInlineEditingName
+                        ? 'w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1'
+                        : // armed: 화면엔 안 보이지만 포커스를 잡아 한글 IME 첫 자모까지 받는 캐처. 클릭은 통과(pointer-events:none).
+                          'absolute inset-0 h-full w-full opacity-0 pointer-events-none'
+                    }
+                    onFocus={(e) => {
+                      // armed(편집 전)면 전체 선택 → 첫 타이핑이 기존 값을 덮어씀(엑셀식). 편집 중엔 커서 보존.
+                      if (isInlineEditingName) return;
+                      try {
+                        e.currentTarget.select();
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    onCompositionStart={() => {
+                      // 한글 등 IME 조합 시작 = 편집 시작(같은 input이라 조합 유지). 전체 선택 상태라 기존 값을 덮어씀.
+                      if (!isInlineEditingName) promoteArmedNameToEditing();
+                    }}
+                    onInput={(e) => {
+                      // armed에서 첫 입력(영문·숫자·기호) = 편집 시작. 조합 중(IME)은 onCompositionStart가 처리.
+                      if (isInlineEditingName) return;
+                      if ((e.nativeEvent as InputEvent).isComposing) return;
+                      promoteArmedNameToEditing();
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                     onPaste={(e) => {
@@ -702,6 +781,8 @@ function SortableTaskRowInner({
                       }, 0);
                     }}
                     onKeyDown={(e) => {
+                      // armed(편집 전)면 키 입력을 전역 핸들러(셀 이동·단축키)로 위임 — 화살표/Enter/Delete 등이 정상 동작.
+                      if (!isInlineEditingName) return;
                       if (e.key === 'Enter') {
                         if (isComposingKeyEvent(e.nativeEvent)) return;
                         e.preventDefault();
@@ -734,7 +815,8 @@ function SortableTaskRowInner({
                       }
                     }}
                   />
-                ) : (
+                )}
+                {!isInlineEditingName && (
                   <span
                     className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
                     onClick={(e) => {
@@ -877,13 +959,13 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('startDate');
                       }}
-                      title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
+                      title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집`}
                     >
                       <span
                         className="inline-flex items-center gap-0.5 min-w-0"
                         style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
                       >
-                        {formatMonthDay(task.startDate)}
+                        {formatDate(task.startDate) || '—'}
                       </span>
                     </button>
                   </span>
@@ -963,13 +1045,13 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('endDate');
                       }}
-                      title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집(연도 포함)`}
+                      title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집`}
                     >
                       <span
                         className="inline-flex items-center gap-0.5 min-w-0"
                         style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
                       >
-                        {formatMonthDay(task.endDate)}
+                        {formatDate(task.endDate) || '—'}
                       </span>
                     </button>
                   </span>
@@ -1599,6 +1681,10 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEditNow('status');
                     }}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginEdit('status');
+                    }}
                     title="더블클릭 또는 F2로 상태 수정"
                   >
                     <span className="truncate block" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
@@ -1947,13 +2033,7 @@ function SortableTaskRowInner({
           }
           return null;
         };
-        const __rendered = __renderCell();
-        if (__isAutoCell && React.isValidElement(__rendered)) {
-          return React.cloneElement(__rendered as React.ReactElement<{ className?: string }>, {
-            className: cn((__rendered.props as { className?: string }).className, 'wbs-cell-auto'),
-          });
-        }
-        return __rendered;
+        return __renderCell();
       })}
       {showActionsColumn && (
         <div
@@ -1988,22 +2068,33 @@ function SortableTaskRowInner({
   );
 }
 
+/** 이 행에 그려지는 셀 포커스 링만 비교 — 전역 focusedCell 객체가 바뀌어도 포커스 없는 행은 리렌더 생략 */
+function rowFocusedCellVisualEqual(
+  prevFocused: SortableTaskRowProps['focusedCell'],
+  nextFocused: SortableTaskRowProps['focusedCell'],
+  prevTaskId: string,
+  nextTaskId: string,
+): boolean {
+  if (prevTaskId !== nextTaskId) return false;
+  const prevCol = prevFocused?.taskId === prevTaskId ? prevFocused.columnId : null;
+  const nextCol = nextFocused?.taskId === nextTaskId ? nextFocused.columnId : null;
+  return prevCol === nextCol;
+}
+
 function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps) {
+  const prevSeed = prev.editingCell?.typeToEditSeed ?? undefined;
+  const nextSeed = next.editingCell?.typeToEditSeed ?? undefined;
   const editingCellSame =
     prev.editingCell === next.editingCell ||
     (!!prev.editingCell &&
       !!next.editingCell &&
       prev.editingCell.taskId === next.editingCell.taskId &&
-      prev.editingCell.columnId === next.editingCell.columnId);
-  const focusedCellSame =
-    prev.focusedCell === next.focusedCell ||
-    (!!prev.focusedCell &&
-      !!next.focusedCell &&
-      prev.focusedCell.taskId === next.focusedCell.taskId &&
-      prev.focusedCell.columnId === next.focusedCell.columnId);
+      prev.editingCell.columnId === next.editingCell.columnId &&
+      prevSeed === nextSeed);
+  const focusedCellRelevantSame = rowFocusedCellVisualEqual(prev.focusedCell, next.focusedCell, prev.task.id, next.task.id);
   return (
     editingCellSame &&
-    focusedCellSame &&
+    focusedCellRelevantSame &&
     prev.rowIndex === next.rowIndex &&
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&

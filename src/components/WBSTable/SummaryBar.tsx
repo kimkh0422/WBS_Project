@@ -79,8 +79,10 @@ interface SummaryBarProps {
     on: boolean;
     onToggle: () => void;
   };
-  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집) 표시 여부. 기본 숨김, Shift+F12로 토글. */
+  /** 고급 도구(자동 서식·가중치·하위일정 균등분할·클릭 편집) 표시. 기본 숨김, Shift+F12로 토글. 보완 가이드는 일반 메뉴로 항상 표시. */
   showAdvancedTools?: boolean;
+  /** 표+간트 통합 상단 줄 왼쪽 칸에 넣을 때: 높이·테두리를 부모에 맞춤 */
+  chromeEmbed?: boolean;
 }
 
 export function SummaryBar({
@@ -89,6 +91,7 @@ export function SummaryBar({
   setPlannedRefDateIso,
   useWeightForRollup,
   setUseWeightForRollup,
+  isSplitView: _isSplitView,
   maxTreeLevel,
   treeExpandLevel,
   setTreeExpandLevel,
@@ -103,6 +106,7 @@ export function SummaryBar({
   tableAutoFormatting,
   cellClickEdit,
   showAdvancedTools,
+  chromeEmbed = false,
 }: SummaryBarProps) {
   const cellClickEditButton = cellClickEdit ? (
     <button
@@ -144,10 +148,10 @@ export function SummaryBar({
   return (
     <div
       className={cn(
-        // 한 줄 고정(줄바꿈 X) + 가로 스크롤, 높이 h-14. 줄바꿈하면 높이가 커져 상단 도킹 서식/일괄 바 오버레이
-        // 아래로 요약 바 하단 줄이 삐져나와(잘려) 보인다. 분할뷰는 간트 행 정렬을 위해서도 h-14가 필요.
-        'h-14 flex items-center gap-1.5 border-b px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap',
-        'border-[var(--color-line)] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
+        chromeEmbed
+          ? 'h-full min-h-0 flex items-center justify-end gap-1.5 px-3 py-0 text-xs bg-transparent flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap border-0 shadow-none'
+          : // 한 줄 고정(줄바꿈 X) + 가로 스크롤, 높이 h-14.
+            'h-14 flex items-center gap-1.5 border-b border-[var(--color-line)] px-4 py-0 text-xs bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 flex-shrink-0 overflow-x-auto overflow-y-hidden whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
       )}
     >
       {summaryStats ? (
@@ -235,7 +239,7 @@ export function SummaryBar({
             )}
           </div>
 
-          <div className="ml-auto flex items-center gap-2.5 pl-2">
+          <div className={cn('flex items-center gap-2.5 pl-2', !chromeEmbed && 'ml-auto')}>
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.06em]">레벨 펼치기</span>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.max(1, maxTreeLevel) }, (_, i) => i + 1).map((lv) => (
@@ -260,7 +264,7 @@ export function SummaryBar({
             </div>
             <Divider />
             {showAdvancedTools && autoAlignButton}
-            {showAdvancedTools && onOpenImprovementGuide && (
+            {onOpenImprovementGuide && (
               <button
                 type="button"
                 onClick={onOpenImprovementGuide}
@@ -342,7 +346,7 @@ export function SummaryBar({
         <>
           <div className="flex-1" />
           {showAdvancedTools && autoAlignButton}
-          {showAdvancedTools && onOpenImprovementGuide && (
+          {onOpenImprovementGuide && (
             <button
               type="button"
               onClick={onOpenImprovementGuide}

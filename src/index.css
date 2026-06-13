@@ -508,13 +508,13 @@
 
   /* Divider */
   .toolbar-divider {
-    @apply h-4 w-px bg-slate-200/80 mx-1;
+    @apply h-3 w-px bg-slate-200/80 mx-1;
   }
 
   /* Pill Navigation (active tab) */
   .nav-pill {
-    @apply px-2.5 py-1 rounded-lg transition-all text-xs font-medium flex items-center gap-1 shrink-0;
-    @apply min-h-[32px] md:min-h-0;
+    @apply px-2 py-0.5 rounded-md transition-all text-[11px] font-medium flex items-center gap-0.5 shrink-0;
+    @apply min-h-[28px] md:min-h-0;
   }
   .nav-pill:active {
     @apply scale-95;
@@ -645,6 +645,15 @@ input[list] {
   cursor: default;
 }
 
+/* 순서 이동 손잡이(첫 열 그립): 위 `.wbs-view-mode .data-cell{cursor:default}` 보다 특이도를 높여 grab 커서를 보장.
+   `cursor-grab` 클래스는 편집 권한이 있을 때(canEdit)만 붙으므로, 권한이 없으면 자동으로 default 유지. */
+.wbs-view-mode .data-cell.cursor-grab {
+  cursor: grab;
+}
+.wbs-view-mode .data-cell.cursor-grab:active {
+  cursor: grabbing;
+}
+
 /* 줄바꿈 켜짐: 말줄임 대신 줄바꿈 */
 .wrap-text-in-cells .data-cell {
   @apply break-words;
@@ -692,19 +701,6 @@ input[list] {
 /* TaskModal: 의존성 다중선택 - 선택된 옵션 강조 */
 .dependency-select option:checked {
   @apply bg-indigo-100 text-indigo-800 font-medium;
-}
-
-/* 표: 자동계산 셀(계획·차이, 요약 행의 진척·날짜·공수)·읽기전용 셀 — 옅은 회색 음영으로 "입력 불가" 시각화.
-   수동 입력 가능한 셀은 깔끔한 배경 그대로라 한눈에 구분된다. */
-.data-cell.wbs-cell-auto {
-  background-color: rgba(100, 116, 139, 0.12);
-  background-image: none;
-  cursor: not-allowed;
-}
-:root.dark .data-cell.wbs-cell-auto,
-.dark .data-cell.wbs-cell-auto {
-  background-color: rgba(148, 163, 184, 0.18);
-  background-image: none;
 }
 
 /* ========== 모바일 가독성·UX 개선 ========== */

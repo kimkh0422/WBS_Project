@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Plus, Calendar } from 'lucide-react';
+import { X, Plus, Calendar, Trash2 } from 'lucide-react';
 import { Project, ProjectAssignment, type ProjectKind } from '../types';
 import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS, isPrivateProjectKind } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
@@ -44,6 +44,10 @@ interface ProjectModalProps {
   defaultPmNameForNewProject?: string;
   /** 로그인 사용자 id. 소유자가 아닐 때「연습」「개인」항목은 선택 목록에서 제외 */
   currentUserId?: string;
+  /** 편집 중인 기존 프로젝트를 삭제할 수 있는 권한(소유자·운영자)일 때만 삭제 버튼 노출 */
+  canDelete?: boolean;
+  /** 「프로젝트 삭제」클릭 시 호출 — 보통 모달을 닫고 삭제 확인 대화상자를 연다 */
+  onDelete?: () => void;
 }
 
 export function ProjectModal({
@@ -54,6 +58,8 @@ export function ProjectModal({
   allProjects = [],
   defaultPmNameForNewProject = '',
   currentUserId,
+  canDelete = false,
+  onDelete,
 }: ProjectModalProps) {
   const { orgMembers } = useOrganization();
   const [name, setName] = useState('');
@@ -634,29 +640,43 @@ export function ProjectModal({
             {formError}
           </div>
         )}
-        <div className="flex justify-end gap-3 p-6 border-t border-[var(--color-line)] bg-[var(--color-surface)]/80 backdrop-blur sticky bottom-0">
-          <button type="button" onClick={onClose} className="btn-ghost">
-            취소
-          </button>
-          <button
-            type="button"
-            data-tourid="tour-project-save"
-            onClick={(e) => {
-              e.preventDefault();
-              handleSubmit(e as unknown as React.FormEvent);
-            }}
-            disabled={!name.trim() || !pmName.trim()}
-            title={
-              !name.trim()
-                ? '프로젝트 이름을 입력하면 저장할 수 있습니다.'
-                : !pmName.trim()
-                  ? '프로젝트 PM을 입력하면 저장할 수 있습니다. (대시보드 반영만으로는 저장이 켜지지 않습니다.)'
-                  : undefined
-            }
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {project ? '저장' : '프로젝트 생성'}
-          </button>
+        <div className="flex items-center justify-between gap-3 p-6 border-t border-[var(--color-line)] bg-[var(--color-surface)]/80 backdrop-blur sticky bottom-0">
+          <div>
+            {project && canDelete && onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 transition-colors"
+                title="이 프로젝트와 소속된 모든 작업을 삭제합니다. 되돌릴 수 없습니다."
+              >
+                <Trash2 size={16} aria-hidden /> 프로젝트 삭제
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onClose} className="btn-ghost">
+              취소
+            </button>
+            <button
+              type="button"
+              data-tourid="tour-project-save"
+              onClick={(e) => {
+                e.preventDefault();
+                handleSubmit(e as unknown as React.FormEvent);
+              }}
+              disabled={!name.trim() || !pmName.trim()}
+              title={
+                !name.trim()
+                  ? '프로젝트 이름을 입력하면 저장할 수 있습니다.'
+                  : !pmName.trim()
+                    ? '프로젝트 PM을 입력하면 저장할 수 있습니다. (대시보드 반영만으로는 저장이 켜지지 않습니다.)'
+                    : undefined
+              }
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {project ? '저장' : '프로젝트 생성'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

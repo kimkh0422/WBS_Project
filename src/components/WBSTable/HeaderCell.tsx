@@ -195,12 +195,6 @@ export function HeaderCell({
           title={COLUMN_TOOLTIPS.plannedProgress + ' · 더블클릭: 너비 자동'}
         >
           계획(%)
-          <span
-            className="ml-1 inline-block align-middle rounded bg-slate-200/80 px-1 text-[8px] font-bold uppercase leading-tight tracking-wide text-slate-500"
-            title="자동 계산되는 항목 — 입력하지 않아도 됩니다."
-          >
-            자동
-          </span>
           {resizeGrip}
         </div>
       );
@@ -213,12 +207,6 @@ export function HeaderCell({
           title={COLUMN_TOOLTIPS.progressVariance + ' · 더블클릭: 너비 자동'}
         >
           차이(%p)
-          <span
-            className="ml-1 inline-block align-middle rounded bg-slate-200/80 px-1 text-[8px] font-bold uppercase leading-tight tracking-wide text-slate-500"
-            title="자동 계산되는 항목 — 입력하지 않아도 됩니다."
-          >
-            자동
-          </span>
           {resizeGrip}
         </div>
       );

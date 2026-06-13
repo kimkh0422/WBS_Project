@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, Bold, ChevronDown, Eraser, Italic, Strikethrough, Trash2, Underline, X } from 'lucide-react';
+import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Search, Strikethrough, Trash2, X } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
 import { mergeTaskCellTextStyles } from '../../lib/cellTextStyle';
 
+/** Google 문서 툴바에 가깝게 맞춘 배경색 */
+const DOCS_TOOLBAR_BG = '#f0f4f8';
+
 const FONT_CHOICES = [
   { value: '', label: '글꼴(기본)' },
+  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
   { value: 'system-ui, sans-serif', label: '시스템 UI' },
   { value: 'Malgun Gothic, sans-serif', label: '맑은 고딕' },
   { value: 'Apple SD Gothic Neo, sans-serif', label: 'Apple SD Gothic' },
@@ -21,6 +25,7 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   // 메뉴는 body 포털 + position:fixed로 띄운다(툴바의 overflow-x-auto에 잘리지 않도록).
+  // 툴바가 상단/하단 어디에 있든 화면 여백에 따라 위·아래로 펼친다.
   const [pos, setPos] = useState<{ left: number; top: number; minWidth: number; openUp: boolean } | null>(null);
 
   const computePos = useCallback(() => {
@@ -82,10 +87,9 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
         disabled={disabled}
         onClick={() => !disabled && setOpen((o) => !o)}
         className={cn(
-          'flex h-8 min-w-[9.5rem] max-w-[14rem] items-center justify-between gap-2 rounded-md border px-2.5 text-left text-sm transition-colors',
-          'border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50',
+          'flex h-7 min-w-[7.5rem] max-w-[12rem] items-center justify-between gap-1.5 rounded border border-[#dadce0] bg-white px-2 text-left text-[13px] text-[#444746] transition-colors hover:bg-[#f8fafc]',
           disabled && 'cursor-not-allowed opacity-50',
-          open && 'border-indigo-400 ring-2 ring-indigo-100',
+          open && 'border-[#1a73e8] ring-1 ring-[#1a73e8]/25',
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -95,7 +99,7 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
         <span className="truncate font-medium leading-snug" style={{ fontFamily: value || undefined }}>
           {currentLabel}
         </span>
-        <ChevronDown className={cn('size-4 shrink-0 text-slate-500 transition-transform', open && 'rotate-180')} aria-hidden />
+        <ChevronDown className={cn('size-3.5 shrink-0 text-[#444746]/70 transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
       {open &&
         pos &&
@@ -140,8 +144,8 @@ function FontFamilyPicker({ value, disabled, onPick }: { value: string; disabled
   );
 }
 
-/** B·I·U·S 등 세그먼트 토글 버튼 — 그룹 배경 위에서 활성 시 흰 배경+그림자로 도드라지게 */
-function SegToggle({
+/** B·I·U 등 — Google 문서처럼 글자 형태 토글 */
+function DocsCharToggle({
   active,
   disabled,
   title,
@@ -162,12 +166,172 @@ function SegToggle({
       aria-pressed={!!active}
       onClick={onClick}
       className={cn(
-        'flex h-8 w-8 items-center justify-center rounded-md text-slate-700 transition-all disabled:opacity-50',
-        active ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-indigo-200' : 'hover:bg-white/70',
+        'flex h-7 min-w-[28px] shrink-0 items-center justify-center rounded px-1 text-[13px] font-semibold text-[#444746] transition-colors disabled:opacity-50',
+        active ? 'bg-[#e8f0fe] text-[#174ea6]' : 'hover:bg-black/[0.06]',
       )}
     >
       {children}
     </button>
+  );
+}
+
+function ToolbarSep() {
+  return <span className="mx-0.5 h-6 w-px shrink-0 self-center bg-[#dadce0]" aria-hidden />;
+}
+
+function DocsIconBtn({
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  disabled?: boolean;
+  title: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const isDisabled = !!disabled;
+  return (
+    <button
+      type="button"
+      disabled={isDisabled}
+      title={title}
+      onClick={onClick}
+      className={cn(
+        'flex size-7 shrink-0 items-center justify-center rounded text-[#444746] transition-colors',
+        isDisabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-black/[0.06]',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StylesDropdown({
+  disabled,
+  rowMode,
+  onNormalText,
+  onClearAllRows,
+}: {
+  disabled: boolean;
+  rowMode: boolean;
+  onNormalText: () => void;
+  onClearAllRows: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number; openUp: boolean } | null>(null);
+
+  const computePos = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const menuMaxH = Math.min(window.innerHeight * 0.5, 280);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < menuMaxH + 12 && r.top > spaceBelow;
+    setPos({
+      left: Math.round(r.left),
+      top: Math.round(openUp ? r.top - 6 : r.bottom + 6),
+      minWidth: Math.round(Math.max(r.width, 160)),
+      openUp,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    computePos();
+    const closeIfOutside = (ev: MouseEvent | TouchEvent) => {
+      const t = ev.target as Node | null;
+      if (t && (btnRef.current?.contains(t) || menuRef.current?.contains(t))) return;
+      setOpen(false);
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setOpen(false);
+    };
+    const onReflow = () => computePos();
+    document.addEventListener('mousedown', closeIfOutside);
+    document.addEventListener('touchstart', closeIfOutside);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('scroll', onReflow, true);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('touchstart', closeIfOutside);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onReflow, true);
+    };
+  }, [open, computePos]);
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        className={cn(
+          'flex h-7 min-w-[6.5rem] max-w-[10rem] items-center justify-between gap-1 rounded border border-[#dadce0] bg-white px-2 text-left text-[13px] text-[#444746] transition-colors hover:bg-[#f8fafc]',
+          disabled && 'cursor-not-allowed opacity-50',
+          open && 'border-[#1a73e8] ring-1 ring-[#1a73e8]/25',
+        )}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="스타일"
+        title="스타일"
+      >
+        <span className="truncate">일반 텍스트</span>
+        <ChevronDown className={cn('size-3.5 shrink-0 text-[#444746]/70 transition-transform', open && 'rotate-180')} aria-hidden />
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <ul
+            ref={menuRef}
+            role="listbox"
+            aria-label="스타일 목록"
+            style={{
+              position: 'fixed',
+              left: pos.left,
+              top: pos.top,
+              minWidth: pos.minWidth,
+              transform: pos.openUp ? 'translateY(-100%)' : undefined,
+            }}
+            className="z-[300] max-h-[min(50vh,280px)] overflow-y-auto rounded-md border border-[#dadce0] bg-white py-1 text-[13px] shadow-lg"
+          >
+            <li role="presentation">
+              <button
+                type="button"
+                role="option"
+                className="flex w-full items-center px-3 py-2 text-left text-[#444746] hover:bg-[#f1f3f4]"
+                onClick={() => {
+                  onNormalText();
+                  setOpen(false);
+                }}
+              >
+                일반 텍스트
+              </button>
+            </li>
+            {rowMode ? (
+              <li role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  className="flex w-full items-center px-3 py-2 text-left text-[#444746] hover:bg-[#f1f3f4]"
+                  onClick={() => {
+                    onClearAllRows();
+                    setOpen(false);
+                  }}
+                >
+                  모든 열 서식 지우기
+                </button>
+              </li>
+            ) : null}
+          </ul>,
+          document.body,
+        )}
+    </div>
   );
 }
 
@@ -207,10 +371,13 @@ export interface CellFormatToolbarProps {
   onDeleteTargets?: (taskIds: string[]) => void;
   /** 툴바 닫기(선택·포커스 해제). */
   onClose?: () => void;
+  /** 'top': 표+간트 상단 고정 도킹(아래로 구분선). 기본은 하단 도킹. */
+  dock?: 'top' | 'bottom';
 }
 
 /**
- * 표 하단 도킹 서식 툴바. 한글·엑셀의 Tool Bar처럼 동작하되, 선택 시 행이 밀리지 않도록 표 본문 아래에 붙는다.
+ * 표에 도킹되는 셀 서식 툴바. 한글·엑셀의 Tool Bar처럼 동작한다.
+ * `dock="top"`이면 표+간트 상단 슬롯에 붙이고, 기본(`bottom`)이면 표 본문 아래에 붙여 선택 시 위쪽 행이 덜 밀리게 할 수 있다.
  * 적용 범위(엑셀식 = 선택 단위가 곧 적용 단위):
  *  - 행을 체크 선택(selectedTaskIds ≥ 1)하면 → 선택한 모든 행 × 표시된 모든 데이터 열에 적용("행 전체").
  *  - 체크 없이 셀 하나만 포커스하면 → 그 셀(한 행, 한 열)에만 적용.
@@ -225,6 +392,7 @@ export function CellFormatToolbar({
   updateTask,
   onDeleteTargets,
   onClose,
+  dock = 'bottom',
 }: CellFormatToolbarProps) {
   // 행을 체크 선택했으면 "행 전체" 모드(엑셀식). 아니면 포커스 셀 단일 모드.
   const rowMode = selectedTaskIds.size >= 1;
@@ -242,6 +410,16 @@ export function CellFormatToolbar({
     if (rowMode) return rowCols;
     return focusedCell ? [focusedCell.columnId] : [];
   }, [rowMode, rowCols, focusedCell]);
+
+  /** 서식 적용 가능: 대상 행·열이 있고, WBS 열만 포커스한 경우는 제외 */
+  const hasFormattingTargets = useMemo(() => {
+    if (targetTaskIds.length === 0 || targetColumnIds.length === 0) return false;
+    if (!rowMode && focusedCell?.columnId === 'wbsId') return false;
+    return true;
+  }, [targetTaskIds, targetColumnIds, rowMode, focusedCell]);
+
+  /** 컨트롤 비활성: 읽기 전용이거나 적용 대상이 없을 때 */
+  const formatDisabled = !canEdit || !hasFormattingTargets;
 
   /** 컨트롤 표시(on/off·색)용 대표 셀: 행 모드면 첫 선택 행의 작업명(없으면 첫 열). */
   const previewColumnId = useMemo<TableColumnId | undefined>(() => {
@@ -268,7 +446,7 @@ export function CellFormatToolbar({
   /** 한 작업의 여러 열에 동일 patch를 누적 적용해 단일 cellTextStyles로 만든다. */
   const applyPatch = useCallback(
     (patch: Partial<CellTextStyle> | null) => {
-      if (!canEdit) return;
+      if (!canEdit || !hasFormattingTargets) return;
       for (const id of targetTaskIds) {
         const t = tasks.find((x) => x.id === id);
         if (!t) continue;
@@ -279,12 +457,12 @@ export function CellFormatToolbar({
         updateTask(id, { cellTextStyles: acc });
       }
     },
-    [canEdit, targetTaskIds, targetColumnIds, tasks, updateTask],
+    [canEdit, hasFormattingTargets, targetTaskIds, targetColumnIds, tasks, updateTask],
   );
 
   /** 대상 행의 모든 열 서식 제거. */
   const clearAllForTargets = useCallback(() => {
-    if (!canEdit) return;
+    if (!canEdit || targetTaskIds.length === 0) return;
     for (const id of targetTaskIds) {
       const t = tasks.find((x) => x.id === id);
       if (!t || !t.cellTextStyles || Object.keys(t.cellTextStyles).length === 0) continue;
@@ -292,82 +470,93 @@ export function CellFormatToolbar({
     }
   }, [canEdit, targetTaskIds, tasks, updateTask]);
 
-  if (targetTaskIds.length === 0 || targetColumnIds.length === 0) return null;
-  // 셀 모드에서 WBS 열은 서식 대상이 아니다.
-  if (!rowMode && focusedCell?.columnId === 'wbsId') return null;
-
   const hasTextColor = !!(style?.color && style.color.startsWith('#') && style.color.length >= 4);
   const textColor = hasTextColor ? style!.color! : '#1e293b';
   const hasBg = !!(style?.backgroundColor && style.backgroundColor.startsWith('#') && style.backgroundColor.length >= 4);
   const bgColor = hasBg ? style!.backgroundColor! : '#ffffff';
 
-  /** 그룹(세그먼트) 공통 배경 */
-  const groupClass = 'flex items-center gap-1 rounded-xl bg-slate-100/70 p-1 ring-1 ring-inset ring-slate-200/60';
+  const bumpFontSize = (delta: number) => {
+    if (formatDisabled) return;
+    const base = typeof style?.fontSize === 'number' && Number.isFinite(style.fontSize) ? style.fontSize : 11;
+    const n = Math.min(48, Math.max(8, Math.round(base + delta)));
+    applyPatch({ fontSize: n });
+  };
+
+  const menuTooltip = !hasFormattingTargets
+    ? '셀 또는 행을 선택하면 서식을 적용할 수 있습니다'
+    : rowMode
+      ? `행 전체 서식 · 선택 ${targetTaskIds.length}행`
+      : columnTitle
+        ? `열: ${columnTitle}`
+        : '셀 서식';
+
+  const canDismissSelection = selectedTaskIds.size > 0 || focusedCell != null;
 
   return (
     <div
       className={cn(
-        // h-14: 표 SummaryBar(h-14)와 같은 높이로 본문 하단에 도킹. border-t로 위 행과 구분(위쪽으로 향한 그림자).
-        'flex h-14 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap px-3 py-0 text-slate-900',
-        'border-t border-[var(--color-line)] bg-[var(--color-surface)] shadow-[0_-1px_3px_rgba(0,0,0,0.06)]',
+        'flex h-11 w-full min-h-11 items-center gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap px-2 py-1 text-[#444746]',
+        dock === 'top' ? 'border-b border-[#dadce0]' : 'border-t border-[#dadce0]',
       )}
+      style={{ backgroundColor: DOCS_TOOLBAR_BG }}
       role="toolbar"
       aria-label="셀 서식"
       onMouseDown={(e) => {
-        // 폼 컨트롤(입력·드롭다운)은 기본 동작 유지, 그 외 영역은 표 셀 포커스 유지를 위해 기본 동작 차단.
         const el = e.target as HTMLElement | null;
         if (el?.closest('input, select, textarea, label, button')) return;
         e.preventDefault();
       }}
     >
-      {/* 제목 + 대상 표시 */}
-      <span className="flex shrink-0 items-center gap-2 pr-0.5 text-sm font-bold tracking-tight text-slate-800">
-        <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm"
-          aria-hidden
-        >
-          <span className="text-[11px] font-black leading-none">Aa</span>
-        </span>
-        <span className="hidden whitespace-nowrap sm:inline">
-          서식
-          {rowMode ? (
-            <span className="ml-1 font-semibold text-slate-500">· 행 전체</span>
-          ) : columnTitle ? (
-            <span className="ml-1 font-semibold text-slate-500">· {columnTitle}</span>
-          ) : null}
-        </span>
-        {rowMode ? (
-          <span className="whitespace-nowrap rounded-md border border-indigo-200/80 bg-indigo-50 px-1.5 py-0.5 text-xs font-semibold text-indigo-800">
-            {targetTaskIds.length}행
-          </span>
-        ) : null}
-      </span>
+      {/* 메뉴(검색) 필 */}
+      <div
+        className="flex h-7 shrink-0 items-center gap-2 rounded-full border border-[#dadce0] bg-white px-3 text-[13px] text-[#444746] shadow-sm"
+        title={menuTooltip}
+      >
+        <Search className="size-4 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
+        <span>메뉴</span>
+      </div>
 
-      {/* 글꼴 · 크기 */}
-      <div className={cn(groupClass, 'shrink-0')}>
-        <FontFamilyPicker
-          value={style?.fontFamily ?? ''}
-          disabled={!canEdit}
-          onPick={(v) => {
-            if (!v) applyPatch({ fontFamily: undefined });
-            else applyPatch({ fontFamily: v });
-          }}
-        />
+      <ToolbarSep />
+
+      <StylesDropdown
+        disabled={formatDisabled}
+        rowMode={rowMode}
+        onNormalText={() => applyPatch(null)}
+        onClearAllRows={clearAllForTargets}
+      />
+
+      <ToolbarSep />
+
+      <FontFamilyPicker
+        value={style?.fontFamily ?? ''}
+        disabled={formatDisabled}
+        onPick={(v) => {
+          if (!v) applyPatch({ fontFamily: undefined });
+          else applyPatch({ fontFamily: v });
+        }}
+      />
+
+      <ToolbarSep />
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        <DocsIconBtn title="글자 크기 줄이기" disabled={formatDisabled} onClick={() => bumpFontSize(-1)}>
+          <Minus size={18} strokeWidth={2} />
+        </DocsIconBtn>
         <label
-          title="글자 크기 (pt)"
+          title="글자 크기(px)"
           className={cn(
-            'flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white pl-2 pr-1.5 shadow-sm',
-            !canEdit && 'opacity-50',
+            'flex h-7 min-w-[2.25rem] items-center justify-center rounded border border-[#dadce0] bg-white px-1.5 shadow-sm',
+            formatDisabled && 'opacity-50',
           )}
         >
           <input
             type="number"
             min={8}
             max={48}
-            disabled={!canEdit}
-            className="h-7 w-9 border-0 bg-transparent p-0 text-center text-sm tabular-nums focus:outline-none focus:ring-0"
+            disabled={formatDisabled}
+            className="h-6 w-full min-w-[1.75rem] max-w-[2.5rem] border-0 bg-transparent p-0 text-center text-[13px] tabular-nums text-[#444746] focus:outline-none focus:ring-0"
             value={style?.fontSize ?? ''}
-            placeholder="–"
+            placeholder="11"
             aria-label="글자 크기"
             onChange={(e) => {
               const raw = e.target.value;
@@ -378,172 +567,124 @@ export function CellFormatToolbar({
               }
             }}
           />
-          <span className="select-none text-[11px] font-semibold text-slate-400">pt</span>
         </label>
+        <DocsIconBtn title="글자 크기 늘리기" disabled={formatDisabled} onClick={() => bumpFontSize(1)}>
+          <Plus size={18} strokeWidth={2} />
+        </DocsIconBtn>
       </div>
 
-      {/* 글자색 · 배경색 */}
-      <div className={cn(groupClass, 'shrink-0')}>
-        <label
-          title="글자 색"
-          className={cn(
-            'relative flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white pl-2 pr-2.5 shadow-sm hover:bg-slate-50',
-            !canEdit && 'pointer-events-none opacity-50',
-          )}
-        >
-          <span className="select-none text-xs font-semibold text-slate-600">글자</span>
-          <span className="flex flex-col items-center leading-none">
-            <span className="text-[13px] font-extrabold leading-none text-slate-800">가</span>
-            <span className="mt-[3px] h-[3px] w-4 rounded-full" style={{ backgroundColor: textColor }} aria-hidden />
-          </span>
-          <input
-            type="color"
-            disabled={!canEdit}
-            className="absolute inset-0 cursor-pointer opacity-0"
-            value={textColor}
-            onChange={(e) => applyPatch({ color: e.target.value })}
-            aria-label="글자 색"
-          />
-        </label>
-        <label
-          title="배경 색"
-          className={cn(
-            'relative flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white pl-2 pr-2.5 shadow-sm hover:bg-slate-50',
-            !canEdit && 'pointer-events-none opacity-50',
-          )}
-        >
-          <span className="select-none text-xs font-semibold text-slate-600">배경</span>
-          <span
-            className="h-4 w-4 rounded border border-slate-300"
-            style={
-              hasBg
-                ? { backgroundColor: bgColor }
-                : {
-                    backgroundImage:
-                      'linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%)',
-                    backgroundSize: '6px 6px',
-                    backgroundPosition: '0 0,0 3px,3px -3px,-3px 0',
-                  }
-            }
-            aria-hidden
-          />
-          <input
-            type="color"
-            disabled={!canEdit}
-            className="absolute inset-0 cursor-pointer opacity-0"
-            value={bgColor}
-            onChange={(e) => applyPatch({ backgroundColor: e.target.value })}
-            aria-label="배경 색"
-          />
-        </label>
+      <ToolbarSep />
+
+      <DocsCharToggle
+        active={style?.bold}
+        disabled={formatDisabled}
+        title="진하게"
+        onClick={() => applyPatch({ bold: style?.bold ? false : true })}
+      >
+        <span className="font-bold leading-none">B</span>
+      </DocsCharToggle>
+      <DocsCharToggle
+        active={style?.italic}
+        disabled={formatDisabled}
+        title="기울임"
+        onClick={() => applyPatch({ italic: style?.italic ? false : true })}
+      >
+        <span className="font-serif italic leading-none">I</span>
+      </DocsCharToggle>
+      <DocsCharToggle
+        active={style?.underline}
+        disabled={formatDisabled}
+        title="밑줄"
+        onClick={() => applyPatch({ underline: style?.underline ? false : true })}
+      >
+        <span className="leading-none underline">U</span>
+      </DocsCharToggle>
+      <DocsCharToggle
+        active={style?.strikethrough}
+        disabled={formatDisabled}
+        title="취소선"
+        onClick={() => applyPatch({ strikethrough: style?.strikethrough ? false : true })}
+      >
+        <Strikethrough size={16} strokeWidth={2.25} className="opacity-90" />
+      </DocsCharToggle>
+
+      <label
+        title="글자 색"
+        className={cn(
+          'relative ml-0.5 flex h-7 cursor-pointer items-center gap-0.5 rounded px-1.5 hover:bg-black/[0.06]',
+          formatDisabled && 'pointer-events-none opacity-50',
+        )}
+      >
+        <span className="flex flex-col items-center leading-none">
+          <span className="text-[15px] font-semibold leading-none text-[#444746]">A</span>
+          <span className="mt-0.5 h-[3px] w-[1.1rem] rounded-sm" style={{ backgroundColor: textColor }} aria-hidden />
+        </span>
+        <input
+          type="color"
+          disabled={formatDisabled}
+          className="absolute inset-0 cursor-pointer opacity-0"
+          value={textColor}
+          onChange={(e) => applyPatch({ color: e.target.value })}
+          aria-label="글자 색"
+        />
+      </label>
+
+      <label
+        title="강조 색(배경)"
+        className={cn(
+          'relative flex h-7 cursor-pointer items-center justify-center rounded px-1 hover:bg-black/[0.06]',
+          formatDisabled && 'pointer-events-none opacity-50',
+        )}
+      >
+        <Highlighter size={18} strokeWidth={2} className="text-[#444746]" />
+        <input
+          type="color"
+          disabled={formatDisabled}
+          className="absolute inset-0 cursor-pointer opacity-0"
+          value={bgColor}
+          onChange={(e) => applyPatch({ backgroundColor: e.target.value })}
+          aria-label="강조 색"
+        />
+      </label>
+      <DocsIconBtn title="강조 색 지우기" disabled={formatDisabled} onClick={() => applyPatch({ backgroundColor: undefined })}>
+        <Ban size={17} strokeWidth={2} />
+      </DocsIconBtn>
+
+      <ToolbarSep />
+
+      <DocsIconBtn
+        title={rowMode ? '선택한 행·열의 서식 지우기' : '이 셀 서식 지우기'}
+        disabled={formatDisabled}
+        onClick={() => applyPatch(null)}
+      >
+        <RemoveFormatting size={18} strokeWidth={2} />
+      </DocsIconBtn>
+
+      <div className="min-w-2 flex-1" aria-hidden />
+
+      {onDeleteTargets ? (
         <button
           type="button"
-          disabled={!canEdit}
-          title="배경 색 지우기"
-          aria-label="배경 색 지우기"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-white hover:text-rose-700 disabled:opacity-50"
-          onClick={() => applyPatch({ backgroundColor: undefined })}
+          disabled={formatDisabled || targetTaskIds.length === 0}
+          title={targetTaskIds.length > 1 ? `선택한 ${targetTaskIds.length}개 행 삭제 (하위 작업 포함)` : '이 행 삭제 (하위 작업 포함)'}
+          className="flex h-7 shrink-0 items-center gap-1 rounded border border-[#dadce0] bg-white px-2 text-[12px] font-medium text-[#c5221f] transition-colors hover:bg-[#fce8e6] disabled:opacity-50"
+          onClick={() => onDeleteTargets(targetTaskIds)}
         >
-          <Ban size={16} />
+          <Trash2 size={15} strokeWidth={2} />
+          <span>삭제</span>
+          {targetTaskIds.length > 1 ? (
+            <span className="rounded bg-[#fad2cf] px-1 py-0 text-[10px] font-bold tabular-nums leading-none text-[#842029]">
+              {targetTaskIds.length}
+            </span>
+          ) : null}
         </button>
-      </div>
+      ) : null}
 
-      {/* 글자 스타일 토글 */}
-      <div className={cn(groupClass, 'shrink-0')}>
-        <SegToggle active={style?.bold} disabled={!canEdit} title="진하게" onClick={() => applyPatch({ bold: style?.bold ? false : true })}>
-          <Bold size={16} strokeWidth={2.75} />
-        </SegToggle>
-        <SegToggle
-          active={style?.italic}
-          disabled={!canEdit}
-          title="기울임"
-          onClick={() => applyPatch({ italic: style?.italic ? false : true })}
-        >
-          <Italic size={16} />
-        </SegToggle>
-        <SegToggle
-          active={style?.underline}
-          disabled={!canEdit}
-          title="밑줄"
-          onClick={() => applyPatch({ underline: style?.underline ? false : true })}
-        >
-          <Underline size={16} />
-        </SegToggle>
-        <SegToggle
-          active={style?.strikethrough}
-          disabled={!canEdit}
-          title="취소선"
-          onClick={() => applyPatch({ strikethrough: style?.strikethrough ? false : true })}
-        >
-          <Strikethrough size={16} />
-        </SegToggle>
-      </div>
-
-      <span className="h-7 w-px shrink-0 bg-slate-200" aria-hidden />
-
-      {/* 서식 지우기 */}
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          disabled={!canEdit}
-          title={rowMode ? '선택한 행의 서식을 지웁니다' : '이 셀(열) 서식 지우기'}
-          aria-label="서식 지우기"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50"
-          onClick={() => applyPatch(null)}
-        >
-          <Eraser size={16} />
-        </button>
-        <button
-          type="button"
-          disabled={!canEdit}
-          title="선택한 행의 모든 열 서식을 지웁니다 (실행취소 가능)"
-          className="flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50"
-          onClick={clearAllForTargets}
-        >
-          <Eraser size={14} />
-          <span className="hidden sm:inline">모든 서식 지우기</span>
-          <span className="sm:hidden">전체</span>
-        </button>
-      </div>
-
-      {/* 행 삭제 — 선택 행(없으면 포커스 행) 일괄 삭제. 호출부가 확인 모달을 띄운다. */}
-      {onDeleteTargets && (
-        <>
-          <span className="h-7 w-px shrink-0 bg-slate-200" aria-hidden />
-          <button
-            type="button"
-            disabled={!canEdit || targetTaskIds.length === 0}
-            title={
-              targetTaskIds.length > 1
-                ? `선택한 ${targetTaskIds.length}개 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)`
-                : '이 행을 삭제합니다 (하위 작업 포함, 실행취소 가능)'
-            }
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-red-300 bg-red-50 px-2.5 text-xs font-semibold text-red-700 shadow-sm transition-colors hover:border-red-400 hover:bg-red-100 hover:text-red-800 disabled:opacity-50"
-            onClick={() => onDeleteTargets(targetTaskIds)}
-          >
-            <Trash2 size={14} />
-            <span>삭제</span>
-            {targetTaskIds.length > 1 ? (
-              <span className="rounded-md bg-red-200/70 px-1.5 py-0.5 text-[10px] font-bold leading-none tabular-nums text-red-800">
-                {targetTaskIds.length}
-              </span>
-            ) : null}
-          </button>
-        </>
-      )}
-
-      {/* 닫기(선택 해제) — 우측 끝 */}
-      {onClose && (
-        <button
-          type="button"
-          title="서식 바 닫기 (선택 해제)"
-          aria-label="서식 바 닫기"
-          className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
-      )}
+      {onClose ? (
+        <DocsIconBtn title="선택·포커스 해제" disabled={!canDismissSelection} onClick={onClose}>
+          <X size={18} strokeWidth={2} />
+        </DocsIconBtn>
+      ) : null}
     </div>
   );
 }

@@ -48,6 +48,8 @@ export interface WBSSettings {
   statusHiddenMigrated?: boolean;
   /** WBS(ID) 컬럼 기본 숨김 마이그레이션 완료 여부 */
   wbsIdHiddenMigrated?: boolean;
+  /** 접두어 WBS ID 컬럼(W1·T1.2 등)을 표에서 제외 — 계층 번호(1·1.1) 칸만 사용(1회) */
+  wbsIdPrefixColumnRetiredMigrated?: boolean;
   /** 공수 컬럼 숨김 + 기간(duration) 컬럼 추가 마이그레이션 완료 여부 */
   workEffortToDurationMigrated?: boolean;
   /** 공수 컬럼 강제 재숨김 마이그레이션 완료 여부 (이전에 사용자가 켜 둔 경우에도 기본 숨김으로 되돌림) */
@@ -95,10 +97,10 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: false,
-  // 기본 표시 컬럼: WBS·작업명·시작일·종료일·기간·담당자·계획율·진척율·차이(+선택박스는 항상 표시).
-  // 나머지(공수·가중치·투입율·상태·산출물·선행작업·관리)는 기본 숨김 — 컬럼 설정에서 켤 수 있음.
+  // 기본 표시 컬럼: 작업명·시작일·종료일·기간·담당자·계획율·진척율·차이(+그립·체크·계층 WBS 번호 칸은 항상).
+  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 나머지(공수·가중치·투입율·상태·산출물·선행작업·관리)는 기본 숨김.
   tableColumns: [
-    { id: 'wbsId', visible: true },
+    { id: 'wbsId', visible: false },
     { id: 'name', visible: true },
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
@@ -268,11 +270,10 @@ export function parseSettings(raw: unknown): WBSSettings {
     }
 
     // 표 기본 표시 컬럼 표준화 (1회만 적용 — 이후 컬럼 설정에서 자유롭게 변경 가능).
-    // 표시: WBS·작업명·시작일·종료일·기간·담당자·계획율·진척율·차이 / 숨김: 공수·가중치·투입율·상태·산출물·선행작업·관리.
+    // 표시: 작업명·시작일·종료일·기간·담당자·계획율·진척율·차이 / 숨김: 접두어 WBS ID·공수·가중치·투입율·상태·산출물·선행작업·관리.
     // 사용자 정의(custom:*) 컬럼은 건드리지 않는다.
     if (!parsed.standardVisibleColumnsMigrated) {
       const STD_VISIBLE = new Set([
-        'wbsId',
         'name',
         'startDate',
         'endDate',
@@ -282,7 +283,7 @@ export function parseSettings(raw: unknown): WBSSettings {
         'progress',
         'progressVariance',
       ]);
-      const STD_HIDDEN = new Set(['workEffort', 'weight', 'allocation', 'status', 'deliverables', 'dependencies', 'actions']);
+      const STD_HIDDEN = new Set(['wbsId', 'workEffort', 'weight', 'allocation', 'status', 'deliverables', 'dependencies', 'actions']);
       base.tableColumns = (Array.isArray(base.tableColumns) ? base.tableColumns : []).map((c) => {
         if (!c) return c;
         if (STD_VISIBLE.has(c.id)) return { ...c, visible: true };
@@ -290,6 +291,13 @@ export function parseSettings(raw: unknown): WBSSettings {
         return c; // custom:* 등은 그대로 유지
       });
       base.standardVisibleColumnsMigrated = true;
+    }
+
+    // 접두어 WBS ID 컬럼은 표에서 제외(계층 번호 칸만 유지). 이미 표준화된 저장값도 1회 정리.
+    if (!parsed.wbsIdPrefixColumnRetiredMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? base.tableColumns : [];
+      base.tableColumns = cols.map((c) => (c && c.id === 'wbsId' ? { ...c, visible: false } : c));
+      base.wbsIdPrefixColumnRetiredMigrated = true;
     }
 
     // 진척 현황 3종(계획·진척·차이)은 항상 계획→진척→차이 순서로 한데 묶어 표시한다.

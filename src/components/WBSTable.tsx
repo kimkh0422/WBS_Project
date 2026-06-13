@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
 import type { StatusConfig } from '../lib/wbsSettings';
@@ -31,7 +31,7 @@ import {
   Copy,
   ClipboardPaste,
 } from 'lucide-react';
-import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps } from './wbsTableTypes';
+import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps, type WbsEditingCellPayload } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
 import { useColumnResize, COLUMN_HEADER_LABELS } from './hooks/useColumnResize';
@@ -39,6 +39,7 @@ import { useWbsSummaryStats } from './hooks/useWbsSummaryStats';
 import { useWbsBulkEdit } from './hooks/useWbsBulkEdit';
 import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
+import { useWbsDragRangeSelect } from './hooks/useWbsDragRangeSelect';
 import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
@@ -77,6 +78,7 @@ import {
   setShowAdvancedTools,
   subscribeShowAdvancedToolsChanged,
 } from '../lib/wbsTableDisplayPrefs';
+import { isComposingKeyEvent } from '../lib/ime';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 // 첫 화면(표) 진입 경로에서 분리 — 사용자가 열 때만 로드한다.
@@ -143,12 +145,15 @@ export function WBSTable({
   syncRowHeights,
   onBottomInsetChange,
   bottomDockContainer,
+  topDockContainer,
+  splitSummaryChromeContainer,
   hotkeysEnabled = true,
   onOpenColumnSettings,
   fillHeight = false,
   autoFitColumnsOnMount = false,
   onResetFilters,
   scrollToTaskId,
+  taskContextMenuHandlerRef,
 }: WBSTableProps) {
   const {
     tasks,
@@ -231,26 +236,28 @@ export function WBSTable({
     setSingleClickEditState(next);
   }, []);
 
-  /** 고급 도구(자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
+  /** 고급 도구(자동 서식·가중치·하위일정 균등분할·클릭 편집) 툴바 표시. 기본 숨김, Shift+F12로 토글. 보완 가이드는 항상 표시. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
   useEffect(() => subscribeShowAdvancedToolsChanged(() => setShowAdvancedToolsState(getShowAdvancedTools())), []);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isComposingKeyEvent(e)) return;
+      const isF12 = e.key === 'F12' || e.code === 'F12';
       // Shift+F12: 고급 도구 버튼 표시/숨김 토글 (브라우저 기본 동작 없음)
-      if (e.key === 'F12' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        e.preventDefault();
-        const next = !getShowAdvancedTools();
-        setShowAdvancedTools(next);
-        setShowAdvancedToolsState(next);
-        pushToast(
-          next
-            ? '고급 도구를 표시합니다. (자동 서식·보완 가이드·가중치·하위일정 균등분할·클릭 편집)'
-            : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)',
-          {
-            variant: 'info',
-          },
-        );
-      }
+      if (!isF12 || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+      const el = e.target as HTMLElement;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      e.preventDefault();
+      const next = !getShowAdvancedTools();
+      setShowAdvancedTools(next);
+      setShowAdvancedToolsState(next);
+      pushToast(
+        next ? '고급 도구를 표시합니다. (하위일정 균등분할·가중치·클릭 편집·자동 서식)' : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)',
+        {
+          variant: 'info',
+        },
+      );
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -427,7 +434,7 @@ export function WBSTable({
   );
 
   /** 셀 단위 인라인 편집: { taskId, columnId } */
-  const [editingCell, setEditingCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+  const [editingCell, setEditingCell] = useState<WbsEditingCellPayload | null>(null);
   /** 전체를 스프레드시트(AG Grid) 뷰로 보는 모드 */
   const [excelView, setExcelView] = useState(false);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
@@ -561,7 +568,7 @@ export function WBSTable({
   const visibleColumnIds = useMemo(
     () =>
       tableColumns
-        .filter((c) => c.visible && c.id !== 'actions')
+        .filter((c) => c.visible && c.id !== 'actions' && c.id !== 'wbsId')
         .filter((c) => useWeightForRollup || c.id !== 'weight')
         .map((c) => c.id as TableColumnId),
     [tableColumns, useWeightForRollup],
@@ -606,7 +613,15 @@ export function WBSTable({
   // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화
   // 작업명 인라인 편집 중에는 가상 스크롤 비활성화 — 스크롤/범위 변경 시 행이 언마운트되면
   // input blur로 편집이 즉시 종료되며(F2 후 깜빡임), 빈 이름 셀에서 입력이 불가능해진다.
-  const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null && inlineEditingNameId === null;
+  // 다른 열(시작일·진척 등) 인라인 편집 중에도 동일 — 언마운트 시 type-to-edit·입력이 깨진다.
+  const shouldVirtualize =
+    !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null && inlineEditingNameId === null && editingCell === null;
+
+  const focusedTaskRowIndex = useMemo(() => {
+    if (!focusedCell) return -1;
+    const idx = visibleTasks.findIndex((t) => t.id === focusedCell.taskId);
+    return idx;
+  }, [focusedCell, visibleTasks]);
 
   // 드래그 중인 항목의 인덱스를 미리 계산 (virtualRangeExtractor 내 O(n) findIndex 제거)
   const dndActiveIndex = useMemo(
@@ -617,12 +632,14 @@ export function WBSTable({
   const virtualRangeExtractor = useCallback(
     (range: Parameters<typeof defaultRangeExtractor>[0]) => {
       const base = defaultRangeExtractor(range);
-      if (dndActiveIndex !== -1 && !base.includes(dndActiveIndex)) {
-        return [...base, dndActiveIndex].sort((a, b) => a - b);
-      }
-      return base;
+      const extra: number[] = [];
+      if (dndActiveIndex !== -1 && !base.includes(dndActiveIndex)) extra.push(dndActiveIndex);
+      // 키보드 셀 포커스(미편집) 행이 뷰포트 밖이면 언마운트 → 첫 글자 type-to-edit 실패 방지
+      if (focusedTaskRowIndex !== -1 && !base.includes(focusedTaskRowIndex)) extra.push(focusedTaskRowIndex);
+      if (extra.length === 0) return base;
+      return [...base, ...extra].sort((a, b) => a - b);
     },
-    [dndActiveIndex],
+    [dndActiveIndex, focusedTaskRowIndex],
   );
 
   const isSplitViewForVirtualizer = !!syncScrollRef;
@@ -951,12 +968,11 @@ export function WBSTable({
   /** 스크롤 영역 하단 패딩. 서식 툴바·일괄 수정 바 모두 상단 도킹으로 이동했으므로 하단 여백은 불필요(기본 pb-6 사용). */
   const tableScrollBottomPadding = undefined;
 
-  /** 하단 도킹 서식 툴바 표시 조건: 편집 가능 + (행 체크 선택 또는 WBS 외 셀 포커스). 엑셀뷰·행 편집 중엔 숨김. */
+  /** 서식 툴바: 표+간트 영역에 상시 표시. 엑셀뷰·행 인라인 편집 중만 숨김(선택·포커스 없어도 표시). */
   const showCellFormatToolbar = useMemo(() => {
-    if (excelView || editingTask || !canEditCurrentProject) return false;
-    if (selectedTaskIds.size >= 1) return true;
-    return focusedCell != null && focusedCell.columnId !== 'wbsId' && tasks.some((t) => t.id === focusedCell.taskId);
-  }, [excelView, editingTask, canEditCurrentProject, selectedTaskIds, focusedCell, tasks]);
+    if (excelView || editingTask) return false;
+    return true;
+  }, [excelView, editingTask]);
 
   /** 일괄 수정 바 표시 여부(2개 이상 체크 선택). */
   const showBulkBar = !excelView && selectedTaskIds.size > 1;
@@ -1001,10 +1017,9 @@ export function WBSTable({
     onBottomInsetChange?.(bottomDockTotalHeight);
   }, [onBottomInsetChange, bottomDockTotalHeight]);
 
-  /** split 뷰: 하단 도킹 바(서식·일괄)를 표 패널 대신 전체 너비 슬롯(표+간트 아래)으로 포털한다.
-   *  슬롯이 없으면(표만 뷰) 기존처럼 표 패널 하단에 in-flow로 붙는다. */
-  const renderBottomDock = (node: React.ReactNode): React.ReactNode =>
-    bottomDockContainer ? createPortal(node, bottomDockContainer) : node;
+  /** split: 상단 도킹이 있으면 우선. 없으면 하단 슬롯(표+간트 전체 너비). 둘 다 없으면 표 패널 하단 in-flow. */
+  const chromeDockTarget = topDockContainer ?? bottomDockContainer ?? null;
+  const renderChromeDock = (node: React.ReactNode): React.ReactNode => (chromeDockTarget ? createPortal(node, chromeDockTarget) : node);
 
   // setLastSelectedId 호출 시 activeTaskId도 같은 사이클에서 함께 set한다.
   // (양방향 동기화 effect만으로는 키보드 repeat 같은 빠른 연속 호출에서 race로 두 state가 어긋나
@@ -1026,6 +1041,33 @@ export function WBSTable({
     },
     [setAnchorTaskId],
   );
+
+  /** 드래그 범위 선택이 지나가는 행을 활성 셀로 맞춘다(셀 링만 이동 — 선택 해제 없음, handleFocusRow의 컬럼 선정과 동일). */
+  const setFocusCellForRow = useCallback(
+    (taskId: string) => {
+      setFocusedCell((prev) => {
+        const col =
+          prev && editableColumnIds.includes(prev.columnId)
+            ? prev.columnId
+            : editableColumnIds.includes('name')
+              ? 'name'
+              : (editableColumnIds[0] ?? 'name');
+        return { taskId, columnId: col };
+      });
+    },
+    [editableColumnIds],
+  );
+
+  // 엑셀식 마우스 드래그 다중 선택 — 표 본문을 끌면 연속 범위 선택(순서 이동은 첫 열 손잡이 전담).
+  const { onPointerDown: handleRangeDragPointerDown } = useWbsDragRangeSelect({
+    visibleTasks,
+    tableScrollRef,
+    setSelection,
+    setLastSelectedId,
+    setFocusCellForRow,
+    rangeAnchorRef,
+    setAnchorTaskId,
+  });
 
   /** 행 클릭·Shift 범위 등으로 행만 포커스될 때도 셀 링이 이전 행에 남지 않게 lastSelectedId와 맞춘다 */
   const handleFocusRow = useCallback(
@@ -1362,15 +1404,6 @@ export function WBSTable({
     pushToast,
   ]);
 
-  /** 붙여넣기 대상 위치 안내 문구 — 포커스(노란 강조) 행 바로 아래, 없으면 맨 아래 */
-  const pasteTargetLabel = useMemo(() => {
-    const t = lastSelectedId ? tasks.find((x) => x.id === lastSelectedId) : null;
-    const name = (t?.name ?? '').trim();
-    if (!name) return '목록 맨 아래';
-    const short = name.length > 14 ? `${name.slice(0, 14)}…` : name;
-    return `「${short}」 바로 아래`;
-  }, [lastSelectedId, tasks]);
-
   /** 우클릭·메뉴 복사 등: 체크박스 다중 선택 시 행(작업) 단위 복사, 그 외에는 작업명만 클립보드에 넣음 (인라인 편집 필드는 제외) */
   const handleWbsTableCopyCapture = useCallback(
     (e: React.ClipboardEvent) => {
@@ -1633,6 +1666,14 @@ export function WBSTable({
     },
     [selectedTaskIds, handleSelect],
   );
+
+  useLayoutEffect(() => {
+    if (!taskContextMenuHandlerRef) return;
+    taskContextMenuHandlerRef.current = handleContextMenu;
+    return () => {
+      taskContextMenuHandlerRef.current = null;
+    };
+  }, [taskContextMenuHandlerRef, handleContextMenu]);
 
   const handleSyncProgressFromStatus = () => {
     const idsToSync = selectedTaskIds.size > 0 ? Array.from(selectedTaskIds) : contextMenu?.taskId ? [contextMenu.taskId] : [];
@@ -1910,45 +1951,90 @@ export function WBSTable({
         className="absolute left-[-9999px] top-0 text-[13px] font-medium font-sans tracking-[-0.01em] whitespace-nowrap invisible pointer-events-none"
         aria-hidden
       />
-      {/* === Summary Bar (표 바로 위: 통계·레벨 펼치기·편집·줄간격) === */}
-      <SummaryBar
-        summaryStats={summaryStats}
-        plannedRefDateIso={plannedRefDateIso}
-        setPlannedRefDateIso={setPlannedRefDateIso}
-        useWeightForRollup={useWeightForRollup}
-        setUseWeightForRollup={toggleUseWeightForRollup}
-        isSplitView={isSplitView}
-        maxTreeLevel={maxTreeLevel}
-        treeExpandLevel={treeExpandLevel}
-        setTreeExpandLevel={setTreeExpandLevel}
-        expandToLevel={expandToLevel}
-        excelView={excelView}
-        setExcelView={setExcelView}
-        rowHeight={rowHeight}
-        handleSetRowHeight={handleSetRowHeight}
-        onOpenMdEditor={() => {
-          const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
-          const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
-          setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
-          setIsMdEditModalOpen(true);
-        }}
-        onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
-        onAutoAlignSchedule={canEditCurrentProject ? () => runDistributeChildren() : undefined}
-        tableAutoFormatting={{
-          effectiveOn: showTableAutoFormatting,
-          globalEnabled: globalAutoFormattingOn,
-          onToggle: toggleUserHide,
-        }}
-        cellClickEdit={
-          canEditCurrentProject
-            ? {
-                on: singleClickEdit,
-                onToggle: toggleSingleClickEdit,
-              }
-            : undefined
-        }
-        showAdvancedTools={showAdvancedTools}
-      />
+      {/* === Summary Bar (표 바로 위 · split+통합 크롬이면 상단 줄 왼쪽으로 포털) === */}
+      {splitSummaryChromeContainer && isSplitView ? (
+        createPortal(
+          <SummaryBar
+            summaryStats={summaryStats}
+            plannedRefDateIso={plannedRefDateIso}
+            setPlannedRefDateIso={setPlannedRefDateIso}
+            useWeightForRollup={useWeightForRollup}
+            setUseWeightForRollup={toggleUseWeightForRollup}
+            isSplitView={isSplitView}
+            maxTreeLevel={maxTreeLevel}
+            treeExpandLevel={treeExpandLevel}
+            setTreeExpandLevel={setTreeExpandLevel}
+            expandToLevel={expandToLevel}
+            excelView={excelView}
+            setExcelView={setExcelView}
+            rowHeight={rowHeight}
+            handleSetRowHeight={handleSetRowHeight}
+            onOpenMdEditor={() => {
+              const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
+              const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
+              setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
+              setIsMdEditModalOpen(true);
+            }}
+            onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
+            onAutoAlignSchedule={canEditCurrentProject ? () => runDistributeChildren() : undefined}
+            tableAutoFormatting={{
+              effectiveOn: showTableAutoFormatting,
+              globalEnabled: globalAutoFormattingOn,
+              onToggle: toggleUserHide,
+            }}
+            cellClickEdit={
+              canEditCurrentProject
+                ? {
+                    on: singleClickEdit,
+                    onToggle: toggleSingleClickEdit,
+                  }
+                : undefined
+            }
+            showAdvancedTools={showAdvancedTools}
+            chromeEmbed
+          />,
+          splitSummaryChromeContainer,
+        )
+      ) : (
+        <SummaryBar
+          summaryStats={summaryStats}
+          plannedRefDateIso={plannedRefDateIso}
+          setPlannedRefDateIso={setPlannedRefDateIso}
+          useWeightForRollup={useWeightForRollup}
+          setUseWeightForRollup={toggleUseWeightForRollup}
+          isSplitView={isSplitView}
+          maxTreeLevel={maxTreeLevel}
+          treeExpandLevel={treeExpandLevel}
+          setTreeExpandLevel={setTreeExpandLevel}
+          expandToLevel={expandToLevel}
+          excelView={excelView}
+          setExcelView={setExcelView}
+          rowHeight={rowHeight}
+          handleSetRowHeight={handleSetRowHeight}
+          onOpenMdEditor={() => {
+            const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
+            const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
+            setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
+            setIsMdEditModalOpen(true);
+          }}
+          onOpenImprovementGuide={() => setImprovementGuideOpen(true)}
+          onAutoAlignSchedule={canEditCurrentProject ? () => runDistributeChildren() : undefined}
+          tableAutoFormatting={{
+            effectiveOn: showTableAutoFormatting,
+            globalEnabled: globalAutoFormattingOn,
+            onToggle: toggleUserHide,
+          }}
+          cellClickEdit={
+            canEditCurrentProject
+              ? {
+                  on: singleClickEdit,
+                  onToggle: toggleSingleClickEdit,
+                }
+              : undefined
+          }
+          showAdvancedTools={showAdvancedTools}
+        />
+      )}
       <div
         className={cn('w-full flex flex-col min-h-0', fillHeight && 'flex-1')}
         style={{ '--row-height': `${rowHeight}px`, '--cell-padding': `${Math.max(2, (rowHeight - 20) / 2)}px` } as React.CSSProperties}
@@ -2043,6 +2129,7 @@ export function WBSTable({
               tabIndex={0}
               data-wbs-table
               onCopyCapture={handleWbsTableCopyCapture}
+              onPointerDown={handleRangeDragPointerDown}
               onMouseDown={(e) => {
                 emptyAreaPressRef.current = isWbsTableEmptyArea(e.target);
               }}
@@ -2482,13 +2569,12 @@ export function WBSTable({
         )}
       </div>
 
-      {/* 셀 서식 툴바(하단 도킹) — 셀 포커스 또는 행 체크 선택 시 하단에 붙는다.
-          상단이 아니라 하단에 두는 이유: 선택/해제 때 위쪽 행이 위아래로 밀리지 않게 하기 위함(본문 뷰포트만 아래에서 줄어듦).
-          split 뷰에서는 renderBottomDock로 표+간트 전체 너비 슬롯(bottomDockContainer)에 포털 렌더 — 표 패널 폭에 갇히지 않게. */}
+      {/* 셀 서식 툴바 — 상단/하단 도킹 슬롯(표+간트 split 시 상단 우선). */}
       {showCellFormatToolbar &&
-        renderBottomDock(
+        renderChromeDock(
           <div ref={cellFormatDockRef} className="flex-shrink-0 z-20">
             <CellFormatToolbar
+              dock={topDockContainer ? 'top' : 'bottom'}
               focusedCell={focusedCell}
               selectedTaskIds={selectedTaskIds}
               rowApplyColumnIds={editableColumnIds}
@@ -2505,62 +2591,9 @@ export function WBSTable({
           </div>,
         )}
 
-      {/* 클립보드 안내 칩 — 복사하면 화면 좌측 하단에 계속 떠서 ① 복사됨 확인 ② 붙여넣기 위치 안내 ③ 붙여넣기/지우기 버튼 제공.
-          토스트(잠깐 뜨고 사라짐)와 달리 복사한 작업이 남아 있는 동안 지속 표시되어 "어디서 어떻게 붙여넣는지"를 분명히 한다. */}
-      {copiedTasks.length > 0 &&
-        !excelView &&
-        createPortal(
-          <div
-            className="fixed z-[95] pointer-events-none"
-            style={{
-              left: 'max(12px, env(safe-area-inset-left, 0px))',
-              bottom: 'max(12px, calc(12px + env(safe-area-inset-bottom, 0px)))',
-            }}
-          >
-            <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-emerald-200/80 bg-white/95 backdrop-blur-md shadow-xl ring-1 ring-emerald-500/10 px-3 py-2.5 animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-[min(92vw,440px)]">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                <ClipboardPaste size={18} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-[12px] font-bold text-slate-800 leading-tight">작업 {copiedTasks.length}개 복사됨</div>
-                <div className="text-[11px] text-slate-500 leading-snug truncate">
-                  {canEditCurrentProject ? (
-                    <>
-                      붙여넣기 → <span className="font-semibold text-emerald-700">{pasteTargetLabel}</span>에 추가
-                    </>
-                  ) : (
-                    '보기 전용 프로젝트 — 붙여넣기 불가'
-                  )}
-                </div>
-              </div>
-              {canEditCurrentProject && (
-                <button
-                  type="button"
-                  onClick={handlePasteTasksFromClipboard}
-                  className="shrink-0 flex items-center gap-1.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 px-3.5 py-1.5 rounded-lg transition-colors shadow-sm"
-                  title={`복사한 ${copiedTasks.length}개 작업을 ${pasteTargetLabel}에 붙여넣습니다. 다른 행을 클릭하면 그 행 아래로 위치가 바뀝니다. (트리·선행관계 보존 · 단축키 Ctrl+V)`}
-                >
-                  <ClipboardPaste size={14} />
-                  붙여넣기
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={clearTaskClipboard}
-                className="shrink-0 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                title="복사 취소 (클립보드 비우기)"
-                aria-label="클립보드 비우기"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
-
-      {/* 일괄 수정 바(하단 도킹) — 서식 툴바 바로 아래에 붙는다(2개 이상 체크 선택 시). split 뷰에서는 renderBottomDock로 전체 너비 슬롯에 포털. */}
+      {/* 일괄 수정 바 — 서식 툴바 바로 아래(또는 상단 도킹 시 아래). */}
       {showBulkBar &&
-        renderBottomDock(
+        renderChromeDock(
           <div ref={bulkBarRef} className="flex-shrink-0 z-20 animate-in slide-in-from-bottom-2 fade-in duration-200">
             <div className="flex w-full items-end gap-2.5 overflow-x-auto overflow-y-hidden whitespace-nowrap border-t border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 shadow-[0_-1px_3px_rgba(0,0,0,0.06)]">
               {/* 선택 개수 */}

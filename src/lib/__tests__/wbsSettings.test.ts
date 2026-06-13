@@ -75,10 +75,10 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
 });
 
 describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이션', () => {
-  it('표준 표시 집합으로 1회 정규화한다 (WBS 표시, 가중치 숨김 등)', () => {
+  it('표준 표시 집합으로 1회 정규화한다 (접두어 WBS ID 숨김·가중치 숨김 등)', () => {
     const raw = {
       tableColumns: [
-        { id: 'wbsId', visible: false }, // 사용자가 끔 → 표준화로 다시 표시
+        { id: 'wbsId', visible: false }, // 사용자가 끔 → 표준화 후에도 접두어 ID 칸은 숨김 유지
         { id: 'name', visible: true },
         { id: 'startDate', visible: true },
         { id: 'endDate', visible: true },
@@ -105,7 +105,7 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     };
     const s = parseSettings(raw);
     const vis = (id: string) => s.tableColumns?.find((c) => c.id === id)?.visible;
-    expect(vis('wbsId')).toBe(true);
+    expect(vis('wbsId')).toBe(false);
     expect(vis('weight')).toBe(false);
     expect(vis('status')).toBe(false);
     expect(vis('custom:abc')).toBe(true); // 사용자 정의 컬럼 보존
@@ -132,5 +132,29 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     };
     const s = parseSettings(raw);
     expect(s.tableColumns?.find((c) => c.id === 'weight')?.visible).toBe(true);
+  });
+
+  it('이미 표준화된 저장값에서도 접두어 WBS ID 컬럼은 1회 숨김으로 정리된다', () => {
+    const raw = {
+      tableColumns: [
+        { id: 'wbsId', visible: true },
+        { id: 'name', visible: true },
+      ],
+      allocationHiddenMigrated: true,
+      deliverablesHiddenMigrated: true,
+      dependenciesHiddenMigrated: true,
+      actionsHiddenMigrated: true,
+      statusHiddenMigrated: true,
+      wbsIdHiddenMigrated: true,
+      workEffortToDurationMigrated: true,
+      tableProgressLayoutMigrated: true,
+      workEffortReHiddenMigrated: true,
+      workEffortReHiddenMigratedV2: true,
+      allocationReHiddenMigrated: true,
+      standardVisibleColumnsMigrated: true,
+    };
+    const s = parseSettings(raw);
+    expect(s.tableColumns?.find((c) => c.id === 'wbsId')?.visible).toBe(false);
+    expect(s.wbsIdPrefixColumnRetiredMigrated).toBe(true);
   });
 });

@@ -63,8 +63,8 @@ import type { WBSSettings } from '../lib/wbsSettings';
 import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
-/** 로고 클릭 시 이동할 경로와 App `MAIN_NAV_VIEW_ORDER`와 동일한 우선순위 */
-const LOGO_HOME_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'] as const;
+/** 대시보드가 숨겨진 배포에서만 로고가 대체할 첫 탭 — `MAIN_NAV_VIEW_ORDER`와 동일 우선순위 */
+const LOGO_FALLBACK_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'] as const;
 
 export interface AppHeaderProps {
   wbsSettings: WBSSettings;
@@ -491,24 +491,28 @@ export function AppHeader({
     return () => document.removeEventListener('mousedown', onDown);
   }, [isMoreMenuOpen, isUserMenuOpen, isProjectDropdownOpen, setIsMoreMenuOpen, setIsProjectDropdownOpen]);
 
-  const logoHomeView = useMemo(() => {
-    for (const v of LOGO_HOME_VIEW_ORDER) {
+  const logoFallbackView = useMemo(() => {
+    for (const v of LOGO_FALLBACK_VIEW_ORDER) {
       if (!hiddenViews.has(v)) return v;
     }
     return 'dashboard';
   }, [hiddenViews]);
 
-  const logoRefreshHint = hiddenViews.has('dashboard') ? '홈 화면으로 이동하여 새로고침합니다' : '대시보드로 이동하여 새로고침합니다';
+  /** 로고 클릭 목적지 — 기본은 대시보드, 대시보드 탭이 숨김일 때만 첫 허용 뷰 */
+  const logoTargetView = useMemo(() => (hiddenViews.has('dashboard') ? logoFallbackView : 'dashboard'), [hiddenViews, logoFallbackView]);
 
-  const handleLogoDashboardRefresh = useCallback(() => {
-    const targetPath = `/${logoHomeView}`;
-    const segment = window.location.pathname.replace(/^\//, '').split('/')[0] || '';
-    if (segment === logoHomeView) {
-      window.location.reload();
-    } else {
-      window.location.assign(targetPath);
+  const logoClickHint = useMemo(() => {
+    if (view === logoTargetView) return '페이지를 새로고침합니다';
+    return hiddenViews.has('dashboard') ? '홈 화면으로 이동합니다' : '대시보드로 이동합니다';
+  }, [view, logoTargetView, hiddenViews]);
+
+  const handleLogoClick = useCallback(() => {
+    if (view === logoTargetView) {
+      void requestRefresh();
+      return;
     }
-  }, [logoHomeView]);
+    navigateWithTip(logoTargetView);
+  }, [view, logoTargetView, requestRefresh, navigateWithTip]);
 
   type MobileNavKey = 'dashboard' | 'todo' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
@@ -555,22 +559,18 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        'bg-[var(--color-surface)]/90 backdrop-blur-2xl border-b border-[var(--color-line)]/50 z-50 safe-top transition-all duration-300',
-        isHeaderCollapsed ? 'py-1.5 px-3 md:py-2 md:px-6' : 'px-4 md:px-6 py-2',
+        'bg-[var(--color-surface)]/90 backdrop-blur-2xl border-b border-[var(--color-line)]/50 safe-top transition-all duration-300',
+        /* 드롭다운 오버레이·패널이 표+간트 등 본문 sticky(z-60) 위로 오도록 프로젝트 목록 열릴 때만 상승 */
+        isProjectDropdownOpen ? 'z-[80]' : 'z-50',
+        isHeaderCollapsed ? 'py-1 px-3 md:py-1.5 md:px-6' : 'px-3 md:px-6 py-1 md:py-1',
       )}
       style={{ boxShadow: 'var(--shadow-md), inset 0 -1px 0 rgba(0,0,0,0.02)' }}
     >
       {/* 모바일 접힌 상태: 최소 바 */}
       <div className={cn('flex md:hidden items-center justify-between gap-2', !isHeaderCollapsed && 'hidden')}>
         <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            onClick={handleLogoDashboardRefresh}
-            className="shrink-0"
-            title={logoRefreshHint}
-            aria-label={logoRefreshHint}
-          >
-            <img src={logo} alt="GMT Logo" className="w-11 h-11 object-contain dark-logo" />
+          <button type="button" onClick={handleLogoClick} className="shrink-0" title={logoClickHint} aria-label={logoClickHint}>
+            <img src={logo} alt="GMT Logo" className="w-9 h-9 object-contain dark-logo" />
           </button>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-bold text-sm truncate">{wbsSettings.appTitle}</span>
@@ -588,50 +588,48 @@ export function AppHeader({
       {/* 전체 헤더: 모바일에서 접혀 있으면 숨김 */}
       <div
         className={cn(
-          'flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-3',
+          'flex flex-col md:flex-row justify-between items-start md:items-center gap-1.5 md:gap-2',
           isHeaderCollapsed && 'hidden md:flex',
         )}
       >
-        <div className="flex items-center gap-2.5 md:gap-3">
+        <div className="flex items-center gap-2 md:gap-2.5">
           <div
             className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity shrink-0"
             role="button"
             tabIndex={0}
-            onClick={handleLogoDashboardRefresh}
+            onClick={handleLogoClick}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                handleLogoDashboardRefresh();
+                handleLogoClick();
               }
             }}
-            title={logoRefreshHint}
-            aria-label={logoRefreshHint}
+            title={logoClickHint}
+            aria-label={logoClickHint}
           >
-            <img src={logo} alt="GMT Logo" className="w-12 h-12 md:w-[52px] md:h-[52px] object-contain dark-logo" />
+            <img src={logo} alt="GMT Logo" className="w-9 h-9 md:w-10 md:h-10 object-contain dark-logo" />
           </div>
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-1.5 flex-wrap">
-              <h1 className="text-lg font-bold tracking-tight leading-tight">{wbsSettings.appTitle}</h1>
-            </div>
+          <div className="min-w-0 flex flex-col gap-0.5 md:flex-row md:items-center md:gap-2 md:flex-wrap">
+            <h1 className="text-base md:text-sm font-bold tracking-tight leading-none md:leading-tight shrink-0">{wbsSettings.appTitle}</h1>
 
-            <div className="relative mt-0.5 group hidden md:block" ref={projectDropdownRef}>
+            <div className="relative md:mt-0 group hidden md:block" ref={projectDropdownRef}>
               <button
                 data-tourid="tour-project"
                 onClick={() => {
                   setIsProjectDropdownOpen(!isProjectDropdownOpen);
                   if (tipOnce) tipOnce('menu.project', '현재 프로젝트를 바꾸거나 새 프로젝트를 추가할 수 있어요.');
                 }}
-                className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-[var(--color-bg)] rounded-lg transition-all border border-transparent hover:border-[var(--color-line)]"
+                className="flex items-center gap-1 px-1.5 py-0.5 md:py-1 hover:bg-[var(--color-bg)] rounded-md transition-all border border-transparent hover:border-[var(--color-line)]"
                 title={
                   dashboardFilterBarMode
                     ? '표·간트 등 작업 화면에서 사용할 프로젝트를 선택합니다. 대시보드 표시 범위는「필터」로 조정합니다.'
                     : '프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다.'
                 }
               >
-                <div className="flex flex-col items-start min-w-0">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">프로젝트</span>
-                  <div className="flex items-center gap-1.5 text-[13px] font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-tight">
-                    <span className="break-words text-left inline-flex flex-wrap items-center gap-1">
+                <div className="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-0 min-w-0">
+                  <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none shrink-0">프로젝트</span>
+                  <div className="flex items-center gap-1 min-w-0 text-[12px] md:text-[11px] font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-tight">
+                    <span className="break-words text-left inline-flex flex-wrap items-center gap-1 min-w-0">
                       {dashboardFilterBarMode ? (
                         '프로젝트를 선택하세요'
                       ) : currentProjectId === 'all' ? (
@@ -645,30 +643,30 @@ export function AppHeader({
                         currentProjectId !== 'all' &&
                         currentProject &&
                         (taskCountByProject[currentProjectId] ?? 0) > 0 && (
-                          <span className="text-slate-400 font-semibold"> ({taskCountByProject[currentProjectId]}개)</span>
+                          <span className="text-slate-400 font-semibold shrink-0"> ({taskCountByProject[currentProjectId]}개)</span>
                         )}
+                      {!dashboardFilterBarMode && currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
+                        <span
+                          className="text-[9px] text-slate-400 font-medium truncate max-w-[140px] border-l border-slate-200 pl-1.5 ml-0.5 shrink-0"
+                          title={
+                            currentProject.ownerId
+                              ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? currentProject.ownerId)
+                              : undefined
+                          }
+                        >
+                          {currentProject.ownerId === user?.id
+                            ? '내 프로젝트'
+                            : currentProject.ownerId
+                              ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? '다른 사용자')
+                              : '소유자 없음'}
+                        </span>
+                      )}
                     </span>
                     <ChevronDown
-                      size={14}
-                      className={cn('text-slate-400 transition-transform duration-200', isProjectDropdownOpen && 'rotate-180')}
+                      size={12}
+                      className={cn('text-slate-400 shrink-0 transition-transform duration-200', isProjectDropdownOpen && 'rotate-180')}
                     />
                   </div>
-                  {!dashboardFilterBarMode && currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
-                    <span
-                      className="text-[9px] text-slate-400 truncate max-w-[200px] mt-0.5"
-                      title={
-                        currentProject.ownerId
-                          ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? currentProject.ownerId)
-                          : undefined
-                      }
-                    >
-                      {currentProject.ownerId === user?.id
-                        ? '내 프로젝트'
-                        : currentProject.ownerId
-                          ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? '다른 사용자')
-                          : '소유자 없음'}
-                    </span>
-                  )}
                 </div>
               </button>
               {presenceOthers && presenceOthers.length > 0 && currentProjectId !== 'all' && !dashboardFilterBarMode && (
@@ -685,108 +683,109 @@ export function AppHeader({
               )}
               {isProjectDropdownOpen && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setIsProjectDropdownOpen(false)}></div>
                   <div
-                    className="absolute top-full left-0 mt-2 w-[min(49.5rem,calc(100vw-1.5rem))] max-w-[100vw] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-hidden z-50 dropdown-menu"
-                    style={{ boxShadow: 'var(--shadow-[var(--shadow-xl)])' }}
-                  >
-                    <div className="p-1">
-                      <div
-                        className="px-3 py-2 flex items-center justify-between gap-2"
-                        title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별·인원별은 다시 누르면 기본(항목 구분) 목록으로 돌아갑니다."
-                      >
-                        <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">프로젝트 목록</span>
-                        <div className="flex items-center gap-2">
-                          {!!user?.id && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleListFilter('my');
-                              }}
-                              className={cn(
-                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listFilter === 'my'
-                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                  : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-[var(--color-line)]',
-                              )}
-                              title={
-                                listFilter === 'my'
-                                  ? '전체 프로젝트 보기'
-                                  : '내가 소유자이거나, PM 이름이 내 프로필 이름과 같은 프로젝트만 보기'
-                              }
-                            >
-                              <User size={10} />내 프로젝트만
-                            </button>
-                          )}
-                          {topLevelDivisions.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                persistProjectListLayout(projectListLayout === 'org' ? 'kind' : 'org');
-                              }}
-                              className={cn(
-                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                projectListLayout === 'org'
-                                  ? 'bg-teal-100 text-teal-800 border border-teal-200'
-                                  : 'text-slate-400 hover:text-teal-700 border border-transparent hover:border-[var(--color-line)]',
-                              )}
-                              title={
-                                projectListLayout === 'org'
-                                  ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
-                                  : '조직 현황(조직도)의 부서·팀 구조로 묶습니다. PM 이름이 조직 인원과 같으면 그 부서를 사용하고, 아니면 소유자 회원 정보의 부서를 보조로 씁니다.'
-                              }
-                              aria-pressed={projectListLayout === 'org'}
-                            >
-                              <Network size={10} />
-                              조직도별
-                            </button>
-                          )}
+                    className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-md dark:bg-black/60"
+                    onClick={() => setIsProjectDropdownOpen(false)}
+                    aria-hidden
+                  />
+                  <div className="absolute top-full left-0 mt-2 w-[min(49.5rem,calc(100vw-1.5rem))] max-w-[100vw] bg-[var(--color-surface)] rounded-xl border-2 border-slate-300/90 dark:border-slate-500/80 overflow-hidden z-50 dropdown-menu shadow-[0_0_0_1px_rgba(15,23,42,0.1),0_28px_60px_-15px_rgba(15,23,42,0.35)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_22px_48px_-8px_rgba(0,0,0,0.72)]">
+                    <div
+                      className="px-3 py-2.5 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 border-b border-slate-200 dark:border-slate-600"
+                      title="내 프로젝트·관심·대시보드 반영만은 같은 버튼을 다시 누르면 전체 목록으로 돌아갑니다. 조직도별·인원별은 다시 누르면 기본(항목 구분) 목록으로 돌아갑니다."
+                    >
+                      <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">프로젝트 목록</span>
+                      <div className="flex items-center gap-2">
+                        {!!user?.id && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              persistProjectListLayout(projectListLayout === 'assignees' ? 'kind' : 'assignees');
+                              toggleListFilter('my');
                             }}
                             className={cn(
                               'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                              projectListLayout === 'assignees'
-                                ? 'bg-violet-100 text-violet-900 border border-violet-200'
-                                : 'text-slate-400 hover:text-violet-800 border border-transparent hover:border-[var(--color-line)]',
+                              listFilter === 'my'
+                                ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                : 'text-slate-400 hover:text-emerald-600 border border-transparent hover:border-[var(--color-line)]',
                             )}
                             title={
-                              projectListLayout === 'assignees'
-                                ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
-                                : '프로젝트 투입 인원과 작업 담당자 이름을 합쳐 참여 인원 수가 같은 프로젝트끼리 묶어 봅니다. (이름이 비어 있으면 제외)'
+                              listFilter === 'my'
+                                ? '전체 프로젝트 보기'
+                                : '내가 소유자이거나, PM 이름이 내 프로필 이름과 같은 프로젝트만 보기'
                             }
-                            aria-pressed={projectListLayout === 'assignees'}
                           >
-                            <Users size={10} />
-                            인원별
+                            <User size={10} />내 프로젝트만
                           </button>
-                          {favoriteIds.size > 0 && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleListFilter('favorites');
-                              }}
-                              className={cn(
-                                'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
-                                listFilter === 'favorites'
-                                  ? 'bg-amber-100 text-amber-700 border border-amber-200'
-                                  : 'text-slate-400 hover:text-amber-600 border border-transparent hover:border-[var(--color-line)]',
-                              )}
-                              title={listFilter === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
-                            >
-                              <Star size={10} className={listFilter === 'favorites' ? 'fill-amber-500' : ''} />
-                              {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
-                            </button>
+                        )}
+                        {topLevelDivisions.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              persistProjectListLayout(projectListLayout === 'org' ? 'kind' : 'org');
+                            }}
+                            className={cn(
+                              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                              projectListLayout === 'org'
+                                ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                                : 'text-slate-400 hover:text-teal-700 border border-transparent hover:border-[var(--color-line)]',
+                            )}
+                            title={
+                              projectListLayout === 'org'
+                                ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
+                                : '조직 현황(조직도)의 부서·팀 구조로 묶습니다. PM 이름이 조직 인원과 같으면 그 부서를 사용하고, 아니면 소유자 회원 정보의 부서를 보조로 씁니다.'
+                            }
+                            aria-pressed={projectListLayout === 'org'}
+                          >
+                            <Network size={10} />
+                            조직도별
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            persistProjectListLayout(projectListLayout === 'assignees' ? 'kind' : 'assignees');
+                          }}
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                            projectListLayout === 'assignees'
+                              ? 'bg-violet-100 text-violet-900 border border-violet-200'
+                              : 'text-slate-400 hover:text-violet-800 border border-transparent hover:border-[var(--color-line)]',
                           )}
-                          <span className="text-[10px] text-slate-400 shrink-0">{displayProjects.length}개</span>
-                        </div>
+                          title={
+                            projectListLayout === 'assignees'
+                              ? '항목 구분(상품·연구 등)별 기본 목록으로 돌아갑니다.'
+                              : '프로젝트 투입 인원과 작업 담당자 이름을 합쳐 참여 인원 수가 같은 프로젝트끼리 묶어 봅니다. (이름이 비어 있으면 제외)'
+                          }
+                          aria-pressed={projectListLayout === 'assignees'}
+                        >
+                          <Users size={10} />
+                          인원별
+                        </button>
+                        {favoriteIds.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleListFilter('favorites');
+                            }}
+                            className={cn(
+                              'flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors',
+                              listFilter === 'favorites'
+                                ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                                : 'text-slate-400 hover:text-amber-600 border border-transparent hover:border-[var(--color-line)]',
+                            )}
+                            title={listFilter === 'favorites' ? '전체 프로젝트 보기' : '관심(즐겨찾기) 프로젝트만 보기'}
+                          >
+                            <Star size={10} className={listFilter === 'favorites' ? 'fill-amber-500' : ''} />
+                            {listFilter === 'favorites' ? `관심 ${favoriteIds.size}개` : '관심만'}
+                          </button>
+                        )}
+                        <span className="text-[10px] text-slate-400 shrink-0">{displayProjects.length}개</span>
                       </div>
+                    </div>
+                    <div className="p-1">
                       {projectsSortedByName.length >= 25 && (
                         <div
                           className="mx-2 mb-1 px-2 py-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-line)] text-[10px] text-[var(--color-ink-subdued)] leading-snug"
@@ -1107,13 +1106,33 @@ export function AppHeader({
                 setEditingProject(null);
                 setIsProjectModalOpen(true);
               }}
-              className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--color-accent)] text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-sm shrink-0"
+              className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--color-accent)] text-white text-[11px] font-semibold hover:bg-indigo-700 transition-colors shadow-sm shrink-0"
               title="새 프로젝트를 생성합니다."
             >
-              <FolderPlus size={14} />
+              <FolderPlus size={12} />
               <span>새 프로젝트</span>
             </button>
           )}
+          {/* 현재 프로젝트 삭제 — 「새 프로젝트」 옆. 특정 프로젝트를 보고 있고 삭제 권한(소유자·운영자)이 있을 때만 노출. */}
+          {!hiddenViews.has('projects') &&
+            !dashboardFilterBarMode &&
+            currentProjectId !== 'all' &&
+            currentProject &&
+            canDeleteProject(currentProject) &&
+            projectsSortedByName.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProjectToDelete(currentProject);
+                  setIsDeleteProjectConfirmOpen(true);
+                }}
+                className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 bg-red-50 text-red-600 text-[11px] font-semibold hover:bg-red-100 hover:text-red-700 transition-colors shadow-sm shrink-0"
+                title={`현재 프로젝트 '${currentProject.name}'와(과) 소속된 모든 작업을 삭제합니다. 되돌릴 수 없습니다.`}
+              >
+                <Trash2 size={12} />
+                <span>프로젝트 삭제</span>
+              </button>
+            )}
         </div>
 
         {/* 모바일 전용: 대시보드 NavButton만 1개 표시. 클릭해도 페이지 전환 없음. */}
@@ -1140,25 +1159,25 @@ export function AppHeader({
             <button
               onClick={undo}
               disabled={!canUndo}
-              className="icon-btn !p-1.5 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className="icon-btn !p-1 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="실행 취소 (Ctrl+Z)"
               aria-label="실행 취소 (Ctrl+Z)"
             >
-              <History size={15} />
+              <History size={14} />
             </button>
             <button
               onClick={redo}
               disabled={!canRedo}
-              className="icon-btn !p-1.5 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className="icon-btn !p-1 text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               title="다시 실행 (Ctrl+Y)"
               aria-label="다시 실행 (Ctrl+Y)"
             >
-              <RotateCcw size={15} />
+              <RotateCcw size={14} />
             </button>
           </div>
           <div className="toolbar-divider hidden md:block" />
           {/* 뷰 탭 바(데스크톱 전용): 모바일은 하단 고정 탭바 사용 */}
-          <div className="hidden md:flex bg-[var(--color-bg)]/70 p-0.5 rounded-lg border border-[var(--color-line)]/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-0.5">
+          <div className="hidden md:flex bg-[var(--color-bg)]/70 p-px rounded-md border border-[var(--color-line)]/60 overflow-x-auto overflow-y-visible md:overflow-visible shrink-0 min-w-0 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent gap-px">
             {!hiddenViews.has('dashboard') && (
               <NavButton
                 active={view === 'dashboard'}
@@ -1285,7 +1304,7 @@ export function AppHeader({
               href="https://docs.google.com/document/d/1h_St7qRXMRxGsV6i780uCmNSYax3a4PaazTFZgT2gqQ/edit?tab=t.0"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-subdued)] hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-subdued)] hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-all shrink-0"
               title="버그 사항 시트로 이동"
             >
               <span className="hidden sm:inline">버그 사항</span>
@@ -1300,7 +1319,7 @@ export function AppHeader({
                 data-tourid="tour-filter"
                 onClick={() => onDashboardFilterToolbarClick?.()}
                 className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
+                  'flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border transition-all shrink-0',
                   dashboardFiltersActive || showDashboardFilterToolbar
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
                     : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
@@ -1337,7 +1356,7 @@ export function AppHeader({
                   if (tipOnce) tipOnce('menu.filter', '필터를 켜면 상태/담당자/기간으로 작업을 좁혀 볼 수 있어요.');
                 }}
                 className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all shrink-0',
+                  'flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md border transition-all shrink-0',
                   filterOn
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-[var(--shadow-sm)] shadow-indigo-500/25'
                     : 'bg-[var(--color-surface)] text-[var(--color-ink-subdued)] border-[var(--color-line)] hover:border-slate-300 hover:text-[var(--color-ink)]',
@@ -1368,7 +1387,7 @@ export function AppHeader({
               data-tourid="tour-more"
               onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
               className={cn(
-                'icon-btn !p-1.5 transition-colors relative shrink-0',
+                'icon-btn !p-1 transition-colors relative shrink-0',
                 isMoreMenuOpen
                   ? 'text-[var(--color-ink)] bg-[var(--color-bg)]'
                   : 'text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] hover:bg-[var(--color-bg)]',
@@ -1376,15 +1395,16 @@ export function AppHeader({
               title="가져오기·보내기·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
               aria-label="추가 옵션"
             >
-              <MoreHorizontal size={17} />
+              <MoreHorizontal size={15} />
             </button>
             {isMoreMenuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsMoreMenuOpen(false)} aria-hidden />
                 <div
-                  className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] dropdown-menu flex flex-col py-1"
-                  style={{ boxShadow: 'var(--shadow-[var(--shadow-xl)])' }}
-                >
+                  className="fixed inset-0 z-40 bg-gray-900/30 backdrop-blur-[2px] dark:bg-black/45"
+                  onClick={() => setIsMoreMenuOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] ring-1 ring-slate-900/[0.08] dark:ring-white/12 dropdown-menu flex flex-col py-1">
                   {(onOpenTutorial || onStartTour) && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">도움말</div>
@@ -1564,7 +1584,7 @@ export function AppHeader({
               <button
                 type="button"
                 onClick={() => setIsUserMenuOpen((o) => !o)}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-bg)] max-w-[140px] sm:max-w-[180px]"
+                className="flex items-center gap-1 px-1.5 py-1 text-[11px] font-medium rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-bg)] max-w-[140px] sm:max-w-[180px]"
                 title={
                   memberPreview && canSwitchAdminMemberView
                     ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 아래 메뉴에서 관리자 화면으로 전환)'

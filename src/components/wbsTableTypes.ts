@@ -18,6 +18,9 @@ export type BuiltInTableColumnId =
   | 'deliverables'
   | 'dependencies';
 export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;
+
+/** 인라인 편집 중인 셀. `typeToEditSeed`는 controlled 편집기(allocation·선행작업)용 첫 글자 주입 후 즉시 제거된다. */
+export type WbsEditingCellPayload = { taskId: string; columnId: TableColumnId; typeToEditSeed?: string };
 export type TableDisplayColumnId = TableColumnId | 'actions';
 
 export interface WBSTableProps {
@@ -38,6 +41,10 @@ export interface WBSTableProps {
   onBottomInsetChange?: (height: number) => void;
   /** split 뷰: 하단 서식/일괄 도킹 바를 표 패널이 아니라 이 컨테이너(표+간트 전체 너비)로 포털 렌더한다. 없으면(표만 뷰) 기존처럼 표 패널 하단에 in-flow로 붙는다. */
   bottomDockContainer?: HTMLElement | null;
+  /** 표+간트 split: 셀 서식·일괄 수정 바를 최상단(필터 아래 작업 영역)에 고정 포털한다. 설정 시 bottomDockContainer보다 우선한다. */
+  topDockContainer?: HTMLElement | null;
+  /** 표+간트 split: 요약 바(작업 수·진척 등)를 표 패널 위가 아닌 통합 상단 줄 왼쪽 칸으로 포털한다. */
+  splitSummaryChromeContainer?: HTMLElement | null;
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */
@@ -48,4 +55,11 @@ export interface WBSTableProps {
   onResetFilters?: () => void;
   /** 설정 시 해당 작업으로 자동 스크롤 (검색/알림에서 이동 시 사용) */
   scrollToTaskId?: string | null;
+  /**
+   * 표+간트 split: 간트 막대 우클릭 시 표와 동일한 컨텍스트 메뉴를 열 때 사용.
+   * WBSTable이 `handleContextMenu`를 이 ref에 주입한다.
+   */
+  taskContextMenuHandlerRef?: React.MutableRefObject<
+    ((e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void) | null
+  >;
 }

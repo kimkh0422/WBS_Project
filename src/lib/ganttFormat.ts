@@ -4,8 +4,11 @@ import type { WorkEffortUnit } from '../types';
 import { workEffortUnitShortSuffixKo } from './workEffortUnits';
 
 export function formatMd(iso: string): string {
+  if (!iso) return '';
+  const head = iso.trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
   try {
-    return format(parseISO(iso), 'M/d', { locale: ko });
+    return format(parseISO(iso), 'yyyy-MM-dd', { locale: ko });
   } catch {
     return iso;
   }

@@ -19,7 +19,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities';
 import { useWBS } from '../context/WBSContext';
 import { Task, TaskStatus, FilterState } from '../types';
-import { cn, formatPercent1 } from '../lib/utils';
+import { cn, formatDate, formatPercent1 } from '../lib/utils';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../lib/workEffortUnits';
 import { getStatusColorProps } from '../lib/statusColor';
 import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
@@ -300,7 +300,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Calendar size={12} />
-            <span>{task.endDate ? new Date(task.endDate).toLocaleDateString() : '-'}</span>
+            <span>{task.endDate ? formatDate(task.endDate) : '-'}</span>
           </div>
 
           {task.progress > 0 && (

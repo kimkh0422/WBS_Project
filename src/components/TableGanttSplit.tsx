@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronsLeftRight } from 'lucide-react';
 import { WBSTable } from './WBSTable';
 import { GanttChart } from './GanttChart';
 import { mirrorScrollTop, useScrollSync } from '../hooks/useScrollSync';
@@ -51,14 +52,20 @@ export function TableGanttSplit({
   const ganttScrollRef = useRef<HTMLDivElement | null>(null);
   const ganttHeaderScrollRef = useRef<HTMLDivElement | null>(null);
   const ganttBottomScrollRef = useRef<HTMLDivElement | null>(null);
+  /** 간트 막대 우클릭 → WBSTable과 동일한 작업 메뉴 */
+  const taskContextMenuHandlerRef = useRef<((e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void) | null>(null);
   const paneResizeRef = useRef<{ startX: number; startPct: number } | null>(null);
   const tablePaneWidthPctRef = useRef(readTablePaneWidthPct());
   const resizeRafRef = useRef(0);
   const resizeClientXRef = useRef(0);
 
   const [rowHeights, setRowHeights] = useState<number[]>([]);
-  // 하단 서식/일괄 도킹 바를 표 패널이 아니라 표+간트 전체 너비 슬롯으로 포털하기 위한 컨테이너(상태로 보관 → 마운트 시 WBSTable에 전달).
-  const [bottomDockSlot, setBottomDockSlot] = useState<HTMLDivElement | null>(null);
+  /** 표+간트: 셀 서식·일괄 바를 최상단 전체 너비로 포털 */
+  const [topDockSlot, setTopDockSlot] = useState<HTMLDivElement | null>(null);
+  /** 통합 한 줄: 왼쪽 요약(WBSTable), 오른쪽 간트 줌(GanttChart) */
+  const [summaryChromeSlot, setSummaryChromeSlot] = useState<HTMLDivElement | null>(null);
+  const [ganttToolbarSlot, setGanttToolbarSlot] = useState<HTMLDivElement | null>(null);
+  const [ganttBottomInset, setGanttBottomInset] = useState(0);
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
@@ -145,7 +152,22 @@ export function TableGanttSplit({
       className="list-split-view flex flex-col h-full min-h-0 overflow-hidden bg-white"
       style={{ ['--split-table-pct' as string]: `${tablePaneWidthPct}%` }}
     >
-      {/* 패널 행(표 + 스플리터 + 간트). 하단 도킹 바를 전체 너비로 빼기 위해 패널은 이 안에 묶고, 바는 아래 슬롯에 둔다. */}
+      {/* 서식·일괄 → 최상단 고정(sticky). 그 아래 한 줄: 간트 줌(왼쪽)·표 요약(우측 끝) — 간트 헤더(z-40)보다 위에 두어 가려지지 않게 함. */}
+      <div
+        ref={setTopDockSlot}
+        className="w-full shrink-0 sticky top-0 z-[60] bg-[var(--color-surface)] border-b border-[var(--color-line)] shadow-[0_1px_0_rgba(15,23,42,0.06)]"
+      />
+      <div className="relative z-[55] flex h-14 min-h-14 w-full shrink-0 items-stretch justify-end border-b border-[var(--color-line)] bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+        <div
+          ref={setGanttToolbarSlot}
+          className="flex min-h-0 w-auto min-w-[168px] shrink-0 flex-col justify-center overflow-hidden border-r border-[var(--color-line)]/70 bg-slate-50/90"
+        />
+        <div
+          ref={setSummaryChromeSlot}
+          className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col justify-center overflow-x-auto overflow-y-hidden"
+        />
+      </div>
+
       <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full overflow-hidden">
         <div className="list-table-pane h-[min(50vh,480px)] md:h-full min-h-0 flex flex-col overflow-hidden max-md:w-full">
           <WBSTable
@@ -162,7 +184,10 @@ export function TableGanttSplit({
             onRowHeightChange={onRowHeightChange}
             onRowHeightsChange={setRowHeights}
             syncRowHeights={rowHeights}
-            bottomDockContainer={bottomDockSlot}
+            topDockContainer={topDockSlot}
+            splitSummaryChromeContainer={summaryChromeSlot}
+            onBottomInsetChange={setGanttBottomInset}
+            taskContextMenuHandlerRef={taskContextMenuHandlerRef}
           />
         </div>
 
@@ -170,9 +195,11 @@ export function TableGanttSplit({
           type="button"
           aria-label="표와 간트 영역 너비 조절"
           title="드래그하여 표·간트 너비 조절"
-          className="hidden md:block shrink-0 w-2 self-stretch cursor-col-resize touch-none z-[35] border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
+          className="hidden md:flex shrink-0 w-3 self-stretch cursor-col-resize touch-none z-[35] flex-col items-center justify-center border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
           onMouseDown={handleSplitterMouseDown}
-        />
+        >
+          <ChevronsLeftRight className="h-4 w-4 text-slate-500 pointer-events-none" aria-hidden />
+        </button>
 
         <div data-tourid="tour-gantt" className="list-gantt-pane flex-1 min-h-0 min-w-0 h-[min(50vh,480px)] md:h-full overflow-hidden">
           <GanttChart
@@ -182,17 +209,16 @@ export function TableGanttSplit({
             syncScrollRef={ganttScrollRef}
             splitGanttHeaderScrollRef={ganttHeaderScrollRef}
             splitGanttBottomScrollRef={ganttBottomScrollRef}
+            splitToolbarPortalContainer={ganttToolbarSlot}
             rowHeight={sharedRowHeight}
             rowHeights={rowHeights}
             onRowHeightChange={onRowHeightChange}
             bottomSpacerHeight={sharedRowHeight}
-            bottomInsetHeight={0}
+            bottomInsetHeight={ganttBottomInset}
+            onOpenTaskContextMenu={(e, taskId) => taskContextMenuHandlerRef.current?.(e, taskId)}
           />
         </div>
       </div>
-
-      {/* 하단 서식/일괄 도킹 바 슬롯 — 표 패널에 갇히지 않고 표+간트 전체 너비로 표시(WBSTable이 이 슬롯으로 포털 렌더). 바가 없으면 높이 0. */}
-      <div ref={setBottomDockSlot} className="w-full shrink-0 relative z-30" />
     </div>
   );
 }

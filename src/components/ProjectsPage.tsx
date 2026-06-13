@@ -1683,6 +1683,15 @@ export function ProjectsPage({ onNavigateToWork, onNavigateToDashboard }: Projec
         allProjects={projects}
         defaultPmNameForNewProject={currentUserPlainName}
         currentUserId={user?.id}
+        canDelete={!!editingProject && uniqueProjects.length > 1 && canManageProject(editingProject)}
+        onDelete={() => {
+          if (!editingProject) return;
+          const target = editingProject;
+          setIsProjectModalOpen(false);
+          setEditingProject(null);
+          setProjectToDelete(target);
+          setIsDeleteConfirmOpen(true);
+        }}
       />
       <ShareModal
         isOpen={!!shareProjectId}

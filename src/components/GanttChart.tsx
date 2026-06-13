@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
@@ -38,6 +39,8 @@ interface GanttChartProps {
   syncScrollRef?: React.Ref<HTMLDivElement>;
   /** split 뷰: 표와 가로 스크롤 동기화 — 간트 날짜 헤더 스크롤 컨테이너 */
   splitGanttHeaderScrollRef?: React.Ref<HTMLDivElement | null>;
+  /** split 뷰: 줌/베이스라인 툴바를 부모가 제공하는 DOM(통합 상단 줄 오른쪽)으로 포털한다. */
+  splitToolbarPortalContainer?: HTMLElement | null;
   /** split 뷰: 표와 가로 스크롤 동기화 — 간트 하단 가로 스크롤바 */
   splitGanttBottomScrollRef?: React.Ref<HTMLDivElement | null>;
   hotkeysEnabled?: boolean;
@@ -45,6 +48,8 @@ interface GanttChartProps {
   bottomSpacerHeight?: number;
   /** split 뷰에서 표 하단에 도킹된 서식/일괄 바 높이만큼 간트 하단을 띄워 표·간트 행 끝(뷰포트 높이) 위치를 맞춤. 0이면 띄우지 않음. */
   bottomInsetHeight?: number;
+  /** 표+간트 split: 막대 우클릭 시 표의 작업 컨텍스트 메뉴와 동일하게 연다 */
+  onOpenTaskContextMenu?: (e: React.MouseEvent, taskId: string) => void;
 }
 
 export function GanttChart({
@@ -56,10 +61,12 @@ export function GanttChart({
   onRowHeightChange,
   syncScrollRef,
   splitGanttHeaderScrollRef,
+  splitToolbarPortalContainer,
   splitGanttBottomScrollRef,
   hotkeysEnabled = true,
   bottomSpacerHeight = 0,
   bottomInsetHeight = 0,
+  onOpenTaskContextMenu,
 }: GanttChartProps) {
   const {
     tasks,
@@ -287,6 +294,10 @@ export function GanttChart({
 
   const handleContextMenu = (e: React.MouseEvent, taskId: string) => {
     e.preventDefault();
+    if (onOpenTaskContextMenu) {
+      onOpenTaskContextMenu(e, taskId);
+      return;
+    }
     setContextMenu({ x: e.clientX, y: e.clientY, taskId });
   };
 
@@ -358,7 +369,7 @@ export function GanttChart({
     effectiveSidebarWidth,
   });
 
-  const { dragPreview, suppressBarPopoverClickRef, handleBarMouseDown, handleResizeMouseDown } = useGanttDrag({
+  const { dragPreview, dragSession, suppressBarPopoverClickRef, handleBarMouseDown, handleResizeMouseDown } = useGanttDrag({
     selectedSet,
     visibleTaskById,
     visibleTasks,
@@ -374,6 +385,45 @@ export function GanttChart({
     sidebarResizeRef,
     setSidebarWidth,
   });
+
+  /** 드래그/리사이즈 중 기준 작업 외에 미리보기에 포함된 작업(하위 또는 다중 선택 동반) — 날짜 툴팁 대신 목록 표시 */
+  const ganttDragRelatedPanel = useMemo(() => {
+    if (!dragPreview || !dragSession) return null;
+    const primaryId = dragSession.primaryTaskId;
+    const otherIds = [...dragPreview.keys()].filter((id) => id !== primaryId);
+    if (otherIds.length === 0) return null;
+
+    const byId = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+    const isDescendantOf = (ancestorId: string, taskId: string): boolean => {
+      let id: string | undefined = byId.get(taskId)?.parentId;
+      for (let guard = 0; guard < 10000 && id; guard++) {
+        if (id === ancestorId) return true;
+        id = byId.get(id)?.parentId;
+      }
+      return false;
+    };
+
+    const descendants = otherIds.filter((id) => isDescendantOf(primaryId, id));
+    const useDescendantSet = descendants.length > 0;
+    const idSet = new Set(useDescendantSet ? descendants : otherIds);
+    const orderedIds = visibleTasks.map((t) => t.id).filter((id) => idSet.has(id));
+
+    const title =
+      dragSession.type === 'move'
+        ? useDescendantSet
+          ? '함께 이동하는 하위 작업'
+          : '함께 이동하는 작업'
+        : useDescendantSet
+          ? '부모 일정에 맞춰 조정되는 하위 작업'
+          : '함께 조정되는 작업';
+
+    const rows = orderedIds.map((id) => {
+      const t = byId.get(id);
+      const wbs = displayWbsMap.get(id);
+      return { id, name: t?.name ?? id, wbs };
+    });
+    return { title, rows };
+  }, [dragPreview, dragSession, tasks, visibleTasks, displayWbsMap]);
 
   // useCallback closure가 stale activeTaskId를 잡는 것을 막기 위해 ref로 최신값 접근.
   // (간트 클릭 → setActiveTaskId → 다음 render 전에 사용자가 ↓을 누르면 closure는 옛 값을 보고
@@ -576,96 +626,84 @@ export function GanttChart({
   const headerProps = { viewMode, dayWidth, minDate, maxDate, days, months, weeks, today };
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
-  // 표의 Summary Bar와 동일 min-h로 줌 바를 통합해 표·간트 헤더가 일직선에 오도록 함
+  // 줌 바는 TableGanttSplit 통합 상단 줄(줌 왼쪽·요약 우측, z-index로 간트 헤더보다 위)으로 포털
   if (isSplitView) {
+    const splitToolbarRow = (
+      <div
+        className={cn(
+          'flex h-14 min-h-14 w-full min-w-0 flex-shrink-0 items-center gap-3 px-3 py-0 overflow-x-auto overflow-y-hidden whitespace-nowrap',
+          splitToolbarPortalContainer
+            ? 'h-full max-h-full min-h-0 border-0 bg-transparent'
+            : 'border-b border-[var(--color-line)] bg-slate-50',
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
+          <button
+            onClick={() => setZoomIndex((prev) => (prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1)))}
+            className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
+            title="축소"
+          >
+            <ZoomOut size={12} />
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={ZOOM_LEVELS.length - 1}
+            step={1}
+            value={
+              zoomIndex === -1
+                ? Math.max(
+                    0,
+                    ZOOM_LEVELS.findIndex((z) => z.dayWidth === autoZoomLevel.dayWidth),
+                  )
+                : zoomIndex
+            }
+            onChange={(e) => setZoomIndex(Number(e.target.value))}
+            className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
+            title="간트 확대/축소"
+          />
+          <button
+            onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
+            className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
+            title="확대"
+          >
+            <ZoomIn size={12} />
+          </button>
+          <span className="text-[10px] font-bold text-slate-500 shrink-0">확대</span>
+          <button
+            onClick={() => setZoomIndex(-1)}
+            className={cn(
+              'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
+              zoomIndex === -1 ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
+            )}
+            title="전체 맞춤"
+          >
+            맞춤
+          </button>
+          <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
+            {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
+          </span>
+        </div>
+        <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
+        <button
+          onClick={() => setShowBaseline((prev) => !prev)}
+          className={cn(
+            'text-[10px] px-2 py-0.5 rounded transition-colors shrink-0 whitespace-nowrap',
+            showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
+          )}
+          title="베이스라인 일정 표시 토글"
+        >
+          베이스라인
+        </button>
+      </div>
+    );
+
     return (
       <>
+        {splitToolbarPortalContainer ? createPortal(splitToolbarRow, splitToolbarPortalContainer) : null}
         <div className="w-full h-full flex flex-col bg-white">
-          {/* 표의 Summary Bar와 동일 높이 - 줌/줄간격 컨트롤을 이 안에 배치해 헤더 정렬 (min-h로 여유 두어 화면 잘림 방지) */}
-          <div className="h-14 flex-shrink-0 flex items-center gap-3 px-4 py-0 border-b border-[var(--color-line)] bg-slate-50 overflow-x-auto overflow-y-hidden whitespace-nowrap">
-            {/* 확대/축소 (너비 간격) */}
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
-              <button
-                onClick={() => setZoomIndex((prev) => (prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1)))}
-                className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
-                title="축소"
-              >
-                <ZoomOut size={12} />
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={ZOOM_LEVELS.length - 1}
-                step={1}
-                value={
-                  zoomIndex === -1
-                    ? Math.max(
-                        0,
-                        ZOOM_LEVELS.findIndex((z) => z.dayWidth === autoZoomLevel.dayWidth),
-                      )
-                    : zoomIndex
-                }
-                onChange={(e) => setZoomIndex(Number(e.target.value))}
-                className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
-                title="간트 확대/축소"
-              />
-              <button
-                onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
-                className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
-                title="확대"
-              >
-                <ZoomIn size={12} />
-              </button>
-              <span className="text-[10px] font-bold text-slate-500 shrink-0">확대</span>
-              <button
-                onClick={() => setZoomIndex(-1)}
-                className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-                  zoomIndex === -1 ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
-                )}
-                title="전체 맞춤"
-              >
-                맞춤
-              </button>
-              <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
-                {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
-              </span>
-            </div>
-
-            {/* 줄간격 조절 - 너비 간격(줌)과 동일한 형태로 우측에 배치.
-                split 뷰(표+간트)에서는 표 SummaryBar에 동일 슬라이더가 있으므로 간트 쪽은 숨긴다(이중 노출 방지) */}
-            {!isSplitView && onRowHeightChange && (
-              <>
-                <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">줄간격</span>
-                  <input
-                    type="range"
-                    min={15}
-                    max={64}
-                    step={2}
-                    value={propRowHeight ?? 20}
-                    onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                    className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[96px]"
-                    title={`줄간격: ${propRowHeight ?? 20}px`}
-                  />
-                  <span className="text-[10px] font-bold text-slate-600 w-7 text-right shrink-0">{propRowHeight ?? 20}</span>
-                </div>
-              </>
-            )}
-            <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
-            <button
-              onClick={() => setShowBaseline((prev) => !prev)}
-              className={cn(
-                'text-[10px] px-2 py-0.5 rounded transition-colors shrink-0 whitespace-nowrap',
-                showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
-              )}
-              title="베이스라인 일정 표시 토글"
-            >
-              베이스라인
-            </button>
-          </div>
+          {!splitToolbarPortalContainer && splitToolbarRow}
           {/* 헤더 고정 (스크롤 밖) - 표의 split 헤더처럼 상단 수평 스크롤바 노출하여 본문·하단과 동기화.
               표는 헤더에 위쪽 스크롤바, 본문에 아래 스크롤바를 두는 구조 — 간트도 같은 패턴으로 정렬. */}
           <div
@@ -718,6 +756,23 @@ export function GanttChart({
                   </span>
                 </div>
               )}
+              {ganttDragRelatedPanel && (
+                <div
+                  className="absolute top-2 right-2 z-50 max-w-[min(100%,320px)] rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 shadow-lg pointer-events-none"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="text-[11px] font-semibold text-amber-950 mb-1">{ganttDragRelatedPanel.title}</div>
+                  <ul className="max-h-[160px] overflow-y-auto text-[11px] text-amber-950 space-y-0.5">
+                    {ganttDragRelatedPanel.rows.map((r) => (
+                      <li key={r.id} className="truncate" title={r.name}>
+                        {r.wbs ? `${r.wbs} ` : ''}
+                        {r.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <svg className="absolute inset-0 z-0 pointer-events-none w-full h-full">
                 <defs>
                   <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -753,6 +808,8 @@ export function GanttChart({
                 const isActive = !isSelected && activeTaskId === task.id;
                 const preview = dragPreview?.get(task.id);
                 const isBeingDragged = !!preview;
+                const isPrimaryDragBar = isBeingDragged && dragSession && task.id === dragSession.primaryTaskId;
+                const isRelatedDragBar = isBeingDragged && dragSession && task.id !== dragSession.primaryTaskId;
                 const isDone = allLeafDoneById.get(task.id) === true;
                 const effectiveStartDate = preview?.startDate ?? task.startDate;
                 const effectiveEndDate = preview?.endDate ?? task.endDate;
@@ -774,10 +831,17 @@ export function GanttChart({
                     className={cn(
                       'absolute left-0 right-0 group box-border border-b border-slate-100/80 transition-colors z-[1]',
                       isSelected &&
+                        !dragPreview?.has(task.id) &&
                         'z-[2] bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
                       isActive &&
+                        !dragPreview?.has(task.id) &&
                         'z-[2] bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
                       !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
+                      dragPreview?.has(task.id) &&
+                        dragSession &&
+                        (task.id === dragSession.primaryTaskId
+                          ? 'z-[3] bg-orange-50/60 ring-1 ring-orange-400/70'
+                          : 'z-[3] bg-sky-50/55 ring-1 ring-sky-400/45'),
                     )}
                     style={{ width: totalWidth, height: rowH, top: virtualRow.start }}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
@@ -800,14 +864,24 @@ export function GanttChart({
                         'absolute top-0 rounded shadow-sm overflow-hidden transition-all border',
                         isDone && showTableAutoFormatting && 'gantt-completed',
                         isCritical && 'ring-2 ring-red-500 border-red-600',
-                        isBeingDragged ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50' : 'cursor-grab hover:brightness-110',
+                        isPrimaryDragBar && 'cursor-grabbing shadow-lg ring-2 ring-orange-900/25 z-[5]',
+                        isRelatedDragBar && 'cursor-grabbing shadow-md ring-1 ring-amber-800/20 z-[4]',
+                        isBeingDragged &&
+                          !isPrimaryDragBar &&
+                          !isRelatedDragBar &&
+                          'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50',
+                        !isBeingDragged && 'cursor-grab hover:brightness-110',
                       )}
                       style={{
                         left,
                         width: Math.max(width - 4, 4),
                         height: rowH,
-                        backgroundColor: ganttBarFillAt(level),
-                        borderColor: ganttBarBorderAt(level, isCritical),
+                        backgroundColor: isPrimaryDragBar
+                          ? '#ea580c'
+                          : isRelatedDragBar
+                            ? 'rgba(251, 191, 36, 0.88)'
+                            : ganttBarFillAt(level),
+                        borderColor: isPrimaryDragBar ? '#9a3412' : isRelatedDragBar ? '#b45309' : ganttBarBorderAt(level, isCritical),
                       }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                     >
@@ -854,14 +928,6 @@ export function GanttChart({
                           />
                         );
                       })()}
-                    {isBeingDragged && (
-                      <div
-                        className="absolute -top-7 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
-                        style={{ left: Math.max(0, left) }}
-                      >
-                        {effectiveStartDate} ~ {effectiveEndDate}
-                      </div>
-                    )}
                     {width < 80 && !isBeingDragged && (
                       <span
                         className="absolute top-1/2 -translate-y-1/2 text-xs text-slate-500 break-words max-w-[200px] pointer-events-none"
@@ -1109,7 +1175,14 @@ export function GanttChart({
                     return (
                       <div
                         key={t.id}
-                        className="flex items-center gap-1 text-xs font-medium text-[var(--color-ink)] hover:bg-slate-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-slate-100"
+                        className={cn(
+                          'flex items-center gap-1 text-xs font-medium text-[var(--color-ink)] hover:bg-slate-50 cursor-pointer transition-colors border-b border-l-4 border-transparent hover:border-slate-100',
+                          dragPreview?.has(t.id) &&
+                            dragSession &&
+                            (t.id === dragSession.primaryTaskId
+                              ? 'bg-orange-50/70 ring-1 ring-inset ring-orange-400/50'
+                              : 'bg-sky-50/60 ring-1 ring-inset ring-sky-400/40'),
+                        )}
                         style={{
                           height: `${effectiveRowHeights[index] ?? ROW_HEIGHT}px`,
                           paddingLeft: `${depth * 16 + 8}px`,
@@ -1180,6 +1253,24 @@ export function GanttChart({
                   </div>
                 )}
 
+                {ganttDragRelatedPanel && (
+                  <div
+                    className="absolute top-2 right-2 z-50 max-w-[min(100%,320px)] rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 shadow-lg pointer-events-none"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="text-[11px] font-semibold text-amber-950 mb-1">{ganttDragRelatedPanel.title}</div>
+                    <ul className="max-h-[160px] overflow-y-auto text-[11px] text-amber-950 space-y-0.5">
+                      {ganttDragRelatedPanel.rows.map((r) => (
+                        <li key={r.id} className="truncate" title={r.name}>
+                          {r.wbs ? `${r.wbs} ` : ''}
+                          {r.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Dependency Lines SVG Layer */}
                 <svg className="absolute inset-0 z-0 pointer-events-none w-full h-full">
                   <defs>
@@ -1207,6 +1298,8 @@ export function GanttChart({
                   const isActive = !isSelected && activeTaskId === task.id;
                   const preview = dragPreview?.get(task.id);
                   const isBeingDragged = !!preview;
+                  const isPrimaryDragBar = isBeingDragged && dragSession && task.id === dragSession.primaryTaskId;
+                  const isRelatedDragBar = isBeingDragged && dragSession && task.id !== dragSession.primaryTaskId;
                   const effectiveStartDate = preview?.startDate ?? task.startDate;
                   const effectiveEndDate = preview?.endDate ?? task.endDate;
 
@@ -1233,10 +1326,17 @@ export function GanttChart({
                       className={cn(
                         'relative group box-border border-b border-slate-100/80 transition-colors',
                         isSelected &&
+                          !dragPreview?.has(task.id) &&
                           'bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
                         isActive &&
+                          !dragPreview?.has(task.id) &&
                           'bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
                         !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
+                        dragPreview?.has(task.id) &&
+                          dragSession &&
+                          (task.id === dragSession.primaryTaskId
+                            ? 'bg-orange-50/60 ring-1 ring-orange-400/70'
+                            : 'bg-sky-50/55 ring-1 ring-sky-400/45'),
                       )}
                       style={{ width: totalWidth, height: rowH }}
                       onContextMenu={(e) => handleContextMenu(e, task.id)}
@@ -1259,12 +1359,20 @@ export function GanttChart({
                           'absolute top-0 overflow-hidden transition-all',
                           isDone && showTableAutoFormatting && 'gantt-completed',
                           isMilestone
-                            ? 'rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm'
+                            ? cn(
+                                'rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm',
+                                isBeingDragged && 'cursor-grabbing ring-2 ring-orange-600 brightness-110 z-[5]',
+                              )
                             : 'rounded shadow-sm border',
                           !isMilestone && isCritical && 'ring-2 ring-red-500 border-red-600',
-                          isBeingDragged
-                            ? 'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50'
-                            : !isMilestone && 'cursor-grab hover:brightness-110',
+                          isPrimaryDragBar && !isMilestone && 'cursor-grabbing shadow-lg ring-2 ring-orange-900/25 z-[5]',
+                          isRelatedDragBar && !isMilestone && 'cursor-grabbing shadow-md ring-1 ring-amber-800/20 z-[4]',
+                          isBeingDragged &&
+                            !isMilestone &&
+                            !isPrimaryDragBar &&
+                            !isRelatedDragBar &&
+                            'cursor-grabbing opacity-90 shadow-lg ring-2 ring-white/50',
+                          !isBeingDragged && !isMilestone && 'cursor-grab hover:brightness-110',
                         )}
                         style={
                           isMilestone
@@ -1273,8 +1381,16 @@ export function GanttChart({
                                 left,
                                 width: Math.max(width - 4, 4),
                                 height: rowH,
-                                backgroundColor: ganttBarFillAt(level),
-                                borderColor: ganttBarBorderAt(level, isCritical),
+                                backgroundColor: isPrimaryDragBar
+                                  ? '#ea580c'
+                                  : isRelatedDragBar
+                                    ? 'rgba(251, 191, 36, 0.88)'
+                                    : ganttBarFillAt(level),
+                                borderColor: isPrimaryDragBar
+                                  ? '#9a3412'
+                                  : isRelatedDragBar
+                                    ? '#b45309'
+                                    : ganttBarBorderAt(level, isCritical),
                               }
                         }
                         title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
@@ -1302,16 +1418,6 @@ export function GanttChart({
                           </>
                         )}
                       </div>
-
-                      {/* Floating date tooltip during drag */}
-                      {isBeingDragged && (
-                        <div
-                          className="absolute -top-7 bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-50 pointer-events-none"
-                          style={{ left: Math.max(0, left) }}
-                        >
-                          {effectiveStartDate} ~ {effectiveEndDate}
-                        </div>
-                      )}
 
                       {(width < 80 || isMilestone) && !isBeingDragged && (
                         <span

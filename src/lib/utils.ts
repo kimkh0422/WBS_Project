@@ -14,13 +14,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * 작업 시작·종료일 등 표시용. 저장값(ISO·`YYYY-MM-DD`…)을 `2026-05-31` 형식으로 통일한다.
+ * 날짜만 있는 문자열은 `Date` 파싱을 피해 타임존으로 일이 하루 밀리는 현상을 줄인다.
+ */
 export function formatDate(dateStr: string): string {
   if (!dateStr) return '';
-  return new Date(dateStr).toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const trimmed = dateStr.trim();
+  const head = trimmed.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+  try {
+    const d = new Date(trimmed);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch {
+    return '';
+  }
 }
 
 /** 표 셀처럼 좁은 칸용: 연도 없이 '월 일'만 표시(예: 4월 1일). 저장값·편집 입력은 연도를 포함해 그대로 유지. */
