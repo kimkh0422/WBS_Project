@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Search, Strikethrough, Trash2, X } from 'lucide-react';
+import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Strikethrough, Trash2, X } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -207,155 +207,6 @@ function DocsIconBtn({
   );
 }
 
-function StylesDropdown({
-  disabled,
-  rowMode,
-  onNormalText,
-  onClearAllRows,
-}: {
-  disabled: boolean;
-  rowMode: boolean;
-  onNormalText: () => void;
-  onClearAllRows: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLUListElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number; openUp: boolean } | null>(null);
-
-  const computePos = useCallback(() => {
-    const el = btnRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const menuMaxH = Math.min(window.innerHeight * 0.5, 280);
-    const spaceBelow = window.innerHeight - r.bottom;
-    const openUp = spaceBelow < menuMaxH + 12 && r.top > spaceBelow;
-    setPos({
-      left: Math.round(r.left),
-      top: Math.round(openUp ? r.top - 6 : r.bottom + 6),
-      minWidth: Math.round(Math.max(r.width, 160)),
-      openUp,
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    computePos();
-    const closeIfOutside = (ev: MouseEvent | TouchEvent) => {
-      const t = ev.target as Node | null;
-      if (t && (btnRef.current?.contains(t) || menuRef.current?.contains(t))) return;
-      setOpen(false);
-    };
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') setOpen(false);
-    };
-    const onReflow = () => computePos();
-    document.addEventListener('mousedown', closeIfOutside);
-    document.addEventListener('touchstart', closeIfOutside);
-    document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onReflow);
-    window.addEventListener('scroll', onReflow, true);
-    return () => {
-      document.removeEventListener('mousedown', closeIfOutside);
-      document.removeEventListener('touchstart', closeIfOutside);
-      document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', onReflow);
-      window.removeEventListener('scroll', onReflow, true);
-    };
-  }, [open, computePos]);
-
-  return (
-    <div className="relative shrink-0">
-      <button
-        ref={btnRef}
-        type="button"
-        disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
-        className={cn(
-          'flex h-7 min-w-[6.5rem] max-w-[10rem] items-center justify-between gap-1 rounded border border-[#dadce0] bg-white px-2 text-left text-[13px] text-[#444746] transition-colors hover:bg-[#f8fafc]',
-          disabled && 'cursor-not-allowed opacity-50',
-          open && 'border-[#1a73e8] ring-1 ring-[#1a73e8]/25',
-        )}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label="스타일"
-        title="스타일"
-      >
-        <span className="truncate">일반 텍스트</span>
-        <ChevronDown className={cn('size-3.5 shrink-0 text-[#444746]/70 transition-transform', open && 'rotate-180')} aria-hidden />
-      </button>
-      {open &&
-        pos &&
-        createPortal(
-          <ul
-            ref={menuRef}
-            role="listbox"
-            aria-label="스타일 목록"
-            style={{
-              position: 'fixed',
-              left: pos.left,
-              top: pos.top,
-              minWidth: pos.minWidth,
-              transform: pos.openUp ? 'translateY(-100%)' : undefined,
-            }}
-            className="z-[300] max-h-[min(50vh,280px)] overflow-y-auto rounded-md border border-[#dadce0] bg-white py-1 text-[13px] shadow-lg"
-          >
-            <li role="presentation">
-              <button
-                type="button"
-                role="option"
-                className="flex w-full items-center px-3 py-2 text-left text-[#444746] hover:bg-[#f1f3f4]"
-                onClick={() => {
-                  onNormalText();
-                  setOpen(false);
-                }}
-              >
-                일반 텍스트
-              </button>
-            </li>
-            {rowMode ? (
-              <li role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  className="flex w-full items-center px-3 py-2 text-left text-[#444746] hover:bg-[#f1f3f4]"
-                  onClick={() => {
-                    onClearAllRows();
-                    setOpen(false);
-                  }}
-                >
-                  모든 열 서식 지우기
-                </button>
-              </li>
-            ) : null}
-          </ul>,
-          document.body,
-        )}
-    </div>
-  );
-}
-
-function builtinColumnLabel(id: TableColumnId): string {
-  const m: Partial<Record<string, string>> = {
-    wbsId: 'WBS',
-    name: '작업명',
-    startDate: '시작일',
-    endDate: '종료일',
-    duration: '기간',
-    workEffort: '공수',
-    weight: '가중치',
-    assignee: '담당',
-    allocation: '투입율',
-    status: '상태',
-    progress: '진척률',
-    plannedProgress: '계획율',
-    progressVariance: '진척차이',
-    deliverables: '산출물',
-    dependencies: '선행작업',
-  };
-  return m[id] ?? id;
-}
-
 export interface CellFormatToolbarProps {
   /** 단일 셀 포커스(없으면 null). 행만 체크 선택한 경우 null일 수 있다. */
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
@@ -388,7 +239,7 @@ export function CellFormatToolbar({
   rowApplyColumnIds,
   tasks,
   canEdit,
-  customColumnNameById,
+  customColumnNameById: _customColumnNameById,
   updateTask,
   onDeleteTargets,
   onClose,
@@ -434,15 +285,6 @@ export function CellFormatToolbar({
 
   const style = previewColumnId ? previewTask?.cellTextStyles?.[previewColumnId] : undefined;
 
-  const columnTitle = useMemo(() => {
-    const id = focusedCell?.columnId;
-    if (!id) return '';
-    if (typeof id === 'string' && id.startsWith('custom:')) {
-      return customColumnNameById.get(id) ?? id.replace(/^custom:/, '');
-    }
-    return builtinColumnLabel(id);
-  }, [focusedCell, customColumnNameById]);
-
   /** 한 작업의 여러 열에 동일 patch를 누적 적용해 단일 cellTextStyles로 만든다. */
   const applyPatch = useCallback(
     (patch: Partial<CellTextStyle> | null) => {
@@ -460,16 +302,6 @@ export function CellFormatToolbar({
     [canEdit, hasFormattingTargets, targetTaskIds, targetColumnIds, tasks, updateTask],
   );
 
-  /** 대상 행의 모든 열 서식 제거. */
-  const clearAllForTargets = useCallback(() => {
-    if (!canEdit || targetTaskIds.length === 0) return;
-    for (const id of targetTaskIds) {
-      const t = tasks.find((x) => x.id === id);
-      if (!t || !t.cellTextStyles || Object.keys(t.cellTextStyles).length === 0) continue;
-      updateTask(id, { cellTextStyles: undefined });
-    }
-  }, [canEdit, targetTaskIds, tasks, updateTask]);
-
   const hasTextColor = !!(style?.color && style.color.startsWith('#') && style.color.length >= 4);
   const textColor = hasTextColor ? style!.color! : '#1e293b';
   const hasBg = !!(style?.backgroundColor && style.backgroundColor.startsWith('#') && style.backgroundColor.length >= 4);
@@ -481,14 +313,6 @@ export function CellFormatToolbar({
     const n = Math.min(48, Math.max(8, Math.round(base + delta)));
     applyPatch({ fontSize: n });
   };
-
-  const menuTooltip = !hasFormattingTargets
-    ? '셀 또는 행을 선택하면 서식을 적용할 수 있습니다'
-    : rowMode
-      ? `행 전체 서식 · 선택 ${targetTaskIds.length}행`
-      : columnTitle
-        ? `열: ${columnTitle}`
-        : '셀 서식';
 
   const canDismissSelection = selectedTaskIds.size > 0 || focusedCell != null;
 
@@ -507,26 +331,6 @@ export function CellFormatToolbar({
         e.preventDefault();
       }}
     >
-      {/* 메뉴(검색) 필 */}
-      <div
-        className="flex h-7 shrink-0 items-center gap-2 rounded-full border border-[#dadce0] bg-white px-3 text-[13px] text-[#444746] shadow-sm"
-        title={menuTooltip}
-      >
-        <Search className="size-4 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
-        <span>메뉴</span>
-      </div>
-
-      <ToolbarSep />
-
-      <StylesDropdown
-        disabled={formatDisabled}
-        rowMode={rowMode}
-        onNormalText={() => applyPatch(null)}
-        onClearAllRows={clearAllForTargets}
-      />
-
-      <ToolbarSep />
-
       <FontFamilyPicker
         value={style?.fontFamily ?? ''}
         disabled={formatDisabled}

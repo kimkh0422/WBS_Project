@@ -344,7 +344,10 @@ export function BaselineView() {
       <ConfirmDialog
         isOpen={confirmSetAll}
         onClose={() => setConfirmSetAll(false)}
-        onConfirm={() => setBaselineForAllTasks()}
+        onConfirm={() => {
+          setBaselineForAllTasks();
+          setConfirmSetAll(false);
+        }}
         title="전체 베이스라인 설정"
         message="모든 작업의 현재 일정·공수를 베이스라인으로 저장합니다. 기존 베이스라인이 덮어씌워집니다. 계속하시겠습니까?"
         confirmLabel="설정"

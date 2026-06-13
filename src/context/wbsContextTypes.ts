@@ -99,6 +99,13 @@ export interface WBSContextType {
     },
   ) => string | undefined;
   addTask: (task: Omit<Task, 'id' | 'projectId'>, insertAfterId?: string, projectIdOverride?: string) => string;
+  /**
+   * 여러 작업을 한 번의 상태 갱신으로 연속 삽입(붙여넣기 등). id는 호출부에서 미리 발급한다.
+   */
+  insertPastedTasksInOrder: (
+    rows: Array<{ id: string; draft: Omit<Task, 'id' | 'projectId'>; insertAfterId?: string }>,
+    projectIdOverride?: string,
+  ) => string[];
   addTasks: (tasks: Task[]) => void;
   updateTask: (
     id: string,

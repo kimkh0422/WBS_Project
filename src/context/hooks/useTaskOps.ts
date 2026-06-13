@@ -134,6 +134,72 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
   );
 
+  /**
+   * 여러 작업을 한 번의 setAllTasks + (가능하면) 한 번의 upsert로 삽입한다.
+   * 연속 addTask마다 비동기 upsertTasks가 겹치면 이전 스냅샷이 나중에 덮여 행이 사라지는 문제가 생길 수 있어,
+   * 작업 단위 붙여넣기 등에서는 이 API를 사용한다.
+   */
+  const insertPastedTasksInOrder = useCallback(
+    (rows: Array<{ id: string; draft: Omit<Task, 'id' | 'projectId'>; insertAfterId?: string }>, projectIdOverride?: string): string[] => {
+      if (rows.length === 0) return [];
+      saveHistory();
+      const cpi = currentProjectIdRef.current;
+      const projs = projectsRef.current;
+      const projectId = projectIdOverride ?? (cpi === 'all' ? projs[0]?.id || '' : cpi);
+      const doneStatusIds = new Set<string>(
+        ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
+      );
+      let tasksToPersist: Task[] | null = null;
+      setAllTasks((prev) => {
+        let next: Task[] = prev;
+        for (const { id, draft, insertAfterId } of rows) {
+          const plannedOverrideForNew =
+            typeof draft.plannedProgressOverride === 'number' && Number.isFinite(draft.plannedProgressOverride)
+              ? draft.plannedProgressOverride
+              : null;
+          const task: Task = applyMilestoneDateInvariant({
+            ...draft,
+            plannedProgressOverride: plannedOverrideForNew,
+            workEffort: resolveWorkEffortForNewTask(draft.workEffort),
+            id,
+            projectId,
+          } as Task);
+          if (typeof plannedOverrideForNew === 'number') setPlannedOverrideLocal(task.id, plannedOverrideForNew);
+
+          let nextTasks: Task[];
+          if (insertAfterId) {
+            const index = next.findIndex((t) => t.id === insertAfterId);
+            if (index !== -1) {
+              const arr = [...next];
+              arr.splice(index + 1, 0, task);
+              nextTasks = arr;
+            } else nextTasks = [...next, task];
+          } else nextTasks = [...next, task];
+
+          const hasExplicitWeight = typeof task.weight === 'number' && Number.isFinite(task.weight);
+          if (hasExplicitWeight && task.projectId) {
+            const normalized = round1(task.weight as number);
+            nextTasks = nextTasks.map((t) => (t.id === task.id ? { ...t, weight: normalized } : t));
+            setWeightLocal(task.id, normalized);
+          }
+          next = syncParentRollups(nextTasks, task.parentId, doneStatusIds, undefined, undefined, undefined, true);
+        }
+        tasksToPersist = next;
+        return next;
+      });
+      if (tasksToPersist) {
+        bumpDirty();
+        if (projectId && !useLocalOnlyRef.current) {
+          const pid = projectId;
+          const persistRows = (tasksToPersist as Task[]).filter((t) => t.projectId === pid);
+          if (persistRows.length > 0) upsertTasks(persistRows).catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+        }
+      }
+      return rows.map((r) => r.id);
+    },
+    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
+  );
+
   const addTasks = useCallback(
     (newTasks: Task[]) => {
       saveHistory();
@@ -854,6 +920,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
   return {
     addTask,
+    insertPastedTasksInOrder,
     addTasks,
     updateTask,
     updateTasksBulk,

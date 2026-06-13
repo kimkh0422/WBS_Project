@@ -1,5 +1,23 @@
 import type { OrgMember } from '../data/organization';
-import type { Project, Task } from '../types';
+import type { Project, ProjectAssignment, Task } from '../types';
+
+/** 프로젝트 투입 목록에 없을 때 표·일괄 입력 등에서 추가하는 기본 투입율(%) */
+export const DEFAULT_PROJECT_ASSIGNMENT_PERCENT = 100;
+
+/**
+ * 프로젝트 `assignments`에 해당 이름이 없으면 기본 투입율로 한 명 추가한 배열을 반환한다.
+ * 이미 있으면 `null`(변경 없음).
+ */
+export function appendAssigneeToProjectIfMissing(
+  project: Pick<Project, 'assignments'> | undefined,
+  assigneeName: string,
+): ProjectAssignment[] | null {
+  const trimmed = (assigneeName || '').trim();
+  if (!trimmed || !project) return null;
+  const existing = project.assignments ?? [];
+  if (existing.some((a) => (a.assignee || '').trim() === trimmed)) return null;
+  return [...existing, { assignee: trimmed, allocationPercent: DEFAULT_PROJECT_ASSIGNMENT_PERCENT }];
+}
 
 /**
  * 담당자 자동완성 후보를 한 곳에서 생성한다.

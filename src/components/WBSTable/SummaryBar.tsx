@@ -1,17 +1,5 @@
 import React from 'react';
-import {
-  CalendarDays,
-  CalendarCheck2,
-  Clock,
-  TrendingUp,
-  ListChecks,
-  Edit2,
-  Target,
-  ListOrdered,
-  Sparkles,
-  Scale,
-  MousePointerClick,
-} from 'lucide-react';
+import { CalendarDays, Clock, TrendingUp, ListChecks, Target, Sparkles, Scale, MousePointerClick } from 'lucide-react';
 import { cn, formatPercent1 } from '../../lib/utils';
 import { formatSummaryDate, type SummaryStats } from '../hooks/useWbsSummaryStats';
 import { SUMMARY_BAR_PLANNED_HINT, summaryBarVarianceHint } from '../../lib/plannedProgressTooltips';
@@ -63,11 +51,6 @@ interface SummaryBarProps {
   rowHeight: number;
   handleSetRowHeight: (h: number) => void;
   onOpenMdEditor: () => void;
-  /** 등록 작업 기준 우선순위 보완 가이드(모달) */
-  onOpenImprovementGuide?: () => void;
-  /** '하위일정 균등분할' 버튼: 클릭 시 선택(체크·활성)한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배한다.
-   *  편집 권한이 없으면 undefined로 숨김. */
-  onAutoAlignSchedule?: (e: React.MouseEvent) => void;
   /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
   tableAutoFormatting?: {
     effectiveOn: boolean;
@@ -79,7 +62,7 @@ interface SummaryBarProps {
     on: boolean;
     onToggle: () => void;
   };
-  /** 고급 도구(자동 서식·가중치·하위일정 균등분할·클릭 편집) 표시. 기본 숨김, Shift+F12로 토글. 보완 가이드는 일반 메뉴로 항상 표시. */
+  /** 고급 도구(자동 서식·가중치·클릭 편집) 표시. 기본 숨김, Shift+F12로 토글. */
   showAdvancedTools?: boolean;
   /** 표+간트 통합 상단 줄 왼쪽 칸에 넣을 때: 높이·테두리를 부모에 맞춤 */
   chromeEmbed?: boolean;
@@ -101,8 +84,6 @@ export function SummaryBar({
   rowHeight,
   handleSetRowHeight,
   onOpenMdEditor,
-  onOpenImprovementGuide,
-  onAutoAlignSchedule,
   tableAutoFormatting,
   cellClickEdit,
   showAdvancedTools,
@@ -127,22 +108,6 @@ export function SummaryBar({
     >
       <MousePointerClick size={12} strokeWidth={2} aria-hidden />
       클릭 편집
-    </button>
-  ) : null;
-  const autoAlignButton = onAutoAlignSchedule ? (
-    <button
-      type="button"
-      onClick={(e) => onAutoAlignSchedule(e)}
-      className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-amber-400/30"
-      title={[
-        '하위일정 균등분할 — 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 순서대로 균등 분배하고, 하위끼리 선행관계(FS)로 연결합니다.',
-        '하위가 있는 상위 작업의 행을 클릭(또는 체크)한 뒤 실행하세요. 하위의 하위까지 재귀 적용됩니다.',
-        '',
-        '평소 셀 편집·행 이동 시에는 입력한 날짜를 자동으로 바꾸지 않습니다.',
-      ].join('\n')}
-    >
-      <CalendarCheck2 size={12} strokeWidth={2} aria-hidden />
-      하위일정 균등분할
     </button>
   ) : null;
   return (
@@ -263,18 +228,6 @@ export function SummaryBar({
               ))}
             </div>
             <Divider />
-            {showAdvancedTools && autoAlignButton}
-            {onOpenImprovementGuide && (
-              <button
-                type="button"
-                onClick={onOpenImprovementGuide}
-                className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-                title="담당 미지정·일정 불일치·진척 지연 등을 우선순위 순으로 안내합니다"
-              >
-                <ListOrdered size={12} strokeWidth={2} aria-hidden />
-                보완 가이드
-              </button>
-            )}
             {/* 가중치 진척 롤업 토글: 켜짐=가중평균, 꺼짐=단순평균. 변경 시 모든 부모 진척·계획율 즉시 재계산 */}
             {showAdvancedTools && (
               <button
@@ -345,18 +298,6 @@ export function SummaryBar({
         // split view: 표 영역 상단에 편집·줄간격만 배치 (간트 쪽은 자체 줌/줄간격 바 있음)
         <>
           <div className="flex-1" />
-          {showAdvancedTools && autoAlignButton}
-          {onOpenImprovementGuide && (
-            <button
-              type="button"
-              onClick={onOpenImprovementGuide}
-              className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 text-[11px] font-medium shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-              title="등록 작업 기준 우선순위 보완 가이드"
-            >
-              <ListOrdered size={12} strokeWidth={2} aria-hidden />
-              가이드
-            </button>
-          )}
           {showAdvancedTools && cellClickEditButton}
           {showAdvancedTools && tableAutoFormatting && (
             <button

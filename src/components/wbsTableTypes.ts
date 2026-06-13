@@ -37,11 +37,11 @@ export interface WBSTableProps {
   onRowHeightsChange?: (heights: number[]) => void;
   /** split 뷰: 간트와 동일한 행 높이(가상 스크롤·총 높이 정렬) */
   syncRowHeights?: number[];
-  /** split 뷰: 표 하단에 도킹된 서식/일괄 바의 총 높이(px). 간트 하단을 같은 높이만큼 띄워 행 정렬을 맞추는 데 사용. */
+  /** split 뷰: 표 하단(또는 하단 슬롯)에 도킹된 크롬 바 높이(px). 간트 하단을 같은 높이만큼 띄워 행 정렬을 맞춘다. */
   onBottomInsetChange?: (height: number) => void;
-  /** split 뷰: 하단 서식/일괄 도킹 바를 표 패널이 아니라 이 컨테이너(표+간트 전체 너비)로 포털 렌더한다. 없으면(표만 뷰) 기존처럼 표 패널 하단에 in-flow로 붙는다. */
+  /** split 뷰: 일괄 수정(다중 선택) 바를 이 컨테이너(표+간트 하단 전체 너비)로 포털한다. 없으면 topDockContainer 또는 표 패널 in-flow. */
   bottomDockContainer?: HTMLElement | null;
-  /** 표+간트 split: 셀 서식·일괄 수정 바를 최상단(필터 아래 작업 영역)에 고정 포털한다. 설정 시 bottomDockContainer보다 우선한다. */
+  /** 표+간트 split: 셀 서식 툴바를 상단에 포털한다. bottomDockContainer와 함께 쓰면 서식=상단, 일괄=하단으로 나뉜다. */
   topDockContainer?: HTMLElement | null;
   /** 표+간트 split: 요약 바(작업 수·진척 등)를 표 패널 위가 아닌 통합 상단 줄 왼쪽 칸으로 포털한다. */
   splitSummaryChromeContainer?: HTMLElement | null;

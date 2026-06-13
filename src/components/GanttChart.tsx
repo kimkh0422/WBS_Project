@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
@@ -39,8 +38,6 @@ interface GanttChartProps {
   syncScrollRef?: React.Ref<HTMLDivElement>;
   /** split 뷰: 표와 가로 스크롤 동기화 — 간트 날짜 헤더 스크롤 컨테이너 */
   splitGanttHeaderScrollRef?: React.Ref<HTMLDivElement | null>;
-  /** split 뷰: 줌/베이스라인 툴바를 부모가 제공하는 DOM(통합 상단 줄 오른쪽)으로 포털한다. */
-  splitToolbarPortalContainer?: HTMLElement | null;
   /** split 뷰: 표와 가로 스크롤 동기화 — 간트 하단 가로 스크롤바 */
   splitGanttBottomScrollRef?: React.Ref<HTMLDivElement | null>;
   hotkeysEnabled?: boolean;
@@ -61,7 +58,6 @@ export function GanttChart({
   onRowHeightChange,
   syncScrollRef,
   splitGanttHeaderScrollRef,
-  splitToolbarPortalContainer,
   splitGanttBottomScrollRef,
   hotkeysEnabled = true,
   bottomSpacerHeight = 0,
@@ -236,7 +232,6 @@ export function GanttChart({
     return { visibleTaskById: byId, visibleTaskIndexById: indexById };
   }, [visibleTasks]);
 
-  const [showBaseline, setShowBaseline] = useState(false);
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
 
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
@@ -385,45 +380,6 @@ export function GanttChart({
     sidebarResizeRef,
     setSidebarWidth,
   });
-
-  /** 드래그/리사이즈 중 기준 작업 외에 미리보기에 포함된 작업(하위 또는 다중 선택 동반) — 날짜 툴팁 대신 목록 표시 */
-  const ganttDragRelatedPanel = useMemo(() => {
-    if (!dragPreview || !dragSession) return null;
-    const primaryId = dragSession.primaryTaskId;
-    const otherIds = [...dragPreview.keys()].filter((id) => id !== primaryId);
-    if (otherIds.length === 0) return null;
-
-    const byId = new Map<string, Task>(tasks.map((t) => [t.id, t]));
-    const isDescendantOf = (ancestorId: string, taskId: string): boolean => {
-      let id: string | undefined = byId.get(taskId)?.parentId;
-      for (let guard = 0; guard < 10000 && id; guard++) {
-        if (id === ancestorId) return true;
-        id = byId.get(id)?.parentId;
-      }
-      return false;
-    };
-
-    const descendants = otherIds.filter((id) => isDescendantOf(primaryId, id));
-    const useDescendantSet = descendants.length > 0;
-    const idSet = new Set(useDescendantSet ? descendants : otherIds);
-    const orderedIds = visibleTasks.map((t) => t.id).filter((id) => idSet.has(id));
-
-    const title =
-      dragSession.type === 'move'
-        ? useDescendantSet
-          ? '함께 이동하는 하위 작업'
-          : '함께 이동하는 작업'
-        : useDescendantSet
-          ? '부모 일정에 맞춰 조정되는 하위 작업'
-          : '함께 조정되는 작업';
-
-    const rows = orderedIds.map((id) => {
-      const t = byId.get(id);
-      const wbs = displayWbsMap.get(id);
-      return { id, name: t?.name ?? id, wbs };
-    });
-    return { title, rows };
-  }, [dragPreview, dragSession, tasks, visibleTasks, displayWbsMap]);
 
   // useCallback closure가 stale activeTaskId를 잡는 것을 막기 위해 ref로 최신값 접근.
   // (간트 클릭 → setActiveTaskId → 다음 render 전에 사용자가 ↓을 누르면 closure는 옛 값을 보고
@@ -626,84 +582,10 @@ export function GanttChart({
   const headerProps = { viewMode, dayWidth, minDate, maxDate, days, months, weeks, today };
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
-  // 줌 바는 TableGanttSplit 통합 상단 줄(줌 왼쪽·요약 우측, z-index로 간트 헤더보다 위)으로 포털
   if (isSplitView) {
-    const splitToolbarRow = (
-      <div
-        className={cn(
-          'flex h-14 min-h-14 w-full min-w-0 flex-shrink-0 items-center gap-3 px-3 py-0 overflow-x-auto overflow-y-hidden whitespace-nowrap',
-          splitToolbarPortalContainer
-            ? 'h-full max-h-full min-h-0 border-0 bg-transparent'
-            : 'border-b border-[var(--color-line)] bg-slate-50',
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-500 shrink-0">축소</span>
-          <button
-            onClick={() => setZoomIndex((prev) => (prev === -1 ? Math.max(0, ZOOM_LEVELS.length - 4) : Math.max(0, prev - 1)))}
-            className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
-            title="축소"
-          >
-            <ZoomOut size={12} />
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={ZOOM_LEVELS.length - 1}
-            step={1}
-            value={
-              zoomIndex === -1
-                ? Math.max(
-                    0,
-                    ZOOM_LEVELS.findIndex((z) => z.dayWidth === autoZoomLevel.dayWidth),
-                  )
-                : zoomIndex
-            }
-            onChange={(e) => setZoomIndex(Number(e.target.value))}
-            className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
-            title="간트 확대/축소"
-          />
-          <button
-            onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
-            className="p-0.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors shrink-0"
-            title="확대"
-          >
-            <ZoomIn size={12} />
-          </button>
-          <span className="text-[10px] font-bold text-slate-500 shrink-0">확대</span>
-          <button
-            onClick={() => setZoomIndex(-1)}
-            className={cn(
-              'text-[10px] px-1.5 py-0.5 rounded transition-colors shrink-0',
-              zoomIndex === -1 ? 'text-indigo-600 bg-indigo-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
-            )}
-            title="전체 맞춤"
-          >
-            맞춤
-          </button>
-          <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
-            {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
-          </span>
-        </div>
-        <div className="w-px h-5 bg-slate-200 flex-shrink-0" />
-        <button
-          onClick={() => setShowBaseline((prev) => !prev)}
-          className={cn(
-            'text-[10px] px-2 py-0.5 rounded transition-colors shrink-0 whitespace-nowrap',
-            showBaseline ? 'text-orange-600 bg-orange-50 font-medium' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
-          )}
-          title="베이스라인 일정 표시 토글"
-        >
-          베이스라인
-        </button>
-      </div>
-    );
-
     return (
       <>
-        {splitToolbarPortalContainer ? createPortal(splitToolbarRow, splitToolbarPortalContainer) : null}
         <div className="w-full h-full flex flex-col bg-white">
-          {!splitToolbarPortalContainer && splitToolbarRow}
           {/* 헤더 고정 (스크롤 밖) - 표의 split 헤더처럼 상단 수평 스크롤바 노출하여 본문·하단과 동기화.
               표는 헤더에 위쪽 스크롤바, 본문에 아래 스크롤바를 두는 구조 — 간트도 같은 패턴으로 정렬. */}
           <div
@@ -754,23 +636,6 @@ export function GanttChart({
                   <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
                     오늘
                   </span>
-                </div>
-              )}
-              {ganttDragRelatedPanel && (
-                <div
-                  className="absolute top-2 right-2 z-50 max-w-[min(100%,320px)] rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 shadow-lg pointer-events-none"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div className="text-[11px] font-semibold text-amber-950 mb-1">{ganttDragRelatedPanel.title}</div>
-                  <ul className="max-h-[160px] overflow-y-auto text-[11px] text-amber-950 space-y-0.5">
-                    {ganttDragRelatedPanel.rows.map((r) => (
-                      <li key={r.id} className="truncate" title={r.name}>
-                        {r.wbs ? `${r.wbs} ` : ''}
-                        {r.name}
-                      </li>
-                    ))}
-                  </ul>
                 </div>
               )}
               <svg className="absolute inset-0 z-0 pointer-events-none w-full h-full">
@@ -904,30 +769,6 @@ export function GanttChart({
                         onMouseDown={(e) => handleResizeMouseDown(e, task, 'resize-right')}
                       />
                     </div>
-                    {showBaseline &&
-                      task.baselineStartDate &&
-                      task.baselineEndDate &&
-                      (() => {
-                        const blStart = parseISO(task.baselineStartDate);
-                        const blEnd = parseISO(task.baselineEndDate);
-                        const blOffsetDays = differenceInDays(blStart, minDate);
-                        const blDuration = differenceInDays(blEnd, blStart) + 1;
-                        const blLeft = blOffsetDays * dayWidth;
-                        const blWidth = Math.max(blDuration * dayWidth, dayWidth);
-                        return (
-                          <div
-                            className="absolute rounded-sm pointer-events-none border border-dashed border-orange-400"
-                            style={{
-                              left: blLeft,
-                              width: Math.max(blWidth - 4, 4),
-                              height: 4,
-                              bottom: 1,
-                              backgroundColor: 'rgba(251,146,60,0.35)',
-                            }}
-                            title={`베이스라인: ${task.baselineStartDate} → ${task.baselineEndDate}`}
-                          />
-                        );
-                      })()}
                     {width < 80 && !isBeingDragged && (
                       <span
                         className="absolute top-1/2 -translate-y-1/2 text-xs text-slate-500 break-words max-w-[200px] pointer-events-none"
@@ -1064,9 +905,9 @@ export function GanttChart({
             >
               맞춤
             </button>
-            <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">
-              {zoomIndex === -1 ? '맞춤' : ZOOM_LEVELS[zoomIndex].label}
-            </span>
+            {zoomIndex !== -1 ? (
+              <span className="text-[10px] font-mono text-slate-500 w-8 shrink-0">{ZOOM_LEVELS[zoomIndex].label}</span>
+            ) : null}
           </div>
 
           {/* 줄간격 조절 (split 뷰에서는 표 SummaryBar에 통합되어 있으므로 숨김) */}
@@ -1250,24 +1091,6 @@ export function GanttChart({
                     <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
                       오늘
                     </span>
-                  </div>
-                )}
-
-                {ganttDragRelatedPanel && (
-                  <div
-                    className="absolute top-2 right-2 z-50 max-w-[min(100%,320px)] rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 shadow-lg pointer-events-none"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <div className="text-[11px] font-semibold text-amber-950 mb-1">{ganttDragRelatedPanel.title}</div>
-                    <ul className="max-h-[160px] overflow-y-auto text-[11px] text-amber-950 space-y-0.5">
-                      {ganttDragRelatedPanel.rows.map((r) => (
-                        <li key={r.id} className="truncate" title={r.name}>
-                          {r.wbs ? `${r.wbs} ` : ''}
-                          {r.name}
-                        </li>
-                      ))}
-                    </ul>
                   </div>
                 )}
 
@@ -1482,7 +1305,10 @@ export function GanttChart({
         isOpen={!!deleteConfirm}
         onClose={() => setDeleteConfirm(null)}
         onConfirm={() => {
-          if (deleteConfirm) deleteTask(deleteConfirm.taskId);
+          if (deleteConfirm) {
+            deleteTask(deleteConfirm.taskId);
+            setDeleteConfirm(null);
+          }
         }}
         title="작업 삭제"
         message="이 작업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."

@@ -3,6 +3,7 @@ import type { Project, Task, TaskStatus } from '../../types';
 import type { WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
+import { appendAssigneeToProjectIfMissing } from '../../lib/assigneeOptions';
 
 /** 일괄 수정 바의 작업 유형(플래그 일괄 지정). '' = 변경 없음 */
 export type BulkTaskKind = '' | 'plain' | 'milestone' | 'issue' | 'action';
@@ -43,6 +44,29 @@ export function useWbsBulkEdit({
   const [bulkEndDate, setBulkEndDate] = useState('');
   const [bulkAllocation, setBulkAllocation] = useState('');
   const [bulkTaskKind, setBulkTaskKind] = useState<BulkTaskKind>('');
+
+  /** 담당자 문자열이 프로젝트 투입 목록에 없으면 `assignments`에 추가한다(프로젝트당 한 번). */
+  const ensureAssigneeOnTasksProjects = useCallback(
+    (taskIds: readonly string[], assigneeName: string) => {
+      const name = assigneeName.trim();
+      if (!name) return;
+      const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+      const projectById = new Map(projects.map((p) => [p.id, p]));
+      const updatedProjectIds = new Set<string>();
+      for (const tid of taskIds) {
+        const t = taskById.get(tid);
+        const pid = t?.projectId;
+        if (!pid || updatedProjectIds.has(pid)) continue;
+        const proj = projectById.get(pid);
+        const next = appendAssigneeToProjectIfMissing(proj, name);
+        if (next) {
+          updateProject(pid, { assignments: next });
+          updatedProjectIds.add(pid);
+        }
+      }
+    },
+    [tasks, projects, updateProject],
+  );
 
   const resetBulkFields = useCallback(() => {
     setBulkStatus('');
@@ -171,6 +195,11 @@ export function useWbsBulkEdit({
       }
     }
 
+    const assigneeStr = (updates.assignee as string | undefined)?.trim();
+    if (assigneeStr) {
+      ensureAssigneeOnTasksProjects(ids, assigneeStr);
+    }
+
     // 적용 후에도 선택·입력란을 유지해 연속 일괄 작업(선행 연결·추가 필드 적용 등)이 가능하도록 함
   }, [
     bulkStatus,
@@ -191,6 +220,7 @@ export function useWbsBulkEdit({
     projects,
     updateProject,
     pushToast,
+    ensureAssigneeOnTasksProjects,
   ]);
 
   const executeBulkWorkEffort = useCallback(() => {
@@ -237,8 +267,9 @@ export function useWbsBulkEdit({
       if (children) stack.push(...children);
     }
     updateTasksBulk(Array.from(expanded), { assignee: value });
+    ensureAssigneeOnTasksProjects(Array.from(expanded), value);
     setBulkAssignee('');
-  }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk]);
+  }, [bulkAssignee, tasks, selectedTaskIds, updateTasksBulk, ensureAssigneeOnTasksProjects]);
 
   const executeBulkClearDependencies = useCallback(() => {
     for (const id of selectedTaskIds) {

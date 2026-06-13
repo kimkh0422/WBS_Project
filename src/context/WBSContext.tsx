@@ -1334,6 +1334,7 @@ export function WBSProvider({
       forkTaskToProject: projectOps.forkTaskToProject,
       // Task ops
       addTask: taskOps.addTask,
+      insertPastedTasksInOrder: taskOps.insertPastedTasksInOrder,
       addTasks: taskOps.addTasks,
       updateTask: taskOps.updateTask,
       updateTasksBulk: taskOps.updateTasksBulk,

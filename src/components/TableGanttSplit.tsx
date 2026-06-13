@@ -60,11 +60,12 @@ export function TableGanttSplit({
   const resizeClientXRef = useRef(0);
 
   const [rowHeights, setRowHeights] = useState<number[]>([]);
-  /** 표+간트: 셀 서식·일괄 바를 최상단 전체 너비로 포털 */
+  /** 표+간트: 셀 서식 툴바를 최상단 고정(sticky) */
   const [topDockSlot, setTopDockSlot] = useState<HTMLDivElement | null>(null);
-  /** 통합 한 줄: 왼쪽 요약(WBSTable), 오른쪽 간트 줌(GanttChart) */
+  /** 일괄 수정(다중 선택) 바 — 화면 하단(표+간트 영역) 고정 */
+  const [bottomDockSlot, setBottomDockSlot] = useState<HTMLDivElement | null>(null);
+  /** 통합 한 줄: 표 요약(SummaryBar) */
   const [summaryChromeSlot, setSummaryChromeSlot] = useState<HTMLDivElement | null>(null);
-  const [ganttToolbarSlot, setGanttToolbarSlot] = useState<HTMLDivElement | null>(null);
   const [ganttBottomInset, setGanttBottomInset] = useState(0);
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
 
@@ -152,19 +153,15 @@ export function TableGanttSplit({
       className="list-split-view flex flex-col h-full min-h-0 overflow-hidden bg-white"
       style={{ ['--split-table-pct' as string]: `${tablePaneWidthPct}%` }}
     >
-      {/* 서식·일괄 → 최상단 고정(sticky). 그 아래 한 줄: 간트 줌(왼쪽)·표 요약(우측 끝) — 간트 헤더(z-40)보다 위에 두어 가려지지 않게 함. */}
+      {/* 셀 서식 → 최상단. 간트 헤더(z-40)보다 위에 두어 가려지지 않게 함. */}
       <div
         ref={setTopDockSlot}
         className="w-full shrink-0 sticky top-0 z-[60] bg-[var(--color-surface)] border-b border-[var(--color-line)] shadow-[0_1px_0_rgba(15,23,42,0.06)]"
       />
-      <div className="relative z-[55] flex h-14 min-h-14 w-full shrink-0 items-stretch justify-end border-b border-[var(--color-line)] bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-        <div
-          ref={setGanttToolbarSlot}
-          className="flex min-h-0 w-auto min-w-[168px] shrink-0 flex-col justify-center overflow-hidden border-r border-[var(--color-line)]/70 bg-slate-50/90"
-        />
+      <div className="relative z-[55] flex h-14 min-h-14 w-full shrink-0 items-stretch border-b border-[var(--color-line)] bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
         <div
           ref={setSummaryChromeSlot}
-          className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col justify-center overflow-x-auto overflow-y-hidden"
+          className="flex min-h-0 min-w-0 w-full flex-1 flex-col justify-center overflow-x-auto overflow-y-hidden"
         />
       </div>
 
@@ -185,6 +182,7 @@ export function TableGanttSplit({
             onRowHeightsChange={setRowHeights}
             syncRowHeights={rowHeights}
             topDockContainer={topDockSlot}
+            bottomDockContainer={bottomDockSlot}
             splitSummaryChromeContainer={summaryChromeSlot}
             onBottomInsetChange={setGanttBottomInset}
             taskContextMenuHandlerRef={taskContextMenuHandlerRef}
@@ -209,7 +207,6 @@ export function TableGanttSplit({
             syncScrollRef={ganttScrollRef}
             splitGanttHeaderScrollRef={ganttHeaderScrollRef}
             splitGanttBottomScrollRef={ganttBottomScrollRef}
-            splitToolbarPortalContainer={ganttToolbarSlot}
             rowHeight={sharedRowHeight}
             rowHeights={rowHeights}
             onRowHeightChange={onRowHeightChange}
@@ -219,6 +216,9 @@ export function TableGanttSplit({
           />
         </div>
       </div>
+
+      {/* 일괄 수정(다중 선택) 바 — 표·간트 패널 아래 전체 너비(내용은 WBSTable이 포털). 빈 슬롯일 땐 높이 0·테두리 없음 */}
+      <div ref={setBottomDockSlot} className="w-full shrink-0 z-[60] bg-[var(--color-surface)]" />
     </div>
   );
 }

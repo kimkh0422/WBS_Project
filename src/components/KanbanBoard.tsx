@@ -1041,7 +1041,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
 
       <ConfirmDialog
         isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm({ ...deleteConfirm, isOpen: false })}
+        onClose={() => setDeleteConfirm((prev) => ({ ...prev, isOpen: false }))}
         onConfirm={executeDelete}
         title="작업 삭제"
         message="이 작업을 삭제하시겠습니까? 하위 작업도 함께 삭제됩니다."

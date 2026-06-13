@@ -235,6 +235,10 @@ export interface WbsTableKeyboardDeps {
 
   // Actions
   addTask: (task: Partial<Task>, insertAfterId?: string) => string;
+  insertPastedTasksInOrder: (
+    rows: Array<{ id: string; draft: Omit<Task, 'id' | 'projectId'>; insertAfterId?: string }>,
+    projectIdOverride?: string,
+  ) => string[];
   updateTask: (id: string, updates: Partial<Task>) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
   indentTask: (id: string) => void;
@@ -301,6 +305,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setDeleteConfirm,
     setCopiedTasks,
     addTask,
+    insertPastedTasksInOrder,
     updateTask,
     moveTask,
     indentTask,
@@ -737,56 +742,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // Allow paste even when no row is selected (e.g. focus on empty space)
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         // 0) 셀 클립보드(가장 최근 복사가 셀)가 있으면 커서 셀에 셀 단위 붙여넣기 — 엑셀과 동일
-        // 1) 내부 작업 클립보드(Ctrl+X 등)가 있으면 기존처럼 작업 단위 붙여넣기
+        // 1) 내부 작업 클립보드가 있으면 작업 단위 붙여넣기(작업명 셀 포커스여도 동일 — 다중 행 복사·붙여넣기)
         // 2) 없으면 시스템 클립보드 텍스트를 현재 커서 셀(없으면 작업명)에 반영
         e.preventDefault();
-        // 작업명 셀만 포커스(체크 다중 선택 없음): 시스템 텍스트만 작업명에 반영 — 내부 행/셀 클립보드 무시(붙여넣기로 새 작업 추가 방지)
-        if (selectedTaskIds.size === 0 && focusedCell?.columnId === 'name' && focusedCell.taskId) {
-          if (!canEditCurrentProject) {
-            pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
-            return;
-          }
-          const cursorTaskId = focusedCell.taskId;
-          void (async () => {
-            let text = '';
-            try {
-              text = await navigator.clipboard.readText();
-            } catch {
-              pushToast('클립보드를 읽을 수 없습니다.', { variant: 'error' });
-              return;
-            }
-            const firstLine = (text.split(/\r?\n/)[0] ?? '').trim();
-            if (!firstLine) {
-              pushToast('붙여넣을 텍스트가 없습니다.', { variant: 'info' });
-              return;
-            }
-            const t = tasks.find((x) => x.id === cursorTaskId);
-            if (!t) return;
-            const visibleTaskIds = visibleTasks.map((vt) => vt.id);
-            const res = buildWbsCellPasteUpdate(
-              t,
-              'name',
-              { text: firstLine },
-              {
-                tasks,
-                visibleTaskIds,
-                statusConfigs,
-                effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
-              },
-            );
-            if (res.error) {
-              pushToast(res.error, { variant: 'warning' });
-              return;
-            }
-            if (res.updates) {
-              updateTask(t.id, res.updates);
-              pushToast('작업명을 붙여넣었습니다.', { variant: 'success' });
-            } else {
-              pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
-            }
-          })();
-          return;
-        }
+
         if (copiedCell) {
           if (!canEditCurrentProject) {
             pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
@@ -839,85 +798,81 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
           return;
         }
+
         const clipboard = copiedTasks.length > 0 ? copiedTasks : loadClipboardTasks();
-        if (clipboard.length === 0) {
-          // 시스템 클립보드 텍스트를 커서 셀(컬럼)에 붙여넣기 — 엑셀 등 외부 앱에서 복사한 값
-          const cursorTaskId = focusedCell?.taskId ?? lastSelectedId;
-          if (!cursorTaskId) {
-            pushToast('작업을 선택한 뒤 붙여넣기 하세요.', { variant: 'info' });
+        if (clipboard.length > 0) {
+          if (!canEditCurrentProject) {
+            pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
             return;
           }
-          if (!canEditCurrentProject) return;
-          const targetColumnId: TableColumnId = focusedCell?.columnId ?? 'name';
-          const visibleTaskIds = visibleTasks.map((t) => t.id);
-          void (async () => {
-            let text = '';
-            try {
-              text = await navigator.clipboard.readText();
-            } catch {
-              pushToast('클립보드를 읽을 수 없습니다.', { variant: 'error' });
-              return;
-            }
-            const firstLine = (text.split(/\r?\n/)[0] ?? '').trim();
-            if (!firstLine) {
-              pushToast('붙여넣을 텍스트가 없습니다.', { variant: 'info' });
-              return;
-            }
-            const t = tasks.find((x) => x.id === cursorTaskId);
-            if (!t) return;
-            const res = buildWbsCellPasteUpdate(
-              t,
-              targetColumnId,
-              { text: firstLine },
-              {
-                tasks,
-                visibleTaskIds,
-                statusConfigs,
-                effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
-              },
-            );
-            if (res.error) {
-              pushToast(res.error, { variant: 'warning' });
-              return;
-            }
-            if (res.updates) {
-              updateTask(t.id, res.updates);
-              pushToast(targetColumnId === 'name' ? '작업명을 붙여넣었습니다.' : '셀에 붙여넣었습니다.', { variant: 'success' });
-            } else {
-              pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
-            }
-          })();
+          const pasteAnchorTaskId = focusedCell?.taskId ?? lastSelectedId;
+          const addedIds = pasteClipboardTasks({
+            clipboard,
+            targetId: pasteAnchorTaskId,
+            visibleTaskIds: visibleTasks.map((t) => t.id),
+            tasks,
+            insertPastedTasksInOrder,
+            updateTask,
+          });
+          if (addedIds.length > 0) {
+            setSelection(new Set(addedIds));
+            const lastPasted = addedIds[addedIds.length - 1];
+            setLastSelectedId(lastPasted);
+            syncRangeAnchorForKeyboardFocus?.(lastPasted);
+            pushToast(`${addedIds.length}개 작업을 붙여넣었습니다.`, { variant: 'success' });
+          }
           return;
         }
 
-        // 작업 단위 붙여넣기는 편집 권한이 있을 때만 (보기 전용 프로젝트 차단)
-        if (!canEditCurrentProject) {
-          pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
+        // 내부 행 클립보드가 없을 때: 시스템 클립보드 첫 줄을 커서 셀에 반영
+        const cursorTaskId = focusedCell?.taskId ?? lastSelectedId;
+        if (!cursorTaskId) {
+          pushToast('작업을 선택한 뒤 붙여넣기 하세요.', { variant: 'info' });
           return;
         }
-
-        // 트리·선행관계를 보존하는 작업 단위 붙여넣기 (공용 함수). 기준 행은 키보드 포커스 행(lastSelectedId).
-        const addedIds = pasteClipboardTasks({
-          clipboard,
-          targetId: lastSelectedId,
-          visibleTaskIds: visibleTasks.map((t) => t.id),
-          tasks,
-          addTask,
-          updateTask,
-        });
-
-        // Select newly pasted tasks
-        if (addedIds.length > 0) {
-          setSelection(new Set(addedIds));
-          const lastPasted = addedIds[addedIds.length - 1];
-          setLastSelectedId(lastPasted);
-          syncRangeAnchorForKeyboardFocus?.(lastPasted);
-          pushToast(`${addedIds.length}개 작업을 붙여넣었습니다.`, { variant: 'success' });
-        }
+        if (!canEditCurrentProject) return;
+        const targetColumnId: TableColumnId = focusedCell?.columnId ?? 'name';
+        const visibleTaskIds = visibleTasks.map((t) => t.id);
+        void (async () => {
+          let text = '';
+          try {
+            text = await navigator.clipboard.readText();
+          } catch {
+            pushToast('클립보드를 읽을 수 없습니다.', { variant: 'error' });
+            return;
+          }
+          const firstLine = (text.split(/\r?\n/)[0] ?? '').trim();
+          if (!firstLine) {
+            pushToast('붙여넣을 텍스트가 없습니다.', { variant: 'info' });
+            return;
+          }
+          const t = tasks.find((x) => x.id === cursorTaskId);
+          if (!t) return;
+          const res = buildWbsCellPasteUpdate(
+            t,
+            targetColumnId,
+            { text: firstLine },
+            {
+              tasks,
+              visibleTaskIds,
+              statusConfigs,
+              effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
+            },
+          );
+          if (res.error) {
+            pushToast(res.error, { variant: 'warning' });
+            return;
+          }
+          if (res.updates) {
+            updateTask(t.id, res.updates);
+            pushToast(targetColumnId === 'name' ? '작업명을 붙여넣었습니다.' : '셀에 붙여넣었습니다.', { variant: 'success' });
+          } else {
+            pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
+          }
+        })();
         return;
       }
 
-      // Select all (works even when no row is selected yet)
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
         handleSelectAll();
@@ -1484,6 +1439,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     statusConfigs,
     projectEffortUnitByProjectId,
     addTask,
+    insertPastedTasksInOrder,
     rowHeight,
     handleSetRowHeight,
     handleSelectAll,

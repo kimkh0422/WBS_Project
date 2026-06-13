@@ -99,8 +99,9 @@ export function ConfirmDialog({
           className={MODAL_FOOTER_CLASS}
           onSubmit={(e) => {
             e.preventDefault();
+            // onConfirm에서 닫힘을 처리해야 한다. 여기서 onClose까지 호출하면
+            // 부모가 `setState({ ...stale, isOpen: false })` 패턴일 때 직전 onConfirm의 갱신을 덮어쓸 수 있다.
             onConfirm();
-            onClose();
           }}
         >
           <button type="button" onClick={onClose} className="btn-ghost">

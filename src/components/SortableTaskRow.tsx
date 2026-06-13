@@ -20,6 +20,7 @@ import {
   buildOrgMemberDisplayMetaMap,
   formatAssigneeDisplay,
   resolveAssigneeIfUniqueMatch,
+  DEFAULT_PROJECT_ASSIGNMENT_PERCENT,
   type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { type TableColumnId, type WbsEditingCellPayload } from './wbsTableTypes';
@@ -354,7 +355,6 @@ function SortableTaskRowInner({
    * - 라이트모드 + 리프(말단) 행: 투명 → 요약행이 자연스럽게 도드라지도록
    */
   const rowLevelBg = (lev: number, hasKids: boolean) => (showTableAutoFormatting && hasKids ? levelRowBgCtx(lev) : 'transparent');
-  const orgMemberNames = useMemo(() => orgMembers.map((m) => m.name), [orgMembers]);
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const orgMemberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
@@ -1455,9 +1455,9 @@ function SortableTaskRowInner({
           }
           if (colId === 'assignee') {
             const projectAssignees = (task.projectId ? assigneeOptionsByProjectId.get(task.projectId) : []) ?? [];
-            const assigneeOptions = Array.from(
-              new Set([...projectAssignees, task.assignee?.trim(), ...orgMemberNames].filter(Boolean)),
-            ).sort((a, b) => a.localeCompare(b, 'ko'));
+            const assigneeOptions = Array.from(new Set([...projectAssignees, (task.assignee || '').trim()].filter(Boolean))).sort((a, b) =>
+              a.localeCompare(b, 'ko'),
+            );
             const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'assignee';
             const isFocusedAssignee = focusedCell?.taskId === task.id && focusedCell?.columnId === 'assignee' && !isEditing;
             return (
@@ -1491,12 +1491,20 @@ function SortableTaskRowInner({
                         if (v !== (task.assignee || '').trim()) {
                           updateTask(task.id, { assignee: v });
                         }
+                        if (v && task.projectId) {
+                          const existing = projectAssignmentsByProjectId.get(task.projectId) ?? [];
+                          if (!existing.some((a) => (a.assignee || '').trim() === v)) {
+                            updateProject(task.projectId, {
+                              assignments: [...existing, { assignee: v, allocationPercent: DEFAULT_PROJECT_ASSIGNMENT_PERCENT }],
+                            });
+                          }
+                        }
                         setEditingCell(null);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           const el = e.currentTarget;
-                          const opts = assigneeOptions.length > 0 ? assigneeOptions : allAssignees;
+                          const opts = assigneeOptions;
                           const picked = resolveAssigneeIfUniqueMatch(el.value, opts);
                           if (picked) el.value = picked;
                           el.blur();
@@ -1514,7 +1522,7 @@ function SortableTaskRowInner({
                     />
                     <datalist id={`assignee-datalist-${task.id}`}>
                       <option value="">배정 안됨</option>
-                      {(assigneeOptions.length > 0 ? assigneeOptions : allAssignees).map((a) => {
+                      {(assigneeOptions.length > 0 ? assigneeOptions : ([task.assignee].filter(Boolean) as string[])).map((a) => {
                         const info = orgMemberLabelByName.get(a);
                         return info ? <option key={a} value={a} label={info} /> : <option key={a} value={a} />;
                       })}

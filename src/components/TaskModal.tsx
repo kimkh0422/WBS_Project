@@ -146,7 +146,7 @@ export function TaskModal(_props: TaskModalProps): null {
 /* 아래 _TaskModalLegacy는 비활성·보존 코드(호출되지 않음). 복원 시 이 disable 줄을 제거할 것.
    미호출이라 훅이 실제로 실행되지 않으므로 rules-of-hooks를 비활성화한다. */
 /* eslint-disable react-hooks/rules-of-hooks */
- 
+
 function _TaskModalLegacy({
   isOpen,
   onClose,
@@ -620,7 +620,7 @@ function _TaskModalLegacy({
     const projectId = initialData?.projectId ?? currentProjectId;
     const assigneeName = (formData.assignee ?? '').trim();
     const ap = parsedAllocation;
-    if (initialData?.id && projectId && assigneeName && typeof ap === 'number' && Number.isFinite(ap)) {
+    if (projectId && assigneeName && typeof ap === 'number' && Number.isFinite(ap)) {
       const pct = clampAllocationPercentInt(ap);
       const proj = projects.find((p) => p.id === projectId);
       if (proj) {
@@ -644,11 +644,7 @@ function _TaskModalLegacy({
   })();
 
   const assigneeOptions = Array.from(
-    new Set([
-      ...projectAssignments.map((a) => a.assignee),
-      ...parentOptions.map((t) => t.assignee).filter(Boolean),
-      ...orgMembers.map((m) => m.name),
-    ]),
+    new Set([...projectAssignments.map((a) => a.assignee), ...parentOptions.map((t) => t.assignee).filter(Boolean)]),
   )
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'ko'));
