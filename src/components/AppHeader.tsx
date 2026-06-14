@@ -1490,10 +1490,10 @@ export function AppHeader({
                   aria-hidden
                 />
                 <div className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] ring-1 ring-slate-900/[0.08] dark:ring-white/12 dropdown-menu flex flex-col py-1">
-                  {(onStartTour || (onOpenTutorial && showAdminHeaderToolbar)) && (
+                  {(onStartTour || (onOpenTutorial && showHiddenHeaderItems)) && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">도움말</div>
-                      {onOpenTutorial && showAdminHeaderToolbar && (
+                      {onOpenTutorial && showHiddenHeaderItems && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1522,7 +1522,7 @@ export function AppHeader({
                       <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
-                  {(userApproved || effectiveIsAdmin) && showAdminHeaderToolbar && (
+                  {(userApproved || effectiveIsAdmin) && showHiddenHeaderItems && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">조직</div>
                       <button
@@ -1604,11 +1604,11 @@ export function AppHeader({
                     <Keyboard size={14} /> 단축키
                   </button>
 
-                  {showAdminHeaderToolbar && (allowMembersManagement || showSuperAdminDeleteMenu) && (
+                  {showHiddenHeaderItems && (allowMembersManagement || showSuperAdminDeleteMenu) && (
                     <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                   )}
 
-                  {showAdminHeaderToolbar && allowMembersManagement && (
+                  {showHiddenHeaderItems && allowMembersManagement && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
                         {effectiveIsAdmin ? '관리자 기능' : '조직 관리'}
@@ -1643,7 +1643,7 @@ export function AppHeader({
                     </>
                   )}
 
-                  {showAdminHeaderToolbar && showSuperAdminDeleteMenu && (
+                  {showHiddenHeaderItems && showSuperAdminDeleteMenu && (
                     <button
                       type="button"
                       onClick={() => {
