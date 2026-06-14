@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { Task, TaskStatus, FilterState, SortConfig, Project, WorkEffortUnit } from '../../types';
 import type { TableColumnId, WbsEditingCellPayload } from '../wbsTableTypes';
 import type { TaskWithDepth } from '../../lib/taskView';
@@ -14,6 +14,7 @@ import {
 } from '../../lib/wbsCellClipboard';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
 import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
+import { buildSiblingMoveStepsFromSelection, resolveProjectTasksForSiblingMove } from '../../lib/siblingMoveKeyboard';
 
 /** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
 function collectVisibleSubtreeRows(visibleTasks: TaskWithDepth[], rootId: string): TaskWithDepth[] {
@@ -43,6 +44,33 @@ function hasNonEmptyTextSelectionInside(root: HTMLElement | null): boolean {
     return !!(el && root.contains(el));
   };
   return nodeInsideRoot(sel.anchorNode) && nodeInsideRoot(sel.focusNode);
+}
+
+/**
+ * `lastSelectedId`가 접힘·필터 등으로 `visibleTasks`에 없을 때 ↑/↓·←/→가 먹통이 되지 않도록
+ * 실제 격자에 보이는 행 id로 정규화한다. 우선순위: 보이는 lastSelected → 보이는 focusedCell 행
+ * → 숨겨진 lastSelected의 보이는 조상.
+ */
+function resolveVisibleTaskIdForKeyboardNav(opts: {
+  lastSelectedId: string | null;
+  focusedCellTaskId: string | null;
+  visibleIndexById: Map<string, number>;
+  tasks: Task[];
+}): string | null {
+  const { lastSelectedId, focusedCellTaskId, visibleIndexById, tasks } = opts;
+  if (lastSelectedId && visibleIndexById.has(lastSelectedId)) return lastSelectedId;
+  if (focusedCellTaskId && visibleIndexById.has(focusedCellTaskId)) return focusedCellTaskId;
+  if (lastSelectedId) {
+    let id: string | null = lastSelectedId;
+    const seen = new Set<string>();
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      if (visibleIndexById.has(id)) return id;
+      const t = tasks.find((x) => x.id === id);
+      id = t?.parentId ?? null;
+    }
+  }
+  return null;
 }
 
 /** 인라인 편집 input/textarea 등 안에서만 true — 셀 드래그 선택 시에는 false로 두어 TSV 행 복사 대신 작업명만 복사 */
@@ -228,7 +256,7 @@ export interface WbsTableKeyboardDeps {
   setSelection: (next: Set<string>) => void;
   setBulkStatus: (v: TaskStatus | '') => void;
   setBulkAssignee: (v: string) => void;
-  setBulkWorkEffort: (v: string) => void;
+  setBulkDurationDays: (v: string) => void;
   setBulkProgress: (v: string) => void;
   setDeleteConfirm: (v: { isOpen: boolean; taskIds: string[] }) => void;
   setCopiedTasks: (tasks: Task[]) => void;
@@ -241,6 +269,7 @@ export interface WbsTableKeyboardDeps {
   ) => string[];
   updateTask: (id: string, updates: Partial<Task>) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
+  applySiblingMoveSteps: (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;
   indentTasks: (ids: string[]) => void;
@@ -300,7 +329,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setSelection,
     setBulkStatus,
     setBulkAssignee,
-    setBulkWorkEffort,
+    setBulkDurationDays,
     setBulkProgress,
     setDeleteConfirm,
     setCopiedTasks,
@@ -308,6 +337,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     insertPastedTasksInOrder,
     updateTask,
     moveTask,
+    applySiblingMoveSteps,
     indentTask,
     outdentTask,
     indentTasks,
@@ -329,6 +359,21 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     }
     return m;
   }, [visibleTasks]);
+
+  /** 연속 화살표: 리렌더 전 다음 keydown이 와도 엑셀처럼 한 칸씩 즉시 이동하도록 커서를 동기 유지 */
+  const cellNavCursorRef = useRef<{ lastSelectedId: string | null; focusedCell: { taskId: string; columnId: TableColumnId } | null }>({
+    lastSelectedId,
+    focusedCell,
+  });
+  useEffect(() => {
+    cellNavCursorRef.current.lastSelectedId = lastSelectedId;
+    cellNavCursorRef.current.focusedCell = focusedCell;
+  }, [lastSelectedId, focusedCell]);
+
+  const focusTableScrollIfNeeded = () => {
+    const el = tableScrollRef.current;
+    if (el && document.activeElement !== el) el.focus();
+  };
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -355,7 +400,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           setSelection(new Set());
           setBulkStatus('');
           setBulkAssignee('');
-          setBulkWorkEffort('');
+          setBulkDurationDays('');
           setBulkProgress('');
         }
       };
@@ -379,9 +424,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               clearBulkCheckboxSelectionOnKeyboardCursorMove();
               setFocusedCell({ taskId: lastTask.id, columnId: 'name' });
               setLastSelectedId(lastTask.id);
+              cellNavCursorRef.current = {
+                lastSelectedId: lastTask.id,
+                focusedCell: { taskId: lastTask.id, columnId: 'name' },
+              };
               document.getElementById(`task-row-${lastTask.id}`)?.scrollIntoView({ block: 'nearest' });
             }
-            tableScrollRef.current?.focus();
+            focusTableScrollIfNeeded();
           } else {
             setGhostFocusIdx(ghostFocusIdx - 1);
           }
@@ -591,8 +640,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
         ? 'name'
         : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
-      const navColFromFocus = focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
-      const keyboardNavTaskId = lastSelectedId ?? focusedCell?.taskId ?? null;
+      const snap = cellNavCursorRef.current;
+      const navColFromFocus =
+        snap.focusedCell && editableColumnIds.includes(snap.focusedCell.columnId) ? snap.focusedCell.columnId : defaultNavColumn;
+      const keyboardNavTaskId = resolveVisibleTaskIdForKeyboardNav({
+        lastSelectedId: snap.lastSelectedId,
+        focusedCellTaskId: snap.focusedCell?.taskId ?? null,
+        visibleIndexById: visibleTaskRowIndexById,
+        tasks,
+      });
       const effectiveArrowCell = keyboardNavTaskId != null ? { taskId: keyboardNavTaskId, columnId: navColFromFocus } : null;
       if (
         !editingCell &&
@@ -635,9 +691,13 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
               setLastSelectedId(nextTask.id);
               maybeSyncShiftRangeAnchor(nextTask.id);
+              cellNavCursorRef.current = {
+                lastSelectedId: nextTask.id,
+                focusedCell: { taskId: nextTask.id, columnId: nextCol },
+              };
               document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
               // 다음 키 입력도 안정적으로 받도록 표 컨테이너로 포커스 복원
-              tableScrollRef.current?.focus();
+              focusTableScrollIfNeeded();
               return;
             }
           }
@@ -662,7 +722,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               clearBulkCheckboxSelectionOnKeyboardCursorMove();
               setFocusedCell(null);
               setGhostFocusIdx(0);
-              tableScrollRef.current?.focus();
+              cellNavCursorRef.current.focusedCell = null;
+              focusTableScrollIfNeeded();
               return;
             }
             const nextRowIdx = Math.min(visibleTasks.length - 1, Math.max(0, rowIdx + delta));
@@ -675,10 +736,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
                 setFocusedCell({ taskId: nextTask.id, columnId: nextCol });
                 setLastSelectedId(nextTask.id);
                 maybeSyncShiftRangeAnchor(nextTask.id);
+                cellNavCursorRef.current = {
+                  lastSelectedId: nextTask.id,
+                  focusedCell: { taskId: nextTask.id, columnId: nextCol },
+                };
                 document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
               }
             }
-            tableScrollRef.current?.focus();
+            focusTableScrollIfNeeded();
             return;
           }
         }
@@ -703,7 +768,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           setSelection(new Set());
           setBulkStatus('');
           setBulkAssignee('');
-          setBulkWorkEffort('');
+          setBulkDurationDays('');
           setBulkProgress('');
         }
         (document.activeElement as HTMLElement | null)?.blur?.();
@@ -1126,8 +1191,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
 
       // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
+      // 예외: Alt+↑↓ + 체크 다중 선택(≥2)은 lastSelectedId 없이도 형제 이동만 처리한다.
       if (!lastSelectedId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        return;
+        const allowAltMulti = e.altKey && selectedTaskIds.size > 1 && canEditCurrentProject;
+        if (!allowAltMulti) return;
       }
 
       // Space: 체크 토글 — 행 포커스(lastSelectedId) 우선(↑/↓와 동일 기준). 없으면 셀 링 행.
@@ -1155,51 +1222,89 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       if (e.key === 'ArrowUp') {
         if (e.altKey) {
           e.preventDefault();
-          // Alt+↑: 한 칸 위로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
+          if (!canEditCurrentProject) return;
+          if (isSortedOrFiltered) return;
+          if (selectedTaskIds.size > 1) {
+            const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, selectedTaskIds);
+            if (pt) {
+              const steps = buildSiblingMoveStepsFromSelection(pt, selectedTaskIds, 'up');
+              if (steps.length > 0) {
+                applySiblingMoveSteps(steps);
+                const scrollId = lastSelectedId && selectedTaskIds.has(lastSelectedId) ? lastSelectedId : [...selectedTaskIds][0]!;
+                requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
+              }
+            }
+            return;
+          }
           const canMove =
-            !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
-          if (canMove) {
+            selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && lastSelectedId != null && selectedTaskIds.has(lastSelectedId));
+          if (canMove && lastSelectedId) {
             moveTask(lastSelectedId, 'up');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
+          return;
         } else if (e.shiftKey || e.ctrlKey || e.metaKey) {
           // Shift/Ctrl/Meta+↑: 앵커~한 줄 위까지 체크 범위 확장 (일괄 수정 패널 등 표 밖 포커스 포함)
-          const idx = lastSelectedId != null ? (visibleTaskRowIndexById.get(lastSelectedId) ?? -1) : -1;
+          const snapR = cellNavCursorRef.current;
+          const idx = snapR.lastSelectedId != null ? (visibleTaskRowIndexById.get(snapR.lastSelectedId) ?? -1) : -1;
           const nextIdx = idx > 0 ? idx - 1 : idx;
           if (idx >= 0 && nextIdx !== idx) {
             e.preventDefault();
             const nextTask = visibleTasks[nextIdx]!;
             handleSelect(nextTask.id, e.ctrlKey || e.metaKey, true);
             const navCol: TableColumnId =
-              focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
+              snapR.focusedCell && editableColumnIds.includes(snapR.focusedCell.columnId) ? snapR.focusedCell.columnId : defaultNavColumn;
             setFocusedCell({ taskId: nextTask.id, columnId: navCol });
+            cellNavCursorRef.current = {
+              lastSelectedId: nextTask.id,
+              focusedCell: { taskId: nextTask.id, columnId: navCol },
+            };
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-            tableScrollRef.current?.focus();
+            focusTableScrollIfNeeded();
           }
         }
         return;
       } else if (e.key === 'ArrowDown') {
         if (e.altKey) {
           e.preventDefault();
-          // Alt+↓: 한 칸 아래로 이동 (체크 선택 1개 또는 포커스만 있는 1개)
+          if (!canEditCurrentProject) return;
+          if (isSortedOrFiltered) return;
+          if (selectedTaskIds.size > 1) {
+            const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, selectedTaskIds);
+            if (pt) {
+              const steps = buildSiblingMoveStepsFromSelection(pt, selectedTaskIds, 'down');
+              if (steps.length > 0) {
+                applySiblingMoveSteps(steps);
+                const scrollId = lastSelectedId && selectedTaskIds.has(lastSelectedId) ? lastSelectedId : [...selectedTaskIds][0]!;
+                requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
+              }
+            }
+            return;
+          }
           const canMove =
-            !isSortedOrFiltered && (selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && selectedTaskIds.has(lastSelectedId)));
-          if (canMove) {
+            selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && lastSelectedId != null && selectedTaskIds.has(lastSelectedId));
+          if (canMove && lastSelectedId) {
             moveTask(lastSelectedId, 'down');
             requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
           }
+          return;
         } else if (e.shiftKey || e.ctrlKey || e.metaKey) {
-          const idx = lastSelectedId != null ? (visibleTaskRowIndexById.get(lastSelectedId) ?? -1) : -1;
+          const snapR = cellNavCursorRef.current;
+          const idx = snapR.lastSelectedId != null ? (visibleTaskRowIndexById.get(snapR.lastSelectedId) ?? -1) : -1;
           const nextIdx = idx >= 0 && idx < visibleTasks.length - 1 ? idx + 1 : idx;
           if (idx >= 0 && nextIdx !== idx) {
             e.preventDefault();
             const nextTask = visibleTasks[nextIdx]!;
             handleSelect(nextTask.id, e.ctrlKey || e.metaKey, true);
             const navCol: TableColumnId =
-              focusedCell && editableColumnIds.includes(focusedCell.columnId) ? focusedCell.columnId : defaultNavColumn;
+              snapR.focusedCell && editableColumnIds.includes(snapR.focusedCell.columnId) ? snapR.focusedCell.columnId : defaultNavColumn;
             setFocusedCell({ taskId: nextTask.id, columnId: navCol });
+            cellNavCursorRef.current = {
+              lastSelectedId: nextTask.id,
+              focusedCell: { taskId: nextTask.id, columnId: navCol },
+            };
             document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-            tableScrollRef.current?.focus();
+            focusTableScrollIfNeeded();
           }
         }
         return;
@@ -1426,6 +1531,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     editableColumnIds,
     deleteConfirm,
     moveTask,
+    applySiblingMoveSteps,
     indentTask,
     outdentTask,
     indentTasks,
@@ -1454,7 +1560,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     setSelection,
     setBulkStatus,
     setBulkAssignee,
-    setBulkWorkEffort,
+    setBulkDurationDays,
     setBulkProgress,
     tableScrollRef,
     setLastSelectedId,

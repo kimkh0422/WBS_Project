@@ -80,6 +80,22 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
             break;
           }
         }
+        // 앵커가 화면 목록에 없을 때: 이미 체크된 행 중 '클릭한 행'에 가장 가까운 가시 행을 앵커로 쓴다.
+        // (접기/필터로 앵커 행이 숨겨진 뒤 Shift 클릭 시 중간 구간이 통째로 사라지는 현상 완화)
+        if (anchorIndex === -1 && currentIndex !== -1 && selectedTaskIds.size > 0) {
+          let bestIdx = -1;
+          let bestDist = Infinity;
+          for (const sid of selectedTaskIds) {
+            const idx = visibleTasks.findIndex((t) => t.id === sid);
+            if (idx === -1) continue;
+            const d = Math.abs(idx - currentIndex);
+            if (d < bestDist) {
+              bestDist = d;
+              bestIdx = idx;
+            }
+          }
+          if (bestIdx !== -1) anchorIndex = bestIdx;
+        }
 
         if (currentIndex !== -1 && anchorIndex !== -1) {
           const start = Math.min(currentIndex, anchorIndex);
@@ -87,6 +103,12 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
 
           for (let i = start; i <= end; i++) {
             newSelected.add(visibleTasks[i].id);
+          }
+          // 다음 Shift에 숨겨진 id를 앵커로 쥐지 않도록, 실제로 쓴 가시 행 id로 ref·state를 맞춘다.
+          const visibleAnchorId = visibleTasks[anchorIndex]?.id;
+          if (visibleAnchorId) {
+            rangeAnchorRef.current = visibleAnchorId;
+            setAnchorTaskId(visibleAnchorId);
           }
         } else {
           newSelected.add(taskId);

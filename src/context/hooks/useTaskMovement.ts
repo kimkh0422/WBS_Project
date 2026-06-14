@@ -156,6 +156,42 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     [saveHistory, setAllTasks, currentProjectIdRef],
   );
 
+  /** Alt+↑↓ 다중 선택: 형제 스왑을 여러 번 하더라도 히스토리·setState는 1회(순서대로 누적 적용). */
+  const applySiblingMoveSteps = useCallback(
+    (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => {
+      if (steps.length === 0) return;
+      saveHistory();
+      setAllTasks((prev) => {
+        let work = prev;
+        for (const step of steps) {
+          const cpi = currentProjectIdRef.current;
+          const projectTasks = work.filter((t) => t.projectId === cpi);
+          const otherTasks = work.filter((t) => t.projectId !== cpi);
+          const task = projectTasks.find((t) => t.id === step.id);
+          if (!task) continue;
+          const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
+          const idx = siblings.findIndex((t) => t.id === step.id);
+          const newProjectTasks = [...projectTasks];
+          let swapped = false;
+          if (step.direction === 'up' && idx > 0) {
+            const iA = projectTasks.findIndex((t) => t.id === task.id);
+            const iB = projectTasks.findIndex((t) => t.id === siblings[idx - 1]!.id);
+            [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB]!, newProjectTasks[iA]!];
+            swapped = true;
+          } else if (step.direction === 'down' && idx >= 0 && idx < siblings.length - 1) {
+            const iA = projectTasks.findIndex((t) => t.id === task.id);
+            const iB = projectTasks.findIndex((t) => t.id === siblings[idx + 1]!.id);
+            [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB]!, newProjectTasks[iA]!];
+            swapped = true;
+          }
+          if (swapped) work = [...otherTasks, ...newProjectTasks];
+        }
+        return work;
+      });
+    },
+    [saveHistory, setAllTasks, currentProjectIdRef],
+  );
+
   const reorderTask = useCallback(
     (id: string, overId: string) => {
       saveHistory();
@@ -426,6 +462,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
   return useMemo(
     () => ({
       moveTask,
+      applySiblingMoveSteps,
       reorderTask,
       indentTask,
       outdentTask,
@@ -438,6 +475,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     }),
     [
       moveTask,
+      applySiblingMoveSteps,
       reorderTask,
       indentTask,
       outdentTask,

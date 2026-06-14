@@ -72,7 +72,7 @@ export interface WBSContextType {
     reportExtras?: Partial<
       Pick<Project, 'reportCategory' | 'reportAgency' | 'reportBudgetThisYear' | 'reportTotalPeriod' | 'reportNameShort' | 'reportNameFull'>
     >,
-  ) => void;
+  ) => Project | undefined;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
   /** 프로젝트와 소속 작업을 복사해 새 프로젝트로 만들고 현재 사용자 소유로 설정 */
@@ -130,6 +130,8 @@ export interface WBSContextType {
    */
   flushProjectTaskRollups: (projectId: string, options?: { skipDependencySchedule?: boolean }) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
+  /** Alt+↑↓ 다중 선택 등: 형제 스왑을 순서대로 한 번의 히스토리로 적용 */
+  applySiblingMoveSteps: (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;
   indentTasks: (ids: string[]) => void;

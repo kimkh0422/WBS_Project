@@ -147,8 +147,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'workEffort', visible: false },
       { id: 'assignee', visible: true },
       { id: 'allocation', visible: false },
-      // 투입율 바로 다음에 가중치
-      { id: 'weight', visible: true },
+      // 투입율 바로 다음에 가중치(기본 숨김 — 컬럼 탭에서 표시 가능)
+      { id: 'weight', visible: false },
       { id: 'status', visible: true },
       { id: 'plannedProgress', visible: true },
       { id: 'progress', visible: true },

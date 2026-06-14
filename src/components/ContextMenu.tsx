@@ -8,6 +8,10 @@ export interface ContextMenuAction {
   icon?: React.ReactNode;
   danger?: boolean;
   divider?: boolean;
+  /** true면 클릭·키보드 실행 불가(회색 표시) */
+  disabled?: boolean;
+  /** 비활성 등 안내용 툴팁 */
+  title?: string;
 }
 
 interface ContextMenuProps {
@@ -19,7 +23,7 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const actionItems = actions.filter((a) => !a.divider);
+  const focusableItems = actions.filter((a) => !a.divider && !a.disabled);
   const [focusIndex, setFocusIndex] = useState(-1);
 
   const adjustedPos = useCallback(() => {
@@ -62,29 +66,30 @@ export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         setFocusIndex((prev) => {
-          const len = actionItems.length;
+          const len = focusableItems.length;
           if (len === 0) return -1;
           if (e.key === 'ArrowDown') return prev < len - 1 ? prev + 1 : 0;
           return prev > 0 ? prev - 1 : len - 1;
         });
       }
-      if (e.key === 'Enter' && focusIndex >= 0 && focusIndex < actionItems.length) {
+      if (e.key === 'Enter' && focusIndex >= 0 && focusIndex < focusableItems.length) {
         e.preventDefault();
-        actionItems[focusIndex].onClick?.();
+        focusableItems[focusIndex].onClick?.();
         onClose();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, focusIndex, actionItems]);
+  }, [onClose, focusIndex, focusableItems]);
 
   useEffect(() => {
     if (focusIndex < 0) return;
-    const buttons = menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-ctx-item]');
+    const buttons = menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-ctx-item]:not([disabled])');
     buttons?.[focusIndex]?.focus();
   }, [focusIndex]);
 
-  let actionIdx = -1;
+  /** 비활성 항목을 건너뛴 키보드 포커스 슬롯(0..focusableItems.length-1) */
+  let focusableSlot = -1;
 
   return createPortal(
     <div
@@ -98,20 +103,28 @@ export function ContextMenu({ x, y, onClose, actions }: ContextMenuProps) {
         if (action.divider) {
           return <hr key={index} className="my-1 border-t border-gray-200" />;
         }
-        actionIdx++;
-        const isFocused = actionIdx === focusIndex;
+        const myFocusIdx = action.disabled ? -1 : ++focusableSlot;
+        const isFocused = myFocusIdx >= 0 && focusIndex === myFocusIdx;
         return (
           <button
             key={index}
             role="menuitem"
             data-ctx-item
+            type="button"
+            disabled={!!action.disabled}
+            title={action.title}
             onClick={() => {
+              if (action.disabled) return;
               action.onClick?.();
               onClose();
             }}
             className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors outline-none ${
-              action.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-50'
-            } ${isFocused ? (action.danger ? 'bg-red-50' : 'bg-gray-50') : ''}`}
+              action.disabled
+                ? 'text-gray-400 cursor-not-allowed opacity-60'
+                : action.danger
+                  ? 'text-red-600 hover:bg-red-50'
+                  : 'text-gray-700 hover:bg-gray-50'
+            } ${isFocused && !action.disabled ? (action.danger ? 'bg-red-50' : 'bg-gray-50') : ''}`}
           >
             {action.icon && <span className="w-4 h-4">{action.icon}</span>}
             {action.label}

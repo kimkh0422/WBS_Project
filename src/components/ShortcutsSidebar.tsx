@@ -125,7 +125,7 @@ export function ShortcutsSidebar({
             [<ArrowUp size={12} key="cellU" />],
             [<ArrowDown size={12} key="cellD" />],
           ],
-          hint: 'Alt+↑↓는 표시 순서 이동(정렬·필터 없을 때만)',
+          hint: 'Alt+↑↓는 표시 순서 이동(정렬·필터 없을 때만). 체크 다중 선택 시 같은 부모 아래 연속 블록마다 한 칸씩',
         },
         {
           label: '트리 접기 · 펼치기',

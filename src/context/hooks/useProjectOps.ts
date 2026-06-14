@@ -65,13 +65,13 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           | 'formalName'
         >
       >,
-    ) => {
+    ): Project | undefined => {
       // 가드: user.id가 잡히기 전에 프로젝트가 생성되면 owner_id NULL로 저장되어
       // 이후 RLS 정책(owner_id = auth.uid())을 통과하지 못하고 작업 INSERT가 거부된다.
       // 로그인 세션이 잡히기 전에는 DB에 저장하지 않고 사용자에게 안내한다.
       if (!useLocalOnlyRef.current && !ownerIdRef.current) {
         handleDbError(new Error('로그인 세션이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.'), '프로젝트 저장에 실패했습니다.');
-        return;
+        return undefined;
       }
       const extras = reportExtras ?? {};
       const resolvedKind = extras.projectKind !== undefined ? extras.projectKind : DEFAULT_NEW_PROJECT_KIND;
@@ -84,7 +84,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           new Error('프로젝트 PM이 비어 있습니다. 로그인 사용자 표시명이 없으면 프로젝트 생성 전에 프로필 이름을 설정해 주세요.'),
           '프로젝트를 만들 수 없습니다.',
         );
-        return;
+        return undefined;
       }
       const pmFinal = resolvedPmName.trim();
       const newProject: Project = {
@@ -111,6 +111,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           handleDbError(err, '프로젝트 저장에 실패했습니다.');
         });
       }
+      return newProject;
     },
     [bumpDirty, handleDbError, ownerIdRef, creatorDisplayNameRef, useLocalOnlyRef, setProjects, setCurrentProjectId],
   );

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Location, NavigateFunction } from 'react-router-dom';
 import { useToast } from '../components/Toast';
 import { useFocusTrap } from './useFocusTrap';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { formatProjectDisplayName } from '../lib/projectKind';
+import { labelForViewPath, viewSegmentFromPathname, type UnsavedViewLeaveMode } from '../lib/viewPathLabels';
 import type { Project } from '../types';
 
 type PushChangesToDb = (scope: 'current' | 'all') => Promise<unknown>;
@@ -14,22 +16,16 @@ interface UseUnsavedChangesGuardParams {
   pushChangesToDb: PushChangesToDb;
   discardUnsavedChangesReloadFromServer: () => Promise<unknown>;
   setCurrentProjectId: (id: string) => void;
+  location: Pick<Location, 'pathname' | 'search'>;
+  navigate: NavigateFunction;
 }
 
 /**
- * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 프로젝트 전환 확인 모달, 새로고침/닫기 경고를 한곳에서 관리.
+ * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 프로젝트 전환 확인 모달, 새로고침/닫기 경고,
+ * 뷰(URL 첫 세그먼트) 전환·뒤로 가기 시 저장 여부 확인.
  *
- * 저장 모델: 편집마다 자동 DB push 하던 방식을 "수동 저장"으로 전환해 편집 중 렉을 제거한다.
- *  - 로컬 변경은 WBSContext가 즉시 localStorage에 보존하므로 새로고침해도 데이터는 유지된다.
- *  - 서버(DB) 반영은 Ctrl+S 또는 우측 하단 "저장" 버튼으로만 수행한다.
- *  - 미저장 상태로 헤더·필터 등에서 다른 프로젝트를 선택할 때 확인 모달로 저장을 유도한다(requestProjectSwitch).
- *  - 미저장 상태로 창을 닫거나 새로고침하면 브라우저 경고로 이탈 전 저장을 유도한다.
- *
- * 앱 내 화면(URL) 이동 시 미저장 확인은 Data Router의 useBlocker가 필요했으나, RouterProvider 전환이
- * React 19에서 초기 렌더 크래시(removeChild)를 일으켜 BrowserRouter로 되돌렸다. 따라서 URL 이동 가드는
- * 제거한다. 프로젝트 전환 확인(requestProjectSwitch)과 새로고침·닫기 경고(beforeunload)는 그대로 동작한다.
- *
- * WBSApp god 컴포넌트에서 분리 — 동작 동일.
+ * BrowserRouter 환경에서는 `useBlocker`를 쓸 수 없어, URL의 뷰 세그먼트가 바뀌는 시점에
+ * `useLayoutEffect`로 한 번 되돌린 뒤 모달을 띄우고(깜빡임 최소화), 사용자가 선택하면 목적지로 다시 이동한다.
  */
 export function useUnsavedChangesGuard({
   currentProjectId,
@@ -38,6 +34,8 @@ export function useUnsavedChangesGuard({
   pushChangesToDb,
   discardUnsavedChangesReloadFromServer,
   setCurrentProjectId,
+  location,
+  navigate,
 }: UseUnsavedChangesGuardParams) {
   const { push: pushToast } = useToast();
 
@@ -50,7 +48,17 @@ export function useUnsavedChangesGuard({
   const hasLocalChangesRef = useRef(hasLocalChangesSinceSync);
   hasLocalChangesRef.current = hasLocalChangesSinceSync;
 
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   const [isDbPushInProgress, setIsDbPushInProgress] = useState(false);
+
+  /** replace:true 라우터 보정·가드 통과 1회용 navigate 직전에 true */
+  const allowViewNavigationOnceRef = useRef(false);
+
+  const bypassViewLeaveGuardOnce = useCallback(() => {
+    allowViewNavigationOnceRef.current = true;
+  }, []);
 
   /** 표 셀 인라인 편집 값이 React 상태에 커밋된 뒤 DB 동기화를 돌리기 위한 짧은 대기 (Ctrl+S와 동일). */
   const flushInlineCellEditsBeforeSave = useCallback(async () => {
@@ -76,7 +84,6 @@ export function useUnsavedChangesGuard({
       pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
-      // 본인 프로젝트는 정상 저장되고 타인 프로젝트만 RLS로 거부될 수 있으므로 권한 메시지는 성공으로 간주.
       if (/편집 권한이 없습니다/.test(msg)) {
         pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
       } else {
@@ -87,7 +94,6 @@ export function useUnsavedChangesGuard({
     }
   }, [pushToast, flushInlineCellEditsBeforeSave]);
 
-  // Ctrl/Cmd+S: 수동 저장(브라우저 기본 저장 대화상자 차단). 편집 중이면 먼저 blur로 입력을 확정한 뒤 저장.
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const onKey = (e: KeyboardEvent) => {
@@ -103,7 +109,19 @@ export function useUnsavedChangesGuard({
   /** 서버 미반영 편집이 있을 때 다른 프로젝트로 바꾸기 전 확인 */
   const pendingProjectSwitchRunRef = useRef<(() => void) | null>(null);
   const [projectSwitchPrompt, setProjectSwitchPrompt] = useState<{ targetProjectId: string } | null>(null);
-  /** 프로젝트 전환 확인 모달: 저장 또는「저장 안 함」처리 중 이중 클릭·닫기 방지 */
+  const projectSwitchPromptRef = useRef(projectSwitchPrompt);
+  projectSwitchPromptRef.current = projectSwitchPrompt;
+
+  // ─── 뷰 이탈(뒤로 가기·다른 메뉴) — requestProjectSwitch보다 먼저 선언(TDZ 방지)
+  const pendingViewNavigationRef = useRef<(() => void) | null>(null);
+  const pathLeaveTargetRef = useRef<{ toFullPath: string; toLabel: string } | null>(null);
+  const [viewLeavePrompt, setViewLeavePrompt] = useState<{
+    mode: UnsavedViewLeaveMode;
+    targetLabel?: string;
+  } | null>(null);
+  const viewLeavePromptRef = useRef(viewLeavePrompt);
+  viewLeavePromptRef.current = viewLeavePrompt;
+
   const [projectSwitchAction, setProjectSwitchAction] = useState<'save' | 'discard' | null>(null);
   const projectSwitchBusy = projectSwitchAction !== null;
   const projectSwitchDialogRef = useRef<HTMLDivElement>(null);
@@ -112,6 +130,11 @@ export function useUnsavedChangesGuard({
     if (targetProjectId === currentProjectIdRef.current) {
       run();
       return;
+    }
+    if (viewLeavePromptRef.current) {
+      setViewLeavePrompt(null);
+      pendingViewNavigationRef.current = null;
+      pathLeaveTargetRef.current = null;
     }
     if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
       run();
@@ -191,7 +214,143 @@ export function useUnsavedChangesGuard({
     [requestProjectSwitch, setCurrentProjectId],
   );
 
-  // 미저장 상태에서 창 닫기/새로고침/이탈 시 브라우저 경고 → 저장하지 않은 변경 손실 방지.
+  const [viewLeaveAction, setViewLeaveAction] = useState<'save' | 'discard' | null>(null);
+  const viewLeaveBusy = viewLeaveAction !== null;
+  const viewLeaveDialogRef = useRef<HTMLDivElement>(null);
+
+  const prevViewSegmentRef = useRef<string | null>(null);
+  const prevViewFullPathRef = useRef<string>('');
+
+  const requestNavigation = useCallback((run: () => void) => {
+    if (projectSwitchPromptRef.current) {
+      run();
+      return;
+    }
+    if (viewLeavePromptRef.current) {
+      if (viewLeavePromptRef.current.mode === 'programmatic') {
+        pendingViewNavigationRef.current = run;
+      }
+      return;
+    }
+    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
+      run();
+      return;
+    }
+    pendingViewNavigationRef.current = run;
+    setViewLeavePrompt({ mode: 'programmatic' });
+  }, []);
+
+  useFocusTrap(viewLeaveDialogRef, !!viewLeavePrompt);
+
+  useLayoutEffect(() => {
+    const fullPath = `${location.pathname}${location.search || ''}`;
+    const seg = viewSegmentFromPathname(location.pathname);
+    const prevSeg = prevViewSegmentRef.current;
+
+    if (prevSeg === null) {
+      prevViewSegmentRef.current = seg;
+      prevViewFullPathRef.current = fullPath;
+      return;
+    }
+
+    if (seg === prevSeg) {
+      prevViewFullPathRef.current = fullPath;
+      return;
+    }
+
+    if (allowViewNavigationOnceRef.current) {
+      allowViewNavigationOnceRef.current = false;
+      prevViewSegmentRef.current = seg;
+      prevViewFullPathRef.current = fullPath;
+      return;
+    }
+
+    if (!isSupabaseConfigured || !hasLocalChangesSinceSync || viewLeavePromptRef.current) {
+      prevViewSegmentRef.current = seg;
+      prevViewFullPathRef.current = fullPath;
+      return;
+    }
+
+    const restorePath = prevViewFullPathRef.current || fullPath;
+    pathLeaveTargetRef.current = {
+      toFullPath: fullPath.startsWith('/') ? fullPath : `/${fullPath}`,
+      toLabel: labelForViewPath(fullPath),
+    };
+    allowViewNavigationOnceRef.current = true;
+    navigateRef.current(restorePath, { replace: true });
+    setViewLeavePrompt({ mode: 'path', targetLabel: pathLeaveTargetRef.current?.toLabel });
+  }, [location.pathname, location.search, hasLocalChangesSinceSync]);
+
+  useEffect(() => {
+    if (!viewLeavePrompt) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (viewLeaveBusy) return;
+        e.preventDefault();
+        pendingViewNavigationRef.current = null;
+        pathLeaveTargetRef.current = null;
+        setViewLeavePrompt(null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [viewLeavePrompt, viewLeaveBusy]);
+
+  const proceedPendingViewNavigation = useCallback(() => {
+    const run = pendingViewNavigationRef.current;
+    pendingViewNavigationRef.current = null;
+    const pathLeave = pathLeaveTargetRef.current;
+    pathLeaveTargetRef.current = null;
+    allowViewNavigationOnceRef.current = true;
+    if (pathLeave) {
+      navigateRef.current(pathLeave.toFullPath, { replace: false });
+    } else {
+      run?.();
+    }
+  }, []);
+
+  const handleViewLeaveSaveAndProceed = useCallback(async () => {
+    if (viewLeaveBusy || !viewLeavePrompt) return;
+    setViewLeaveAction('save');
+    try {
+      await flushInlineCellEditsBeforeSave();
+      await pushChangesToDbRef.current('all');
+      setViewLeavePrompt(null);
+      proceedPendingViewNavigation();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
+      if (/편집 권한이 없습니다/.test(msg)) {
+        setViewLeavePrompt(null);
+        proceedPendingViewNavigation();
+      } else {
+        pushToast(msg, { variant: 'error', durationMs: 6000 });
+      }
+    } finally {
+      setViewLeaveAction(null);
+    }
+  }, [viewLeaveBusy, viewLeavePrompt, flushInlineCellEditsBeforeSave, proceedPendingViewNavigation, pushToast]);
+
+  const handleViewLeaveDiscardProceed = useCallback(async () => {
+    if (viewLeaveBusy || !viewLeavePrompt) return;
+    setViewLeaveAction('discard');
+    try {
+      await discardUnsavedChangesReloadFromServer();
+      setViewLeavePrompt(null);
+      proceedPendingViewNavigation();
+    } catch {
+      /* handleDbError */
+    } finally {
+      setViewLeaveAction(null);
+    }
+  }, [viewLeaveBusy, viewLeavePrompt, discardUnsavedChangesReloadFromServer, proceedPendingViewNavigation]);
+
+  const handleViewLeaveCancel = useCallback(() => {
+    if (viewLeaveBusy) return;
+    pendingViewNavigationRef.current = null;
+    pathLeaveTargetRef.current = null;
+    setViewLeavePrompt(null);
+  }, [viewLeaveBusy]);
+
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -235,5 +394,14 @@ export function useUnsavedChangesGuard({
     handleProjectSwitchSaveAndProceed,
     handleProjectSwitchDiscardProceed,
     handleProjectSwitchCancel,
+    bypassViewLeaveGuardOnce,
+    requestNavigation,
+    viewLeavePrompt,
+    viewLeaveAction,
+    viewLeaveBusy,
+    viewLeaveDialogRef,
+    handleViewLeaveSaveAndProceed,
+    handleViewLeaveDiscardProceed,
+    handleViewLeaveCancel,
   };
 }

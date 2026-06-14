@@ -1126,14 +1126,19 @@ function SortableTaskRowInner({
                 {isEditing ? (
                   <input
                     id={`wbs-edit-${task.id}-duration`}
-                    type="number"
-                    min={1}
-                    step={1}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
                     autoFocus
                     defaultValue={durationDays ?? ''}
                     title="시작일 기준 기간(일). Enter로 확정하면 종료일이 자동 계산됩니다."
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      const cleaned = el.value.replace(/\D/g, '');
+                      if (cleaned !== el.value) el.value = cleaned;
+                    }}
                     onBlur={(e) => {
                       commitDurationIfChanged(e.target.value);
                       setEditingCell(null);

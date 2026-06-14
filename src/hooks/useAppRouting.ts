@@ -62,9 +62,17 @@ interface UseAppRoutingProps {
   realIsAdmin?: boolean;
   userEmail?: string;
   isProjectStatusOnly: boolean;
+  /** replace:true 로 URL을 보정하기 직전 호출 — 미저장 뷰 이탈 가드가 되돌리지 않도록 함 */
+  bypassViewLeaveGuardOnce?: () => void;
 }
 
-export function useAppRouting({ effectiveIsAdmin, realIsAdmin = false, userEmail, isProjectStatusOnly }: UseAppRoutingProps) {
+export function useAppRouting({
+  effectiveIsAdmin,
+  realIsAdmin = false,
+  userEmail,
+  isProjectStatusOnly,
+  bypassViewLeaveGuardOnce,
+}: UseAppRoutingProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -149,27 +157,38 @@ export function useAppRouting({ effectiveIsAdmin, realIsAdmin = false, userEmail
     initialForcedRef.current = true;
     if (lockMobileToDashboard || hiddenViews.has('tablegantt')) return;
     const seg = window.location.pathname.replace(/^\//, '').split('/')[0] || '';
-    if (seg !== 'tablegantt') navigate('/tablegantt', { replace: true });
-  }, [hiddenViews, lockMobileToDashboard, navigate]);
+    if (seg !== 'tablegantt') {
+      bypassViewLeaveGuardOnce?.();
+      navigate('/tablegantt', { replace: true });
+    }
+  }, [hiddenViews, lockMobileToDashboard, navigate, bypassViewLeaveGuardOnce]);
 
   useEffect(() => {
     const path = location.pathname.replace(/^\//, '').split('/')[0] || '';
     const legacyTableTarget: ViewType = hiddenViews.has('table') ? pickFirstVisibleView(hiddenViews) : 'table';
-    if (path === 'list') navigate(`/${legacyTableTarget}`, { replace: true });
+    if (path === 'list') {
+      bypassViewLeaveGuardOnce?.();
+      navigate(`/${legacyTableTarget}`, { replace: true });
+    }
     if (path === 'tablekanban') {
       const ganttTarget: ViewType = hiddenViews.has('tablegantt') ? pickFirstVisibleView(hiddenViews) : 'tablegantt';
+      bypassViewLeaveGuardOnce?.();
       navigate(`/${ganttTarget}`, { replace: true });
     }
-    if (path === 'guide') navigate(`/${legacyTableTarget}`, { replace: true });
+    if (path === 'guide') {
+      bypassViewLeaveGuardOnce?.();
+      navigate(`/${legacyTableTarget}`, { replace: true });
+    }
     // 협조요청 옛 URL(/cooperation, /docreview) → view useMemo에서 'dashboard'로 매핑되어 본 useEffect가 URL을 정리.
-  }, [location.pathname, navigate, hiddenViews]);
+  }, [location.pathname, navigate, hiddenViews, bypassViewLeaveGuardOnce]);
 
   useEffect(() => {
     const segment = location.pathname.replace(/^\//, '').split('/')[0] || '';
     if (segment !== view) {
+      bypassViewLeaveGuardOnce?.();
       navigate(`/${view}`, { replace: true });
     }
-  }, [location.pathname, view, navigate]);
+  }, [location.pathname, view, navigate, hiddenViews, bypassViewLeaveGuardOnce]);
 
   return {
     view,

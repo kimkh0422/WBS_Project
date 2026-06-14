@@ -19,6 +19,7 @@ import { isComposingKeyEvent } from '../lib/ime';
 import { ZOOM_LEVELS, type ViewMode } from './Gantt/ZOOM_LEVELS';
 import { useGanttViewport } from './hooks/useGanttViewport';
 import { useGanttDrag } from './hooks/useGanttDrag';
+import { useGanttRowDragSelect } from './hooks/useGanttRowDragSelect';
 import { GanttTopHeader, GanttBottomHeader } from './Gantt/GanttHeader';
 import { GanttGrid } from './Gantt/GanttGrid';
 import { useOrganization } from '../context/OrganizationContext';
@@ -367,21 +368,36 @@ export function GanttChart({
     effectiveSidebarWidth,
   });
 
-  const { dragPreview, dragSession, suppressBarPopoverClickRef, handleBarMouseDown, handleResizeMouseDown } = useGanttDrag({
-    selectedSet,
-    visibleTaskById,
+  const { dragPreview, dragSession, suppressBarPopoverClickRef, anchorTaskIdRef, handleBarMouseDown, handleResizeMouseDown } = useGanttDrag(
+    {
+      selectedSet,
+      visibleTaskById,
+      visibleTasks,
+      tasks,
+      selectedTaskIds,
+      setSelectedTaskIds,
+      setActiveTaskId,
+      updateTask,
+      flushProjectTaskRollups,
+      pushToast,
+      dayWidth,
+      minDate,
+      sidebarResizeRef,
+      setSidebarWidth,
+    },
+  );
+
+  /** 단독 간트: 스크롤 영역 안에서 날짜 헤더(고정) 아래 첫 행까지의 오프셋 — 드래그 선택 Y→행 인덱스 환산용 */
+  const STICKY_GANTT_TIMELINE_HEADER_PX = 60;
+  const { handleRowBackgroundMouseDown } = useGanttRowDragSelect({
     visibleTasks,
-    tasks,
-    selectedTaskIds,
+    effectiveRowHeights,
+    fallbackRowHeight: ROW_HEIGHT,
+    getScrollEl: () => (isSplitView ? mainScrollRef.current : containerRef.current),
+    rowAreaTopInset: isSplitView ? 0 : STICKY_GANTT_TIMELINE_HEADER_PX,
     setSelectedTaskIds,
     setActiveTaskId,
-    updateTask,
-    flushProjectTaskRollups,
-    pushToast,
-    dayWidth,
-    minDate,
-    sidebarResizeRef,
-    setSidebarWidth,
+    anchorTaskIdRef,
   });
 
   // useCallback closure가 stale activeTaskId를 잡는 것을 막기 위해 ref로 최신값 접근.
@@ -708,9 +724,9 @@ export function GanttChart({
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                     onMouseDown={(e) => {
                       if (e.button !== 0) return;
-                      // 막대가 아닌 타임라인 빈 칸 클릭: 일정 드래그는 시작하지 않고 활성 행만 맞춤
+                      // 막대가 아닌 타임라인 빈 칸: 클릭은 활성만, 드래그는 행 구간 다중 선택
                       if ((e.target as HTMLElement).closest?.('[data-gantt-task-bar]')) return;
-                      setActiveTaskId(task.id);
+                      handleRowBackgroundMouseDown(e, index);
                     }}
                   >
                     <div
@@ -1029,12 +1045,18 @@ export function GanttChart({
                         title={[displayWbsMap.get(t.id) ? `${displayWbsMap.get(t.id)} ${t.name}` : t.name, projectScheduleForTask(t)]
                           .filter(Boolean)
                           .join(' · ')}
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          if ((e.target as HTMLElement).closest?.('button')) return;
+                          handleRowBackgroundMouseDown(e, index);
+                        }}
                         onDoubleClick={() => setEditingTask(t)}
                       >
                         {hasChildrenSet.has(t.id) ? (
                           <button
                             type="button"
                             onPointerDown={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleExpand(t.id);
@@ -1162,7 +1184,7 @@ export function GanttChart({
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
                         if ((e.target as HTMLElement).closest?.('[data-gantt-task-bar]')) return;
-                        setActiveTaskId(task.id);
+                        handleRowBackgroundMouseDown(e, index);
                       }}
                     >
                       {/* 마일스톤: 다이아몬드 / 일반 작업: 바 */}

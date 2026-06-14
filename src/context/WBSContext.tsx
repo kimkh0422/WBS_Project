@@ -49,6 +49,7 @@ import { isDevAuthBypass } from '../lib/devAuthBypass';
 import { buildDevSeed } from '../lib/devSeed';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
+import { draftDefaultRootTaskForProject } from '../lib/defaultProjectRootTask';
 
 /** 로컬 설정 위에 DB 설정을 올린 뒤 parseSettings로 마이그레이션·정규화(표 컬럼 등)를 한 번에 적용 */
 function mergeWbsSettingsWithDbPatch(local: WBSSettings, db: Partial<WBSSettings> | null | undefined): WBSSettings {
@@ -288,6 +289,17 @@ export function WBSProvider({
     recordDeletedTaskIds,
     bumpDirty,
   });
+
+  /** 신규 프로젝트 생성 시 WBS 최상단에 프로젝트명(표시명)과 동일한 루트 작업 1행을 기본 추가 */
+  const addProject = useCallback(
+    (...args: Parameters<typeof projectOps.addProject>) => {
+      const created = projectOps.addProject(...args);
+      if (!created) return undefined;
+      taskOps.addTask(draftDefaultRootTaskForProject(created), undefined, created.id);
+      return created;
+    },
+    [projectOps, taskOps],
+  );
 
   const taskMovement = useTaskMovement({
     saveHistory,
@@ -1370,7 +1382,7 @@ export function WBSProvider({
       treeExpandLevel,
       setTreeExpandLevel,
       // Project ops
-      addProject: projectOps.addProject,
+      addProject,
       updateProject: projectOps.updateProject,
       deleteProject: projectOps.deleteProject,
       copyProject: projectOps.copyProject,
@@ -1392,6 +1404,7 @@ export function WBSProvider({
       rollupTaskSchedule: taskOps.rollupTaskSchedule,
       // Task movement
       moveTask: taskMovement.moveTask,
+      applySiblingMoveSteps: taskMovement.applySiblingMoveSteps,
       reorderTask: taskMovement.reorderTask,
       reparentTaskRootsUnder: taskMovement.reparentTaskRootsUnder,
       moveTaskRootsSibling: taskMovement.moveTaskRootsSibling,
@@ -1442,6 +1455,7 @@ export function WBSProvider({
       treeExpandLevel,
       setTreeExpandLevel,
       projectOps,
+      addProject,
       taskOps,
       taskMovement,
       backupOps,

@@ -119,7 +119,7 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'endDate', visible: true },
   { id: 'duration', visible: true },
   { id: 'workEffort', visible: false },
-  { id: 'weight', visible: true },
+  { id: 'weight', visible: false },
   { id: 'assignee', visible: true },
   { id: 'allocation', visible: false },
   { id: 'status', visible: true },
@@ -167,6 +167,7 @@ export function WBSTable({
     addTask,
     insertPastedTasksInOrder,
     moveTask,
+    applySiblingMoveSteps,
     indentTask,
     outdentTask,
     indentTasks,
@@ -192,6 +193,7 @@ export function WBSTable({
   const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
+
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const currentUserDisplayName = useMemo(() => {
     const raw = String(user?.user_metadata?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
@@ -1149,8 +1151,6 @@ export function WBSTable({
     setBulkStatus,
     bulkAssignee,
     setBulkAssignee,
-    bulkWorkEffort,
-    setBulkWorkEffort,
     bulkProgress,
     setBulkProgress,
     bulkPlannedProgress,
@@ -1161,6 +1161,8 @@ export function WBSTable({
     setBulkStartDate,
     bulkEndDate,
     setBulkEndDate,
+    bulkDurationDays,
+    setBulkDurationDays,
     bulkAllocation,
     setBulkAllocation,
     bulkTaskKind,
@@ -1182,6 +1184,11 @@ export function WBSTable({
     linkSequentialPredecessors,
     pushToast,
   });
+
+  const bulkDurationApplicable =
+    bulkDurationDays.trim() !== '' &&
+    Number.isFinite(Number.parseInt(bulkDurationDays.trim(), 10)) &&
+    Number.parseInt(bulkDurationDays.trim(), 10) >= 1;
 
   /** 일괄 수정 바 담당 자동완성: 선택 행 소속 프로젝트의 투입 인원(assignments) + 현재 입력값 */
   const bulkAssigneeCandidates = useMemo(() => {
@@ -1309,7 +1316,7 @@ export function WBSTable({
     setSelection,
     setBulkStatus,
     setBulkAssignee,
-    setBulkWorkEffort,
+    setBulkDurationDays,
     setBulkProgress,
     setDeleteConfirm,
     setCopiedTasks,
@@ -1317,6 +1324,7 @@ export function WBSTable({
     insertPastedTasksInOrder,
     updateTask,
     moveTask,
+    applySiblingMoveSteps,
     indentTask,
     outdentTask,
     indentTasks,
@@ -1554,6 +1562,7 @@ export function WBSTable({
         // Creating a new subtask
         const proj = projects.find((p) => p.id === (editingTask!.projectId || currentProjectId));
         const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+        const projectIdOverride = editingTask.projectId || (currentProjectId && currentProjectId !== 'all' ? currentProjectId : undefined);
         addTask(
           {
             parentId: editingTask.parentId, // Default to initial parent
@@ -1563,6 +1572,7 @@ export function WBSTable({
             ...updates, // Override with form data if present
           },
           insertTargetId || undefined,
+          projectIdOverride,
         );
         setInsertTargetId(null);
       } else {
@@ -2007,6 +2017,27 @@ export function WBSTable({
         className="absolute left-[-9999px] top-0 text-[13px] font-medium font-sans tracking-[-0.01em] whitespace-nowrap invisible pointer-events-none"
         aria-hidden
       />
+      {/* 셀 서식 툴바 — split 시 상단 슬롯으로 포털, 표 단독 뷰에서는 요약 바로 위·스크롤 밖 상단 고정. */}
+      {showCellFormatToolbar &&
+        renderFormatChromeDock(
+          <div ref={cellFormatDockRef} className={cn('flex-shrink-0 z-[60]', !formatDockTarget && 'sticky top-0')}>
+            <CellFormatToolbar
+              dock={formatDockTarget == null || (topDockContainer && formatDockTarget === topDockContainer) ? 'top' : 'bottom'}
+              focusedCell={focusedCell}
+              selectedTaskIds={selectedTaskIds}
+              rowApplyColumnIds={editableColumnIds}
+              tasks={tasks}
+              canEdit={canEditCurrentProject}
+              customColumnNameById={customColumnNameById}
+              updateTask={updateTask}
+              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
+              onClose={() => {
+                setSelection(new Set());
+                setFocusedCell(null);
+              }}
+            />
+          </div>,
+        )}
       {/* === Summary Bar (표 바로 위 · split+통합 크롬이면 상단 줄 왼쪽으로 포털) === */}
       {splitSummaryChromeContainer && isSplitView ? (
         createPortal(
@@ -2601,29 +2632,7 @@ export function WBSTable({
         )}
       </div>
 
-      {/* 셀 서식 툴바 — 상단/하단 도킹 슬롯(표+간트 split 시 상단 우선). */}
-      {showCellFormatToolbar &&
-        renderFormatChromeDock(
-          <div ref={cellFormatDockRef} className="flex-shrink-0 z-20">
-            <CellFormatToolbar
-              dock={topDockContainer && formatDockTarget === topDockContainer ? 'top' : 'bottom'}
-              focusedCell={focusedCell}
-              selectedTaskIds={selectedTaskIds}
-              rowApplyColumnIds={editableColumnIds}
-              tasks={tasks}
-              canEdit={canEditCurrentProject}
-              customColumnNameById={customColumnNameById}
-              updateTask={updateTask}
-              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
-              onClose={() => {
-                setSelection(new Set());
-                setFocusedCell(null);
-              }}
-            />
-          </div>,
-        )}
-
-      {/* 일괄 수정 바 — 서식 툴바 바로 아래(또는 상단 도킹 시 아래). */}
+      {/* 일괄 수정 바 — 표 영역 아래(또는 하단 도킹 슬롯). 서식 툴바는 위 열 최상단. */}
       {showBulkBar &&
         renderBulkChromeDock(
           <div ref={bulkBarRef} className="flex-shrink-0 z-20">
@@ -2694,17 +2703,18 @@ export function WBSTable({
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 px-0.5 leading-none">
-                    {workEffortHeaderTitle}
-                  </label>
+                  <label className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 px-0.5 leading-none">기간(일)</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={bulkWorkEffort}
-                    onChange={(e) => setBulkWorkEffort(e.target.value)}
-                    placeholder="일괄"
-                    className="h-7 w-28 rounded border border-slate-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    type="text"
+                    inputMode="numeric"
+                    value={bulkDurationDays}
+                    onChange={(e) => setBulkDurationDays(e.target.value.replace(/\D/g, ''))}
+                    placeholder="양 끝 포함"
+                    title="각 작업의 시작일(또는 위 일괄 시작일)을 기준으로, 입력한 달력일 수만큼 종료일을 맞춥니다. 표의 기간 열과 동일(시작~종료 양 끝 포함)합니다."
+                    className={cn(
+                      'h-7 w-[5.5rem] rounded border bg-white px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                      bulkDurationApplicable ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
+                    )}
                   />
                 </div>
 
@@ -2776,10 +2786,10 @@ export function WBSTable({
                     !bulkStatus &&
                     !bulkTaskKind &&
                     !bulkAssignee.trim() &&
-                    (bulkWorkEffort === '' || isNaN(parseFloat(bulkWorkEffort))) &&
                     (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
                     !bulkStartDate.trim() &&
                     !bulkEndDate.trim() &&
+                    !bulkDurationApplicable &&
                     (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
                   }
                   className="shrink-0 self-center rounded bg-indigo-600 px-3 py-1 text-xs font-bold text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
@@ -3159,40 +3169,6 @@ export function WBSTable({
                         ]
                       : []),
                     // (계획율 수동 지정 기능 제거됨 — 계획율은 시작일·종료일 기반 자동 계산만 사용)
-                    // '수정'·'하위 작업 추가'는 단일 작업 대상 — 다중선택 우클릭에서는 숨김.
-                    ...(isMultiSelectMenu
-                      ? []
-                      : [
-                          {
-                            label: '수정',
-                            icon: <Edit2 size={14} />,
-                            onClick: () => {
-                              const task = tasks.find((t) => t.id === contextMenu.taskId);
-                              if (task) setEditingTask(task);
-                            },
-                          },
-                          {
-                            label: '하위 작업 추가',
-                            icon: <CornerDownRight size={14} />,
-                            onClick: () => {
-                              const parent = tasks.find((t) => t.id === contextMenu.taskId);
-                              if (parent) {
-                                const proj = projects.find((p) => p.id === (parent.projectId || currentProjectId));
-                                const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-                                setEditingTask({
-                                  id: '', // New task marker
-                                  parentId: parent.id,
-                                  name: '',
-                                  startDate: defaultDate,
-                                  endDate: defaultDate,
-                                  progress: 0,
-                                  assignee: '',
-                                  status: 'todo',
-                                } as Task);
-                              }
-                            },
-                          },
-                        ]),
                     // 특정 작업 범위로 한정한 '하위일정 균등분할' — 하위가 있는 작업에서만 노출.
                     ...(canEditCurrentProject && contextMenu.taskId && hasChildrenSet.has(contextMenu.taskId)
                       ? [
@@ -3343,16 +3319,6 @@ export function WBSTable({
                           },
                         ]
                       : []),
-                    // '컬럼 설정'은 단일 선택 메뉴에서만 — 다중선택 우클릭에서는 숨김.
-                    ...(isMultiSelectMenu
-                      ? []
-                      : [
-                          {
-                            label: '컬럼 설정',
-                            icon: <Settings2 size={14} />,
-                            onClick: () => onOpenColumnSettings?.(),
-                          },
-                        ]),
                   ];
                 })()
           }

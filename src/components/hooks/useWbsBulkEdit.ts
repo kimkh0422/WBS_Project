@@ -4,6 +4,7 @@ import type { WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { appendAssigneeToProjectIfMissing } from '../../lib/assigneeOptions';
+import { endYmdFromInclusiveDuration } from '../../lib/durationDays';
 
 /** 일괄 수정 바의 작업 유형(플래그 일괄 지정). '' = 변경 없음 */
 export type BulkTaskKind = '' | 'plain' | 'milestone' | 'issue' | 'action';
@@ -36,12 +37,13 @@ export function useWbsBulkEdit({
 }: UseWbsBulkEditOptions) {
   const [bulkStatus, setBulkStatus] = useState<TaskStatus | ''>('');
   const [bulkAssignee, setBulkAssignee] = useState('');
-  const [bulkWorkEffort, setBulkWorkEffort] = useState('');
   const [bulkProgress, setBulkProgress] = useState('');
   const [bulkPlannedProgress, setBulkPlannedProgress] = useState('');
   const [bulkWeight, setBulkWeight] = useState('');
   const [bulkStartDate, setBulkStartDate] = useState('');
   const [bulkEndDate, setBulkEndDate] = useState('');
+  /** 양 끝 포함 달력일 수 — 각 작업의 시작일(또는 일괄 시작일) 기준으로 종료일만 맞춤 */
+  const [bulkDurationDays, setBulkDurationDays] = useState('');
   const [bulkAllocation, setBulkAllocation] = useState('');
   const [bulkTaskKind, setBulkTaskKind] = useState<BulkTaskKind>('');
 
@@ -71,12 +73,12 @@ export function useWbsBulkEdit({
   const resetBulkFields = useCallback(() => {
     setBulkStatus('');
     setBulkAssignee('');
-    setBulkWorkEffort('');
     setBulkProgress('');
     setBulkPlannedProgress('');
     setBulkWeight('');
     setBulkStartDate('');
     setBulkEndDate('');
+    setBulkDurationDays('');
     setBulkAllocation('');
     setBulkTaskKind('');
   }, []);
@@ -89,10 +91,6 @@ export function useWbsBulkEdit({
       if (config && config.progress !== undefined) updates.progress = config.progress;
     }
     if (bulkAssignee.trim()) updates.assignee = bulkAssignee.trim();
-    if (bulkWorkEffort !== '') {
-      const val = parseFloat(bulkWorkEffort);
-      if (!isNaN(val) && val >= 0) updates.workEffort = Math.round(val * 10) / 10;
-    }
     if (bulkProgress !== '') {
       const val = parseFloat(bulkProgress);
       if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
@@ -103,14 +101,18 @@ export function useWbsBulkEdit({
       if (!isNaN(val) && val >= 0) updates.weight = round1(val);
     }
     if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
-    if (bulkEndDate.trim()) updates.endDate = bulkEndDate.trim();
+    const durationParsed = bulkDurationDays.trim() === '' ? NaN : parseInt(bulkDurationDays.trim(), 10);
+    const hasBulkDuration = Number.isFinite(durationParsed) && durationParsed >= 1;
+    // 기간(일)으로 종료일을 맞출 때는 동일 종료일 일괄과 충돌하지 않게 endDate는 행별로만 적용
+    if (bulkEndDate.trim() && !hasBulkDuration) updates.endDate = bulkEndDate.trim();
     const hasAllocation = bulkAllocation !== '';
     const hasTaskKind = bulkTaskKind !== '';
-    if (Object.keys(updates).length === 0 && !hasAllocation && !hasTaskKind) return;
+    if (Object.keys(updates).length === 0 && !hasAllocation && !hasTaskKind && !hasBulkDuration) return;
     const ids = Array.from(selectedTaskIds);
     const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
 
     // 작업 유형(마일스톤/이슈/액션): 마일스톤은 작업별로 종료일·공수를 맞춤(TaskModal과 동일)
+    // 마일스톤은 종료=시작 고정이라 기간(일) 일괄은 적용하지 않음
     if (bulkTaskKind === 'milestone') {
       for (const id of ids) {
         const t = taskById.get(id);
@@ -127,6 +129,9 @@ export function useWbsBulkEdit({
       }
     } else {
       let merged: Partial<Task> = { ...updates };
+      if (hasBulkDuration) {
+        delete merged.endDate;
+      }
       if (bulkTaskKind === 'plain') {
         merged = { ...merged, isMilestone: false, isIssue: false, isActionItem: false };
       } else if (bulkTaskKind === 'issue') {
@@ -137,14 +142,44 @@ export function useWbsBulkEdit({
 
       // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
       const hasScheduleField =
-        Object.prototype.hasOwnProperty.call(merged, 'workEffort') ||
+        hasBulkDuration ||
         Object.prototype.hasOwnProperty.call(merged, 'endDate') ||
         Object.prototype.hasOwnProperty.call(merged, 'startDate') ||
         Object.prototype.hasOwnProperty.call(merged, 'dependencies');
-      if (Object.keys(merged).length > 0) {
+      if (Object.keys(merged).length > 0 || hasBulkDuration) {
         if (hasScheduleField) {
-          ids.forEach((id) => updateTask(id, merged));
-        } else {
+          if (hasBulkDuration) {
+            let skippedNoStart = 0;
+            let appliedCount = 0;
+            for (const id of ids) {
+              const t = taskById.get(id);
+              if (!t) continue;
+              const startForRow = (bulkStartDate.trim() || (t.startDate ?? '')).trim().slice(0, 10);
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(startForRow)) {
+                skippedNoStart += 1;
+                continue;
+              }
+              const newYmd = endYmdFromInclusiveDuration(startForRow, durationParsed);
+              if (!newYmd) continue;
+              const timeTail = t.endDate && t.endDate.length > 10 ? t.endDate.slice(10) : '';
+              const per: Partial<Task> = { ...merged };
+              if (bulkStartDate.trim()) per.startDate = bulkStartDate.trim();
+              per.endDate = newYmd + timeTail;
+              updateTask(id, per);
+              appliedCount += 1;
+            }
+            if (skippedNoStart > 0) {
+              pushToast(
+                appliedCount > 0
+                  ? `기간 ${durationParsed}일을 적용했습니다. (시작일 없음 ${skippedNoStart}개 제외)`
+                  : '선택한 작업에 시작일이 없어 기간으로 종료일을 바꿀 수 없습니다. 시작일을 입력하거나 위에서 일괄 시작일을 지정하세요.',
+                { variant: appliedCount > 0 ? 'success' : 'warning' },
+              );
+            }
+          } else {
+            ids.forEach((id) => updateTask(id, merged));
+          }
+        } else if (Object.keys(merged).length > 0) {
           updateTasksBulk(ids, merged);
         }
       }
@@ -204,12 +239,12 @@ export function useWbsBulkEdit({
   }, [
     bulkStatus,
     bulkAssignee,
-    bulkWorkEffort,
     bulkProgress,
     bulkPlannedProgress,
     bulkWeight,
     bulkStartDate,
     bulkEndDate,
+    bulkDurationDays,
     bulkAllocation,
     bulkTaskKind,
     wbsSettings,
@@ -222,15 +257,6 @@ export function useWbsBulkEdit({
     pushToast,
     ensureAssigneeOnTasksProjects,
   ]);
-
-  const executeBulkWorkEffort = useCallback(() => {
-    const value = parseFloat(bulkWorkEffort);
-    if (isNaN(value) || value < 0) return;
-    for (const id of selectedTaskIds) {
-      updateTask(id, { workEffort: value });
-    }
-    setBulkWorkEffort('');
-  }, [bulkWorkEffort, selectedTaskIds, updateTask]);
 
   const executeBulkStatus = useCallback(() => {
     if (!bulkStatus) return;
@@ -282,26 +308,20 @@ export function useWbsBulkEdit({
     const ordered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
     if (ordered.length < 2) return;
 
-    const options: { bulkWorkEffort?: number; bulkAllocationPercent?: number } = {};
-    if (bulkWorkEffort !== '') {
-      const val = parseFloat(bulkWorkEffort);
-      if (!isNaN(val) && val >= 0) options.bulkWorkEffort = Math.round(val * 10) / 10;
-    }
+    const options: { bulkAllocationPercent?: number } = {};
     if (bulkAllocation !== '') {
       const val = parseFloat(bulkAllocation);
       if (!isNaN(val) && Number.isFinite(val)) options.bulkAllocationPercent = clampAllocationPercentInt(val);
     }
 
     linkSequentialPredecessors(ordered, Object.keys(options).length > 0 ? options : undefined);
-  }, [visibleTasks, selectedTaskIds, bulkWorkEffort, bulkAllocation, linkSequentialPredecessors]);
+  }, [visibleTasks, selectedTaskIds, bulkAllocation, linkSequentialPredecessors]);
 
   return {
     bulkStatus,
     setBulkStatus,
     bulkAssignee,
     setBulkAssignee,
-    bulkWorkEffort,
-    setBulkWorkEffort,
     bulkProgress,
     setBulkProgress,
     bulkPlannedProgress,
@@ -312,13 +332,14 @@ export function useWbsBulkEdit({
     setBulkStartDate,
     bulkEndDate,
     setBulkEndDate,
+    bulkDurationDays,
+    setBulkDurationDays,
     bulkAllocation,
     setBulkAllocation,
     bulkTaskKind,
     setBulkTaskKind,
     resetBulkFields,
     executeBulkEdit,
-    executeBulkWorkEffort,
     executeBulkStatus,
     executeBulkAssignee,
     executeBulkClearDependencies,

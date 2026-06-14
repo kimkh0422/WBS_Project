@@ -1,4 +1,4 @@
-/** 인라인 날짜 키패드 입력 정규화: 'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY.MM.DD' | '2050년 7월 16일'(끝의 일·공백 허용) 등 → 'YYYY-MM-DD' (유효하지 않으면 ''). */
+/** 인라인 날짜 키패드 입력 정규화: 'YYYY-MM-DD' | 'YYYYMMDD' | 'YYYY.MM.DD' | 'M/D'(올해) | '2050년 7월 16일'(끝의 일·공백 허용) 등 → 'YYYY-MM-DD' (유효하지 않으면 ''). */
 export function normalizeYmdInput(raw: string): string {
   const s = (raw ?? '').trim();
   if (!s) return '';
@@ -8,6 +8,18 @@ export function normalizeYmdInput(raw: string): string {
     const mi = parseInt(head10.slice(5, 7), 10);
     const di = parseInt(head10.slice(8, 10), 10);
     if (mi >= 1 && mi <= 12 && di >= 1 && di <= 31) return head10;
+  }
+  // 연도 생략 월/일(M/D, M-D, M.D 등) → 로컬 달력의 올해로 보정. 예: 6/12 → YYYY-06-12
+  const mdNoYear = s.match(/^(\d{1,2})\s*[^\d]\s*(\d{1,2})\s*$/);
+  if (mdNoYear) {
+    const y = String(new Date().getFullYear());
+    const [, mo, da] = mdNoYear;
+    const mm = mo.padStart(2, '0');
+    const dd = da.padStart(2, '0');
+    const mi = parseInt(mm, 10);
+    const di = parseInt(dd, 10);
+    if (!(mi >= 1 && mi <= 12 && di >= 1 && di <= 31)) return '';
+    return `${y}-${mm}-${dd}`;
   }
   let y = '';
   let m = '';

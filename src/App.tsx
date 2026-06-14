@@ -13,6 +13,7 @@ import { AppSkeleton } from './components/AppSkeleton';
 import { AppFilterBar } from './components/AppFilterBar';
 import { AppLayout } from './components/AppLayout';
 import { UnsavedProjectSwitchDialog } from './components/UnsavedProjectSwitchDialog';
+import { UnsavedViewLeaveDialog } from './components/UnsavedViewLeaveDialog';
 import { DeleteScopeDialog } from './components/DeleteScopeDialog';
 import { useWBS, WBSProvider } from './context/WBSContext';
 import {
@@ -180,6 +181,8 @@ function WBSApp({
   onEditableProjectIdsRefresh,
 }: WBSAppProps) {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // 회원 체험 모드(memberPreview)가 켜지면 관리자라도 화면상 비관리자처럼 동작.
   // 단일 게이트로 모든 관리자 전용 UI에 일괄 적용 — 새 관리자 기능 추가 시 별도 처리 불필요.
@@ -193,15 +196,6 @@ function WBSApp({
   const realIsAdmin = (isAdmin || adminOverride) && !memberPreview;
   /** 조직 책임자는 회원 관리(역할 수정) 진입 허용. 시스템 관리 기능은 effectiveIsAdmin과 구분 */
   const canOpenMembersManagement = effectiveIsAdmin || isOrgScopedManager;
-
-  const { view, setView, hiddenViews, lockMobileToDashboard, dashboardMountedOnceRef } = useAppRouting({
-    effectiveIsAdmin,
-    realIsAdmin,
-    userEmail: user?.email,
-    isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
-  });
-  const viewRef = useRef(view);
-  viewRef.current = view;
 
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
@@ -272,11 +266,6 @@ function WBSApp({
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
-  /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
-  useEffect(() => {
-    setIsProjectDropdownOpen(false);
-  }, [view]);
-
   const { push: pushToast, tipOnce } = useToast();
 
   const {
@@ -317,10 +306,62 @@ function WBSApp({
     discardUnsavedChangesReloadFromServer,
   } = useWBS();
 
-  // URL 라우팅 + 회원(프로필)·소유자 표시명·내 멤버 프로젝트 상태.
-  // (아래 라우팅 보정/프로필 로딩 useEffect·메모에서 사용됨 — 선언 누락으로 인한 'navigate is not defined' 등 런타임 크래시 복구)
-  const navigate = useNavigate();
-  const location = useLocation();
+  const {
+    saveNow,
+    isDbPushInProgress,
+    requestRefresh,
+    requestProjectSwitch,
+    setCurrentProjectIdGuarded,
+    projectSwitchPrompt,
+    projectSwitchAction,
+    projectSwitchBusy,
+    projectSwitchDialogRef,
+    projectSwitchTargetLabel,
+    handleProjectSwitchSaveAndProceed,
+    handleProjectSwitchDiscardProceed,
+    handleProjectSwitchCancel,
+    bypassViewLeaveGuardOnce,
+    requestNavigation,
+    viewLeavePrompt,
+    viewLeaveAction,
+    viewLeaveBusy,
+    viewLeaveDialogRef,
+    handleViewLeaveSaveAndProceed,
+    handleViewLeaveDiscardProceed,
+    handleViewLeaveCancel,
+  } = useUnsavedChangesGuard({
+    currentProjectId,
+    projects,
+    hasLocalChangesSinceSync,
+    pushChangesToDb,
+    discardUnsavedChangesReloadFromServer,
+    setCurrentProjectId,
+    location,
+    navigate,
+  });
+
+  const {
+    view,
+    setView: setViewRaw,
+    hiddenViews,
+    lockMobileToDashboard,
+    dashboardMountedOnceRef,
+  } = useAppRouting({
+    effectiveIsAdmin,
+    realIsAdmin,
+    userEmail: user?.email,
+    isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
+    bypassViewLeaveGuardOnce,
+  });
+  const setView = useCallback(
+    (v: ViewType) => {
+      requestNavigation(() => setViewRaw(v));
+    },
+    [requestNavigation, setViewRaw],
+  );
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
@@ -328,6 +369,11 @@ function WBSApp({
     if (typeof window === 'undefined') return false;
     return window.matchMedia('(max-width: 767px)').matches;
   });
+
+  /** 메인 메뉴(뷰) 전환 시 헤더 프로젝트 선택 팝업 닫기 */
+  useEffect(() => {
+    setIsProjectDropdownOpen(false);
+  }, [view]);
 
   // 초보자 따라하기 투어 — useGuidedTour로 분리(동작 동일)
   const { isTutorialOpen, setIsTutorialOpen, tour, startGuidedTour, endGuidedTour, handleTourNext } = useGuidedTour({
@@ -356,30 +402,6 @@ function WBSApp({
     [wbsSettings.statusConfigs],
   );
 
-  // 미저장 변경 가드(수동 저장·프로젝트 전환 확인·새로고침/닫기 경고) — useUnsavedChangesGuard로 분리(동작 동일)
-  const {
-    saveNow,
-    isDbPushInProgress,
-    requestRefresh,
-    requestProjectSwitch,
-    setCurrentProjectIdGuarded,
-    projectSwitchPrompt,
-    projectSwitchAction,
-    projectSwitchBusy,
-    projectSwitchDialogRef,
-    projectSwitchTargetLabel,
-    handleProjectSwitchSaveAndProceed,
-    handleProjectSwitchDiscardProceed,
-    handleProjectSwitchCancel,
-  } = useUnsavedChangesGuard({
-    currentProjectId,
-    projects,
-    hasLocalChangesSinceSync,
-    pushChangesToDb,
-    discardUnsavedChangesReloadFromServer,
-    setCurrentProjectId,
-  });
-
   // 프로젝트가 0개가 되면(전체 삭제 등) 빈 상태 페이지로 이동 — 프로젝트 현황 전용 모드에서는 대시보드에 머무름
   useEffect(() => {
     if (isLoading) return;
@@ -396,9 +418,10 @@ function WBSApp({
   useEffect(() => {
     const segment = location.pathname.replace(/^\//, '').split('/')[0] || '';
     if (segment !== view) {
+      bypassViewLeaveGuardOnce();
       navigate(`/${view}`, { replace: true });
     }
-  }, [location.pathname, view, navigate]);
+  }, [location.pathname, view, navigate, bypassViewLeaveGuardOnce]);
 
   // 로그인 사용자·회원 표시명 디렉터리 — useViewerDirectory로 분리(동작 동일)
   const {
@@ -881,6 +904,18 @@ function WBSApp({
           onCancel={handleProjectSwitchCancel}
           onDiscard={() => void handleProjectSwitchDiscardProceed()}
           onSave={() => void handleProjectSwitchSaveAndProceed()}
+        />
+      )}
+      {viewLeavePrompt && (
+        <UnsavedViewLeaveDialog
+          dialogRef={viewLeaveDialogRef}
+          mode={viewLeavePrompt.mode}
+          targetLabel={viewLeavePrompt.targetLabel}
+          busy={viewLeaveBusy}
+          action={viewLeaveAction}
+          onCancel={handleViewLeaveCancel}
+          onDiscard={() => void handleViewLeaveDiscardProceed()}
+          onSave={() => void handleViewLeaveSaveAndProceed()}
         />
       )}
       {isSupabaseConfigured && hasLocalChangesSinceSync && (

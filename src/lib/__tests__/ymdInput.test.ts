@@ -20,10 +20,19 @@ describe('normalizeYmdInput', () => {
     expect(normalizeYmdInput('2050년 7월 16일')).toBe('2050-07-16');
   });
 
+  it('연도 생략 월/일은 올해(로컬)로 보정', () => {
+    const y = new Date().getFullYear();
+    expect(normalizeYmdInput('6/12')).toBe(`${y}-06-12`);
+    expect(normalizeYmdInput('06-12')).toBe(`${y}-06-12`);
+    expect(normalizeYmdInput('6.1')).toBe(`${y}-06-01`);
+  });
+
   it('유효하지 않은 값은 빈 문자열', () => {
     expect(normalizeYmdInput('')).toBe('');
     expect(normalizeYmdInput('abc')).toBe('');
     expect(normalizeYmdInput('2026-13-01')).toBe('');
     expect(normalizeYmdInput('202604')).toBe('');
+    expect(normalizeYmdInput('13/1')).toBe('');
+    expect(normalizeYmdInput('2/32')).toBe('');
   });
 });
