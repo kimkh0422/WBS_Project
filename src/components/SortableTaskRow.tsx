@@ -144,7 +144,7 @@ export interface SortableTaskRowProps {
   /** 작업명 들여쓰기에 그릴 트리 가이드 선 문자열(depth 칸별 'I'│ 'T'├ 'L'└ ' '공백). 트리 뷰에서만 채워짐 */
   treeGuide?: string;
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
-  /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Shift+행클릭 시 시작 행 */
+  /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Ctrl+행클릭 등 행 단위 다중 선택용 */
   onSetRowAnchor?: (taskId: string) => void;
   /** 행 클릭 시 포커스 이동. 수정키 없는 일반 클릭은 체크박스 다중 선택을 자동 해제하고, Shift/Ctrl 클릭은 keepSelection으로 보존한다. */
   onFocusRow?: (taskId: string, opts?: { keepSelection?: boolean }) => void;
@@ -207,6 +207,8 @@ export interface SortableTaskRowProps {
    * 처리했으면 true(호출측에서 preventDefault) — 1행만 선택이면 false로 기본 붙여넣기 유지.
    */
   onPasteApplyToCheckboxSelection?: (columnId: TableColumnId, clipboardPlainText: string) => boolean;
+  /** 마우스 드래그로 선택된 셀 범위( taskId::columnId ). 체크박스 행 선택과 별개 */
+  cellMarqueeKeySet?: ReadonlySet<string> | null;
 }
 
 function SortableTaskRowInner({
@@ -264,6 +266,7 @@ function SortableTaskRowInner({
   forkedChildProject,
   onOpenForkedChildProject,
   onPasteApplyToCheckboxSelection,
+  cellMarqueeKeySet = null,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   // 순서 이동(정렬)은 첫 열 손잡이([data-row-grip])에서만 시작한다 — listeners/attributes는 그립 셀에만 부착.
@@ -619,17 +622,14 @@ function SortableTaskRowInner({
           Object.values(task.cellTextStyles).some((s) => typeof s?.fontSize === 'number' && (s.fontSize ?? 0) > 0) &&
           'wbs-cell-styled',
       )}
-      // Shift/Ctrl/Meta 구간·다중 선택: click은 일부 컨트롤(날짜 등)에서 합성되지 않을 수 있어 pointerdown 캡처에서 처리한다.
+      // Ctrl/Meta 다중 선택: click은 일부 컨트롤에서 합성되지 않을 수 있어 pointerdown 캡처에서 처리한다.
+      // Shift+셀 범위는 표 본문(data-wbs-table) 캡처에서 통일 처리(표 단독·분할·sticky 동일).
       onPointerDownCapture={(e) => {
         if (e.button !== 0) return;
-        if (!e.shiftKey && !e.ctrlKey && !e.metaKey) return;
-        if (e.shiftKey) {
-          onSelect(task.id, false, true);
-          onFocusRow?.(task.id, { keepSelection: true });
-        } else {
-          onSelect(task.id, true, false);
-          onFocusRow?.(task.id, { keepSelection: true });
-        }
+        if (e.shiftKey) return;
+        if (!e.ctrlKey && !e.metaKey) return;
+        onSelect(task.id, true, false);
+        onFocusRow?.(task.id, { keepSelection: true });
         e.preventDefault();
         e.stopPropagation();
       }}
@@ -695,6 +695,14 @@ function SortableTaskRowInner({
         const othersHere = otherFocusByCellKey.get(otherFocusKey) ?? [];
         const otherPrimary = othersHere[0];
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
+        const inMarquee = cellMarqueeKeySet?.has(`${task.id}::${colId}`) ?? false;
+        // 다중 셀 선택(드래그·Shift+화살표): 포커스 링(indigo)과 겹치지 않게 하늘색 톤으로, 배경·테두리 대비를 충분히 둔다.
+        const marqueeClass = inMarquee ? 'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45' : '';
+        const rangeCellProps = {
+          'data-wbs-range-cell': true as const,
+          'data-range-task': task.id,
+          'data-range-col': colId,
+        };
         const __renderCell = (): React.ReactNode => {
           if (colId === 'wbsId') {
             return (
@@ -725,7 +733,8 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className="data-cell relative"
+                {...rangeCellProps}
+                className={cn('data-cell relative', marqueeClass)}
                 style={{
                   ...(otherRingStyle ?? {}),
                   paddingLeft: `${depth * 20 + 22}px`,
@@ -817,7 +826,7 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
                       setTimeout(() => {
-                        commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
+                        commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
                         setInlineEditingNameId(null);
                         setEditingCell(null);
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
@@ -834,16 +843,21 @@ function SortableTaskRowInner({
                         if (isComposingKeyEvent(e.nativeEvent)) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        // 편집 중 Enter — 저장하고 편집만 종료. 새 작업을 자동 생성하지 않는다.
-                        // (새 작업 추가는 하단 ghost placeholder 행에서 Enter/F2/문자키 또는 클릭으로 수행)
-                        commitWbsInlineNameEditFromDom(task.id, [task], updateTask, canEdit);
-                        setInlineEditingNameId(null);
-                        setEditingCell(null);
+                        commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
                         if (e.shiftKey && onInsertRowAbove) {
-                          // Shift+Enter는 기존 동작 유지 — 현재 행 위에 형제 새 작업 추가 + 새 행 인라인 편집.
+                          // Shift+Enter — 현재 행 위에 형제 새 작업 추가 + 새 행 인라인 편집.
+                          setInlineEditingNameId(null);
+                          setEditingCell(null);
                           onInsertRowAbove(task.id);
                           return;
                         }
+                        // Enter — 엑셀처럼 아래(형제)에 빈 행을 추가하고 그 작업명 편집으로 이어감.
+                        if (onAdvanceInlineEditToNextRow && canEdit) {
+                          onAdvanceInlineEditToNextRow(task.id);
+                          return;
+                        }
+                        setInlineEditingNameId(null);
+                        setEditingCell(null);
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
                         onFocusRow?.(task.id, { keepSelection: true });
                         requestAnimationFrame(() => {
@@ -952,9 +966,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocused && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 onClick={(e) => {
@@ -1041,9 +1057,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 onClick={(e) => {
@@ -1134,9 +1152,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedDur && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 onClick={(e) => {
@@ -1224,9 +1244,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 onClick={(e) => {
@@ -1306,9 +1328,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1374,7 +1398,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedProg && 'ring-2 ring-indigo-500 ring-inset')}
+                {...rangeCellProps}
+                className={cn(
+                  'data-cell font-mono text-xs text-slate-600 min-w-0',
+                  isFocusedProg && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
+                )}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1439,9 +1468,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 min-w-0 cursor-help',
                   isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 onClick={(e) => {
@@ -1488,10 +1519,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell font-mono text-xs min-w-0 cursor-cell',
                   !txtStyle.color && color,
                   isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 style={otherRingStyle}
                 title={[
@@ -1526,9 +1559,11 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
                   isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1635,7 +1670,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className={cn('data-cell font-mono text-xs text-slate-600 min-w-0', isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset')}
+                {...rangeCellProps}
+                className={cn(
+                  'data-cell font-mono text-xs text-slate-600 min-w-0',
+                  isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
+                )}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('allocation');
@@ -1693,7 +1733,8 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded')}
+                {...rangeCellProps}
+                className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded', marqueeClass)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('status');
@@ -1772,7 +1813,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedDel && 'ring-2 ring-indigo-500 ring-inset')}
+                {...rangeCellProps}
+                className={cn(
+                  'data-cell text-xs text-slate-600 min-w-0',
+                  isFocusedDel && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
+                )}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('deliverables');
@@ -1941,10 +1987,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn(
                   'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
                   depsMenuOpen && 'z-20 overflow-visible',
                   isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
+                  marqueeClass,
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -2051,7 +2099,12 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
-                className={cn('data-cell text-xs text-slate-600 min-w-0', isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset')}
+                {...rangeCellProps}
+                className={cn(
+                  'data-cell text-xs text-slate-600 min-w-0',
+                  isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
+                )}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit(colId);
@@ -2141,6 +2194,14 @@ function SortableTaskRowInner({
   );
 }
 
+function marqueeSetsEqual(a: ReadonlySet<string> | null | undefined, b: ReadonlySet<string> | null | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.size !== b.size) return false;
+  for (const k of a) if (!b.has(k)) return false;
+  return true;
+}
+
 /** 이 행에 그려지는 셀 포커스 링만 비교 — 전역 focusedCell 객체가 바뀌어도 포커스 없는 행은 리렌더 생략 */
 function rowFocusedCellVisualEqual(
   prevFocused: SortableTaskRowProps['focusedCell'],
@@ -2192,6 +2253,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.allocationDisplayText === next.allocationDisplayText &&
     prev.displayWbsMap === next.displayWbsMap &&
     prev.task.id === next.task.id &&
+    marqueeSetsEqual(prev.cellMarqueeKeySet, next.cellMarqueeKeySet) &&
     prev.task.parentId === next.task.parentId &&
     prev.task.name === next.task.name &&
     prev.task.startDate === next.task.startDate &&

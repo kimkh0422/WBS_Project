@@ -354,6 +354,13 @@ export function ProjectModal({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                    // 저장 버튼이 form 밖에 있어 기본 제출이 없음 — 신규 생성 시 이름 입력 후 Enter로 바로 생성
+                    if (project) return;
+                    e.preventDefault();
+                    handleSubmit(e as unknown as React.FormEvent);
+                  }}
                   className="input-field w-full"
                   placeholder="예: 위성항법"
                   autoFocus

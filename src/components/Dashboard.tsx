@@ -93,6 +93,11 @@ function isActiveDivisionStat(d: DivisionStatRow): boolean {
   return d.projectCount > 0 || d.total > 0 || d.assignmentPersonCount > 0;
 }
 
+/** 조직 멤버 직위 문자열에 부사장이 포함되는지(예: 부사장, 수석부사장) */
+function orgPositionIncludesVicePresident(position: string | undefined): boolean {
+  return String(position ?? '').includes('부사장');
+}
+
 export function Dashboard({
   onNavigate,
   onOpenTaskInTable,
@@ -728,6 +733,11 @@ export function Dashboard({
       }
       const assignmentPersonCount = assignmentNames.size;
 
+      const vicePresidentNames = orgMembers
+        .filter((m) => memberToDivisionId.get(m.name) === division.id && orgPositionIncludesVicePresident(m.position))
+        .map((m) => m.name)
+        .sort((a, b) => a.localeCompare(b, 'ko'));
+
       return {
         id: division.id,
         name: division.name,
@@ -742,6 +752,7 @@ export function Dashboard({
         inProgressCount,
         projectCount: registeredProjects.length,
         registeredProjects,
+        vicePresidentNames,
       };
     });
     const sorted = stats.sort((a, b) => {
@@ -1884,6 +1895,14 @@ export function Dashboard({
                                   </span>
                                 )}
                               </h3>
+                              {d.vicePresidentNames.length > 0 && (
+                                <p
+                                  className="text-[11px] text-slate-600 m-0 -mt-1 mb-2 leading-snug"
+                                  title={`부사장 ${d.vicePresidentNames.join(', ')}`}
+                                >
+                                  <span className="font-semibold text-slate-700">부사장</span> {d.vicePresidentNames.join(' · ')}
+                                </p>
+                              )}
                               <div className="space-y-2">
                                 <div className="grid grid-cols-2 gap-1.5">
                                   <div className="rounded-lg border border-sky-200/80 bg-sky-50/90 px-2 py-2 text-center shadow-sm">
@@ -2019,7 +2038,12 @@ export function Dashboard({
                                 type="button"
                                 onClick={() => openDivisionDetail(d.id)}
                                 className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:border-sky-300 hover:text-sky-700 transition-colors"
-                                title="클릭하여 사업부 상세 보기"
+                                title={[
+                                  '클릭하여 사업부 상세 보기',
+                                  d.vicePresidentNames.length > 0 ? `부사장 ${d.vicePresidentNames.join(', ')}` : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join('\n')}
                               >
                                 <Building2 size={11} className="shrink-0 opacity-50" aria-hidden />
                                 <span className="truncate max-w-[10rem]">{d.name}</span>
@@ -2065,8 +2089,20 @@ export function Dashboard({
                               onClick={() => openDivisionDetail(d.id)}
                               title={
                                 d.registeredProjects.length > 0
-                                  ? `클릭하여 상세\n프로젝트:\n${d.registeredProjects.map((r) => r.label).join('\n')}`
-                                  : '클릭하여 사업부 상세 보기'
+                                  ? [
+                                      '클릭하여 상세',
+                                      d.vicePresidentNames.length > 0 ? `부사장: ${d.vicePresidentNames.join(', ')}` : '',
+                                      '프로젝트:',
+                                      ...d.registeredProjects.map((r) => r.label),
+                                    ]
+                                      .filter(Boolean)
+                                      .join('\n')
+                                  : [
+                                      '클릭하여 사업부 상세 보기',
+                                      d.vicePresidentNames.length > 0 ? `부사장: ${d.vicePresidentNames.join(', ')}` : '',
+                                    ]
+                                      .filter(Boolean)
+                                      .join('\n')
                               }
                             >
                               <td className="px-3 py-2.5 font-medium text-slate-800 max-w-[16rem] align-middle">
@@ -2080,6 +2116,14 @@ export function Dashboard({
                                     </span>
                                   )}
                                 </div>
+                                {d.vicePresidentNames.length > 0 && (
+                                  <div
+                                    className="text-[11px] text-slate-500 font-normal mt-0.5 truncate"
+                                    title={`부사장 ${d.vicePresidentNames.join(', ')}`}
+                                  >
+                                    부사장 {d.vicePresidentNames.join(' · ')}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 font-bold text-lg align-middle">
                                 {d.projectCount}

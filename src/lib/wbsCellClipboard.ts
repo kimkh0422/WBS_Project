@@ -31,6 +31,9 @@ export interface WbsCellClipboardData {
   sourceProjectId: string;
 }
 
+/** 마퀴(직사각형)로 복사한 셀 영역 — `grid[r][c]`는 표시 순서(행·열) */
+export type WbsCopiedCellRegion = { grid: WbsCellClipboardData[][] };
+
 /** 외부 텍스트(시스템 클립보드)만으로 붙여넣을 때 쓰는 입력 형태 */
 export type WbsCellPasteInput = Pick<WbsCellClipboardData, 'text'> & Partial<Omit<WbsCellClipboardData, 'text'>>;
 
@@ -54,7 +57,60 @@ export function isCellClipboardColumn(columnId: TableColumnId): boolean {
   return !NON_CELL_CLIPBOARD_COLUMNS.has(columnId);
 }
 
-/** 커서 셀의 값을 클립보드 데이터로 추출. 미지원 컬럼이면 null (호출부는 행 복사로 폴백) */
+/**
+ * 마퀴 복사용: 작업명·값 셀은 클립보드 데이터로, 그 외(번호·파생 등)는 빈 텍스트 스텁.
+ * 붙여넣기 시 대상 컬럼 규칙에 따라 실패하거나 무시된다.
+ */
+export function getMarqueeClipboardCellData(
+  task: Task,
+  columnId: TableColumnId,
+  ctx: { statusConfigs: WbsStatusConfigLite[]; visibleTaskIds: string[] },
+): WbsCellClipboardData {
+  const baseIds = { sourceTaskId: task.id, sourceProjectId: task.projectId };
+  if (columnId === 'name') {
+    return { columnId: 'name', text: (task.name ?? '').trim(), ...baseIds };
+  }
+  const v = getWbsCellClipboardData(task, columnId, ctx);
+  if (v) return v;
+  return { columnId, text: '', ...baseIds };
+}
+
+/** 마퀴 앵커~끝 직사각형을 행 우선 순서의 2차원 그리드로 직렬화 */
+export function buildMarqueeWbsCellClipboardGrid(
+  visibleTasks: Task[],
+  visibleColumnIds: TableColumnId[],
+  anchor: { taskId: string; columnId: TableColumnId },
+  end: { taskId: string; columnId: TableColumnId },
+  ctx: { statusConfigs: WbsStatusConfigLite[]; visibleTaskIds: string[] },
+): WbsCopiedCellRegion | null {
+  const r1 = visibleTasks.findIndex((t) => t.id === anchor.taskId);
+  const r2 = visibleTasks.findIndex((t) => t.id === end.taskId);
+  if (r1 < 0 || r2 < 0) return null;
+  const rowLo = Math.min(r1, r2);
+  const rowHi = Math.max(r1, r2);
+  const c1 = visibleColumnIds.indexOf(anchor.columnId);
+  const c2 = visibleColumnIds.indexOf(end.columnId);
+  if (c1 < 0 || c2 < 0) return null;
+  const colLo = Math.min(c1, c2);
+  const colHi = Math.max(c1, c2);
+  const grid: WbsCellClipboardData[][] = [];
+  for (let r = rowLo; r <= rowHi; r++) {
+    const task = visibleTasks[r]!;
+    const row: WbsCellClipboardData[] = [];
+    for (let c = colLo; c <= colHi; c++) {
+      const colId = visibleColumnIds[c]!;
+      row.push(getMarqueeClipboardCellData(task, colId, ctx));
+    }
+    grid.push(row);
+  }
+  return grid.length > 0 ? { grid } : null;
+}
+
+/** 시스템 클립보드용 TSV (엑셀 호환) */
+export function wbsCopiedCellRegionToTsv(region: WbsCopiedCellRegion): string {
+  return region.grid.map((row) => row.map((cell) => cell.text.replace(/\r?\n/g, ' ')).join('\t')).join('\n');
+}
+
 export function getWbsCellClipboardData(
   task: Task,
   columnId: TableColumnId,

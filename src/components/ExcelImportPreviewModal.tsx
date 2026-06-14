@@ -43,6 +43,15 @@ const colToLetter = (n: number) => {
   return s;
 };
 
+/** 가져오기 컬럼 매핑 select 옵션: 1-based 컬럼 번호 + 셀 예시(또는 헤더 폴백)만 표시 */
+const formatColumnMappingOptionLabel = (columnIndex0: number, sample: string, headerFallback: string, maxSampleLen = 24) => {
+  const n = columnIndex0 + 1;
+  const raw = String(sample ?? '').trim() || String(headerFallback ?? '').trim();
+  if (!raw) return String(n);
+  const truncated = raw.length > maxSampleLen ? `${raw.slice(0, maxSampleLen - 1)}…` : raw;
+  return `${n} — ${truncated}`;
+};
+
 const colRangeLabel = (indices?: number[], fallback?: number) => {
   const cols =
     Array.isArray(indices) && indices.length > 0
@@ -180,11 +189,11 @@ export function ExcelImportPreviewModal({
               const isExpanded = !!openFiles[f.fileName];
               const sheet = f.meta.sheetName || '-';
               const headerRowNo = (f.meta.headerRowIndex ?? 0) + 1;
-              // select 옵션: 헤더가 비어있지 않은 컬럼만 노출 (정렬은 컬럼 인덱스 순). 첫 예시값을 함께 표기해 데이터로 식별.
+              // select 옵션: 헤더 또는 예시값이 있는 컬럼만 노출 (정렬은 컬럼 인덱스 순). 라벨은 번호+데이터만 표시.
               const samplesByColumn = f.meta.samplesByColumn ?? [];
               const headerOptions = f.meta.headerRow
                 .map((h, i) => ({ value: i, label: String(h ?? '').trim(), sample: (samplesByColumn[i] ?? [])[0] ?? '' }))
-                .filter((o) => o.label);
+                .filter((o) => o.label || String(o.sample ?? '').trim());
               return (
                 <div key={f.fileName} className="border border-slate-200 rounded-xl overflow-hidden">
                   <button
@@ -247,20 +256,21 @@ export function ExcelImportPreviewModal({
                                       )}
                                     >
                                       <option value={-1}>(매핑 안 함)</option>
-                                      {headerOptions.map((o) => {
-                                        const ex = o.sample
-                                          ? ` · 예: ${o.sample.length > 16 ? `${o.sample.slice(0, 15)}…` : o.sample}`
-                                          : '';
-                                        return (
-                                          <option key={o.value} value={o.value}>
-                                            {`${colToLetter(o.value)} (${o.value + 1}) — ${o.label}${ex}`}
-                                          </option>
-                                        );
-                                      })}
+                                      {headerOptions.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                          {formatColumnMappingOptionLabel(o.value, o.sample, o.label)}
+                                        </option>
+                                      ))}
                                     </select>
                                   ) : (
                                     <span className={cn('font-medium', ok ? 'text-slate-800' : 'text-red-600')}>
-                                      {ok ? `${colToLetter(m.columnIndex)} (${m.columnIndex + 1}) — ${m.header}` : '미매칭'}
+                                      {ok
+                                        ? formatColumnMappingOptionLabel(
+                                            m.columnIndex,
+                                            samplesForField(f.meta.samplesByColumn, m.columnIndex, m.columnIndices)[0] ?? '',
+                                            m.header,
+                                          )
+                                        : '미매칭'}
                                     </span>
                                   )}
                                   {hasMultiCols && (

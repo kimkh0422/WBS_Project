@@ -60,7 +60,7 @@ import { checkIsAdmin, fetchProfiles, getProjectOwnerDisplayNames } from '../lib
 type ProjectsColumnSortKey = 'name' | 'kind' | 'group' | 'tasks' | 'input' | 'owner' | 'start' | 'end' | 'pm' | 'po';
 
 interface ProjectsPageProps {
-  /** preferView: 작업 화면 도착 시 선호 뷰('tablegantt'=표+간트). 미지정 시 기본 작업 화면(표). */
+  /** preferView: 작업 화면 도착 시 선호 뷰(항상 표+간트). 미지정 시에도 표+간트. */
   onNavigateToWork?: (projectId?: string, preferView?: 'table' | 'tablegantt') => void;
   /** 프로젝트 삭제 후 대시보드로 이동 */
   onNavigateToDashboard?: () => void;

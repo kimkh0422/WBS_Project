@@ -208,10 +208,14 @@ function DocsIconBtn({
 }
 
 export interface CellFormatToolbarProps {
+  /** 툴바 맨 앞(글꼴 선택 왼쪽)에 끼워 넣는 슬롯 — 표 텍스트/JSON 편집 버튼 등 */
+  toolbarStartSlot?: React.ReactNode;
   /** 단일 셀 포커스(없으면 null). 행만 체크 선택한 경우 null일 수 있다. */
   focusedCell: { taskId: string; columnId: TableColumnId } | null;
   /** 체크박스로 선택된 행. 1개 이상이면 "행 전체(엑셀식)" 모드로 동작한다. */
   selectedTaskIds: Set<string>;
+  /** 체크 없이 마퀴 드래그로 선택된 셀들(taskId::columnId). 2셀 이상이면 직사각형 범위에 서식 적용 */
+  cellMarqueeKeySet?: ReadonlySet<string> | null;
   /** 행 전체 모드에서 서식을 적용할 표시 데이터 컬럼들(wbsId 제외). */
   rowApplyColumnIds: TableColumnId[];
   tasks: Task[];
@@ -237,11 +241,14 @@ export interface CellFormatToolbarProps {
  * `dock="top"`이면 표+간트 상단 슬롯에 붙이고, 기본(`bottom`)이면 표 본문 아래에 붙여 선택 시 위쪽 행이 덜 밀리게 할 수 있다.
  * 적용 범위(엑셀식 = 선택 단위가 곧 적용 단위):
  *  - 행을 체크 선택(selectedTaskIds ≥ 1)하면 → 선택한 모든 행 × 표시된 모든 데이터 열에 적용("행 전체").
- *  - 체크 없이 셀 하나만 포커스하면 → 그 셀(한 행, 한 열)에만 적용.
+ *  - 마퀴로 셀 범위를 잡으면 → 해당 직사각형의 행×열에만 적용.
+ *  - 체크·마퀴 없이 셀 하나만 포커스하면 → 그 셀(한 행, 한 열)에만 적용.
  */
 export function CellFormatToolbar({
+  toolbarStartSlot,
   focusedCell,
   selectedTaskIds,
+  cellMarqueeKeySet = null,
   rowApplyColumnIds,
   tasks,
   canEdit,
@@ -252,22 +259,40 @@ export function CellFormatToolbar({
   mergeChromeBorder = false,
   tableAutoFormatting,
 }: CellFormatToolbarProps) {
-  // 행을 체크 선택했으면 "행 전체" 모드(엑셀식). 아니면 포커스 셀 단일 모드.
+  // 행을 체크 선택했으면 "행 전체" 모드(엑셀식). 아니면 마퀴 셀 범위 → 고유 행×열의 곱(직사각형). 그다음 포커스 셀 단일.
   const rowMode = selectedTaskIds.size >= 1;
+
+  const marqueeTargets = useMemo(() => {
+    if (!cellMarqueeKeySet || cellMarqueeKeySet.size < 1) return null;
+    const taskIds = new Set<string>();
+    const columnIds = new Set<TableColumnId>();
+    for (const key of cellMarqueeKeySet) {
+      const sep = key.indexOf('::');
+      if (sep < 1) continue;
+      taskIds.add(key.slice(0, sep));
+      columnIds.add(key.slice(sep + 2) as TableColumnId);
+    }
+    if (taskIds.size === 0 || columnIds.size === 0) return null;
+    return { taskIds: [...taskIds], columnIds: [...columnIds] };
+  }, [cellMarqueeKeySet]);
+
+  const rectMode = !rowMode && marqueeTargets != null;
 
   // rowApplyColumnIds 누락(예: HMR 중간 상태)에도 안전하도록 빈 배열로 정규화.
   const rowCols = useMemo(() => rowApplyColumnIds ?? [], [rowApplyColumnIds]);
 
   const targetTaskIds = useMemo(() => {
     if (rowMode) return Array.from(selectedTaskIds);
+    if (rectMode && marqueeTargets) return marqueeTargets.taskIds;
     return focusedCell ? [focusedCell.taskId] : [];
-  }, [rowMode, selectedTaskIds, focusedCell]);
+  }, [rowMode, selectedTaskIds, rectMode, marqueeTargets, focusedCell]);
 
-  /** 적용 대상 열: 행 모드면 표시된 모든 데이터 열, 셀 모드면 포커스한 열 하나. */
+  /** 적용 대상 열: 행 모드면 표시된 모든 데이터 열, 마퀴 모드면 범위 열 집합, 셀 모드면 포커스한 열 하나. */
   const targetColumnIds = useMemo<TableColumnId[]>(() => {
     if (rowMode) return rowCols;
+    if (rectMode && marqueeTargets) return marqueeTargets.columnIds;
     return focusedCell ? [focusedCell.columnId] : [];
-  }, [rowMode, rowCols, focusedCell]);
+  }, [rowMode, rowCols, rectMode, marqueeTargets, focusedCell]);
 
   /** 서식 적용 가능: 대상 행·열이 있고, WBS 열만 포커스한 경우는 제외 */
   const hasFormattingTargets = useMemo(() => {
@@ -336,6 +361,12 @@ export function CellFormatToolbar({
         e.preventDefault();
       }}
     >
+      {toolbarStartSlot ? (
+        <>
+          {toolbarStartSlot}
+          <ToolbarSep />
+        </>
+      ) : null}
       <FontFamilyPicker
         value={style?.fontFamily ?? ''}
         disabled={formatDisabled}

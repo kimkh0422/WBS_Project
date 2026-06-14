@@ -30,7 +30,6 @@ export interface TableGanttSplitProps {
   sortConfig: SortConfig;
   onSort: (key: keyof Task | 'wbs') => void;
   onOpenColumnSettings: () => void;
-  onResetFilters: () => void;
   scrollToTaskId: string | null;
   sharedRowHeight: number;
   onRowHeightChange: (h: number) => void;
@@ -42,7 +41,6 @@ export function TableGanttSplit({
   sortConfig,
   onSort,
   onOpenColumnSettings,
-  onResetFilters,
   scrollToTaskId,
   sharedRowHeight,
   onRowHeightChange,
@@ -167,7 +165,6 @@ export function TableGanttSplit({
             filters={filters}
             sortConfig={sortConfig}
             onOpenColumnSettings={onOpenColumnSettings}
-            onResetFilters={onResetFilters}
             scrollToTaskId={scrollToTaskId}
             onSort={onSort}
             syncScrollRef={tableScrollRef}

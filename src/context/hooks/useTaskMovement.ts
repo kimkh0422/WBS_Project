@@ -52,6 +52,89 @@ function normalizeParentIdForReorder(parentId: Task['parentId']): string | null 
   return v;
 }
 
+const parentKey = (t: Task) => normalizeParentIdForReorder(t.parentId);
+
+/**
+ * Tab 다중 들여쓰기: 같은 부모·형제 목록에서 표시 순으로 붙어 있는 선택 행은 한 구간으로 묶고,
+ * 구간 전체의 parentId를 "구간 첫 행의 바로 위 형제"로 맞춘다. 역순으로 한 행씩 들이면
+ * 다음 행이 방금 들여진 행의 자식으로 붙어 계단식이 되는 문제를 막는다.
+ * 표시 순서에서 띄어진 선택은 구간이 나뉘어 각각 1단계만 적용된다.
+ */
+function computeBulkIndentParentChanges(
+  projectTasks: Task[],
+  ids: string[],
+  stableIds: string[],
+): { parentChange: Map<string, string>; expandIds: Set<string> } | null {
+  const selectedIds = new Set(ids);
+  const visIdx = (tid: string) => {
+    const i = stableIds.indexOf(tid);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+
+  const actionable = ids.filter((taskId) => {
+    const task = projectTasks.find((t) => t.id === taskId);
+    if (!task) return false;
+    if (task.parentId && selectedIds.has(task.parentId)) return false;
+    return true;
+  });
+  if (actionable.length === 0) return null;
+
+  const ordered = [...actionable].sort((a, b) => visIdx(a) - visIdx(b));
+
+  const siblingIdsSortedForParent = (pKey: string | null) => {
+    const sibs = projectTasks.filter((t) => parentKey(t) === pKey);
+    sibs.sort((a, b) => visIdx(a.id) - visIdx(b.id));
+    return sibs.map((t) => t.id);
+  };
+
+  const adjacentInSiblingOrder = (upperId: string, lowerId: string) => {
+    const tu = projectTasks.find((t) => t.id === upperId);
+    const tl = projectTasks.find((t) => t.id === lowerId);
+    if (!tu || !tl) return false;
+    const pku = parentKey(tu);
+    if (pku !== parentKey(tl)) return false;
+    const sibIds = siblingIdsSortedForParent(pku);
+    const iu = sibIds.indexOf(upperId);
+    const il = sibIds.indexOf(lowerId);
+    return il === iu + 1;
+  };
+
+  const segments: string[][] = [];
+  let cur: string[] = [ordered[0]!];
+  for (let i = 1; i < ordered.length; i++) {
+    const prevId = ordered[i - 1]!;
+    const id = ordered[i]!;
+    if (adjacentInSiblingOrder(prevId, id)) cur.push(id);
+    else {
+      segments.push(cur);
+      cur = [id];
+    }
+  }
+  segments.push(cur);
+
+  const parentChange = new Map<string, string>();
+  const expandIds = new Set<string>();
+
+  for (const seg of segments) {
+    const firstId = seg[0]!;
+    const task = projectTasks.find((t) => t.id === firstId);
+    if (!task) continue;
+    const pKey = parentKey(task);
+    const sibs = projectTasks.filter((t) => parentKey(t) === pKey);
+    sibs.sort((a, b) => visIdx(a.id) - visIdx(b.id));
+    const idx = sibs.findIndex((t) => t.id === firstId);
+    if (idx <= 0) continue;
+    const newParent = sibs[idx - 1]!;
+    for (const sid of seg) {
+      parentChange.set(sid, newParent.id);
+    }
+    expandIds.add(newParent.id);
+  }
+
+  if (parentChange.size === 0) return null;
+  return { parentChange, expandIds };
+}
+
 /**
  * 레벨 변경 직전 표시 순서(stableVisibleIds)를 유지하도록 평탄 배열을 재배열한다.
  * 부모는 항상 자식보다 앞에 와야 하므로, 우선순위 안에서 위상적으로 가능한 순서로 채운다.
@@ -242,9 +325,14 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
         const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
+        const visIdx = (tid: string) => {
+          const i = stableIds.indexOf(tid);
+          return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+        };
         const task = projectTasks.find((t) => t.id === id);
         if (!task) return prev;
         const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
+        siblings.sort((a, b) => visIdx(a.id) - visIdx(b.id));
         const idx = siblings.findIndex((t) => t.id === id);
         if (idx <= 0) return prev;
         const newParent = siblings[idx - 1];
@@ -290,28 +378,20 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       let changed = false;
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
-        let projectTasks = prev.filter((t) => t.projectId === cpi);
+        const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
         const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
-        const selectedIds = new Set(ids);
-        for (const taskId of ids) {
-          const task = projectTasks.find((t) => t.id === taskId);
-          if (!task || (task.parentId && selectedIds.has(task.parentId))) continue;
-          const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
-          const idx = siblings.findIndex((t) => t.id === taskId);
-          if (idx > 0) {
-            const newParent = siblings[idx - 1];
-            projectTasks = projectTasks.map((t) => {
-              if (t.id === taskId) return { ...t, parentId: newParent.id };
-              if (t.id === newParent.id) return { ...t, expanded: true };
-              return t;
-            });
-            changed = true;
-          }
-        }
-        if (!changed) return prev;
-        const reordered = reorderProjectTasksForStableVisibleOrder(projectTasks, stableIds);
+        const bulk = computeBulkIndentParentChanges(projectTasks, ids, stableIds);
+        if (!bulk) return prev;
+        const { parentChange, expandIds } = bulk;
+        const updated = projectTasks.map((t) => {
+          if (parentChange.has(t.id)) return { ...t, parentId: parentChange.get(t.id)! };
+          if (expandIds.has(t.id)) return { ...t, expanded: true };
+          return t;
+        });
+        changed = true;
+        const reordered = reorderProjectTasksForStableVisibleOrder(updated, stableIds);
         return recomputeProjectRollups([...otherTasks, ...reordered], cpi, undefined, undefined, true);
       });
       if (changed) bumpDirty();

@@ -67,7 +67,7 @@ interface FileImportExportDeps {
   setMultiMergeConfirm: Dispatch<SetStateAction<MultiMergeConfirmState>>;
   setErrorAlert: Dispatch<SetStateAction<{ isOpen: boolean; message: string }>>;
   setIsExportModalOpen: (open: boolean) => void;
-  /** 가져오기 완료 직후 호출. 보통 App.tsx에서 setView('table')로 표 페이지로 이동시키는 데 사용. */
+  /** 가져오기 완료 직후 호출. 보통 App.tsx에서 setView('tablegantt')로 표+간트 화면으로 이동시키는 데 사용. */
   onImportComplete?: () => void;
   lastExportPrefs: LastExportPrefs | null;
   setLastExportPrefs: (prefs: LastExportPrefs) => void;

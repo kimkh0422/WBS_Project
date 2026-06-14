@@ -49,7 +49,6 @@ import { isDevAuthBypass } from '../lib/devAuthBypass';
 import { buildDevSeed } from '../lib/devSeed';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
-import { draftDefaultRootTaskForProject } from '../lib/defaultProjectRootTask';
 import { ensureProjectTopLevelNameInTasks, isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 
 /** 로컬 설정 위에 DB 설정을 올린 뒤 parseSettings로 마이그레이션·정규화(표 컬럼 등)를 한 번에 적용 */
@@ -129,7 +128,8 @@ export function WBSProvider({
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [wbsSettings, setWbsSettings] = useState<WBSSettings>(DEFAULT_SETTINGS);
-  const [treeExpandLevel, setTreeExpandLevel] = useState<number>(() => Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
+  /** 트리 펼침 깊이(요약바·단축키). WBS 설정의 `maxLevel`(번호 표시 깊이)과 무관해야 함 — 예전에 maxLevel+1로 묶이면 maxLevel=2일 때 항상 ‘3’만 강조되는 버그가 났다. */
+  const [treeExpandLevel, setTreeExpandLevel] = useState<number>(2);
   const [deletedTaskIdsByProject, setDeletedTaskIdsByProject] = useState<Record<string, string[]>>({});
   const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>([]);
 
@@ -181,6 +181,10 @@ export function WBSProvider({
   const allTasksRef = useRef<Task[]>([]);
   const deletedTaskIdsByProjectRef = useRef<Record<string, string[]>>({});
   deletedTaskIdsByProjectRef.current = deletedTaskIdsByProject;
+  const deletedProjectIdsRef = useRef<string[]>([]);
+  deletedProjectIdsRef.current = deletedProjectIds;
+  /** `deleteProject`의 Supabase DELETE 완료 전까지 서버 풀에서 해당 id 제외 */
+  const pendingDbProjectDeleteIdsRef = useRef(new Set<string>());
   const lastConflictRef = useRef<number>(0);
   const CONFLICT_DEBOUNCE_MS = 2000;
   const initNewProjectPromiseRef = useRef<Promise<Project | null> | null>(null);
@@ -297,6 +301,7 @@ export function WBSProvider({
     recordDeletedTaskIds,
     dirtyEpochRef,
     clearUnsyncedIfDirtyEpochIs,
+    pendingDbProjectDeleteIdsRef,
   });
 
   const taskOps = useTaskOps({
@@ -315,16 +320,8 @@ export function WBSProvider({
     clearUnsyncedIfDirtyEpochIs,
   });
 
-  /** 신규 프로젝트 생성 시 WBS 최상단에 프로젝트명(표시명)과 동일한 루트 작업 1행을 기본 추가 */
-  const addProject = useCallback(
-    (...args: Parameters<typeof projectOps.addProject>) => {
-      const created = projectOps.addProject(...args);
-      if (!created) return undefined;
-      taskOps.addTask(draftDefaultRootTaskForProject(created), undefined, created.id);
-      return created;
-    },
-    [projectOps, taskOps],
-  );
+  /** 신규 프로젝트: `useProjectOps.addProject`에서 프로젝트명 루트 작업까지 한 번에 반영 */
+  const addProject = useCallback((...args: Parameters<typeof projectOps.addProject>) => projectOps.addProject(...args), [projectOps]);
 
   const taskMovement = useTaskMovement({
     saveHistory,
@@ -417,7 +414,6 @@ export function WBSProvider({
             /* ignore */
           }
         }
-        setTreeExpandLevel(Math.min(9, Math.max(1, (parsedSettings?.maxLevel ?? DEFAULT_SETTINGS.maxLevel) + 1)));
       };
 
       try {
@@ -462,16 +458,15 @@ export function WBSProvider({
               const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
               const validId = filteredDbProjects.find((p) => p.id === savedCurrent)?.id ?? filteredDbProjects[0]?.id ?? '';
               if (validId) setCurrentProjectId(validId);
-              const ml = effectiveSettings.maxLevel;
-              setTreeExpandLevel(Math.min(9, Math.max(1, ml + 1)));
             } else {
               const p = emptyStarterProject();
+              const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
               setProjects([p]);
-              setAllTasks([]);
+              setAllTasks(ensureTopThenRollups([p], [], effectiveSettings.statusConfigs));
               if (dbSettings) {
-                setWbsSettings((prev) => parseSettings({ ...prev, ...dbSettings }));
+                setWbsSettings((prev) => parseSettings({ ...localSettings, ...prev, ...dbSettings }));
               } else {
-                setWbsSettings(DEFAULT_SETTINGS);
+                setWbsSettings(localSettings);
               }
               setCurrentProjectId(p.id);
               try {
@@ -479,7 +474,6 @@ export function WBSProvider({
               } catch {
                 /* ignore */
               }
-              setTreeExpandLevel(Math.min(9, DEFAULT_SETTINGS.maxLevel + 1));
             }
           } catch (e) {
             handleDbErrorRef.current(e, 'DB에서 불러오지 못했습니다. 이 기기에 저장된 데이터를 표시합니다.');
@@ -528,7 +522,7 @@ export function WBSProvider({
           if (import.meta.env.DEV) console.warn('[DB] 폴백 데이터 로딩 실패:', fallbackErr);
           const p = emptyStarterProject();
           setProjects([p]);
-          setAllTasks([]);
+          setAllTasks(ensureTopThenRollups([p], [], DEFAULT_SETTINGS.statusConfigs));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
         }
@@ -758,9 +752,15 @@ export function WBSProvider({
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
 
+      // 로컬에서 삭제했는데 DB DELETE가 아직 반영되기 전인 프로젝트는 풀 결과에서 제외한다.
+      // (deleteProject는 bumpDirty를 하지 않아 hasLocalChangesSinceSync가 false인 채 주기 풀이 돌 수 있음)
+      const omitProjectIdsForPull = new Set<string>(deletedProjectIdsRef.current);
+      pendingDbProjectDeleteIdsRef.current.forEach((pid) => omitProjectIdsForPull.add(pid));
+      const dbProjectsFiltered = dbProjects.filter((p) => !omitProjectIdsForPull.has(p.id));
+
       // Projects: 변경분만 교체. 순서/개수/내용 모두 같으면 setProjects 호출하지 않음.
       const prevProjects = projectsRef.current;
-      const { merged: mergedProjects, replacedFromServer: pReplaced } = mergeProjectsDelta(prevProjects, dbProjects);
+      const { merged: mergedProjects, replacedFromServer: pReplaced } = mergeProjectsDelta(prevProjects, dbProjectsFiltered);
       const projectsOrderChanged =
         prevProjects.length !== mergedProjects.length || prevProjects.some((p, i) => p.id !== mergedProjects[i]?.id);
       if (pReplaced > 0 || projectsOrderChanged) {
@@ -770,8 +770,10 @@ export function WBSProvider({
       // Tasks: 변경분만 교체. 동일하면 setAllTasks 스킵.
       const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
       const prevTasks = allTasksRef.current;
-      const serverPidSet = new Set((dbProjects ?? []).map((p) => p.id));
-      const rows = Array.isArray(dbTaskRows) ? dbTaskRows : [];
+      const serverPidSet = new Set(dbProjectsFiltered.map((p) => p.id));
+      const rows = (Array.isArray(dbTaskRows) ? dbTaskRows : []).filter(
+        (r: TaskRow) => !omitProjectIdsForPull.has(String(r.project_id ?? '')),
+      );
       const { merged: mergedTasks, replacedFromServer: tReplaced } = mergeTasksDelta(prevTasks, rows, serverPidSet);
       // 아직 DB에 반영 안 된 삭제 목록을 풀 결과에서도 제외 (미완료 삭제가 풀로 되살아나지 않도록)
       const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
@@ -802,9 +804,14 @@ export function WBSProvider({
         }
       }
 
-      if (dbProjects.length > 0) {
+      if (mergedProjects.length > 0) {
         const saved = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
-        const valid = dbProjects.find((p) => p.id === saved)?.id ?? dbProjects[0]!.id ?? '';
+        const cur = currentProjectIdRef.current;
+        const valid =
+          (saved && mergedProjects.find((p) => p.id === saved)?.id) ??
+          (cur && mergedProjects.some((p) => p.id === cur) ? cur : undefined) ??
+          mergedProjects[0]?.id ??
+          '';
         if (valid) setCurrentProjectId(valid);
       }
     } catch {

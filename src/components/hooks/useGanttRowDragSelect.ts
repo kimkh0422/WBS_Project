@@ -35,6 +35,7 @@ export interface UseGanttRowDragSelectOptions {
 /**
  * 간트 타임라인(막대 밖 빈 칸) 또는 사이드바 작업명 행에서 드래그해
  * 표의 체크 다중 선택(selectedTaskIds)과 동일한 구간을 선택한다.
+ * Shift+클릭(이동 없음)만으로는 체크 구간을 넣지 않는다 — 표의 Shift+셀 범위와 혼동 방지.
  */
 export function useGanttRowDragSelect({
   visibleTasks,
@@ -138,13 +139,13 @@ export function useGanttRowDragSelect({
           applyRange(base, endIdx);
           const t = optsRef.current.visibleTasks[endIdx];
           if (t) optsRef.current.setActiveTaskId(t.id);
-        } else if (shiftAtStart) {
-          applyRange(shiftAnchorIdx, startIdx);
-          const t = optsRef.current.visibleTasks[startIdx];
-          if (t) optsRef.current.setActiveTaskId(t.id);
         } else {
+          // Shift+클릭(이동 없음): 표와 같이 체크 구간 확장 없음 — 활성 행만 맞춤
           const t = optsRef.current.visibleTasks[startIdx];
-          if (t) optsRef.current.setActiveTaskId(t.id);
+          if (t) {
+            optsRef.current.setActiveTaskId(t.id);
+            if (shiftAtStart) optsRef.current.anchorTaskIdRef.current = t.id;
+          }
         }
       };
 

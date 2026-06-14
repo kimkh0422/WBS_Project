@@ -4,7 +4,9 @@ import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
 import { upsertProject, upsertTasks, deleteProjectFromDB } from '../../lib/db';
 import { recomputeProjectRollups } from '../../lib/rollups';
-import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
+import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
+import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
+import { draftDefaultRootTaskForProject } from '../../lib/defaultProjectRootTask';
 
 export interface ProjectOpsDeps {
   saveHistory: () => void;
@@ -23,6 +25,8 @@ export interface ProjectOpsDeps {
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
   dirtyEpochRef: MutableRefObject<number>;
   clearUnsyncedIfDirtyEpochIs: (epoch: number) => void;
+  /** DB `projects` DELETE 직후~완료 전: 주기적 서버 풀이 아직 남은 행으로 UI를 되살리지 않도록 */
+  pendingDbProjectDeleteIdsRef: MutableRefObject<Set<string>>;
 }
 
 export function useProjectOps(deps: ProjectOpsDeps) {
@@ -42,6 +46,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     recordDeletedTaskIds,
     dirtyEpochRef,
     clearUnsyncedIfDirtyEpochIs,
+    pendingDbProjectDeleteIdsRef,
   } = deps;
 
   const addProject = useCallback(
@@ -105,19 +110,48 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         pmName: pmFinal,
         poName: extras.poName?.trim() ? extras.poName.trim() : undefined,
       };
+      saveHistory();
+      const draft = draftDefaultRootTaskForProject(newProject);
+      const rootTask: Task = applyMilestoneDateInvariant({
+        ...draft,
+        plannedProgressOverride: null,
+        workEffort: resolveWorkEffortForNewTask(draft.workEffort),
+        id: uuidv4(),
+        projectId: newProject.id,
+      } as Task);
+
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
+      setAllTasks((prev) => recomputeProjectRollups([...prev, rootTask], newProject.id, undefined, undefined, true));
+
       if (useLocalOnlyRef.current) {
         bumpDirty();
       } else {
-        upsertProject(newProject).catch((err) => {
-          bumpDirty();
-          handleDbError(err, '프로젝트 저장에 실패했습니다.');
-        });
+        bumpDirty();
+        const epoch = dirtyEpochRef.current;
+        void upsertProject(newProject)
+          .then(() => upsertTasks([rootTask]))
+          .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+          .catch((err) => {
+            bumpDirty();
+            handleDbError(err, '프로젝트·기본 작업 저장에 실패했습니다.');
+          });
       }
       return newProject;
     },
-    [bumpDirty, handleDbError, ownerIdRef, creatorDisplayNameRef, useLocalOnlyRef, setProjects, setCurrentProjectId],
+    [
+      saveHistory,
+      bumpDirty,
+      handleDbError,
+      ownerIdRef,
+      creatorDisplayNameRef,
+      useLocalOnlyRef,
+      setProjects,
+      setAllTasks,
+      setCurrentProjectId,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   const updateProject = useCallback(
@@ -218,23 +252,40 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       if (useLocalOnlyRef.current) return;
 
       // 원격: 확인 즉시 DB에 반영. tasks.project_id가 ON DELETE CASCADE라 프로젝트만 지우면 작업도 함께 삭제됨.
-      deleteProjectFromDB(id).catch((err) => {
-        // 실패(권한·네트워크 등): 로컬 상태를 원복해 실제 DB와 일치시키고 사용자에게 알린다.
-        if (removedProject) {
-          setProjects((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, removedProject]));
-        }
-        if (removedTasks.length > 0) {
-          setAllTasks((prev) => {
-            const have = new Set(prev.map((t) => t.id));
-            const restore = removedTasks.filter((t) => !have.has(t.id));
-            return restore.length > 0 ? [...prev, ...restore] : prev;
-          });
-        }
-        if (prevCurrent === id) setCurrentProjectId(id);
-        handleDbError(err, '프로젝트 삭제에 실패했습니다.');
-      });
+      // bumpDirty를 쓰지 않아 hasLocalChangesSinceSync가 false인 채로 주기적 서버 풀이 돌면,
+      // DELETE 완료 전 서버에 남은 행이 mergeProjectsDelta로 되살아날 수 있음 → 풀에서 제외.
+      pendingDbProjectDeleteIdsRef.current.add(id);
+      deleteProjectFromDB(id)
+        .catch((err) => {
+          // 실패(권한·네트워크 등): 로컬 상태를 원복해 실제 DB와 일치시키고 사용자에게 알린다.
+          if (removedProject) {
+            setProjects((prev) => (prev.some((p) => p.id === id) ? prev : [...prev, removedProject]));
+          }
+          if (removedTasks.length > 0) {
+            setAllTasks((prev) => {
+              const have = new Set(prev.map((t) => t.id));
+              const restore = removedTasks.filter((t) => !have.has(t.id));
+              return restore.length > 0 ? [...prev, ...restore] : prev;
+            });
+          }
+          if (prevCurrent === id) setCurrentProjectId(id);
+          handleDbError(err, '프로젝트 삭제에 실패했습니다.');
+        })
+        .finally(() => {
+          pendingDbProjectDeleteIdsRef.current.delete(id);
+        });
     },
-    [handleDbError, projectsRef, allTasksRef, currentProjectIdRef, useLocalOnlyRef, setProjects, setAllTasks, setCurrentProjectId],
+    [
+      handleDbError,
+      projectsRef,
+      allTasksRef,
+      currentProjectIdRef,
+      useLocalOnlyRef,
+      setProjects,
+      setAllTasks,
+      setCurrentProjectId,
+      pendingDbProjectDeleteIdsRef,
+    ],
   );
 
   const copyProject = useCallback(

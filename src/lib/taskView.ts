@@ -327,14 +327,15 @@ export function buildVisibleTasks(
         if (!subtreeMatches(current.task.id)) continue;
 
         if (projectTitleSkip?.(current.task)) {
-          // 표에서 숨긴 행이라 접기 UI가 없음 — 항상 자식으로 내려간다.
+          // 자식이 있으면 제목 루트는 생략하고 바로 하위로 내려간다(WBS #는 자식부터 1…).
+          // 자식이 없으면 제목 행을 숨기면 표가 완전히 비어 보이므로 이 경우에는 제목 루트를 표시한다.
           const ch = childrenByParent.get(current.task.id);
           if (ch?.length) {
             for (let index = ch.length - 1; index >= 0; index -= 1) {
               stack.push({ task: ch[index]!, depth: current.depth });
             }
+            continue;
           }
-          continue;
         }
 
         const level = current.depth + 1;
@@ -377,14 +378,13 @@ export function buildVisibleTasks(
     if (!current) continue;
 
     if (projectTitleSkip?.(current.task)) {
-      // 표에서 숨긴 행이라 접기 UI가 없음 — 항상 자식으로 내려간다.
       const ch = childrenByParent.get(current.task.id);
       if (ch?.length) {
         for (let index = ch.length - 1; index >= 0; index -= 1) {
           stack.push({ task: ch[index]!, depth: current.depth });
         }
+        continue;
       }
-      continue;
     }
 
     const level = current.depth + 1;

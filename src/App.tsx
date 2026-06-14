@@ -584,7 +584,6 @@ function WBSApp({
     hasActiveFilters,
     allAssignees,
     effectiveFilters,
-    resetWbsFilters,
   } = useWbsViewFilters({ tasks, currentProjectId });
   // 대시보드 필터 도구줄 표시 상태 — useDashboardFilterToolbar로 분리(동작 동일)
   const { dashboardFiltersActive, showDashboardFilterToolbar, onDashboardFilterToolbarClick } = useDashboardFilterToolbar(view);
@@ -597,7 +596,7 @@ function WBSApp({
         // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
         const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
         if (!taskViews.includes(viewRef.current)) {
-          setView(lockMobileToDashboard ? 'dashboard' : 'table');
+          setView(lockMobileToDashboard ? 'dashboard' : 'tablegantt');
         }
       });
     },
@@ -655,7 +654,7 @@ function WBSApp({
   const navigateToTask = useCallback(
     (taskId: string, projectId: string) => {
       requestProjectSwitch(projectId, () => {
-        if (lockMobileToDashboard || hiddenViews.has('table')) {
+        if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
           setCurrentProjectId(projectId);
           setView('dashboard');
           pushToast(
@@ -674,7 +673,7 @@ function WBSApp({
         setSelectedTaskIds([taskId]);
         expandAncestors(taskId);
         setScrollToTaskId(taskId);
-        setView('table');
+        setView('tablegantt');
         // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
         setTimeout(() => {
           setScrollToTaskId(null);
@@ -815,7 +814,7 @@ function WBSApp({
     setMultiMergeConfirm,
     setErrorAlert,
     setIsExportModalOpen,
-    onImportComplete: () => setView('table'),
+    onImportComplete: () => setView('tablegantt'),
     lastExportPrefs,
     setLastExportPrefs,
     importPreview,
@@ -1103,7 +1102,7 @@ function WBSApp({
                     <Dashboard
                       mobileReadabilityMode={lockMobileToDashboard}
                       projectRegistrationPdfRef={projectRegistrationPdfRef}
-                      onNavigate={lockMobileToDashboard || hiddenViews.has('table') ? undefined : handleDashboardNavigate}
+                      onNavigate={lockMobileToDashboard || hiddenViews.has('tablegantt') ? undefined : handleDashboardNavigate}
                       onOpenTaskInTable={navigateToTask}
                       registeredMemberDisplayNames={registeredMemberDisplayNames}
                       accessibleProjectIds={
@@ -1165,7 +1164,6 @@ function WBSApp({
                       filters={effectiveFilters}
                       sortConfig={sortConfig}
                       onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                      onResetFilters={resetWbsFilters}
                       scrollToTaskId={scrollToTaskId}
                       sharedRowHeight={sharedRowHeight}
                       onRowHeightChange={setSharedRowHeight}
@@ -1192,7 +1190,6 @@ function WBSApp({
                         rowHeight={sharedRowHeight}
                         onRowHeightChange={setSharedRowHeight}
                         onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
-                        onResetFilters={resetWbsFilters}
                         scrollToTaskId={scrollToTaskId}
                         onSort={(key) => {
                           setSortConfig((current) => {
@@ -1219,10 +1216,10 @@ function WBSApp({
                 ) : view === 'projects' ? (
                   <ErrorBoundary viewName="프로젝트 관리">
                     <ProjectsPage
-                      onNavigateToWork={(projectId, preferView) => {
+                      onNavigateToWork={(projectId) => {
                         const apply = () => {
                           if (projectId) setCurrentProjectId(projectId);
-                          if (lockMobileToDashboard || hiddenViews.has('table')) {
+                          if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
                             pushToast(
                               lockMobileToDashboard
                                 ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
@@ -1234,11 +1231,8 @@ function WBSApp({
                               },
                             );
                             setView('dashboard');
-                          } else if (preferView === 'tablegantt' && !hiddenViews.has('tablegantt')) {
-                            // 복사 등 표+간트 선호 진입
-                            setView('tablegantt');
                           } else {
-                            setView('table');
+                            setView('tablegantt');
                           }
                         };
                         if (projectId) requestProjectSwitch(projectId, apply);
@@ -1262,7 +1256,7 @@ function WBSApp({
                       onNavigateToWork={(projectId) => {
                         requestProjectSwitch(projectId, () => {
                           setCurrentProjectId(projectId);
-                          setView(hiddenViews.has('table') ? 'dashboard' : 'table');
+                          setView(hiddenViews.has('tablegantt') ? 'dashboard' : 'tablegantt');
                         });
                       }}
                     />
@@ -1327,7 +1321,7 @@ function WBSApp({
           onSelectProject={(projectId) => {
             requestProjectSwitch(projectId, () => {
               setCurrentProjectId(projectId);
-              if (lockMobileToDashboard || hiddenViews.has('table')) {
+              if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
                 setView('dashboard');
                 pushToast(
                   lockMobileToDashboard
@@ -1340,7 +1334,7 @@ function WBSApp({
                   },
                 );
               } else {
-                setView('table');
+                setView('tablegantt');
               }
             });
           }}
@@ -1598,10 +1592,10 @@ function WBSApp({
               requestProjectSwitch(projectId, () => {
                 setCurrentProjectId(projectId);
                 setIsMembersModalOpen(false);
-                if (lockMobileToDashboard || hiddenViews.has('table')) {
+                if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
                   setView('dashboard');
                 } else {
-                  setView('table');
+                  setView('tablegantt');
                 }
               });
             }}

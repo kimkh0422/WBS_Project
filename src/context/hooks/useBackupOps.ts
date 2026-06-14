@@ -199,7 +199,8 @@ export function useBackupOps(deps: BackupOpsDeps) {
         idsByProject.set(t.projectId, [...(idsByProject.get(t.projectId) ?? []), t.id]);
       });
       idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
-      return [];
+      const { tasks: ensured } = ensureProjectTopLevelNameInTasks([newProject], []);
+      return applyRollupsToTasks(ensured, wbsSettingsRef.current.statusConfigs);
     });
     setCurrentProjectId(newProject.id);
     bumpDirty(); // 자동 sync trigger → DB에서 기존 프로젝트들 삭제됨

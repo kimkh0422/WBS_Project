@@ -1,6 +1,26 @@
 import type { Task } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * 체크박스로 표시 순서상 여러 행이 선택된 경우, 맨 위 선택 행 바로 아래에 끼워 넣도록
+ * `pasteClipboardTasks`에 넘길 `targetId`(해당 행 뒤에 삽입)를 고른다.
+ */
+export function resolvePasteTargetAfterWhichInsert(opts: {
+  focusedOrLastTaskId: string | null | undefined;
+  selectedTaskIds: ReadonlySet<string>;
+  visibleTasks: { id: string }[];
+}): string | null {
+  if (opts.selectedTaskIds.size <= 1) {
+    return opts.focusedOrLastTaskId ?? null;
+  }
+  let minIdx = Infinity;
+  for (let i = 0; i < opts.visibleTasks.length; i++) {
+    if (opts.selectedTaskIds.has(opts.visibleTasks[i]!.id)) minIdx = Math.min(minIdx, i);
+  }
+  if (!Number.isFinite(minIdx) || minIdx < 0) return opts.focusedOrLastTaskId ?? null;
+  return opts.visibleTasks[minIdx]!.id;
+}
+
 export interface PasteClipboardContext {
   /** 붙여넣을 작업 배열(복사 시점의 Task 스냅샷) */
   clipboard: Task[];

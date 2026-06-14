@@ -47,7 +47,7 @@ export function MdEditModal({ isOpen, onClose, initialMarkdown, onSave }: MdEdit
     <div className={MODAL_BACKDROP_CLASS}>
       <div className={cn(MODAL_PANEL_BASE_CLASS, 'max-w-4xl max-h-[90vh] overflow-hidden flex flex-col')}>
         <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 bg-slate-50/80 shrink-0">
-          <h3 className="text-sm font-semibold text-slate-800">표 내용 마크다운 편집</h3>
+          <h3 className="text-sm font-semibold text-slate-800">현재 프로젝트 표 — 마크다운 편집</h3>
           <button
             type="button"
             onClick={onClose}
@@ -58,8 +58,11 @@ export function MdEditModal({ isOpen, onClose, initialMarkdown, onSave }: MdEdit
           </button>
         </div>
         <div className="p-3 flex-1 min-h-0 flex flex-col">
-          <p className="text-xs text-slate-500 mb-2">
-            아래 표를 직접 수정한 뒤 저장하면 작업 데이터에 반영됩니다. WBS 코드(**1**, **1.1** 등)는 변경하지 마세요.
+          <p className="text-xs text-slate-500 mb-2 leading-relaxed">
+            외부에서 만든 내용이 있으면 아래에 <strong>통째로 붙여넣기</strong>해도 됩니다. 단,{' '}
+            <code className="rounded bg-slate-100 px-1 text-[11px]">| WBS | 작업명 | …</code> 형태의 <strong>8열 파이프 표</strong>와{' '}
+            <code className="rounded bg-slate-100 px-1 text-[11px]">|-----|</code> 구분 줄이 있어야 합니다. 저장 시{' '}
+            <strong>선택된 프로젝트</strong>의 작업만 갱신됩니다. WBS 열의 <strong>**코드**</strong>는 바꾸지 마세요.
           </p>
           <textarea
             ref={textareaRef}

@@ -125,16 +125,14 @@ export function ShortcutsSidebar({
             [<ArrowUp size={12} key="cellU" />],
             [<ArrowDown size={12} key="cellD" />],
           ],
-          hint: 'Alt+↑↓는 표시 순서 이동(정렬·필터 없을 때만). 체크 다중 선택 시 같은 부모 아래 연속 블록마다 한 칸씩',
+          hint: 'Shift+화살표: 셀 직사각형 범위 확장(엑셀). Shift 없는 화살표: 한 칸 이동·마퀴 해제. Alt+↑↓는 표시 순서 이동(정렬·필터 없을 때만). Ctrl/Meta+↑↓는 이웃 행을 체크에 추가',
         },
         {
           label: '트리 접기 · 펼치기',
-          chords: [
-            ['Shift', <ArrowLeft size={12} key="left" />],
-            ['Shift', <ArrowRight size={12} key="right" />],
-          ],
+          chords: [['작업명 열', '▾', '/', '▸']],
+          hint: 'Shift+←/→는 셀 이동에 사용됩니다. 접기·펼치기는 트리 모드에서 행 왼쪽 버튼으로 하세요',
         },
-        { label: '체크 토글', chords: ['Space'] },
+        { label: '체크 토글', chords: ['Space'], hint: '다중 셀(마퀴) 선택 중이면 해당 행 전부 체크 선택' },
         {
           label: '복사 · 붙여넣기',
           chords: [

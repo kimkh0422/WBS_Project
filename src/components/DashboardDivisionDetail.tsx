@@ -28,6 +28,8 @@ export interface DivisionDetailStats {
   memberCount: number;
   /** 완료 처리되지 않은 작업 수 */
   inProgressCount: number;
+  /** 직위에「부사장」이 포함된 소속 인원 이름(가나다순) */
+  vicePresidentNames: string[];
 }
 
 interface DashboardDivisionDetailProps {
@@ -108,6 +110,11 @@ export function DashboardDivisionDetail({
             <p className="text-sm text-slate-500 mt-1">
               이 사업부로 분류된 프로젝트(PM·PO·소유자 부서 추론, 없으면 프로젝트 그룹명)와 그 프로젝트에 등록된 작업·투입·담당 현황입니다.
             </p>
+            {stats.vicePresidentNames.length > 0 && (
+              <p className="text-sm text-slate-600 mt-1.5 m-0">
+                <span className="font-semibold text-slate-700">부사장</span> {stats.vicePresidentNames.join(' · ')}
+              </p>
+            )}
           </div>
         </div>
         <span className="text-sm text-slate-400 tabular-nums shrink-0 text-right">

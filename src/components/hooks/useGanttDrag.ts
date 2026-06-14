@@ -357,26 +357,14 @@ export function useGanttDrag({
           }
         } else if (drag.type === 'move') {
           // 클릭(드래그 없음): 선택 처리
-          const { selectedTaskIds: sel, visibleTasks: vis, setSelectedTaskIds: setSel, setActiveTaskId: setActive } = selectionRef.current;
+          const { selectedTaskIds: sel, setSelectedTaskIds: setSel, setActiveTaskId: setActive } = selectionRef.current;
           const taskId = drag.clickTaskId;
           const multi = drag.ctrlKey;
           const range = drag.shiftKey;
           const current = new Set<string>(sel);
-          // 표에서만 선택한 뒤 간트에서 Shift 구간 선택 시 앵커 ref가 비어 있을 수 있음 → 현재 선택의 마지막 항목으로 보강
-          const anchorId = anchorTaskIdRef.current ?? (sel.length > 0 ? sel[sel.length - 1]! : null);
-          if (range && anchorId) {
-            // Shift+클릭: 체크박스 범위 추가 (체크박스 동작은 명시적 modifier에서만)
-            const idx = vis.findIndex((t) => t.id === taskId);
-            const anchorIdx = vis.findIndex((t) => t.id === anchorId);
-            let next: string[];
-            if (idx !== -1 && anchorIdx !== -1) {
-              const start = Math.min(idx, anchorIdx);
-              const end = Math.max(idx, anchorIdx);
-              next = vis.slice(start, end + 1).map((t) => t.id);
-            } else {
-              next = [...current, taskId];
-            }
-            setSel(next);
+          if (range) {
+            // Shift+클릭: 표는 셀 직사각형 범위 — 간트 막대에서는 체크 구간을 넣지 않고 활성 행만 이동
+            anchorTaskIdRef.current = taskId;
             setActive(taskId);
           } else if (multi) {
             // Ctrl/Cmd+클릭: 체크박스 토글 (체크박스 동작은 명시적 modifier에서만)

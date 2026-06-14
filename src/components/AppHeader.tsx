@@ -65,7 +65,7 @@ import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 /** 대시보드가 숨겨진 배포에서만 로고가 대체할 첫 탭 — `MAIN_NAV_VIEW_ORDER`와 동일 우선순위 */
-const LOGO_FALLBACK_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'table', 'tablegantt', 'gantt', 'kanban', 'mindmap'] as const;
+const LOGO_FALLBACK_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'tablegantt', 'table', 'gantt', 'kanban', 'mindmap'] as const;
 
 export interface AppHeaderProps {
   wbsSettings: WBSSettings;
@@ -1477,7 +1477,7 @@ export function AppHeader({
                   ? 'text-[var(--color-ink)] bg-[var(--color-bg)]'
                   : 'text-[var(--color-ink-subdued)] hover:text-[var(--color-ink)] hover:bg-[var(--color-bg)]',
               )}
-              title="가져오기·보내기·조직 현황·회원 관리·데이터 삭제 등 부가 메뉴를 엽니다."
+              title="가져오기·보내기·단축키 등. 사용 설명서·조직·회원 관리·작업 로그·삭제는 Shift+F12 후 ⋮ 또는 상단 관리 메뉴에서 열 수 있습니다."
               aria-label="추가 옵션"
             >
               <MoreHorizontal size={15} />
@@ -1490,10 +1490,10 @@ export function AppHeader({
                   aria-hidden
                 />
                 <div className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] ring-1 ring-slate-900/[0.08] dark:ring-white/12 dropdown-menu flex flex-col py-1">
-                  {(onOpenTutorial || onStartTour) && (
+                  {(onStartTour || (onOpenTutorial && showAdminHeaderToolbar)) && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">도움말</div>
-                      {onOpenTutorial && (
+                      {onOpenTutorial && showAdminHeaderToolbar && (
                         <button
                           type="button"
                           onClick={() => {
@@ -1501,7 +1501,7 @@ export function AppHeader({
                             onOpenTutorial();
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
-                          title="화면 구성·프로젝트·작업·단축키 등 사용법 전체를 글로 정리한 설명서를 엽니다."
+                          title="화면 구성·프로젝트·작업·단축키 등 사용법 전체를 글로 정리한 설명서를 엽니다. (Shift+F12로 이 메뉴 표시)"
                         >
                           <BookOpen size={14} /> 사용 설명서
                         </button>
@@ -1522,7 +1522,7 @@ export function AppHeader({
                       <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
-                  {(userApproved || effectiveIsAdmin) && (
+                  {(userApproved || effectiveIsAdmin) && showAdminHeaderToolbar && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">조직</div>
                       <button
@@ -1532,7 +1532,7 @@ export function AppHeader({
                           setIsOrganizationOpen(true);
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
-                        title="조직도·부서·인원 구조를 확인하고, 회원과 연동되는 표시 정보를 점검할 수 있는 화면으로 이동합니다."
+                        title="조직도·부서·인원 구조를 확인하고, 회원과 연동되는 표시 정보를 점검할 수 있는 화면으로 이동합니다. (Shift+F12로 이 메뉴 표시)"
                       >
                         <Users size={14} /> 조직 현황
                       </button>
@@ -1604,9 +1604,11 @@ export function AppHeader({
                     <Keyboard size={14} /> 단축키
                   </button>
 
-                  {(allowMembersManagement || showSuperAdminDeleteMenu) && <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />}
+                  {showAdminHeaderToolbar && (allowMembersManagement || showSuperAdminDeleteMenu) && (
+                    <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
+                  )}
 
-                  {allowMembersManagement && (
+                  {showAdminHeaderToolbar && allowMembersManagement && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
                         {effectiveIsAdmin ? '관리자 기능' : '조직 관리'}
@@ -1618,7 +1620,7 @@ export function AppHeader({
                           setIsMembersModalOpen(true);
                         }}
                         className="w-full text-left px-3 py-2 text-sm text-teal-600 hover:bg-teal-50 flex items-center gap-2"
-                        title="조직 회원 목록·승인·역할·프로젝트별 접근 권한을 확인하고 수정합니다. 시스템 관리자 또는 조직 책임자만 열 수 있습니다."
+                        title="조직 회원 목록·승인·역할·프로젝트별 접근 권한을 확인하고 수정합니다. 시스템 관리자 또는 조직 책임자만 열 수 있습니다. (Shift+F12로 이 메뉴 표시)"
                       >
                         <Users size={14} /> 회원 관리
                       </button>
@@ -1631,17 +1633,17 @@ export function AppHeader({
                             onOpenAuditLog();
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-indigo-600 hover:bg-indigo-50 flex items-center gap-2"
-                          title="회원들이 언제 무엇을 생성·수정·삭제했는지(프로젝트·작업) 전체 변경 이력을 조회합니다. 운영자만 볼 수 있습니다."
+                          title="회원들이 언제 무엇을 생성·수정·삭제했는지(프로젝트·작업) 전체 변경 이력을 조회합니다. 운영자만 볼 수 있습니다. (Shift+F12로 이 메뉴 표시)"
                         >
                           <History size={14} /> 작업 로그
                         </button>
                       )}
-                      {/* 일반 사용자 화면 진입은 Shift+F12만 (계정 메뉴에서는 미리보기 중일 때만 관리자 화면으로 복귀) */}
+                      {/* 일반 사용자 화면 진입은 Alt+Shift+F12 (계정 메뉴에서는 미리보기 중일 때만 관리자 화면으로 복귀) */}
                       {/* 로컬 초기화: 관리자에게도 숨김 처리 */}
                     </>
                   )}
 
-                  {showSuperAdminDeleteMenu && (
+                  {showAdminHeaderToolbar && showSuperAdminDeleteMenu && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1650,7 +1652,7 @@ export function AppHeader({
                         tipOnce?.('menu.deleteAll', '삭제 및 초기화 메뉴입니다.');
                       }}
                       className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 mt-1 border-t border-[var(--color-line)] pt-2 pb-1"
-                      title="선택한 프로젝트·작업만 삭제하거나, 조직 데이터를 초기화하는 등 되돌리기 어려운 작업을 수행합니다. 실행 전 내용을 반드시 확인하세요."
+                      title="선택한 프로젝트·작업만 삭제하거나, 조직 데이터를 초기화하는 등 되돌리기 어려운 작업을 수행합니다. 실행 전 내용을 반드시 확인하세요. (Shift+F12로 이 메뉴 표시)"
                     >
                       <Trash2 size={14} /> 부분/전체 삭제
                     </button>
@@ -1672,9 +1674,9 @@ export function AppHeader({
                 className="flex items-center gap-1 px-1.5 py-1 text-[11px] font-medium rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-bg)] max-w-[140px] sm:max-w-[180px]"
                 title={
                   memberPreview && canSwitchAdminMemberView
-                    ? '계정: 일반 사용자 화면 모드 (Shift+F12 또는 아래 메뉴에서 관리자 화면으로 전환)'
+                    ? '계정: 일반 사용자 화면 모드 (Alt+Shift+F12 또는 아래 메뉴에서 관리자 화면으로 전환)'
                     : canSwitchAdminMemberView
-                      ? '계정 (Shift+F12로 일반 사용자 화면 전환)'
+                      ? '계정 (Alt+Shift+F12로 일반 사용자 화면 전환)'
                       : '계정'
                 }
               >
@@ -1697,7 +1699,7 @@ export function AppHeader({
                           setIsUserMenuOpen(false);
                           setMemberPreview(false);
                         }}
-                        title="Shift+F12로도 전환할 수 있습니다."
+                        title="Alt+Shift+F12로도 전환할 수 있습니다."
                       >
                         <EyeOff size={14} /> 관리자 화면으로 전환
                       </button>

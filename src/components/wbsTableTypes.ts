@@ -49,8 +49,6 @@ export interface WBSTableProps {
   fillHeight?: boolean;
   /** true면 마운트(및 프로젝트·프로젝트 필터 변경) 시 보이는 컬럼을 데이터에 맞게 일괄 자동 맞춤. 표만 탭 등에서 사용 */
   autoFitColumnsOnMount?: boolean;
-  /** 필터로 인해 표시 행이 없을 때 "필터 초기화" 등에 사용 */
-  onResetFilters?: () => void;
   /** 설정 시 해당 작업으로 자동 스크롤 (검색/알림에서 이동 시 사용) */
   scrollToTaskId?: string | null;
   /**

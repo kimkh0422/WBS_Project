@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Task, FilterState, SortConfig } from '../types';
 
 interface UseWbsViewFiltersParams {
@@ -85,25 +85,6 @@ export function useWbsViewFilters({ tasks, currentProjectId }: UseWbsViewFilters
         notStartedYetOnly: false,
       };
 
-  const resetWbsFilters = useCallback(() => {
-    setFilters((prev) => ({
-      ...prev,
-      projectIds: 'all',
-      status: 'all',
-      assignee: '',
-      assigneeUnassignedOnly: false,
-      startDate: '',
-      endDate: '',
-      milestoneOnly: false,
-      issueOnly: false,
-      level: 'all',
-      pastDueOnly: false,
-      completedThisWeekOnly: false,
-      notStartedYetOnly: false,
-      searchText: '',
-    }));
-  }, []);
-
   return {
     filters,
     setFilters,
@@ -119,6 +100,5 @@ export function useWbsViewFilters({ tasks, currentProjectId }: UseWbsViewFilters
     hasActiveFilters,
     allAssignees,
     effectiveFilters,
-    resetWbsFilters,
   };
 }
