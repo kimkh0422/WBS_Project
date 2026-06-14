@@ -29,13 +29,14 @@ import {
   Copy,
   ClipboardPaste,
   ListOrdered,
+  Unlink,
+  RemoveFormatting,
 } from 'lucide-react';
 import { type TableColumnId, type TableDisplayColumnId, type WBSTableProps, type WbsEditingCellPayload } from './wbsTableTypes';
 import { useWbsTableKeyboard, getWbsTableCopyPlainText } from './hooks/useWbsTableKeyboard';
 import { useRealtimeCellFocus } from './hooks/useRealtimeCellFocus';
 import { useColumnResize, COLUMN_HEADER_LABELS } from './hooks/useColumnResize';
-import { useWbsSummaryStats } from './hooks/useWbsSummaryStats';
-import { useWbsBulkEdit } from './hooks/useWbsBulkEdit';
+import { useWbsBulkEdit, type BulkTaskKind } from './hooks/useWbsBulkEdit';
 import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
 import { useWbsDragRangeSelect } from './hooks/useWbsDragRangeSelect';
@@ -43,13 +44,14 @@ import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
 import { SortableTaskRow } from './SortableTaskRow';
-import type { Project, Task } from '../types';
+import type { Project, Task, TaskStatus } from '../types';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { buildParentSet, buildVisibleTasks, buildTasksInTreeOrderWithWbs } from '../lib/taskView';
+import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import { buildMarkdownFromTasks, parseMarkdownTable } from '../lib/export';
 import { useToast } from './Toast';
 import { getCriticalPathTaskIds } from '../lib/schedule';
@@ -61,13 +63,16 @@ import {
   DEFAULT_NEW_TASK_WORK_EFFORT,
   defaultEndDateForNewTask,
   normalizeWorkEffortUnit,
+  startEndForNewTaskBelowVisibleRow,
   workEffortUnitSuffixKo,
 } from '../lib/workEffortUnits';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
 import { buildWbsImprovementGuide } from '../lib/wbsImprovementGuide';
+import { format } from 'date-fns';
+import { mergeTaskCellTextStyles } from '../lib/cellTextStyle';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { pasteClipboardTasks } from '../lib/wbsClipboard';
-import type { WbsCellClipboardData } from '../lib/wbsCellClipboard';
+import { buildWbsCellPasteUpdate, type WbsCellClipboardData } from '../lib/wbsCellClipboard';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import {
   getSingleClickEdit,
@@ -144,7 +149,6 @@ export function WBSTable({
   onBottomInsetChange,
   bottomDockContainer,
   topDockContainer,
-  splitSummaryChromeContainer,
   hotkeysEnabled = true,
   onOpenColumnSettings,
   fillHeight = false,
@@ -152,6 +156,8 @@ export function WBSTable({
   onResetFilters,
   scrollToTaskId,
   taskContextMenuHandlerRef,
+  plannedRefDateIso: plannedRefDateIsoProp,
+  onPlannedRefDateIsoChange,
 }: WBSTableProps) {
   const {
     tasks,
@@ -181,6 +187,7 @@ export function WBSTable({
     activeTaskId,
     setActiveTaskId,
     distributeChildrenSchedule,
+    disconnectSubtreeInternalDependencies,
     canEditCurrentProject,
     moveTaskRootsSibling,
     linkSequentialPredecessors,
@@ -188,6 +195,8 @@ export function WBSTable({
     forkTaskToProject,
     setCurrentProjectId,
   } = useWBS();
+
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
 
   const { push: pushToast } = useToast();
   const { user } = useAuth();
@@ -230,14 +239,13 @@ export function WBSTable({
   const [singleClickEdit, setSingleClickEditState] = useState(getSingleClickEdit);
   useEffect(() => subscribeSingleClickEditChanged(() => setSingleClickEditState(getSingleClickEdit())), []);
 
-  /** 고급 도구(자동 서식) 툴바 표시. 기본 숨김, Shift+F12로 토글. 이 브라우저에만 저장. */
+  /** Shift+F12: 표 헤더 우클릭 메뉴의 관리자 항목(보완 가이드·컬럼 설정) 표시. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
   useEffect(() => subscribeShowAdvancedToolsChanged(() => setShowAdvancedToolsState(getShowAdvancedTools())), []);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
       const isF12 = e.key === 'F12' || e.code === 'F12';
-      // Shift+F12: 고급 도구 버튼 표시/숨김 토글 (브라우저 기본 동작 없음)
       if (!isF12 || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
       const el = e.target as HTMLElement;
       const tag = el?.tagName;
@@ -246,9 +254,10 @@ export function WBSTable({
       const next = !getShowAdvancedTools();
       setShowAdvancedTools(next);
       setShowAdvancedToolsState(next);
-      pushToast(next ? '고급 도구를 표시합니다. (자동 서식)' : '고급 도구를 숨겼습니다. (Shift+F12로 다시 표시)', {
-        variant: 'info',
-      });
+      pushToast(
+        next ? '관리자 메뉴를 표시합니다. (헤더 우클릭: 보완 가이드·컬럼 설정)' : '관리자 메뉴를 숨겼습니다. (Shift+F12로 다시 표시)',
+        { variant: 'info' },
+      );
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -257,8 +266,12 @@ export function WBSTable({
   // visibleTasks must be defined early - used by many hooks below
   // preserveDepthOnFiltered: 필터 후에도 레벨(depth)·색상 유지 (간트와 동기화)
   const visibleTasks = useMemo(
-    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: true }),
-    [tasks, filters, sortConfig],
+    () =>
+      buildVisibleTasks(tasks, filters, sortConfig, {
+        preserveDepthOnFiltered: true,
+        projectTitleSkip: (t) => isProjectTitleRootTask(t, projectsById.get(t.projectId)),
+      }),
+    [tasks, filters, sortConfig, projectsById],
   );
 
   const workEffortHeaderTitle = useMemo(() => {
@@ -574,11 +587,10 @@ export function WBSTable({
   const [rowHeightState, setRowHeightState] = useState<number>(20);
   const rowHeight = propRowHeight ?? rowHeightState;
 
-  /** 계획율 기준일(YYYY-MM-DD): 표·요약의 모든 계획율(%)·차이(%P)를 이 날짜 기준으로 산정.
-   *  - 기본: 빈 값('') = "오늘 자동" 모드(매일 자동 갱신). 새로고침하면 항상 오늘 기준으로 시작.
-   *  - 사용자가 날짜를 입력하면 해당 세션 동안만 그 날짜 기준으로 재계산(저장하지 않음 —
-   *    며칠 전 기준일이 localStorage에 남아 계획율이 전부 0%로 보이던 문제 방지) */
-  const [plannedRefDateIso, setPlannedRefDateIso] = useState('');
+  /** 계획율 기준일(YYYY-MM-DD): 표·요약·(split 시)간트 기준선. 기본은 로컬 당일; 부모가 넘기면 표+간트와 동기화 */
+  const [internalPlannedRef, setInternalPlannedRef] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const plannedRefDateIso = plannedRefDateIsoProp ?? internalPlannedRef;
+  const setPlannedRefDateIso = onPlannedRefDateIsoChange ?? setInternalPlannedRef;
   useEffect(() => {
     // 과거 버전이 영구 저장해 둔 고정 기준일 제거(남아 있으면 매일 어긋난 기준으로 보임)
     try {
@@ -622,12 +634,40 @@ export function WBSTable({
   const virtualRangeExtractor = useCallback(
     (range: Parameters<typeof defaultRangeExtractor>[0]) => {
       const base = defaultRangeExtractor(range);
-      const extra: number[] = [];
-      if (dndActiveIndex !== -1 && !base.includes(dndActiveIndex)) extra.push(dndActiveIndex);
-      // 키보드 셀 포커스(미편집) 행이 뷰포트 밖이면 언마운트 → 첫 글자 type-to-edit 실패 방지
-      if (focusedTaskRowIndex !== -1 && !base.includes(focusedTaskRowIndex)) extra.push(focusedTaskRowIndex);
-      if (extra.length === 0) return base;
-      return [...base, ...extra].sort((a, b) => a - b);
+      if (base.length === 0) return base;
+
+      const baseLo = base[0]!;
+      const baseHi = base[base.length - 1]!;
+
+      const dndExtra = dndActiveIndex !== -1 && !base.includes(dndActiveIndex) ? dndActiveIndex : null;
+      let focusExtra: number | null = null;
+      if (focusedTaskRowIndex !== -1 && !base.includes(focusedTaskRowIndex)) {
+        const lo = Math.min(baseLo, focusedTaskRowIndex);
+        const hi = Math.max(baseHi, focusedTaskRowIndex);
+        // 키보드 셀 포커스 행을 뷰포트 밖에서도 붙이되, 멀리 떨어진 경우 [0, 50..70]처럼 인덱스만 정렬해
+        // 넣으면 DOM 행 순서가 측정 start/end와 맞지 않아 scrollHeight·RO·표↔간트 세로 동기가 흔들려
+        // 하단이 깜빡일 수 있다(ESC로 focusedCell 해제 시 정상으로 보이던 현상).
+        const MAX = 200;
+        if (hi - lo + 1 <= MAX) focusExtra = focusedTaskRowIndex;
+      }
+
+      const mergeExtras: number[] = [];
+      if (dndExtra !== null) mergeExtras.push(dndExtra);
+      if (focusExtra !== null) mergeExtras.push(focusExtra);
+      if (mergeExtras.length === 0) return base;
+
+      const lo = Math.min(baseLo, ...mergeExtras);
+      const hi = Math.max(baseHi, ...mergeExtras);
+      const span = hi - lo + 1;
+      const MAX = 200;
+      if (span <= MAX) {
+        const out: number[] = [];
+        for (let i = lo; i <= hi; i++) out.push(i);
+        return out;
+      }
+
+      // 장거리 DnD 등: 기존처럼 비연속 인덱스 병합
+      return [...base, ...mergeExtras].sort((a, b) => a - b);
     },
     [dndActiveIndex, focusedTaskRowIndex],
   );
@@ -642,8 +682,14 @@ export function WBSTable({
       }
       return rowHeight;
     },
-    overscan: 5,
+    enabled: shouldVirtualize,
+    // 맨 아래 경계에서 가시 인덱스가 잘게 흔들리지 않도록 여유를 둔다.
+    overscan: 16,
     rangeExtractor: virtualRangeExtractor,
+    // 스크롤마다 flushSync 커밋하면 RO·동기 스크롤과 겹칠 때 하단 행이 깜빡일 수 있다.
+    useFlushSync: false,
+    // scroll 엘리먼트 RO를 rAF로 묶어 한 틱에 여러 번 레이아웃이 흔들리는 것을 줄인다.
+    useAnimationFrameWithResizeObserver: true,
   });
 
   // scrollToTaskId prop: 외부에서 지정한 작업으로 스크롤 (가상 스크롤 + 프로젝트 전환 대응)
@@ -906,8 +952,6 @@ export function WBSTable({
     [tasks, filters.projectIds],
   );
 
-  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
-
   const improvementGuideSteps = useMemo(
     () =>
       buildWbsImprovementGuide(baseTasks, projectsById, wbsSettings.statusConfigs ?? [], {
@@ -924,9 +968,12 @@ export function WBSTable({
   /** # 칸에 표시할 순수 계층 WBS 번호(접두어 없이 1 · 1.1 · 1.1.1). 설정 접두어가 붙는 wbsMap과 별개. */
   const seqWbsMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const { task, wbsCode } of buildTasksInTreeOrderWithWbs(baseTasks)) m.set(task.id, wbsCode);
+    for (const { task, wbsCode } of buildTasksInTreeOrderWithWbs(baseTasks, {
+      isWbsTreeRootSkip: (t) => isProjectTitleRootTask(t, projectsById.get(t.projectId)),
+    }))
+      m.set(task.id, wbsCode);
     return m;
-  }, [baseTasks]);
+  }, [baseTasks, projectsById]);
   /** 작업별 계획율(0~100). 리프=영업일 경과 비율, 부모=자식 가중 롤업. 진척차이 컬럼 계산에도 사용 */
   const plannedProgressById = useMemo(() => computePlannedProgressMap(baseTasks, effectivePlannedRef), [baseTasks, effectivePlannedRef]);
   const isTreeView = !(
@@ -1102,8 +1149,9 @@ export function WBSTable({
               : (editableColumnIds[0] ?? 'name');
         return { taskId, columnId: col };
       });
-      // 다중 선택 후 다른 행을 (수정키 없이) 클릭하면 체크박스 선택을 자동 해제.
-      // Shift/Ctrl 클릭(다중 선택 조작)은 keepSelection으로 보존한다.
+      // 다중 선택 후 행 배경(패딩)만 (수정키 없이) 클릭하면 체크박스 선택을 자동 해제 — SortableTaskRow 행 onClick.
+      // 셀 클릭·WBS 번호 칸 등은 onFocusRow(..., { keepSelection: true })로 포커스만 옮기고 선택은 유지한다.
+      // Shift/Ctrl 클릭(다중 선택 조작)도 keepSelection으로 보존한다.
       if (!opts?.keepSelection && selectedTaskIdsRef.current.size > 0) {
         setSelection(new Set());
         resetBulkFieldsRef.current();
@@ -1190,7 +1238,30 @@ export function WBSTable({
     Number.isFinite(Number.parseInt(bulkDurationDays.trim(), 10)) &&
     Number.parseInt(bulkDurationDays.trim(), 10) >= 1;
 
-  /** 일괄 수정 바 담당 자동완성: 선택 행 소속 프로젝트의 투입 인원(assignments) + 현재 입력값 */
+  const bulkHasSomethingToApply = useMemo(() => {
+    const progressOk = bulkProgress !== '' && !Number.isNaN(Number.parseFloat(bulkProgress));
+    const allocOk = bulkAllocation !== '' && !Number.isNaN(Number.parseFloat(bulkAllocation));
+    return !!(
+      bulkStatus ||
+      bulkTaskKind ||
+      bulkAssignee.trim() ||
+      progressOk ||
+      bulkStartDate.trim() ||
+      bulkEndDate.trim() ||
+      bulkDurationApplicable ||
+      allocOk
+    );
+  }, [bulkStatus, bulkTaskKind, bulkAssignee, bulkProgress, bulkStartDate, bulkEndDate, bulkDurationApplicable, bulkAllocation]);
+
+  const tryBulkApplyOnEnter = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      if (!bulkHasSomethingToApply) return;
+      e.preventDefault();
+      executeBulkEdit();
+    },
+    [bulkHasSomethingToApply, executeBulkEdit],
+  );
   const bulkAssigneeCandidates = useMemo(() => {
     const names = new Set<string>();
     const q = bulkAssignee.trim();
@@ -1237,12 +1308,13 @@ export function WBSTable({
     const lastVisible = visibleTasks[visibleTasks.length - 1];
     const proj = projects.find((p) => p.id === (lastVisible?.projectId || currentProjectId));
     const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-    const startIso = filters.startDate || defaultDate;
+    const fallbackStart = filters.startDate || defaultDate;
+    const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(lastVisible, fallbackStart, filters.endDate);
     const newId = addTask(
       {
         name: '',
         startDate: startIso,
-        endDate: filters.endDate || defaultEndDateForNewTask(startIso),
+        endDate: endIso,
         progress: 0,
         workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
         assignee: filters.assignee || '',
@@ -1357,6 +1429,60 @@ export function WBSTable({
     }
     return selected;
   }, [visibleTasks, selectedTaskIds, CLIPBOARD_KEY]);
+
+  /**
+   * 체크박스로 2행 이상 선택된 상태에서 셀 편집기에 붙여넣기 할 때: 클립보드 첫 줄을 선택된 모든 행의 해당 컬럼에 반영.
+   * (전역 Ctrl+V는 표 포커스일 때만 동작하므로, 편집 중 input 포커스일 때는 여기서 처리.)
+   */
+  const applyClipboardFirstLineToCheckboxSelection = useCallback(
+    (columnId: TableColumnId, clipboardPlainText: string): boolean => {
+      if (selectedTaskIds.size <= 1) return false;
+      if (!canEditCurrentProject) {
+        pushToast('보기 전용 프로젝트에서는 붙여넣을 수 없습니다.', { variant: 'info' });
+        return true;
+      }
+      const firstLine = (clipboardPlainText.split(/\r?\n/)[0] ?? '').trim();
+      if (!firstLine) return false;
+      const visibleTaskIds = visibleTasks.map((t) => t.id);
+      const targets = visibleTasks.filter((t) => selectedTaskIds.has(t.id));
+      let applied = 0;
+      let failed = 0;
+      let firstError: string | null = null;
+      for (const t of targets) {
+        const res = buildWbsCellPasteUpdate(
+          t,
+          columnId,
+          { text: firstLine },
+          {
+            tasks,
+            visibleTaskIds,
+            statusConfigs: statusConfigsList,
+            effortUnit: normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(t.projectId)),
+          },
+        );
+        if (res.error) {
+          failed += 1;
+          if (!firstError) firstError = res.error;
+          continue;
+        }
+        if (res.updates) {
+          updateTask(t.id, res.updates);
+          applied += 1;
+        }
+      }
+      if (applied === 0 && failed > 0) {
+        pushToast(firstError ?? '붙여넣지 못했습니다.', { variant: 'warning' });
+      } else if (targets.length > 1 && applied > 0) {
+        pushToast(`${applied}개 행에 붙여넣었습니다${failed > 0 ? ` (${failed}개 실패)` : ''}.`, { variant: 'success' });
+      } else if (applied > 0) {
+        pushToast('셀에 붙여넣었습니다.', { variant: 'success' });
+      } else {
+        pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
+      }
+      return true;
+    },
+    [selectedTaskIds, canEditCurrentProject, visibleTasks, tasks, statusConfigsList, projectEffortUnitByProjectId, updateTask, pushToast],
+  );
 
   /** 일괄 복사 버튼·우클릭 메뉴 공용: 체크 선택 행을 작업 단위 복사 + 작업명을 시스템 클립보드에도 넣고 토스트 표시 */
   const handleBulkCopySelected = useCallback(() => {
@@ -1630,12 +1756,14 @@ export function WBSTable({
       const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
       const baseIndex = visibleTasks.findIndex((t) => t.id === baseTask.id);
       const insertAfterId = baseIndex > 0 ? visibleTasks[baseIndex - 1].id : undefined;
-      const startIso = filters.startDate || defaultDate;
+      const rowAboveNew = baseIndex > 0 ? visibleTasks[baseIndex - 1] : null;
+      const fallbackStart = filters.startDate || defaultDate;
+      const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(rowAboveNew, fallbackStart, filters.endDate);
       const newId = addTask(
         {
           name: '',
           startDate: startIso,
-          endDate: filters.endDate || defaultEndDateForNewTask(startIso),
+          endDate: endIso,
           progress: 0,
           workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
           assignee: filters.assignee || '',
@@ -1682,12 +1810,13 @@ export function WBSTable({
       const currentTask = tasks.find((t) => t.id === currentTaskId);
       const proj = projects.find((p) => p.id === (currentTask?.projectId || currentProjectId));
       const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
-      const startIso = filters.startDate || defaultDate;
+      const fallbackStart = filters.startDate || defaultDate;
+      const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(currentTask ?? null, fallbackStart, filters.endDate);
       const newId = addTask(
         {
           name: '',
           startDate: startIso,
-          endDate: filters.endDate || defaultEndDateForNewTask(startIso),
+          endDate: endIso,
           progress: 0,
           workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
           assignee: filters.assignee || '',
@@ -1850,6 +1979,27 @@ export function WBSTable({
     setDeleteConfirm({ isOpen: true, taskIds: [taskId] });
   }, []);
 
+  /** 표시 중인 데이터 열 기준 셀 서식만 제거(툴바「서식 제거」와 동일 범위). */
+  const clearRowCellTextStylesForTasks = useCallback(
+    (taskIds: string[]) => {
+      let cleared = 0;
+      for (const id of taskIds) {
+        const t = tasks.find((x) => x.id === id);
+        if (!t) continue;
+        const hadAny = editableColumnIds.some((col) => t.cellTextStyles?.[col]);
+        if (!hadAny) continue;
+        let acc = t.cellTextStyles;
+        for (const col of editableColumnIds) {
+          acc = mergeTaskCellTextStyles({ ...t, cellTextStyles: acc } as Task, col, null).cellTextStyles;
+        }
+        updateTask(id, { cellTextStyles: acc });
+        cleared += 1;
+      }
+      return cleared;
+    },
+    [tasks, editableColumnIds, updateTask],
+  );
+
   const executeDelete = () => {
     // 1. Fully identify all task IDs to be deleted (including descendants)
     const deleteSet = new Set<string>();
@@ -1923,8 +2073,6 @@ export function WBSTable({
   };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
-  const summaryStats = useWbsSummaryStats(baseTasks, projects, effectivePlannedRef);
-
   const isSplitView = !!syncScrollRef;
   /** 헤더 클릭으로 정렬하지 않음(열 포커스·너비 조절과 혼동 방지). 정렬은 헤더 우클릭 →「이 컬럼으로 정렬」만 사용. */
   const headerSortClickEnabled = false;
@@ -2017,85 +2165,58 @@ export function WBSTable({
         className="absolute left-[-9999px] top-0 text-[13px] font-medium font-sans tracking-[-0.01em] whitespace-nowrap invisible pointer-events-none"
         aria-hidden
       />
-      {/* 셀 서식 툴바 — split 시 상단 슬롯으로 포털, 표 단독 뷰에서는 요약 바로 위·스크롤 밖 상단 고정. */}
+      {/* 셀 서식 툴바 + 요약(기준일·줄간격·레벨) — 한 줄. split 시 상단 슬롯으로 포털. */}
       {showCellFormatToolbar &&
         renderFormatChromeDock(
-          <div ref={cellFormatDockRef} className={cn('flex-shrink-0 z-[60]', !formatDockTarget && 'sticky top-0')}>
-            <CellFormatToolbar
-              dock={formatDockTarget == null || (topDockContainer && formatDockTarget === topDockContainer) ? 'top' : 'bottom'}
-              focusedCell={focusedCell}
-              selectedTaskIds={selectedTaskIds}
-              rowApplyColumnIds={editableColumnIds}
-              tasks={tasks}
-              canEdit={canEditCurrentProject}
-              customColumnNameById={customColumnNameById}
-              updateTask={updateTask}
-              onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
-              onClose={() => {
-                setSelection(new Set());
-                setFocusedCell(null);
-              }}
+          <div
+            ref={cellFormatDockRef}
+            className={cn(
+              'flex w-full min-w-0 min-h-11 items-stretch overflow-hidden bg-[#f0f4f8]',
+              !formatDockTarget && 'border-b border-[#dadce0] sticky top-0 z-[60]',
+            )}
+          >
+            <div className="flex min-h-11 min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+              <CellFormatToolbar
+                mergeChromeBorder
+                dock={formatDockTarget == null || (topDockContainer && formatDockTarget === topDockContainer) ? 'top' : 'bottom'}
+                focusedCell={focusedCell}
+                selectedTaskIds={selectedTaskIds}
+                rowApplyColumnIds={editableColumnIds}
+                tasks={tasks}
+                canEdit={canEditCurrentProject}
+                customColumnNameById={customColumnNameById}
+                updateTask={updateTask}
+                onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
+                tableAutoFormatting={{
+                  effectiveOn: showTableAutoFormatting,
+                  globalEnabled: globalAutoFormattingOn,
+                  onToggle: toggleUserHide,
+                }}
+              />
+            </div>
+            <SummaryBar
+              layout="toolbarRail"
+              plannedRefDateIso={plannedRefDateIso}
+              setPlannedRefDateIso={setPlannedRefDateIso}
+              maxTreeLevel={maxTreeLevel}
+              treeExpandLevel={treeExpandLevel}
+              setTreeExpandLevel={setTreeExpandLevel}
+              expandToLevel={expandToLevel}
+              rowHeight={rowHeight}
+              handleSetRowHeight={handleSetRowHeight}
             />
           </div>,
         )}
-      {/* === Summary Bar (표 바로 위 · split+통합 크롬이면 상단 줄 왼쪽으로 포털) === */}
-      {splitSummaryChromeContainer && isSplitView ? (
-        createPortal(
-          <SummaryBar
-            summaryStats={summaryStats}
-            plannedRefDateIso={plannedRefDateIso}
-            setPlannedRefDateIso={setPlannedRefDateIso}
-            isSplitView={isSplitView}
-            maxTreeLevel={maxTreeLevel}
-            treeExpandLevel={treeExpandLevel}
-            setTreeExpandLevel={setTreeExpandLevel}
-            expandToLevel={expandToLevel}
-            excelView={excelView}
-            setExcelView={setExcelView}
-            rowHeight={rowHeight}
-            handleSetRowHeight={handleSetRowHeight}
-            onOpenMdEditor={() => {
-              const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
-              const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
-              setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
-              setIsMdEditModalOpen(true);
-            }}
-            tableAutoFormatting={{
-              effectiveOn: showTableAutoFormatting,
-              globalEnabled: globalAutoFormattingOn,
-              onToggle: toggleUserHide,
-            }}
-            showAdvancedTools={showAdvancedTools}
-            chromeEmbed
-          />,
-          splitSummaryChromeContainer,
-        )
-      ) : (
+      {!showCellFormatToolbar && (
         <SummaryBar
-          summaryStats={summaryStats}
           plannedRefDateIso={plannedRefDateIso}
           setPlannedRefDateIso={setPlannedRefDateIso}
-          isSplitView={isSplitView}
           maxTreeLevel={maxTreeLevel}
           treeExpandLevel={treeExpandLevel}
           setTreeExpandLevel={setTreeExpandLevel}
           expandToLevel={expandToLevel}
-          excelView={excelView}
-          setExcelView={setExcelView}
           rowHeight={rowHeight}
           handleSetRowHeight={handleSetRowHeight}
-          onOpenMdEditor={() => {
-            const projectIdsInView = new Set(baseTasks.map((t) => t.projectId));
-            const projectsInView = projects.filter((p) => projectIdsInView.has(p.id));
-            setMdEditInitialMarkdown(buildMarkdownFromTasks(baseTasks, wbsMap, projectsInView, assigneeDisplayMetaByName));
-            setIsMdEditModalOpen(true);
-          }}
-          tableAutoFormatting={{
-            effectiveOn: showTableAutoFormatting,
-            globalEnabled: globalAutoFormattingOn,
-            onToggle: toggleUserHide,
-          }}
-          showAdvancedTools={showAdvancedTools}
         />
       )}
       <div
@@ -2215,7 +2336,10 @@ export function WBSTable({
                 // 마지막 행·퀵 추가 입력 아래 여백(셀 서식/일괄 바가 있으면 style로 더 큰 값 사용)
                 !tableScrollBottomPadding && 'pb-6',
               )}
-              style={tableScrollBottomPadding ? { paddingBottom: tableScrollBottomPadding } : undefined}
+              style={{
+                scrollbarGutter: 'stable',
+                ...(tableScrollBottomPadding ? { paddingBottom: tableScrollBottomPadding } : {}),
+              }}
               onScroll={(e) => {
                 const target = e.currentTarget;
                 const header = headerScrollRef.current;
@@ -2380,6 +2504,7 @@ export function WBSTable({
                               singleClickEdit={singleClickEdit}
                               forkedChildProject={forkedProjectsByTaskId.get(task.id)}
                               onOpenForkedChildProject={(childId) => setCurrentProjectId(childId)}
+                              onPasteApplyToCheckboxSelection={applyClipboardFirstLineToCheckboxSelection}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>
@@ -2433,8 +2558,12 @@ export function WBSTable({
                                               const proj = projects.find((p) => p.id === (task.projectId || currentProjectId));
                                               const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
 
-                                              const startIso = filters.startDate || defaultDate;
-                                              const endIso = filters.endDate || defaultEndDateForNewTask(startIso);
+                                              const fallbackStart = filters.startDate || defaultDate;
+                                              const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(
+                                                task,
+                                                fallbackStart,
+                                                filters.endDate,
+                                              );
                                               lines.forEach((line) => {
                                                 addTask({
                                                   name: line,
@@ -2646,7 +2775,11 @@ export function WBSTable({
                   <label className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 px-0.5 leading-none">상태</label>
                   <select
                     value={bulkStatus}
-                    onChange={(e) => setBulkStatus(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value as TaskStatus | '';
+                      setBulkStatus(v);
+                      if (v) executeBulkEdit({ bulkStatus: v });
+                    }}
                     className={cn(
                       'h-7 min-w-[5.5rem] rounded border bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer',
                       bulkStatus ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
@@ -2665,7 +2798,11 @@ export function WBSTable({
                   <label className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 px-0.5 leading-none">유형</label>
                   <select
                     value={bulkTaskKind}
-                    onChange={(e) => setBulkTaskKind(e.target.value as typeof bulkTaskKind)}
+                    onChange={(e) => {
+                      const v = e.target.value as BulkTaskKind;
+                      setBulkTaskKind(v);
+                      if (v) executeBulkEdit({ bulkTaskKind: v });
+                    }}
                     title="일괄로 마일스톤·이슈·액션 항목 여부를 지정합니다. 마일스톤은 종료일을 시작일에 맞추고 공수를 0으로 맞춥니다."
                     className={cn(
                       'h-7 min-w-[7.5rem] rounded border bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer',
@@ -2688,10 +2825,13 @@ export function WBSTable({
                     value={bulkAssignee}
                     onChange={(e) => setBulkAssignee(e.target.value)}
                     placeholder="투입 인원 또는 입력"
-                    title="프로젝트에 등록된 투입 인원만 자동완성 목록에 표시됩니다. 직접 입력한 이름은 적용 시 프로젝트 투입 인원에도 반영됩니다. Enter로 적용."
+                    title="프로젝트에 등록된 투입 인원만 자동완성 목록에 표시됩니다. 직접 입력한 이름은 적용 시 프로젝트 투입 인원에도 반영됩니다. Enter 또는 포커스를 벗어나면 적용."
                     className="h-7 w-48 rounded border border-slate-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') executeBulkAssignee();
+                    }}
+                    onBlur={() => {
+                      if (bulkAssignee.trim()) executeBulkAssignee();
                     }}
                   />
                   <datalist id="all-assignees">
@@ -2709,6 +2849,10 @@ export function WBSTable({
                     inputMode="numeric"
                     value={bulkDurationDays}
                     onChange={(e) => setBulkDurationDays(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={tryBulkApplyOnEnter}
+                    onBlur={() => {
+                      if (bulkDurationApplicable) executeBulkEdit();
+                    }}
                     placeholder="양 끝 포함"
                     title="각 작업의 시작일(또는 위 일괄 시작일)을 기준으로, 입력한 달력일 수만큼 종료일을 맞춥니다. 표의 기간 열과 동일(시작~종료 양 끝 포함)합니다."
                     className={cn(
@@ -2721,12 +2865,20 @@ export function WBSTable({
                 <div className="flex flex-col gap-0.5">
                   <label className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 px-0.5 leading-none">진척율(%)</label>
                   <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
+                    type="text"
+                    inputMode="decimal"
                     value={bulkProgress}
-                    onChange={(e) => setBulkProgress(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (next === '' || /^\d*([.]\d*)?$/.test(next)) setBulkProgress(next);
+                    }}
+                    onKeyDown={tryBulkApplyOnEnter}
+                    onBlur={() => {
+                      if (bulkProgress !== '') {
+                        const v = Number.parseFloat(bulkProgress);
+                        if (!Number.isNaN(v) && v >= 0 && v <= 100) executeBulkEdit();
+                      }
+                    }}
                     placeholder="0~100"
                     title={[
                       '선택한 작업에 동일한 진척률을 일괄 적용합니다.',
@@ -2744,7 +2896,11 @@ export function WBSTable({
                   <input
                     type="date"
                     value={bulkStartDate}
-                    onChange={(e) => setBulkStartDate(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setBulkStartDate(v);
+                      executeBulkEdit({ bulkStartDate: v });
+                    }}
                     className={cn(
                       'h-7 w-[8.5rem] rounded border bg-white px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500',
                       bulkStartDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
@@ -2757,7 +2913,11 @@ export function WBSTable({
                   <input
                     type="date"
                     value={bulkEndDate}
-                    onChange={(e) => setBulkEndDate(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setBulkEndDate(v);
+                      executeBulkEdit({ bulkEndDate: v });
+                    }}
                     className={cn(
                       'h-7 w-[8.5rem] rounded border bg-white px-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500',
                       bulkEndDate ? 'border-indigo-400 text-indigo-700 font-medium' : 'border-slate-200 text-slate-500',
@@ -2774,6 +2934,13 @@ export function WBSTable({
                     step="1"
                     value={bulkAllocation}
                     onChange={(e) => setBulkAllocation(e.target.value)}
+                    onKeyDown={tryBulkApplyOnEnter}
+                    onBlur={() => {
+                      if (bulkAllocation !== '') {
+                        const v = Number.parseFloat(bulkAllocation);
+                        if (!Number.isNaN(v) && Number.isFinite(v)) executeBulkEdit();
+                      }
+                    }}
                     placeholder="0~100"
                     title="선택된 작업의 담당자 투입율을 일괄 설정합니다."
                     className="h-7 w-24 rounded border border-slate-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -2781,17 +2948,8 @@ export function WBSTable({
                 </div>
 
                 <button
-                  onClick={executeBulkEdit}
-                  disabled={
-                    !bulkStatus &&
-                    !bulkTaskKind &&
-                    !bulkAssignee.trim() &&
-                    (bulkProgress === '' || isNaN(parseFloat(bulkProgress))) &&
-                    !bulkStartDate.trim() &&
-                    !bulkEndDate.trim() &&
-                    !bulkDurationApplicable &&
-                    (bulkAllocation === '' || isNaN(parseFloat(bulkAllocation)))
-                  }
+                  onClick={() => executeBulkEdit()}
+                  disabled={!bulkHasSomethingToApply}
                   className="shrink-0 self-center rounded bg-indigo-600 px-3 py-1 text-xs font-bold text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
                   title="입력한 항목 모두 적용"
                 >
@@ -3073,22 +3231,24 @@ export function WBSTable({
                       });
                     }
                   }
-                  headerActions.push({ divider: true });
-                  headerActions.push({
-                    label: '보완 가이드…',
-                    icon: <ListOrdered size={14} />,
-                    onClick: () => {
-                      setImprovementGuideOpen(true);
-                      setContextMenu(null);
-                    },
-                  });
-                  if (onOpenColumnSettings) {
+                  if (showAdvancedTools) {
                     headerActions.push({ divider: true });
                     headerActions.push({
-                      label: '컬럼 설정...',
-                      icon: <Settings2 size={14} />,
-                      onClick: () => onOpenColumnSettings?.(),
+                      label: '보완 가이드…',
+                      icon: <ListOrdered size={14} />,
+                      onClick: () => {
+                        setImprovementGuideOpen(true);
+                        setContextMenu(null);
+                      },
                     });
+                    if (onOpenColumnSettings) {
+                      headerActions.push({ divider: true });
+                      headerActions.push({
+                        label: '컬럼 설정...',
+                        icon: <Settings2 size={14} />,
+                        onClick: () => onOpenColumnSettings?.(),
+                      });
+                    }
                   }
                   return headerActions;
                 })()
@@ -3177,6 +3337,20 @@ export function WBSTable({
                             label: '하위일정 균등분할 (이 작업)',
                             icon: <ArrowDown size={14} />,
                             onClick: () => runDistributeTask(contextMenu.taskId!),
+                          },
+                          {
+                            label: '하위작업 연결해지',
+                            icon: <Unlink size={14} />,
+                            onClick: () => {
+                              const { removedEdges } = disconnectSubtreeInternalDependencies(contextMenu.taskId!);
+                              pushToast(
+                                removedEdges > 0
+                                  ? `하위 작업끼리 선행(선후행) 연결 ${removedEdges}개를 해제했습니다. Ctrl+Z로 되돌릴 수 있습니다.`
+                                  : '해제할 하위 간 선행 연결이 없습니다.',
+                                { variant: removedEdges > 0 ? 'success' : 'info' },
+                              );
+                              setContextMenu(null);
+                            },
                           },
                           { divider: true },
                         ]
@@ -3298,6 +3472,28 @@ export function WBSTable({
                             icon: <ArrowDown size={14} />,
                             onClick: () => {
                               moveTask(contextMenu.taskId!, 'down');
+                              setContextMenu(null);
+                            },
+                          },
+                        ]
+                      : []),
+                    ...(canEditCurrentProject && contextMenu.taskId
+                      ? [
+                          { divider: true },
+                          {
+                            label: `서식 제거${
+                              selectedTaskIds.size > 1 && selectedTaskIds.has(contextMenu.taskId) ? ` (${selectedTaskIds.size})` : ''
+                            }`,
+                            icon: <RemoveFormatting size={14} />,
+                            onClick: () => {
+                              const ids =
+                                selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)
+                                  ? Array.from(selectedTaskIds)
+                                  : [contextMenu.taskId!];
+                              const n = clearRowCellTextStylesForTasks(ids);
+                              pushToast(n > 0 ? `셀 서식을 지웠습니다. (${n}개 작업)` : '지울 셀 서식이 없습니다.', {
+                                variant: n > 0 ? 'success' : 'info',
+                              });
                               setContextMenu(null);
                             },
                           },

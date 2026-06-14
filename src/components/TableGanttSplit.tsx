@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { format } from 'date-fns';
 import { ChevronsLeftRight } from 'lucide-react';
 import { WBSTable } from './WBSTable';
 import { GanttChart } from './GanttChart';
@@ -64,10 +65,10 @@ export function TableGanttSplit({
   const [topDockSlot, setTopDockSlot] = useState<HTMLDivElement | null>(null);
   /** 일괄 수정(다중 선택) 바 — 화면 하단(표+간트 영역) 고정 */
   const [bottomDockSlot, setBottomDockSlot] = useState<HTMLDivElement | null>(null);
-  /** 통합 한 줄: 표 요약(SummaryBar) */
-  const [summaryChromeSlot, setSummaryChromeSlot] = useState<HTMLDivElement | null>(null);
   const [ganttBottomInset, setGanttBottomInset] = useState(0);
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
+  /** 표·간트 공통 계획율 기준일(간트 수직선과 동일) */
+  const [plannedRefDateIso, setPlannedRefDateIso] = useState(() => format(new Date(), 'yyyy-MM-dd'));
 
   tablePaneWidthPctRef.current = tablePaneWidthPct;
 
@@ -153,17 +154,11 @@ export function TableGanttSplit({
       className="list-split-view flex flex-col h-full min-h-0 overflow-hidden bg-white"
       style={{ ['--split-table-pct' as string]: `${tablePaneWidthPct}%` }}
     >
-      {/* 셀 서식 → 최상단. 간트 헤더(z-40)보다 위에 두어 가려지지 않게 함. */}
+      {/* 셀 서식 + 기준일·줄간격·레벨 펼치기(한 줄) — 간트 헤더(z-40)보다 위 */}
       <div
         ref={setTopDockSlot}
-        className="w-full shrink-0 sticky top-0 z-[60] bg-[var(--color-surface)] border-b border-[var(--color-line)] shadow-[0_1px_0_rgba(15,23,42,0.06)]"
+        className="w-full shrink-0 sticky top-0 z-[60] border-b border-[var(--color-line)] bg-[#f0f4f8] shadow-[0_1px_0_rgba(15,23,42,0.06)]"
       />
-      <div className="relative z-[55] flex h-14 min-h-14 w-full shrink-0 items-stretch border-b border-[var(--color-line)] bg-gradient-to-r from-slate-50/95 via-white to-slate-50/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-        <div
-          ref={setSummaryChromeSlot}
-          className="flex min-h-0 min-w-0 w-full flex-1 flex-col justify-center overflow-x-auto overflow-y-hidden"
-        />
-      </div>
 
       <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full overflow-hidden">
         <div className="list-table-pane h-[min(50vh,480px)] md:h-full min-h-0 flex flex-col overflow-hidden max-md:w-full">
@@ -183,9 +178,10 @@ export function TableGanttSplit({
             syncRowHeights={rowHeights}
             topDockContainer={topDockSlot}
             bottomDockContainer={bottomDockSlot}
-            splitSummaryChromeContainer={summaryChromeSlot}
             onBottomInsetChange={setGanttBottomInset}
             taskContextMenuHandlerRef={taskContextMenuHandlerRef}
+            plannedRefDateIso={plannedRefDateIso}
+            onPlannedRefDateIsoChange={setPlannedRefDateIso}
           />
         </div>
 
@@ -213,6 +209,7 @@ export function TableGanttSplit({
             bottomSpacerHeight={sharedRowHeight}
             bottomInsetHeight={ganttBottomInset}
             onOpenTaskContextMenu={(e, taskId) => taskContextMenuHandlerRef.current?.(e, taskId)}
+            referenceDateIso={plannedRefDateIso}
           />
         </div>
       </div>

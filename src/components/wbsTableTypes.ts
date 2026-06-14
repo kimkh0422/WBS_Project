@@ -43,8 +43,6 @@ export interface WBSTableProps {
   bottomDockContainer?: HTMLElement | null;
   /** 표+간트 split: 셀 서식 툴바를 상단에 포털한다. bottomDockContainer와 함께 쓰면 서식=상단, 일괄=하단으로 나뉜다. */
   topDockContainer?: HTMLElement | null;
-  /** 표+간트 split: 요약 바(작업 수·진척 등)를 표 패널 위가 아닌 통합 상단 줄 왼쪽 칸으로 포털한다. */
-  splitSummaryChromeContainer?: HTMLElement | null;
   hotkeysEnabled?: boolean;
   onOpenColumnSettings?: () => void;
   /** true면 부모 높이를 채움(표만 뷰), false면 콘텐츠 높이만 사용(리스트 뷰, 하단 공백 감소) */
@@ -62,4 +60,7 @@ export interface WBSTableProps {
   taskContextMenuHandlerRef?: React.MutableRefObject<
     ((e: React.MouseEvent, taskId: string, columnId?: 'progress' | 'status') => void) | null
   >;
+  /** 표+간트 split: 부모가 보관하는 계획율 기준일(간트 기준선과 동기화). 없으면 WBSTable 내부 state 사용 */
+  plannedRefDateIso?: string;
+  onPlannedRefDateIsoChange?: (iso: string) => void;
 }

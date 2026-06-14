@@ -21,6 +21,8 @@ export interface ProjectOpsDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setCurrentProjectId: (id: string) => void;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
+  dirtyEpochRef: MutableRefObject<number>;
+  clearUnsyncedIfDirtyEpochIs: (epoch: number) => void;
 }
 
 export function useProjectOps(deps: ProjectOpsDeps) {
@@ -38,6 +40,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
     setAllTasks,
     setCurrentProjectId,
     recordDeletedTaskIds,
+    dirtyEpochRef,
+    clearUnsyncedIfDirtyEpochIs,
   } = deps;
 
   const addProject = useCallback(
@@ -132,7 +136,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         updates.workEffortUnit !== undefined &&
         normalizeWorkEffortUnit(project.workEffortUnit) !== normalizeWorkEffortUnit(updates.workEffortUnit);
 
-      /** 로컬 전용의 일반 프로젝트 필드 수정만 수동 동기화 플래그를 올린다. 원격+비단위변경은 upsert로 즉시 DB 반영. 공수 단위 변경은 saveHistory가 bump한다. */
+      /** 로컬 전용의 일반 프로젝트 필드 수정만 수동 동기화 플래그를 올린다. 원격+비단위변경은 upsert로 즉시 DB 반영. */
       if (useLocalOnlyRef.current && !unitChanging) {
         bumpDirty();
       }
@@ -143,7 +147,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       // 3) 공수 단위만 바뀐 경우에만 작업 공수 숫자 변환(작업 일정은 자동 조정하지 않음)
       if (unitChanging) {
         saveHistory();
-
+        bumpDirty();
+        const unitEpoch = dirtyEpochRef.current;
         setAllTasks((currentTasks) => {
           const shifted = currentTasks.map((t) => {
             if (t.projectId !== id) return t;
@@ -164,7 +169,11 @@ export function useProjectOps(deps: ProjectOpsDeps) {
 
           const doneStatusIds = new Set<string>();
           const rolled = recomputeProjectRollups(shifted, id, doneStatusIds, undefined, true);
-          if (!useLocalOnlyRef.current) upsertTasks(rolled).catch((err) => handleDbError(err, '공수 단위 변경 저장에 실패했습니다.'));
+          if (!useLocalOnlyRef.current) {
+            void upsertTasks(rolled)
+              .then(() => clearUnsyncedIfDirtyEpochIs(unitEpoch))
+              .catch((err) => handleDbError(err, '공수 단위 변경 저장에 실패했습니다.'));
+          }
           return rolled;
         });
       }
@@ -178,7 +187,17 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         });
       }
     },
-    [bumpDirty, saveHistory, handleDbError, projectsRef, useLocalOnlyRef, setProjects, setAllTasks],
+    [
+      bumpDirty,
+      saveHistory,
+      handleDbError,
+      projectsRef,
+      useLocalOnlyRef,
+      setProjects,
+      setAllTasks,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   const deleteProject = useCallback(
@@ -272,10 +291,13 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         upsertProject(newProject)
           .then(() => upsertTasks(newTasks))
           .catch((err) => handleDbError(err, '복사 프로젝트 저장에 실패했습니다.'));
+      } else {
+        bumpDirty();
       }
     },
     [
       saveHistory,
+      bumpDirty,
       handleDbError,
       projectsRef,
       allTasksRef,

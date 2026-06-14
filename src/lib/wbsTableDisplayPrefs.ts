@@ -75,7 +75,7 @@ export function subscribeSingleClickEditChanged(fn: () => void): () => void {
   };
 }
 
-/** 이 브라우저에서만: 고급 도구(자동 서식) 버튼을 툴바에 표시. 기본 숨김, Shift+F12로 토글. */
+/** 이 브라우저에서만: Shift+F12로 표 헤더 우클릭 메뉴의 관리자 항목(보완 가이드·컬럼 설정) 표시. 기본 숨김. */
 const ADVANCED_TOOLS_KEY = 'wbs-show-advanced-tools';
 const ADVANCED_TOOLS_CHANGED_EVENT = 'wbs-show-advanced-tools-changed';
 

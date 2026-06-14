@@ -414,11 +414,11 @@ export function Dashboard({
   // ─── 빠른 필터: 내가 포함된 프로젝트만 ──────────────────────────────────
   const MY_ONLY_KEY = 'wbs-dashboard-my-only';
   const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined') return true;
     try {
-      return window.localStorage.getItem(MY_ONLY_KEY) === '1';
+      return window.localStorage.getItem(MY_ONLY_KEY) !== '0';
     } catch {
-      return false;
+      return true;
     }
   });
   const toggleShowMyOnly = () => {
@@ -426,7 +426,7 @@ export function Dashboard({
       const next = !prev;
       try {
         if (next) localStorage.setItem(MY_ONLY_KEY, '1');
-        else localStorage.removeItem(MY_ONLY_KEY);
+        else localStorage.setItem(MY_ONLY_KEY, '0');
       } catch {
         /* ignore */
       }
@@ -462,8 +462,11 @@ export function Dashboard({
     [wbsSettings.favoriteProjectIds],
   );
 
+  /** 로그인(또는 myInvolvedProjectIds 제공) 시에만 "내 프로젝트만"이 목록을 실제로 좁힘. */
+  const myInvolvedFilterActive = showMyOnly && myInvolvedProjectIds !== undefined;
+
   // ─── "내 프로젝트·즐겨찾기만" 단일 토글: 내가 포함된 프로젝트 ∪ 즐겨찾기 합집합 표시 ───
-  const myAndFavActive = showMyOnly || showFavoriteOnly;
+  const myAndFavActive = myInvolvedFilterActive || showFavoriteOnly;
   const toggleMyAndFavOnly = () => {
     const next = !myAndFavActive;
     setShowMyOnly(next);
@@ -473,7 +476,7 @@ export function Dashboard({
         localStorage.setItem(MY_ONLY_KEY, '1');
         localStorage.setItem(FAV_ONLY_KEY, '1');
       } else {
-        localStorage.removeItem(MY_ONLY_KEY);
+        localStorage.setItem(MY_ONLY_KEY, '0');
         localStorage.removeItem(FAV_ONLY_KEY);
       }
     } catch {
@@ -488,11 +491,12 @@ export function Dashboard({
 
   // 사용자 선택 + "내 프로젝트만" + "즐겨찾기만" + "기간 미정만" 토글 적용한 표시 목록.
   // 「내 프로젝트만」 + 「즐겨찾기만」이 모두 켜져 있으면 합집합(OR)으로 표시.
+  // 비로그인 등으로 myInvolvedProjectIds가 없으면 "내 프로젝트만"은 적용하지 않음(빈 화면 방지).
   const baseDisplayProjectStats = useMemo(() => {
     const base = showUndeterminedPeriodProjectsOnly ? projectStats.filter((p) => hasUndeterminedProjectPeriod(p)) : visibleProjectStats;
-    if (showMyOnly || showFavoriteOnly) {
+    if (myInvolvedFilterActive || showFavoriteOnly) {
       return base.filter((p) => {
-        const isMine = showMyOnly && !!myInvolvedProjectIds && myInvolvedProjectIds.has(p.id);
+        const isMine = myInvolvedFilterActive && (myInvolvedProjectIds?.has(p.id) ?? false);
         const isFav = showFavoriteOnly && favoriteProjectIdSet.has(p.id);
         return isMine || isFav;
       });
@@ -504,7 +508,7 @@ export function Dashboard({
     projectStats,
     showUndeterminedPeriodProjectsOnly,
     dashboardVisibleIds,
-    showMyOnly,
+    myInvolvedFilterActive,
     showFavoriteOnly,
     myInvolvedProjectIds,
     favoriteProjectIdSet,
@@ -865,7 +869,7 @@ export function Dashboard({
     persistDashboardExcluded(new Set());
     persistDashboardVisible(null);
     try {
-      localStorage.removeItem(MY_ONLY_KEY);
+      localStorage.setItem(MY_ONLY_KEY, '0');
       localStorage.removeItem(FAV_ONLY_KEY);
     } catch {
       /* ignore */
@@ -1072,7 +1076,7 @@ export function Dashboard({
   }, [user?.id]);
 
   const dashboardFiltersActive =
-    showMyOnly ||
+    myInvolvedFilterActive ||
     showFavoriteOnly ||
     showMyDivisionOnly ||
     dashboardVisibleIds !== null ||
@@ -2225,7 +2229,7 @@ export function Dashboard({
                                   ? '접근 가능한 프로젝트가 모두 집계에서 제외되어 있습니다. 상단의「집계 제외 → 프로젝트 선택」에서 제외를 해제해 주세요.'
                                   : visibleProjectStats.length === 0
                                     ? '작업이 있는 프로젝트가 없습니다.'
-                                    : showMyOnly
+                                    : myInvolvedFilterActive
                                       ? '내가 포함된 프로젝트가 없습니다. [내가 포함된 프로젝트만] 토글을 해제하세요.'
                                       : '상단의 대시보드 표시에서 프로젝트를 선택하세요. (또는 필터 초기화)'}
                           </div>

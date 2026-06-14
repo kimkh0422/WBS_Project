@@ -9,6 +9,21 @@ import { endYmdFromInclusiveDuration } from '../../lib/durationDays';
 /** 일괄 수정 바의 작업 유형(플래그 일괄 지정). '' = 변경 없음 */
 export type BulkTaskKind = '' | 'plain' | 'milestone' | 'issue' | 'action';
 
+/** `executeBulkEdit` 한 번 호출 시 사용할 일괄 필드 스냅샷(React setState 직후에도 최신 값으로 적용하기 위함) */
+export type BulkEditSnapshot = {
+  bulkStatus: TaskStatus | '';
+  bulkAssignee: string;
+  bulkProgress: string;
+  bulkWeight: string;
+  bulkStartDate: string;
+  bulkEndDate: string;
+  bulkDurationDays: string;
+  bulkAllocation: string;
+  bulkTaskKind: BulkTaskKind;
+};
+
+export type BulkEditOverrides = Partial<BulkEditSnapshot>;
+
 interface UseWbsBulkEditOptions {
   selectedTaskIds: Set<string>;
   tasks: Task[];
@@ -83,180 +98,195 @@ export function useWbsBulkEdit({
     setBulkTaskKind('');
   }, []);
 
-  const executeBulkEdit = useCallback(() => {
-    const updates: Partial<Task> = {};
-    if (bulkStatus) {
-      updates.status = bulkStatus;
-      const config = (wbsSettings?.statusConfigs ?? []).find((c) => c.id === bulkStatus);
-      if (config && config.progress !== undefined) updates.progress = config.progress;
-    }
-    if (bulkAssignee.trim()) updates.assignee = bulkAssignee.trim();
-    if (bulkProgress !== '') {
-      const val = parseFloat(bulkProgress);
-      if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
-    }
-    // 계획율 일괄 입력은 더 이상 지원하지 않음(계획율은 시작일/종료일 자동 산정만 사용).
-    if (bulkWeight !== '') {
-      const val = parseFloat(bulkWeight);
-      if (!isNaN(val) && val >= 0) updates.weight = round1(val);
-    }
-    if (bulkStartDate.trim()) updates.startDate = bulkStartDate.trim();
-    const durationParsed = bulkDurationDays.trim() === '' ? NaN : parseInt(bulkDurationDays.trim(), 10);
-    const hasBulkDuration = Number.isFinite(durationParsed) && durationParsed >= 1;
-    // 기간(일)으로 종료일을 맞출 때는 동일 종료일 일괄과 충돌하지 않게 endDate는 행별로만 적용
-    if (bulkEndDate.trim() && !hasBulkDuration) updates.endDate = bulkEndDate.trim();
-    const hasAllocation = bulkAllocation !== '';
-    const hasTaskKind = bulkTaskKind !== '';
-    if (Object.keys(updates).length === 0 && !hasAllocation && !hasTaskKind && !hasBulkDuration) return;
-    const ids = Array.from(selectedTaskIds);
-    const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+  const executeBulkEdit = useCallback(
+    (overrides?: BulkEditOverrides) => {
+      const s: BulkEditSnapshot = {
+        bulkStatus: overrides?.bulkStatus ?? bulkStatus,
+        bulkAssignee: overrides?.bulkAssignee ?? bulkAssignee,
+        bulkProgress: overrides?.bulkProgress ?? bulkProgress,
+        bulkWeight: overrides?.bulkWeight ?? bulkWeight,
+        bulkStartDate: overrides?.bulkStartDate ?? bulkStartDate,
+        bulkEndDate: overrides?.bulkEndDate ?? bulkEndDate,
+        bulkDurationDays: overrides?.bulkDurationDays ?? bulkDurationDays,
+        bulkAllocation: overrides?.bulkAllocation ?? bulkAllocation,
+        bulkTaskKind: overrides?.bulkTaskKind ?? bulkTaskKind,
+      };
 
-    // 작업 유형(마일스톤/이슈/액션): 마일스톤은 작업별로 종료일·공수를 맞춤(TaskModal과 동일)
-    // 마일스톤은 종료=시작 고정이라 기간(일) 일괄은 적용하지 않음
-    if (bulkTaskKind === 'milestone') {
-      for (const id of ids) {
-        const t = taskById.get(id);
-        if (!t) continue;
-        const start = (updates.startDate as string | undefined) ?? t.startDate;
-        updateTask(id, {
-          ...updates,
-          isMilestone: true,
-          isIssue: false,
-          isActionItem: false,
-          endDate: start,
-          workEffort: 0,
-        });
+      const updates: Partial<Task> = {};
+      if (s.bulkStatus) {
+        updates.status = s.bulkStatus;
+        const config = (wbsSettings?.statusConfigs ?? []).find((c) => c.id === s.bulkStatus);
+        if (config && config.progress !== undefined) updates.progress = config.progress;
       }
-    } else {
-      let merged: Partial<Task> = { ...updates };
-      if (hasBulkDuration) {
-        delete merged.endDate;
+      if (s.bulkAssignee.trim()) updates.assignee = s.bulkAssignee.trim();
+      if (s.bulkProgress !== '') {
+        const val = parseFloat(s.bulkProgress);
+        if (!isNaN(val) && val >= 0 && val <= 100) updates.progress = round2(val);
       }
-      if (bulkTaskKind === 'plain') {
-        merged = { ...merged, isMilestone: false, isIssue: false, isActionItem: false };
-      } else if (bulkTaskKind === 'issue') {
-        merged = { ...merged, isMilestone: false, isIssue: true };
-      } else if (bulkTaskKind === 'action') {
-        merged = { ...merged, isMilestone: false, isActionItem: true };
+      // 계획율 일괄 입력은 더 이상 지원하지 않음(계획율은 시작일/종료일 자동 산정만 사용).
+      if (s.bulkWeight !== '') {
+        const val = parseFloat(s.bulkWeight);
+        if (!isNaN(val) && val >= 0) updates.weight = round1(val);
       }
+      if (s.bulkStartDate.trim()) updates.startDate = s.bulkStartDate.trim();
+      const durationParsed = s.bulkDurationDays.trim() === '' ? NaN : parseInt(s.bulkDurationDays.trim(), 10);
+      const hasBulkDuration = Number.isFinite(durationParsed) && durationParsed >= 1;
+      // 기간(일)으로 종료일을 맞출 때는 동일 종료일 일괄과 충돌하지 않게 endDate는 행별로만 적용
+      if (s.bulkEndDate.trim() && !hasBulkDuration) updates.endDate = s.bulkEndDate.trim();
+      const hasAllocation = s.bulkAllocation !== '';
+      const hasTaskKind = s.bulkTaskKind !== '';
+      if (Object.keys(updates).length === 0 && !hasAllocation && !hasTaskKind && !hasBulkDuration) return;
+      const ids = Array.from(selectedTaskIds);
+      const taskById = new Map<string, Task>(tasks.map((t) => [t.id, t]));
 
-      // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
-      const hasScheduleField =
-        hasBulkDuration ||
-        Object.prototype.hasOwnProperty.call(merged, 'endDate') ||
-        Object.prototype.hasOwnProperty.call(merged, 'startDate') ||
-        Object.prototype.hasOwnProperty.call(merged, 'dependencies');
-      if (Object.keys(merged).length > 0 || hasBulkDuration) {
-        if (hasScheduleField) {
-          if (hasBulkDuration) {
-            let skippedNoStart = 0;
-            let appliedCount = 0;
-            for (const id of ids) {
-              const t = taskById.get(id);
-              if (!t) continue;
-              const startForRow = (bulkStartDate.trim() || (t.startDate ?? '')).trim().slice(0, 10);
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(startForRow)) {
-                skippedNoStart += 1;
-                continue;
-              }
-              const newYmd = endYmdFromInclusiveDuration(startForRow, durationParsed);
-              if (!newYmd) continue;
-              const timeTail = t.endDate && t.endDate.length > 10 ? t.endDate.slice(10) : '';
-              const per: Partial<Task> = { ...merged };
-              if (bulkStartDate.trim()) per.startDate = bulkStartDate.trim();
-              per.endDate = newYmd + timeTail;
-              updateTask(id, per);
-              appliedCount += 1;
-            }
-            if (skippedNoStart > 0) {
-              pushToast(
-                appliedCount > 0
-                  ? `기간 ${durationParsed}일을 적용했습니다. (시작일 없음 ${skippedNoStart}개 제외)`
-                  : '선택한 작업에 시작일이 없어 기간으로 종료일을 바꿀 수 없습니다. 시작일을 입력하거나 위에서 일괄 시작일을 지정하세요.',
-                { variant: appliedCount > 0 ? 'success' : 'warning' },
-              );
-            }
-          } else {
-            ids.forEach((id) => updateTask(id, merged));
-          }
-        } else if (Object.keys(merged).length > 0) {
-          updateTasksBulk(ids, merged);
-        }
-      }
-    }
-
-    // 투입율(assignment allocationPercent) 일괄 수정:
-    // 프로젝트별로 변경할 담당자를 모아서 한 번에 updateProject 호출.
-    // (루프 안에서 호출하면 같은 프로젝트에 여러 담당자가 있을 때 이전 변경이 덮어써짐)
-    if (hasAllocation) {
-      const rawVal = parseFloat(bulkAllocation);
-      if (!Number.isNaN(rawVal) && Number.isFinite(rawVal)) {
-        const pct = clampAllocationPercentInt(rawVal);
-        const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
-        // 프로젝트별 변경 담당자 집합 수집
-        const assigneesByProjectId = new Map<string, Set<string>>();
-        let skippedNoAssignee = 0;
+      // 작업 유형(마일스톤/이슈/액션): 마일스톤은 작업별로 종료일·공수를 맞춤(TaskModal과 동일)
+      // 마일스톤은 종료=시작 고정이라 기간(일) 일괄은 적용하지 않음
+      if (s.bulkTaskKind === 'milestone') {
         for (const id of ids) {
           const t = taskById.get(id);
-          if (!t?.projectId) continue;
-          const assignee = (t.assignee || '').trim();
-          if (!assignee) {
-            skippedNoAssignee++;
-            continue;
-          }
-          if (!projectById.has(t.projectId)) continue;
-          const set = assigneesByProjectId.get(t.projectId) ?? new Set<string>();
-          set.add(assignee);
-          assigneesByProjectId.set(t.projectId, set);
+          if (!t) continue;
+          const start = (updates.startDate as string | undefined) ?? t.startDate;
+          updateTask(id, {
+            ...updates,
+            isMilestone: true,
+            isIssue: false,
+            isActionItem: false,
+            endDate: start,
+            workEffort: 0,
+          });
         }
-        // 프로젝트별로 한 번에 assignments 갱신
-        for (const [projectId, assignees] of assigneesByProjectId) {
-          const proj = projectById.get(projectId)!;
-          const existing = proj.assignments ?? [];
-          const nextAssignments = existing.filter((a) => !assignees.has((a.assignee || '').trim()));
-          for (const assignee of assignees) {
-            nextAssignments.push({ assignee, allocationPercent: pct });
-          }
-          updateProject(projectId, { assignments: nextAssignments });
+      } else {
+        let merged: Partial<Task> = { ...updates };
+        if (hasBulkDuration) {
+          delete merged.endDate;
         }
-        if (assigneesByProjectId.size === 0) {
-          pushToast(
-            skippedNoAssignee > 0
-              ? '담당자가 지정된 작업이 없어 투입율을 변경할 수 없습니다. 먼저 담당자를 지정해 주세요.'
-              : '투입율을 적용할 수 있는 작업이 없습니다.',
-            { variant: 'warning' },
-          );
+        if (s.bulkTaskKind === 'plain') {
+          merged = { ...merged, isMilestone: false, isIssue: false, isActionItem: false };
+        } else if (s.bulkTaskKind === 'issue') {
+          merged = { ...merged, isMilestone: false, isIssue: true };
+        } else if (s.bulkTaskKind === 'action') {
+          merged = { ...merged, isMilestone: false, isActionItem: true };
+        }
+
+        // updateTasksBulk는 일정/공수/선행작업 변경 시 스킵하므로, 해당 필드가 있으면 개별 updateTask로 적용
+        const hasScheduleField =
+          hasBulkDuration ||
+          Object.prototype.hasOwnProperty.call(merged, 'endDate') ||
+          Object.prototype.hasOwnProperty.call(merged, 'startDate') ||
+          Object.prototype.hasOwnProperty.call(merged, 'dependencies');
+        if (Object.keys(merged).length > 0 || hasBulkDuration) {
+          if (hasScheduleField) {
+            if (hasBulkDuration) {
+              let skippedNoStart = 0;
+              let appliedCount = 0;
+              for (const id of ids) {
+                const t = taskById.get(id);
+                if (!t) continue;
+                const startForRow = (s.bulkStartDate.trim() || (t.startDate ?? '')).trim().slice(0, 10);
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(startForRow)) {
+                  skippedNoStart += 1;
+                  continue;
+                }
+                const newYmd = endYmdFromInclusiveDuration(startForRow, durationParsed);
+                if (!newYmd) continue;
+                const timeTail = t.endDate && t.endDate.length > 10 ? t.endDate.slice(10) : '';
+                const per: Partial<Task> = { ...merged };
+                if (s.bulkStartDate.trim()) per.startDate = s.bulkStartDate.trim();
+                per.endDate = newYmd + timeTail;
+                updateTask(id, per);
+                appliedCount += 1;
+              }
+              if (skippedNoStart > 0) {
+                pushToast(
+                  appliedCount > 0
+                    ? `기간 ${durationParsed}일을 적용했습니다. (시작일 없음 ${skippedNoStart}개 제외)`
+                    : '선택한 작업에 시작일이 없어 기간으로 종료일을 바꿀 수 없습니다. 시작일을 입력하거나 위에서 일괄 시작일을 지정하세요.',
+                  { variant: appliedCount > 0 ? 'success' : 'warning' },
+                );
+              }
+            } else {
+              ids.forEach((id) => updateTask(id, merged));
+            }
+          } else if (Object.keys(merged).length > 0) {
+            updateTasksBulk(ids, merged);
+          }
         }
       }
-    }
 
-    const assigneeStr = (updates.assignee as string | undefined)?.trim();
-    if (assigneeStr) {
-      ensureAssigneeOnTasksProjects(ids, assigneeStr);
-    }
+      // 투입율(assignment allocationPercent) 일괄 수정:
+      // 프로젝트별로 변경할 담당자를 모아서 한 번에 updateProject 호출.
+      // (루프 안에서 호출하면 같은 프로젝트에 여러 담당자가 있을 때 이전 변경이 덮어써짐)
+      if (hasAllocation) {
+        const rawVal = parseFloat(s.bulkAllocation);
+        if (!Number.isNaN(rawVal) && Number.isFinite(rawVal)) {
+          const pct = clampAllocationPercentInt(rawVal);
+          const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
+          // 프로젝트별 변경 담당자 집합 수집
+          const assigneesByProjectId = new Map<string, Set<string>>();
+          let skippedNoAssignee = 0;
+          for (const id of ids) {
+            const t = taskById.get(id);
+            if (!t?.projectId) continue;
+            const assignee = (t.assignee || '').trim();
+            if (!assignee) {
+              skippedNoAssignee++;
+              continue;
+            }
+            if (!projectById.has(t.projectId)) continue;
+            const set = assigneesByProjectId.get(t.projectId) ?? new Set<string>();
+            set.add(assignee);
+            assigneesByProjectId.set(t.projectId, set);
+          }
+          // 프로젝트별로 한 번에 assignments 갱신
+          for (const [projectId, assignees] of assigneesByProjectId) {
+            const proj = projectById.get(projectId)!;
+            const existing = proj.assignments ?? [];
+            const nextAssignments = existing.filter((a) => !assignees.has((a.assignee || '').trim()));
+            for (const assignee of assignees) {
+              nextAssignments.push({ assignee, allocationPercent: pct });
+            }
+            updateProject(projectId, { assignments: nextAssignments });
+          }
+          if (assigneesByProjectId.size === 0) {
+            pushToast(
+              skippedNoAssignee > 0
+                ? '담당자가 지정된 작업이 없어 투입율을 변경할 수 없습니다. 먼저 담당자를 지정해 주세요.'
+                : '투입율을 적용할 수 있는 작업이 없습니다.',
+              { variant: 'warning' },
+            );
+          }
+        }
+      }
 
-    // 적용 후에도 선택·입력란을 유지해 연속 일괄 작업(선행 연결·추가 필드 적용 등)이 가능하도록 함
-  }, [
-    bulkStatus,
-    bulkAssignee,
-    bulkProgress,
-    bulkPlannedProgress,
-    bulkWeight,
-    bulkStartDate,
-    bulkEndDate,
-    bulkDurationDays,
-    bulkAllocation,
-    bulkTaskKind,
-    wbsSettings,
-    selectedTaskIds,
-    updateTask,
-    updateTasksBulk,
-    tasks,
-    projects,
-    updateProject,
-    pushToast,
-    ensureAssigneeOnTasksProjects,
-  ]);
+      const assigneeStr = (updates.assignee as string | undefined)?.trim();
+      if (assigneeStr) {
+        ensureAssigneeOnTasksProjects(ids, assigneeStr);
+      }
+
+      // 적용 후에도 선택·입력란을 유지해 연속 일괄 작업(선행 연결·추가 필드 적용 등)이 가능하도록 함
+    },
+    [
+      bulkStatus,
+      bulkAssignee,
+      bulkProgress,
+      bulkPlannedProgress,
+      bulkWeight,
+      bulkStartDate,
+      bulkEndDate,
+      bulkDurationDays,
+      bulkAllocation,
+      bulkTaskKind,
+      wbsSettings,
+      selectedTaskIds,
+      updateTask,
+      updateTasksBulk,
+      tasks,
+      projects,
+      updateProject,
+      pushToast,
+      ensureAssigneeOnTasksProjects,
+    ],
+  );
 
   const executeBulkStatus = useCallback(() => {
     if (!bulkStatus) return;

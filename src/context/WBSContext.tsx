@@ -50,6 +50,7 @@ import { buildDevSeed } from '../lib/devSeed';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
 import { draftDefaultRootTaskForProject } from '../lib/defaultProjectRootTask';
+import { ensureProjectTopLevelNameInTasks, isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 
 /** 로컬 설정 위에 DB 설정을 올린 뒤 parseSettings로 마이그레이션·정규화(표 컬럼 등)를 한 번에 적용 */
 function mergeWbsSettingsWithDbPatch(local: WBSSettings, db: Partial<WBSSettings> | null | undefined): WBSSettings {
@@ -142,6 +143,25 @@ export function WBSProvider({
     setHasLocalChangesSinceSync(true);
   }, []);
 
+  /** 증분 upsert 직후: 그 사이 새 편집이 없을 때만 플로팅 저장(미동기화) 표시를 끈다. */
+  const clearUnsyncedIfDirtyEpochIs = useCallback((epoch: number) => {
+    if (dirtyEpochRef.current === epoch) setHasLocalChangesSinceSync(false);
+  }, []);
+
+  const clearFloatingSaveAfterUndoRedoDb = useCallback(() => {
+    setHasLocalChangesSinceSync(false);
+  }, []);
+
+  /** WBS 최상단 프로젝트 표시명 정규화 후 mirror·롤업 적용. `bumpOnEnsure: false`면 구조만 맞추고 dirty는 올리지 않음(서버 풀·동기화 등). */
+  const ensureTopThenRollups = useCallback(
+    (projs: Project[], rawTasks: Task[], statusConfigs: StatusConfig[] | undefined, opts?: { bumpOnEnsure?: boolean }) => {
+      const { tasks: ensured, changed } = ensureProjectTopLevelNameInTasks(projs, rawTasks);
+      if (changed && opts?.bumpOnEnsure !== false) bumpDirty();
+      return applyRollupsToTasks(ensured, statusConfigs);
+    },
+    [bumpDirty],
+  );
+
   // ─── Refs (latest-value access for closures) ───────────────────────────────
   const hasLocalChangesSinceSyncRef = useRef(false);
   hasLocalChangesSinceSyncRef.current = hasLocalChangesSinceSync;
@@ -230,6 +250,7 @@ export function WBSProvider({
     bumpDirty,
     useLocalOnlyRef,
     handleDbError,
+    onAfterUndoRedoPersistedToDb: clearFloatingSaveAfterUndoRedoDb,
   });
 
   const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {
@@ -274,6 +295,8 @@ export function WBSProvider({
     setAllTasks,
     setCurrentProjectId,
     recordDeletedTaskIds,
+    dirtyEpochRef,
+    clearUnsyncedIfDirtyEpochIs,
   });
 
   const taskOps = useTaskOps({
@@ -288,6 +311,8 @@ export function WBSProvider({
     setProjects,
     recordDeletedTaskIds,
     bumpDirty,
+    dirtyEpochRef,
+    clearUnsyncedIfDirtyEpochIs,
   });
 
   /** 신규 프로젝트 생성 시 WBS 최상단에 프로젝트명(표시명)과 동일한 루트 작업 1행을 기본 추가 */
@@ -306,6 +331,7 @@ export function WBSProvider({
     setAllTasks,
     currentProjectIdRef,
     allTasksRef,
+    projectsRef,
     setTreeExpandLevel,
     bumpDirty,
   });
@@ -367,7 +393,7 @@ export function WBSProvider({
         const tasksToUse = Array.isArray(fallbackTasks) ? fallbackTasks : [];
         if (projectsToUse.length > 0) {
           setProjects(projectsToUse);
-          setAllTasks(applyRollupsToTasks(tasksToUse, parsedSettings.statusConfigs));
+          setAllTasks(ensureTopThenRollups(projectsToUse, tasksToUse, parsedSettings.statusConfigs));
           setWbsSettings(parsedSettings);
           const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
           const validId = projectsToUse.find((p) => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
@@ -376,13 +402,13 @@ export function WBSProvider({
           // 로그인 우회(미리보기) 모드 + 로컬 데이터 없음 → 검증용 샘플 데이터 시드
           const seed = buildDevSeed(ownerId);
           setProjects(seed.projects);
-          setAllTasks(applyRollupsToTasks(seed.tasks, DEFAULT_SETTINGS.statusConfigs));
+          setAllTasks(ensureTopThenRollups(seed.projects, seed.tasks, DEFAULT_SETTINGS.statusConfigs));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(seed.projects[0]!.id);
         } else {
           const p = emptyStarterProject();
           setProjects([p]);
-          setAllTasks(applyRollupsToTasks(tasksToUse, DEFAULT_SETTINGS.statusConfigs));
+          setAllTasks(ensureTopThenRollups([p], tasksToUse, DEFAULT_SETTINGS.statusConfigs));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
           try {
@@ -422,7 +448,8 @@ export function WBSProvider({
               setProjects(filteredDbProjects);
               const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
               setAllTasks(
-                applyRollupsToTasks(
+                ensureTopThenRollups(
+                  filteredDbProjects,
                   (Array.isArray(dbTasks) ? dbTasks : []).filter((t) => !pendingDeletedTaskIdSet.has(t.id)),
                   effectiveSettings.statusConfigs,
                 ),
@@ -488,12 +515,12 @@ export function WBSProvider({
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
           if (fallbackProjects.length > 0) {
             setProjects(fallbackProjects);
-            setAllTasks(applyRollupsToTasks(fallbackTasks, parsedSettings.statusConfigs));
+            setAllTasks(ensureTopThenRollups(fallbackProjects, fallbackTasks, parsedSettings.statusConfigs));
             setWbsSettings(parsedSettings);
             setCurrentProjectId(fallbackProjects[0]!.id);
           } else {
             setProjects([p]);
-            setAllTasks(applyRollupsToTasks(fallbackTasks, DEFAULT_SETTINGS.statusConfigs));
+            setAllTasks(ensureTopThenRollups([p], fallbackTasks, DEFAULT_SETTINGS.statusConfigs));
             setWbsSettings(DEFAULT_SETTINGS);
             setCurrentProjectId(p.id);
           }
@@ -510,7 +537,7 @@ export function WBSProvider({
       }
     };
     loadData();
-  }, [useLocalOnly, user?.id]);
+  }, [useLocalOnly, user?.id, ensureTopThenRollups]);
 
   // ─── 로컬 저장 (IndexedDB/localStorage) ────────────────────────────────────
   useEffect(() => {
@@ -750,8 +777,11 @@ export function WBSProvider({
       const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
       const finalMergedTasks = pendingDelIdSet.size > 0 ? mergedTasks.filter((t) => !pendingDelIdSet.has(t.id)) : mergedTasks;
       const tasksOrderChanged = prevTasks.length !== finalMergedTasks.length || prevTasks.some((t, i) => t.id !== finalMergedTasks[i]?.id);
-      if (tReplaced > 0 || tasksOrderChanged) {
-        setAllTasks(preserveLocalExpanded(applyRollupsToTasks(finalMergedTasks, effectiveSettings.statusConfigs)));
+      const { tasks: ensuredPull, changed: pullEnsured } = ensureProjectTopLevelNameInTasks(mergedProjects, finalMergedTasks);
+      const rolled = preserveLocalExpanded(applyRollupsToTasks(ensuredPull, effectiveSettings.statusConfigs));
+      if (tReplaced > 0 || tasksOrderChanged || pullEnsured) {
+        if (pullEnsured) bumpDirty();
+        setAllTasks(rolled);
       }
 
       // Settings: 들어온 부분 키만 비교. 값이 다 같으면 setWbsSettings 스킵.
@@ -1105,10 +1135,14 @@ export function WBSProvider({
             })();
       const finalDeletedProjects: string[] = effectiveScope === 'all' ? [] : deletedProjectIds;
 
+      let syncEnsuredTop = false;
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
         snapshotProjects = dbProjects;
         const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
-        snapshotTasks = applyRollupsToTasks((dbTaskRows ?? []).map(fromTaskRow), effectiveSettings.statusConfigs);
+        const rawMapped = (dbTaskRows ?? []).map(fromTaskRow);
+        const ensured = ensureProjectTopLevelNameInTasks(snapshotProjects, rawMapped);
+        syncEnsuredTop = ensured.changed;
+        snapshotTasks = applyRollupsToTasks(ensured.tasks, effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
         replacedProjectIds = snapshotProjects.map((p) => p.id);
@@ -1182,6 +1216,7 @@ export function WBSProvider({
       }
       clearInitBlankSessionFlag();
       if (dirtyEpochRef.current === syncEpochStart) setHasLocalChangesSinceSync(false);
+      if (syncEnsuredTop) bumpDirty();
       return { projects: snapshotProjects!, allTasks: snapshotTasks!, summary };
     } catch (e) {
       throw toUserFacingDbError(e);
@@ -1213,10 +1248,9 @@ export function WBSProvider({
         return;
       }
       const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettingsRef.current, dbSettings) : wbsSettingsRef.current;
-      const snapshotTasks = applyRollupsToTasks(
-        (Array.isArray(dbTaskRows) ? dbTaskRows : []).map(fromTaskRow),
-        effectiveSettings.statusConfigs,
-      );
+      const rawMapped = (Array.isArray(dbTaskRows) ? dbTaskRows : []).map(fromTaskRow);
+      const { tasks: ensuredDiscard, changed: discardEnsured } = ensureProjectTopLevelNameInTasks(dbProjects, rawMapped);
+      const snapshotTasks = applyRollupsToTasks(ensuredDiscard, effectiveSettings.statusConfigs);
       const snapshotTasksExpanded = preserveLocalExpanded(snapshotTasks);
       setProjects(dbProjects);
       setAllTasks(snapshotTasksExpanded);
@@ -1234,12 +1268,13 @@ export function WBSProvider({
         saveJsonWithIdbFallback('wbs-deleted-project-ids', []),
       ]);
       setHasLocalChangesSinceSync(false);
+      if (discardEnsured) bumpDirty();
       lastServerPullAtRef.current = Date.now();
     } catch (e) {
       handleDbError(e, '서버에서 최신 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
       throw e;
     }
-  }, [useLocalOnly, user?.id, preserveLocalExpanded, resetHistory, handleDbError]);
+  }, [useLocalOnly, user?.id, preserveLocalExpanded, resetHistory, handleDbError, bumpDirty]);
 
   useEffect(() => {
     if (currentProjectId) {
@@ -1291,6 +1326,7 @@ export function WBSProvider({
     const displayMap = new Map<string, string>();
     const { level1Prefix, level2Prefix, level3Prefix, maxLevel } = wbsSettings;
     const childrenByParent = buildChildrenByParent(tasks);
+    const projectById = new Map(projects.map((p) => [p.id, p] as const));
 
     const topoOrder = getTopologicalOrder(tasks);
     const topoIndex = new Map<string, number>();
@@ -1308,23 +1344,32 @@ export function WBSProvider({
 
     const buildWbs = (parentId: string | null, parentPrefixStr: string, depth: number) => {
       const children = childrenByParentSorted.get(parentId) ?? [];
-      children.forEach((child, index) => {
+      let wbsSiblingIndex = 0;
+      for (const child of children) {
+        const proj = projectById.get(child.projectId);
+        if (parentId === null && isProjectTitleRootTask(child, proj)) {
+          map.set(child.id, '');
+          displayMap.set(child.id, '');
+          buildWbs(child.id, '', 1);
+          continue;
+        }
+        wbsSiblingIndex += 1;
         let wbsId = '';
-        if (depth === 1) wbsId = `${level1Prefix}${index + 1}`;
-        else if (depth === 2) wbsId = `${parentPrefixStr.replace(level1Prefix, level2Prefix)}.${index + 1}`;
+        if (depth === 1) wbsId = `${level1Prefix}${wbsSiblingIndex}`;
+        else if (depth === 2) wbsId = `${parentPrefixStr.replace(level1Prefix, level2Prefix)}.${wbsSiblingIndex}`;
         else if (depth === 3) {
           const n = parentPrefixStr.replace(level2Prefix, '').replace(level1Prefix, '');
-          wbsId = `${level3Prefix}${n}.${index + 1}`;
-        } else if (depth > 3) wbsId = `${parentPrefixStr}.${index + 1}`;
+          wbsId = `${level3Prefix}${n}.${wbsSiblingIndex}`;
+        } else if (depth > 3) wbsId = `${parentPrefixStr}.${wbsSiblingIndex}`;
         map.set(child.id, wbsId);
         displayMap.set(child.id, depth <= maxLevel ? wbsId : '');
         buildWbs(child.id, wbsId, depth + 1);
-      });
+      }
     };
     buildWbs(null, '', 1);
     return { wbsMap: map, displayWbsMap: displayMap };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, wbsSettings.level1Prefix, wbsSettings.level2Prefix, wbsSettings.level3Prefix, wbsSettings.maxLevel]);
+  }, [tasks, projects, wbsSettings.level1Prefix, wbsSettings.level2Prefix, wbsSettings.level3Prefix, wbsSettings.maxLevel]);
 
   // ─── 환경설정 (WBSSettings) ──────────────────────────────────────────────
   const updateWbsSettings = useCallback(
@@ -1401,6 +1446,7 @@ export function WBSProvider({
       renameAssignee: taskOps.renameAssignee,
       refreshProjectSchedule: taskOps.refreshProjectSchedule,
       distributeChildrenSchedule: taskOps.distributeChildrenSchedule,
+      disconnectSubtreeInternalDependencies: taskOps.disconnectSubtreeInternalDependencies,
       rollupTaskSchedule: taskOps.rollupTaskSchedule,
       // Task movement
       moveTask: taskMovement.moveTask,

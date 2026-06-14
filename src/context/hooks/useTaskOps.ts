@@ -50,6 +50,8 @@ export interface TaskOpsDeps {
   setProjects: Dispatch<SetStateAction<Project[]>>;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
   bumpDirty: () => void;
+  dirtyEpochRef: MutableRefObject<number>;
+  clearUnsyncedIfDirtyEpochIs: (epoch: number) => void;
 }
 
 export function useTaskOps(deps: TaskOpsDeps) {
@@ -65,6 +67,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
     setProjects,
     recordDeletedTaskIds,
     bumpDirty,
+    dirtyEpochRef,
+    clearUnsyncedIfDirtyEpochIs,
   } = deps;
 
   const addTask = useCallback(
@@ -122,16 +126,34 @@ export function useTaskOps(deps: TaskOpsDeps) {
       });
       // 신규 작업이 로컬에만 남아 새로고침·동기화 시 사라지지 않도록 변경분을 즉시 저장 (updateTask·일정 연산과 동일 패턴).
       if (tasksToPersist) {
-        bumpDirty();
         if (task.projectId && !useLocalOnlyRef.current) {
           const pid = task.projectId;
           const rows = (tasksToPersist as Task[]).filter((t) => t.projectId === pid);
-          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+          if (rows.length > 0) {
+            bumpDirty();
+            const epoch = dirtyEpochRef.current;
+            void upsertTasks(rows)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+          }
+        } else {
+          bumpDirty();
         }
       }
       return task.id;
     },
-    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
+    [
+      saveHistory,
+      currentProjectIdRef,
+      projectsRef,
+      wbsSettingsRef,
+      setAllTasks,
+      bumpDirty,
+      useLocalOnlyRef,
+      handleDbError,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   /**
@@ -188,16 +210,34 @@ export function useTaskOps(deps: TaskOpsDeps) {
         return next;
       });
       if (tasksToPersist) {
-        bumpDirty();
         if (projectId && !useLocalOnlyRef.current) {
           const pid = projectId;
           const persistRows = (tasksToPersist as Task[]).filter((t) => t.projectId === pid);
-          if (persistRows.length > 0) upsertTasks(persistRows).catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+          if (persistRows.length > 0) {
+            bumpDirty();
+            const epoch = dirtyEpochRef.current;
+            void upsertTasks(persistRows)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '새 작업 저장에 실패했습니다.'));
+          }
+        } else {
+          bumpDirty();
         }
       }
       return rows.map((r) => r.id);
     },
-    [saveHistory, currentProjectIdRef, projectsRef, wbsSettingsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
+    [
+      saveHistory,
+      currentProjectIdRef,
+      projectsRef,
+      wbsSettingsRef,
+      setAllTasks,
+      bumpDirty,
+      useLocalOnlyRef,
+      handleDbError,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   const addTasks = useCallback(
@@ -218,8 +258,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
 
         return recomputeProjectRollups(next, effectiveProjectId, undefined, undefined, true);
       });
+      bumpDirty();
     },
-    [saveHistory, currentProjectIdRef, projectsRef, setAllTasks],
+    [saveHistory, currentProjectIdRef, projectsRef, setAllTasks, bumpDirty],
   );
 
   const updateTask = useCallback(
@@ -489,7 +530,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
       if (tasksToPersist) {
         bumpDirty();
         if (!useLocalOnlyRef.current) {
-          upsertTasks(tasksToPersist).catch((err) => handleDbError(err, '작업 수정 저장에 실패했습니다.'));
+          const epoch = dirtyEpochRef.current;
+          void upsertTasks(tasksToPersist)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '작업 수정 저장에 실패했습니다.'));
         }
       }
 
@@ -504,12 +548,26 @@ export function useTaskOps(deps: TaskOpsDeps) {
           };
           setProjects((projs) => projs.map((p) => (p.id === merged.id ? merged : p)));
           if (!useLocalOnlyRef.current) {
-            void upsertProject(merged).catch((err) => handleDbError(err, '프로젝트 기간 저장에 실패했습니다.'));
+            const epoch = dirtyEpochRef.current;
+            void upsertProject(merged)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '프로젝트 기간 저장에 실패했습니다.'));
           }
         }
       }
     },
-    [saveHistory, wbsSettingsRef, setAllTasks, setProjects, projectsRef, bumpDirty, useLocalOnlyRef, handleDbError],
+    [
+      saveHistory,
+      wbsSettingsRef,
+      setAllTasks,
+      setProjects,
+      projectsRef,
+      bumpDirty,
+      useLocalOnlyRef,
+      handleDbError,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   const updateTasksBulk = useCallback(
@@ -571,11 +629,14 @@ export function useTaskOps(deps: TaskOpsDeps) {
       if (tasksToPersist) {
         bumpDirty();
         if (!useLocalOnlyRef.current) {
-          upsertTasks(tasksToPersist).catch((err) => handleDbError(err, '작업 일괄 수정 저장에 실패했습니다.'));
+          const epoch = dirtyEpochRef.current;
+          void upsertTasks(tasksToPersist)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '작업 일괄 수정 저장에 실패했습니다.'));
         }
       }
     },
-    [saveHistory, setAllTasks, wbsSettingsRef, bumpDirty, useLocalOnlyRef, handleDbError],
+    [saveHistory, setAllTasks, wbsSettingsRef, bumpDirty, useLocalOnlyRef, handleDbError, dirtyEpochRef, clearUnsyncedIfDirtyEpochIs],
   );
 
   const setBaselineForTasks = useCallback(
@@ -611,6 +672,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
       const to = (newName ?? '').trim();
       if (!from || !to || from === to) return;
       saveHistory();
+      bumpDirty();
+      const epoch = dirtyEpochRef.current;
 
       setProjects((prev) => {
         const next = prev.map((p) => {
@@ -631,11 +694,15 @@ export function useTaskOps(deps: TaskOpsDeps) {
           if (nextAssignee === t.assignee) return t;
           return { ...t, assignee: nextAssignee ?? '' };
         });
-        if (!useLocalOnlyRef.current) upsertTasks(next).catch((err) => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
+        if (!useLocalOnlyRef.current) {
+          void upsertTasks(next)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
+        }
         return next;
       });
     },
-    [saveHistory, handleDbError, useLocalOnlyRef, setProjects, setAllTasks],
+    [saveHistory, bumpDirty, handleDbError, useLocalOnlyRef, setProjects, setAllTasks, dirtyEpochRef, clearUnsyncedIfDirtyEpochIs],
   );
 
   /** '일정 자동 맞춤' 메뉴 전용(명시 실행): 선행(FS) 일정 재계산 + 상위 작업 시작·종료를 하위 min/max로 정렬.
@@ -661,13 +728,34 @@ export function useTaskOps(deps: TaskOpsDeps) {
       return result;
     });
     // '일정 자동 맞춤'은 다른 수정과 달리 DB에 저장되지 않아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
-    if (tasksToPersist && !useLocalOnlyRef.current) {
-      bumpDirty();
-      const affected = new Set(projectIds);
-      const rows = tasksToPersist.filter((t) => t.projectId != null && affected.has(t.projectId));
-      if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '일정 자동 맞춤 저장에 실패했습니다.'));
+    if (tasksToPersist) {
+      if (!useLocalOnlyRef.current) {
+        bumpDirty();
+        const epoch = dirtyEpochRef.current;
+        const affected = new Set(projectIds);
+        const rows = tasksToPersist.filter((t) => t.projectId != null && affected.has(t.projectId));
+        if (rows.length > 0) {
+          void upsertTasks(rows)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '일정 자동 맞춤 저장에 실패했습니다.'));
+        } else {
+          clearUnsyncedIfDirtyEpochIs(epoch);
+        }
+      } else {
+        bumpDirty();
+      }
     }
-  }, [saveHistory, currentProjectIdRef, projectsRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
+  }, [
+    saveHistory,
+    currentProjectIdRef,
+    projectsRef,
+    setAllTasks,
+    bumpDirty,
+    useLocalOnlyRef,
+    handleDbError,
+    dirtyEpochRef,
+    clearUnsyncedIfDirtyEpochIs,
+  ]);
 
   /** '상위→하위 균등 분배' 메뉴 전용(명시 실행): 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고
    *  하위끼리 선행관계(FS)로 연결. 하위의 하위까지 재귀. 상위 작업 자신의 날짜는 유지한다.
@@ -704,13 +792,104 @@ export function useTaskOps(deps: TaskOpsDeps) {
         }
         if (affected.size > 0) {
           bumpDirty();
+          const epoch = dirtyEpochRef.current;
           const rows = tasksToPersist.filter((t) => t.projectId != null && affected.has(t.projectId));
-          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '균등 분배 저장에 실패했습니다.'));
+          if (rows.length > 0) {
+            void upsertTasks(rows)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '균등 분배 저장에 실패했습니다.'));
+          } else {
+            clearUnsyncedIfDirtyEpochIs(epoch);
+          }
         }
+      } else if (applied > 0 && tasksToPersist && useLocalOnlyRef.current) {
+        bumpDirty();
       }
       return { applied, skipped };
     },
-    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
+    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError, dirtyEpochRef, clearUnsyncedIfDirtyEpochIs],
+  );
+
+  /**
+   * 우클릭 메뉴 전용: 선택한 상위 작업의 **직·간접 하위 작업끼리**의 선행(dependencies) 연결만 제거한다.
+   * 하위→상위(또는 상위→하위) 선행, 트리 밖 작업과의 선행은 유지한다. 히스토리 1회.
+   */
+  const disconnectSubtreeInternalDependencies = useCallback(
+    (parentTaskId: string): { removedEdges: number } => {
+      if (!parentTaskId) return { removedEdges: 0 };
+      const prev = allTasksRef.current;
+      const parent = prev.find((t) => t.id === parentTaskId);
+      if (!parent?.projectId) return { removedEdges: 0 };
+
+      const subtreeAll = collectDescendantTaskIds([parentTaskId], prev);
+      const strictDesc = new Set(subtreeAll);
+      strictDesc.delete(parentTaskId);
+      if (strictDesc.size === 0) return { removedEdges: 0 };
+
+      const scanIds = new Set<string>([parentTaskId, ...strictDesc]);
+      let removedEdges = 0;
+      for (const t of prev) {
+        if (!scanIds.has(t.id) || t.projectId !== parent.projectId) continue;
+        const deps = t.dependencies ?? [];
+        for (const d of deps) {
+          if (strictDesc.has(d)) removedEdges += 1;
+        }
+      }
+      if (removedEdges === 0) return { removedEdges: 0 };
+
+      saveHistory();
+      let tasksToPersist: Task[] | null = null;
+      setAllTasks((current) => {
+        const p = current.find((x) => x.id === parentTaskId);
+        if (!p?.projectId) return current;
+        const stAll = collectDescendantTaskIds([parentTaskId], current);
+        const st = new Set(stAll);
+        st.delete(parentTaskId);
+        const ids = new Set<string>([parentTaskId, ...st]);
+        const doneStatusIds = new Set(
+          ((wbsSettingsRef.current.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
+        );
+        let result = current.map((t) => {
+          if (!ids.has(t.id) || t.projectId !== p.projectId) return t;
+          const deps = t.dependencies ?? [];
+          const filtered = deps.filter((d) => !st.has(d));
+          if (filtered.length === deps.length) return t;
+          return { ...t, dependencies: filtered };
+        });
+        result = recomputeProjectRollups(result, p.projectId, doneStatusIds, undefined, true);
+        tasksToPersist = result;
+        return result;
+      });
+
+      if (tasksToPersist && !useLocalOnlyRef.current) {
+        bumpDirty();
+        const epoch = dirtyEpochRef.current;
+        const pid = parent.projectId;
+        const rows = tasksToPersist.filter((t) => t.projectId === pid);
+        if (rows.length > 0) {
+          void upsertTasks(rows)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '선행 연결 해제 저장에 실패했습니다.'));
+        } else {
+          clearUnsyncedIfDirtyEpochIs(epoch);
+        }
+      } else if (tasksToPersist && useLocalOnlyRef.current) {
+        bumpDirty();
+      }
+
+      return { removedEdges };
+    },
+    [
+      allTasksRef,
+      saveHistory,
+      setAllTasks,
+      wbsSettingsRef,
+      bumpDirty,
+      useLocalOnlyRef,
+      handleDbError,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   /** 특정 작업 기준 '하위 → 상위 롤업'(우클릭 메뉴 전용): 그 작업과 하위(서브트리)만 대상으로
@@ -742,12 +921,21 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const projectId = tasksToPersist.find((t) => t.id === taskId)?.projectId ?? null;
         if (projectId) {
           bumpDirty();
+          const epoch = dirtyEpochRef.current;
           const rows = tasksToPersist.filter((t) => t.projectId === projectId);
-          if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '일정 롤업 저장에 실패했습니다.'));
+          if (rows.length > 0) {
+            void upsertTasks(rows)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '일정 롤업 저장에 실패했습니다.'));
+          } else {
+            clearUnsyncedIfDirtyEpochIs(epoch);
+          }
         }
+      } else if (tasksToPersist && useLocalOnlyRef.current) {
+        bumpDirty();
       }
     },
-    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError],
+    [saveHistory, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError, dirtyEpochRef, clearUnsyncedIfDirtyEpochIs],
   );
 
   /** 표에 보이는 순서대로 선행작업을 FS 체인으로 연결 (두 번째 행부터 직전 선택 행이 선행). 잠금된 시작일·종료일은 applyDependencySchedule에서 그대로 유지된다. */
@@ -793,10 +981,18 @@ export function useTaskOps(deps: TaskOpsDeps) {
           });
           setProjects(projs);
           if (!useLocalOnlyRef.current) {
-            for (const [projectId] of assigneesByProjectId) {
-              const updated = projs.find((p) => p.id === projectId);
-              if (updated) upsertProject(updated).catch((err) => handleDbError(err, '투입율 저장에 실패했습니다.'));
-            }
+            bumpDirty();
+            const epochProj = dirtyEpochRef.current;
+            void Promise.all(
+              [...assigneesByProjectId.keys()].map((projectId) => {
+                const updated = projs.find((p) => p.id === projectId);
+                return updated
+                  ? upsertProject(updated).catch((err) => handleDbError(err, '투입율 저장에 실패했습니다.'))
+                  : Promise.resolve();
+              }),
+            ).then(() => clearUnsyncedIfDirtyEpochIs(epochProj));
+          } else {
+            bumpDirty();
           }
         }
       }
@@ -861,12 +1057,33 @@ export function useTaskOps(deps: TaskOpsDeps) {
       // 선행 FS 연결도 일정·의존성을 바꾸지만 기존엔 task가 저장되지 않아 사용자마다 일정이 달라 보였음 → 변경분을 즉시 저장.
       if (tasksToPersist && persistProjectId && !useLocalOnlyRef.current) {
         bumpDirty();
+        const epoch = dirtyEpochRef.current;
         const pid: string = persistProjectId;
         const rows = tasksToPersist.filter((t) => t.projectId === pid);
-        if (rows.length > 0) upsertTasks(rows).catch((err) => handleDbError(err, '선행 연결 저장에 실패했습니다.'));
+        if (rows.length > 0) {
+          void upsertTasks(rows)
+            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+            .catch((err) => handleDbError(err, '선행 연결 저장에 실패했습니다.'));
+        } else {
+          clearUnsyncedIfDirtyEpochIs(epoch);
+        }
+      } else if (tasksToPersist && persistProjectId && useLocalOnlyRef.current) {
+        bumpDirty();
       }
     },
-    [saveHistory, wbsSettingsRef, projectsRef, allTasksRef, setAllTasks, setProjects, useLocalOnlyRef, handleDbError, bumpDirty],
+    [
+      saveHistory,
+      wbsSettingsRef,
+      projectsRef,
+      allTasksRef,
+      setAllTasks,
+      setProjects,
+      useLocalOnlyRef,
+      handleDbError,
+      bumpDirty,
+      dirtyEpochRef,
+      clearUnsyncedIfDirtyEpochIs,
+    ],
   );
 
   /**
@@ -895,16 +1112,19 @@ export function useTaskOps(deps: TaskOpsDeps) {
         result = recomputeProjectRollups(result, projectId, doneStatusIds, undefined, skipDependencySchedule ? 'growOnly' : false);
         return result;
       });
+      bumpDirty();
     },
-    [saveHistory, setAllTasks, wbsSettingsRef],
+    [saveHistory, setAllTasks, wbsSettingsRef, bumpDirty],
   );
 
   const deleteTask = useCallback(
     (id: string) => {
       saveHistory();
+      const removedRef = { current: false };
       setAllTasks((prev) => {
         const taskToDelete = prev.find((t) => t.id === id);
         if (!taskToDelete) return prev;
+        removedRef.current = true;
         const getAllDescendantIds = (parentId: string, list: Task[]): string[] => {
           const children = list.filter((t) => t.parentId === parentId);
           return [...children.map((c) => c.id), ...children.flatMap((c) => getAllDescendantIds(c.id, list))];
@@ -914,8 +1134,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
         const next = prev.filter((t) => !new Set(idsToDelete).has(t.id));
         return syncParentRollups(next, taskToDelete.parentId, undefined, false, undefined, undefined, true);
       });
+      if (removedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, recordDeletedTaskIds],
+    [saveHistory, setAllTasks, recordDeletedTaskIds, bumpDirty],
   );
 
   return useMemo(
@@ -931,6 +1152,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       renameAssignee,
       refreshProjectSchedule,
       distributeChildrenSchedule,
+      disconnectSubtreeInternalDependencies,
       rollupTaskSchedule,
       deleteTask,
       flushProjectTaskRollups,
@@ -947,6 +1169,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       renameAssignee,
       refreshProjectSchedule,
       distributeChildrenSchedule,
+      disconnectSubtreeInternalDependencies,
       rollupTaskSchedule,
       deleteTask,
       flushProjectTaskRollups,

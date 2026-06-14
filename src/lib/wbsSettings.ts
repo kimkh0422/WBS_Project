@@ -79,7 +79,7 @@ export interface WBSSettings {
   prependDisplayWbsToTaskName?: boolean;
   /**
    * false: 작업표·간트에서 레벨별 배경·완료 취소선·간트 완료 강조 등 자동 서식을 쓰지 않음(관리자 전역).
-   * true/미설정: 켜 두되, 사용자는 이 브라우저에서만 숨길 수 있음(요약 바·환경설정).
+   * true/미설정: 켜 두되, 사용자는 이 브라우저에서만 숨길 수 있음(셀 서식 툴바·환경설정).
    */
   showTableAutoFormatting?: boolean;
 }

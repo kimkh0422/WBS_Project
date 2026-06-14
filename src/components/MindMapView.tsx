@@ -23,6 +23,7 @@ import { cn, formatPercent1 } from '../lib/utils';
 import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
+import { mapTasksOmittingProjectTitleRootsForTreeLayout } from '../lib/ensureProjectTopLevelName';
 
 const NODE_W = 200;
 const NODE_H = 44; // 진행률 바 공간 확보를 위해 높이 증가
@@ -481,9 +482,9 @@ export function MindMapView({ filters }: MindMapViewProps) {
     return list;
   }, [tasks, filters.projectIds]);
 
-  const projectId = currentProjectId === 'all' ? projects[0]?.id : currentProjectId;
+  const forest = useMemo(() => buildForest(mapTasksOmittingProjectTitleRootsForTreeLayout(scopedTasks, projects)), [scopedTasks, projects]);
 
-  const forest = useMemo(() => buildForest(scopedTasks), [scopedTasks]);
+  const projectId = currentProjectId === 'all' ? projects[0]?.id : currentProjectId;
 
   const projectLabel = useMemo(() => {
     if (filters.projectIds === 'all') {

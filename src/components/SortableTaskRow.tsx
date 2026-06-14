@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { GripVertical, Bug, Edit2, Trash2, ListChecks, ChevronRight, ChevronDown, GitBranch } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
@@ -202,6 +202,11 @@ export interface SortableTaskRowProps {
   forkedChildProject?: Project;
   /** 분기 배지 클릭 시 호출 — 보통 자식 프로젝트로 전환 */
   onOpenForkedChildProject?: (childProjectId: string) => void;
+  /**
+   * 체크박스로 2행 이상 선택된 채 해당 셀 편집기에 붙여넣기 할 때: 클립보드 텍스트의 첫 줄을 선택 행 전체에 반영.
+   * 처리했으면 true(호출측에서 preventDefault) — 1행만 선택이면 false로 기본 붙여넣기 유지.
+   */
+  onPasteApplyToCheckboxSelection?: (columnId: TableColumnId, clipboardPlainText: string) => boolean;
 }
 
 function SortableTaskRowInner({
@@ -258,6 +263,7 @@ function SortableTaskRowInner({
   onAdvanceInlineEditToNextRow,
   forkedChildProject,
   onOpenForkedChildProject,
+  onPasteApplyToCheckboxSelection,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   // 순서 이동(정렬)은 첫 열 손잡이([data-row-grip])에서만 시작한다 — listeners/attributes는 그립 셀에만 부착.
@@ -294,7 +300,7 @@ function SortableTaskRowInner({
   /** armed(편집 전) 작업명 input에서 첫 입력/IME 조합 시작 시 실제 편집으로 승격 — 같은 element라 조합이 유지된다. */
   const promoteArmedNameToEditing = () => {
     setFocusedCell({ taskId: task.id, columnId: 'name' });
-    onFocusRow?.(task.id);
+    onFocusRow?.(task.id, { keepSelection: true });
     onSetRowAnchor?.(task.id);
     setEditingCell(null);
     setInlineEditingNameId(task.id);
@@ -313,14 +319,14 @@ function SortableTaskRowInner({
       return;
     }
     setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id);
+    onFocusRow?.(task.id, { keepSelection: true });
     onSetRowAnchor?.(task.id);
   };
 
   /** 더블클릭/F2용: 권한이 있으면 즉시 인라인 편집 진입. 권한 없으면 포커스만. */
   const beginEditNow = (columnId: TableColumnId) => {
     setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id);
+    onFocusRow?.(task.id, { keepSelection: true });
     onSetRowAnchor?.(task.id);
     if (!canEdit) return;
     if (columnId === 'name') {
@@ -337,9 +343,23 @@ function SortableTaskRowInner({
   /** 편집은 시작하지 않고 포커스만 옮길 때 (status select / dependencies input의 click 등) */
   const beginFocus = (columnId: TableColumnId) => {
     setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id);
+    onFocusRow?.(task.id, { keepSelection: true });
     onSetRowAnchor?.(task.id);
   };
+
+  const handleCellBulkPaste = useCallback(
+    (columnId: TableColumnId, e: React.ClipboardEvent) => {
+      if (!onPasteApplyToCheckboxSelection) return;
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (!onPasteApplyToCheckboxSelection(columnId, text)) return;
+      e.preventDefault();
+      setEditingCell(null);
+      requestAnimationFrame(() => {
+        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+      });
+    },
+    [onPasteApplyToCheckboxSelection, setEditingCell],
+  );
 
   const visibleEditableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
 
@@ -547,8 +567,11 @@ function SortableTaskRowInner({
   const applyDoneAutoStrike = showTableAutoFormatting && isDone;
 
   // 다크/라이트 모드별 행 상태 색상(완료 행은 배경·스트립으로 구분하지 않고 셀 텍스트 취소선으로만 표시)
-  const selectedBg = dark ? '#3b2e6b' : '#a5b4fc';
-  const focusedBg = dark ? '#4a3a1a' : '#fff7ed';
+  // 선택 행: 표면/줄무늬 대비가 약해지지 않도록 배경을 한 단계 진하게(라이트 indigo-400, 다크 보라 톤 상향)
+  const selectedBg = dark ? '#4c3a8a' : '#818cf8';
+  // 단일 활성 행(체크 없이 클릭·키보드 포커스): 표↔간트 split에서 같은 높이의 '한 줄'로 보이도록
+  // 배경·좌측 스트립·2px 외곽선 + 상하 1px 라인을 체크 선택(보라)과 동등한 굵기로 맞춘다.
+  const focusedBg = dark ? '#5c4528' : '#ffedd5';
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -561,15 +584,15 @@ function SortableTaskRowInner({
     ...(isSelected
       ? {
           boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4)'
-            : 'inset 3px 0 0 0 rgb(147 51 234), inset 0 0 0 2px rgba(168, 85, 247, 0.7), 0 2px 6px rgba(147, 51, 234, 0.35)',
+            ? 'inset 3px 0 0 0 rgb(192 132 252), inset 0 0 0 2px rgba(192 132 252, 0.55), inset 0 1px 0 0 rgba(216 180 254, 0.4), inset 0 -1px 0 0 rgba(216 180 254, 0.4), 0 2px 8px rgba(0 0 0, 0.45)'
+            : 'inset 3px 0 0 0 rgb(126 34 206), inset 0 0 0 2px rgba(91 33 182, 0.55), inset 0 1px 0 0 rgba(91 33 182, 0.38), inset 0 -1px 0 0 rgba(91 33 182, 0.38), 0 2px 8px rgba(91, 33, 182, 0.28)',
         }
       : {}),
     ...(isFocused && !isSelected
       ? {
           boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(217 119 6), inset 0 0 0 1px rgba(245, 158, 11, 0.28), 0 1px 2px rgba(0, 0, 0, 0.25)'
-            : 'inset 3px 0 0 0 rgb(249 115 22), inset 0 0 0 1px rgba(251 146 60, 0.35), 0 1px 2px rgba(234, 88, 12, 0.12)',
+            ? 'inset 3px 0 0 0 rgb(251 146 60), inset 0 0 0 2px rgba(251, 191, 36, 0.42), inset 0 1px 0 0 rgba(253, 224, 71, 0.45), inset 0 -1px 0 0 rgba(253, 224, 71, 0.45), 0 1px 5px rgba(0, 0, 0, 0.35)'
+            : 'inset 3px 0 0 0 rgb(234 88 12), inset 0 0 0 2px rgba(234, 88, 12, 0.42), inset 0 1px 0 0 rgba(234, 88, 12, 0.5), inset 0 -1px 0 0 rgba(234, 88, 12, 0.5), 0 1px 5px rgba(234, 88, 12, 0.2)',
         }
       : {}),
     zIndex: isDragging ? 10 : isSelected || isFocused ? 2 : 1,
@@ -587,8 +610,8 @@ function SortableTaskRowInner({
         // 본문은 끌어서 다중 선택(엑셀식) — 순서 이동은 첫 열 손잡이 전용이므로 행 전체엔 grab 커서를 주지 않는다.
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
-        isSelected && (dark ? 'font-semibold text-purple-300' : 'font-semibold text-purple-900'),
-        isFocused && !isSelected && (dark ? 'font-medium text-orange-200' : 'font-medium text-orange-950'),
+        isSelected && (dark ? 'font-semibold text-purple-200' : 'font-semibold text-violet-950'),
+        isFocused && !isSelected && (dark ? 'font-semibold text-amber-100' : 'font-semibold text-orange-950'),
         // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
         hasChildren && !isSelected && !isFocused && 'font-semibold',
         // 셀에 사용자 지정 글꼴 크기가 있으면 그 행은 높이를 자동 확장(고정 행 높이에 큰 글자가 잘리는 문제 보완)
@@ -681,7 +704,7 @@ function SortableTaskRowInner({
                 onClick={() => {
                   // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
                   const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
-                  onFocusRow?.(task.id);
+                  onFocusRow?.(task.id, { keepSelection: true });
                   onSetRowAnchor?.(task.id);
                   setFocusedCell({ taskId: task.id, columnId: firstEditable });
                 }}
@@ -798,7 +821,7 @@ function SortableTaskRowInner({
                         setInlineEditingNameId(null);
                         setEditingCell(null);
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
-                        onFocusRow?.(task.id);
+                        onFocusRow?.(task.id, { keepSelection: true });
                         requestAnimationFrame(() => {
                           (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
                         });
@@ -822,7 +845,7 @@ function SortableTaskRowInner({
                           return;
                         }
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
-                        onFocusRow?.(task.id);
+                        onFocusRow?.(task.id, { keepSelection: true });
                         requestAnimationFrame(() => {
                           (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
                         });
@@ -950,6 +973,7 @@ function SortableTaskRowInner({
                     title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
+                    onPaste={(e) => handleCellBulkPaste('startDate', e)}
                     onBlur={(e) => {
                       commitStartDateIfChanged(e.target.value);
                       setEditingCell(null);
@@ -1038,6 +1062,7 @@ function SortableTaskRowInner({
                     title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
+                    onPaste={(e) => handleCellBulkPaste('endDate', e)}
                     onBlur={(e) => {
                       commitEndDateIfChanged(e.target.value);
                       setEditingCell(null);
@@ -1134,6 +1159,7 @@ function SortableTaskRowInner({
                     title="시작일 기준 기간(일). Enter로 확정하면 종료일이 자동 계산됩니다."
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
+                    onPaste={(e) => handleCellBulkPaste('duration', e)}
                     onInput={(e) => {
                       const el = e.currentTarget;
                       const cleaned = el.value.replace(/\D/g, '');
@@ -1221,6 +1247,7 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={task.workEffort ?? ''}
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onPaste={(e) => handleCellBulkPaste('workEffort', e)}
                     onBlur={(e) => {
                       const v = parseFloat(e.target.value);
                       if (!isNaN(v) && v >= 0) {
@@ -1301,6 +1328,7 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={task.weight ?? ''}
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onPaste={(e) => handleCellBulkPaste('weight', e)}
                     onBlur={(e) => {
                       const v = parseFloat(e.target.value);
                       if (!isNaN(v) && v >= 0) {
@@ -1374,6 +1402,7 @@ function SortableTaskRowInner({
                       if (next === '' || /^\d*([.]\d*)?$/.test(next)) setProgressEditStr(next);
                     }}
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onPaste={(e) => handleCellBulkPaste('progress', e)}
                     onBlur={() => {
                       const raw = progressEditStr.trim();
                       if (raw !== '') {
@@ -1757,6 +1786,7 @@ function SortableTaskRowInner({
                     defaultValue={task.deliverables ?? ''}
                     placeholder="산출물"
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onPaste={(e) => handleCellBulkPaste('deliverables', e)}
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v !== (task.deliverables ?? '').trim()) {
@@ -2035,6 +2065,7 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={currentValue}
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    onPaste={(e) => handleCellBulkPaste(colId, e)}
                     onBlur={(e) => {
                       const nextValue = e.target.value ?? '';
                       if (nextValue !== currentValue) {
@@ -2191,7 +2222,8 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.showTableAutoFormatting === next.showTableAutoFormatting &&
     prev.singleClickEdit === next.singleClickEdit &&
     prev.forkedChildProject === next.forkedChildProject &&
-    prev.onOpenForkedChildProject === next.onOpenForkedChildProject
+    prev.onOpenForkedChildProject === next.onOpenForkedChildProject &&
+    prev.onPasteApplyToCheckboxSelection === next.onPasteApplyToCheckboxSelection
   );
 }
 

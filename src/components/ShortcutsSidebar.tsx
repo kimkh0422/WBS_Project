@@ -101,7 +101,7 @@ export function ShortcutsSidebar({
       { label: '되돌리기', chords: ['Ctrl', 'Z'] },
       { label: '다시 실행', chords: ['Ctrl', 'Y'] },
       { label: '레벨 펼치기', chords: ['Ctrl', 'Alt', '1~9'] },
-      { label: '고급 도구 표시', chords: ['Shift', 'F12'], hint: '자동 서식' },
+      { label: '관리자 메뉴 표시', chords: ['Shift', 'F12'], hint: '헤더 우클릭: 보완 가이드·컬럼 설정' },
       { label: '이 패널', chords: ['Shift', '?'] },
     ];
 

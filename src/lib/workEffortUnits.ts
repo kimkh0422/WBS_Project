@@ -27,6 +27,32 @@ export function defaultEndDateForNewTask(startDateIso: string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+const ISO_YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 표시 행 기준으로 ‘바로 위’ 작업에서 시작일(YYYY-MM-DD)만 안전하게 꺼낸다. 없거나 형식이 아니면 null */
+export function coalesceTaskStartYmd(task: Pick<Task, 'startDate'> | null | undefined): string | null {
+  const raw = (task?.startDate ?? '').trim();
+  const ymd = raw.length >= 10 ? raw.slice(0, 10) : raw;
+  return ISO_YMD.test(ymd) ? ymd : null;
+}
+
+/**
+ * 표에서 특정 표시 행 바로 아래에 넣는 신규 형제 작업의 시작·종료일.
+ * - 시작일: `rowAbove`에 유효한 시작일이 있으면 동일하게, 없으면 `fallbackStartIso`(필터·프로젝트 기본 등).
+ * - 종료일: `filterEnd`가 있으면 우선, 없으면 {@link defaultEndDateForNewTask}(기본 공수·현재 5일 기간).
+ */
+export function startEndForNewTaskBelowVisibleRow(
+  rowAbove: Pick<Task, 'startDate'> | null | undefined,
+  fallbackStartIso: string,
+  filterEnd?: string | null,
+): { startIso: string; endIso: string } {
+  const fromAbove = coalesceTaskStartYmd(rowAbove);
+  const startIso = fromAbove ?? fallbackStartIso;
+  const endTrim = filterEnd != null && String(filterEnd).trim() !== '' ? String(filterEnd).trim() : '';
+  const endIso = endTrim || defaultEndDateForNewTask(startIso);
+  return { startIso, endIso };
+}
+
 const HOURS_PER_MAN_DAY = 8;
 const MINUTES_PER_MAN_DAY = HOURS_PER_MAN_DAY * 60;
 /** `week` 단위 1주 → MD 환산(영업일 5일) */

@@ -195,6 +195,8 @@ export interface WBSContextType {
   refreshProjectSchedule: () => void;
   /** 상위→하위 균등 분배: 선택한 상위 작업의 기간을 직속 하위에 영업일 기준으로 균등 분배하고 하위끼리 선행관계로 연결(재귀). 반환은 적용·건너뜀 수 */
   distributeChildrenSchedule: (parentIds: string[]) => { applied: number; skipped: number };
+  /** 우클릭: 해당 상위 작업의 하위 트리 **안에서만** 이어진 선행(dependencies) 연결을 제거. 트리 밖·상위 행과의 선행은 유지 */
+  disconnectSubtreeInternalDependencies: (parentTaskId: string) => { removedEdges: number };
   /** 특정 작업 기준 하위→상위 롤업: 그 작업과 하위(서브트리)만 대상으로 선행 재계산+상위 일정을 하위 min/max로 정렬(서브트리 밖은 유지) */
   rollupTaskSchedule: (taskId: string) => void;
   isLoading: boolean;

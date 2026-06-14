@@ -1,7 +1,8 @@
 import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
-import type { Task, FilterState, SortConfig } from '../../types';
+import type { Task, FilterState, SortConfig, Project } from '../../types';
 import { recomputeProjectRollups } from '../../lib/rollups';
 import { buildVisibleTasks, primeWbsSiblingOrderTieBreak } from '../../lib/taskView';
+import { isProjectTitleRootTask } from '../../lib/ensureProjectTopLevelName';
 
 // 들여쓰기/내어쓰기/재배치 후 롤업은 진척·공수만 수행한다(skipScheduleRollup=true).
 // 부모 시작일·종료일은 자동 변경하지 않음 — 표의 '일정 자동 맞춤' 메뉴로만 정렬.
@@ -11,6 +12,8 @@ export interface TaskMovementDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   currentProjectIdRef: MutableRefObject<string>;
   allTasksRef: MutableRefObject<Task[]>;
+  /** 들여쓰기/내어쓰기 시 표시 순서를 맞추기 위해 프로젝트명 전용 루트 행을 표 순서에서 제외할 때 사용 */
+  projectsRef: MutableRefObject<Project[]>;
   setTreeExpandLevel: (level: number) => void;
   /** 레벨 변경(들여쓰기/내어쓰기)도 로컬 변경으로 표시 — 저장 버튼 활성·백그라운드 풀의 덮어쓰기 방지 */
   bumpDirty: () => void;
@@ -34,6 +37,13 @@ const LEVEL_OP_FILTERS: FilterState = {
 };
 
 const WBS_SORT_ASC: SortConfig = { key: 'wbs', direction: 'asc' };
+
+function stableVisibleIdsForMovement(projectTasks: Task[], projects: Project[]): string[] {
+  const byId = new Map(projects.map((p) => [p.id, p] as const));
+  return buildVisibleTasks(projectTasks, LEVEL_OP_FILTERS, WBS_SORT_ASC, {
+    projectTitleSkip: (t) => isProjectTitleRootTask(t, byId.get(t.projectId)),
+  }).map((t) => t.id);
+}
 
 function normalizeParentIdForReorder(parentId: Task['parentId']): string | null {
   if (parentId == null) return null;
@@ -127,11 +137,12 @@ export function outdentTasksLevelOnly(projectTasks: Task[], ids: string[]): { ta
 }
 
 export function useTaskMovement(deps: TaskMovementDeps) {
-  const { saveHistory, setAllTasks, currentProjectIdRef, allTasksRef, setTreeExpandLevel, bumpDirty } = deps;
+  const { saveHistory, setAllTasks, currentProjectIdRef, allTasksRef, projectsRef, setTreeExpandLevel, bumpDirty } = deps;
 
   const moveTask = useCallback(
     (id: string, direction: 'up' | 'down') => {
       saveHistory();
+      const changedRef = { current: false };
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -150,10 +161,12 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           const iB = projectTasks.findIndex((t) => t.id === siblings[idx + 1].id);
           [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB], newProjectTasks[iA]];
         } else return prev;
+        changedRef.current = true;
         return [...otherTasks, ...newProjectTasks];
       });
+      if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   /** Alt+↑↓ 다중 선택: 형제 스왑을 여러 번 하더라도 히스토리·setState는 1회(순서대로 누적 적용). */
@@ -161,6 +174,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => {
       if (steps.length === 0) return;
       saveHistory();
+      const changedRef = { current: false };
       setAllTasks((prev) => {
         let work = prev;
         for (const step of steps) {
@@ -184,17 +198,22 @@ export function useTaskMovement(deps: TaskMovementDeps) {
             [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB]!, newProjectTasks[iA]!];
             swapped = true;
           }
-          if (swapped) work = [...otherTasks, ...newProjectTasks];
+          if (swapped) {
+            changedRef.current = true;
+            work = [...otherTasks, ...newProjectTasks];
+          }
         }
         return work;
       });
+      if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   const reorderTask = useCallback(
     (id: string, overId: string) => {
       saveHistory();
+      const changedRef = { current: false };
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -205,10 +224,12 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const arr = [...projectTasks];
         const [moved] = arr.splice(oldIndex, 1);
         arr.splice(newIndex, 0, moved);
+        changedRef.current = true;
         return [...otherTasks, ...arr];
       });
+      if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   const indentTask = useCallback(
@@ -219,7 +240,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const stableIds = buildVisibleTasks(projectTasks, LEVEL_OP_FILTERS, WBS_SORT_ASC).map((t) => t.id);
+        const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
         const task = projectTasks.find((t) => t.id === id);
         if (!task) return prev;
@@ -238,7 +259,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       });
       if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
   // 내어쓰기: parentId만 조부모로 내린 뒤, 레벨 변경 직전과 동일한 표시 행 순서로 평탄 배열을 강제 정렬한다.
@@ -250,7 +271,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const stableIds = buildVisibleTasks(projectTasks, LEVEL_OP_FILTERS, WBS_SORT_ASC).map((t) => t.id);
+        const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
         const res = outdentTasksLevelOnly(projectTasks, [id]);
         if (!res.changed) return prev;
@@ -260,7 +281,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       });
       if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
   const indentTasks = useCallback(
@@ -271,7 +292,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const cpi = currentProjectIdRef.current;
         let projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const stableIds = buildVisibleTasks(projectTasks, LEVEL_OP_FILTERS, WBS_SORT_ASC).map((t) => t.id);
+        const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
         const selectedIds = new Set(ids);
         for (const taskId of ids) {
@@ -295,7 +316,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       });
       if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
   // 내어쓰기(다중): outdentTask와 동일.
@@ -307,7 +328,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
         const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const stableIds = buildVisibleTasks(projectTasks, LEVEL_OP_FILTERS, WBS_SORT_ASC).map((t) => t.id);
+        const stableIds = stableVisibleIdsForMovement(projectTasks, projectsRef.current);
         primeWbsSiblingOrderTieBreak(stableIds);
         const res = outdentTasksLevelOnly(projectTasks, ids);
         if (!res.changed) return prev;
@@ -317,7 +338,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       });
       if (changed) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
   const toggleExpand = useCallback(
@@ -332,6 +353,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     (newParentId: string, orderedRootIds: string[]) => {
       if (orderedRootIds.length === 0) return;
       saveHistory();
+      const changedRef = { current: false };
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -365,10 +387,12 @@ export function useTaskMovement(deps: TaskMovementDeps) {
           if (t.id === newParentId) return { ...t, expanded: true };
           return t;
         });
+        changedRef.current = true;
         return recomputeProjectRollups([...otherTasks, ...updated], cpi, undefined, undefined, true);
       });
+      if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   /** 루트 작업들을 `overId`와 같은 부모 아래로 옮기고, 평탄 배열에서 before/after 순서로 끼워 넣는다. */
@@ -376,6 +400,7 @@ export function useTaskMovement(deps: TaskMovementDeps) {
     (orderedRootIds: string[], overId: string, position: 'before' | 'after') => {
       if (orderedRootIds.length === 0) return;
       saveHistory();
+      const changedRef = { current: false };
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
         const projectTasks = prev.filter((t) => t.projectId === cpi);
@@ -414,10 +439,12 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         if (insertIdx < 0) return prev;
         if (position === 'after') insertIdx += 1;
         const merged = [...withoutRoots.slice(0, insertIdx), ...rootsOrdered, ...withoutRoots.slice(insertIdx)];
+        changedRef.current = true;
         return recomputeProjectRollups([...otherTasks, ...merged], cpi, undefined, undefined, true);
       });
+      if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef],
+    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
   );
 
   const expandToLevel = useCallback(
@@ -455,8 +482,9 @@ export function useTaskMovement(deps: TaskMovementDeps) {
         });
         return result;
       });
+      bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, setTreeExpandLevel],
+    [saveHistory, setAllTasks, currentProjectIdRef, setTreeExpandLevel, bumpDirty],
   );
 
   return useMemo(

@@ -107,9 +107,11 @@ export function ProjectsPage({ onNavigateToWork, onNavigateToDashboard }: Projec
   const [groupByOwner, setGroupByOwner] = useState(false);
   const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('wbs-projects-my-only') === '1';
+      const v = localStorage.getItem('wbs-projects-my-only');
+      if (v === '0') return false;
+      return true;
     } catch {
-      return false;
+      return true;
     }
   });
   const toggleShowMyOnly = (v: boolean) => {

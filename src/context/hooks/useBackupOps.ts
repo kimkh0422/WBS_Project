@@ -5,6 +5,7 @@ import { WBSSettings, parseSettings } from '../../lib/wbsSettings';
 import { BackupData } from '../../lib/export';
 import { v4 as uuidv4 } from 'uuid';
 import { recomputeProjectRollups, applyRollupsToTasks } from '../../lib/rollups';
+import { ensureProjectTopLevelNameInTasks } from '../../lib/ensureProjectTopLevelName';
 
 export interface BackupOpsDeps {
   saveHistory: () => void;
@@ -120,9 +121,11 @@ export function useBackupOps(deps: BackupOpsDeps) {
           true,
         );
       });
+      bumpDirty();
     },
     [
       saveHistory,
+      bumpDirty,
       recordDeletedTaskIds,
       ownerIdRef,
       creatorDisplayNameRef,
@@ -152,7 +155,8 @@ export function useBackupOps(deps: BackupOpsDeps) {
       }
       return effectiveProjectId ? prev.filter((t) => t.projectId !== effectiveProjectId) : [];
     });
-  }, [saveHistory, recordDeletedTaskIds, currentProjectIdRef, setAllTasks]);
+    bumpDirty();
+  }, [saveHistory, bumpDirty, recordDeletedTaskIds, currentProjectIdRef, setAllTasks]);
 
   const deleteAllTasksInAllProjects = useCallback(() => {
     saveHistory();
@@ -165,7 +169,8 @@ export function useBackupOps(deps: BackupOpsDeps) {
       idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
       return [];
     });
-  }, [saveHistory, recordDeletedTaskIds, setAllTasks]);
+    bumpDirty();
+  }, [saveHistory, bumpDirty, recordDeletedTaskIds, setAllTasks]);
 
   const resetAllProjectsToNew = useCallback(async (): Promise<void> => {
     const newProject: Project = {
@@ -222,8 +227,9 @@ export function useBackupOps(deps: BackupOpsDeps) {
       let rolled = data.tasks;
       // 백업에 저장된 시작일·종료일 그대로 복원(skipScheduleRollup=true). 진척·공수만 롤업.
       for (const pid of projectIds) rolled = recomputeProjectRollups(rolled, pid, undefined, undefined, true);
+      const { tasks: topped } = ensureProjectTopLevelNameInTasks(data.projects, rolled);
       setProjects(data.projects);
-      setAllTasks(rolled);
+      setAllTasks(topped);
       setWbsSettings(parseSettings(data.settings));
       if (data.projects.length > 0) {
         if (!data.projects.find((p) => p.id === currentProjectIdRef.current)) setCurrentProjectId(data.projects[0].id);
@@ -271,15 +277,15 @@ export function useBackupOps(deps: BackupOpsDeps) {
           });
         }
       }
-      setProjects((prev) => [...prev, ...newProjects]);
-      setAllTasks((prev) => {
-        const rolled = applyRollupsToTasks([...prev, ...newTasks], statusConfigs);
-        return rolled;
-      });
+      const nextProjects = [...projectsRef.current, ...newProjects];
+      const combinedTasks = [...allTasksRef.current, ...newTasks];
+      const { tasks: ensuredMerge } = ensureProjectTopLevelNameInTasks(nextProjects, combinedTasks);
+      setProjects(nextProjects);
+      setAllTasks(applyRollupsToTasks(ensuredMerge, statusConfigs));
       if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
       return { addedProjects: newProjects.length, addedTasks: newTasks.length };
     },
-    [bumpDirty, ownerIdRef, wbsSettingsRef, setProjects, setAllTasks, setCurrentProjectId],
+    [bumpDirty, ownerIdRef, wbsSettingsRef, projectsRef, allTasksRef, setProjects, setAllTasks, setCurrentProjectId],
   );
 
   return useMemo(

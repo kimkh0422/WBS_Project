@@ -23,21 +23,29 @@ interface UseWbsHistoryOptions {
   bumpDirty: () => void;
   useLocalOnlyRef: React.MutableRefObject<boolean>;
   handleDbError: (err: unknown, msg: string) => void;
+  /** 원격 모드: undo/redo 직후 upsert로 DB에 반영되면 플로팅 저장 버튼을 끈다. */
+  onAfterUndoRedoPersistedToDb?: () => void;
 }
 
-export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError }: UseWbsHistoryOptions) {
+export function useWbsHistory({
+  allTasksRef,
+  setAllTasks,
+  bumpDirty,
+  useLocalOnlyRef,
+  handleDbError,
+  onAfterUndoRedoPersistedToDb,
+}: UseWbsHistoryOptions) {
   const historyRef = useRef<Task[][]>([]);
   const redoRef = useRef<Task[][]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
   const saveHistory = useCallback(() => {
-    bumpDirty();
     historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
     redoRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
-  }, [bumpDirty, allTasksRef]);
+  }, [allTasksRef]);
 
   const undo = useCallback(() => {
     if (historyRef.current.length === 0) return;
@@ -48,11 +56,19 @@ export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnl
     setCanUndo(historyRef.current.length > 0);
     setCanRedo(true);
     setAllTasks(previous);
-    bumpDirty();
     if (!useLocalOnlyRef.current) {
-      syncStateToDb(current, previous).catch((err) => handleDbError(err, '실행 취소 저장에 실패했습니다.'));
+      syncStateToDb(current, previous)
+        .then(() => {
+          onAfterUndoRedoPersistedToDb?.();
+        })
+        .catch((err) => {
+          bumpDirty();
+          handleDbError(err, '실행 취소 저장에 실패했습니다.');
+        });
+    } else {
+      bumpDirty();
     }
-  }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
+  }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError, onAfterUndoRedoPersistedToDb]);
 
   const redo = useCallback(() => {
     if (redoRef.current.length === 0) return;
@@ -63,11 +79,19 @@ export function useWbsHistory({ allTasksRef, setAllTasks, bumpDirty, useLocalOnl
     setCanRedo(redoRef.current.length > 0);
     setCanUndo(true);
     setAllTasks(next);
-    bumpDirty();
     if (!useLocalOnlyRef.current) {
-      syncStateToDb(current, next).catch((err) => handleDbError(err, '다시 실행 저장에 실패했습니다.'));
+      syncStateToDb(current, next)
+        .then(() => {
+          onAfterUndoRedoPersistedToDb?.();
+        })
+        .catch((err) => {
+          bumpDirty();
+          handleDbError(err, '다시 실행 저장에 실패했습니다.');
+        });
+    } else {
+      bumpDirty();
     }
-  }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError]);
+  }, [allTasksRef, setAllTasks, bumpDirty, useLocalOnlyRef, handleDbError, onAfterUndoRedoPersistedToDb]);
 
   /** 서버로 되돌리기 등으로 로컬 미저장 편집을 버릴 때 — 실행 취소로 폐기된 내용이 되살아나지 않도록 스택을 비운다. */
   const resetHistory = useCallback(() => {

@@ -33,17 +33,17 @@ type ToastApi = {
 const ToastContext = createContext<ToastApi | null>(null);
 
 function iconFor(variant: ToastVariant) {
-  if (variant === 'success') return <CheckCircle2 size={16} className="text-emerald-600" />;
-  if (variant === 'warning') return <AlertTriangle size={16} className="text-amber-600" />;
-  if (variant === 'error') return <AlertTriangle size={16} className="text-red-600" />;
-  return <Info size={16} className="text-blue-600" />;
+  if (variant === 'success') return <CheckCircle2 size={20} className="text-emerald-700 shrink-0" strokeWidth={2.25} />;
+  if (variant === 'warning') return <AlertTriangle size={20} className="text-amber-700 shrink-0" strokeWidth={2.25} />;
+  if (variant === 'error') return <AlertTriangle size={20} className="text-red-700 shrink-0" strokeWidth={2.25} />;
+  return <Info size={20} className="text-blue-700 shrink-0" strokeWidth={2.25} />;
 }
 
 function ringFor(variant: ToastVariant) {
-  if (variant === 'success') return 'border-emerald-200 bg-emerald-50/60';
-  if (variant === 'warning') return 'border-amber-200 bg-amber-50/60';
-  if (variant === 'error') return 'border-red-200 bg-red-50/60';
-  return 'border-blue-200 bg-blue-50/60';
+  if (variant === 'success') return 'border-emerald-300/90 bg-emerald-50 ring-2 ring-emerald-500/25';
+  if (variant === 'warning') return 'border-amber-300/90 bg-amber-50 ring-2 ring-amber-500/30';
+  if (variant === 'error') return 'border-red-300/90 bg-red-50 ring-2 ring-red-500/30';
+  return 'border-blue-300/90 bg-blue-50 ring-2 ring-blue-500/25';
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -102,21 +102,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="fixed right-4 left-4 sm:left-auto bottom-4 z-[100] flex flex-col gap-2 w-auto sm:w-[320px] max-w-[calc(100vw-2rem)] pointer-events-none fixed-bottom-safe">
+      <div className="fixed right-3 left-3 sm:right-5 sm:left-auto bottom-3 sm:bottom-5 z-[9999] flex flex-col gap-2.5 w-auto sm:w-[min(24rem,calc(100vw-2.5rem))] max-w-[calc(100vw-1.5rem)] pointer-events-none fixed-bottom-safe">
         {items.map((t) => (
           <div
             key={t.id}
-            className={cn('pointer-events-auto border rounded-xl shadow-lg backdrop-blur bg-white/85 overflow-hidden', ringFor(t.variant))}
+            className={cn(
+              'pointer-events-auto border-2 rounded-2xl shadow-[0_12px_40px_-8px_rgba(15,23,42,0.35),0_0_0_1px_rgba(15,23,42,0.06)] backdrop-blur-md bg-white/98 overflow-hidden motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-200 motion-safe:zoom-in-95',
+              ringFor(t.variant),
+            )}
             role={t.variant === 'error' || t.variant === 'warning' ? 'alert' : 'status'}
             aria-live={t.variant === 'error' || t.variant === 'warning' ? 'assertive' : 'polite'}
           >
-            <div className="flex items-start gap-2 p-3">
+            <div className="flex items-start gap-3 p-3.5 sm:p-4">
               <div className="mt-0.5 shrink-0">{iconFor(t.variant)}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm sm:text-[12px] font-semibold text-slate-800 leading-snug whitespace-pre-wrap break-keep">
+                <div className="text-[15px] sm:text-base font-semibold text-slate-900 leading-snug whitespace-pre-wrap break-keep">
                   {t.message}
                 </div>
-                {t.detail && <div className="text-xs text-slate-500 mt-1 leading-snug">{t.detail}</div>}
+                {t.detail && <div className="text-sm text-slate-600 mt-1.5 leading-snug">{t.detail}</div>}
                 {t.progress != null && (
                   <div className="mt-2 h-1.5 rounded-full bg-slate-200/90 overflow-hidden" aria-hidden>
                     <div
@@ -129,11 +132,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => dismiss(t.id)}
-                className="p-1 rounded-md hover:bg-black/5 text-slate-400 hover:text-slate-700 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-black/8 text-slate-500 hover:text-slate-900 transition-colors shrink-0"
                 title="닫기"
                 aria-label="닫기"
               >
-                <X size={14} />
+                <X size={18} strokeWidth={2.25} />
               </button>
             </div>
           </div>

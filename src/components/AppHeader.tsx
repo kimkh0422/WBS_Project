@@ -309,15 +309,15 @@ export function AppHeader({
   const [listFilter, setListFilter] = useState<ProjectListFilter>(() => {
     try {
       const nf = localStorage.getItem(PROJECT_LIST_FILTER_KEY);
-      if (nf === 'my' || nf === 'favorites' || nf === 'dashboardOn') return nf;
+      if (nf === 'all' || nf === 'my' || nf === 'favorites' || nf === 'dashboardOn') return nf;
       if (nf === 'dashboardOff') return 'all';
       const legacy = localStorage.getItem(PROJECT_LIST_MODE_LEGACY_KEY);
       if (legacy === 'my') return 'my';
       if (legacy === 'favorites') return 'favorites';
       if (localStorage.getItem('wbs-header-projects-my-only') === '1') return 'my';
-      return 'all';
+      return 'my';
     } catch {
-      return 'all';
+      return 'my';
     }
   });
 
@@ -352,8 +352,7 @@ export function AppHeader({
   const persistListFilter = (next: ProjectListFilter) => {
     setListFilter(next);
     try {
-      if (next === 'all') localStorage.removeItem(PROJECT_LIST_FILTER_KEY);
-      else localStorage.setItem(PROJECT_LIST_FILTER_KEY, next);
+      localStorage.setItem(PROJECT_LIST_FILTER_KEY, next);
     } catch {
       /* ignore */
     }
@@ -649,16 +648,16 @@ export function AppHeader({
                     : '프로젝트 선택: 작업을 관리할 프로젝트를 선택하거나 새 프로젝트를 만듭니다.'
                 }
               >
-                <div className="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-0 min-w-0">
-                  <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide leading-none shrink-0">프로젝트</span>
-                  <div className="flex items-center gap-1 min-w-0 text-[12px] md:text-[11px] font-bold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-tight">
+                <div className="flex flex-row flex-wrap items-center gap-x-2 gap-y-0 min-w-0">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-none shrink-0">프로젝트</span>
+                  <div className="flex items-center gap-1.5 min-w-0 text-sm md:text-base font-extrabold text-[var(--color-ink)] group-hover:text-[var(--color-accent)] leading-snug tracking-tight">
                     <span className="break-words text-left inline-flex flex-wrap items-center gap-1 min-w-0">
                       {dashboardFilterBarMode ? (
                         '프로젝트를 선택하세요'
                       ) : currentProjectId === 'all' ? (
                         `전체 프로젝트${allTasks.length > 0 ? ` (${allTasks.length}개)` : ''}`
                       ) : currentProject ? (
-                        <ProjectNameLabel project={currentProject} name={currentProject.name} />
+                        <ProjectNameLabel project={currentProject} name={currentProject.name} badgeClassName="text-[11px] px-2 py-0.5" />
                       ) : (
                         '프로젝트 선택'
                       )}
@@ -666,11 +665,14 @@ export function AppHeader({
                         currentProjectId !== 'all' &&
                         currentProject &&
                         (taskCountByProject[currentProjectId] ?? 0) > 0 && (
-                          <span className="text-slate-400 font-semibold shrink-0"> ({taskCountByProject[currentProjectId]}개)</span>
+                          <span className="text-slate-400 font-semibold text-xs md:text-sm shrink-0">
+                            {' '}
+                            ({taskCountByProject[currentProjectId]}개)
+                          </span>
                         )}
                       {!dashboardFilterBarMode && currentProject?.ownerId && (currentProject.ownerId === user?.id || effectiveIsAdmin) && (
                         <span
-                          className="text-[9px] text-slate-400 font-medium truncate max-w-[140px] border-l border-slate-200 pl-1.5 ml-0.5 shrink-0"
+                          className="text-[10px] md:text-xs text-slate-400 font-medium truncate max-w-[140px] border-l border-slate-200 pl-1.5 ml-0.5 shrink-0"
                           title={
                             currentProject.ownerId
                               ? (profileDisplayById[currentProject.ownerId] ?? profileMap[currentProject.ownerId] ?? currentProject.ownerId)
@@ -686,7 +688,7 @@ export function AppHeader({
                       )}
                     </span>
                     <ChevronDown
-                      size={12}
+                      size={16}
                       className={cn('text-slate-400 shrink-0 transition-transform duration-200', isProjectDropdownOpen && 'rotate-180')}
                     />
                   </div>
@@ -1164,6 +1166,37 @@ export function AppHeader({
               <FolderPlus size={12} />
               <span>새 프로젝트</span>
             </button>
+          )}
+          {/* 현재 프로젝트 수정·복사 — 특정 프로젝트를 보고 있을 때만. 수정은 소유자·시스템 관리자만(드롭다운 행과 동일). */}
+          {!hiddenViews.has('projects') && !dashboardFilterBarMode && currentProjectId !== 'all' && currentProject && (
+            <>
+              {canEditProject(currentProject) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingProject(currentProject);
+                    setIsProjectModalOpen(true);
+                  }}
+                  className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-700 text-[11px] font-semibold hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-sm shrink-0"
+                  title={`프로젝트 '${currentProject.name}' 정보를 수정합니다.`}
+                >
+                  <Edit size={12} />
+                  <span>수정</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setProjectToCopy(currentProject);
+                  setIsCopyProjectConfirmOpen(true);
+                }}
+                className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md border border-indigo-100 bg-indigo-50 text-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 hover:border-indigo-200 transition-colors shadow-sm shrink-0"
+                title={`프로젝트 '${currentProject.name}'를 내 프로젝트로 복사합니다.`}
+              >
+                <Copy size={12} />
+                <span>복사</span>
+              </button>
+            </>
           )}
           {/* 현재 프로젝트 삭제 — 「새 프로젝트」 옆. 특정 프로젝트를 보고 있고 삭제 권한(소유자·운영자)이 있을 때만 노출. */}
           {!hiddenViews.has('projects') &&

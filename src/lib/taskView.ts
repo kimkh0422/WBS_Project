@@ -4,16 +4,35 @@ import { getTopologicalOrder } from './schedule';
 
 export type TaskWithDepth = Task & { depth: number };
 
-/** 트리 순서(위→아래) + 레벨·WBS 코드. 선행작업 우선 정렬 후 계단식 표현용 */
+/** 트리 순서(위→아래) + 레벨·WBS 코드. 형제는 평탄 저장 순서 우선(Alt+↑↓ 반영), 동순 시 선행·시작일로 보조 정렬 */
 export type TaskWithWbs = { task: Task; depth: number; wbsCode: string };
 
-export function buildTasksInTreeOrderWithWbs(tasks: Task[]): TaskWithWbs[] {
+/** `tasks` 배열에서 각 id가 처음 나타나는 인덱스 — 형제 표시 순·Alt+행 이동과 동기 */
+function buildFirstFlatIndexMap(tasks: Task[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (let i = 0; i < tasks.length; i++) {
+    const id = tasks[i]!.id;
+    if (!m.has(id)) m.set(id, i);
+  }
+  return m;
+}
+
+export type BuildTasksInTreeOrderOptions = {
+  /** parentId=null 인 루트만: WBS 번호 부여 없이 건너뛰고, 그 자식부터 1, 2, … 번호 */
+  isWbsTreeRootSkip?: (task: Task) => boolean;
+};
+
+export function buildTasksInTreeOrderWithWbs(tasks: Task[], options?: BuildTasksInTreeOrderOptions): TaskWithWbs[] {
   const childrenByParent = buildChildrenByParent(tasks);
+  const flatIndex = buildFirstFlatIndexMap(tasks);
   const topoOrder = getTopologicalOrder(tasks);
   const topoIndex = new Map<string, number>();
   topoOrder.forEach((id, i) => topoIndex.set(id, i));
   for (const siblings of childrenByParent.values()) {
     siblings.sort((a, b) => {
+      const fiA = flatIndex.get(a.id) ?? 1e9;
+      const fiB = flatIndex.get(b.id) ?? 1e9;
+      if (fiA !== fiB) return fiA - fiB;
       const tiA = topoIndex.get(a.id) ?? 1e9;
       const tiB = topoIndex.get(b.id) ?? 1e9;
       if (tiA !== tiB) return tiA - tiB;
@@ -21,13 +40,21 @@ export function buildTasksInTreeOrderWithWbs(tasks: Task[]): TaskWithWbs[] {
     });
   }
   const result: TaskWithWbs[] = [];
+  const skipRoot = options?.isWbsTreeRootSkip;
+
   function walk(parentId: string | null, parentWbs: string, depth: number) {
     const children = childrenByParent.get(parentId) ?? [];
-    children.forEach((child, index) => {
-      const wbsCode = parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`;
+    let numIndex = 0;
+    for (const child of children) {
+      if (parentId === null && skipRoot?.(child)) {
+        walk(child.id, parentWbs, depth);
+        continue;
+      }
+      numIndex += 1;
+      const wbsCode = parentWbs ? `${parentWbs}.${numIndex}` : `${numIndex}`;
       result.push({ task: child, depth, wbsCode });
       walk(child.id, wbsCode, depth + 1);
-    });
+    }
   }
   walk(null, '', 0);
   return result;
@@ -194,7 +221,7 @@ function takeWbsSiblingOrderTieBreak(): Map<string, number> | null {
   return t;
 }
 
-/** 형제 노드 정렬: 컬럼 정렬 또는 WBS(선행작업·시작일) 순 — 필터/비필터 트리 순회 공통 */
+/** 형제 노드 정렬: 컬럼 정렬 또는 WBS(저장 순·선행·시작일·Tab 직후 타이브레이커) — 필터/비필터 트리 순회 공통 */
 function orderSiblingsForTree(
   childrenByParent: Map<string | null, Task[]>,
   baseTasks: Task[],
@@ -208,11 +235,15 @@ function orderSiblingsForTree(
       siblings.sort(compare);
     }
   } else {
+    const flatIndex = buildFirstFlatIndexMap(baseTasks);
     const topoOrder = getTopologicalOrder(baseTasks);
     const topoIndex = new Map<string, number>();
     topoOrder.forEach((id, i) => topoIndex.set(id, i));
     for (const siblings of childrenByParent.values()) {
       siblings.sort((a, b) => {
+        const fiA = flatIndex.get(a.id) ?? 1e9;
+        const fiB = flatIndex.get(b.id) ?? 1e9;
+        if (fiA !== fiB) return fiA - fiB;
         const tiA = topoIndex.get(a.id) ?? 1e9;
         const tiB = topoIndex.get(b.id) ?? 1e9;
         if (tiA !== tiB) return tiA - tiB;
@@ -233,9 +264,10 @@ export function buildVisibleTasks(
   tasks: Task[],
   filters: FilterState,
   sortConfig: SortConfig,
-  options?: { preserveDepthOnFiltered?: boolean },
+  options?: { preserveDepthOnFiltered?: boolean; projectTitleSkip?: (task: Task) => boolean },
 ): TaskWithDepth[] {
   const preserveDepthOnFiltered = options?.preserveDepthOnFiltered ?? false;
+  const projectTitleSkip = options?.projectTitleSkip;
   const baseTasks =
     filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId));
   const hasFilters =
@@ -294,16 +326,28 @@ export function buildVisibleTasks(
         if (!current) continue;
         if (!subtreeMatches(current.task.id)) continue;
 
+        if (projectTitleSkip?.(current.task)) {
+          // 표에서 숨긴 행이라 접기 UI가 없음 — 항상 자식으로 내려간다.
+          const ch = childrenByParent.get(current.task.id);
+          if (ch?.length) {
+            for (let index = ch.length - 1; index >= 0; index -= 1) {
+              stack.push({ task: ch[index]!, depth: current.depth });
+            }
+          }
+          continue;
+        }
+
         const level = current.depth + 1;
         if (!levelFilter || level === targetLevel) {
-          visibleTasks.push({ ...current.task, depth: getDepth(current.task.id) });
+          const depthVal = projectTitleSkip ? current.depth : getDepth(current.task.id);
+          visibleTasks.push({ ...current.task, depth: depthVal });
         }
 
         if (!current.task.expanded) continue;
         const children = childrenByParent.get(current.task.id);
         if (!children || children.length === 0) continue;
         for (let index = children.length - 1; index >= 0; index -= 1) {
-          stack.push({ task: children[index], depth: current.depth + 1 });
+          stack.push({ task: children[index]!, depth: current.depth + 1 });
         }
       }
 
@@ -332,6 +376,17 @@ export function buildVisibleTasks(
     const current = stack.pop();
     if (!current) continue;
 
+    if (projectTitleSkip?.(current.task)) {
+      // 표에서 숨긴 행이라 접기 UI가 없음 — 항상 자식으로 내려간다.
+      const ch = childrenByParent.get(current.task.id);
+      if (ch?.length) {
+        for (let index = ch.length - 1; index >= 0; index -= 1) {
+          stack.push({ task: ch[index]!, depth: current.depth });
+        }
+      }
+      continue;
+    }
+
     const level = current.depth + 1;
     if (!levelFilter || level === targetLevel) {
       visibleTasks.push({ ...current.task, depth: current.depth });
@@ -343,7 +398,7 @@ export function buildVisibleTasks(
     if (!children || children.length === 0) continue;
 
     for (let index = children.length - 1; index >= 0; index -= 1) {
-      stack.push({ task: children[index], depth: current.depth + 1 });
+      stack.push({ task: children[index]!, depth: current.depth + 1 });
     }
   }
 

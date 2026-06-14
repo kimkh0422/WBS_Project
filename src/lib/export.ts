@@ -4,6 +4,7 @@ import { buildTasksInTreeOrderWithWbs } from './taskView';
 import { formatPercent1, round2 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
+import { isProjectTitleRootTask } from './ensureProjectTopLevelName';
 
 export interface BackupData {
   version: string;
@@ -56,7 +57,9 @@ export function buildMarkdownFromTasks(
       continue;
     }
 
-    const ordered = buildTasksInTreeOrderWithWbs(projectTasks);
+    const ordered = buildTasksInTreeOrderWithWbs(projectTasks, {
+      isWbsTreeRootSkip: (t) => isProjectTitleRootTask(t, project),
+    });
 
     lines.push('| WBS | 작업명 | 시작일 | 종료일 | 진행률 | 담당자 | 상태 | 공수 |');
     lines.push('|-----|--------|--------|--------|--------|--------|------|------|');

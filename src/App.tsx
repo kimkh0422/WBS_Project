@@ -918,20 +918,21 @@ function WBSApp({
           onSave={() => void handleViewLeaveSaveAndProceed()}
         />
       )}
-      {isSupabaseConfigured && hasLocalChangesSinceSync && (
+      {/* 데스크톱 대시보드는 집계 화면이라 플로팅 저장을 숨긴다. 모바일 대시보드 전용(lock)일 때는 표로 못 가므로 버튼 유지. */}
+      {isSupabaseConfigured && hasLocalChangesSinceSync && (view !== 'dashboard' || lockMobileToDashboard) && (
         <button
           type="button"
           data-tourid="tour-save"
           onClick={() => void saveNow()}
           disabled={isDbPushInProgress}
-          title="변경사항을 서버에 저장합니다 (Ctrl+S)"
+          title="변경사항을 서버에 저장합니다"
           className={cn(
             'fixed bottom-5 right-5 z-[70] flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition',
             'bg-indigo-600 hover:bg-indigo-700 active:translate-y-px disabled:opacity-70',
           )}
         >
           <span className={cn('inline-block h-2 w-2 rounded-full', isDbPushInProgress ? 'animate-pulse bg-white/70' : 'bg-amber-300')} />
-          {isDbPushInProgress ? '저장 중…' : '저장 (Ctrl+S)'}
+          {isDbPushInProgress ? '저장 중…' : '저장'}
         </button>
       )}
       {!isFullscreen && (

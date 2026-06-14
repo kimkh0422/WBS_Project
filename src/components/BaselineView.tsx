@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { buildVisibleTasks } from '../lib/taskView';
+import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import { FilterState, SortConfig } from '../types';
 import { differenceInDays, parseISO, format, min, max, addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -42,6 +43,7 @@ function varianceDays(baselineStr: string | undefined, currentStr: string | unde
 export function BaselineView() {
   const {
     tasks,
+    projects,
     currentProjectId,
     wbsMap,
     displayWbsMap,
@@ -66,9 +68,15 @@ export function BaselineView() {
     [currentProjectId],
   );
 
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
+
   const visibleTasks = useMemo(
-    () => buildVisibleTasks(tasks, filters, null as SortConfig, { preserveDepthOnFiltered: false }),
-    [tasks, filters],
+    () =>
+      buildVisibleTasks(tasks, filters, null as SortConfig, {
+        preserveDepthOnFiltered: false,
+        projectTitleSkip: (t) => isProjectTitleRootTask(t, projectsById.get(t.projectId)),
+      }),
+    [tasks, filters, projectsById],
   );
 
   const listToShow = useMemo(() => {

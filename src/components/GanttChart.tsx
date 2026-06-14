@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
-import { differenceInDays, eachDayOfInterval, isSameDay, parseISO, eachMonthOfInterval, eachWeekOfInterval } from 'date-fns';
+import { differenceInDays, eachDayOfInterval, format, isSameDay, parseISO, eachMonthOfInterval, eachWeekOfInterval } from 'date-fns';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ContextMenu } from './ContextMenu';
 import { Edit2, Trash2, ZoomIn, ZoomOut, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildVisibleTasks, type TaskWithDepth } from '../lib/taskView';
+import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { getCriticalPathTaskIds } from '../lib/schedule';
@@ -47,6 +48,8 @@ interface GanttChartProps {
   bottomInsetHeight?: number;
   /** 표+간트 split: 막대 우클릭 시 표의 작업 컨텍스트 메뉴와 동일하게 연다 */
   onOpenTaskContextMenu?: (e: React.MouseEvent, taskId: string) => void;
+  /** 계획율 기준일(YYYY-MM-DD). 간트 수직선 위치·뷰포트 앵커. 미전달 시 당일(로컬)로 간주 */
+  referenceDateIso?: string;
 }
 
 export function GanttChart({
@@ -63,6 +66,7 @@ export function GanttChart({
   bottomSpacerHeight = 0,
   bottomInsetHeight = 0,
   onOpenTaskContextMenu,
+  referenceDateIso: referenceDateIsoProp,
 }: GanttChartProps) {
   const {
     tasks,
@@ -88,12 +92,19 @@ export function GanttChart({
     },
     [projects],
   );
+  const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
+
   const { orgMembers } = useOrganization();
   const assigneeDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
   const { levelBarBg, levelGanttBarFill } = useLevelColors();
   const { showTableAutoFormatting } = useWbsTableAutoFormatting(wbsSettings);
   const GANTT_NEUTRAL_BAR_FILL = 'rgba(148, 163, 184, 0.38)';
   const GANTT_NEUTRAL_BAR_BORDER = '#94a3b8';
+  /** 활성(클릭) 막대 = 루트, 그 아래 전체 하위 = 별도 톤으로 구분 */
+  const GANTT_FOCUS_ROOT_BAR_FILL = 'rgba(245, 158, 11, 0.82)';
+  const GANTT_FOCUS_ROOT_BAR_BORDER = '#b45309';
+  const GANTT_FOCUS_SUBTREE_BAR_FILL = 'rgba(56, 189, 248, 0.58)';
+  const GANTT_FOCUS_SUBTREE_BAR_BORDER = '#0284c7';
   const ganttBarFillAt = useCallback(
     (level: number) => (showTableAutoFormatting ? levelGanttBarFill(level) : GANTT_NEUTRAL_BAR_FILL),
     [showTableAutoFormatting, levelGanttBarFill],
@@ -208,8 +219,12 @@ export function GanttChart({
 
   // visibleTasks 로직을 WBSTable과 동일하게 맞춰 표·간트 행 정렬이 일치하도록 함
   const visibleTasks = useMemo(
-    () => buildVisibleTasks(tasks, filters, sortConfig, { preserveDepthOnFiltered: true }),
-    [tasks, filters, sortConfig],
+    () =>
+      buildVisibleTasks(tasks, filters, sortConfig, {
+        preserveDepthOnFiltered: true,
+        projectTitleSkip: (t) => isProjectTitleRootTask(t, projectsById.get(t.projectId)),
+      }),
+    [tasks, filters, sortConfig, projectsById],
   );
 
   // 자식이 있는(=펼치기/접기 토글을 보여줄) 작업 id 집합
@@ -218,6 +233,27 @@ export function GanttChart({
     for (const t of tasks) if (t.parentId) s.add(t.parentId);
     return s;
   }, [tasks]);
+
+  /** activeTaskId 기준 재귀적 하위 작업(직접 자식만이 아님). 체크 다중 선택 행은 기존 보라 강조와 충돌하지 않게 제외 */
+  const activeSubtreeDescendantIds = useMemo(() => {
+    if (!activeTaskId) return EMPTY_CRITICAL_PATH_SET;
+    const childrenByParent = new Map<string, string[]>();
+    for (const t of tasks) {
+      if (!t.parentId) continue;
+      const arr = childrenByParent.get(t.parentId) ?? [];
+      arr.push(t.id);
+      childrenByParent.set(t.parentId, arr);
+    }
+    const out = new Set<string>();
+    const stack = [...(childrenByParent.get(activeTaskId) ?? [])];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (out.has(id)) continue;
+      out.add(id);
+      for (const c of childrenByParent.get(id) ?? []) stack.push(c);
+    }
+    return out;
+  }, [tasks, activeTaskId]);
 
   const { push: pushToast } = useToast();
 
@@ -329,6 +365,10 @@ export function GanttChart({
 
   const totalHeight = useMemo(() => effectiveRowHeights.reduce((a, b) => a + b, 0), [effectiveRowHeights]);
 
+  /** split: 표 하단 퀵 추가 행과 세로 스크롤 길이를 맞추기 위한 빈 여백(막대 위에 겹치지 않도록 행 아래에만 둠). */
+  const splitBottomSpacerPx = canEditCurrentProject && bottomSpacerHeight > 0 ? bottomSpacerHeight : 0;
+  const splitChartBodyHeight = totalHeight + splitBottomSpacerPx;
+
   /** 표+간트 split: TanStack Virtual은 스크롤 동기·ResizeObserver·가변 행높이와 겹치면 가시 행이 흔들려 깜빡일 수 있어 전부 그린다(일반 프로젝트 행 수에서 충분히 빠름). */
   const splitGanttRowLayout = useMemo(() => {
     let top = VIEW_PADDING_TOP;
@@ -361,12 +401,143 @@ export function GanttChart({
 
   const effectiveSidebarWidth = hideSidebar ? 0 : sidebarWidth;
   const containerWidth = Math.max(120, chartViewportWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200));
+
+  const resolvedReferenceIso = (referenceDateIsoProp?.trim() || format(new Date(), 'yyyy-MM-dd')) as string;
+  const referenceAnchorDate = useMemo(() => {
+    const d = parseISO(resolvedReferenceIso);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }, [resolvedReferenceIso]);
+
   const { dates, minDate, maxDate, totalDays, autoZoomLevel, currentZoomEntry, dayWidth } = useGanttViewport({
     visibleTasks,
     zoomIndex,
     containerWidth,
     effectiveSidebarWidth,
+    referenceAnchorDate,
   });
+
+  /** 기본 세로 휠 → 행(세로) 스크롤, Shift+세로·가로 틸트(deltaX) → 타임라인 좌우, Ctrl+휠(핀치) → 확대/축소. split에서 헤더 위 휠은 본문(main) 세로로 연결. 하단 가로 바는 세로 휠을 좌우로만 사용.
+   *  React `onWheel`은 passive로 등록되어 preventDefault 시 콘솔 경고가 나므로, 아래 useEffect에서 { passive: false } 네이티브 리스너로 붙인다. */
+  const handleGanttWheel = useCallback(
+    (e: WheelEvent) => {
+      const el = e.currentTarget as HTMLDivElement;
+      if (e.ctrlKey) {
+        if (e.deltaY === 0) return;
+        e.preventDefault();
+        const step = e.deltaY > 0 ? -1 : 1;
+        setZoomIndex((prev) => {
+          const maxIdx = ZOOM_LEVELS.length - 1;
+          if (prev === -1) {
+            const autoIdx = Math.max(
+              0,
+              ZOOM_LEVELS.findIndex((z) => z.dayWidth === autoZoomLevel.dayWidth),
+            );
+            return Math.min(maxIdx, Math.max(0, autoIdx + step));
+          }
+          return Math.min(maxIdx, Math.max(0, prev + step));
+        });
+        return;
+      }
+
+      const verticalEl = isSplitView && mainScrollRef.current && el !== mainScrollRef.current ? mainScrollRef.current : el;
+
+      const scrollH = (delta: number, target: HTMLElement = el) => {
+        const maxLeft = Math.max(0, target.scrollWidth - target.clientWidth);
+        if (maxLeft > 0) {
+          target.scrollLeft = Math.min(maxLeft, Math.max(0, target.scrollLeft + delta));
+          e.preventDefault();
+        }
+      };
+
+      const scrollV = (delta: number) => {
+        const maxTop = Math.max(0, verticalEl.scrollHeight - verticalEl.clientHeight);
+        if (maxTop > 0) {
+          verticalEl.scrollTop = Math.min(maxTop, Math.max(0, verticalEl.scrollTop + delta));
+          e.preventDefault();
+        }
+      };
+
+      if (e.deltaX !== 0) {
+        scrollH(e.deltaX);
+        return;
+      }
+      if (e.deltaY === 0) return;
+
+      if (el.classList.contains('gantt-hscroll') && !e.shiftKey) {
+        scrollH(e.deltaY);
+        return;
+      }
+
+      if (e.shiftKey) {
+        scrollH(e.deltaY);
+        return;
+      }
+
+      scrollV(e.deltaY);
+      const maxTopAfter = Math.max(0, verticalEl.scrollHeight - verticalEl.clientHeight);
+      if (maxTopAfter <= 0) {
+        scrollH(e.deltaY);
+      }
+    },
+    [isSplitView, autoZoomLevel.dayWidth],
+  );
+
+  useEffect(() => {
+    const opts: AddEventListenerOptions = { passive: false };
+    const onWheel = (e: WheelEvent) => handleGanttWheel(e);
+    let cancelled = false;
+    let raf = 0;
+    let attempts = 0;
+    const attached: Array<{ node: HTMLDivElement; fn: (e: WheelEvent) => void }> = [];
+
+    const detach = () => {
+      for (const { node, fn } of attached) {
+        node.removeEventListener('wheel', fn, opts);
+      }
+      attached.length = 0;
+    };
+
+    const tryAttach = () => {
+      detach();
+      if (cancelled) return;
+
+      if (isSplitView) {
+        const header = headerScrollRef.current;
+        const main = mainScrollRef.current;
+        const bottom = bottomScrollRef.current;
+        if (!header || !main || !bottom) {
+          if (attempts < 120) {
+            attempts += 1;
+            raf = requestAnimationFrame(tryAttach);
+          }
+          return;
+        }
+        for (const node of [header, main, bottom]) {
+          node.addEventListener('wheel', onWheel, opts);
+          attached.push({ node, fn: onWheel });
+        }
+      } else {
+        const node = containerRef.current;
+        if (!node) {
+          if (attempts < 120) {
+            attempts += 1;
+            raf = requestAnimationFrame(tryAttach);
+          }
+          return;
+        }
+        node.addEventListener('wheel', onWheel, opts);
+        attached.push({ node, fn: onWheel });
+      }
+    };
+
+    tryAttach();
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      detach();
+    };
+  }, [handleGanttWheel, isSplitView, syncScrollRef, visibleTasks.length, dates.length]);
 
   const { dragPreview, dragSession, suppressBarPopoverClickRef, anchorTaskIdRef, handleBarMouseDown, handleResizeMouseDown } = useGanttDrag(
     {
@@ -594,11 +765,13 @@ export function GanttChart({
   const months = eachMonthOfInterval({ start: minDate, end: maxDate });
   const weeks = eachWeekOfInterval({ start: minDate, end: maxDate });
 
-  const today = new Date();
-  const todayIndex = days.findIndex((day) => isSameDay(day, today));
-  const todayLeft = todayIndex !== -1 ? todayIndex * dayWidth + dayWidth / 2 : 0;
+  const calendarToday = new Date();
+  const refLineIndex = days.findIndex((day) => isSameDay(day, referenceAnchorDate));
+  const refLineLeft = refLineIndex !== -1 ? refLineIndex * dayWidth + dayWidth / 2 : 0;
+  const refLineIsCalendarToday = isSameDay(referenceAnchorDate, calendarToday);
+  const refLineLabel = refLineIsCalendarToday ? '오늘' : '기준일';
 
-  const headerProps = { viewMode, dayWidth, minDate, maxDate, days, months, weeks, today };
+  const headerProps = { viewMode, dayWidth, minDate, maxDate, days, months, weeks, today: calendarToday };
 
   // Split view: 헤더는 스크롤 밖, 스크롤 영역은 행만 → 표와 scrollTop 1:1 맞춤
   if (isSplitView) {
@@ -634,8 +807,9 @@ export function GanttChart({
             // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록해야 막히지 않는다.
             onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
             className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-white pb-6 outline-none focus:ring-0"
+            style={{ scrollbarGutter: 'stable' }}
           >
-            <div className="relative" style={{ width: totalWidth, height: totalHeight }}>
+            <div className="relative" style={{ width: totalWidth, height: splitChartBodyHeight }}>
               <div className="absolute inset-0 z-0 flex pointer-events-none">
                 <GanttGrid
                   viewMode={viewMode}
@@ -647,13 +821,21 @@ export function GanttChart({
                   weeks={weeks}
                 />
               </div>
-              {todayIndex !== -1 && (
+              {refLineIndex !== -1 && (
                 <div
-                  className="absolute top-0 bottom-0 z-20 border-l-2 border-dashed border-red-500 pointer-events-none"
-                  style={{ left: todayLeft }}
+                  className={cn(
+                    'absolute top-0 bottom-0 z-20 border-l-2 border-dashed pointer-events-none',
+                    refLineIsCalendarToday ? 'border-red-500' : 'border-indigo-500',
+                  )}
+                  style={{ left: refLineLeft }}
                 >
-                  <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
-                    오늘
+                  <span
+                    className={cn(
+                      'absolute top-0 left-0 -translate-x-1/2 rounded-b px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap',
+                      refLineIsCalendarToday ? 'bg-red-500' : 'bg-indigo-600',
+                    )}
+                  >
+                    {refLineLabel}
                   </span>
                 </div>
               )}
@@ -683,10 +865,13 @@ export function GanttChart({
                 // 둘 다 해당하면 보라색 우선(체크박스가 더 명시적 의도).
                 const isSelected = selectedSet.has(task.id);
                 const isActive = !isSelected && activeTaskId === task.id;
+                const isActiveSubtreeDesc = !isSelected && activeSubtreeDescendantIds.has(task.id);
                 const preview = dragPreview?.get(task.id);
                 const isBeingDragged = !!preview;
                 const isPrimaryDragBar = isBeingDragged && dragSession && task.id === dragSession.primaryTaskId;
                 const isRelatedDragBar = isBeingDragged && dragSession && task.id !== dragSession.primaryTaskId;
+                const isFocusRootBar = !isSelected && !isBeingDragged && activeTaskId === task.id;
+                const isFocusSubtreeBar = !isSelected && !isBeingDragged && activeSubtreeDescendantIds.has(task.id);
                 const isDone = allLeafDoneById.get(task.id) === true;
                 const effectiveStartDate = preview?.startDate ?? task.startDate;
                 const effectiveEndDate = preview?.endDate ?? task.endDate;
@@ -709,11 +894,14 @@ export function GanttChart({
                       'absolute left-0 right-0 group box-border border-b border-slate-100/80 transition-colors z-[1]',
                       isSelected &&
                         !dragPreview?.has(task.id) &&
-                        'z-[2] bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
+                        'z-[2] bg-indigo-400 font-semibold text-violet-950 shadow-[inset_3px_0_0_#6b21a8,inset_0_0_0_2px_rgba(91,33,182,0.45),inset_0_1px_0_0_rgba(91,33,182,0.38),inset_0_-1px_0_0_rgba(91,33,182,0.38)]',
                       isActive &&
                         !dragPreview?.has(task.id) &&
-                        'z-[2] bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
-                      !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
+                        'z-[2] bg-orange-100 font-semibold text-orange-950 shadow-[inset_3px_0_0_#ea580c,inset_0_0_0_2px_rgba(234,88,12,0.42),inset_0_1px_0_0_rgba(234,88,12,0.5),inset_0_-1px_0_0_rgba(234,88,12,0.5)]',
+                      isActiveSubtreeDesc &&
+                        !dragPreview?.has(task.id) &&
+                        'z-[2] bg-sky-50/40 font-medium text-sky-900 shadow-[inset_3px_0_0_rgba(14,165,233,0.85),inset_0_0_0_1px_rgba(14,165,233,0.1)]',
+                      !isSelected && !isActive && !isActiveSubtreeDesc && 'hover:bg-[var(--color-line-soft)]',
                       dragPreview?.has(task.id) &&
                         dragSession &&
                         (task.id === dragSession.primaryTaskId
@@ -741,6 +929,8 @@ export function GanttChart({
                         'absolute top-0 rounded shadow-sm overflow-hidden transition-all border',
                         isDone && showTableAutoFormatting && 'gantt-completed',
                         isCritical && 'ring-2 ring-red-500 border-red-600',
+                        isFocusRootBar && !isCritical && 'ring-2 ring-orange-500 z-[3]',
+                        isFocusSubtreeBar && !isCritical && 'ring-1 ring-sky-400/55 z-[3]',
                         isPrimaryDragBar && 'cursor-grabbing shadow-lg ring-2 ring-orange-900/25 z-[5]',
                         isRelatedDragBar && 'cursor-grabbing shadow-md ring-1 ring-amber-800/20 z-[4]',
                         isBeingDragged &&
@@ -757,8 +947,24 @@ export function GanttChart({
                           ? '#ea580c'
                           : isRelatedDragBar
                             ? 'rgba(251, 191, 36, 0.88)'
-                            : ganttBarFillAt(level),
-                        borderColor: isPrimaryDragBar ? '#9a3412' : isRelatedDragBar ? '#b45309' : ganttBarBorderAt(level, isCritical),
+                            : isCritical
+                              ? ganttBarFillAt(level)
+                              : isFocusRootBar
+                                ? GANTT_FOCUS_ROOT_BAR_FILL
+                                : isFocusSubtreeBar
+                                  ? GANTT_FOCUS_SUBTREE_BAR_FILL
+                                  : ganttBarFillAt(level),
+                        borderColor: isPrimaryDragBar
+                          ? '#9a3412'
+                          : isRelatedDragBar
+                            ? '#b45309'
+                            : isCritical
+                              ? ganttBarBorderAt(level, true)
+                              : isFocusRootBar
+                                ? GANTT_FOCUS_ROOT_BAR_BORDER
+                                : isFocusSubtreeBar
+                                  ? GANTT_FOCUS_SUBTREE_BAR_BORDER
+                                  : ganttBarBorderAt(level, false),
                       }}
                       title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                     >
@@ -794,11 +1000,11 @@ export function GanttChart({
                 );
               })}
             </div>
-            {/* 하단 spacer — 표 본문 맨 아래 퀵 추가 행에 대응 */}
-            {canEditCurrentProject && bottomSpacerHeight > 0 && (
+            {/* 하단 여백 — 표 퀵 추가 행 높이만큼 스크롤 영역을 늘리고, sticky로 겹치지 않게 행 아래 빈 구간만 둔다. */}
+            {splitBottomSpacerPx > 0 && (
               <div
-                className="sticky bottom-0 z-20 border-y border-indigo-200/70 bg-indigo-50/70 backdrop-blur-sm shadow-sm box-border"
-                style={{ height: bottomSpacerHeight, width: totalWidth }}
+                className="absolute left-0 right-0 z-0 pointer-events-none box-border"
+                style={{ top: totalHeight, height: splitBottomSpacerPx, width: totalWidth }}
                 aria-hidden
               />
             )}
@@ -897,7 +1103,7 @@ export function GanttChart({
               }
               onChange={(e) => setZoomIndex(Number(e.target.value))}
               className="w-24 h-1.5 accent-slate-800 cursor-pointer flex-1 min-w-0 max-w-[100px] shrink"
-              title="간트 확대/축소"
+              title="간트 확대/축소 (Ctrl+휠)"
             />
             <button
               onClick={() => setZoomIndex((prev) => (prev === -1 ? ZOOM_LEVELS.length - 1 : Math.min(ZOOM_LEVELS.length - 1, prev + 1)))}
@@ -952,32 +1158,6 @@ export function GanttChart({
           // bar/sidebar 어디를 클릭해도 키보드 이동이 동작하도록 컨테이너 자체로 포커스를 가져온다.
           // bar mousedown 핸들러가 stopPropagation을 호출하므로 capture phase로 등록.
           onMouseDownCapture={(e) => (e.currentTarget as HTMLDivElement).focus({ preventScroll: true })}
-          // 가로 틸트/좌우 스크롤 휠(deltaX) → 타임라인 좌우 이동. 평범한 세로 휠(deltaY) → 좌우 이동. Shift+세로 휠 → 세로(행) 이동.
-          onWheel={(e) => {
-            if (e.ctrlKey) return;
-            const el = e.currentTarget;
-            const scrollH = (delta: number) => {
-              const maxLeft = Math.max(0, el.scrollWidth - el.clientWidth);
-              if (maxLeft > 0) {
-                el.scrollLeft = Math.min(maxLeft, Math.max(0, el.scrollLeft + delta));
-                e.preventDefault();
-              }
-            };
-            if (e.deltaX !== 0) {
-              scrollH(e.deltaX); // 마우스 가로 스크롤(좌우 틸트)
-              return;
-            }
-            if (e.deltaY === 0) return;
-            if (e.shiftKey) {
-              const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-              if (maxTop > 0) {
-                el.scrollTop = Math.min(maxTop, Math.max(0, el.scrollTop + e.deltaY));
-                e.preventDefault();
-              }
-            } else {
-              scrollH(e.deltaY); // 평범한 세로 휠 → 좌우 이동
-            }
-          }}
           className="flex-1 min-h-0 overflow-auto bg-white pb-40 outline-none focus:ring-0"
         >
           <div className="min-w-max flex flex-col">
@@ -1101,13 +1281,21 @@ export function GanttChart({
                 </div>
 
                 {/* Today Line */}
-                {todayIndex !== -1 && (
+                {refLineIndex !== -1 && (
                   <div
-                    className="absolute top-0 bottom-0 z-20 border-l-2 border-dashed border-red-500 pointer-events-none"
-                    style={{ left: todayLeft }}
+                    className={cn(
+                      'absolute top-0 bottom-0 z-20 border-l-2 border-dashed pointer-events-none',
+                      refLineIsCalendarToday ? 'border-red-500' : 'border-indigo-500',
+                    )}
+                    style={{ left: refLineLeft }}
                   >
-                    <span className="absolute top-0 left-0 -translate-x-1/2 rounded-b bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap">
-                      오늘
+                    <span
+                      className={cn(
+                        'absolute top-0 left-0 -translate-x-1/2 rounded-b px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow whitespace-nowrap',
+                        refLineIsCalendarToday ? 'bg-red-500' : 'bg-indigo-600',
+                      )}
+                    >
+                      {refLineLabel}
                     </span>
                   </div>
                 )}
@@ -1137,10 +1325,13 @@ export function GanttChart({
                   // 보라색=체크박스, 노란색=단일 활성 (체크박스 우선)
                   const isSelected = selectedSet.has(task.id);
                   const isActive = !isSelected && activeTaskId === task.id;
+                  const isActiveSubtreeDesc = !isSelected && activeSubtreeDescendantIds.has(task.id);
                   const preview = dragPreview?.get(task.id);
                   const isBeingDragged = !!preview;
                   const isPrimaryDragBar = isBeingDragged && dragSession && task.id === dragSession.primaryTaskId;
                   const isRelatedDragBar = isBeingDragged && dragSession && task.id !== dragSession.primaryTaskId;
+                  const isFocusRootBar = !isSelected && !isBeingDragged && activeTaskId === task.id;
+                  const isFocusSubtreeBar = !isSelected && !isBeingDragged && activeSubtreeDescendantIds.has(task.id);
                   const effectiveStartDate = preview?.startDate ?? task.startDate;
                   const effectiveEndDate = preview?.endDate ?? task.endDate;
 
@@ -1165,14 +1356,17 @@ export function GanttChart({
                     <div
                       key={task.id}
                       className={cn(
-                        'relative group box-border border-b border-slate-100/80 transition-colors',
+                        'relative z-[1] group box-border border-b border-slate-100/80 transition-colors',
                         isSelected &&
                           !dragPreview?.has(task.id) &&
-                          'bg-purple-50/40 font-semibold text-purple-900 shadow-[inset_3px_0_0_rgba(168,85,247,0.9),inset_0_0_0_1px_rgba(168,85,247,0.08)]',
+                          'z-[2] bg-indigo-400 font-semibold text-violet-950 shadow-[inset_3px_0_0_#6b21a8,inset_0_0_0_2px_rgba(91,33,182,0.45),inset_0_1px_0_0_rgba(91,33,182,0.38),inset_0_-1px_0_0_rgba(91,33,182,0.38)]',
                         isActive &&
                           !dragPreview?.has(task.id) &&
-                          'bg-amber-50/45 font-medium text-amber-900 shadow-[inset_3px_0_0_rgba(245,158,11,0.9),inset_0_0_0_1px_rgba(245,158,11,0.1)]',
-                        !isSelected && !isActive && 'hover:bg-[var(--color-line-soft)]',
+                          'z-[2] bg-orange-100 font-semibold text-orange-950 shadow-[inset_3px_0_0_#ea580c,inset_0_0_0_2px_rgba(234,88,12,0.42),inset_0_1px_0_0_rgba(234,88,12,0.5),inset_0_-1px_0_0_rgba(234,88,12,0.5)]',
+                        isActiveSubtreeDesc &&
+                          !dragPreview?.has(task.id) &&
+                          'bg-sky-50/40 font-medium text-sky-900 shadow-[inset_3px_0_0_rgba(14,165,233,0.85),inset_0_0_0_1px_rgba(14,165,233,0.1)]',
+                        !isSelected && !isActive && !isActiveSubtreeDesc && 'hover:bg-[var(--color-line-soft)]',
                         dragPreview?.has(task.id) &&
                           dragSession &&
                           (task.id === dragSession.primaryTaskId
@@ -1201,11 +1395,16 @@ export function GanttChart({
                           isDone && showTableAutoFormatting && 'gantt-completed',
                           isMilestone
                             ? cn(
-                                'rounded-sm border-2 border-amber-600 bg-amber-500 rotate-45 cursor-grab hover:brightness-110 shadow-sm',
+                                'rounded-sm border-2 rotate-45 cursor-grab hover:brightness-110 shadow-sm',
+                                isFocusSubtreeBar && !isBeingDragged ? 'border-sky-600 bg-sky-400' : 'border-amber-600 bg-amber-500',
+                                isFocusRootBar && !isBeingDragged && 'ring-2 ring-orange-500 z-[3]',
+                                isFocusSubtreeBar && !isBeingDragged && 'ring-1 ring-sky-200 z-[3]',
                                 isBeingDragged && 'cursor-grabbing ring-2 ring-orange-600 brightness-110 z-[5]',
                               )
                             : 'rounded shadow-sm border',
                           !isMilestone && isCritical && 'ring-2 ring-red-500 border-red-600',
+                          !isMilestone && isFocusRootBar && !isCritical && 'ring-2 ring-orange-500 z-[3]',
+                          !isMilestone && isFocusSubtreeBar && !isCritical && 'ring-1 ring-sky-400/55 z-[3]',
                           isPrimaryDragBar && !isMilestone && 'cursor-grabbing shadow-lg ring-2 ring-orange-900/25 z-[5]',
                           isRelatedDragBar && !isMilestone && 'cursor-grabbing shadow-md ring-1 ring-amber-800/20 z-[4]',
                           isBeingDragged &&
@@ -1226,12 +1425,24 @@ export function GanttChart({
                                   ? '#ea580c'
                                   : isRelatedDragBar
                                     ? 'rgba(251, 191, 36, 0.88)'
-                                    : ganttBarFillAt(level),
+                                    : isCritical
+                                      ? ganttBarFillAt(level)
+                                      : isFocusRootBar
+                                        ? GANTT_FOCUS_ROOT_BAR_FILL
+                                        : isFocusSubtreeBar
+                                          ? GANTT_FOCUS_SUBTREE_BAR_FILL
+                                          : ganttBarFillAt(level),
                                 borderColor: isPrimaryDragBar
                                   ? '#9a3412'
                                   : isRelatedDragBar
                                     ? '#b45309'
-                                    : ganttBarBorderAt(level, isCritical),
+                                    : isCritical
+                                      ? ganttBarBorderAt(level, true)
+                                      : isFocusRootBar
+                                        ? GANTT_FOCUS_ROOT_BAR_BORDER
+                                        : isFocusSubtreeBar
+                                          ? GANTT_FOCUS_SUBTREE_BAR_BORDER
+                                          : ganttBarBorderAt(level, false),
                               }
                         }
                         title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}

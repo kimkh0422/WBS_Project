@@ -8,31 +8,46 @@ function clampScrollTop(el: HTMLElement, value: number): number {
   return Math.min(maxScrollTop(el), Math.max(0, value));
 }
 
-/** scrollTop 비율로 맞춘다 — 총 스크롤 높이가 조금 달라도 행 정렬이 유지된다. */
+/**
+ * 표·간트 split 본문 세로 스크롤 동기화.
+ * - scrollHeight가 거의 같으면 **같은 scrollTop**을 쓴다(행·강조가 일직선). 뷰포트 높이만 다른 경우(간트 하단 inset 등)도 동일.
+ * - tail(퀵 추가 등) 때문에 scrollHeight만 살짝 다르면 비율 동기가 한 줄씩 어긋날 수 있어, shDiff가 작을 때는 복사 모드를 쓴다.
+ * - 본문 길이가 크게 다를 때만 비율로 맞춘다.
+ */
 export function mirrorScrollTop(source: HTMLElement, target: HTMLElement) {
   const sourceMax = maxScrollTop(source);
   const targetMax = maxScrollTop(target);
 
-  const apply = (next: number) => {
+  const assignIfNeeded = (next: number) => {
     const clamped = Math.min(targetMax, Math.max(0, next));
-    // ResizeObserver·서브픽셀 레이아웃에서 scrollTop만 미세하게 흔들리면 하단 행이 깜빡인다.
-    if (Math.abs(target.scrollTop - clamped) < 0.75) return;
+    if (Math.abs(target.scrollTop - clamped) < 1) return;
     target.scrollTop = clamped;
   };
 
+  // 한쪽만 scrollHeight가 잠깝 줄어든 프레임(가상 행 교체·RO·하단 크롬 높이 변화)에서 sourceMax=0으로 보이면
+  // 여기서 target을 무조건 0으로 맞추면 표·간트가 함께 맨 위로 튀는 현상이 생긴다.
+  // 양쪽 모두 스크롤 여유가 없을 때만 동일(상단)으로 맞춘다.
   if (sourceMax <= 0) {
-    apply(0);
+    if (targetMax <= 0) assignIfNeeded(0);
     return;
   }
 
-  // 높이가 같으면 비율 계산 없이 그대로 복사(지연·떨림 최소화)
-  if (Math.abs(sourceMax - targetMax) <= 1) {
-    apply(Math.min(source.scrollTop, targetMax));
+  const shDiff = Math.abs(source.scrollHeight - target.scrollHeight);
+  /**
+   * 총 스크롤 길이가 같으면 항상 scrollTop 복사(클램프).
+   * 표·간트 split에서 간트만 하단 inset 등으로 뷰포트 높이가 달라져도 본문 픽셀 오프셋은 같아야 행·선택 강조가 일직선이다.
+   * 예전엔 clientHeight 차이까지 제한해 복사 모드가 아니면 비율 동기로 한 줄씩 어긋날 수 있었다.
+   * scrollHeight가 크게 다를 때만 비율로 맞춘다.
+   */
+  const useCopyMode = shDiff <= 18;
+
+  if (useCopyMode || Math.abs(sourceMax - targetMax) <= 1) {
+    assignIfNeeded(Math.min(source.scrollTop, targetMax));
     return;
   }
 
   const ratio = source.scrollTop / sourceMax;
-  apply(ratio * targetMax);
+  assignIfNeeded(ratio * targetMax);
 }
 
 export type SplitHorizontalScrollRefs = {
@@ -223,11 +238,17 @@ export function useScrollSync(
       };
 
       let resizeRaf = 0;
+      let resizeRaf2 = 0;
       const ro = new ResizeObserver(() => {
         if (syncing !== null) return;
         cancelAnimationFrame(resizeRaf);
+        cancelAnimationFrame(resizeRaf2);
+        // 한 프레임 안에서 가상 행 교체·RO가 연쇄되면 scrollHeight가 잠깐 흔들린다.
+        // 이중 rAF로 레이아웃이 안정된 뒤에만 동기해 표·간트 하단이 깜빡이지 않게 한다.
         resizeRaf = requestAnimationFrame(() => {
-          if (syncing === null) syncFrom(1);
+          resizeRaf2 = requestAnimationFrame(() => {
+            if (syncing === null) syncFrom(1);
+          });
         });
       });
       ro.observe(a);
@@ -242,6 +263,7 @@ export function useScrollSync(
         b.removeEventListener('scroll', onB);
         ro.disconnect();
         cancelAnimationFrame(resizeRaf);
+        cancelAnimationFrame(resizeRaf2);
         if (root) root.removeEventListener('wheel', onRootWheel, true);
       };
     };

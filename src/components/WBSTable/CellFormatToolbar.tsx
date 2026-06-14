@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Strikethrough, Trash2, X } from 'lucide-react';
+import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Sparkles, Strikethrough, Trash2 } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -220,10 +220,16 @@ export interface CellFormatToolbarProps {
   updateTask: (id: string, updates: Partial<Task>) => void;
   /** 선택 행 일괄 삭제(확인 모달은 호출부가 띄움). 미전달 시 삭제 버튼 비표시. */
   onDeleteTargets?: (taskIds: string[]) => void;
-  /** 툴바 닫기(선택·포커스 해제). */
-  onClose?: () => void;
   /** 'top': 표+간트 상단 고정 도킹(아래로 구분선). 기본은 하단 도킹. */
   dock?: 'top' | 'bottom';
+  /** true면 상·하단 구분선을 그리지 않음(요약 막대와 한 줄로 합칠 때 부모가 구분선을 담당). */
+  mergeChromeBorder?: boolean;
+  /** 작업표·간트: 레벨 배경·완료 강조 등 자동 서식(이 기기에서만 끄기 가능) */
+  tableAutoFormatting?: {
+    effectiveOn: boolean;
+    globalEnabled: boolean;
+    onToggle: () => void;
+  };
 }
 
 /**
@@ -242,8 +248,9 @@ export function CellFormatToolbar({
   customColumnNameById: _customColumnNameById,
   updateTask,
   onDeleteTargets,
-  onClose,
   dock = 'bottom',
+  mergeChromeBorder = false,
+  tableAutoFormatting,
 }: CellFormatToolbarProps) {
   // 행을 체크 선택했으면 "행 전체" 모드(엑셀식). 아니면 포커스 셀 단일 모드.
   const rowMode = selectedTaskIds.size >= 1;
@@ -314,13 +321,11 @@ export function CellFormatToolbar({
     applyPatch({ fontSize: n });
   };
 
-  const canDismissSelection = selectedTaskIds.size > 0 || focusedCell != null;
-
   return (
     <div
       className={cn(
         'flex h-11 w-full min-h-11 items-center gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap px-2 py-1 text-[#444746]',
-        dock === 'top' ? 'border-b border-[#dadce0]' : 'border-t border-[#dadce0]',
+        !mergeChromeBorder && (dock === 'top' ? 'border-b border-[#dadce0]' : 'border-t border-[#dadce0]'),
       )}
       style={{ backgroundColor: DOCS_TOOLBAR_BG }}
       role="toolbar"
@@ -456,13 +461,49 @@ export function CellFormatToolbar({
 
       <ToolbarSep />
 
-      <DocsIconBtn
+      <button
+        type="button"
         title={rowMode ? '선택한 행·열의 서식 지우기' : '이 셀 서식 지우기'}
         disabled={formatDisabled}
+        aria-label="서식 제거"
         onClick={() => applyPatch(null)}
+        className={cn(
+          'flex h-7 shrink-0 items-center gap-1 rounded border border-[#dadce0] bg-white px-2 text-[12px] font-medium text-[#444746] transition-colors hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-50',
+        )}
       >
-        <RemoveFormatting size={18} strokeWidth={2} />
-      </DocsIconBtn>
+        <RemoveFormatting size={16} strokeWidth={2} aria-hidden />
+        <span>서식 제거</span>
+      </button>
+
+      {tableAutoFormatting ? (
+        <>
+          <ToolbarSep />
+          <button
+            type="button"
+            onClick={tableAutoFormatting.onToggle}
+            disabled={!tableAutoFormatting.globalEnabled}
+            aria-pressed={tableAutoFormatting.effectiveOn}
+            className={cn(
+              'inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[12px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#1a73e8]/25',
+              !tableAutoFormatting.globalEnabled
+                ? 'cursor-not-allowed border-[#dadce0] bg-[#f1f3f4] text-[#80868b]'
+                : tableAutoFormatting.effectiveOn
+                  ? 'border-[#c7d2fe] bg-[#e8eaff] text-[#3730a3] hover:bg-[#ddd6fe]/60'
+                  : 'border-[#dadce0] bg-white text-[#444746] hover:bg-black/[0.06]',
+            )}
+            title={
+              !tableAutoFormatting.globalEnabled
+                ? '관리자가 전체 자동 서식(레벨 색·완료 강조)을 껐습니다.'
+                : tableAutoFormatting.effectiveOn
+                  ? '레벨 배경·완료 취소선 등 자동 서식이 켜져 있습니다. 클릭하면 이 브라우저에서만 끕니다.'
+                  : '이 브라우저에서 자동 서식이 꺼져 있습니다. 클릭하면 다시 켭니다.'
+            }
+          >
+            <Sparkles size={14} strokeWidth={2} aria-hidden />
+            자동 서식
+          </button>
+        </>
+      ) : null}
 
       <div className="min-w-2 flex-1" aria-hidden />
 
@@ -482,12 +523,6 @@ export function CellFormatToolbar({
             </span>
           ) : null}
         </button>
-      ) : null}
-
-      {onClose ? (
-        <DocsIconBtn title="선택·포커스 해제" disabled={!canDismissSelection} onClick={onClose}>
-          <X size={18} strokeWidth={2} />
-        </DocsIconBtn>
       ) : null}
     </div>
   );
