@@ -32,6 +32,24 @@ export function cellTextStyleToCss(style: CellTextStyle | undefined): CSSPropert
   return o;
 }
 
+/**
+ * 셀 배경은 `.data-cell` 전체에, 나머지 글자 스타일은 내용에만 쓴다.
+ * 마퀴 선택 중에는 범위 하이라이트가 보이도록 사용자 배경은 잠시 적용하지 않는다.
+ */
+export function splitCellTextStyleForCellSurface(
+  style: CellTextStyle | undefined,
+  inMarquee: boolean,
+): { textStyle: CSSProperties; cellSurfaceStyle: CSSProperties } {
+  const full = cellTextStyleToCss(style);
+  const bg = full.backgroundColor;
+  const hasBg = typeof bg === 'string' && bg.trim().length > 0;
+  const { backgroundColor: _drop, ...textStyle } = full;
+  if (!hasBg || inMarquee) {
+    return { textStyle, cellSurfaceStyle: {} };
+  }
+  return { textStyle, cellSurfaceStyle: { backgroundColor: bg } };
+}
+
 /** 셀 서식 객체에서 빈 값·undefined 키를 제거 */
 function pruneCellTextStyle(s: CellTextStyle): CellTextStyle | undefined {
   const out: CellTextStyle = {};

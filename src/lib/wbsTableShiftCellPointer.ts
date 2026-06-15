@@ -7,6 +7,8 @@ import type { TableColumnId } from '../components/wbsTableTypes';
  */
 export function isShiftCellMarqueeExcludedTarget(el: HTMLElement | null): boolean {
   if (!el) return true;
+  // 체크박스·행 순번 등: Shift+클릭은 행 체크 구간 선택용 — 셀 마퀴로 가면 선택이 비워진다.
+  if (el.closest('[data-wbs-row-gutter]')) return true;
   if (el.closest('[data-row-grip]')) return true;
   if (el.closest('textarea, select, option, [role="listbox"], [role="option"], [data-deps-input="true"]')) return true;
   if (el.closest('input:not([type="checkbox"])')) return true;

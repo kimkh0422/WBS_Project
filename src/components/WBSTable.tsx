@@ -1049,6 +1049,29 @@ export function WBSTable({
   // handleFocusRow를 stable하게 유지하면서(메모된 행의 stale 클로저 방지) 클릭 시점의 현재 선택을 읽기 위한 ref.
   const selectedTaskIdsRef = useRef(selectedTaskIds);
   selectedTaskIdsRef.current = selectedTaskIds;
+  /** Shift가 눌린 동안에는 체크 다중 선택을 코드 경로에서 비우지 않는다(click 단계에서 shiftKey가 빠지는 경우 대비 키보드 동기화). */
+  const shiftKeyHeldRef = useRef(false);
+  useEffect(() => {
+    const sync = (e: KeyboardEvent) => {
+      shiftKeyHeldRef.current = e.shiftKey;
+    };
+    const onBlur = () => {
+      shiftKeyHeldRef.current = false;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') shiftKeyHeldRef.current = false;
+    };
+    window.addEventListener('keydown', sync, true);
+    window.addEventListener('keyup', sync, true);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('keydown', sync, true);
+      window.removeEventListener('keyup', sync, true);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   // resetBulkFields는 아래 useWbsBulkEdit에서 정의되므로 ref로 받아 TDZ 없이 호출.
   const resetBulkFieldsRef = useRef<() => void>(() => {});
 
@@ -1253,7 +1276,8 @@ export function WBSTable({
       // 다중 선택 후 행 배경(패딩)만 (수정키 없이) 클릭하면 체크박스 선택을 자동 해제 — SortableTaskRow 행 onClick.
       // 셀 클릭·WBS 번호 칸 등은 onFocusRow(..., { keepSelection: true })로 포커스만 옮기고 선택은 유지한다.
       // Shift/Ctrl 클릭(다중 선택 조작)도 keepSelection으로 보존한다.
-      if (!opts?.keepSelection && selectedTaskIdsRef.current.size > 0) {
+      // Shift 키를 누른 채로 조작할 때는 click에 shiftKey가 없어도(ref) 체크 선택을 비우지 않는다.
+      if (!opts?.keepSelection && selectedTaskIdsRef.current.size > 0 && !shiftKeyHeldRef.current) {
         setSelection(new Set());
         resetBulkFieldsRef.current();
       }
@@ -1403,8 +1427,7 @@ export function WBSTable({
   const handleShiftExtendCellRange = useCallback(
     (end: { taskId: string; columnId: TableColumnId }) => {
       if (!visibleColumnIds.includes(end.columnId)) return;
-      setSelection(new Set());
-      resetBulkFieldsRef.current();
+      // 체크 다중 선택은 Shift 조작 중에도 유지(이전에는 여기서 비워져 연속 Shift 사용이 깨졌음).
       const anchor =
         cellMarqueeRange?.anchor ??
         (focusedCell && visibleColumnIds.includes(focusedCell.columnId)
@@ -1419,16 +1442,7 @@ export function WBSTable({
         tableScrollRef.current?.focus({ preventScroll: true });
       });
     },
-    [
-      visibleColumnIds,
-      cellMarqueeRange,
-      focusedCell,
-      setSelection,
-      setCellMarqueeRange,
-      setFocusedCell,
-      setLastSelectedId,
-      setAnchorTaskId,
-    ],
+    [visibleColumnIds, cellMarqueeRange, focusedCell, setCellMarqueeRange, setFocusedCell, setLastSelectedId, setAnchorTaskId],
   );
 
   /**
@@ -2138,6 +2152,62 @@ export function WBSTable({
     [selectedTaskIds, handleSelect],
   );
 
+  /** Insert 키와 동일: 우클릭한 행의 직속 하위에 빈 작업 추가 후 작업명 인라인 편집 */
+  const addChildTaskUnderRow = useCallback(
+    (parentTaskId: string) => {
+      if (!canEditCurrentProject) return;
+      const baseTask = tasks.find((t) => t.id === parentTaskId);
+      if (!baseTask) {
+        pushToast('작업을 찾을 수 없습니다.', { variant: 'error' });
+        return;
+      }
+      const proj = projects.find((p) => p.id === (baseTask.projectId || currentProjectId));
+      const defaultDate = proj?.startDate || new Date().toISOString().slice(0, 10);
+      const fallbackStart = filters.startDate || defaultDate;
+      const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(baseTask, fallbackStart, filters.endDate);
+      const newId = addTask(
+        {
+          name: '',
+          startDate: startIso,
+          endDate: endIso,
+          progress: 0,
+          workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
+          assignee: filters.assignee || '',
+          status: 'todo',
+          parentId: baseTask.id,
+        },
+        baseTask.id,
+      );
+      if (!baseTask.expanded) {
+        updateTask(baseTask.id, { expanded: true });
+      }
+      setLastSelectedId(newId);
+      setInlineEditingNameIdCommitted(newId);
+      setFocusedCell({ taskId: newId, columnId: 'name' });
+      requestAnimationFrame(() => {
+        document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
+        requestAnimationFrame(() => {
+          document.getElementById(`wbs-edit-${newId}-name`)?.focus();
+        });
+      });
+    },
+    [
+      canEditCurrentProject,
+      tasks,
+      projects,
+      currentProjectId,
+      filters.startDate,
+      filters.endDate,
+      filters.assignee,
+      addTask,
+      updateTask,
+      setLastSelectedId,
+      setInlineEditingNameIdCommitted,
+      setFocusedCell,
+      pushToast,
+    ],
+  );
+
   useLayoutEffect(() => {
     if (!taskContextMenuHandlerRef) return;
     taskContextMenuHandlerRef.current = handleContextMenu;
@@ -2617,6 +2687,7 @@ export function WBSTable({
                 emptyAreaPressRef.current = false;
                 if (!pressedOnEmpty || !isWbsTableEmptyArea(e.target)) return;
                 if (selectedTaskIds.size === 0) return;
+                if (e.shiftKey || shiftKeyHeldRef.current) return;
                 setSelection(new Set());
                 resetBulkFields();
               }}
@@ -3622,6 +3693,29 @@ export function WBSTable({
                             label: '갱신',
                             icon: <RefreshCw size={14} />,
                             onClick: handleSyncProgressFromStatus,
+                          },
+                        ]
+                      : []),
+                    ...(canEditCurrentProject && contextMenu.taskId
+                      ? [
+                          {
+                            label: '신규 작업 추가',
+                            icon: <Plus size={14} />,
+                            title:
+                              '같은 레벨에서 이 행 바로 아래에 빈 작업을 추가하고 작업명을 입력합니다. (표에서 Enter 키로 새 형제 작업 추가할 때와 동일)',
+                            onClick: () => {
+                              advanceInlineEditToNextRow(contextMenu.taskId!);
+                              setContextMenu(null);
+                            },
+                          },
+                          {
+                            label: '하위 작업 추가',
+                            icon: <CornerDownRight size={14} />,
+                            title: 'Insert 키와 같습니다. 이 행 바로 아래(한 단계 들여쓰기)에 빈 하위 작업을 만들고 이름을 입력합니다.',
+                            onClick: () => {
+                              addChildTaskUnderRow(contextMenu.taskId!);
+                              setContextMenu(null);
+                            },
                           },
                         ]
                       : []),

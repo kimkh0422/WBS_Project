@@ -60,14 +60,14 @@ export const GUIDED_TOUR_STEPS: GuidedTourStep[] = [
     id: 'addTask',
     target: '[data-tourid="tour-quick-add"]',
     title: '첫 작업 입력',
-    body: '표 맨 아래 강조된 입력란을 클릭해 작업명을 쓰고 Enter(또는 Insert)를 누르세요.\n예: 요구사항 분석',
+    body: '표 맨 아래 강조된 입력란을 클릭해 작업명을 쓰고 Enter로 등록하세요.\n예: 요구사항 분석\n(등록되면 표에 행이 생기고, 그 다음부터는 표 안에서 Enter·Insert로 작업을 이어 붙일 수 있어요.)',
     mode: 'action',
   },
   {
     id: 'taskTips',
     target: '[data-tourid="tour-quick-add"]',
-    title: '작업을 빠르게 늘리는 요령',
-    body: '행을 선택한 상태에서:\n· Insert 또는 Enter — 아래에 새 작업 추가\n· Tab / Shift+Tab — 하위 / 상위 레벨로 이동 (1.1처럼 번호 자동 부여)\n· Shift+Enter — 위에 형제 새 작업 추가\n· 작업명 클릭 — 바로 이름 수정\n· 더블클릭 또는 F2 — 기간·담당자·진척률 등 상세 편집',
+    title: '같은 줄(형제) vs 하위 작업 — 단축키',
+    body: '표에서 작업 행을 한 줄 선택한 뒤(회색/강조된 행):\n· Enter — 같은 레벨(형제)로 그 줄 바로 아래에 새 작업\n· Shift+Enter 또는 Shift+Insert — 같은 레벨로 그 줄 바로 위에 새 작업\n· Insert — 선택한 그 줄의 하위 작업(한 단계 안쪽) 추가\n· Tab / Shift+Tab — 들여쓰기(하위로 / 상위로), 번호는 자동 정리\n· 작업명 클릭 — 이름만 빠르게 수정 · 더블클릭 또는 F2 — 기간·담당·진척률 등 상세 편집',
     mode: 'next',
   },
   {

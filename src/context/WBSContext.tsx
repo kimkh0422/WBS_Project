@@ -1256,7 +1256,7 @@ export function WBSProvider({
       }
       const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettingsRef.current, dbSettings) : wbsSettingsRef.current;
       const rawMapped = (Array.isArray(dbTaskRows) ? dbTaskRows : []).map(fromTaskRow);
-      const { tasks: ensuredDiscard, changed: discardEnsured } = ensureProjectTopLevelNameInTasks(dbProjects, rawMapped);
+      const { tasks: ensuredDiscard } = ensureProjectTopLevelNameInTasks(dbProjects, rawMapped);
       const snapshotTasks = applyRollupsToTasks(ensuredDiscard, effectiveSettings.statusConfigs);
       const snapshotTasksExpanded = preserveLocalExpanded(snapshotTasks);
       setProjects(dbProjects);
@@ -1275,13 +1275,14 @@ export function WBSProvider({
         saveJsonWithIdbFallback('wbs-deleted-project-ids', []),
       ]);
       setHasLocalChangesSinceSync(false);
-      if (discardEnsured) bumpDirty();
+      // 폐기 직후 `ensureProjectTopLevelNameInTasks` 보정만으로 bumpDirty 하면
+      // hasLocalChangesSinceSync가 다시 true가 되어 뷰 전환 모달이 연속으로 뜬다.
       lastServerPullAtRef.current = Date.now();
     } catch (e) {
       handleDbError(e, '서버에서 최신 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
       throw e;
     }
-  }, [useLocalOnly, user?.id, preserveLocalExpanded, resetHistory, handleDbError, bumpDirty]);
+  }, [useLocalOnly, user?.id, preserveLocalExpanded, resetHistory, handleDbError]);
 
   useEffect(() => {
     if (currentProjectId) {

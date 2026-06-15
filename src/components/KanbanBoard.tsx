@@ -2,10 +2,12 @@ import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
+  closestCorners,
   pointerWithin,
   KeyboardSensor,
   DragStartEvent,
   DragEndEvent,
+  DragOverEvent,
   useDroppable,
   defaultDropAnimationSideEffects,
   DropAnimation,
@@ -15,7 +17,8 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import type { CollisionDetection } from '@dnd-kit/core';
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useWBS } from '../context/WBSContext';
 import { Task, TaskStatus, FilterState } from '../types';
@@ -77,6 +80,22 @@ function defaultScreenshotCardTitle(): string {
   const d = new Date();
   return `스크린샷 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+
+/**
+ * 세로 칸반에서 아래로 드래그할 때 `over`가 자기 자신(active)으로만 잡히면 순서가 안 바뀌는 경우가 있다.
+ * 포인터가 실제로 겹치는 대상을 우선하고, active는 충돌 후보에서 제외한 뒤 closestCorners로 보완한다.
+ */
+const kanbanCollisionDetection: CollisionDetection = (args) => {
+  const pointer = pointerWithin(args);
+  const pointerNoSelf = pointer.filter((c) => c.id !== args.active.id);
+  if (pointerNoSelf.length > 0) return pointerNoSelf;
+
+  const corners = closestCorners(args);
+  const cornersNoSelf = corners.filter((c) => c.id !== args.active.id);
+  if (cornersNoSelf.length > 0) return cornersNoSelf;
+
+  return pointer.length > 0 ? pointer : corners;
+};
 
 // Column configuration
 const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
@@ -140,7 +159,7 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
   // Skip hooks if we are in an overlay to avoid conflicting state
   const sortable = useSortable({
     id: task.id,
-    disabled: isOverlay || isRenaming,
+    disabled: isOverlay || isRenaming || !canEdit,
     data: {
       type: 'Task',
       task,
@@ -184,8 +203,8 @@ function KanbanCard({ task, wbsId, parentWbsLabel, isOverlay, canEdit = true, on
         !isOverlay && lvStyle.border,
         isRenaming && 'ring-2 ring-blue-400',
       )}
-      {...(!isOverlay && !isRenaming ? { ...attributes, ...listeners } : {})}
-      style={{ ...style, touchAction: isOverlay ? undefined : 'none' }}
+      {...(!isOverlay && !isRenaming && canEdit ? { ...attributes, ...listeners } : {})}
+      style={{ ...style, touchAction: isOverlay || !canEdit ? undefined : 'none' }}
       onClick={(e) => {
         if (isOverlay) return;
         if ((e.target as HTMLElement).closest('button')) return;
@@ -652,6 +671,9 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     taskId: null,
   });
 
+  /** 드롭 순간 `over`가 null이 되는 경우에도 직전에 가리키던 칸/카드로 처리 */
+  const kanbanLastOverIdRef = useRef<string | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -790,18 +812,38 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   }, [filteredTasks, wbsSettings.statusConfigs, taskLevels, kanbanOrder]);
 
   const onDragStart = (event: DragStartEvent) => {
+    kanbanLastOverIdRef.current = null;
     if (event.active.data.current?.type === 'Task') {
       setActiveTask(event.active.data.current.task);
+    }
+  };
+
+  const onDragOver = (event: DragOverEvent) => {
+    if (event.over && event.over.id !== event.active.id) {
+      kanbanLastOverIdRef.current = String(event.over.id);
     }
   };
 
   const onDragEnd = (event: DragEndEvent) => {
     setActiveTask(null);
     const { active, over } = event;
-    if (!over) return;
 
     const activeId = active.id as string;
-    const overId = over.id as string;
+    const eventOverId = over?.id != null ? String(over.id) : null;
+    const refId = kanbanLastOverIdRef.current;
+    kanbanLastOverIdRef.current = null;
+
+    /** 드롭 프레임에 `over`가 자기 자신만 오면 ref에 있던 실제 목표(아래 카드 등)를 쓴다. */
+    let overId: string | null = null;
+    if (eventOverId != null && eventOverId !== activeId) {
+      overId = eventOverId;
+    } else if (refId != null) {
+      overId = refId;
+    } else if (eventOverId != null) {
+      overId = eventOverId;
+    }
+
+    if (!overId) return;
 
     const task = tasks.find((t) => t.id === activeId);
     if (!task) return;
@@ -833,20 +875,21 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     // 같은 컬럼 내 상하 드래그: 순서만 변경, WBS 번호나 상태는 그대로
     if (destinationStatus === sourceStatus) {
       const currentOrder = getStatusOrder(sourceStatus);
-      const activeIndex = currentOrder.indexOf(activeId);
-      if (activeIndex === -1) return;
+      const oldIndex = currentOrder.indexOf(activeId);
+      if (oldIndex === -1) return;
 
-      let overIndex = currentOrder.length - 1;
-      if (overTask && overTask.id !== activeId) {
-        const idx = currentOrder.indexOf(overTask.id);
-        if (idx !== -1) overIndex = idx;
+      let newIndex: number;
+      if (wbsSettings.statusConfigs.some((c) => c.id === overId)) {
+        // 컬럼 빈 영역 등: 맨 아래로
+        newIndex = Math.max(0, currentOrder.length - 1);
+      } else {
+        newIndex = currentOrder.indexOf(overId);
+        if (newIndex === -1) return;
       }
 
-      if (activeIndex === overIndex) return;
+      if (oldIndex === newIndex) return;
 
-      const nextOrder = [...currentOrder];
-      nextOrder.splice(activeIndex, 1);
-      nextOrder.splice(overIndex, 0, activeId);
+      const nextOrder = arrayMove(currentOrder, oldIndex, newIndex);
 
       const updatedOrder = { ...kanbanOrder, [sourceStatus]: nextOrder };
       setKanbanOrder(updatedOrder);
@@ -993,7 +1036,17 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
 
   return (
     <div className="h-full w-full overflow-x-auto p-6 bg-[var(--color-bg)]">
-      <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={kanbanCollisionDetection}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => {
+          setActiveTask(null);
+          kanbanLastOverIdRef.current = null;
+        }}
+      >
         <div className="flex gap-4 h-full min-w-max">
           {columns.map((column) => (
             <KanbanColumn

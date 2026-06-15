@@ -62,12 +62,14 @@ export function mapTasksOmittingProjectTitleRootsForTreeLayout(tasks: Task[], pr
 }
 
 /**
- * 각 프로젝트 WBS 최상단에 `formatProjectDisplayName`과 동일한 이름의 루트가 하나만 있도록 정규화한다.
- * - 루트가 없으면 기본 루트 1행을 추가한다.
- * - 루트가 여러 개이면: 이름이 기대값과 일치하는 루트가 있으면 나머지 루트를 그 아래로 묶고,
- *   없으면 새 루트를 만들어 기존 루트들을 모두 그 하위로 옮긴다.
- * - 루트가 하나인데 이름이 기대값과 다르면 새 루트를 추가하고 기존 루트를 그 하위로 옮긴다.
- * idempotent: 이미 기대 구조면 변경 없음.
+ * 각 프로젝트 WBS 최상단 구조를 정규화한다.
+ * - 루트가 없으면 기본 루트 1행을 추가한다(이름은 프로젝트 표시명과 동일).
+ * - 루트가 정확히 하나면 **이름이 프로젝트 표시명과 달라도** 그대로 둔다.
+ *   (프로젝트 복사 시 이름만 "(복사본)"으로 바뀌고 루트 작업명은 원본 그대로인 경우,
+ *   예전에는 표시명 전용 루트를 새로 넣어 전체가 한 단계 들여쓰기되었다.)
+ * - 루트가 여러 개이면: 이름이 기대값(`formatProjectDisplayName` 기준)과 일치하는 루트가 있으면
+ *   나머지 루트를 그 아래로 묶고, 없으면 새 루트를 만들어 기존 루트들을 모두 그 하위로 옮긴다.
+ * idempotent: 이미 처리할 일이 없으면 변경 없음.
  */
 export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Task[]): { tasks: Task[]; changed: boolean } {
   if (projects.length === 0) return { tasks, changed: false };
@@ -89,13 +91,13 @@ export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Tas
       continue;
     }
 
-    if (roots.length === 1 && roots[0]!.name.trim() === expected.trim()) {
+    if (roots.length === 1) {
       continue;
     }
 
     const canonical = roots.find((r) => r.name.trim() === expected.trim());
 
-    if (canonical && roots.length > 1) {
+    if (canonical) {
       for (const r of roots) {
         if (r.id === canonical.id) continue;
         const cur = updates.get(r.id) ?? r;

@@ -578,7 +578,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !rangeArrowFromOutsideTable) return;
 
     // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값만 커밋하고 같은 셀에 머무름.
-    // 이 시점부터 ←/→로 자유 이동 가능. (Shift+Enter는 다음 행 같은 컬럼으로 포커스 이동)
+    // 이 시점부터 ←/→로 자유 이동 가능. Shift+Enter: 표와 동일하게 현재 행 위에 형제 새 작업 추가 후 작업명 인라인 편집.
     if (e.key === 'Enter' && editingCell && inWbsTable) {
       e.preventDefault();
       const currentTaskId = editingCell.taskId;
@@ -589,17 +589,44 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         setEditingCell(null);
         setInlineEditingNameId(null);
         if (e.shiftKey) {
-          // Shift+Enter: 다음 행 같은 컬럼으로 포커스 이동 (편집은 시작 안 함, F2로 편집)
-          const idx = visibleTaskRowIndexById.get(currentTaskId) ?? -1;
-          const next = idx >= 0 ? visibleTasks[idx + 1] : null;
-          if (next) {
-            clearBulkCheckboxSelectionOnKeyboardCursorMove();
-            setLastSelectedId(next.id);
-            maybeSyncShiftRangeAnchor(next.id);
-            setFocusedCell({ taskId: next.id, columnId: currentColId });
-            document.getElementById(`task-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
-          } else {
+          if (!canEditCurrentProject) {
+            pushToast('편집 권한이 없어 새 작업을 추가할 수 없습니다.', { variant: 'info', id: 'wbs-no-edit-permission' });
             setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
+          } else {
+            const baseTask = tasks.find((t) => t.id === currentTaskId) || null;
+            const proj = projects.find((p) => p.id === (baseTask?.projectId || currentProjectId));
+            const defaultDate = proj?.startDate || new Date().toISOString().split('T')[0];
+            const parentIdForNew = baseTask?.parentId ?? null;
+            const fallbackStart = filters.startDate || defaultDate;
+            let insertAfterId: string | undefined;
+            let rowAboveNew: (typeof tasks)[number] | null | undefined;
+            if (baseTask) {
+              const baseIndex = visibleTaskRowIndexById.get(baseTask.id) ?? -1;
+              rowAboveNew = baseIndex > 0 ? visibleTasks[baseIndex - 1] : null;
+              insertAfterId = baseIndex > 0 ? visibleTasks[baseIndex - 1].id : undefined;
+            } else {
+              rowAboveNew = null;
+              insertAfterId = undefined;
+            }
+            const { startIso, endIso } = startEndForNewTaskBelowVisibleRow(rowAboveNew, fallbackStart, filters.endDate);
+            const newId = addTask(
+              {
+                name: '',
+                startDate: startIso,
+                endDate: endIso,
+                progress: 0,
+                workEffort: DEFAULT_NEW_TASK_WORK_EFFORT,
+                assignee: filters.assignee || '',
+                status: 'todo',
+                parentId: parentIdForNew,
+              },
+              insertAfterId,
+            );
+            clearBulkCheckboxSelectionOnKeyboardCursorMove();
+            setLastSelectedId(newId);
+            maybeSyncShiftRangeAnchor(newId);
+            setInlineEditingNameId(newId);
+            document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
           }
         } else {
           // 그냥 Enter: 같은 셀 유지 (←/→로 자유 이동)
@@ -613,9 +640,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     }
 
     // 작업명(name) 인라인 편집 중 Enter — 보호망(SortableTaskRow 로컬 핸들러가 stopPropagation 하지만 포커스 분실 등으로 전역까지 흘러오는 경우 대응).
+    // Shift+Enter는 위에 행 추가(로컬 onInsertRowAbove)로만 처리 — 캡처 단계에서 여기 잡으면 이중 커밋·충돌이 난다.
     // 정책: 다음 기존 행을 자동으로 편집 모드로 만들지 않는다(기존 작업명 오타 수정 사고 방지).
     // 신규 행 생성은 로컬 핸들러의 onAdvanceInlineEditToNextRow 콜백이 담당하므로, 여기서는 현재 행 커밋 후 편집만 종료한다.
-    if (e.key === 'Enter' && inlineEditingNameId && inWbsTable) {
+    if (e.key === 'Enter' && inlineEditingNameId && inWbsTable && !e.shiftKey) {
       e.preventDefault();
       const currentTaskId = inlineEditingNameId;
       if (!canEditCurrentProject) {

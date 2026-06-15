@@ -27,7 +27,7 @@ import { type TableColumnId, type WbsEditingCellPayload } from './wbsTableTypes'
 import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
-import { cellTextStyleToCss, mergeDoneLineThrough } from '../lib/cellTextStyle';
+import { mergeDoneLineThrough, splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { normalizeYmdInput } from '../lib/ymdInput';
@@ -283,6 +283,8 @@ function SortableTaskRowInner({
   // 작업명 셀이 '포커스만' 된 상태(armed)에서도 숨은 input을 미리 포커스해 둔다.
   // 같은 input이 그대로 편집기로 전환되므로 한글 IME 조합 첫 자모도 유실되지 않는다(포커스를 옮기지 않음).
   const nameEditRef = useRef<HTMLInputElement | null>(null);
+  /** Shift+구간은 pointerdown에서 처리. click에는 shiftKey가 false로만 찍히는 경우가 있어(누르고 있어도) 토글로 잘못 가지 않게 한다. */
+  const suppressNextCheckboxClickRef = useRef(false);
   const isNameArmed = canEdit && !isInlineEditingName && focusedCell?.taskId === task.id && focusedCell?.columnId === 'name';
 
   // armed가 되면 숨은 작업명 input을 포커스해 둔다(전체 선택은 onFocus에서).
@@ -663,14 +665,53 @@ function SortableTaskRowInner({
       >
         <GripVertical size={14} />
       </div>
-      <div className="data-cell justify-center" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <div
+        className="data-cell justify-center"
+        data-wbs-row-gutter
+        onPointerDownCapture={(e) => {
+          if (e.pointerType === 'touch' || e.button !== 0) return;
+          if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+          suppressNextCheckboxClickRef.current = true;
+          onSelect(task.id, false, true);
+          setFocusedCell({
+            taskId: task.id,
+            columnId:
+              focusedCell?.columnId && focusedCell.columnId !== 'wbsId' ? focusedCell.columnId : (visibleEditableColumnIds[0] ?? 'name'),
+          });
+          e.preventDefault();
+          e.stopPropagation();
+          window.setTimeout(() => {
+            suppressNextCheckboxClickRef.current = false;
+          }, 0);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <input
           type="checkbox"
           className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
-            if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+            if (suppressNextCheckboxClickRef.current) {
+              suppressNextCheckboxClickRef.current = false;
+              e.preventDefault();
+              return;
+            }
+            if (e.shiftKey) {
+              onSelect(task.id, false, true);
+              setFocusedCell({
+                taskId: task.id,
+                columnId:
+                  focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
+                    ? focusedCell.columnId
+                    : (visibleEditableColumnIds[0] ?? 'name'),
+              });
+              e.preventDefault();
+              return;
+            }
+            if (e.ctrlKey || e.metaKey) return;
+            e.preventDefault();
             onSelect(task.id, true, false);
             // 체크박스만 눌러도 셀 포커스가 남아 있지 않으면 하단 서식 바가 안 뜨는 문제 방지 + 다중 선택 시 같은 열 서식 일괄 적용 기준 행 정렬
             setFocusedCell({
@@ -686,7 +727,36 @@ function SortableTaskRowInner({
       </div>
       <div
         className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
+        data-wbs-row-gutter
         title={wbsSeqLabel ? `WBS ${wbsSeqLabel} · 표시 순번 ${rowIndex + 1}` : undefined}
+        onPointerDownCapture={(e) => {
+          if (e.pointerType === 'touch' || e.button !== 0) return;
+          if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect(task.id, false, true);
+          const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
+          setFocusedCell({
+            taskId: task.id,
+            columnId:
+              focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
+                ? focusedCell.columnId
+                : (visibleEditableColumnIds[0] ?? firstEditable),
+          });
+        }}
+        onClick={(e) => {
+          if (!e.shiftKey) return;
+          e.stopPropagation();
+          onSelect(task.id, false, true);
+          const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
+          setFocusedCell({
+            taskId: task.id,
+            columnId:
+              focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
+                ? focusedCell.columnId
+                : (visibleEditableColumnIds[0] ?? firstEditable),
+          });
+        }}
       >
         {wbsSeqLabel || rowIndex + 1}
       </div>
@@ -721,7 +791,8 @@ function SortableTaskRowInner({
               </div>
             );
           }
-          const txtStyle = cellTextStyleToCss(task.cellTextStyles?.[colId]);
+          const { textStyle: txtStyle, cellSurfaceStyle } = splitCellTextStyleForCellSurface(task.cellTextStyles?.[colId], inMarquee);
+          const mergeCellOuter = (base?: React.CSSProperties | null) => ({ ...(base ?? {}), ...cellSurfaceStyle });
           if (colId === 'name') {
             const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
             const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
@@ -736,7 +807,7 @@ function SortableTaskRowInner({
                 {...rangeCellProps}
                 className={cn('data-cell relative', marqueeClass)}
                 style={{
-                  ...(otherRingStyle ?? {}),
+                  ...mergeCellOuter(otherRingStyle),
                   paddingLeft: `${depth * 20 + 22}px`,
                   ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
                 }}
@@ -972,7 +1043,7 @@ function SortableTaskRowInner({
                   isFocused && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('startDate');
@@ -1063,7 +1134,7 @@ function SortableTaskRowInner({
                   isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('endDate');
@@ -1158,7 +1229,7 @@ function SortableTaskRowInner({
                   isFocusedDur && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('duration');
@@ -1250,7 +1321,7 @@ function SortableTaskRowInner({
                   isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('workEffort');
@@ -1334,6 +1405,7 @@ function SortableTaskRowInner({
                   isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('weight');
@@ -1404,6 +1476,7 @@ function SortableTaskRowInner({
                   isFocusedProg && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1474,7 +1547,7 @@ function SortableTaskRowInner({
                   isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
                   setFocusedCell({ taskId: task.id, columnId: 'plannedProgress' });
@@ -1526,7 +1599,7 @@ function SortableTaskRowInner({
                   isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
-                style={otherRingStyle}
+                style={mergeCellOuter(otherRingStyle)}
                 title={[
                   computable
                     ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
@@ -1565,6 +1638,7 @@ function SortableTaskRowInner({
                   isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('assignee');
@@ -1676,6 +1750,7 @@ function SortableTaskRowInner({
                   isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('allocation');
@@ -1735,6 +1810,7 @@ function SortableTaskRowInner({
                 key={colId}
                 {...rangeCellProps}
                 className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded', marqueeClass)}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('status');
@@ -1819,6 +1895,7 @@ function SortableTaskRowInner({
                   isFocusedDel && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('deliverables');
@@ -1994,6 +2071,7 @@ function SortableTaskRowInner({
                   isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit('dependencies');
@@ -2105,6 +2183,7 @@ function SortableTaskRowInner({
                   isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset',
                   marqueeClass,
                 )}
+                style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!isEditing) beginEdit(colId);

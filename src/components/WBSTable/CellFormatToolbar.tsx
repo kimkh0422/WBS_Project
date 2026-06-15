@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Sparkles, Strikethrough, Trash2 } from 'lucide-react';
+import { Ban, ChevronDown, Highlighter, Minus, Plus, RemoveFormatting, Sparkles, Strikethrough, Trash2, Undo2 } from 'lucide-react';
 import type { Task, CellTextStyle } from '../../types';
 import type { TableColumnId } from '../wbsTableTypes';
 import { cn } from '../../lib/utils';
@@ -449,7 +449,7 @@ export function CellFormatToolbar({
       </DocsCharToggle>
 
       <label
-        title="글자 색"
+        title="글자 색(클릭하여 선택)"
         className={cn(
           'relative ml-0.5 flex h-7 cursor-pointer items-center gap-0.5 rounded px-1.5 hover:bg-black/[0.06]',
           formatDisabled && 'pointer-events-none opacity-50',
@@ -468,9 +468,12 @@ export function CellFormatToolbar({
           aria-label="글자 색"
         />
       </label>
+      <DocsIconBtn title="글자색 지우기(기본)" disabled={formatDisabled} onClick={() => applyPatch({ color: undefined })}>
+        <Undo2 size={16} strokeWidth={2} className="opacity-90" />
+      </DocsIconBtn>
 
       <label
-        title="강조 색(배경)"
+        title="셀 배경색(클릭하여 선택)"
         className={cn(
           'relative flex h-7 cursor-pointer items-center justify-center rounded px-1 hover:bg-black/[0.06]',
           formatDisabled && 'pointer-events-none opacity-50',
@@ -483,10 +486,10 @@ export function CellFormatToolbar({
           className="absolute inset-0 cursor-pointer opacity-0"
           value={bgColor}
           onChange={(e) => applyPatch({ backgroundColor: e.target.value })}
-          aria-label="강조 색"
+          aria-label="셀 배경색"
         />
       </label>
-      <DocsIconBtn title="강조 색 지우기" disabled={formatDisabled} onClick={() => applyPatch({ backgroundColor: undefined })}>
+      <DocsIconBtn title="셀 배경색 지우기" disabled={formatDisabled} onClick={() => applyPatch({ backgroundColor: undefined })}>
         <Ban size={17} strokeWidth={2} />
       </DocsIconBtn>
 
