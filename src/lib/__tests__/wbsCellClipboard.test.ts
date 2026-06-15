@@ -3,6 +3,7 @@ import {
   isCellClipboardColumn,
   getWbsCellClipboardData,
   buildWbsCellPasteUpdate,
+  WBS_DATE_PAIR_NONEMPTY_MESSAGE,
   type WbsCellPasteContext,
   type WbsStatusConfigLite,
 } from '../wbsCellClipboard';
@@ -124,6 +125,13 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     expect(noOp.error).toBeUndefined();
   });
 
+  it('날짜: 한쪽만 있는데 다른 쪽을 비우면 둘 다 비게 되어 저장 불가 — 오류', () => {
+    const onlyEnd = makeTask({ id: 'oe', startDate: '', endDate: '2026-04-10' });
+    expect(buildWbsCellPasteUpdate(onlyEnd, 'endDate', { text: '' }, ctxOf([onlyEnd])).error).toBe(WBS_DATE_PAIR_NONEMPTY_MESSAGE);
+    const onlyStart = makeTask({ id: 'os', startDate: '2026-04-01', endDate: '' });
+    expect(buildWbsCellPasteUpdate(onlyStart, 'startDate', { text: '' }, ctxOf([onlyStart])).error).toBe(WBS_DATE_PAIR_NONEMPTY_MESSAGE);
+  });
+
   it('날짜: 8자리 등 다양한 표기를 정규화하고 대상의 시간 접미사를 보존', () => {
     const t = makeTask({ id: 'a', startDate: '2026-04-01T00:00:00' });
     const res = buildWbsCellPasteUpdate(t, 'startDate', { text: '20260415' }, ctxOf([t]));
@@ -137,6 +145,19 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     expect(buildWbsCellPasteUpdate(t, 'duration', { text: '0' }, ctxOf([t])).error).toBeTruthy();
     const noStart = makeTask({ id: 'b', startDate: '' });
     expect(buildWbsCellPasteUpdate(noStart, 'duration', { text: '5' }, ctxOf([noStart])).error).toBeTruthy();
+  });
+
+  it('기간: 빈 값은 종료일 비우기(Delete·빈 셀 붙여넣기)', () => {
+    const t = makeTask({ id: 'a', startDate: '2026-04-01', endDate: '2026-04-10' });
+    expect(buildWbsCellPasteUpdate(t, 'duration', { text: '' }, ctxOf([t])).updates).toEqual({ endDate: '' });
+    const alreadyNoEnd = makeTask({ id: 'b', startDate: '2026-04-01', endDate: '' });
+    const noOp = buildWbsCellPasteUpdate(alreadyNoEnd, 'duration', { text: '' }, ctxOf([alreadyNoEnd]));
+    expect(noOp.updates).toBeNull();
+    expect(noOp.error).toBeUndefined();
+    const noStartHasEnd = makeTask({ id: 'c', startDate: '', endDate: '2026-04-10' });
+    expect(buildWbsCellPasteUpdate(noStartHasEnd, 'duration', { text: '' }, ctxOf([noStartHasEnd])).error).toBe(
+      WBS_DATE_PAIR_NONEMPTY_MESSAGE,
+    );
   });
 
   it('공수: 프로젝트 단위에 맞춰 반올림(분=정수, 그 외 소수 1자리), 음수 거부', () => {

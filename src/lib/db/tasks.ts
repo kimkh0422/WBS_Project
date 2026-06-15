@@ -3,11 +3,15 @@ import type { TaskRow } from '../supabase';
 import type { Task } from '../../types';
 import { requireSupabase, getMissingColumnNameFromPgrst204, stripSelectListColumn } from './client';
 import { toTaskRow, fromTaskRow } from './mappers';
-import { insertAuditLog, diffTaskFields } from './audit';
+import { insertAuditLog, insertAuditLogsBatch, diffTaskFields } from './audit';
 import type { AuditAction } from './audit';
 
 /** Supabase/PostgREST 기본 행 제한(1000). 이 이상은 페이지네이션으로 가져옴. */
 const TASKS_PAGE_SIZE = 1000;
+
+/** 목록·동기화 비교용 tasks SELECT (fetchTaskRows / fetchTaskRowsForProjectIds 공통) */
+const TASK_LIST_COLUMNS =
+  'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
 
 export const TASKS_UPSERT_BATCH_SIZE = 50;
 
@@ -27,6 +31,36 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   // 계획율 수동 지정 (20260605140000)
   'planned_progress_override',
 ]);
+
+async function fetchAllTaskRowsPages(projectId: string | null): Promise<TaskRow[]> {
+  requireSupabase();
+  const all: TaskRow[] = [];
+  let offset = 0;
+  let taskListColumns = TASK_LIST_COLUMNS;
+  while (true) {
+    let qb = supabase!.from('tasks').select(taskListColumns);
+    if (projectId) qb = qb.eq('project_id', projectId);
+    let { data, error } = await qb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+    for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
+      const missing = getMissingColumnNameFromPgrst204(error);
+      if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
+      const nextCols = stripSelectListColumn(taskListColumns, missing);
+      if (nextCols === taskListColumns) break;
+      taskListColumns = nextCols;
+      let retryQb = supabase!.from('tasks').select(taskListColumns);
+      if (projectId) retryQb = retryQb.eq('project_id', projectId);
+      const retry = await retryQb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+      data = retry.data as unknown as typeof data;
+      error = retry.error;
+    }
+    if (error) throw error;
+    const page = (data ?? []) as unknown as TaskRow[];
+    all.push(...page);
+    if (page.length < TASKS_PAGE_SIZE) break;
+    offset += TASKS_PAGE_SIZE;
+  }
+  return all;
+}
 
 /**
  * 이번 세션 동안 "DB에 없다고 확인된" optional 컬럼.
@@ -152,40 +186,20 @@ export async function fetchTaskDetail(
 }
 
 export async function fetchTaskRows(): Promise<TaskRow[]> {
-  requireSupabase();
-  const all: TaskRow[] = [];
-  let offset = 0;
   // checklist/description은 TaskModal에서 즉시 보여야 하고, 동기화 후에도 로컬 상태가
   // 비지 않도록 목록 조회에 포함한다. 작업당 보통 수백 바이트라 egress 영향은 미미.
-  let taskListColumns =
-    'id,project_id,parent_id,name,start_date,end_date,progress,assignee,status,expanded,dependencies,work_effort,description,checklist,deliverables,user_locked_fields,sort_order,is_milestone,is_issue,is_action_item,baseline_start_date,baseline_end_date,baseline_work_effort,weight,custom_fields,created_at,updated_at';
-  while (true) {
-    let { data, error } = await supabase!
-      .from('tasks')
-      .select(taskListColumns)
-      .order('sort_order', { ascending: true })
-      .range(offset, offset + TASKS_PAGE_SIZE - 1);
-    for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
-      const missing = getMissingColumnNameFromPgrst204(error);
-      if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
-      const nextCols = stripSelectListColumn(taskListColumns, missing);
-      if (nextCols === taskListColumns) break;
-      taskListColumns = nextCols;
-      const retry = await supabase!
-        .from('tasks')
-        .select(taskListColumns)
-        .order('sort_order', { ascending: true })
-        .range(offset, offset + TASKS_PAGE_SIZE - 1);
-      data = retry.data as unknown as typeof data;
-      error = retry.error;
-    }
-    if (error) throw error;
-    const page = (data ?? []) as unknown as TaskRow[];
-    all.push(...page);
-    if (page.length < TASKS_PAGE_SIZE) break;
-    offset += TASKS_PAGE_SIZE;
+  return fetchAllTaskRowsPages(null);
+}
+
+/** 지정 프로젝트들의 작업만 서버에서 가져옴(수동 저장·current 동기화 시 egress·지연 절감). */
+export async function fetchTaskRowsForProjectIds(projectIds: string[]): Promise<TaskRow[]> {
+  const ids = Array.from(new Set(projectIds.filter(Boolean)));
+  if (ids.length === 0) return [];
+  const combined: TaskRow[] = [];
+  for (const projectId of ids) {
+    combined.push(...(await fetchAllTaskRowsPages(projectId)));
   }
-  return all;
+  return combined;
 }
 
 /** 단일 작업 저장. 동시 수정 시 conflict: true 반환(낙관적 잠금). */
@@ -307,7 +321,7 @@ export async function upsertTasks(
     if (error) {
       if (import.meta.env.DEV) {
         const dupCount = rows.length - dedupedRows.length;
-         
+
         console.error('[upsertTasks] 409/오류 발생', {
           batchIndex: Math.floor(i / TASKS_UPSERT_BATCH_SIZE),
           rowCount: rows.length,
@@ -358,15 +372,16 @@ export async function deleteTasksFromDB(ids: string[]): Promise<void> {
   const rows = (tasks ?? []) as { id: string; project_id: string; name: string }[];
   const { error } = await supabase!.from('tasks').delete().in('id', ids);
   if (error) throw error;
-  for (const row of rows) {
-    await insertAuditLog({
+  if (rows.length === 0) return;
+  await insertAuditLogsBatch(
+    rows.map((row) => ({
       project_id: row.project_id,
-      entity_type: 'task',
+      entity_type: 'task' as const,
       entity_id: row.id,
       entity_name: row.name,
-      action: 'delete',
-    });
-  }
+      action: 'delete' as const,
+    })),
+  );
 }
 
 export async function deleteAllTasksFromDB(projectId: string): Promise<void> {

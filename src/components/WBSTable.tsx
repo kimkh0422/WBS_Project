@@ -43,6 +43,7 @@ import { useWbsDragRangeSelect } from './hooks/useWbsDragRangeSelect';
 import { buildCellMarqueeKeySet, cellMarqueeKeysToTargets } from '../lib/wbsCellMarquee';
 import { isShiftCellMarqueeExcludedTarget, resolveWbsShiftClickMarqueeEnd } from '../lib/wbsTableShiftCellPointer';
 import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
+import { WbsColumnHeaderDndGroup, type WbsColumnHeaderDragProps } from './WBSTable/columnHeaderDnd';
 import { SummaryBar } from './WBSTable/SummaryBar';
 import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
 import { SortableTaskRow } from './SortableTaskRow';
@@ -52,7 +53,7 @@ import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/virtual-core';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { buildParentSet, buildDirectChildCountByParentId, buildVisibleTasks, buildTasksInTreeOrderWithWbs } from '../lib/taskView';
+import { buildParentSet, buildTotalDescendantCountByTaskId, buildVisibleTasks, buildTasksInTreeOrderWithWbs } from '../lib/taskView';
 import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import {
   buildMarkdownForProjectTable,
@@ -81,13 +82,7 @@ import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { pasteClipboardTasks, resolvePasteTargetAfterWhichInsert } from '../lib/wbsClipboard';
 import { buildWbsCellPasteUpdate, type WbsCopiedCellRegion } from '../lib/wbsCellClipboard';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
-import {
-  getSingleClickEdit,
-  subscribeSingleClickEditChanged,
-  getShowAdvancedTools,
-  setShowAdvancedTools,
-  subscribeShowAdvancedToolsChanged,
-} from '../lib/wbsTableDisplayPrefs';
+import { getShowAdvancedTools, setShowAdvancedTools, subscribeShowAdvancedToolsChanged } from '../lib/wbsTableDisplayPrefs';
 import { isComposingKeyEvent } from '../lib/ime';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 
@@ -174,6 +169,7 @@ export function WBSTable({
     treeExpandLevel,
     setTreeExpandLevel,
     deleteTask,
+    deleteTaskRoots,
     updateTask,
     updateTasksBulk,
     addTask,
@@ -204,7 +200,7 @@ export function WBSTable({
 
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
 
-  const { push: pushToast, dismiss: dismissToast } = useToast();
+  const { push: pushToast } = useToast();
   const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
@@ -240,10 +236,6 @@ export function WBSTable({
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const { showTableAutoFormatting, globalAutoFormattingOn, toggleUserHide } = useWbsTableAutoFormatting(wbsSettings);
   const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
-
-  /** 클릭 편집 모드: 켜면 셀 한 번 클릭으로 바로 편집, 끄면(기본) 더블클릭·F2로만 편집. 이 브라우저에만 저장. */
-  const [singleClickEdit, setSingleClickEditState] = useState(getSingleClickEdit);
-  useEffect(() => subscribeSingleClickEditChanged(() => setSingleClickEditState(getSingleClickEdit())), []);
 
   /** Shift+F12: 표 헤더 우클릭의 관리자 항목(보완 가이드·컬럼 설정) + 셀 서식 툴바의 MD 표 편집 버튼 표시. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
@@ -288,7 +280,7 @@ export function WBSTable({
   );
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
-  const directChildCountByParentId = useMemo(() => buildDirectChildCountByParentId(baseTasks), [baseTasks]);
+  const descendantCountByTaskId = useMemo(() => buildTotalDescendantCountByTaskId(baseTasks), [baseTasks]);
 
   const workEffortHeaderTitle = useMemo(() => {
     const pids = filters.projectIds;
@@ -448,6 +440,10 @@ export function WBSTable({
   const [excelView, setExcelView] = useState(false);
   /** 편집 모드에서 키보드로 이동할 때의 현재 셀 (편집 중이 아닐 때) */
   const [focusedCell, setFocusedCell] = useState<{ taskId: string; columnId: TableColumnId } | null>(null);
+  const editingCellRef = useRef<WbsEditingCellPayload | null>(null);
+  editingCellRef.current = editingCell;
+  const focusedCellRef = useRef(focusedCell);
+  focusedCellRef.current = focusedCell;
   /** 마우스 드래그로 잡은 셀 직사각형(행 체크 선택과 별개) */
   const [cellMarqueeRange, setCellMarqueeRange] = useState<{
     anchor: { taskId: string; columnId: TableColumnId };
@@ -631,18 +627,26 @@ export function WBSTable({
     moveTaskRootsSibling,
   });
 
-  // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화
-  // 작업명 인라인 편집 중에는 가상 스크롤 비활성화 — 스크롤/범위 변경 시 행이 언마운트되면
-  // input blur로 편집이 즉시 종료되며(F2 후 깜빡임), 빈 이름 셀에서 입력이 불가능해진다.
-  // 다른 열(시작일·진척 등) 인라인 편집 중에도 동일 — 언마운트 시 type-to-edit·입력이 깨진다.
-  const shouldVirtualize =
-    !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null && inlineEditingNameId === null && editingCell === null;
+  // 가상 스크롤링: wrapTextInCells=false(고정 행 높이)이고 50행 초과 시 활성화.
+  // 인라인 편집 중에도 가상화를 유지하되 편집 행은 virtualRangeExtractor에서 강제 포함(pin)해
+  // 스크롤로 언마운트되지 않도록 한다. inlineAddingTaskId(새 행 추가 form)만 예외적으로 비활성화.
+  const shouldVirtualize = !wrapTextInCells && visibleTasks.length > 50 && inlineAddingTaskId === null;
 
   const focusedTaskRowIndex = useMemo(() => {
     if (!focusedCell) return -1;
     const idx = visibleTasks.findIndex((t) => t.id === focusedCell.taskId);
     return idx;
   }, [focusedCell, visibleTasks]);
+
+  // 인라인 편집 행 인덱스 — virtualRangeExtractor에서 pin해 언마운트를 방지한다.
+  const editingCellRowIndex = useMemo(() => {
+    if (!editingCell) return -1;
+    return visibleTasks.findIndex((t) => t.id === editingCell.taskId);
+  }, [editingCell, visibleTasks]);
+  const inlineEditingNameRowIndex = useMemo(() => {
+    if (!inlineEditingNameId) return -1;
+    return visibleTasks.findIndex((t) => t.id === inlineEditingNameId);
+  }, [inlineEditingNameId, visibleTasks]);
 
   // 드래그 중인 항목의 인덱스를 미리 계산 (virtualRangeExtractor 내 O(n) findIndex 제거)
   const dndActiveIndex = useMemo(
@@ -663,9 +667,6 @@ export function WBSTable({
       if (focusedTaskRowIndex !== -1 && !base.includes(focusedTaskRowIndex)) {
         const lo = Math.min(baseLo, focusedTaskRowIndex);
         const hi = Math.max(baseHi, focusedTaskRowIndex);
-        // 키보드 셀 포커스 행을 뷰포트 밖에서도 붙이되, 멀리 떨어진 경우 [0, 50..70]처럼 인덱스만 정렬해
-        // 넣으면 DOM 행 순서가 측정 start/end와 맞지 않아 scrollHeight·RO·표↔간트 세로 동기가 흔들려
-        // 하단이 깜빡일 수 있다(ESC로 focusedCell 해제 시 정상으로 보이던 현상).
         const MAX = 200;
         if (hi - lo + 1 <= MAX) focusExtra = focusedTaskRowIndex;
       }
@@ -673,6 +674,9 @@ export function WBSTable({
       const mergeExtras: number[] = [];
       if (dndExtra !== null) mergeExtras.push(dndExtra);
       if (focusExtra !== null) mergeExtras.push(focusExtra);
+      // 인라인 편집 행은 무조건 pin — 언마운트되면 input blur로 편집이 깨진다.
+      if (editingCellRowIndex !== -1 && !base.includes(editingCellRowIndex)) mergeExtras.push(editingCellRowIndex);
+      if (inlineEditingNameRowIndex !== -1 && !base.includes(inlineEditingNameRowIndex)) mergeExtras.push(inlineEditingNameRowIndex);
       if (mergeExtras.length === 0) return base;
 
       const lo = Math.min(baseLo, ...mergeExtras);
@@ -685,10 +689,9 @@ export function WBSTable({
         return out;
       }
 
-      // 장거리 DnD 등: 기존처럼 비연속 인덱스 병합
       return [...base, ...mergeExtras].sort((a, b) => a - b);
     },
-    [dndActiveIndex, focusedTaskRowIndex],
+    [dndActiveIndex, focusedTaskRowIndex, editingCellRowIndex, inlineEditingNameRowIndex],
   );
 
   const isSplitViewForVirtualizer = !!syncScrollRef;
@@ -911,7 +914,7 @@ export function WBSTable({
     customColumnNameById,
     assigneeDisplayMetaByName,
     criticalPathTaskIds: effectiveCriticalPathSet,
-    directChildCountByParentId,
+    descendantCountByTaskId,
   });
 
   const tableAutoFitFilterKey = useMemo(() => {
@@ -1228,6 +1231,51 @@ export function WBSTable({
     ],
   );
 
+  /** 마우스로 다른 셀을 잡기 직전: 진행 중인 작업명/셀 편집을 커밋·종료(언마운트로 onBlur가 생략되는 경우 방지) */
+  const resolveNextFocusedCellForRowClick = useCallback(
+    (taskId: string, opts?: { columnId?: TableColumnId }) => {
+      const explicit = opts?.columnId;
+      if (explicit != null && marqueeColumnIds.includes(explicit)) {
+        return { taskId, columnId: explicit };
+      }
+      const prev = focusedCellRef.current;
+      const col =
+        prev && editableColumnIds.includes(prev.columnId)
+          ? prev.columnId
+          : editableColumnIds.includes('name')
+            ? 'name'
+            : (editableColumnIds[0] ?? 'name');
+      return { taskId, columnId: col };
+    },
+    [marqueeColumnIds, editableColumnIds],
+  );
+
+  const flushWbsTableCellEditorsForNextFocus = useCallback(
+    (next: { taskId: string; columnId: TableColumnId }) => {
+      const nameId = inlineEditingNameIdRef.current;
+      if (nameId && (nameId !== next.taskId || next.columnId !== 'name')) {
+        if (canEditCurrentProject) {
+          commitWbsInlineNameEditFromDom(nameId, tasks, updateTask, canEditCurrentProject);
+        }
+        setInlineEditingNameIdCommitted(null);
+      }
+
+      const ec = editingCellRef.current;
+      if (ec && (ec.taskId !== next.taskId || ec.columnId !== next.columnId)) {
+        const editId = `wbs-edit-${ec.taskId}-${ec.columnId}`;
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.id === editId) {
+          active.blur();
+        } else {
+          const el = document.getElementById(editId) as HTMLElement | null;
+          if (el) el.blur();
+          else setEditingCell(null);
+        }
+      }
+    },
+    [tasks, updateTask, canEditCurrentProject, setInlineEditingNameIdCommitted],
+  );
+
   /** 키보드/탭으로 행 포커스만 옮길 때 Shift 범위 앵커와 동기화 (옛 클릭 앵커가 남아 ↑/↓+Shift가 어긋나는 현상 방지) */
   const syncRangeAnchorForKeyboardFocus = useCallback(
     (taskId: string | null) => {
@@ -1243,6 +1291,58 @@ export function WBSTable({
     setSelection(new Set());
     resetBulkFieldsRef.current();
   }, [setSelection]);
+
+  /** 컬럼 헤더 클릭: 필터·접힘 반영 후 보이는 모든 행의 해당 열을 셀 마퀴로 선택(엑셀 열 머리 클릭과 유사). */
+  const handleColumnHeaderClickSelectColumn = useCallback(
+    (e: React.MouseEvent, columnId: TableColumnId) => {
+      if (excelView) return;
+      if (e.button !== 0) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.shiftKey) return;
+      const el = e.target as HTMLElement;
+      if (el.closest('input, textarea, select, .cursor-col-resize')) return;
+      if (!marqueeColumnIds.includes(columnId)) return;
+      if (visibleTasks.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearCheckboxSelectionForDrag();
+      const firstTask = visibleTasks[0]!;
+      const lastTask = visibleTasks[visibleTasks.length - 1]!;
+      const anchor = { taskId: firstTask.id, columnId };
+      flushWbsTableCellEditorsForNextFocus(anchor);
+      const end = { taskId: lastTask.id, columnId };
+      setCellMarqueeRange({ anchor, end });
+      setFocusedCell(anchor);
+      setLastSelectedId(firstTask.id);
+      rangeAnchorRef.current = firstTask.id;
+      setAnchorTaskId(firstTask.id);
+      requestAnimationFrame(() => {
+        tableScrollRef.current?.focus({ preventScroll: true });
+      });
+    },
+    [
+      excelView,
+      marqueeColumnIds,
+      visibleTasks,
+      clearCheckboxSelectionForDrag,
+      setCellMarqueeRange,
+      setFocusedCell,
+      setLastSelectedId,
+      setAnchorTaskId,
+      flushWbsTableCellEditorsForNextFocus,
+    ],
+  );
+
+  /** 셀 클릭 직후 한 칸 마퀴( onFocusRow가 마퀴를 비운 뒤 같은 이벤트에서 다시 맞출 때 사용 ) */
+  const commitCellMarquee = useCallback(
+    (taskId: string, columnId: TableColumnId) => {
+      if (!marqueeColumnIds.includes(columnId)) return;
+      setCellMarqueeRange({ anchor: { taskId, columnId }, end: { taskId, columnId } });
+      rangeAnchorRef.current = taskId;
+      setAnchorTaskId(taskId);
+    },
+    [marqueeColumnIds, setCellMarqueeRange, setAnchorTaskId],
+  );
 
   // 엑셀식 마우스 드래그: 네이티브 pointerdown(capture) — 아래 스크롤 ref 콜백에서 `bindRangeDragToScrollElement` 호출.
   const { bindRangeDragToScrollElement } = useWbsDragRangeSelect({
@@ -1263,7 +1363,9 @@ export function WBSTable({
 
   /** 행 클릭·Shift 범위 등으로 행만 포커스될 때도 셀 링이 이전 행에 남지 않게 lastSelectedId와 맞춘다 */
   const handleFocusRow = useCallback(
-    (taskId: string, opts?: { keepSelection?: boolean }) => {
+    (taskId: string, opts?: { keepSelection?: boolean; columnId?: TableColumnId }) => {
+      const next = resolveNextFocusedCellForRowClick(taskId, opts);
+      flushWbsTableCellEditorsForNextFocus(next);
       // keepSelection(체크 유지)일 때, 포커스만 같은 마퀴 범위 안에서 움직이면 셀 직사각형 선택을 유지한다.
       const preserveMarquee =
         opts?.keepSelection &&
@@ -1276,6 +1378,10 @@ export function WBSTable({
       }
       setLastSelectedId(taskId);
       setFocusedCell((prev) => {
+        const explicit = opts?.columnId;
+        if (explicit != null && marqueeColumnIds.includes(explicit)) {
+          return { taskId, columnId: explicit };
+        }
         const col =
           prev && editableColumnIds.includes(prev.columnId)
             ? prev.columnId
@@ -1293,7 +1399,16 @@ export function WBSTable({
         resetBulkFieldsRef.current();
       }
     },
-    [setLastSelectedId, editableColumnIds, setSelection, cellMarqueeRange, visibleTasks, marqueeColumnIds],
+    [
+      setLastSelectedId,
+      editableColumnIds,
+      setSelection,
+      cellMarqueeRange,
+      visibleTasks,
+      marqueeColumnIds,
+      resolveNextFocusedCellForRowClick,
+      flushWbsTableCellEditorsForNextFocus,
+    ],
   );
 
   // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
@@ -1438,6 +1553,7 @@ export function WBSTable({
   const handleShiftExtendCellRange = useCallback(
     (end: { taskId: string; columnId: TableColumnId }) => {
       if (!marqueeColumnIds.includes(end.columnId)) return;
+      flushWbsTableCellEditorsForNextFocus(end);
       // 체크 다중 선택은 Shift 조작 중에도 유지(이전에는 여기서 비워져 연속 Shift 사용이 깨졌음).
       const anchor =
         cellMarqueeRange?.anchor ??
@@ -1453,7 +1569,16 @@ export function WBSTable({
         tableScrollRef.current?.focus({ preventScroll: true });
       });
     },
-    [marqueeColumnIds, cellMarqueeRange, focusedCell, setCellMarqueeRange, setFocusedCell, setLastSelectedId, setAnchorTaskId],
+    [
+      marqueeColumnIds,
+      cellMarqueeRange,
+      focusedCell,
+      setCellMarqueeRange,
+      setFocusedCell,
+      setLastSelectedId,
+      setAnchorTaskId,
+      flushWbsTableCellEditorsForNextFocus,
+    ],
   );
 
   /**
@@ -1568,8 +1693,6 @@ export function WBSTable({
   const performDeleteTaskIds = useCallback(
     (taskIds: string[]) => {
       if (taskIds.length === 0) return;
-      const DELETE_PROGRESS_TOAST_ID = 'wbs-table-delete-progress';
-      const yieldToUi = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
       const deleteSet = new Set<string>();
       const getIdsToDelete = (parentId: string) => {
@@ -1603,45 +1726,8 @@ export function WBSTable({
       }
 
       const rootIds = Array.from(new Set(taskIds));
-      const multiRoot = rootIds.length >= 2;
-      const showProgressToast = multiRoot || deleteSet.size >= 4;
 
-      const run = async () => {
-        if (showProgressToast) {
-          pushToast('작업 삭제 중…', {
-            id: DELETE_PROGRESS_TOAST_ID,
-            variant: 'info',
-            durationMs: 300_000,
-            detail: multiRoot
-              ? `0 / ${rootIds.length}개 상위 작업 (하위 포함 약 ${deleteSet.size}행)`
-              : `하위 포함 약 ${deleteSet.size}개 행을 정리하는 중입니다.`,
-            progress: multiRoot ? 0 : null,
-          });
-          await yieldToUi();
-        }
-
-        for (let i = 0; i < rootIds.length; i++) {
-          deleteTask(rootIds[i]!);
-          if (showProgressToast) {
-            const pct = Math.round(((i + 1) / rootIds.length) * 100);
-            pushToast('작업 삭제 중…', {
-              id: DELETE_PROGRESS_TOAST_ID,
-              variant: 'info',
-              durationMs: 300_000,
-              detail: multiRoot
-                ? `${i + 1} / ${rootIds.length}개 상위 작업 (하위 포함 약 ${deleteSet.size}행)`
-                : `하위 포함 약 ${deleteSet.size}개 행을 정리하는 중입니다.`,
-              progress: multiRoot ? pct : null,
-            });
-          }
-          await yieldToUi();
-        }
-
-        if (showProgressToast) {
-          dismissToast(DELETE_PROGRESS_TOAST_ID);
-          pushToast(`삭제했습니다. (${deleteSet.size}개 작업)`, { variant: 'success', durationMs: 2800 });
-        }
-
+      const finishDeleteUi = () => {
         setSelection(new Set());
         if (nextSelectId) {
           setLastSelectedId(nextSelectId);
@@ -1654,9 +1740,7 @@ export function WBSTable({
         }
 
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            tableScrollRef.current?.focus();
-          });
+          tableScrollRef.current?.focus();
         });
 
         setFocusedCell((prev) => {
@@ -1671,20 +1755,17 @@ export function WBSTable({
         });
       };
 
-      void run();
+      // flushSync 제거: 표·간트·wbsMap 동기 커밋이 한 번에 몰려 메인 스레드를 오래 점유하는 것을 피한다.
+      deleteTaskRoots(rootIds);
+      finishDeleteUi();
+
+      requestAnimationFrame(() => {
+        if (rootIds.length >= 2) {
+          pushToast(`삭제했습니다. (${deleteSet.size}개 작업)`, { variant: 'success', durationMs: 2200 });
+        }
+      });
     },
-    [
-      tasks,
-      visibleTasks,
-      deleteTask,
-      setSelection,
-      setLastSelectedId,
-      setAnchorTaskId,
-      setFocusedCell,
-      editableColumnIds,
-      pushToast,
-      dismissToast,
-    ],
+    [tasks, visibleTasks, deleteTaskRoots, setSelection, setLastSelectedId, setAnchorTaskId, setFocusedCell, editableColumnIds, pushToast],
   );
 
   const handleDeleteClick = useCallback(
@@ -2399,6 +2480,25 @@ export function WBSTable({
     [wbsSettings?.tableColumns, updateWbsSettings],
   );
 
+  /** 표에 보이는 데이터 열 순서(고정 3열 제외)를 드래그로 바꿀 때 `tableColumns` 전체 배열에 반영 */
+  const reorderTableColumnsByVisibleDataOrder = useCallback(
+    (newVisibleDataOrder: TableColumnId[]) => {
+      const cols = wbsSettings?.tableColumns ?? [];
+      const headerSet = new Set<string>(newVisibleDataOrder);
+      const headerIndices = cols.map((c, i) => (c && headerSet.has(c.id) ? i : -1)).filter((i) => i >= 0);
+      if (headerIndices.length !== newVisibleDataOrder.length) return;
+      const byId = new Map(cols.map((c) => [c.id, c]));
+      const nextObjs = newVisibleDataOrder.map((id) => byId.get(id)).filter(Boolean) as typeof cols;
+      if (nextObjs.length !== newVisibleDataOrder.length) return;
+      const next = [...cols];
+      for (let j = 0; j < headerIndices.length; j++) {
+        next[headerIndices[j]] = nextObjs[j];
+      }
+      updateWbsSettings({ tableColumns: next });
+    },
+    [wbsSettings?.tableColumns, updateWbsSettings],
+  );
+
   const insertCustomColumn = useCallback(
     (anchorColId: string | null, side: 'left' | 'right') => {
       const newId = `custom:${Date.now()}`;
@@ -2488,6 +2588,9 @@ export function WBSTable({
   const headerSortClickEnabled = false;
   const headerStyle = isSplitView ? { ...gridStyle, height: 60, minHeight: 60 } : gridStyle;
 
+  /** 행 Dnd와 별도. 열 이름 인라인 편집 중에는 열 드래그 비활성 */
+  const columnHeaderDndDisabled = !canEditCurrentProject || excelView || !!editingHeaderColId;
+
   /** 컬럼 너비 조절용 그립: 헤더 오른쪽 가장자리 드래그.
    * stripe를 grip의 우측(border-r)에 그려야 visible stripe 위치 = grid cell 우측 끝 = 본문 셀의 우측 경계와 정확히 정렬된다.
    * 좌측(border-l)에 두면 stripe가 grid cell 끝에서 grip 너비(12px)만큼 안쪽에 그려져 본문과 어긋나 보임. */
@@ -2514,11 +2617,24 @@ export function WBSTable({
     />
   );
 
-  const renderHeaderCell = (id: TableColumnId) => {
+  const renderHeaderCell = (id: TableColumnId, columnDrag: WbsColumnHeaderDragProps | null) => {
     if (editingHeaderColId === id && id.startsWith('custom:')) {
       const initial = customColumnNameById.get(id) || id.replace(/^custom:/, '');
       return (
-        <div key={id} className="col-header relative" onContextMenu={(e) => e.preventDefault()}>
+        <div
+          key={id}
+          ref={(node) => {
+            columnDrag?.setNodeRef(node);
+          }}
+          {...(columnDrag?.listeners ?? {})}
+          {...(columnDrag?.attributes ?? {})}
+          style={columnDrag?.style}
+          className={cn(
+            'col-header relative',
+            columnDrag?.isDragging && 'relative z-[35] rounded-sm shadow-md ring-1 ring-[var(--color-accent)]/35',
+          )}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <input
             autoFocus
             defaultValue={initial}
@@ -2553,7 +2669,9 @@ export function WBSTable({
           headerSortClickEnabled={headerSortClickEnabled}
           onSort={onSort}
           resizeGrip={resizeGrip(id as keyof typeof columnWidths)}
+          onColClick={!excelView ? (ev) => handleColumnHeaderClickSelectColumn(ev, id) : undefined}
           onColContextMenu={(ev) => handleHeaderContextMenu(ev, id)}
+          columnDrag={columnDrag}
           onColDoubleClick={(ev) => {
             ev.stopPropagation();
             if (id.startsWith('custom:')) {
@@ -2710,11 +2828,21 @@ export function WBSTable({
               >
                 WBS{resizeGrip('seq')}
               </div>
-              {visibleColumnIds.map(renderHeaderCell)}
+              <WbsColumnHeaderDndGroup
+                columnIds={visibleColumnIds}
+                disabled={columnHeaderDndDisabled}
+                onReorder={(next) => reorderTableColumnsByVisibleDataOrder(next as TableColumnId[])}
+              >
+                {(colId, drag) => renderHeaderCell(colId, drag)}
+              </WbsColumnHeaderDndGroup>
               {showActionsColumn && (
                 <div
-                  className="col-header justify-end relative"
-                  title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                  className={cn(
+                    'col-header justify-end relative',
+                    !excelView && 'cursor-pointer hover:text-[var(--color-ink)] transition-colors',
+                  )}
+                  title="작업 관리(편집·삭제 등) · 클릭: 이 열 전체 선택 · 더블클릭: 너비 초기화"
+                  onClick={!excelView ? (e) => handleColumnHeaderClickSelectColumn(e, 'actions') : undefined}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     handleColumnHeaderDoubleClick('actions');
@@ -2833,11 +2961,21 @@ export function WBSTable({
                       >
                         WBS{resizeGrip('seq')}
                       </div>
-                      {visibleColumnIds.map(renderHeaderCell)}
+                      <WbsColumnHeaderDndGroup
+                        columnIds={visibleColumnIds}
+                        disabled={columnHeaderDndDisabled}
+                        onReorder={(next) => reorderTableColumnsByVisibleDataOrder(next as TableColumnId[])}
+                      >
+                        {(colId, drag) => renderHeaderCell(colId, drag)}
+                      </WbsColumnHeaderDndGroup>
                       {showActionsColumn && (
                         <div
-                          className="col-header justify-end relative"
-                          title="작업 관리(편집·삭제 등) · 더블클릭: 너비 초기화"
+                          className={cn(
+                            'col-header justify-end relative',
+                            !excelView && 'cursor-pointer hover:text-[var(--color-ink)] transition-colors',
+                          )}
+                          title="작업 관리(편집·삭제 등) · 클릭: 이 열 전체 선택 · 더블클릭: 너비 초기화"
+                          onClick={!excelView ? (e) => handleColumnHeaderClickSelectColumn(e, 'actions') : undefined}
                           onDoubleClick={(e) => {
                             e.stopPropagation();
                             handleColumnHeaderDoubleClick('actions');
@@ -2890,7 +3028,7 @@ export function WBSTable({
                               isSelected={selectedTaskIds.has(task.id)}
                               isFocused={(lastSelectedId === task.id || activeTaskId === task.id) && !marqueeMultiCells}
                               hasChildren={hasChildrenSet.has(task.id)}
-                              directChildTaskCount={directChildCountByParentId.get(task.id) ?? 0}
+                              totalDescendantTaskCount={descendantCountByTaskId.get(task.id) ?? 0}
                               isTreeView={isTreeView}
                               treeGuide={treeGuideByTaskId.get(task.id) ?? ''}
                               onSelect={handleSelect}
@@ -2929,11 +3067,11 @@ export function WBSTable({
                               rollupTooltipBaseTasks={baseTasks}
                               plannedProgress={plannedProgressById.get(task.id)}
                               showTableAutoFormatting={showTableAutoFormatting}
-                              singleClickEdit={singleClickEdit}
                               forkedChildProject={forkedProjectsByTaskId.get(task.id)}
-                              onOpenForkedChildProject={(childId) => setCurrentProjectId(childId)}
+                              onOpenForkedChildProject={setCurrentProjectId}
                               onPasteApplyToCheckboxSelection={applyClipboardFirstLineToCheckboxSelection}
                               cellMarqueeKeySet={cellMarqueeKeySet}
+                              commitCellMarquee={commitCellMarquee}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>

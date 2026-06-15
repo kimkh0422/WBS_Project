@@ -23,12 +23,15 @@ const bump = (version, type) => {
   return `${major}.${minor}.${patch + 1}`;
 };
 
-const today = () => {
+/** 커밋 시각 기준 로컬 타임존 — CHANGELOG·푸터에 시·분까지 반영 */
+const releaseTimestampLocal = () => {
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:${min}`;
 };
 
 // 1) 버전 올리기
@@ -82,7 +85,7 @@ let changeLines = process.argv[3]
 if (changeLines.length === 0) changeLines = [`버전 ${next} 업데이트`];
 
 // 3) CHANGELOG.md에 새 섹션 추가
-const dateStr = today();
+const dateStr = releaseTimestampLocal();
 const section = [
   '',
   `## v${next} (${dateStr})`,

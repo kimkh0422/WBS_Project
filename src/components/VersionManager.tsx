@@ -34,7 +34,9 @@ function compareSemverDesc(a: string, b: string): number {
 }
 
 function parseDateMaybe(value: string): number {
-  const t = new Date(value).getTime();
+  const v = value.trim();
+  const normalized = /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(v) ? v.replace(' ', 'T') : v;
+  const t = new Date(normalized).getTime();
   return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
 }
 
@@ -133,10 +135,21 @@ export function VersionManager({ isOpen, onClose, currentVersion }: VersionManag
     try {
       const d = new Date(APP_COMMIT_DATE);
       if (Number.isNaN(d.getTime())) return APP_COMMIT_DATE;
-      return d.toLocaleDateString('ko-KR', {
+      const legacyNoonKst = /T12:00:00\+09:00$/i.test(APP_COMMIT_DATE.trim());
+      if (legacyNoonKst) {
+        return d.toLocaleDateString('ko-KR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
+      }
+      return d.toLocaleString('ko-KR', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
       });
     } catch {
       return APP_COMMIT_DATE;

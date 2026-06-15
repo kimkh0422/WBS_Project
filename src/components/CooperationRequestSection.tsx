@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
 import { useToast } from './Toast';
+import { useErrorStateWithToast } from '../hooks/useErrorStateWithToast';
 import { useOrganization, getDirectMembersFromTree } from '../context/OrganizationContext';
 import type { OrgNode, OrgMember } from '../data/organization';
 import {
@@ -321,7 +322,7 @@ export function CooperationRequestSection({
 }: CooperationRequestSectionProps) {
   const [rows, setRows] = useState<CooperationRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-cooperation-list-error' });
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all' | 'overdue'>('all');
   const [typeFilter, setTypeFilter] = useState<CooperationRequestType | 'all'>('all');
@@ -2227,7 +2228,7 @@ function ConfirmDeleteModal({ row, onCancel, onConfirm }: { row: CooperationRequ
 function CooperationPointsModal({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<CooperationPointEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-cooperation-points-error' });
   /** 랭킹에서 클릭한 사람 이름 — 선택 시 지급 내역이 그 사람 것만으로 바뀐다. */
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 

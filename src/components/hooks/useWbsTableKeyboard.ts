@@ -8,6 +8,8 @@ import { pasteClipboardTasks, resolvePasteTargetAfterWhichInsert } from '../../l
 import {
   buildMarqueeWbsCellClipboardGrid,
   buildWbsCellPasteUpdate,
+  taskDatePairEmptyAfterPatch,
+  WBS_DATE_PAIR_NONEMPTY_MESSAGE,
   getWbsCellClipboardData,
   isCellClipboardColumn,
   wbsCopiedCellRegionToTsv,
@@ -163,6 +165,8 @@ const TYPE_TO_EDIT_COLUMNS = new Set<string>([
   'startDate',
   'endDate',
   'duration',
+  'workEffort',
+  'weight',
   'progress',
   'assignee',
   'deliverables',
@@ -949,6 +953,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         let applied = 0;
         let failed = 0;
         let firstError: string | null = null;
+        const mergedByTaskId = new Map<string, Partial<Task>>();
+        const cellCountByTaskId = new Map<string, number>();
         for (const p of pairs) {
           const t = tasks.find((x) => x.id === p.taskId);
           if (!t) continue;
@@ -964,9 +970,25 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             continue;
           }
           if (res.updates) {
-            updateTask(t.id, res.updates);
-            applied += 1;
+            const cur = mergedByTaskId.get(p.taskId) ?? {};
+            mergedByTaskId.set(p.taskId, { ...cur, ...res.updates });
+            cellCountByTaskId.set(p.taskId, (cellCountByTaskId.get(p.taskId) ?? 0) + 1);
           }
+        }
+        for (const [taskId, merged] of mergedByTaskId) {
+          const t = tasks.find((x) => x.id === taskId);
+          const nCells = cellCountByTaskId.get(taskId) ?? 0;
+          if (!t) {
+            failed += nCells;
+            continue;
+          }
+          if (taskDatePairEmptyAfterPatch(t, merged)) {
+            failed += nCells;
+            if (!firstError) firstError = WBS_DATE_PAIR_NONEMPTY_MESSAGE;
+            continue;
+          }
+          updateTask(taskId, merged);
+          applied += nCells;
         }
         if (applied === 0 && failed > 0) {
           pushToast(firstError ?? '붙여넣지 못했습니다.', { variant: 'warning' });
@@ -1397,14 +1419,28 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return;
     }
 
-    // Delete만 삭제 메뉴 오픈 (Backspace는 브라우저 뒤로가기·입력 필드와 충돌 방지)
-    // - 체크박스로 선택된 항목이 있으면 그 항목들(다중) 삭제
-    // - 체크가 없어도 현재 포커스된 행(lastSelectedId, 노란색 하이라이트)이 있으면 단일 삭제
+    // Delete (Backspace는 브라우저 뒤로가기·입력 필드와 충돌 방지)
+    // - 체크박스(또는 공유 행 선택)가 있으면 Del은 마퀴·포커스 셀보다 우선: 툴바 "삭제"와 동일하게 행 전체 삭제
+    // - 행 선택이 없을 때만 엑셀식: 셀·다중셀(마퀴) 또는 포커스 한 칸 → 해당 셀 값만 비움(행 삭제 아님)
     if (e.key === 'Delete' || e.key === 'Del') {
       // 표 안 값 입력 중이면 문자 삭제 등 기본 동작 유지
       if (isWbsTableCellTypingTarget(target)) return;
+      // 작업명 인라인 편집 중(포커스가 잠깐 표로 나간 경우 등): 행 삭제 금지
+      if (inlineEditingNameId) return;
+      // 표 안 셀 편집기(input): Del은 전역 "셀 비우기"가 아니라 브라우저 기본(글자·선택 영역 삭제)
+      // — armed 작업명은 typing 대상이 아니므로 wbs-edit- 접두로 통일 처리
+      const delTarget = target as HTMLElement;
+      if (delTarget.tagName === 'INPUT' && delTarget.closest?.('[data-wbs-table]') && !(delTarget as HTMLInputElement).disabled) {
+        const id = (delTarget as HTMLInputElement).id ?? '';
+        if (id.startsWith('wbs-edit-')) return;
+      }
       e.preventDefault();
       if (!canEditCurrentProject) return;
+      // 체크·공유로 고른 행이 있으면 셀 마퀴가 남아 있어도 Del은 행 삭제만(글자만 지우기 방지)
+      if (effectiveSelectedIds.length > 0) {
+        performDeleteTaskIds(effectiveSelectedIds);
+        return;
+      }
       // 셀 마퀴(1칸 이상): 엑셀처럼 행 삭제가 아니라 선택 셀 값만 비움
       const marqueeHasCells = (cellMarqueeKeySet?.size ?? 0) >= 1;
       if (marqueeHasCells && cellMarqueeKeySet) {
@@ -1413,6 +1449,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         let cleared = 0;
         let failed = 0;
         let firstError: string | null = null;
+        /** 같은 작업에 여러 셀(시작·종료 등)을 한 번에 비울 때: 패치를 합친 뒤 NOT NULL 일정 위반을 검사한다. */
+        const mergedByTaskId = new Map<string, Partial<Task>>();
+        const cellCountByTaskId = new Map<string, number>();
+
         for (const cell of targets) {
           if (!editableColumnIds.includes(cell.columnId)) continue;
           const t = tasks.find((x) => x.id === cell.taskId);
@@ -1444,9 +1484,26 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             continue;
           }
           if (res.updates) {
-            updateTask(cell.taskId, res.updates);
-            cleared += 1;
+            const cur = mergedByTaskId.get(cell.taskId) ?? {};
+            mergedByTaskId.set(cell.taskId, { ...cur, ...res.updates });
+            cellCountByTaskId.set(cell.taskId, (cellCountByTaskId.get(cell.taskId) ?? 0) + 1);
           }
+        }
+
+        for (const [taskId, merged] of mergedByTaskId) {
+          const t = tasks.find((x) => x.id === taskId);
+          const nCells = cellCountByTaskId.get(taskId) ?? 0;
+          if (!t) {
+            failed += nCells;
+            continue;
+          }
+          if (taskDatePairEmptyAfterPatch(t, merged)) {
+            failed += nCells;
+            if (!firstError) firstError = WBS_DATE_PAIR_NONEMPTY_MESSAGE;
+            continue;
+          }
+          updateTask(taskId, merged);
+          cleared += nCells;
         }
         if (cleared > 0) {
           pushToast(
@@ -1460,20 +1517,30 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         }
         return;
       }
-      // 마퀴 없이 값 셀(종료일·시작일 등)만 포커스: 엑셀처럼 그 셀만 비움. 체크 다중 선택이 있으면 아래 행 삭제로 유지.
-      if (
-        selectedTaskIds.size === 0 &&
-        cursorFocusedCell &&
-        isCellClipboardColumn(cursorFocusedCell.columnId) &&
-        editableColumnIds.includes(cursorFocusedCell.columnId)
-      ) {
+      // 마퀴 없이 포커스 셀만: 엑셀처럼 Del은 그 셀(작업명 포함) 값만 비움 — lastSelectedId만으로는 행 삭제하지 않음
+      if (selectedTaskIds.size === 0 && cursorFocusedCell && editableColumnIds.includes(cursorFocusedCell.columnId)) {
         const cell = cursorFocusedCell;
+        const col = cell.columnId;
+        if (col === 'wbsId' || col === 'actions' || col === 'plannedProgress' || col === 'progressVariance' || col === 'allocation') {
+          return;
+        }
         const visibleTaskIds = visibleTasks.map((t) => t.id);
         const t = visibleTasks.some((vt) => vt.id === cell.taskId) ? tasks.find((x) => x.id === cell.taskId) : undefined;
+        if (t?.mirroredFromTaskId) return;
         if (t && !t.mirroredFromTaskId) {
+          if (col === 'name') {
+            if ((t.name ?? '').trim() !== '') {
+              updateTask(cell.taskId, { name: '' });
+              pushToast('셀 내용을 지웠습니다.', { variant: 'success' });
+            }
+            return;
+          }
+          if (!isCellClipboardColumn(col)) {
+            return;
+          }
           const res = buildWbsCellPasteUpdate(
             t,
-            cell.columnId,
+            col,
             { text: '' },
             {
               tasks,
@@ -1492,12 +1559,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
           return;
         }
-        // 값 셀 포커스인데 지울 수 없는 행(거울 등)이면 행 삭제 확인으로 넘기지 않음
-        if (t?.mirroredFromTaskId) return;
-      }
-      const targetIds = effectiveSelectedIds.length > 0 ? effectiveSelectedIds : lastSelectedId ? [lastSelectedId] : [];
-      if (targetIds.length > 0) {
-        performDeleteTaskIds(targetIds);
+        return;
       }
       return;
     }

@@ -272,6 +272,7 @@ export function useWbsDragRangeSelect({
           }
         }
         const wasActive = !!cur?.active;
+        const anchorCell = cur?.anchorCell ?? null;
         stateRef.current = null;
         if (wasActive) {
           const swallow = (ev: Event) => {
@@ -281,6 +282,13 @@ export function useWbsDragRangeSelect({
           };
           window.addEventListener('click', swallow, true);
           window.setTimeout(() => window.removeEventListener('click', swallow, true), 400);
+        } else if (anchorCell) {
+          // 드래그로 범위를 넓히지 않고 뗀 경우(클릭): 한 칸 마퀴·포커스 — 체크 다중 선택은 유지(드래그 범위 시작 시에만 해제).
+          setCellMarqueeRangeRef.current({ anchor: anchorCell, end: anchorCell });
+          setLastSelectedIdRef.current(anchorCell.taskId);
+          setFocusedCellRef.current(anchorCell);
+          rangeAnchorRef.current = anchorCell.taskId;
+          setAnchorTaskIdRef.current(anchorCell.taskId);
         }
       };
 

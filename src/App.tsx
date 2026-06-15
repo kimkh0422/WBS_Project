@@ -1719,6 +1719,21 @@ function WBSApp({
 function AppWithProviders() {
   const { user, loading, isResettingPassword } = useAuth();
   const { push: pushToast } = useToast();
+  const { error: orgDataLoadError } = useOrganization();
+  const orgDataErrorToastRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!orgDataLoadError) {
+      orgDataErrorToastRef.current = null;
+      return;
+    }
+    if (orgDataErrorToastRef.current === orgDataLoadError) return;
+    orgDataErrorToastRef.current = orgDataLoadError;
+    pushToast(`조직 정보를 DB에서 불러오지 못했습니다. 기본 조직도를 사용합니다.\n(${orgDataLoadError})`, {
+      variant: 'warning',
+      durationMs: 10000,
+      id: 'wbs-org-db-fallback',
+    });
+  }, [orgDataLoadError, pushToast]);
   /** 관리자 비밀번호로 임시 관리자 모드에 진입한 상태 (sessionStorage 기반) */
   const [adminOverride, setAdminOverride] = useState(() => sessionStorage.getItem('wbs-admin-override') === 'true');
   /** 관리자가 회원 화면을 체험 중인 상태 (sessionStorage 기반). 켜져 있으면 관리자라도 화면상 비관리자처럼 동작. */
@@ -1742,7 +1757,12 @@ function AppWithProviders() {
   }, [pushToast]);
   const handleProviderDbError = useCallback(
     (msg: string) => {
-      pushToast(msg, { variant: 'error', id: `db-error:${msg}` });
+      const localFallback = msg.includes('이 기기에 저장된 데이터를 표시') || msg.includes('로컬에 반영') || msg.includes('로컬 데이터');
+      pushToast(msg, {
+        variant: localFallback ? 'warning' : 'error',
+        durationMs: localFallback ? 12000 : 8000,
+        id: 'wbs-provider-db-error',
+      });
     },
     [pushToast],
   );
@@ -1780,6 +1800,7 @@ function AppWithProviders() {
       useLocalOnly={isDevAuthBypass()}
       onConcurrentConflict={handleConcurrentConflict}
       onDbError={handleProviderDbError}
+      onLocalPersistIssue={(m) => pushToast(m, { variant: 'warning', durationMs: 12000, id: 'wbs-local-persist' })}
       editableProjectIds={myEditableProjectIds}
       isAdmin={effectiveIsAdminGlobal}
       clientProjectAllowlist={clientProjectAllowlist}

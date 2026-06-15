@@ -38,20 +38,32 @@ export async function fetchAuditLog(projectId: string | null, limit = 100): Prom
   }
 }
 
+let auditUserCache: { userId: string | null; userDisplay: string; cachedAtMs: number } | null = null;
+const AUDIT_USER_CACHE_MS = 60_000;
+
 export async function getCurrentUserForAudit(): Promise<{ userId: string | null; userDisplay: string }> {
   if (!supabase) return { userId: null, userDisplay: '로컬' };
+  const now = Date.now();
+  if (auditUserCache && now - auditUserCache.cachedAtMs < AUDIT_USER_CACHE_MS) {
+    return { userId: auditUserCache.userId, userDisplay: auditUserCache.userDisplay };
+  }
   try {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     const user = session?.user;
-    if (!user) return { userId: null, userDisplay: '로컬' };
+    if (!user) {
+      auditUserCache = { userId: null, userDisplay: '로컬', cachedAtMs: now };
+      return { userId: null, userDisplay: '로컬' };
+    }
     const email = user.email ?? user.id;
     const name = (user.user_metadata?.full_name as string)?.trim?.();
-    return {
+    const resolved = {
       userId: user.id,
       userDisplay: name || email || user.id,
     };
+    auditUserCache = { ...resolved, cachedAtMs: now };
+    return resolved;
   } catch {
     return { userId: null, userDisplay: '로컬' };
   }
@@ -81,6 +93,41 @@ export async function insertAuditLog(payload: {
     });
   } catch {
     // wbs_audit_log 미적용 환경 등
+  }
+}
+
+const AUDIT_LOG_INSERT_CHUNK = 120;
+
+/** 대량 삭제 등: 감사 행을 한 번의 세션 조회 + 소수의 insert로 기록한다. */
+export async function insertAuditLogsBatch(
+  entries: ReadonlyArray<{
+    project_id: string | null;
+    entity_type: 'task' | 'project';
+    entity_id?: string | null;
+    entity_name?: string | null;
+    action: AuditAction;
+    changes?: unknown;
+  }>,
+): Promise<void> {
+  if (!supabase || entries.length === 0) return;
+  try {
+    const { userId, userDisplay } = await getCurrentUserForAudit();
+    for (let i = 0; i < entries.length; i += AUDIT_LOG_INSERT_CHUNK) {
+      const slice = entries.slice(i, i + AUDIT_LOG_INSERT_CHUNK);
+      const rows = slice.map((payload) => ({
+        project_id: payload.project_id,
+        entity_type: payload.entity_type,
+        entity_id: payload.entity_id ?? null,
+        entity_name: payload.entity_name ?? null,
+        action: payload.action,
+        user_id: userId,
+        user_display: userDisplay,
+        changes: payload.changes ?? null,
+      }));
+      await supabase.from('wbs_audit_log').insert(rows);
+    }
+  } catch {
+    /* wbs_audit_log 미적용 환경 등 */
   }
 }
 

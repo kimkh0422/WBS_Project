@@ -291,7 +291,7 @@ npm run lint
 | export | 설명 |
 |--------|------|
 | `APP_VERSION` | package.json의 version |
-| `APP_COMMIT_DATE` | CHANGELOG의 해당 버전 날짜(또는 git 마지막 커밋 시각) |
+| `APP_COMMIT_DATE` | CHANGELOG의 해당 버전 날짜·시·분(또는 구형 항목은 날짜만 → 정오 KST 플레이스홀더, 또는 git 마지막 커밋 시각) |
 | `APP_CHANGELOG_JSON` | 변경이력 JSON 문자열 (`JSON.parse` 후 배열) |
 
 ---

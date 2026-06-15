@@ -111,102 +111,117 @@ export function useFileImportExport(deps: FileImportExportDeps) {
   const backupInputRef = useRef<HTMLInputElement>(null);
   const mergeInputRef = useRef<HTMLInputElement>(null);
 
+  /** 확인 모달과 동일 문구를 토스트로도 표시 */
+  const alertUser = useCallback(
+    (message: string, opts?: { variant?: 'warning' | 'error' }) => {
+      const variant = opts?.variant ?? 'error';
+      setErrorAlert({ isOpen: true, message });
+      pushToast(message, { variant, durationMs: variant === 'warning' ? 9000 : 10000, id: 'wbs-file-io-user-alert' });
+    },
+    [setErrorAlert, pushToast],
+  );
+
   const handleExportFromModal = useCallback(
     async (params: { scope: ExportScope; formats: ExportFormat[]; projectIds: string[] }) => {
-      const { formats, projectIds, scope } = params;
-      const now = new Date();
-      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-      const filteredProjects = projects.filter((p) => projectIds.includes(p.id));
-      const filteredTasks = allTasks.filter((t) => t.projectId && projectIds.includes(t.projectId));
-
-      const doExport = async (format: ExportFormat) => {
-        if (format === 'excel') {
-          const fileName =
-            filteredProjects.length === 1
-              ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
-              : `wbs_export_${timestamp}.xlsx`;
-          const { exportToExcel } = await import('../lib/excel');
-          await exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects, undefined, assigneeDisplayMetaByName, statusConfigs);
-        } else if (format === 'markdown') {
-          const fileName =
-            filteredProjects.length === 1
-              ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
-              : `wbs_export_${timestamp}.md`;
-          exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects, assigneeDisplayMetaByName);
-        } else if (format === 'csv') {
-          const fileName =
-            filteredProjects.length === 1
-              ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.csv`
-              : `wbs_export_${timestamp}.csv`;
-          const projectMap = new Map(filteredProjects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
-          const header = ['WBS', '프로젝트', '작업명', '담당자', '상태', '진행률', '시작일', '종료일', '공수'];
-          const escape = (v: string) => {
-            if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
-            return v;
-          };
-          const taskRow = (t: Task) =>
-            [
-              wbsMap.get(t.id) ?? '',
-              projectMap.get(t.projectId) ?? '',
-              t.name,
-              formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName),
-              t.status,
-              String(t.progress ?? 0),
-              t.startDate ?? '',
-              t.endDate ?? '',
-              t.workEffort != null ? String(t.workEffort) : '',
-            ]
-              .map(escape)
-              .join(',');
-          const rows: string[] = [];
-          for (const p of filteredProjects) {
-            const pname = projectMap.get(p.id) ?? '';
-            const tasksForP = filteredTasks.filter((t) => t.projectId === p.id);
-            if (tasksForP.length === 0) {
-              rows.push(['', pname, '(작업 없음)', '', '', '', p.startDate ?? '', p.endDate ?? '', ''].map(escape).join(','));
-            } else {
-              for (const t of tasksForP) rows.push(taskRow(t));
-            }
-          }
-          const bom = '\uFEFF';
-          const csv = bom + [header.join(','), ...rows].join('\r\n');
-          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName;
-          a.click();
-          URL.revokeObjectURL(url);
-        } else {
-          const fullBackup = exportFullBackup();
-          const partialBackup: BackupData = {
-            ...fullBackup,
-            projects: filteredProjects,
-            tasks: filteredTasks,
-          };
-          const fileName =
-            filteredProjects.length === 1
-              ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
-              : `wbs_backup_${timestamp}.json`;
-          exportBackupToJson(partialBackup, fileName);
-        }
-      };
-
-      for (const format of formats) {
-        await doExport(format);
-      }
-
-      pushToast('내보내기가 완료되었습니다.');
-      const primaryFormat = formats[0] ?? 'excel';
-      const prefs = { scope, format: primaryFormat as ExportFormat, projectIds };
-      setLastExportPrefs(prefs);
       try {
-        window.localStorage.setItem('wbs.lastExportPrefs', JSON.stringify(prefs));
-      } catch {
-        /* ignore */
+        const { formats, projectIds, scope } = params;
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+        const filteredProjects = projects.filter((p) => projectIds.includes(p.id));
+        const filteredTasks = allTasks.filter((t) => t.projectId && projectIds.includes(t.projectId));
+
+        const doExport = async (format: ExportFormat) => {
+          if (format === 'excel') {
+            const fileName =
+              filteredProjects.length === 1
+                ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.xlsx`
+                : `wbs_export_${timestamp}.xlsx`;
+            const { exportToExcel } = await import('../lib/excel');
+            await exportToExcel(filteredTasks, wbsMap, fileName, filteredProjects, undefined, assigneeDisplayMetaByName, statusConfigs);
+          } else if (format === 'markdown') {
+            const fileName =
+              filteredProjects.length === 1
+                ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.md`
+                : `wbs_export_${timestamp}.md`;
+            exportToMarkdown(filteredTasks, wbsMap, fileName, filteredProjects, assigneeDisplayMetaByName);
+          } else if (format === 'csv') {
+            const fileName =
+              filteredProjects.length === 1
+                ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_${timestamp}.csv`
+                : `wbs_export_${timestamp}.csv`;
+            const projectMap = new Map(filteredProjects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
+            const header = ['WBS', '프로젝트', '작업명', '담당자', '상태', '진행률', '시작일', '종료일', '공수'];
+            const escape = (v: string) => {
+              if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+              return v;
+            };
+            const taskRow = (t: Task) =>
+              [
+                wbsMap.get(t.id) ?? '',
+                projectMap.get(t.projectId) ?? '',
+                t.name,
+                formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName),
+                t.status,
+                String(t.progress ?? 0),
+                t.startDate ?? '',
+                t.endDate ?? '',
+                t.workEffort != null ? String(t.workEffort) : '',
+              ]
+                .map(escape)
+                .join(',');
+            const rows: string[] = [];
+            for (const p of filteredProjects) {
+              const pname = projectMap.get(p.id) ?? '';
+              const tasksForP = filteredTasks.filter((t) => t.projectId === p.id);
+              if (tasksForP.length === 0) {
+                rows.push(['', pname, '(작업 없음)', '', '', '', p.startDate ?? '', p.endDate ?? '', ''].map(escape).join(','));
+              } else {
+                for (const t of tasksForP) rows.push(taskRow(t));
+              }
+            }
+            const bom = '\uFEFF';
+            const csv = bom + [header.join(','), ...rows].join('\r\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            URL.revokeObjectURL(url);
+          } else {
+            const fullBackup = exportFullBackup();
+            const partialBackup: BackupData = {
+              ...fullBackup,
+              projects: filteredProjects,
+              tasks: filteredTasks,
+            };
+            const fileName =
+              filteredProjects.length === 1
+                ? `wbs_${filteredProjects[0].name.replace(/\s+/g, '_')}_backup_${timestamp}.json`
+                : `wbs_backup_${timestamp}.json`;
+            exportBackupToJson(partialBackup, fileName);
+          }
+        };
+
+        for (const format of formats) {
+          await doExport(format);
+        }
+
+        pushToast('내보내기가 완료되었습니다.');
+        const primaryFormat = formats[0] ?? 'excel';
+        const prefs = { scope, format: primaryFormat as ExportFormat, projectIds };
+        setLastExportPrefs(prefs);
+        try {
+          window.localStorage.setItem('wbs.lastExportPrefs', JSON.stringify(prefs));
+        } catch {
+          /* ignore */
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '보내기 중 오류가 발생했습니다.';
+        alertUser(msg);
       }
     },
-    [projects, allTasks, wbsMap, pushToast, exportFullBackup, setLastExportPrefs, assigneeDisplayMetaByName, statusConfigs],
+    [projects, allTasks, wbsMap, pushToast, exportFullBackup, setLastExportPrefs, assigneeDisplayMetaByName, statusConfigs, alertUser],
   );
 
   const handleQuickExport = useCallback(() => {
@@ -404,21 +419,22 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         } else if (firstExt === 'json') {
           await importFromBackupJsonFiles(files);
         } else if (firstExt === 'md') {
-          setErrorAlert({
-            isOpen: true,
-            message: 'Markdown(.md) 파일 가져오기는 아직 지원되지 않습니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택해주세요.',
+          alertUser('Markdown(.md) 파일 가져오기는 아직 지원되지 않습니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택해주세요.', {
+            variant: 'warning',
           });
         } else {
-          setErrorAlert({
-            isOpen: true,
-            message: '지원하지 않는 파일 형식입니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일만 선택할 수 있습니다.',
+          alertUser('지원하지 않는 파일 형식입니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일만 선택할 수 있습니다.', {
+            variant: 'warning',
           });
         }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '파일을 처리하는 중 오류가 발생했습니다.';
+        alertUser(msg);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [importFromExcelFiles, importFromBackupJsonFiles, setErrorAlert],
+    [importFromExcelFiles, importFromBackupJsonFiles, alertUser],
   );
 
   const handleBackupFileChange = useCallback(
@@ -428,12 +444,12 @@ export function useFileImportExport(deps: FileImportExportDeps) {
       try {
         await importFromBackupJsonFiles(files);
       } catch (error: unknown) {
-        setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '백업 파일을 읽는 중 오류 발생' });
+        alertUser(error instanceof Error ? error.message : '백업 파일을 읽는 중 오류 발생');
       } finally {
         if (backupInputRef.current) backupInputRef.current.value = '';
       }
     },
-    [importFromBackupJsonFiles, setErrorAlert],
+    [importFromBackupJsonFiles, alertUser],
   );
 
   const handleMergeFileChange = useCallback(
@@ -444,12 +460,12 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         const parsedDataArray = await parseMultipleBackupJsons(files as File[]);
         setMultiMergeConfirm({ isOpen: true, dataArray: parsedDataArray, fileCount: files.length });
       } catch (error: unknown) {
-        setErrorAlert({ isOpen: true, message: error instanceof Error ? error.message : '오류 발생' });
+        alertUser(error instanceof Error ? error.message : '오류 발생');
       } finally {
         if (mergeInputRef.current) mergeInputRef.current.value = '';
       }
     },
-    [setMultiMergeConfirm, setErrorAlert],
+    [setMultiMergeConfirm, alertUser],
   );
 
   const executeMultiMerge = useCallback(() => {
@@ -472,11 +488,22 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         // 가져오기 직후 새 프로젝트의 표로 이동(다른 뷰에 있었어도 즉시 표 페이지로 전환).
         onImportComplete?.();
         pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
-      } catch {
-        /* onDbError handles toast */
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '가져오기에 실패했습니다. 네트워크·저장 권한을 확인한 뒤 다시 시도해 주세요.';
+        alertUser(msg);
       }
     },
-    [importTasks, importPreview.tasks, importPreview.files, setCurrentProjectId, setFilters, setImportPreview, onImportComplete, pushToast],
+    [
+      importTasks,
+      importPreview.tasks,
+      importPreview.files,
+      setCurrentProjectId,
+      setFilters,
+      setImportPreview,
+      onImportComplete,
+      pushToast,
+      alertUser,
+    ],
   );
 
   const executeRestoreBackup = useCallback(() => {
@@ -506,11 +533,12 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         setCurrentProjectId(targetProjectId);
         setBackupConfirm({ isOpen: false, data: null });
         pushToast('가져오기가 완료되었습니다.', { variant: 'success' });
-      } catch {
-        /* onDbError handles toast */
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : '가져오기에 실패했습니다. 네트워크·저장 권한을 확인한 뒤 다시 시도해 주세요.';
+        alertUser(msg);
       }
     },
-    [backupConfirm.data, importTasks, setCurrentProjectId, setBackupConfirm, pushToast],
+    [backupConfirm.data, importTasks, setCurrentProjectId, setBackupConfirm, pushToast, alertUser],
   );
 
   return useMemo(

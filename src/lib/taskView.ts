@@ -110,6 +110,32 @@ export function buildDirectChildCountByParentId(tasks: Task[]): Map<string, numb
   return counts;
 }
 
+/**
+ * 각 작업 id → 그 아래 전체 자손 작업 수(직속·하위의 하위까지, 자기 자신은 제외).
+ * `buildChildrenByParent`와 동일한 parentId 정규화로 트리를 만든 뒤 후위 순회로 합산한다.
+ */
+export function buildTotalDescendantCountByTaskId(tasks: Task[]): Map<string, number> {
+  const childrenByParent = buildChildrenByParent(tasks);
+  const memo = new Map<string, number>();
+
+  function countDescendants(id: string): number {
+    const hit = memo.get(id);
+    if (hit !== undefined) return hit;
+    const children = childrenByParent.get(id) ?? [];
+    let total = 0;
+    for (const c of children) {
+      total += 1 + countDescendants(c.id);
+    }
+    memo.set(id, total);
+    return total;
+  }
+
+  for (const t of tasks) {
+    countDescendants(t.id);
+  }
+  return memo;
+}
+
 function createTaskComparator(sortConfig: SortConfig) {
   return (a: Task, b: Task) => {
     if (!sortConfig) return 0;

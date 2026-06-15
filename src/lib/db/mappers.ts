@@ -20,8 +20,11 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
   //   풀에서 컬럼이 한 번 빠진 row를 받아도 다음 push가 실수로 null 덮어쓰는 회귀를 막는다.
   const startRaw = task.startDate;
   const endRaw = task.endDate;
-  const start_date = typeof startRaw === 'string' && startRaw.trim() !== '' ? startRaw : null;
-  const end_date = typeof endRaw === 'string' && endRaw.trim() !== '' ? endRaw : null;
+  let start_date = typeof startRaw === 'string' && startRaw.trim() !== '' ? startRaw : null;
+  let end_date = typeof endRaw === 'string' && endRaw.trim() !== '' ? endRaw : null;
+  // 레거시 DB(tasks.start_date/end_date NOT NULL) 및 부분 입력: 한쪽만 있으면 같은 값으로 맞춰 null upsert를 피한다.
+  if (start_date && !end_date) end_date = start_date;
+  if (end_date && !start_date) start_date = end_date;
 
   const row: TaskRow = {
     id: task.id,

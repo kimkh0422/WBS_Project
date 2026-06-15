@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback, useDeferredValue } from 'react';
 import { useWBS } from '../context/WBSContext';
 import { Task, FilterState, SortConfig } from '../types';
 import { differenceInDays, eachDayOfInterval, format, isSameDay, parseISO, eachMonthOfInterval, eachWeekOfInterval } from 'date-fns';
@@ -26,6 +26,30 @@ import { useOrganization } from '../context/OrganizationContext';
 import { buildOrgMemberDisplayMetaMap, formatAssigneeDisplay } from '../lib/assigneeOptions';
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
+
+/** 무효 ISO·역전(종료<시작) 시에도 막대/SVG 좌표가 NaN이 되지 않도록 보정 */
+function resolveGanttBarInterval(startIso: string, endIso: string, fallbackMin: Date): { start: Date; end: Date } {
+  const rawStart = parseISO(startIso);
+  const rawEnd = parseISO(endIso);
+  const startOk = !Number.isNaN(rawStart.getTime());
+  const endOk = !Number.isNaN(rawEnd.getTime());
+  let safeStart: Date;
+  let safeEnd: Date;
+  if (!startOk && !endOk) {
+    safeStart = fallbackMin;
+    safeEnd = fallbackMin;
+  } else if (!startOk && endOk) {
+    safeStart = rawEnd;
+    safeEnd = rawEnd;
+  } else if (startOk && !endOk) {
+    safeStart = rawStart;
+    safeEnd = rawStart;
+  } else {
+    safeStart = rawStart;
+    safeEnd = rawEnd < rawStart ? rawStart : rawEnd;
+  }
+  return { start: safeStart, end: safeEnd };
+}
 
 interface GanttChartProps {
   filters: FilterState;
@@ -83,6 +107,8 @@ export function GanttChart({
     projects,
     toggleExpand,
   } = useWBS();
+  /** 표가 먼저 반응하도록 간트 무거운 파생(가시 행·크리티컬 패스 등)은 낮은 우선순위로 따라잡는다. */
+  const layoutTasks = useDeferredValue(tasks);
   const projectScheduleForTask = useCallback(
     (t: Task) => {
       const p = projects.find((pr) => pr.id === t.projectId);
@@ -157,9 +183,9 @@ export function GanttChart({
   // - leaf(최하위) 작업: status === 'done' 이면 완료
   // - 상위 작업: 하위 leaf 작업들이 모두 완료면 완료로 간주(흑백 처리)
   const allLeafDoneById = useMemo(() => {
-    const byId = new Map<string, Task>(tasks.map((t) => [t.id, t]));
+    const byId = new Map<string, Task>(layoutTasks.map((t) => [t.id, t]));
     const childrenByParent = new Map<string, string[]>();
-    for (const t of tasks) {
+    for (const t of layoutTasks) {
       if (!t.parentId) continue;
       const arr = childrenByParent.get(t.parentId) ?? [];
       arr.push(t.id);
@@ -195,9 +221,9 @@ export function GanttChart({
       return result;
     };
 
-    for (const t of tasks) dfs(t.id);
+    for (const t of layoutTasks) dfs(t.id);
     return memo;
-  }, [tasks]);
+  }, [layoutTasks]);
 
   // Zoom level index, -1 means auto-fit
   const [zoomIndex, setZoomIndex] = useState(-1);
@@ -219,25 +245,25 @@ export function GanttChart({
   // visibleTasks 로직을 WBSTable과 동일하게 맞춰 표·간트 행 정렬이 일치하도록 함
   const visibleTasks = useMemo(
     () =>
-      buildVisibleTasks(tasks, filters, sortConfig, {
+      buildVisibleTasks(layoutTasks, filters, sortConfig, {
         preserveDepthOnFiltered: true,
         projectTitleSkip: (t) => isProjectTitleRootTask(t, projectsById.get(t.projectId)),
       }),
-    [tasks, filters, sortConfig, projectsById],
+    [layoutTasks, filters, sortConfig, projectsById],
   );
 
   // 자식이 있는(=펼치기/접기 토글을 보여줄) 작업 id 집합
   const hasChildrenSet = useMemo(() => {
     const s = new Set<string>();
-    for (const t of tasks) if (t.parentId) s.add(t.parentId);
+    for (const t of layoutTasks) if (t.parentId) s.add(t.parentId);
     return s;
-  }, [tasks]);
+  }, [layoutTasks]);
 
   /** activeTaskId 기준 재귀적 하위 작업(직접 자식만이 아님). 체크 다중 선택 행은 기존 보라 강조와 충돌하지 않게 제외 */
   const activeSubtreeDescendantIds = useMemo(() => {
     if (!activeTaskId) return EMPTY_CRITICAL_PATH_SET;
     const childrenByParent = new Map<string, string[]>();
-    for (const t of tasks) {
+    for (const t of layoutTasks) {
       if (!t.parentId) continue;
       const arr = childrenByParent.get(t.parentId) ?? [];
       arr.push(t.id);
@@ -252,7 +278,7 @@ export function GanttChart({
       for (const c of childrenByParent.get(id) ?? []) stack.push(c);
     }
     return out;
-  }, [tasks, activeTaskId]);
+  }, [layoutTasks, activeTaskId]);
 
   const { push: pushToast } = useToast();
 
@@ -271,8 +297,8 @@ export function GanttChart({
 
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
   const criticalPathSet = useMemo(
-    () => (showCriticalPath ? getCriticalPathTaskIds(tasks) : EMPTY_CRITICAL_PATH_SET),
-    [showCriticalPath, tasks],
+    () => (showCriticalPath ? getCriticalPathTaskIds(layoutTasks) : EMPTY_CRITICAL_PATH_SET),
+    [showCriticalPath, layoutTasks],
   );
   const effectiveCriticalPathSet = criticalPathSet;
 
@@ -625,8 +651,8 @@ export function GanttChart({
     return visibleTasks.flatMap((task, index) => {
       if (!task.dependencies || task.dependencies.length === 0) return [];
 
-      const taskStart = parseISO(task.startDate);
-      const taskOffsetDays = differenceInDays(taskStart, minDate);
+      const { start: taskBarStart } = resolveGanttBarInterval(task.startDate, task.endDate, minDate);
+      const taskOffsetDays = differenceInDays(taskBarStart, minDate);
       const taskLeft = taskOffsetDays * dayWidth;
       const taskTop = rowTops[index] + effectiveRowHeights[index] / 2;
 
@@ -635,8 +661,8 @@ export function GanttChart({
         const depIndex = visibleTaskIndexById.get(depId);
         if (!depTask || depIndex === undefined) return [];
 
-        const depEnd = parseISO(depTask.endDate);
-        const depOffsetDays = differenceInDays(depEnd, minDate) + 1;
+        const { end: depBarEnd } = resolveGanttBarInterval(depTask.startDate, depTask.endDate, minDate);
+        const depOffsetDays = differenceInDays(depBarEnd, minDate) + 1;
         const depRight = depOffsetDays * dayWidth;
         const depTop = rowTops[depIndex] + effectiveRowHeights[depIndex] / 2;
         const path = `M ${depRight} ${depTop} L ${depRight + 10} ${depTop} L ${depRight + 10} ${taskTop} L ${taskLeft} ${taskTop}`;
@@ -873,10 +899,9 @@ export function GanttChart({
                 const isDone = allLeafDoneById.get(task.id) === true;
                 const effectiveStartDate = preview?.startDate ?? task.startDate;
                 const effectiveEndDate = preview?.endDate ?? task.endDate;
-                const start = parseISO(effectiveStartDate);
-                const end = parseISO(effectiveEndDate);
+                const { start, end } = resolveGanttBarInterval(effectiveStartDate, effectiveEndDate, minDate);
                 const offsetDays = differenceInDays(start, minDate);
-                const durationDays = differenceInDays(end, start) + 1;
+                const durationDays = Math.max(1, differenceInDays(end, start) + 1);
                 const left = offsetDays * dayWidth;
                 const width = Math.max(durationDays * dayWidth, dayWidth);
                 const depth = task.depth ?? 0;
@@ -1332,10 +1357,9 @@ export function GanttChart({
                   const effectiveStartDate = preview?.startDate ?? task.startDate;
                   const effectiveEndDate = preview?.endDate ?? task.endDate;
 
-                  const start = parseISO(effectiveStartDate);
-                  const end = parseISO(effectiveEndDate);
+                  const { start, end } = resolveGanttBarInterval(effectiveStartDate, effectiveEndDate, minDate);
                   const offsetDays = differenceInDays(start, minDate);
-                  const durationDays = differenceInDays(end, start) + 1;
+                  const durationDays = Math.max(1, differenceInDays(end, start) + 1);
 
                   const left = offsetDays * dayWidth;
                   const width = Math.max(durationDays * dayWidth, dayWidth);

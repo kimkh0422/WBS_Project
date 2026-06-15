@@ -12,5 +12,7 @@ export function commitWbsInlineNameEditFromDom(
   const t = tasks.find((x) => x.id === taskId);
   if (!input || !t) return;
   const trimmed = input.value.trim();
-  if (trimmed && trimmed !== t.name) updateTask(taskId, { name: trimmed });
+  if (trimmed !== (t.name ?? '').trim()) {
+    updateTask(taskId, { name: trimmed });
+  }
 }

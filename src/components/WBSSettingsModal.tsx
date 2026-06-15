@@ -520,8 +520,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     </label>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    상위 행의 레벨 배경, 완료 작업 취소선, 간트 막대의 완료 강조 등입니다. 끄면 모든 사용자에게 적용됩니다. 켜 둔 상태에서
-                    개인은 표 상단 셀 서식 툴바의 「자동 서식」으로 이 브라우저에서만 숨길 수 있습니다.
+                    상위 행의 레벨 배경, 간트 막대의 완료 강조 등입니다. 끄면 모든 사용자에게 적용됩니다. 켜 둔 상태에서 개인은 표 상단 셀
+                    서식 툴바의 「자동 서식」으로 이 브라우저에서만 숨길 수 있습니다.
                   </p>
                 </div>
 

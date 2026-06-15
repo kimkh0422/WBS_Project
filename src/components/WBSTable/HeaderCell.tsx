@@ -1,9 +1,21 @@
 import React from 'react';
 import type { Task } from '../../types';
+import { cn } from '../../lib/utils';
 import { PLANNED_PROGRESS_COLUMN_HELP_TEXT, PROGRESS_VARIANCE_COLUMN_HELP_TEXT } from '../../lib/plannedProgressTooltips';
 import type { BuiltInTableColumnId, TableColumnId } from '../wbsTableTypes';
+import type { WbsColumnHeaderDragProps } from './columnHeaderDnd';
 
 export { PLANNED_PROGRESS_COLUMN_HELP_TEXT, PROGRESS_VARIANCE_COLUMN_HELP_TEXT } from '../../lib/plannedProgressTooltips';
+
+function mergeRefs<T>(...refs: (React.Ref<T> | undefined)[]): React.RefCallback<T> {
+  return (value) => {
+    for (const ref of refs) {
+      if (ref == null) continue;
+      if (typeof ref === 'function') (ref as (v: T | null) => void)(value);
+      else (ref as React.MutableRefObject<T | null>).current = value;
+    }
+  };
+}
 
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
 export const WEIGHT_COLUMN_HELP_TEXT = [
@@ -52,6 +64,10 @@ interface HeaderCellProps {
   resizeGrip: React.ReactNode;
   onColContextMenu: (ev: React.MouseEvent) => void;
   onColDoubleClick: (ev: React.MouseEvent) => void;
+  /** 정렬 클릭이 꺼져 있을 때: 열 전체(보이는 행) 셀 마퀴 선택 등 */
+  onColClick?: (ev: React.MouseEvent) => void;
+  /** 열 헤더 가로 드래그 재정렬(@dnd-kit) — 스프레드시트형 UX */
+  columnDrag?: WbsColumnHeaderDragProps | null;
 }
 
 export function HeaderCell({
@@ -63,215 +79,275 @@ export function HeaderCell({
   resizeGrip,
   onColContextMenu,
   onColDoubleClick,
+  onColClick,
+  columnDrag,
 }: HeaderCellProps) {
   const sortableHeaderClass = headerSortClickEnabled
     ? 'col-header cursor-pointer hover:text-[var(--color-ink)] transition-colors relative'
     : 'col-header relative';
+  /** 정렬 비활성 + 열 클릭 선택: 시각적 피드백 */
+  const inactivePointerClass =
+    !headerSortClickEnabled && onColClick
+      ? 'col-header relative cursor-pointer hover:text-[var(--color-ink)] transition-colors'
+      : 'col-header relative';
+
+  const H = (p: React.HTMLAttributes<HTMLDivElement>) => {
+    if (!columnDrag) return <div {...p} />;
+    const { ref: innerRef, className, style, title, ...r } = p;
+    return (
+      <div
+        {...r}
+        {...(columnDrag.listeners ?? {})}
+        {...columnDrag.attributes}
+        ref={mergeRefs(columnDrag.setNodeRef, innerRef)}
+        style={{ ...(style && typeof style === 'object' ? style : {}), ...columnDrag.style }}
+        className={cn(
+          className,
+          'cursor-grab active:cursor-grabbing',
+          columnDrag.isDragging && 'relative z-[35] rounded-sm shadow-md ring-1 ring-[var(--color-accent)]/35',
+        )}
+        title={typeof title === 'string' ? `${title} · 드래그: 열 순서 이동` : title}
+      />
+    );
+  };
 
   if (id.startsWith('custom:')) {
     return (
-      <div
-        className="col-header relative"
+      <H
+        className={inactivePointerClass}
+        onClick={onColClick}
         onDoubleClick={onColDoubleClick}
         onContextMenu={onColContextMenu}
-        title={`${label ?? id} · 더블클릭: 너비 자동`}
+        title={`${label ?? id} · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동`}
       >
         {label ?? id}
         {resizeGrip}
-      </div>
+      </H>
     );
   }
   switch (id) {
     case 'wbsId':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('wbs') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('wbs') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
           title={
-            headerSortClickEnabled ? 'WBS 순서 (클릭하여 정렬) · 더블클릭: 너비 자동' : 'WBS 순서 · 우클릭: 정렬·메뉴 · 더블클릭: 너비 자동'
+            headerSortClickEnabled
+              ? 'WBS 순서 (클릭하여 정렬) · 더블클릭: 너비 자동'
+              : 'WBS 순서 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴 · 더블클릭: 너비 자동'
           }
         >
           WBS
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'name':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('name') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('name') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.name : '작업명 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.name : '작업명 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           작업명
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'startDate':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('startDate') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('startDate') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.startDate : '시작일 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.startDate : '시작일 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           시작일
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'endDate':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('endDate') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('endDate') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.endDate : '종료일 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.endDate : '종료일 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           종료일
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'duration':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.duration + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.duration + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           기간
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'workEffort':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('workEffort') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('workEffort') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.workEffort : '공수 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.workEffort : '공수 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           {workEffortHeaderTitle ?? '공수'}
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'weight':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('weight' as keyof Task) : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('weight' as keyof Task) : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.weight : '가중치 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.weight : '가중치 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           가중치
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'progress':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('progress') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('progress') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.progress : '진척률 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.progress : '진척률 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           진척(%)
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'plannedProgress':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.plannedProgress + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.plannedProgress + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           계획(%)
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'progressVariance':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.progressVariance + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.progressVariance + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           차이(%p)
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'assignee':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('assignee') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('assignee') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.assignee : '담당자 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.assignee : '담당자 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           담당자
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'allocation':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.allocation + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.allocation + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           투입율
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'status':
       return (
-        <div
-          className={sortableHeaderClass}
-          onClick={headerSortClickEnabled ? () => onSort('status') : undefined}
+        <H
+          className={headerSortClickEnabled ? sortableHeaderClass : inactivePointerClass}
+          onClick={headerSortClickEnabled ? () => onSort('status') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={(headerSortClickEnabled ? COLUMN_TOOLTIPS.status : '상태 · 우클릭: 정렬·메뉴') + ' · 더블클릭: 너비 자동'}
+          title={
+            (headerSortClickEnabled ? COLUMN_TOOLTIPS.status : '상태 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
+            ' · 더블클릭: 너비 자동'
+          }
         >
           상태
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'deliverables':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.deliverables + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.deliverables + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           산출물
           {resizeGrip}
-        </div>
+        </H>
       );
     case 'dependencies':
       return (
-        <div
-          className="col-header relative"
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.dependencies + ' · 더블클릭: 너비 자동'}
+          title={COLUMN_TOOLTIPS.dependencies + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
         >
           선행작업
           {resizeGrip}
-        </div>
+        </H>
       );
     default:
       return null;

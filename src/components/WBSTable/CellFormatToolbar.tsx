@@ -529,7 +529,7 @@ export function CellFormatToolbar({
               !tableAutoFormatting.globalEnabled
                 ? '관리자가 전체 자동 서식(레벨 색·완료 강조)을 껐습니다.'
                 : tableAutoFormatting.effectiveOn
-                  ? '레벨 배경·완료 취소선 등 자동 서식이 켜져 있습니다. 클릭하면 이 브라우저에서만 끕니다.'
+                  ? '레벨 배경·간트 완료 강조 등 자동 서식이 켜져 있습니다. 클릭하면 이 브라우저에서만 끕니다.'
                   : '이 브라우저에서 자동 서식이 꺼져 있습니다. 클릭하면 다시 켭니다.'
             }
           >

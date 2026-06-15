@@ -48,6 +48,7 @@ import { cn } from '../lib/utils';
 import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS, MODAL_BACKDROP_CLASS } from '../lib/modalChrome';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { isInternalCompanyEmail } from '../lib/emailDomain';
+import { useErrorStateWithToast } from '../hooks/useErrorStateWithToast';
 
 /** 사내(@gmtc.kr)는 정책상 항상 승인된 계정으로 표시(DB 플래그 지연 시에도 동일). */
 function isMemberEffectivelyApproved(m: Pick<ProfileRow, 'approved' | 'email'>): boolean {
@@ -95,7 +96,7 @@ export function MembersModal({
 }: MembersModalProps) {
   const [members, setMembers] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-members-modal-error' });
   const [memberToDelete, setMemberToDelete] = useState<ProfileRow | null>(null);
   const [deleting, setDeleting] = useState(false);
 

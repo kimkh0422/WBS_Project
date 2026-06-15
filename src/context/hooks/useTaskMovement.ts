@@ -16,7 +16,7 @@ export interface TaskMovementDeps {
   projectsRef: MutableRefObject<Project[]>;
   setTreeExpandLevel: (level: number) => void;
   /** 레벨 변경(들여쓰기/내어쓰기)도 로컬 변경으로 표시 — 저장 버튼 활성·백그라운드 풀의 덮어쓰기 방지 */
-  bumpDirty: () => void;
+  bumpDirty: (...projectIds: string[]) => void;
 }
 
 /** Tab/Shift+Tab 시 표와 동일한 가정: 필터 없음·WBS 오름차순(키보드에서 레벨 변경 허용 조건과 맞춤) */

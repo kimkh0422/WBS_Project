@@ -71,6 +71,12 @@ export function useUnsavedChangesGuard({
     });
   }, []);
 
+  /** 단일 프로젝트 선택 시에는 `current`만 서버에 올려 비교·전송량을 줄인다. '전체' 보기이면 `all`. */
+  const resolveManualPushScope = useCallback((): 'current' | 'all' => {
+    const pid = currentProjectIdRef.current;
+    return pid && pid !== 'all' ? 'current' : 'all';
+  }, []);
+
   const saveNow = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     if (!hasLocalChangesRef.current) {
@@ -80,8 +86,16 @@ export function useUnsavedChangesGuard({
     setIsDbPushInProgress(true);
     try {
       await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
-      pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
+      const scope = resolveManualPushScope();
+      await pushChangesToDbRef.current(scope);
+      if (scope === 'current' && hasLocalChangesRef.current) {
+        pushToast(
+          '현재 프로젝트는 서버에 반영되었습니다. 다른 프로젝트에 올리지 않은 변경이나 삭제 대기가 남아 있을 수 있어 저장 표시가 유지됩니다. 필요하면 한 번 더 저장해 주세요.',
+          { variant: 'info', durationMs: 5500, id: 'manual-save' },
+        );
+      } else {
+        pushToast('저장되었습니다.', { variant: 'success', durationMs: 1800, id: 'manual-save' });
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '서버에 반영하지 못했습니다.';
       if (/편집 권한이 없습니다/.test(msg)) {
@@ -92,7 +106,7 @@ export function useUnsavedChangesGuard({
     } finally {
       setIsDbPushInProgress(false);
     }
-  }, [pushToast, flushInlineCellEditsBeforeSave]);
+  }, [pushToast, flushInlineCellEditsBeforeSave, resolveManualPushScope]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -165,7 +179,7 @@ export function useUnsavedChangesGuard({
     setProjectSwitchAction('save');
     try {
       await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
+      await pushChangesToDbRef.current(resolveManualPushScope());
       const run = pendingProjectSwitchRunRef.current;
       pendingProjectSwitchRunRef.current = null;
       setProjectSwitchPrompt(null);
@@ -183,7 +197,7 @@ export function useUnsavedChangesGuard({
     } finally {
       setProjectSwitchAction(null);
     }
-  }, [projectSwitchBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
+  }, [projectSwitchBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast, resolveManualPushScope]);
 
   const handleProjectSwitchDiscardProceed = useCallback(() => {
     if (!projectSwitchPromptRef.current) return;
@@ -315,7 +329,7 @@ export function useUnsavedChangesGuard({
     setViewLeaveAction('save');
     try {
       await flushInlineCellEditsBeforeSave();
-      await pushChangesToDbRef.current('all');
+      await pushChangesToDbRef.current(resolveManualPushScope());
       setViewLeavePrompt(null);
       proceedPendingViewNavigation();
     } catch (e: unknown) {
@@ -329,7 +343,7 @@ export function useUnsavedChangesGuard({
     } finally {
       setViewLeaveAction(null);
     }
-  }, [viewLeaveBusy, viewLeavePrompt, flushInlineCellEditsBeforeSave, proceedPendingViewNavigation, pushToast]);
+  }, [viewLeaveBusy, viewLeavePrompt, flushInlineCellEditsBeforeSave, proceedPendingViewNavigation, pushToast, resolveManualPushScope]);
 
   const handleViewLeaveDiscardProceed = useCallback(() => {
     if (!viewLeavePromptRef.current) return;
@@ -368,13 +382,13 @@ export function useUnsavedChangesGuard({
   const requestRefresh = useCallback(async () => {
     if (hasLocalChangesSinceSync && isSupabaseConfigured) {
       try {
-        await pushChangesToDbRef.current('all');
+        await pushChangesToDbRef.current(resolveManualPushScope());
       } catch {
         /* reload anyway */
       }
     }
     window.location.reload();
-  }, [hasLocalChangesSinceSync]);
+  }, [hasLocalChangesSinceSync, resolveManualPushScope]);
 
   const projectSwitchTargetLabel = useMemo(() => {
     if (!projectSwitchPrompt) return '';

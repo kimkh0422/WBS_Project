@@ -5,6 +5,7 @@ import type { ProjectMemberRow } from '../lib/supabase';
 import { formatProjectDisplayName, isPrivateProjectHiddenFromViewer } from '../lib/projectKind';
 import { fetchProjectMembershipsByUser, removeProjectMember, setProjectMemberRole, upsertProjectMember } from '../lib/db';
 import { cn } from '../lib/utils';
+import { useErrorStateWithToast } from '../hooks/useErrorStateWithToast';
 import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
 type RoleUi = 'owner' | 'editor' | 'viewer' | 'none';
@@ -34,7 +35,7 @@ export function MemberProjectAccessModal({
 }: MemberProjectAccessModalProps) {
   const [loading, setLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-member-project-access-error' });
   const [memberships, setMemberships] = useState<ProjectMemberRow[]>([]);
 
   useEffect(() => {

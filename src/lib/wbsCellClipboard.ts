@@ -47,6 +47,20 @@ export interface WbsCellPasteContext {
   effortUnit: WorkEffortUnit;
 }
 
+/** DB `tasks.start_date` / `end_date` NOT NULL 등: 패치 후 둘 다 비면 upsert가 실패한다. */
+export const WBS_DATE_PAIR_NONEMPTY_MESSAGE = '시작일·종료일을 함께 모두 지울 수 없습니다. 한쪽 이상 남겨 두세요.';
+
+/** `updates`를 `task`에 얹었을 때 시작·종료(날짜 부분)가 모두 비는지. */
+export function taskDatePairEmptyAfterPatch(task: Task, updates: Partial<Task>): boolean {
+  const nextStart = Object.prototype.hasOwnProperty.call(updates, 'startDate')
+    ? String(updates.startDate ?? '').trim()
+    : String(task.startDate ?? '').trim();
+  const nextEnd = Object.prototype.hasOwnProperty.call(updates, 'endDate')
+    ? String(updates.endDate ?? '').trim()
+    : String(task.endDate ?? '').trim();
+  return !nextStart && !nextEnd;
+}
+
 /**
  * 셀 단위 복사를 지원하는 컬럼인지.
  * 작업명은 기존 "행(+펼쳐진 하위) 복사" 동작을 유지하고(행 손잡이 역할),
@@ -211,6 +225,10 @@ function buildValueUpdate(
     if (!text) {
       const prev = (targetColumnId === 'startDate' ? target.startDate : target.endDate) ?? '';
       if (!(prev ?? '').trim()) return noChange;
+      const patch = targetColumnId === 'startDate' ? ({ startDate: '' } as const) : ({ endDate: '' } as const);
+      if (taskDatePairEmptyAfterPatch(target, patch)) {
+        return fail(WBS_DATE_PAIR_NONEMPTY_MESSAGE);
+      }
       return { updates: { [targetColumnId]: '' } };
     }
     const ymd = normalizeYmdInput(text);
@@ -220,7 +238,15 @@ function buildValueUpdate(
     return { updates: { [targetColumnId]: ymd + (prev?.slice(10) || '') } };
   }
   if (targetColumnId === 'duration') {
-    if (!text) return noChange;
+    // Delete / 빈 셀 붙여넣기: 기간은 날짜에서 파생되므로 종료일을 비워 칸을 비운 것처럼 표시(—)
+    if (!text) {
+      const prevEnd = (target.endDate ?? '').trim();
+      if (!prevEnd) return noChange;
+      if (taskDatePairEmptyAfterPatch(target, { endDate: '' })) {
+        return fail(WBS_DATE_PAIR_NONEMPTY_MESSAGE);
+      }
+      return { updates: { endDate: '' } };
+    }
     const n = parseInt(text, 10);
     if (!Number.isFinite(n) || n < 1) return fail('기간은 1 이상의 일수여야 합니다.');
     if (!target.startDate) return fail('시작일이 없어 기간으로 종료일을 계산할 수 없습니다.');

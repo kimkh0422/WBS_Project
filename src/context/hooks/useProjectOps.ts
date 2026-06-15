@@ -8,7 +8,7 @@ import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit } from '../../
 
 export interface ProjectOpsDeps {
   saveHistory: () => void;
-  bumpDirty: () => void;
+  bumpDirty: (...projectIds: string[]) => void;
   handleDbError: (err: unknown, fallback: string) => void;
   ownerIdRef: MutableRefObject<string | undefined>;
   /** 신규·복사 프로젝트 PM 기본값(만든 사람 표시명). `extras.pmName`이 비어 있으면 이 값으로 채움 */
@@ -114,14 +114,14 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       setCurrentProjectId(newProject.id);
 
       if (useLocalOnlyRef.current) {
-        bumpDirty();
+        bumpDirty(newProject.id);
       } else {
-        bumpDirty();
+        bumpDirty(newProject.id);
         const epoch = dirtyEpochRef.current;
         void upsertProject(newProject)
           .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
           .catch((err) => {
-            bumpDirty();
+            bumpDirty(newProject.id);
             handleDbError(err, '프로젝트 저장에 실패했습니다.');
           });
       }
@@ -149,7 +149,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       if (!project) {
         // 프로젝트가 없으면 (이론적으로 발생 안 함) 단순 머지만 수행하고 종료
         setProjects((prev) => prev.map((p) => (p.id === id ? ({ ...p, ...updates } as Project) : p)));
-        bumpDirty();
+        bumpDirty(id);
         return;
       }
 
@@ -159,7 +159,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
 
       /** 로컬 전용의 일반 프로젝트 필드 수정만 수동 동기화 플래그를 올린다. 원격+비단위변경은 upsert로 즉시 DB 반영. */
       if (useLocalOnlyRef.current && !unitChanging) {
-        bumpDirty();
+        bumpDirty(id);
       }
 
       // 2) 프로젝트 자체 상태는 항상 먼저 갱신 (작업 일괄 이동은 하지 않음)
@@ -168,7 +168,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       // 3) 공수 단위만 바뀐 경우에만 작업 공수 숫자 변환(작업 일정은 자동 조정하지 않음)
       if (unitChanging) {
         saveHistory();
-        bumpDirty();
+        bumpDirty(id);
         const unitEpoch = dirtyEpochRef.current;
         setAllTasks((currentTasks) => {
           const shifted = currentTasks.map((t) => {
@@ -203,7 +203,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       // detectPermissionDenied: RLS가 조용히 거부(0행)하면 권한 오류로 올려 무음 되돌림을 막는다.
       if (!useLocalOnlyRef.current) {
         upsertProject({ ...project, ...updates } as Project, { detectPermissionDenied: true }).catch((err) => {
-          bumpDirty();
+          bumpDirty(id);
           handleDbError(err, '프로젝트 수정 저장에 실패했습니다.');
         });
       }
@@ -330,7 +330,7 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           .then(() => upsertTasks(newTasks))
           .catch((err) => handleDbError(err, '복사 프로젝트 저장에 실패했습니다.'));
       } else {
-        bumpDirty();
+        bumpDirty(newProjectId);
       }
     },
     [
@@ -477,10 +477,8 @@ export function useProjectOps(deps: ProjectOpsDeps) {
           .then(() => (newTasks.length > 0 ? upsertTasks(newTasks) : Promise.resolve()))
           .catch((err) => handleDbError(err, '분기 프로젝트 저장에 실패했습니다.'));
       } else {
-        bumpDirty();
+        bumpDirty(sourceProject.id, newProjectId);
       }
-
-      return newProjectId;
     },
     [
       saveHistory,

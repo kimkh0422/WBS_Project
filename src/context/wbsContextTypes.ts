@@ -123,6 +123,8 @@ export interface WBSContextType {
   /** 화면 순서대로 선행작업 체인 연결 (각 작업의 선행은 목록에서 바로 위 작업만) */
   linkSequentialPredecessors: (orderedTaskIds: string[], options?: { bulkWorkEffort?: number; bulkAllocationPercent?: number }) => void;
   deleteTask: (id: string) => void;
+  /** 다중 선택 삭제 등: 여러 루트 서브트리를 히스토리·상태 갱신 한 번으로 제거 */
+  deleteTaskRoots: (rootIds: string[]) => void;
   /**
    * 간트 등 연속 일정 패치 후 마무리.
    * 기본: 선행(FS) 일정 정합(`applyDependencySchedule`) + 프로젝트 상위 롤업.

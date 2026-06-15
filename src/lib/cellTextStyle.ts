@@ -5,15 +5,6 @@ import type { TableColumnId } from '../components/wbsTableTypes';
 /** DB `custom_fields`에만 저장되는 내부 키(사용자 정의 컬럼 id와 충돌하지 않도록 함) */
 export const WBS_INTERNAL_CELL_TEXT_STYLES_KEY = '__wbsCellTextStyles';
 
-/** 완료 행: 기존 셀 서식(underline 등)과 겹치지 않게 `line-through`만 병합 */
-export function mergeDoneLineThrough(base: CSSProperties, active: boolean): CSSProperties {
-  if (!active) return base;
-  const raw = String(base.textDecoration ?? '').trim();
-  const tokens = raw ? raw.split(/\s+/).filter(Boolean) : [];
-  if (!tokens.includes('line-through')) tokens.push('line-through');
-  return { ...base, textDecoration: tokens.join(' ') };
-}
-
 export function cellTextStyleToCss(style: CellTextStyle | undefined): CSSProperties {
   if (!style) return {};
   const o: CSSProperties = {};

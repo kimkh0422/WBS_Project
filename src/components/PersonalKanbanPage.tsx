@@ -33,6 +33,7 @@ import {
   AlignLeft,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useErrorStateWithToast } from '../hooks/useErrorStateWithToast';
 import {
   PERSONAL_TODO_COLUMNS,
   fetchPersonalTodos,
@@ -86,7 +87,7 @@ export function PersonalKanbanPage({ userId }: PersonalKanbanPageProps) {
   const [rows, setRows] = useState<PersonalTodoRow[]>([]);
   const [labels, setLabels] = useState<PersonalTodoLabel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-personal-kanban-error' });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [addingRow, setAddingRow] = useState(false);

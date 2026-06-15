@@ -5,6 +5,7 @@ import { fetchAuditLog, type AuditLogEntry, type AuditAction } from '../lib/db';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { cn } from '../lib/utils';
+import { useToast } from './Toast';
 
 interface AuditLogPageProps {
   /** 프로젝트 id → 표시명. 삭제된 프로젝트(project_id=null)는 entity_name으로 보조 표시 */
@@ -172,6 +173,7 @@ async function exportAuditLogToExcel(
 }
 
 export function AuditLogPage({ projectNameMap, isOperator }: AuditLogPageProps) {
+  const { push: pushToast } = useToast();
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(PAGE_STEP);
@@ -289,11 +291,13 @@ export function AuditLogPage({ projectNameMap, isOperator }: AuditLogPageProps) 
       await exportAuditLogToExcel(filtered, projectLabelFor, `작업로그_${stamp}.xlsx`);
     } catch (err) {
       console.error('작업 로그 내보내기 실패', err);
-      setExportError('내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+      const msg = '내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+      setExportError(msg);
+      pushToast(msg, { variant: 'error', durationMs: 10000, id: 'wbs-audit-export-error' });
     } finally {
       setExporting(false);
     }
-  }, [exporting, filtered, projectLabelFor]);
+  }, [exporting, filtered, projectLabelFor, pushToast]);
 
   const selectClass =
     'text-sm rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300';

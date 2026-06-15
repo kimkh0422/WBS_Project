@@ -9,12 +9,12 @@ import { execSync } from 'child_process';
 const VIRTUAL_APP_RELEASE = '\0virtual:app-release';
 const VIRTUAL_APP_RELEASE_ID = 'virtual:app-release';
 
-/** CHANGELOG 파싱: "## v0.1.0 (YYYY-MM-DD)" + "- 항목" 목록 → { version, date, changes }[] (섹션 사이 빈 줄·\r\n 허용) */
+/** CHANGELOG 파싱: "## v0.1.0 (YYYY-MM-DD [HH:mm])" + "- 항목" 목록 → { version, date, changes }[] (섹션 사이 빈 줄·\r\n 허용) */
 function parseChangelog(changelogPath: string): { version: string; date: string; changes: string[] }[] {
   if (!fs.existsSync(changelogPath)) return [];
   const raw = fs.readFileSync(changelogPath, 'utf-8').replace(/\r\n/g, '\n');
   const sections: { version: string; date: string; changes: string[] }[] = [];
-  const re = /(?:^|\n)\s*##\s+v?([\d.]+)\s*\((\d{4}-\d{2}-\d{2})\)\s*\n((?:(?:-\s*.+)(?:\r?\n)?)+)/g;
+  const re = /(?:^|\n)\s*##\s+v?([\d.]+)\s*\(\s*(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)\s*\)\s*\n((?:(?:-\s*.+)(?:\r?\n)?)+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw)) !== null) {
     const changes = m[3]
@@ -25,6 +25,21 @@ function parseChangelog(changelogPath: string): { version: string; date: string;
     sections.push({ version: m[1], date: m[2], changes });
   }
   return sections;
+}
+
+/** CHANGELOG 괄호 안 문자열 → APP_COMMIT_DATE용 ISO (날짜만이면 기존과 같이 정오 KST 플레이스홀더) */
+function releaseChangelogDateToIso(parenDate: string): string {
+  const trimmed = parenDate.trim();
+  const m = /^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?$/.exec(trimmed);
+  if (!m) return new Date().toISOString();
+  const ymd = m[1];
+  const hh = m[2];
+  const mm = m[3];
+  if (hh != null && mm != null) {
+    const d = new Date(`${ymd}T${hh}:${mm}:00`);
+    return Number.isNaN(d.getTime()) ? `${ymd}T12:00:00+09:00` : d.toISOString();
+  }
+  return `${ymd}T12:00:00+09:00`;
 }
 
 function computeReleaseMeta(root: string): {
@@ -43,7 +58,7 @@ function computeReleaseMeta(root: string): {
   const commitDate = (() => {
     const releaseDate =
       releaseChangelogSections.find((s) => s.version === appVersion)?.date ?? changelogSections.find((s) => s.version === appVersion)?.date;
-    if (releaseDate) return `${releaseDate}T12:00:00+09:00`;
+    if (releaseDate) return releaseChangelogDateToIso(releaseDate);
     try {
       return execSync('git log -1 --format=%cI', { stdio: ['ignore', 'pipe', 'ignore'], cwd: root })
         .toString()

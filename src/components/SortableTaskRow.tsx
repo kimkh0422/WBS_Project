@@ -27,7 +27,7 @@ import { type TableColumnId, type WbsEditingCellPayload } from './wbsTableTypes'
 import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
 import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
-import { mergeDoneLineThrough, splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
+import { splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { normalizeYmdInput } from '../lib/ymdInput';
@@ -130,8 +130,8 @@ export interface SortableTaskRowProps {
   /** 단일 활성 행 (클릭/화살표/표↔간트 동기화) = 노란색(amber) 강조. 체크박스와는 별개. */
   isFocused: boolean;
   hasChildren: boolean;
-  /** 직속 하위 작업 개수(작업명 옆 표시). */
-  directChildTaskCount?: number;
+  /** 전체 하위 작업 개수(직·간접 자손, 작업명 옆 표시 — 부모 없는 최상위 행에만 노출). */
+  totalDescendantTaskCount?: number;
   isTreeView: boolean;
   /** 작업명 들여쓰기에 그릴 트리 가이드 선 문자열(depth 칸별 'I'│ 'T'├ 'L'└ ' '공백). 트리 뷰에서만 채워짐 */
   treeGuide?: string;
@@ -139,7 +139,7 @@ export interface SortableTaskRowProps {
   /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Ctrl+행클릭 등 행 단위 다중 선택용 */
   onSetRowAnchor?: (taskId: string) => void;
   /** 행 클릭 시 포커스 이동. 수정키 없는 일반 클릭은 체크박스 다중 선택을 자동 해제하고, Shift/Ctrl 클릭은 keepSelection으로 보존한다. */
-  onFocusRow?: (taskId: string, opts?: { keepSelection?: boolean }) => void;
+  onFocusRow?: (taskId: string, opts?: { keepSelection?: boolean; columnId?: TableColumnId }) => void;
   canEdit: boolean;
   onEdit: (task: Task) => void;
   onDeleteClick: (taskId: string) => void;
@@ -182,10 +182,8 @@ export interface SortableTaskRowProps {
   rollupTooltipBaseTasks: Task[];
   /** 이 작업의 계획율(0~100). 부모에서 계산해 전달. 계획·진척차이 컬럼 표시에 사용 */
   plannedProgress?: number;
-  /** false면 레벨 배경·완료 시 자동 취소선 등 숨김(셀 서식 도구로 넣은 취소선은 유지) */
+  /** false면 레벨 배경 등 자동 서식 숨김(셀 서식 도구로 넣은 취소선은 유지) */
   showTableAutoFormatting?: boolean;
-  /** true면 셀 한 번 클릭으로 바로 편집, false(기본)면 더블클릭·F2로만 편집 */
-  singleClickEdit?: boolean;
   /** 작업명 인라인 편집 중 Shift+Enter — 현재 행 위에 형제(동일 부모) 새 작업 추가 + 새 행 인라인 편집 진입 */
   onInsertRowAbove?: (baseTaskId: string) => void;
   /** 작업명 인라인 편집 중 Enter — 다음 표시 행의 이름 셀로 인라인 편집을 이어간다(엑셀 연속 입력). */
@@ -201,6 +199,8 @@ export interface SortableTaskRowProps {
   onPasteApplyToCheckboxSelection?: (columnId: TableColumnId, clipboardPlainText: string) => boolean;
   /** 마우스 드래그로 선택된 셀 범위( taskId::columnId ). 체크박스 행 선택과 별개 */
   cellMarqueeKeySet?: ReadonlySet<string> | null;
+  /** 셀 클릭·포커스 직후 한 칸 마퀴로 동기화(onFocusRow가 마퀴를 비운 뒤 같은 핸들러에서 호출) */
+  commitCellMarquee?: (taskId: string, columnId: TableColumnId) => void;
 }
 
 function SortableTaskRowInner({
@@ -216,7 +216,7 @@ function SortableTaskRowInner({
   isSelected,
   isFocused,
   hasChildren,
-  directChildTaskCount = 0,
+  totalDescendantTaskCount = 0,
   isTreeView,
   treeGuide = '',
   onSelect,
@@ -253,13 +253,13 @@ function SortableTaskRowInner({
   rollupTooltipBaseTasks,
   plannedProgress,
   showTableAutoFormatting = true,
-  singleClickEdit = false,
   onInsertRowAbove,
   onAdvanceInlineEditToNextRow,
   forkedChildProject,
   onOpenForkedChildProject,
   onPasteApplyToCheckboxSelection,
   cellMarqueeKeySet = null,
+  commitCellMarquee,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   // 순서 이동(정렬)은 첫 열 손잡이([data-row-grip])에서만 시작한다 — listeners/attributes는 그립 셀에만 부착.
@@ -297,36 +297,35 @@ function SortableTaskRowInner({
 
   /** armed(편집 전) 작업명 input에서 첫 입력/IME 조합 시작 시 실제 편집으로 승격 — 같은 element라 조합이 유지된다. */
   const promoteArmedNameToEditing = () => {
-    setFocusedCell({ taskId: task.id, columnId: 'name' });
-    onFocusRow?.(task.id, { keepSelection: true });
+    onFocusRow?.(task.id, { keepSelection: true, columnId: 'name' });
     onSetRowAnchor?.(task.id);
+    commitCellMarquee?.(task.id, 'name');
     setEditingCell(null);
     setInlineEditingNameId(task.id);
   };
 
+  /** 행·마퀴 앵커만 맞추고 인라인 편집은 시작하지 않는다(단일 클릭용). */
+  const beginFocus = (columnId: TableColumnId) => {
+    onFocusRow?.(task.id, { keepSelection: true, columnId });
+    onSetRowAnchor?.(task.id);
+    commitCellMarquee?.(task.id, columnId);
+  };
+
   /**
-   * 단일 클릭 진입점.
-   * - 클릭 편집 모드(singleClickEdit)가 켜져 있고 편집 권한이 있으면: 한 번 클릭으로 즉시 편집 진입.
-   * - 꺼져 있으면(기본): 행/셀 포커스만 옮긴다. 편집은 더블클릭(beginEditNow)이나 F2/Enter로.
-   *   (Excel식 2단계 진입은 의도치 않은 편집 진입이 잦아 기본은 포커스만.)
-   * ※ beginEditNowResolved는 아래에 정의되지만, 이 함수는 이벤트 핸들러에서만 호출되어(렌더 후) 참조에 문제없음.
+   * 단일 클릭 — 셀 선택만(엑셀과 같음). 값 바꾸기는 더블클릭·F2 또는 선택 후 바로 입력(type-to-edit).
    */
   const beginEdit = (columnId: TableColumnId) => {
-    if (singleClickEdit && canEdit) {
-      beginEditNowResolved(columnId);
-      return;
-    }
-    setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id, { keepSelection: true });
-    onSetRowAnchor?.(task.id);
+    beginFocus(columnId);
   };
 
   /** 더블클릭/F2용: 권한이 있으면 즉시 인라인 편집 진입. 권한 없으면 포커스만. */
   const beginEditNow = (columnId: TableColumnId) => {
-    setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id, { keepSelection: true });
+    onFocusRow?.(task.id, { keepSelection: true, columnId });
     onSetRowAnchor?.(task.id);
-    if (!canEdit) return;
+    if (!canEdit) {
+      commitCellMarquee?.(task.id, columnId);
+      return;
+    }
     if (columnId === 'name') {
       setInlineEditingNameId(task.id);
       setEditingCell(null);
@@ -337,12 +336,7 @@ function SortableTaskRowInner({
       setEditingCell({ taskId: task.id, columnId });
       setInlineEditingNameId(null);
     }
-  };
-  /** 편집은 시작하지 않고 포커스만 옮길 때 (status select / dependencies input의 click 등) */
-  const beginFocus = (columnId: TableColumnId) => {
-    setFocusedCell({ taskId: task.id, columnId });
-    onFocusRow?.(task.id, { keepSelection: true });
-    onSetRowAnchor?.(task.id);
+    commitCellMarquee?.(task.id, columnId);
   };
 
   const handleCellBulkPaste = useCallback(
@@ -389,7 +383,7 @@ function SortableTaskRowInner({
         `이 프로젝트 공수 단위: ${effortSuffix} — 가중이 비어 있을 때 롤업에 쓰입니다.`,
         '가중이 큰 형제는 진척이 조금만 올라도 상위 평균에 크게 반영되고, 가중이 작은 형제는 덜 반영됩니다.',
         '',
-        '클릭: 포커스 · 더블클릭 또는 F2: 편집',
+        '선택 후 입력 또는 F2로 편집',
       ].join('\n'),
     [effortSuffix],
   );
@@ -398,7 +392,7 @@ function SortableTaskRowInner({
       [
         PROGRESS_COLUMN_HELP_TEXT,
         '',
-        '더블클릭 또는 F2: 편집 · 우클릭: 상태별 진척 갱신 메뉴.',
+        '선택 후 입력 또는 F2로 편집 · 우클릭: 상태별 진척 갱신 메뉴.',
         '가중치가 비어 있는 자식은 롤업 시 공수를 가중으로 씁니다. 형제 간 가중 비율에 따라 상위 진척이 달라질 수 있습니다.',
         '',
         '— 아래는 이 행 기준 산식 상세 —',
@@ -561,10 +555,7 @@ function SortableTaskRowInner({
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   const zebraOverlay = rowIndex % 2 === 1 ? (dark ? 'rgba(255,255,255,0.02)' : 'rgba(2, 6, 23, 0.03)') : 'transparent';
 
-  const isDone = doneStatusIdsForProgressTip.has(task.status ?? '') || (typeof task.progress === 'number' && task.progress >= 100);
-  const applyDoneAutoStrike = showTableAutoFormatting && isDone;
-
-  // 다크/라이트 모드별 행 상태 색상(완료 행은 배경·스트립으로 구분하지 않고 셀 텍스트 취소선으로만 표시)
+  // 다크/라이트 모드별 행 상태 색상
   // 선택 행: 표면/줄무늬 대비가 약해지지 않도록 배경을 한 단계 진하게(라이트 indigo-400, 다크 보라 톤 상향)
   const selectedBg = dark ? '#4c3a8a' : '#818cf8';
   // 단일 활성 행(체크 없이 클릭·키보드 포커스): 표↔간트 split에서 같은 높이의 '한 줄'로 보이도록
@@ -772,13 +763,13 @@ function SortableTaskRowInner({
               <div
                 key={colId}
                 {...rangeCellProps}
-                className={cn('data-cell font-mono text-[10px] text-slate-400 cursor-pointer', applyDoneAutoStrike && 'line-through')}
+                className="data-cell font-mono text-[10px] text-slate-400 cursor-pointer"
                 onClick={() => {
                   // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
                   const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
-                  onFocusRow?.(task.id, { keepSelection: true });
+                  onFocusRow?.(task.id, { keepSelection: true, columnId: firstEditable });
                   onSetRowAnchor?.(task.id);
-                  setFocusedCell({ taskId: task.id, columnId: firstEditable });
+                  commitCellMarquee?.(task.id, firstEditable);
                 }}
               >
                 {wbsId}
@@ -806,7 +797,7 @@ function SortableTaskRowInner({
                   ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
                 }}
                 onClick={(e) => {
-                  // 클릭 편집 모드면 한 번 클릭으로 작업명 편집 진입, 아니면 포커스만(더블클릭·F2로 편집) — beginEdit가 모드에 따라 분기.
+                  // 한 번 클릭으로 작업명 셀만 선택 — Ctrl/Shift/Meta는 다중·구간 선택용.
                   // Ctrl/Shift/Meta 클릭은 다중·구간 선택용이므로 편집 진입하지 않음 (행 pointerdown 캡처가 선택 처리).
                   // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
                   // 이미 작업명 input이 떠 있으면 중복 진입 방지 (버블링된 클릭 등).
@@ -889,10 +880,28 @@ function SortableTaskRowInner({
                         setEditingCell(null);
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
                         onFocusRow?.(task.id, { keepSelection: true });
+                        commitCellMarquee?.(task.id, 'name');
                         requestAnimationFrame(() => {
                           (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
                         });
                       }, 0);
+                    }}
+                    onKeyUp={(e) => {
+                      // Del/Backspace로 내용이 비면 엑셀처럼 빈 값 확정 + 편집 종료(빈 input에 포커스가 남지 않음)
+                      if (!isInlineEditingName) return;
+                      const ne = e.nativeEvent as KeyboardEvent;
+                      if (ne.isComposing) return;
+                      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+                      if (e.currentTarget.value.trim() !== '') return;
+                      commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
+                      setInlineEditingNameId(null);
+                      setEditingCell(null);
+                      setFocusedCell({ taskId: task.id, columnId: 'name' });
+                      onFocusRow?.(task.id, { keepSelection: true });
+                      commitCellMarquee?.(task.id, 'name');
+                      requestAnimationFrame(() => {
+                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                      });
                     }}
                     onKeyDown={(e) => {
                       // armed(편집 전)면 키 입력을 전역 핸들러(셀 이동·단축키)로 위임 — 화살표/Enter/Delete 등이 정상 동작.
@@ -918,6 +927,7 @@ function SortableTaskRowInner({
                         setEditingCell(null);
                         setFocusedCell({ taskId: task.id, columnId: 'name' });
                         onFocusRow?.(task.id, { keepSelection: true });
+                        commitCellMarquee?.(task.id, 'name');
                         requestAnimationFrame(() => {
                           (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
                         });
@@ -988,21 +998,19 @@ function SortableTaskRowInner({
                         크리티컬
                       </span>
                     )}
-                    <span className="min-w-0 truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                    <span className="min-w-0 truncate" style={txtStyle}>
                       {tableNameLabel ? (
                         tableNameLabel
                       ) : (
-                        <span className="italic text-slate-400 font-normal select-none">
-                          {singleClickEdit ? '(클릭 또는 F2: 작업명 입력)' : '(더블클릭 또는 F2: 작업명 입력)'}
-                        </span>
+                        <span className="italic text-slate-400 font-normal select-none">(입력 또는 F2로 작업명 편집)</span>
                       )}
                     </span>
-                    {hasChildren && directChildTaskCount > 0 && (
+                    {totalDescendantTaskCount > 0 && !task.parentId && (
                       <span
                         className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0"
-                        title={`직속 하위 작업 ${directChildTaskCount}개`}
+                        title={`전체 하위 작업 ${totalDescendantTaskCount}개(직속·하위의 하위 포함)`}
                       >
-                        ({directChildTaskCount})
+                        ({totalDescendantTaskCount})
                       </span>
                     )}
                   </span>
@@ -1025,7 +1033,13 @@ function SortableTaskRowInner({
             const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'startDate' && !isEditing;
             const commitStartDateIfChanged = (raw: string) => {
               const v = normalizeYmdInput(raw);
-              if (!v || v === (task.startDate?.slice(0, 10) ?? '')) return;
+              const prev = task.startDate?.slice(0, 10) ?? '';
+              if (v === '' && prev === '') return;
+              if (v === '' && prev !== '') {
+                updateTask(task.id, { startDate: '' });
+                return;
+              }
+              if (!v || v === prev) return;
               updateTask(task.id, { startDate: v + (task.startDate?.slice(10) || '') });
             };
             return (
@@ -1088,12 +1102,9 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('startDate');
                       }}
-                      title={`${formatDate(task.startDate) || '시작일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집`}
+                      title={`${formatDate(task.startDate) || '시작일 없음'} · 선택 후 입력 또는 F2로 날짜 편집`}
                     >
-                      <span
-                        className="inline-flex items-center gap-0.5 min-w-0"
-                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                      >
+                      <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {formatDate(task.startDate) || '—'}
                       </span>
                     </button>
@@ -1116,7 +1127,13 @@ function SortableTaskRowInner({
             const isFocusedEnd = focusedCell?.taskId === task.id && focusedCell?.columnId === 'endDate' && !isEditing;
             const commitEndDateIfChanged = (raw: string) => {
               const v = normalizeYmdInput(raw);
-              if (!v || v === (task.endDate?.slice(0, 10) ?? '')) return;
+              const prev = task.endDate?.slice(0, 10) ?? '';
+              if (v === '' && prev === '') return;
+              if (v === '' && prev !== '') {
+                updateTask(task.id, { endDate: '' });
+                return;
+              }
+              if (!v || v === prev) return;
               updateTask(task.id, { endDate: v + (task.endDate?.slice(10) || '') });
             };
             return (
@@ -1177,12 +1194,9 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('endDate');
                       }}
-                      title={`${formatDate(task.endDate) || '종료일 없음'} · 클릭: 포커스 · 더블클릭 또는 F2: 날짜 편집`}
+                      title={`${formatDate(task.endDate) || '종료일 없음'} · 선택 후 입력 또는 F2로 날짜 편집`}
                     >
-                      <span
-                        className="inline-flex items-center gap-0.5 min-w-0"
-                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                      >
+                      <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {formatDate(task.endDate) || '—'}
                       </span>
                     </button>
@@ -1205,7 +1219,13 @@ function SortableTaskRowInner({
             const isFocusedDur = focusedCell?.taskId === task.id && focusedCell?.columnId === 'duration' && !isEditing;
             const durationDays = inclusiveCalendarDays(task.startDate, task.endDate);
             const commitDurationIfChanged = (raw: string) => {
-              const n = parseInt(raw, 10);
+              const trimmed = (raw ?? '').trim();
+              if (!trimmed) {
+                const prevEnd = (task.endDate ?? '').trim();
+                if (prevEnd) updateTask(task.id, { endDate: '' });
+                return;
+              }
+              const n = parseInt(trimmed, 10);
               if (!Number.isFinite(n) || n < 1) return;
               if (!task.startDate) return; // 시작일이 없으면 종료일을 역산할 수 없음
               const newYmd = endYmdFromInclusiveDuration(task.startDate, n);
@@ -1278,14 +1298,11 @@ function SortableTaskRowInner({
                       }}
                       title={
                         task.startDate
-                          ? '클릭하여 기간(일) 수정 — 시작일 기준으로 종료일이 자동 계산됩니다.'
+                          ? '시작일 기준 기간(일) — 선택 후 입력 또는 F2로 수정하면 종료일이 자동 계산됩니다.'
                           : '시작일을 먼저 입력하면 기간으로 종료일을 계산할 수 있습니다.'
                       }
                     >
-                      <span
-                        className="inline-flex items-center gap-0.5 min-w-0"
-                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                      >
+                      <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {durationDays != null ? durationDays : '-'}
                       </span>
                     </button>
@@ -1336,10 +1353,15 @@ function SortableTaskRowInner({
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onPaste={(e) => handleCellBulkPaste('workEffort', e)}
                     onBlur={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v >= 0) {
-                        const rounded = effortUnitForTask === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
-                        if (rounded !== (task.workEffort ?? NaN)) updateTask(task.id, { workEffort: rounded });
+                      const raw = (e.target as HTMLInputElement).value.trim();
+                      if (raw === '') {
+                        if (task.workEffort !== undefined) updateTask(task.id, { workEffort: undefined });
+                      } else {
+                        const v = parseFloat(raw);
+                        if (!isNaN(v) && v >= 0) {
+                          const rounded = effortUnitForTask === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
+                          if (rounded !== (task.workEffort ?? NaN)) updateTask(task.id, { workEffort: rounded });
+                        }
                       }
                       setEditingCell(null);
                     }}
@@ -1365,12 +1387,9 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('workEffort');
                       }}
-                      title={`클릭하여 공수 수정 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
+                      title={`선택 후 입력 또는 F2로 공수 편집 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                     >
-                      <span
-                        className="inline-flex items-center gap-0.5 min-w-0"
-                        style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                      >
+                      <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
                       </span>
                     </button>
@@ -1420,10 +1439,15 @@ function SortableTaskRowInner({
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onPaste={(e) => handleCellBulkPaste('weight', e)}
                     onBlur={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v) && v >= 0) {
-                        const rounded = round1(v);
-                        if (rounded !== (task.weight ?? NaN)) updateTask(task.id, { weight: rounded });
+                      const raw = (e.target as HTMLInputElement).value.trim();
+                      if (raw === '') {
+                        if (task.weight != null) updateTask(task.id, { weight: null });
+                      } else {
+                        const v = parseFloat(raw);
+                        if (!isNaN(v) && v >= 0) {
+                          const rounded = round1(v);
+                          if (rounded !== (task.weight ?? NaN)) updateTask(task.id, { weight: rounded });
+                        }
                       }
                       setEditingCell(null);
                     }}
@@ -1450,9 +1474,7 @@ function SortableTaskRowInner({
                     }}
                     title={weightColumnTooltip}
                   >
-                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
-                      {task.weight != null ? formatNum1(task.weight) : '-'}
-                    </span>
+                    <span style={txtStyle}>{task.weight != null ? formatNum1(task.weight) : '-'}</span>
                   </button>
                 )}
               </div>
@@ -1501,7 +1523,9 @@ function SortableTaskRowInner({
                     onPaste={(e) => handleCellBulkPaste('progress', e)}
                     onBlur={() => {
                       const raw = progressEditStr.trim();
-                      if (raw !== '') {
+                      if (raw === '') {
+                        if ((task.progress ?? 0) !== 0) updateTask(task.id, { progress: 0 });
+                      } else {
                         const v = parseFloat(raw);
                         if (!isNaN(v) && v >= 0 && v <= 100) {
                           const rounded = round2(v);
@@ -1516,10 +1540,7 @@ function SortableTaskRowInner({
                     }}
                   />
                 ) : (
-                  <span
-                    className="px-1 inline-block w-full min-w-0 text-left truncate tabular-nums"
-                    style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
-                  >
+                  <span className="px-1 inline-block w-full min-w-0 text-left truncate tabular-nums" style={txtStyle}>
                     {typeof task.progress === 'number' && Number.isFinite(task.progress) ? `${formatPercent1(task.progress)}%` : '—'}
                   </span>
                 )}
@@ -1544,7 +1565,8 @@ function SortableTaskRowInner({
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setFocusedCell({ taskId: task.id, columnId: 'plannedProgress' });
+                  onFocusRow?.(task.id, { keepSelection: true, columnId: 'plannedProgress' });
+                  commitCellMarquee?.(task.id, 'plannedProgress');
                 }}
                 onDoubleClick={(e) => {
                   // 계획율 셀은 직접 편집 불가 — 편집 시도(더블클릭) 시 날짜 수정 안내
@@ -1557,7 +1579,7 @@ function SortableTaskRowInner({
                     : '계획율을 계산할 수 없습니다. 시작일·종료일을 입력하면 영업일 기준으로 자동 산정됩니다.'
                 }
               >
-                <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
                   {computable ? `${plannedFmt}%` : '—'}
                 </span>
               </div>
@@ -1599,7 +1621,7 @@ function SortableTaskRowInner({
                     ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
                     : '계획율이 입력되지 않아 차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율(수동 입력).',
                   '',
-                  '클릭: 셀 포커스 · 더블클릭 또는 F2: 실제 진척률 편집',
+                  '선택 후 입력 또는 F2: 실제 진척률 편집',
                 ].join('\n')}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1610,7 +1632,7 @@ function SortableTaskRowInner({
                   beginEditNowResolved('progressVariance');
                 }}
               >
-                <span className="px-1 inline-block w-full text-left truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
                   {computable ? `${sign}${varFmt}%p` : '—'}
                 </span>
               </div>
@@ -1701,7 +1723,7 @@ function SortableTaskRowInner({
                         'w-full px-1 py-0.5 truncate',
                         !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'),
                       )}
-                      style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}
+                      style={txtStyle}
                       title={formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 안됨'}
                     >
                       {(task.assignee || '').trim() || '배정 ...'}
@@ -1749,7 +1771,7 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   if (!isEditing) beginEdit('allocation');
                 }}
-                title="클릭하여 투입율 수정"
+                title="선택 후 입력 또는 F2로 투입율 편집"
               >
                 {isEditing ? (
                   <input
@@ -1789,7 +1811,7 @@ function SortableTaskRowInner({
                       beginEdit('allocation');
                     }}
                   >
-                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{allocationDisplayText ?? '—'}</span>
+                    <span style={txtStyle}>{allocationDisplayText ?? '—'}</span>
                   </button>
                 )}
               </div>
@@ -1867,9 +1889,9 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('status');
                     }}
-                    title="더블클릭 또는 F2로 상태 수정"
+                    title="선택 후 입력 또는 F2로 상태 수정"
                   >
-                    <span className="truncate block" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                    <span className="truncate block" style={txtStyle}>
                       {currentStatusName}
                     </span>
                   </button>
@@ -1932,9 +1954,9 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('deliverables');
                     }}
-                    title={(task.deliverables || '').trim() || '클릭하여 산출물 수정'}
+                    title={(task.deliverables || '').trim() || '선택 후 입력 또는 F2로 산출물 편집'}
                   >
-                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{task.deliverables || '-'}</span>
+                    <span style={txtStyle}>{task.deliverables || '-'}</span>
                   </button>
                 )}
               </div>
@@ -2077,7 +2099,7 @@ function SortableTaskRowInner({
                 title={
                   hiddenDepLabels.length > 0
                     ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
-                    : '더블클릭 또는 F2로 선행작업 수정'
+                    : '선택 후 입력 또는 F2로 선행작업 편집'
                 }
               >
                 {isEditing ? (
@@ -2152,9 +2174,9 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEditNow('dependencies');
                       }}
-                      title="더블클릭 또는 F2로 선행작업 수정"
+                      title="선택 후 입력 또는 F2로 선행작업 편집"
                     >
-                      <span className="block truncate" style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>
+                      <span className="block truncate" style={txtStyle}>
                         {depsDisplayText}
                       </span>
                     </button>
@@ -2224,7 +2246,7 @@ function SortableTaskRowInner({
                     }}
                     title={currentValue || `${customLabel} 입력`}
                   >
-                    <span style={mergeDoneLineThrough(txtStyle, applyDoneAutoStrike)}>{currentValue || '-'}</span>
+                    <span style={txtStyle}>{currentValue || '-'}</span>
                   </button>
                 )}
               </div>
@@ -2308,16 +2330,23 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
       prev.editingCell.columnId === next.editingCell.columnId &&
       prevSeed === nextSeed);
   const focusedCellRelevantSame = rowFocusedCellVisualEqual(prev.focusedCell, next.focusedCell, prev.task.id, next.task.id);
+  // 대량 참조(allProjectTasks·rollupTooltipBaseTasks·displayWbsMap·taskIdToSeqNum·seqNumToTaskId
+  // ·criticalPathSet·projectAssignmentsByProjectId)는 어떤 작업이든 변경되면 새 참조가 되어
+  // 전 행 memo를 무효화한다. 이 행의 실제 표시값(displayWbsId·wbsSeqLabel·allocationDisplayText
+  // ·criticalPathSet.has(task.id))만 비교해 불필요한 재렌더를 방지한다.
+  const criticalSame =
+    prev.criticalPathSet === next.criticalPathSet || prev.criticalPathSet.has(prev.task.id) === next.criticalPathSet.has(next.task.id);
   return (
     editingCellSame &&
     focusedCellRelevantSame &&
+    criticalSame &&
     prev.rowIndex === next.rowIndex &&
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&
     prev.isSelected === next.isSelected &&
     prev.isFocused === next.isFocused &&
     prev.hasChildren === next.hasChildren &&
-    prev.directChildTaskCount === next.directChildTaskCount &&
+    prev.totalDescendantTaskCount === next.totalDescendantTaskCount &&
     prev.isTreeView === next.isTreeView &&
     prev.treeGuide === next.treeGuide &&
     prev.isInlineEditingName === next.isInlineEditingName &&
@@ -2327,14 +2356,10 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.allAssignees === next.allAssignees &&
     prev.assigneeOptionsByProjectId === next.assigneeOptionsByProjectId &&
     prev.statusConfigs === next.statusConfigs &&
-    prev.projectAssignmentsByProjectId === next.projectAssignmentsByProjectId &&
-    prev.allProjectTasks === next.allProjectTasks &&
     prev.updateProject === next.updateProject &&
     prev.projectEffortUnitByProjectId === next.projectEffortUnitByProjectId &&
     prev.projectScheduleByProjectId === next.projectScheduleByProjectId &&
-    prev.criticalPathSet === next.criticalPathSet &&
     prev.allocationDisplayText === next.allocationDisplayText &&
-    prev.displayWbsMap === next.displayWbsMap &&
     prev.task.id === next.task.id &&
     marqueeSetsEqual(prev.cellMarqueeKeySet, next.cellMarqueeKeySet) &&
     prev.task.parentId === next.task.parentId &&
@@ -2349,9 +2374,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.workEffort === next.task.workEffort &&
     prev.task.deliverables === next.task.deliverables &&
     prev.task.customFields === next.task.customFields &&
-    prev.taskIdToSeqNum === next.taskIdToSeqNum &&
     prev.wbsSeqLabel === next.wbsSeqLabel &&
-    prev.seqNumToTaskId === next.seqNumToTaskId &&
     prev.task.dependencies === next.task.dependencies &&
     prev.task.isMilestone === next.task.isMilestone &&
     prev.task.isIssue === next.task.isIssue &&
@@ -2362,13 +2385,9 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById &&
     prev.prependDisplayWbsToTaskName === next.prependDisplayWbsToTaskName &&
-    prev.rollupTooltipBaseTasks === next.rollupTooltipBaseTasks &&
     prev.plannedProgress === next.plannedProgress &&
     prev.showTableAutoFormatting === next.showTableAutoFormatting &&
-    prev.singleClickEdit === next.singleClickEdit &&
-    prev.forkedChildProject === next.forkedChildProject &&
-    prev.onOpenForkedChildProject === next.onOpenForkedChildProject &&
-    prev.onPasteApplyToCheckboxSelection === next.onPasteApplyToCheckboxSelection
+    prev.forkedChildProject === next.forkedChildProject
   );
 }
 

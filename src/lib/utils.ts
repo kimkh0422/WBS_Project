@@ -54,7 +54,7 @@ export function formatTodayKoLongWithWeekday(): string {
   });
 }
 
-/** 릴리스·빌드 날짜 표기 — 예: 2026. 05. 27 */
+/** 릴리스·빌드 날짜 표기 — 예: 2026. 05. 27 또는 시·분 포함 시 2026. 05. 27. 14:30 */
 export function formatReleaseDateDotKo(isoDate: string): string {
   try {
     const d = new Date(isoDate);
@@ -62,7 +62,12 @@ export function formatReleaseDateDotKo(isoDate: string): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}. ${m}. ${day}`;
+    // 날짜만 쓰이던 구버전 CHANGELOG → 정오 KST 플레이스홀더. 이 경우 시·분은 숨긴다.
+    const legacyNoonKst = /T12:00:00\+09:00$/i.test(isoDate.trim());
+    if (legacyNoonKst) return `${y}. ${m}. ${day}`;
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}. ${m}. ${day}. ${hh}:${min}`;
   } catch {
     return isoDate;
   }

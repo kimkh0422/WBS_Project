@@ -1153,6 +1153,11 @@ export function Dashboard({
       }));
     } catch (e) {
       console.warn('협조 요청 데이터를 불러오지 못해 PDF에 빈 섹션으로 포함합니다.', e);
+      pushToast('협조 요청 데이터를 불러오지 못해 PDF에는 해당 섹션이 비어 있습니다.', {
+        variant: 'warning',
+        durationMs: 8000,
+        id: 'wbs-dashboard-pdf-cooperation-fallback',
+      });
     }
 
     await downloadProjectRegistrationPdfReport({

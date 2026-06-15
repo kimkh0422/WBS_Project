@@ -9,7 +9,7 @@ import { ensureProjectTopLevelNameInTasks } from '../../lib/ensureProjectTopLeve
 
 export interface BackupOpsDeps {
   saveHistory: () => void;
-  bumpDirty: () => void;
+  bumpDirty: (...projectIds: string[]) => void;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
   ownerIdRef: MutableRefObject<string | undefined>;
   /** 신규·리셋 프로젝트 PM 기본값(표시명) */
@@ -121,7 +121,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
           true,
         );
       });
-      bumpDirty();
+      bumpDirty(effectiveProjectId);
     },
     [
       saveHistory,
@@ -155,8 +155,9 @@ export function useBackupOps(deps: BackupOpsDeps) {
       }
       return effectiveProjectId ? prev.filter((t) => t.projectId !== effectiveProjectId) : [];
     });
-    bumpDirty();
-  }, [saveHistory, bumpDirty, recordDeletedTaskIds, currentProjectIdRef, setAllTasks]);
+    if (effectiveProjectId) bumpDirty(effectiveProjectId);
+    else bumpDirty(...projectsRef.current.map((p) => p.id).filter(Boolean));
+  }, [saveHistory, bumpDirty, recordDeletedTaskIds, currentProjectIdRef, setAllTasks, projectsRef]);
 
   const deleteAllTasksInAllProjects = useCallback(() => {
     saveHistory();
@@ -169,8 +170,8 @@ export function useBackupOps(deps: BackupOpsDeps) {
       idsByProject.forEach((ids, pid) => recordDeletedTaskIds(pid, ids));
       return [];
     });
-    bumpDirty();
-  }, [saveHistory, bumpDirty, recordDeletedTaskIds, setAllTasks]);
+    bumpDirty(...projectsRef.current.map((p) => p.id).filter(Boolean));
+  }, [saveHistory, bumpDirty, recordDeletedTaskIds, setAllTasks, projectsRef]);
 
   const resetAllProjectsToNew = useCallback(async (): Promise<void> => {
     const newProject: Project = {
@@ -203,7 +204,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
       return applyRollupsToTasks(ensured, wbsSettingsRef.current.statusConfigs);
     });
     setCurrentProjectId(newProject.id);
-    bumpDirty(); // 자동 sync trigger → DB에서 기존 프로젝트들 삭제됨
+    bumpDirty(...existingProjectIds, newProject.id); // 자동 sync trigger → DB에서 기존 프로젝트들 삭제됨
     try {
       localStorage.setItem('wbs-current-project', newProject.id);
     } catch (_) {}
@@ -223,7 +224,6 @@ export function useBackupOps(deps: BackupOpsDeps) {
 
   const restoreBackup = useCallback(
     (data: BackupData) => {
-      bumpDirty();
       const projectIds = Array.from(new Set(data.tasks.map((t) => t.projectId))).filter(Boolean) as string[];
       let rolled = data.tasks;
       // 백업에 저장된 시작일·종료일 그대로 복원(skipScheduleRollup=true). 진척·공수만 롤업.
@@ -235,6 +235,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
       if (data.projects.length > 0) {
         if (!data.projects.find((p) => p.id === currentProjectIdRef.current)) setCurrentProjectId(data.projects[0].id);
       } else setCurrentProjectId('');
+      bumpDirty(...data.projects.map((p) => p.id).filter(Boolean));
     },
     [bumpDirty, currentProjectIdRef, setProjects, setAllTasks, setWbsSettings, setCurrentProjectId],
   );
@@ -252,7 +253,6 @@ export function useBackupOps(deps: BackupOpsDeps) {
 
   const mergeBackups = useCallback(
     (backups: BackupData[]): { addedProjects: number; addedTasks: number } => {
-      bumpDirty();
       const newProjects: Project[] = [];
       const newTasks: Task[] = [];
       const currentOwnerId = ownerIdRef.current;
@@ -284,6 +284,7 @@ export function useBackupOps(deps: BackupOpsDeps) {
       setProjects(nextProjects);
       setAllTasks(applyRollupsToTasks(ensuredMerge, statusConfigs));
       if (newProjects.length > 0) setCurrentProjectId(newProjects[0].id);
+      bumpDirty(...nextProjects.map((p) => p.id).filter(Boolean));
       return { addedProjects: newProjects.length, addedTasks: newTasks.length };
     },
     [bumpDirty, ownerIdRef, wbsSettingsRef, projectsRef, allTasksRef, setProjects, setAllTasks, setCurrentProjectId],

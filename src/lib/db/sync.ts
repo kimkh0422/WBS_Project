@@ -187,6 +187,53 @@ export function mergeProjectsDelta(
 }
 
 /**
+ * IndexedDB로 먼저 화면을 올린 뒤 Supabase 초기 풀이 도착했을 때 사용한다.
+ * 서버 스냅샷과 다른 로컬 작업(아직 업로드되지 않은 편집)은 `collectTasksNeedingUpload`로 판별해
+ * 서버 행으로 덮어쓰지 않는다. 그 외 작업·필드는 서버 행을 따른다(`mergeTasksDelta`와 동일 취지).
+ */
+export function mergeInitialDbPayloadWithLocalPreview(
+  localTasks: Task[],
+  serverRows: TaskRow[],
+  authoritativeProjectIds: Set<string>,
+): Task[] {
+  const serverById = new Map(serverRows.map((r) => [r.id, r] as const));
+  const sortOrders = new Map(serverRows.map((r) => [r.id, r.sort_order] as const));
+  const preferLocalIds = new Set(collectTasksNeedingUpload(localTasks, serverById, authoritativeProjectIds, sortOrders).map((t) => t.id));
+  const lm = new Map(localTasks.map((t) => [t.id, t] as const));
+  const serverIds = new Set(serverRows.map((r) => r.id));
+  const ordered = [...serverRows].sort((a, b) => a.sort_order - b.sort_order);
+  const out: Task[] = [];
+
+  for (const row of ordered) {
+    const lt = lm.get(row.id);
+    if (preferLocalIds.has(row.id) && lt) {
+      out.push(lt);
+      continue;
+    }
+    const st = fromTaskRow(row);
+    const contentMatch = lt && serverTaskRowMatchesLocalTask(lt, row);
+    if (contentMatch && lt) {
+      out.push(lt.updatedAt === row.updated_at ? lt : { ...lt, updatedAt: row.updated_at ?? undefined });
+    } else {
+      out.push(lt ? { ...st, expanded: lt.expanded } : st);
+    }
+  }
+
+  const outIds = new Set(out.map((t) => t.id));
+  for (const lt of localTasks) {
+    if (outIds.has(lt.id)) continue;
+    if (!authoritativeProjectIds.has(lt.projectId)) {
+      out.push(lt);
+      continue;
+    }
+    if (!serverIds.has(lt.id) && preferLocalIds.has(lt.id)) {
+      out.push(lt);
+    }
+  }
+  return out;
+}
+
+/**
  * 서버와 내용이 다른 작업만 서버 행으로 교체.
  * authoritativeProjectIds: 이번 동기에서 업로드 범위에 들어간 프로젝트 — 서버에 없는 작업 id는 삭제된 것으로 보고 제거.
  * 범위 밖 프로젝트는 로컬 전용 작업을 유지(현재 프로젝트만 동기 시 다른 프로젝트 손실 방지).

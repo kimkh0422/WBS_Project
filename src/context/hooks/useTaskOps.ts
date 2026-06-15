@@ -40,6 +40,8 @@ function collectDescendantTaskIds(rootIds: Iterable<string>, tasks: Task[]): Set
 
 export interface TaskOpsDeps {
   saveHistory: () => void;
+  /** 삭제 직전 `prev` 스냅샷을 넣을 때 사용(복사 없이 참조만 저장) */
+  pushUndoSnapshot: (previousTasks: Task[]) => void;
   handleDbError: (err: unknown, fallback: string) => void;
   projectsRef: MutableRefObject<Project[]>;
   currentProjectIdRef: MutableRefObject<string>;
@@ -49,7 +51,8 @@ export interface TaskOpsDeps {
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   setProjects: Dispatch<SetStateAction<Project[]>>;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
-  bumpDirty: () => void;
+  recordDeletedTaskIdsBulk: (byProject: Record<string, string[]>) => void;
+  bumpDirty: (...projectIds: string[]) => void;
   dirtyEpochRef: MutableRefObject<number>;
   clearUnsyncedIfDirtyEpochIs: (epoch: number) => void;
 }
@@ -57,6 +60,7 @@ export interface TaskOpsDeps {
 export function useTaskOps(deps: TaskOpsDeps) {
   const {
     saveHistory,
+    pushUndoSnapshot,
     handleDbError,
     projectsRef,
     currentProjectIdRef,
@@ -66,6 +70,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
     setAllTasks,
     setProjects,
     recordDeletedTaskIds,
+    recordDeletedTaskIdsBulk,
     bumpDirty,
     dirtyEpochRef,
     clearUnsyncedIfDirtyEpochIs,
@@ -1117,26 +1122,88 @@ export function useTaskOps(deps: TaskOpsDeps) {
     [saveHistory, setAllTasks, wbsSettingsRef, bumpDirty],
   );
 
-  const deleteTask = useCallback(
-    (id: string) => {
-      saveHistory();
+  /**
+   * 여러 루트(및 각 서브트리)를 한 번의 히스토리·렌더로 삭제.
+   * 선택에 부모+자손이 같이 있으면 상위만 실제 루트로 취급한다.
+   */
+  const deleteTaskRoots = useCallback(
+    (rootIdsInput: string[]) => {
+      const rootIdSet = new Set(rootIdsInput.filter(Boolean));
+      if (rootIdSet.size === 0) return;
+
+      const undoCaptureRef = { current: null as Task[] | null };
       const removedRef = { current: false };
+
       setAllTasks((prev) => {
-        const taskToDelete = prev.find((t) => t.id === id);
-        if (!taskToDelete) return prev;
+        const taskById = new Map<string, Task>(prev.map((t) => [t.id, t]));
+
+        const effectiveRoots = [...rootIdSet].filter((id) => {
+          let cur = taskById.get(id)?.parentId;
+          while (cur) {
+            if (rootIdSet.has(cur)) return false;
+            cur = taskById.get(cur)?.parentId;
+          }
+          return true;
+        });
+        if (effectiveRoots.length === 0) return prev;
+
+        const idsToDelete = collectDescendantTaskIds(effectiveRoots, prev);
+        const deletedTasks = prev.filter((t) => idsToDelete.has(t.id));
+        if (deletedTasks.length === 0) return prev;
+
+        if (undoCaptureRef.current === null) undoCaptureRef.current = prev;
         removedRef.current = true;
-        const getAllDescendantIds = (parentId: string, list: Task[]): string[] => {
-          const children = list.filter((t) => t.parentId === parentId);
-          return [...children.map((c) => c.id), ...children.flatMap((c) => getAllDescendantIds(c.id, list))];
+
+        const byProject = new Map<string, string[]>();
+        for (const t of deletedTasks) {
+          if (t.projectId) {
+            const list = byProject.get(t.projectId) ?? [];
+            list.push(t.id);
+            byProject.set(t.projectId, list);
+          }
+        }
+        if (byProject.size > 0) {
+          recordDeletedTaskIdsBulk(Object.fromEntries(byProject));
+        }
+
+        let next = prev.filter((t) => !idsToDelete.has(t.id));
+
+        const parentIds = new Set<string>();
+        for (const rid of effectiveRoots) {
+          const p = taskById.get(rid)?.parentId;
+          if (p) parentIds.add(p);
+        }
+
+        const parentDepth = (pid: string) => {
+          let d = 0;
+          let cur: string | null | undefined = pid;
+          while (cur) {
+            d++;
+            cur = taskById.get(cur)?.parentId ?? null;
+          }
+          return d;
         };
-        const idsToDelete = [id, ...getAllDescendantIds(id, prev)];
-        if (taskToDelete.projectId) recordDeletedTaskIds(taskToDelete.projectId, idsToDelete);
-        const next = prev.filter((t) => !new Set(idsToDelete).has(t.id));
-        return syncParentRollups(next, taskToDelete.parentId, undefined, false, undefined, undefined, true);
+        const sortedParents = [...parentIds].sort((a, b) => parentDepth(b) - parentDepth(a));
+        for (const pid of sortedParents) {
+          next = syncParentRollups(next, pid, undefined, false, undefined, undefined, true);
+        }
+
+        return next;
       });
+
+      if (undoCaptureRef.current) {
+        pushUndoSnapshot(undoCaptureRef.current);
+      }
       if (removedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, recordDeletedTaskIds, bumpDirty],
+    [pushUndoSnapshot, setAllTasks, recordDeletedTaskIdsBulk, bumpDirty],
+  );
+
+  const deleteTask = useCallback(
+    (id: string) => {
+      deleteTaskRoots([id]);
+    },
+    [deleteTaskRoots],
   );
 
   return useMemo(
@@ -1155,6 +1222,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       disconnectSubtreeInternalDependencies,
       rollupTaskSchedule,
       deleteTask,
+      deleteTaskRoots,
       flushProjectTaskRollups,
     }),
     [
@@ -1172,6 +1240,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       disconnectSubtreeInternalDependencies,
       rollupTaskSchedule,
       deleteTask,
+      deleteTaskRoots,
       flushProjectTaskRollups,
     ],
   );

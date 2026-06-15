@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, startTransition } from 'react';
 import type { Task } from '../types';
 import { upsertTasks, deleteTasksFromDB } from '../lib/db';
 
@@ -20,7 +20,7 @@ async function syncStateToDb(current: Task[], target: Task[]): Promise<void> {
 interface UseWbsHistoryOptions {
   allTasksRef: React.MutableRefObject<Task[]>;
   setAllTasks: React.Dispatch<React.SetStateAction<Task[]>>;
-  bumpDirty: () => void;
+  bumpDirty: (...projectIds: string[]) => void;
   useLocalOnlyRef: React.MutableRefObject<boolean>;
   handleDbError: (err: unknown, msg: string) => void;
   /** 원격 모드: undo/redo 직후 upsert로 DB에 반영되면 플로팅 저장 버튼을 끈다. */
@@ -46,6 +46,20 @@ export function useWbsHistory({
     setCanUndo(true);
     setCanRedo(false);
   }, [allTasksRef]);
+
+  /**
+   * 삭제 등: 이미 적용된 이전 스냅샷을 스택에 넣는다.
+   * `saveHistory()`와 달리 전체 배열을 다시 복사하지 않으므로 대형 WBS에서 메인 스레드 블로킹을 줄인다.
+   * `previousTasks`는 React가 넘겨준 이전 `prev` 배열 참조여야 한다(직접 mutate 금지).
+   */
+  const pushUndoSnapshot = useCallback((previousTasks: Task[]) => {
+    historyRef.current = [...historyRef.current.slice(-49), previousTasks];
+    redoRef.current = [];
+    startTransition(() => {
+      setCanUndo(true);
+      setCanRedo(false);
+    });
+  }, []);
 
   const undo = useCallback(() => {
     if (historyRef.current.length === 0) return;
@@ -102,7 +116,7 @@ export function useWbsHistory({
   }, []);
 
   return useMemo(
-    () => ({ saveHistory, undo, redo, canUndo, canRedo, resetHistory }),
-    [saveHistory, undo, redo, canUndo, canRedo, resetHistory],
+    () => ({ saveHistory, pushUndoSnapshot, undo, redo, canUndo, canRedo, resetHistory }),
+    [saveHistory, pushUndoSnapshot, undo, redo, canUndo, canRedo, resetHistory],
   );
 }

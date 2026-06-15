@@ -7,7 +7,7 @@ import {
 } from '../lib/wbsTableDisplayPrefs';
 
 /**
- * 작업표·간트에 적용할 자동 서식(레벨 배경, 완료 취소선·간트 완료 스타일) 표시 여부.
+ * 작업표·간트에 적용할 자동 서식(레벨 배경, 간트 완료 스타일) 표시 여부.
  * - 전역(`wbsSettings.showTableAutoFormatting`)이 false면 모두 끔.
  * - 전역이 true(기본)면 사용자는 이 기기에서만 숨길 수 있음.
  */
