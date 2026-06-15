@@ -59,16 +59,22 @@ export function UnsavedViewLeaveDialog({
               이동하려던 화면: <span className="font-semibold text-slate-700">{targetLabel}</span>
             </p>
           ) : null}
+          {busy && action === 'save' ? (
+            <ol className="mt-3 space-y-1.5 text-xs text-indigo-700 dark:text-indigo-300 list-decimal list-inside">
+              <li>편집 중인 셀·입력값을 확정하는 중…</li>
+              <li>서버(DB)에 변경사항을 반영하는 중…</li>
+            </ol>
+          ) : null}
         </div>
         <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2 flex-wrap')}>
           <button type="button" className="btn-ghost" onClick={onCancel} disabled={busy}>
             머무르기
           </button>
           <button type="button" className="btn-ghost" onClick={onDiscard} disabled={busy}>
-            {action === 'discard' ? '되돌리는 중…' : '저장 안 함'}
+            저장 안 함
           </button>
           <button type="button" className="btn-primary" onClick={onSave} disabled={busy}>
-            {action === 'save' ? '저장 중…' : '저장 후 이동'}
+            {action === 'save' ? '저장하는 중…' : '저장 후 이동'}
           </button>
         </div>
       </div>

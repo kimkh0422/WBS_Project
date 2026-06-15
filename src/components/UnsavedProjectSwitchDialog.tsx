@@ -55,13 +55,19 @@ export function UnsavedProjectSwitchDialog({
         <div className="px-5 py-5 sm:px-6">
           <p className="text-sm text-slate-600 leading-relaxed">서버에는 아직 반영되지 않았습니다. 저장할까요?</p>
           <p className="mt-2 text-xs text-slate-500">전환: {targetLabel}</p>
+          {busy && action === 'save' ? (
+            <ol className="mt-3 space-y-1.5 text-xs text-indigo-700 dark:text-indigo-300 list-decimal list-inside">
+              <li>편집 중인 셀·입력값을 확정하는 중…</li>
+              <li>서버(DB)에 변경사항을 반영하는 중…</li>
+            </ol>
+          ) : null}
         </div>
         <div className={cn(MODAL_FOOTER_CLASS, 'justify-end gap-2')}>
           <button type="button" className="btn-ghost" onClick={onDiscard} disabled={busy}>
-            {action === 'discard' ? '되돌리는 중…' : '저장 안 함'}
+            저장 안 함
           </button>
           <button type="button" className="btn-primary" onClick={onSave} disabled={busy}>
-            {action === 'save' ? '저장 중…' : '저장'}
+            {action === 'save' ? '저장하는 중…' : '저장 후 전환'}
           </button>
         </div>
       </div>

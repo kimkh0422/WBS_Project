@@ -18,13 +18,18 @@ export function toTaskRow(task: Task, sortOrder: number): TaskRow {
   //   - 메모리 값이 null → 사용자가 명시적으로 "자동 모드로 복귀"를 선택 → DB에 null 저장
   //   - 메모리 값이 undefined → 의도 불명 → 페이로드에서 컬럼 자체를 제외(DB 기존값 보존).
   //   풀에서 컬럼이 한 번 빠진 row를 받아도 다음 push가 실수로 null 덮어쓰는 회귀를 막는다.
+  const startRaw = task.startDate;
+  const endRaw = task.endDate;
+  const start_date = typeof startRaw === 'string' && startRaw.trim() !== '' ? startRaw : null;
+  const end_date = typeof endRaw === 'string' && endRaw.trim() !== '' ? endRaw : null;
+
   const row: TaskRow = {
     id: task.id,
     project_id: task.projectId,
     parent_id: task.parentId ?? null,
     name: task.name,
-    start_date: task.startDate ?? '',
-    end_date: task.endDate ?? '',
+    start_date,
+    end_date,
     progress: task.progress ?? 0,
     assignee: task.assignee ?? '',
     status: task.status ?? 'todo',
@@ -88,8 +93,8 @@ export function fromTaskRow(row: TaskRow): Task {
     projectId: row.project_id,
     parentId: row.parent_id,
     name: row.name,
-    startDate: row.start_date,
-    endDate: row.end_date,
+    startDate: row.start_date ?? '',
+    endDate: row.end_date ?? '',
     progress: row.progress != null && Number.isFinite(Number(row.progress)) ? Number(row.progress) : 0,
     assignee: row.assignee,
     status: row.status as Task['status'],

@@ -12,9 +12,8 @@ import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { getCriticalPathTaskIds } from '../lib/schedule';
-import { buildProjectEffortUnitMap } from '../lib/workEffortUnits';
 import { useToast } from './Toast';
-import { formatRange, formatEffort } from '../lib/ganttFormat';
+import { formatRange } from '../lib/ganttFormat';
 import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { isComposingKeyEvent } from '../lib/ime';
 import { ZOOM_LEVELS, type ViewMode } from './Gantt/ZOOM_LEVELS';
@@ -270,7 +269,6 @@ export function GanttChart({
 
   const showCriticalPath = wbsSettings?.showCriticalPath === true;
 
-  const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   // 크리티컬 패스 표시가 꺼져 있으면 계산 자체를 스킵 (O(V²+E) 연산)
   const criticalPathSet = useMemo(
     () => (showCriticalPath ? getCriticalPathTaskIds(tasks) : EMPTY_CRITICAL_PATH_SET),
@@ -884,7 +882,6 @@ export function GanttChart({
                 const depth = task.depth ?? 0;
                 const level = depth + 1;
                 const isCritical = effectiveCriticalPathSet.has(task.id);
-                const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                 const rowH = effectiveRowHeights[index];
                 const scheduleWarn = projectScheduleForTask({ ...task, startDate: effectiveStartDate, endDate: effectiveEndDate });
                 return (
@@ -966,7 +963,7 @@ export function GanttChart({
                                   ? GANTT_FOCUS_SUBTREE_BAR_BORDER
                                   : ganttBarBorderAt(level, false),
                       }}
-                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
+                      title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''} · ${effectiveStartDate} → ${effectiveEndDate}${task.assignee ? ` · ${formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName)}` : ''}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                     >
                       <div className="h-full bg-black/10" style={{ width: `${task.progress}%` }} />
                       {width >= 40 && (
@@ -1348,7 +1345,6 @@ export function GanttChart({
                   const level = depth + 1;
                   const isCritical = effectiveCriticalPathSet.has(task.id);
                   const isDone = allLeafDoneById.get(task.id) === true;
-                  const effortText = formatEffort(task.workEffort, projectEffortUnitByProjectId.get(task.projectId) ?? 'day');
                   const rowH = effectiveRowHeights[index] ?? ROW_HEIGHT;
                   const scheduleWarn = projectScheduleForTask({ ...task, startDate: effectiveStartDate, endDate: effectiveEndDate });
 
@@ -1445,7 +1441,7 @@ export function GanttChart({
                                           : ganttBarBorderAt(level, false),
                               }
                         }
-                        title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}${effortText ? ` · ${effortText}` : ''}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
+                        title={`${displayWbsMap.get(task.id) ? displayWbsMap.get(task.id) + ' ' : ''}${task.name}${isCritical ? ' · 크리티컬 패스' : ''}${isMilestone ? ` (마일스톤) · ${effectiveStartDate}` : ` · ${effectiveStartDate} → ${effectiveEndDate}`}${scheduleWarn ? ` · ⚠ ${scheduleWarn}` : ''}`}
                       >
                         {!isMilestone && (
                           <>

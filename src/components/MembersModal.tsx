@@ -47,6 +47,12 @@ import { buildOrgMemberDisplayMetaMap, formatPersonDisplay } from '../lib/assign
 import { cn } from '../lib/utils';
 import { MODAL_SCRIM_CLASS, MODAL_PANEL_BASE_CLASS, MODAL_BACKDROP_CLASS } from '../lib/modalChrome';
 import { formatProjectDisplayName } from '../lib/projectKind';
+import { isInternalCompanyEmail } from '../lib/emailDomain';
+
+/** 사내(@gmtc.kr)는 정책상 항상 승인된 계정으로 표시(DB 플래그 지연 시에도 동일). */
+function isMemberEffectivelyApproved(m: Pick<ProfileRow, 'approved' | 'email'>): boolean {
+  return m.approved === true || isInternalCompanyEmail(m.email ?? '');
+}
 
 const TABLE_COL_COUNT = 11;
 
@@ -238,8 +244,8 @@ export function MembersModal({
             vb = b.last_visited_at ? new Date(b.last_visited_at).getTime() : 0;
             break;
           case 'approved':
-            va = a.approved ? 1 : 0;
-            vb = b.approved ? 1 : 0;
+            va = isMemberEffectivelyApproved(a) ? 1 : 0;
+            vb = isMemberEffectivelyApproved(b) ? 1 : 0;
             break;
           case 'role':
             va = a.is_admin ? 1 : 0;
@@ -514,7 +520,7 @@ export function MembersModal({
   };
 
   const approveMember = async (member: ProfileRow) => {
-    if (member.approved) return;
+    if (isMemberEffectivelyApproved(member)) return;
     setApprovingId(member.id);
     const result = await updateMemberApproved(member.id, true);
     setApprovingId(null);
@@ -646,7 +652,7 @@ export function MembersModal({
         )}
       </td>
       <td className="py-3 px-2">
-        {m.approved ? (
+        {isMemberEffectivelyApproved(m) ? (
           <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">승인됨</span>
         ) : m.id === currentUserId ? (
           <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">대기</span>

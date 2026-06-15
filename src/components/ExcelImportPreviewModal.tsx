@@ -43,13 +43,13 @@ const colToLetter = (n: number) => {
   return s;
 };
 
-/** 가져오기 컬럼 매핑 select 옵션: 1-based 컬럼 번호 + 셀 예시(또는 헤더 폴백)만 표시 */
+/** 가져오기 컬럼 매핑 select 옵션: 엑셀 열 문자(A, B, …) + 셀 예시(또는 헤더 폴백) */
 const formatColumnMappingOptionLabel = (columnIndex0: number, sample: string, headerFallback: string, maxSampleLen = 24) => {
-  const n = columnIndex0 + 1;
+  const letter = colToLetter(columnIndex0);
   const raw = String(sample ?? '').trim() || String(headerFallback ?? '').trim();
-  if (!raw) return String(n);
+  if (!raw) return letter;
   const truncated = raw.length > maxSampleLen ? `${raw.slice(0, maxSampleLen - 1)}…` : raw;
-  return `${n} — ${truncated}`;
+  return `${letter} : ${truncated}`;
 };
 
 const colRangeLabel = (indices?: number[], fallback?: number) => {

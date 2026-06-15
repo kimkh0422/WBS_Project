@@ -16,12 +16,15 @@ export type BuiltInTableColumnId =
   | 'plannedProgress'
   | 'progressVariance'
   | 'deliverables'
-  | 'dependencies';
+  | 'dependencies'
+  /** 표 우측 관리 열(수정·삭제) — 데이터 필드는 없으나 엑셀식 마퀴·포커스 격자에 포함 */
+  | 'actions';
 export type TableColumnId = BuiltInTableColumnId | `custom:${string}`;
 
 /** 인라인 편집 중인 셀. `typeToEditSeed`는 controlled 편집기(allocation·진척률·선행작업)용 첫 글자 주입 후 즉시 제거된다. */
 export type WbsEditingCellPayload = { taskId: string; columnId: TableColumnId; typeToEditSeed?: string };
-export type TableDisplayColumnId = TableColumnId | 'actions';
+/** @deprecated `actions`는 TableColumnId에 포함됨 */
+export type TableDisplayColumnId = TableColumnId;
 
 export interface WBSTableProps {
   filters: FilterState;

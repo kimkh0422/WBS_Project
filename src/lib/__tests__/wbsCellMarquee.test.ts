@@ -9,6 +9,19 @@ describe('parseClipboardTsvToTextGrid', () => {
       ['c', 'd'],
     ]);
   });
+
+  it('탭이 없고 열 개수가 일정하면 쉼표로 열을 구분한다', () => {
+    const csv = ['2026-01-01, 2026-05-29', '2026-01-01, 2026-03-06', '2026-01-26, 2026-05-15'].join('\n');
+    expect(parseClipboardTsvToTextGrid(csv)).toEqual([
+      ['2026-01-01', '2026-05-29'],
+      ['2026-01-01', '2026-03-06'],
+      ['2026-01-26', '2026-05-15'],
+    ]);
+  });
+
+  it('쉼표 열 개수가 줄마다 다르면 한 열로 두어 한 셀에 붙지 않게 분할만 억제한다', () => {
+    expect(parseClipboardTsvToTextGrid('a,b\nc')).toEqual([['a,b'], ['c']]);
+  });
 });
 
 describe('expandWbsMarqueePlainPastePairs', () => {

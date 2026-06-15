@@ -6,6 +6,7 @@ import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { cn } from '../lib/utils';
+import { resolveStoredTableColumnVisible } from '../lib/wbsSettings';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   DASHBOARD_SECTION_IDS,
@@ -166,7 +167,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c) => c && typeof c.id === 'string')
-      .map((c) => ({ id: c.id, visible: c.visible !== false }))
+      .map((c) => ({ id: c.id, visible: resolveStoredTableColumnVisible(c.id, c.visible) }))
       .filter((c) => {
         if (seen.has(c.id)) return false;
         seen.add(c.id);
@@ -206,7 +207,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
   }, [tableColumns, customColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
 
   /** 설정 UI에만 노출 — 접두어 WBS ID 컬럼은 목록에서 제외(순서 화살표 인덱스와 실제 배열 길이 일치). */
-  const tableColumnsSettingsList = useMemo(() => normalizedTableColumns.filter((c) => c.id !== 'wbsId'), [normalizedTableColumns]);
+  const tableColumnsSettingsList = useMemo(
+    () => normalizedTableColumns.filter((c) => c.id !== 'wbsId' && c.id !== 'workEffort' && c.id !== 'weight'),
+    [normalizedTableColumns],
+  );
 
   useEffect(() => {
     if (isOpen) {

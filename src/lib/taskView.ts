@@ -98,6 +98,18 @@ export function buildParentSet(tasks: Task[]): Set<string> {
   return parentIds;
 }
 
+/** 부모 task id → 직속 자식 개수 (`buildParentSet`과 동일한 parentId 정규화 규칙) */
+export function buildDirectChildCountByParentId(tasks: Task[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    if (task.parentId == null) continue;
+    const v = String(task.parentId).trim();
+    if (!v || v === 'null' || v === 'undefined') continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function createTaskComparator(sortConfig: SortConfig) {
   return (a: Task, b: Task) => {
     if (!sortConfig) return 0;

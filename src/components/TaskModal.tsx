@@ -7,7 +7,7 @@ import { useWBS } from '../context/WBSContext';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { getTaskScheduleOutsideProjectMessage } from '../lib/projectTaskSchedule';
 import { useOrganization } from '../context/OrganizationContext';
-import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { DEFAULT_NEW_TASK_WORK_EFFORT } from '../lib/workEffortUnits';
 import { randomUUID, cn, round1, round2 } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
@@ -181,7 +181,7 @@ function _TaskModalLegacy({
   const tableColumnToggles = useMemo(() => {
     const customNameById = new Map((wbsSettings.customColumns ?? []).map((c) => [c.id, c.name] as const));
     return (wbsSettings.tableColumns ?? [])
-      .filter((c) => c.id !== 'actions')
+      .filter((c) => c.id !== 'actions' && c.id !== 'workEffort' && c.id !== 'weight')
       .map((c) => ({
         id: c.id,
         visible: c.visible !== false,
@@ -209,8 +209,6 @@ function _TaskModalLegacy({
   const currentUserName =
     String((user?.user_metadata as Record<string, unknown> | undefined)?.full_name ?? user?.email ?? '').trim() || '(이름 없음)';
   const currentUserColor = currentUserId ? colorForUserId(currentUserId) : '#2563eb';
-  const taskEffortUnit = normalizeWorkEffortUnit(taskProject?.workEffortUnit);
-  const taskEffortUnitLabel = workEffortUnitSuffixKo(taskEffortUnit);
   // 권한 모델: WBSContext·RLS와 동일 — 관리자, 해당 프로젝트 소유자, 또는 승인 멤버(viewer/editor)
   // 로 `get_user_editable_project_ids`에 포함된 프로젝트면 편집 가능.
   const canEditTaskProject =
@@ -263,7 +261,6 @@ function _TaskModalLegacy({
   const [depPickIdx, setDepPickIdx] = useState(0);
   const [depsFocused, setDepsFocused] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
 
   const taskScheduleOutsideNote = useMemo(() => {
     if (!taskProject) return null;
@@ -498,7 +495,6 @@ function _TaskModalLegacy({
         .map((s) => s.trim())
         .filter(Boolean).length
     : 0;
-  const effortHelpText = '투입비율: 프로젝트 설정의 인원·비율로 기간/공수가 계산됩니다.';
 
   const parseDepsInput = (): string[] => {
     const nums: number[] = depsInput
@@ -1007,10 +1003,10 @@ function _TaskModalLegacy({
               </div>
             ) : null}
 
-            {/* 일정 + 공수 - 한 줄 */}
+            {/* 일정 */}
             <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
               <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />
-              <span className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">일정 · 공수</span>
+              <span className="text-[11px] font-semibold text-[var(--color-ink-muted)] uppercase tracking-wider">일정</span>
             </div>
             <div className="min-w-0">
               <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">시작일</label>
@@ -1124,61 +1120,6 @@ function _TaskModalLegacy({
                 disabled={readOnly}
               />
             </div>
-            <div className="col-span-full min-w-0">
-              <div className="flex flex-wrap gap-x-6 gap-y-2 items-end">
-                <div>
-                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">공수 ({taskEffortUnitLabel})</label>
-                  <div className="flex gap-1.5 items-center">
-                    <input
-                      id="task-modal-work-effort-input"
-                      type="number"
-                      min="0"
-                      step={taskEffortUnit === 'minute' ? 1 : 0.5}
-                      value={formData.workEffort ?? ''}
-                      onChange={(e) =>
-                        setFormData({ ...formData, workEffort: e.target.value === '' ? undefined : parseFloat(e.target.value) })
-                      }
-                      className="input-field py-1.5 text-sm w-20 flex-shrink-0"
-                      placeholder="0.5"
-                      aria-label="작업 공수"
-                      readOnly={readOnly}
-                      disabled={readOnly}
-                    />
-                    <span
-                      className="cursor-help text-[var(--color-ink-muted)] hover:text-[var(--color-accent)] p-0.5 shrink-0"
-                      title={effortHelpText}
-                      aria-label="공수 도움말"
-                    >
-                      <Info size={12} />
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-[var(--color-ink)] mb-0.5">가중치</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={formData.weight ?? ''}
-                    onChange={(e) => setFormData({ ...formData, weight: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
-                    className="input-field py-1.5 text-sm w-24"
-                    placeholder="—"
-                    aria-label="작업 가중치"
-                    readOnly={readOnly}
-                    disabled={readOnly}
-                  />
-                </div>
-              </div>
-            </div>
-            {showHelp && (
-              <div
-                className="col-span-full rounded-lg bg-[var(--color-accent-soft)] border border-indigo-100 px-2.5 py-2 text-[11px] text-[var(--color-ink)]"
-                role="status"
-              >
-                {effortHelpText}
-              </div>
-            )}
-
             {/* 작업 옵션 - 한 줄 */}
             <div className="col-span-full flex items-center gap-1.5 mb-0.5 mt-1">
               <span className="w-0.5 h-3.5 rounded-full bg-[var(--color-accent)]" aria-hidden />

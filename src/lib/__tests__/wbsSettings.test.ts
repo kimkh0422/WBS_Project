@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { parseSettings, DEFAULT_SETTINGS } from '../wbsSettings';
+import { parseSettings, DEFAULT_SETTINGS, resolveStoredTableColumnVisible } from '../wbsSettings';
+
+describe('resolveStoredTableColumnVisible', () => {
+  it('visible 생략 시 공수·가중치는 기본 숨김', () => {
+    expect(resolveStoredTableColumnVisible('workEffort', undefined)).toBe(false);
+    expect(resolveStoredTableColumnVisible('weight', undefined)).toBe(false);
+  });
+  it('저장이 true여도 공수·가중치 컬럼은 항상 숨김', () => {
+    expect(resolveStoredTableColumnVisible('workEffort', true)).toBe(false);
+    expect(resolveStoredTableColumnVisible('weight', true)).toBe(false);
+  });
+  it('visible 생략 시 작업명 등은 DEFAULT_SETTINGS를 따른다', () => {
+    expect(resolveStoredTableColumnVisible('name', undefined)).toBe(true);
+    expect(resolveStoredTableColumnVisible('status', undefined)).toBe(false);
+  });
+  it('custom 컬럼은 visible 생략 시 표시로 간주', () => {
+    expect(resolveStoredTableColumnVisible('custom:1', undefined)).toBe(true);
+  });
+});
 
 describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', () => {
   it('기본 설정에서 공수 컬럼은 숨김이다', () => {
@@ -29,7 +47,7 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
     expect(s.workEffortReHiddenMigrated).toBe(true);
   });
 
-  it('재숨김 마이그레이션이 1회 적용된 뒤에는 사용자가 다시 켠 공수 컬럼을 유지한다', () => {
+  it('재숨김 마이그레이션이 1회 적용된 뒤에도 공수 컬럼은 항상 비표시로 해석된다', () => {
     const raw = {
       tableColumns: [
         { id: 'name', visible: true },
@@ -50,7 +68,7 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
       standardVisibleColumnsMigrated: true,
     };
     const s = parseSettings(raw);
-    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(true);
+    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(false);
   });
 
   it('2차 재숨김: 1차 재숨김 후 다시 켜 둔 공수도 한 번 더 숨김한다', () => {
@@ -119,7 +137,7 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     expect(s.progressVarianceHiddenMigrated).toBe(true);
   });
 
-  it('표준화가 1회 적용된 뒤에는 사용자가 다시 켠 컬럼(가중치 등)을 유지한다', () => {
+  it('표준화가 1회 적용된 뒤에도 가중치 컬럼은 항상 비표시로 해석된다', () => {
     const raw = {
       tableColumns: [
         { id: 'name', visible: true },
@@ -138,7 +156,7 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
       standardVisibleColumnsMigrated: true,
     };
     const s = parseSettings(raw);
-    expect(s.tableColumns?.find((c) => c.id === 'weight')?.visible).toBe(true);
+    expect(s.tableColumns?.find((c) => c.id === 'weight')?.visible).toBe(false);
   });
 
   it('이미 표준화된 저장값에서도 접두어 WBS ID 컬럼은 1회 숨김으로 정리된다', () => {

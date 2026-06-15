@@ -185,21 +185,22 @@ export function useUnsavedChangesGuard({
     }
   }, [projectSwitchBusy, projectSwitchPrompt, flushInlineCellEditsBeforeSave, pushToast]);
 
-  const handleProjectSwitchDiscardProceed = useCallback(async () => {
-    if (projectSwitchBusy || !projectSwitchPrompt) return;
-    setProjectSwitchAction('discard');
-    try {
-      await discardUnsavedChangesReloadFromServer();
-      const run = pendingProjectSwitchRunRef.current;
-      pendingProjectSwitchRunRef.current = null;
-      setProjectSwitchPrompt(null);
-      run?.();
-    } catch {
-      /* handleDbError에서 토스트 처리 */
-    } finally {
-      setProjectSwitchAction(null);
-    }
-  }, [projectSwitchBusy, projectSwitchPrompt, discardUnsavedChangesReloadFromServer]);
+  const handleProjectSwitchDiscardProceed = useCallback(() => {
+    if (!projectSwitchPromptRef.current) return;
+    // 모달은 즉시 닫고, 서버 기준으로 되돌린 뒤 전환(저장 안 함 — 대기 문구 없음)
+    setProjectSwitchPrompt(null);
+    setProjectSwitchAction(null);
+    void (async () => {
+      try {
+        await discardUnsavedChangesReloadFromServer();
+        const run = pendingProjectSwitchRunRef.current;
+        pendingProjectSwitchRunRef.current = null;
+        run?.();
+      } catch {
+        /* handleDbError에서 토스트 처리 */
+      }
+    })();
+  }, [discardUnsavedChangesReloadFromServer]);
 
   const handleProjectSwitchCancel = useCallback(() => {
     if (projectSwitchBusy) return;
@@ -330,19 +331,20 @@ export function useUnsavedChangesGuard({
     }
   }, [viewLeaveBusy, viewLeavePrompt, flushInlineCellEditsBeforeSave, proceedPendingViewNavigation, pushToast]);
 
-  const handleViewLeaveDiscardProceed = useCallback(async () => {
-    if (viewLeaveBusy || !viewLeavePrompt) return;
-    setViewLeaveAction('discard');
-    try {
-      await discardUnsavedChangesReloadFromServer();
-      setViewLeavePrompt(null);
-      proceedPendingViewNavigation();
-    } catch {
-      /* handleDbError */
-    } finally {
-      setViewLeaveAction(null);
-    }
-  }, [viewLeaveBusy, viewLeavePrompt, discardUnsavedChangesReloadFromServer, proceedPendingViewNavigation]);
+  const handleViewLeaveDiscardProceed = useCallback(() => {
+    if (!viewLeavePromptRef.current) return;
+    // 확인 창은 즉시 닫고, 미반영 변경은 서버 데이터로 되돌린 뒤 이동
+    setViewLeavePrompt(null);
+    setViewLeaveAction(null);
+    void (async () => {
+      try {
+        await discardUnsavedChangesReloadFromServer();
+        proceedPendingViewNavigation();
+      } catch {
+        /* handleDbError */
+      }
+    })();
+  }, [discardUnsavedChangesReloadFromServer, proceedPendingViewNavigation]);
 
   const handleViewLeaveCancel = useCallback(() => {
     if (viewLeaveBusy) return;

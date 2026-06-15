@@ -114,6 +114,16 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     expect(same.error).toBeUndefined();
   });
 
+  it('날짜: 빈 값은 저장값 비우기(Delete·빈 셀 붙여넣기)', () => {
+    const t = makeTask({ id: 'a', startDate: '2026-04-01', endDate: '2026-04-10' });
+    expect(buildWbsCellPasteUpdate(t, 'startDate', { text: '' }, ctxOf([t])).updates).toEqual({ startDate: '' });
+    expect(buildWbsCellPasteUpdate(t, 'endDate', { text: '  ' }, ctxOf([t])).updates).toEqual({ endDate: '' });
+    const empty = makeTask({ id: 'b', startDate: '', endDate: '' });
+    const noOp = buildWbsCellPasteUpdate(empty, 'startDate', { text: '' }, ctxOf([empty]));
+    expect(noOp.updates).toBeNull();
+    expect(noOp.error).toBeUndefined();
+  });
+
   it('날짜: 8자리 등 다양한 표기를 정규화하고 대상의 시간 접미사를 보존', () => {
     const t = makeTask({ id: 'a', startDate: '2026-04-01T00:00:00' });
     const res = buildWbsCellPasteUpdate(t, 'startDate', { text: '20260415' }, ctxOf([t]));
@@ -138,6 +148,13 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     expect(buildWbsCellPasteUpdate(t, 'workEffort', { text: '-1' }, ctxOf([t])).error).toBeTruthy();
   });
 
+  it('진척률: 빈 값은 0으로', () => {
+    const t = makeTask({ id: 'a', progress: 40 });
+    expect(buildWbsCellPasteUpdate(t, 'progress', { text: '' }, ctxOf([t])).updates).toEqual({ progress: 0 });
+    const z = makeTask({ id: 'b', progress: 0 });
+    expect(buildWbsCellPasteUpdate(z, 'progress', { text: '' }, ctxOf([z])).updates).toBeNull();
+  });
+
   it('진척률: %·공백 접미사 허용, 0~100 밖은 거부', () => {
     const t = makeTask({ id: 'a', progress: 0 });
     expect(buildWbsCellPasteUpdate(t, 'progress', { text: '50%' }, ctxOf([t])).updates).toEqual({ progress: 50 });
@@ -154,6 +171,15 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     const t = makeTask({ id: 'a', assignee: '홍길동' });
     expect(buildWbsCellPasteUpdate(t, 'assignee', { text: ' 김철수 ' }, ctxOf([t])).updates).toEqual({ assignee: '김철수' });
     expect(buildWbsCellPasteUpdate(t, 'assignee', { text: '' }, ctxOf([t])).updates).toEqual({ assignee: '' });
+  });
+
+  it('상태: 빈 값은 예정(todo) 등 기본 상태로', () => {
+    const t = makeTask({ id: 'a', status: 'done', progress: 100 });
+    expect(buildWbsCellPasteUpdate(t, 'status', { text: '' }, ctxOf([t])).updates).toEqual({ status: 'todo', progress: 0 });
+    const already = makeTask({ id: 'b', status: 'todo', progress: 0 });
+    const r = buildWbsCellPasteUpdate(already, 'status', { text: '' }, ctxOf([already]));
+    expect(r.updates).toBeNull();
+    expect(r.error).toBeUndefined();
   });
 
   it('상태: 표시명으로 매칭하고 상태에 매핑된 진척률을 함께 반영, statusId가 있으면 우선', () => {

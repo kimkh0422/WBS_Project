@@ -160,8 +160,8 @@ export interface TaskRow {
   project_id: string;
   parent_id: string | null;
   name: string;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   progress: number;
   assignee: string;
   status: string;

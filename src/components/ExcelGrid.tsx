@@ -26,8 +26,7 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
       tasks.map((t) => ({
         ...t,
         _wbs: displayWbsMap.get(t.id) ?? '',
-        // Excel 편집 모드에서 모든 컬럼 정보를 한눈에 보기 위해
-        // 표 컬럼에 대응하는 표시용 텍스트를 함께 포함한다.
+        // Excel 편집 모드: 표 컬럼에 대응하는 값을 한눈에 보기 위함.
         _allocationText: '',
         _dependenciesText: Array.isArray(t.dependencies) && t.dependencies.length > 0 ? t.dependencies.join(', ') : '',
       })),
@@ -86,20 +85,6 @@ export function ExcelGrid({ tasks, displayWbsMap, onTaskChange }: ExcelGridProps
         field: '_allocationText',
         width: 120,
         editable: false,
-      },
-      {
-        headerName: '공수(D)',
-        field: 'workEffort',
-        width: 110,
-        editable: true,
-        valueParser: numberParser,
-      },
-      {
-        headerName: '가중치',
-        field: 'weight',
-        width: 110,
-        editable: true,
-        valueParser: numberParser,
       },
       {
         headerName: '진행률(%)',

@@ -140,13 +140,32 @@ export function buildCellMarqueeKeySet(
   return keys;
 }
 
-/** 엑셀/시스템 클립보드 TSV를 2차원 텍스트 격자로 파싱 (끝의 빈 줄 제거) */
+/**
+ * 엑셀/시스템 클립보드 격자 텍스트를 2차원 배열로 파싱 (끝의 빈 줄 제거).
+ * - 탭(TSV)이 한 줄이라도 있으면 행마다 탭으로 분할 (엑셀 기본).
+ * - 탭이 없고 모든 줄의 쉼표 분할 열 개수가 같고 2열 이상이면 CSV로 취급(쉼표 뒤 공백 trim).
+ * - 그 외는 한 줄 = 한 셀(한 열)로 두어 잘못된 열 분할을 피한다.
+ */
 export function parseClipboardTsvToTextGrid(text: string): string[][] {
   const lines = text.split(/\r?\n/);
   while (lines.length > 0 && lines[lines.length - 1] === '') {
     lines.pop();
   }
-  return lines.map((line) => line.split('\t'));
+  if (lines.length === 0) return [];
+
+  if (lines.some((line) => line.includes('\t'))) {
+    return lines.map((line) => line.split('\t'));
+  }
+
+  const commaRows = lines.map((line) => line.split(',').map((cell) => cell.trim()));
+  const widths = commaRows.map((r) => r.length);
+  const w0 = widths[0] ?? 0;
+  const commaGrid = w0 >= 2 && widths.every((w) => w === w0) && lines.some((line) => line.includes(','));
+  if (commaGrid) {
+    return commaRows;
+  }
+
+  return lines.map((line) => [line]);
 }
 
 /** 앵커 셀을 좌상단으로 하여 복사 격자만큼 (행·열) 기하학적으로 대상 셀에 매핑 — 표 밖은 생략 */

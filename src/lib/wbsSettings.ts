@@ -100,7 +100,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: false,
   // 기본 표시 컬럼: 작업명·시작일·종료일·기간·담당자·계획율·진척율(+그립·체크·계층 WBS 번호 칸은 항상).
-  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 진척차이·공수·가중치·투입율·상태·산출물·선행작업·관리는 기본 숨김.
+  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 진척차이·공수·가중치·투입율·상태·산출물·선행작업·관리는 기본 숨김(공수·가중치는 UI에서 영구 비표시).
   tableColumns: [
     { id: 'wbsId', visible: false },
     { id: 'name', visible: true },
@@ -123,6 +123,21 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   wrapTextInCells: false,
   showTableAutoFormatting: true,
 };
+
+/**
+ * 저장된 컬럼 설정의 `visible`이 없을 때(구버전 등): 표준 컬럼은 {@link DEFAULT_SETTINGS}를 따르고,
+ * `custom:*` 등 기본 목록에 없는 컬럼은 표시로 간주한다.
+ * 공수(`workEffort`)·가중치(`weight`) 컬럼은 저장값과 무관하게 항상 비표시다.
+ */
+export function resolveStoredTableColumnVisible(id: string, storedVisible: unknown): boolean {
+  /** 공수·가중치 컬럼은 저장값과 무관하게 표에 두지 않는다. */
+  if (id === 'workEffort' || id === 'weight') return false;
+  if (storedVisible === true) return true;
+  if (storedVisible === false) return false;
+  const def = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === id);
+  if (def) return !!def.visible;
+  return true;
+}
 
 /** raw 저장값(문자열 또는 객체)을 WBSSettings로 파싱. 구버전 포맷(statusNames/statusProgress) 호환 포함. */
 export function parseSettings(raw: unknown): WBSSettings {
@@ -168,7 +183,7 @@ export function parseSettings(raw: unknown): WBSSettings {
         Array.isArray(parsed.tableColumns) && parsed.tableColumns.length > 0
           ? parsed.tableColumns
               .filter((c) => c && typeof c.id === 'string')
-              .map((c) => ({ id: String(c.id), visible: c.visible !== false }))
+              .map((c) => ({ id: String(c.id), visible: resolveStoredTableColumnVisible(String(c.id), c.visible) }))
           : DEFAULT_SETTINGS.tableColumns,
       // 크리티컬 패스 강조는 제거됨: 저장값과 무관하게 항상 끔
       showCriticalPath: false,

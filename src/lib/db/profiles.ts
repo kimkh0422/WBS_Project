@@ -1,5 +1,6 @@
 import { supabase, supabaseUrl, supabaseAnonKey, isSupabaseConfigured } from '../supabase';
 import type { ProfileRow } from '../supabase';
+import { isInternalCompanyEmail } from '../emailDomain';
 import { requireSupabase, isRpcDisabled, isRpcNotFoundError, disableRpc } from './client';
 
 function isApprovedColumnError(err: { message?: string }): boolean {
@@ -467,21 +468,32 @@ function isForceEveryoneAdminEnv(): boolean {
   return v === 'true' || v === '1' || v === 'yes';
 }
 
+/** @gmtc.kr 사내 메일은 DB 승인 플래그와 무관하게 항상 승인된 사내 계정으로 취급(RLS·ensure_profile과 정책 일치). */
+function withInternalCompanyAutoApprove(status: LoginProfileStatus, sessionEmail: string): LoginProfileStatus {
+  if (!isInternalCompanyEmail(sessionEmail)) return status;
+  return { ...status, approved: true, isExternalPartner: false };
+}
+
 /** 로그인 사용자의 프로필 상태(관리자·승인·조직 책임자 범위). 미승인 시 로컬 전용 사용. */
 export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
   requireSupabase();
+  const { data: authSnapshot } = await supabase!.auth.getUser();
+  const sessionEmail = authSnapshot?.user?.email ?? '';
+
   if (isForceEveryoneAdminEnv()) {
-    const { data: authData } = await supabase!.auth.getUser();
-    const uid = authData?.user?.id;
+    const uid = authSnapshot?.user?.id;
     if (!uid) return null;
-    return {
-      isAdmin: true,
-      approved: true,
-      isExternalPartner: false,
-      department: null,
-      managedOrgNodeId: null,
-      isOrgScopeManager: false,
-    };
+    return withInternalCompanyAutoApprove(
+      {
+        isAdmin: true,
+        approved: true,
+        isExternalPartner: false,
+        department: null,
+        managedOrgNodeId: null,
+        isOrgScopeManager: false,
+      },
+      sessionEmail,
+    );
   }
   const fallbackStatus = (): LoginProfileStatus => ({
     isAdmin: false,
@@ -505,18 +517,20 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       const rawManaged = result.managed_org_node_id;
       const managedStr = rawManaged !== undefined && rawManaged !== null ? String(rawManaged).trim() : '';
       const deptStr = result.department !== undefined && result.department !== null ? String(result.department).trim() : '';
-      return {
-        isAdmin: result?.is_admin === true,
-        approved: result?.approved !== false,
-        isExternalPartner: result?.is_external_partner === true,
-        department: deptStr.length > 0 ? deptStr : null,
-        managedOrgNodeId: managedStr.length > 0 ? managedStr : null,
-        isOrgScopeManager: result?.is_org_scope_manager === true || managedStr.length > 0,
-      };
+      return withInternalCompanyAutoApprove(
+        {
+          isAdmin: result?.is_admin === true,
+          approved: result?.approved !== false,
+          isExternalPartner: result?.is_external_partner === true,
+          department: deptStr.length > 0 ? deptStr : null,
+          managedOrgNodeId: managedStr.length > 0 ? managedStr : null,
+          isOrgScopeManager: result?.is_org_scope_manager === true || managedStr.length > 0,
+        },
+        sessionEmail,
+      );
     }
     try {
-      const { data: authData } = await supabase!.auth.getUser();
-      const uid = authData?.user?.id;
+      const uid = authSnapshot?.user?.id;
       if (!uid) return fallbackStatus();
       let row: Record<string, unknown> | null = null;
       const trySelectOrg = async () => {
@@ -538,21 +552,23 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       const approvedVal = r.approved !== false;
       const managedRaw = r.managed_org_node_id != null ? String(r.managed_org_node_id).trim() : '';
       const deptRaw = r.department != null ? String(r.department).trim() : '';
-      return {
-        isAdmin: isAdminVal,
-        approved: approvedVal,
-        isExternalPartner: r.is_external_partner === true,
-        department: deptRaw.length > 0 ? deptRaw : null,
-        managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
-        isOrgScopeManager: managedRaw.length > 0,
-      };
+      return withInternalCompanyAutoApprove(
+        {
+          isAdmin: isAdminVal,
+          approved: approvedVal,
+          isExternalPartner: r.is_external_partner === true,
+          department: deptRaw.length > 0 ? deptRaw : null,
+          managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
+          isOrgScopeManager: managedRaw.length > 0,
+        },
+        sessionEmail,
+      );
     } catch {
       return fallbackStatus();
     }
   } catch {
     try {
-      const { data: authData } = await supabase!.auth.getUser();
-      const uid = authData?.user?.id;
+      const uid = authSnapshot?.user?.id;
       if (!uid) return fallbackStatus();
       const { data: row, error: selErr } = await supabase!
         .from('profiles')
@@ -563,14 +579,17 @@ export async function getProfileStatus(): Promise<LoginProfileStatus | null> {
       const r = row as Record<string, unknown>;
       const managedRaw = r.managed_org_node_id != null ? String(r.managed_org_node_id).trim() : '';
       const deptRaw = r.department != null ? String(r.department).trim() : '';
-      return {
-        isAdmin: r.is_admin === true,
-        approved: r.approved !== false,
-        isExternalPartner: r.is_external_partner === true,
-        department: deptRaw.length > 0 ? deptRaw : null,
-        managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
-        isOrgScopeManager: managedRaw.length > 0,
-      };
+      return withInternalCompanyAutoApprove(
+        {
+          isAdmin: r.is_admin === true,
+          approved: r.approved !== false,
+          isExternalPartner: r.is_external_partner === true,
+          department: deptRaw.length > 0 ? deptRaw : null,
+          managedOrgNodeId: managedRaw.length > 0 ? managedRaw : null,
+          isOrgScopeManager: managedRaw.length > 0,
+        },
+        sessionEmail,
+      );
     } catch {
       return fallbackStatus();
     }

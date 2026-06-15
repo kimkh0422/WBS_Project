@@ -46,6 +46,7 @@ export const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   progressVariance: '차이(%p)',
   deliverables: '산출물',
   dependencies: '선행작업',
+  actions: '관리',
 };
 
 // ── Hook params ────────────────────────────────────────────────────
@@ -67,6 +68,8 @@ export interface UseColumnResizeParams {
   assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>;
   /** 표시 중인 크리티컬 패스(작업명 열 배지 너비 자동 맞춤용). Summary와 동일하게 `showCriticalPath` 반영된 집합을 넘긴다. */
   criticalPathTaskIds?: ReadonlySet<string>;
+  /** 부모 id → 직속 자식 수(작업명 옆 `(n)` 표시 폭 자동 맞춤용) */
+  directChildCountByParentId?: Map<string, number>;
 }
 
 export interface UseColumnResizeReturn {
@@ -146,6 +149,7 @@ export function useColumnResize({
   customColumnNameById,
   assigneeDisplayMetaByName,
   criticalPathTaskIds,
+  directChildCountByParentId,
 }: UseColumnResizeParams): UseColumnResizeReturn {
   // ── State ──
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => clampColumnWidths({ ...DEFAULT_COLUMN_WIDTHS }));
@@ -249,6 +253,10 @@ export function useColumnResize({
           const nm = (task.name ?? '').trim();
           cellText = prepend && dw ? (nm ? `${dw} ${nm}` : dw) : (task.name ?? '');
           extraW = nameColumnExtraWidth(task, criticalPathTaskIds);
+          const childN = directChildCountByParentId?.get(task.id);
+          if (childN != null && childN > 0) {
+            extraW += measureText(` (${childN})`);
+          }
         } else if (colId === 'startDate') cellText = formatDate(task.startDate);
         else if (colId === 'endDate') cellText = formatDate(task.endDate);
         else if (colId === 'duration') {
@@ -284,6 +292,7 @@ export function useColumnResize({
     },
     [
       visibleTasks,
+      directChildCountByParentId,
       displayWbsMap,
       allocationDisplayByTaskId,
       taskIdToSeqNum,

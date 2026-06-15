@@ -1,10 +1,9 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
-import type { StatusConfig } from '../lib/wbsSettings';
+import { type StatusConfig, resolveStoredTableColumnVisible } from '../lib/wbsSettings';
 import { cn, formatPercent1, round2 } from '../lib/utils';
 import { isTaskColumnMissingFromDb } from '../lib/db/tasks';
-import { getUseWeightForProgressRollup, setUseWeightForProgressRollup, onProgressRollupOptionChange } from '../lib/rollupOptions';
 import { computeTreeGuideStrings } from '../lib/treeGuides';
 import {
   ChevronDown,
@@ -49,11 +48,11 @@ import { CellFormatToolbar } from './WBSTable/CellFormatToolbar';
 import { SortableTaskRow } from './SortableTaskRow';
 import type { Project, Task, TaskStatus } from '../types';
 import { ContextMenu, type ContextMenuAction } from './ContextMenu';
-import { ConfirmDialog } from './ConfirmDialog';
 import { useVirtualizer, defaultRangeExtractor } from '@tanstack/react-virtual';
+import type { Virtualizer } from '@tanstack/virtual-core';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { buildParentSet, buildVisibleTasks, buildTasksInTreeOrderWithWbs } from '../lib/taskView';
+import { buildParentSet, buildDirectChildCountByParentId, buildVisibleTasks, buildTasksInTreeOrderWithWbs } from '../lib/taskView';
 import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
 import {
   buildMarkdownForProjectTable,
@@ -205,7 +204,7 @@ export function WBSTable({
 
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
 
-  const { push: pushToast } = useToast();
+  const { push: pushToast, dismiss: dismissToast } = useToast();
   const { user } = useAuth();
   const { orgMembers } = useOrganization();
   const currentUserId = user?.id ?? '';
@@ -282,6 +281,14 @@ export function WBSTable({
       }),
     [tasks, filters, sortConfig, projectsById],
   );
+
+  const baseTasks = useMemo(
+    () => (filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId))),
+    [tasks, filters.projectIds],
+  );
+
+  const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
+  const directChildCountByParentId = useMemo(() => buildDirectChildCountByParentId(baseTasks), [baseTasks]);
 
   const workEffortHeaderTitle = useMemo(() => {
     const pids = filters.projectIds;
@@ -548,7 +555,10 @@ export function WBSTable({
     const seen = new Set<string>();
     const cleaned = incoming
       .filter((c: { id: string; visible: boolean }) => c && typeof c.id === 'string')
-      .map((c: { id: string; visible: boolean }) => ({ id: String(c.id) as TableDisplayColumnId, visible: c.visible !== false }))
+      .map((c: { id: string; visible?: boolean }) => ({
+        id: String(c.id) as TableDisplayColumnId,
+        visible: resolveStoredTableColumnVisible(String(c.id), c.visible),
+      }))
       .filter((c: { id: TableDisplayColumnId; visible: boolean }) => allow.has(c.id))
       .filter((c: { id: TableDisplayColumnId; visible: boolean }) => {
         if (seen.has(c.id)) return false;
@@ -563,35 +573,28 @@ export function WBSTable({
     return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
   }, [wbsSettings, customColumnNameById]);
 
-  /** 가중치 진척 롤업 옵션의 React 거울(다른 곳에서 setter를 호출해도 UI 동기화). visibleColumnIds 메모에서 참조하므로 그 앞에 선언. */
-  const [useWeightForRollup, setUseWeightForRollupState] = useState<boolean>(() => getUseWeightForProgressRollup());
-  useEffect(() => {
-    const off = onProgressRollupOptionChange((v) => setUseWeightForRollupState(v));
-    return off;
-  }, []);
-  const toggleUseWeightForRollup = useCallback((v: boolean) => {
-    setUseWeightForProgressRollup(v); // localStorage + 이벤트 발행 → WBSContext가 재계산
-    setUseWeightForRollupState(v); // 즉시 UI 반영
-  }, []);
-
   const showActionsColumn = useMemo(() => tableColumns.some((c) => c.id === 'actions' && c.visible), [tableColumns]);
-  // 가중치 토글(OFF)이면 표에서 'weight' 컬럼도 함께 숨김(자동) — 진척률 롤업에 안 쓰이는 값이라 화면도 같이 정리.
-  // 토글 ON(기본)으로 돌리면 자동으로 다시 표시됨. 사용자의 컬럼 visibility 설정은 보존되며 토글이 ON일 때만 적용된다.
+  // 공수·가중치 컬럼은 저장값과 무관하게 표에 두지 않음(resolveStoredTableColumnVisible).
   const visibleColumnIds = useMemo(
     () =>
       tableColumns
-        .filter((c) => c.visible && c.id !== 'actions' && c.id !== 'wbsId')
-        .filter((c) => useWeightForRollup || c.id !== 'weight')
+        .filter((c) => c.visible && c.id !== 'actions' && c.id !== 'wbsId' && c.id !== 'workEffort' && c.id !== 'weight')
         .map((c) => c.id as TableColumnId),
-    [tableColumns, useWeightForRollup],
+    [tableColumns],
   );
   /** 편집 모드에서 좌우 이동 시 사용할 편집 가능 컬럼 순서 (wbsId 제외) */
   const editableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
 
+  /** 마퀴·드래그·Shift 범위: 표시 중인 데이터 열 + (켜진 경우) 관리 열 */
+  const marqueeColumnIds = useMemo<TableColumnId[]>(
+    () => (showActionsColumn ? [...visibleColumnIds, 'actions'] : [...visibleColumnIds]),
+    [visibleColumnIds, showActionsColumn],
+  );
+
   const cellMarqueeKeySet = useMemo(() => {
     if (!cellMarqueeRange) return null;
-    return buildCellMarqueeKeySet(visibleTasks, visibleColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end);
-  }, [cellMarqueeRange, visibleTasks, visibleColumnIds]);
+    return buildCellMarqueeKeySet(visibleTasks, marqueeColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end);
+  }, [cellMarqueeRange, visibleTasks, marqueeColumnIds]);
 
   const marqueeMultiCells = (cellMarqueeKeySet?.size ?? 0) > 1;
 
@@ -707,6 +710,12 @@ export function WBSTable({
     // scroll 엘리먼트 RO를 rAF로 묶어 한 틱에 여러 번 레이아웃이 흔들리는 것을 줄인다.
     useAnimationFrameWithResizeObserver: true,
   });
+
+  /** 셀 마퀴 드래그: 가상 스크롤 패딩 위에서도 행을 역산할 때 사용 */
+  const shouldVirtualizeForMarqueeRef = useRef(false);
+  shouldVirtualizeForMarqueeRef.current = shouldVirtualize;
+  const rowVirtualizerForMarqueeRef = useRef<Virtualizer<HTMLDivElement, Element> | null>(null);
+  rowVirtualizerForMarqueeRef.current = rowVirtualizer;
 
   useLayoutEffect(() => {
     const prev = prevShouldVirtualizeForScrollRestoreRef.current;
@@ -845,12 +854,6 @@ export function WBSTable({
     [onRowHeightChange, propRowHeight],
   );
 
-  // Delete Confirmation State
-  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; taskIds: string[] }>({
-    isOpen: false,
-    taskIds: [],
-  });
-
   // WBS ID Generation map logic was moved to WBSContext
 
   /** taskId ↔ 표 행 순번(1부터) 양방향 맵. 단일 패스로 생성 */
@@ -906,6 +909,7 @@ export function WBSTable({
     customColumnNameById,
     assigneeDisplayMetaByName,
     criticalPathTaskIds: effectiveCriticalPathSet,
+    directChildCountByParentId,
   });
 
   const tableAutoFitFilterKey = useMemo(() => {
@@ -981,11 +985,6 @@ export function WBSTable({
     return vars as React.CSSProperties;
   }, [columnWidths, visibleColumnIds]);
 
-  const baseTasks = useMemo(
-    () => (filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId))),
-    [tasks, filters.projectIds],
-  );
-
   const improvementGuideSteps = useMemo(
     () =>
       buildWbsImprovementGuide(baseTasks, projectsById, wbsSettings.statusConfigs ?? [], {
@@ -996,8 +995,6 @@ export function WBSTable({
       }),
     [baseTasks, projectsById, wbsSettings.statusConfigs, displayWbsMap],
   );
-
-  const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
 
   /** # 칸에 표시할 순수 계층 WBS 번호(접두어 없이 1 · 1.1 · 1.1.1). 설정 접두어가 붙는 wbsMap과 별개. */
   const seqWbsMap = useMemo(() => {
@@ -1237,10 +1234,10 @@ export function WBSTable({
     resetBulkFieldsRef.current();
   }, [setSelection]);
 
-  // 엑셀식 마우스 드래그: 셀 직사각형만 선택(행 체크는 드래그 시작 시 해제).
-  const { onPointerDown: handleRangeDragPointerDown } = useWbsDragRangeSelect({
+  // 엑셀식 마우스 드래그: 네이티브 pointerdown(capture) — 아래 스크롤 ref 콜백에서 `bindRangeDragToScrollElement` 호출.
+  const { bindRangeDragToScrollElement } = useWbsDragRangeSelect({
     visibleTasks,
-    visibleColumnIds,
+    visibleColumnIds: marqueeColumnIds,
     tableScrollRef,
     clearCheckboxSelection: clearCheckboxSelectionForDrag,
     setLastSelectedId,
@@ -1248,6 +1245,10 @@ export function WBSTable({
     setCellMarqueeRange,
     rangeAnchorRef,
     setAnchorTaskId,
+    virtualRangeFallback: {
+      enabledRef: shouldVirtualizeForMarqueeRef,
+      virtualizerRef: rowVirtualizerForMarqueeRef,
+    },
   });
 
   /** 행 클릭·Shift 범위 등으로 행만 포커스될 때도 셀 링이 이전 행에 남지 않게 lastSelectedId와 맞춘다 */
@@ -1258,7 +1259,7 @@ export function WBSTable({
         opts?.keepSelection &&
         cellMarqueeRange != null &&
         cellMarqueeKeysToTargets(
-          buildCellMarqueeKeySet(visibleTasks, visibleColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end),
+          buildCellMarqueeKeySet(visibleTasks, marqueeColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end),
         ).some((c) => c.taskId === taskId);
       if (!preserveMarquee) {
         setCellMarqueeRange(null);
@@ -1282,7 +1283,7 @@ export function WBSTable({
         resetBulkFieldsRef.current();
       }
     },
-    [setLastSelectedId, editableColumnIds, setSelection, cellMarqueeRange, visibleTasks, visibleColumnIds],
+    [setLastSelectedId, editableColumnIds, setSelection, cellMarqueeRange, visibleTasks, marqueeColumnIds],
   );
 
   // 행 포커스가 이동하면 단일 활성 행(activeTaskId)도 그 행으로 동기화한다.
@@ -1426,11 +1427,11 @@ export function WBSTable({
   /** Shift+클릭: 행 체크 구간이 아니라 엑셀식 셀 직사각형 범위 확장(드래그 마퀴와 동일 규칙의 앵커). */
   const handleShiftExtendCellRange = useCallback(
     (end: { taskId: string; columnId: TableColumnId }) => {
-      if (!visibleColumnIds.includes(end.columnId)) return;
+      if (!marqueeColumnIds.includes(end.columnId)) return;
       // 체크 다중 선택은 Shift 조작 중에도 유지(이전에는 여기서 비워져 연속 Shift 사용이 깨졌음).
       const anchor =
         cellMarqueeRange?.anchor ??
-        (focusedCell && visibleColumnIds.includes(focusedCell.columnId)
+        (focusedCell && marqueeColumnIds.includes(focusedCell.columnId)
           ? { taskId: focusedCell.taskId, columnId: focusedCell.columnId }
           : end);
       setCellMarqueeRange({ anchor, end });
@@ -1442,7 +1443,7 @@ export function WBSTable({
         tableScrollRef.current?.focus({ preventScroll: true });
       });
     },
-    [visibleColumnIds, cellMarqueeRange, focusedCell, setCellMarqueeRange, setFocusedCell, setLastSelectedId, setAnchorTaskId],
+    [marqueeColumnIds, cellMarqueeRange, focusedCell, setCellMarqueeRange, setFocusedCell, setLastSelectedId, setAnchorTaskId],
   );
 
   /**
@@ -1454,12 +1455,12 @@ export function WBSTable({
     (target: HTMLElement | null): boolean => {
       if (excelView || !target) return false;
       if (isShiftCellMarqueeExcludedTarget(target)) return false;
-      const end = resolveWbsShiftClickMarqueeEnd(target, visibleColumnIds, editableColumnIds, focusedCell);
+      const end = resolveWbsShiftClickMarqueeEnd(target, marqueeColumnIds, editableColumnIds, focusedCell);
       if (!end) return false;
       handleShiftExtendCellRange(end);
       return true;
     },
-    [excelView, visibleColumnIds, editableColumnIds, focusedCell, handleShiftExtendCellRange],
+    [excelView, marqueeColumnIds, editableColumnIds, focusedCell, handleShiftExtendCellRange],
   );
 
   /** Shift+클릭: 표 본문 최상단 캡처에서 처리해 표 단독·분할·sticky·가상 스크롤과 무관하게 동일 동작 */
@@ -1553,6 +1554,136 @@ export function WBSTable({
     updateTask,
   ]);
 
+  /** 확인 모달 없이 즉시 삭제(하위 작업 포함). 툴바·행·Delete 키·잘라내기 공통. */
+  const performDeleteTaskIds = useCallback(
+    (taskIds: string[]) => {
+      if (taskIds.length === 0) return;
+      const DELETE_PROGRESS_TOAST_ID = 'wbs-table-delete-progress';
+      const yieldToUi = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      const deleteSet = new Set<string>();
+      const getIdsToDelete = (parentId: string) => {
+        deleteSet.add(parentId);
+        tasks.filter((t) => t.parentId === parentId).forEach((child) => getIdsToDelete(child.id));
+      };
+      taskIds.forEach((id) => getIdsToDelete(id));
+
+      const visibleIndices = visibleTasks.map((t, i) => (deleteSet.has(t.id) ? i : -1)).filter((i) => i !== -1);
+
+      let nextSelectId: string | null = null;
+      if (visibleIndices.length > 0) {
+        const minIndex = Math.min(...visibleIndices);
+        const maxIndex = Math.max(...visibleIndices);
+
+        for (let i = maxIndex + 1; i < visibleTasks.length; i++) {
+          if (!deleteSet.has(visibleTasks[i]!.id)) {
+            nextSelectId = visibleTasks[i]!.id;
+            break;
+          }
+        }
+
+        if (!nextSelectId) {
+          for (let i = minIndex - 1; i >= 0; i--) {
+            if (!deleteSet.has(visibleTasks[i]!.id)) {
+              nextSelectId = visibleTasks[i]!.id;
+              break;
+            }
+          }
+        }
+      }
+
+      const rootIds = Array.from(new Set(taskIds));
+      const multiRoot = rootIds.length >= 2;
+      const showProgressToast = multiRoot || deleteSet.size >= 4;
+
+      const run = async () => {
+        if (showProgressToast) {
+          pushToast('작업 삭제 중…', {
+            id: DELETE_PROGRESS_TOAST_ID,
+            variant: 'info',
+            durationMs: 300_000,
+            detail: multiRoot
+              ? `0 / ${rootIds.length}개 상위 작업 (하위 포함 약 ${deleteSet.size}행)`
+              : `하위 포함 약 ${deleteSet.size}개 행을 정리하는 중입니다.`,
+            progress: multiRoot ? 0 : null,
+          });
+          await yieldToUi();
+        }
+
+        for (let i = 0; i < rootIds.length; i++) {
+          deleteTask(rootIds[i]!);
+          if (showProgressToast) {
+            const pct = Math.round(((i + 1) / rootIds.length) * 100);
+            pushToast('작업 삭제 중…', {
+              id: DELETE_PROGRESS_TOAST_ID,
+              variant: 'info',
+              durationMs: 300_000,
+              detail: multiRoot
+                ? `${i + 1} / ${rootIds.length}개 상위 작업 (하위 포함 약 ${deleteSet.size}행)`
+                : `하위 포함 약 ${deleteSet.size}개 행을 정리하는 중입니다.`,
+              progress: multiRoot ? pct : null,
+            });
+          }
+          await yieldToUi();
+        }
+
+        if (showProgressToast) {
+          dismissToast(DELETE_PROGRESS_TOAST_ID);
+          pushToast(`삭제했습니다. (${deleteSet.size}개 작업)`, { variant: 'success', durationMs: 2800 });
+        }
+
+        setSelection(new Set());
+        if (nextSelectId) {
+          setLastSelectedId(nextSelectId);
+          rangeAnchorRef.current = nextSelectId;
+          setAnchorTaskId(nextSelectId);
+        } else {
+          setLastSelectedId(null);
+          rangeAnchorRef.current = null;
+          setAnchorTaskId(null);
+        }
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            tableScrollRef.current?.focus();
+          });
+        });
+
+        setFocusedCell((prev) => {
+          if (!prev || !deleteSet.has(prev.taskId)) return prev;
+          if (!nextSelectId) return null;
+          const col = editableColumnIds.includes(prev.columnId)
+            ? prev.columnId
+            : editableColumnIds.includes('name')
+              ? 'name'
+              : (editableColumnIds[0] ?? 'name');
+          return { taskId: nextSelectId, columnId: col };
+        });
+      };
+
+      void run();
+    },
+    [
+      tasks,
+      visibleTasks,
+      deleteTask,
+      setSelection,
+      setLastSelectedId,
+      setAnchorTaskId,
+      setFocusedCell,
+      editableColumnIds,
+      pushToast,
+      dismissToast,
+    ],
+  );
+
+  const handleDeleteClick = useCallback(
+    (taskId: string) => {
+      performDeleteTaskIds([taskId]);
+    },
+    [performDeleteTaskIds],
+  );
+
   // Keyboard Shortcuts — extracted to useWbsTableKeyboard
   useWbsTableKeyboard({
     hotkeysEnabled,
@@ -1568,11 +1699,11 @@ export function WBSTable({
     cellMarqueeRange,
     cellMarqueeKeySet,
     editableColumnIds,
-    deleteConfirm,
+    performDeleteTaskIds,
     copiedTasks,
     copiedCellRegion,
     setCopiedCellRegion,
-    visibleColumnIds,
+    visibleColumnIds: marqueeColumnIds,
     clearTaskClipboard,
     statusConfigs: statusConfigsList,
     projectEffortUnitByProjectId,
@@ -1601,7 +1732,6 @@ export function WBSTable({
     setBulkAssignee,
     setBulkDurationDays,
     setBulkProgress,
-    setDeleteConfirm,
     setCopiedTasks,
     addTask,
     insertPastedTasksInOrder,
@@ -2321,10 +2451,6 @@ export function WBSTable({
     [wbsSettings?.customColumns, updateWbsSettings],
   );
 
-  const handleDeleteClick = useCallback((taskId: string) => {
-    setDeleteConfirm({ isOpen: true, taskIds: [taskId] });
-  }, []);
-
   /** 표시 중인 데이터 열 기준 셀 서식만 제거(툴바「서식 제거」와 동일 범위). */
   const clearRowCellTextStylesForTasks = useCallback(
     (taskIds: string[]) => {
@@ -2345,78 +2471,6 @@ export function WBSTable({
     },
     [tasks, editableColumnIds, updateTask],
   );
-
-  const executeDelete = () => {
-    // 1. Fully identify all task IDs to be deleted (including descendants)
-    const deleteSet = new Set<string>();
-    const getIdsToDelete = (parentId: string) => {
-      deleteSet.add(parentId);
-      tasks.filter((t) => t.parentId === parentId).forEach((child) => getIdsToDelete(child.id));
-    };
-    deleteConfirm.taskIds.forEach((id) => getIdsToDelete(id));
-
-    // 2. Determine the next selection before performing the delete
-    const visibleIndices = visibleTasks.map((t, i) => (deleteSet.has(t.id) ? i : -1)).filter((i) => i !== -1);
-
-    let nextSelectId: string | null = null;
-    if (visibleIndices.length > 0) {
-      const minIndex = Math.min(...visibleIndices);
-      const maxIndex = Math.max(...visibleIndices);
-
-      // Search forward for first non-deleted item
-      for (let i = maxIndex + 1; i < visibleTasks.length; i++) {
-        if (!deleteSet.has(visibleTasks[i].id)) {
-          nextSelectId = visibleTasks[i].id;
-          break;
-        }
-      }
-
-      // If no task after, search backward
-      if (!nextSelectId) {
-        for (let i = minIndex - 1; i >= 0; i--) {
-          if (!deleteSet.has(visibleTasks[i].id)) {
-            nextSelectId = visibleTasks[i].id;
-            break;
-          }
-        }
-      }
-    }
-
-    // 3. Perform deletion
-    deleteConfirm.taskIds.forEach((id) => deleteTask(id));
-    setDeleteConfirm({ isOpen: false, taskIds: [] });
-
-    // 4. Update selection - 체크박스는 해제, 포커스(노란색 강조)만 다음 행으로 이동
-    setSelection(new Set());
-    if (nextSelectId) {
-      setLastSelectedId(nextSelectId);
-      rangeAnchorRef.current = nextSelectId;
-      setAnchorTaskId(nextSelectId);
-    } else {
-      setLastSelectedId(null);
-      rangeAnchorRef.current = null;
-      setAnchorTaskId(null);
-    }
-
-    // 5. 삭제 확인 후 포커스가 모달 등 표 밖에 남으면 ↑/↓가 `data-wbs-table` 가드에 막힘 — 표 본문으로 복귀
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        tableScrollRef.current?.focus();
-      });
-    });
-
-    // 6. 편집 모드 셀 링이 삭제된 taskId를 가리키면 행 하이라이트와 키보드 기준 행이 어긋남
-    setFocusedCell((prev) => {
-      if (!prev || !deleteSet.has(prev.taskId)) return prev;
-      if (!nextSelectId) return null;
-      const col = editableColumnIds.includes(prev.columnId)
-        ? prev.columnId
-        : editableColumnIds.includes('name')
-          ? 'name'
-          : (editableColumnIds[0] ?? 'name');
-      return { taskId: nextSelectId, columnId: col };
-    });
-  };
 
   // Aggregate stats: 항상 현재 프로젝트 기준 전체 현황 (선택/필터/레벨/접힘과 무관)
   const isSplitView = !!syncScrollRef;
@@ -2548,7 +2602,7 @@ export function WBSTable({
                 canEdit={canEditCurrentProject}
                 customColumnNameById={customColumnNameById}
                 updateTask={updateTask}
-                onDeleteTargets={(ids) => setDeleteConfirm({ isOpen: true, taskIds: ids })}
+                onDeleteTargets={(ids) => performDeleteTaskIds(ids)}
                 tableAutoFormatting={{
                   effectiveOn: showTableAutoFormatting,
                   globalEnabled: globalAutoFormattingOn,
@@ -2671,13 +2725,13 @@ export function WBSTable({
                 if (typeof syncScrollRef === 'function') syncScrollRef(el);
                 else if (syncScrollRef) (syncScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
                 tableScrollRef.current = el;
+                bindRangeDragToScrollElement(el);
               }}
               tabIndex={0}
               data-wbs-table
               onCopyCapture={handleWbsTableCopyCapture}
               onPointerDownCapture={handleTableShiftPointerDownCapture}
               onClickCapture={handleTableShiftClickCapture}
-              onPointerDown={handleRangeDragPointerDown}
               onMouseDown={(e) => {
                 emptyAreaPressRef.current = isWbsTableEmptyArea(e.target);
               }}
@@ -2826,6 +2880,7 @@ export function WBSTable({
                               isSelected={selectedTaskIds.has(task.id)}
                               isFocused={(lastSelectedId === task.id || activeTaskId === task.id) && !marqueeMultiCells}
                               hasChildren={hasChildrenSet.has(task.id)}
+                              directChildTaskCount={directChildCountByParentId.get(task.id) ?? 0}
                               isTreeView={isTreeView}
                               treeGuide={treeGuideByTaskId.get(task.id) ?? ''}
                               onSelect={handleSelect}
@@ -3385,7 +3440,7 @@ export function WBSTable({
 
                 {canEditCurrentProject && (
                   <button
-                    onClick={() => setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) })}
+                    onClick={() => performDeleteTaskIds(Array.from(selectedTaskIds))}
                     className="flex shrink-0 items-center gap-1 self-center rounded-full px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 hover:text-red-700"
                     title="선택된 모든 작업 삭제"
                   >
@@ -3507,16 +3562,7 @@ export function WBSTable({
             contextMenu.type === 'header'
               ? (() => {
                   const colId = contextMenu.columnId;
-                  const sortableColumns: TableColumnId[] = [
-                    'name',
-                    'startDate',
-                    'endDate',
-                    'workEffort',
-                    'weight',
-                    'progress',
-                    'assignee',
-                    'status',
-                  ];
+                  const sortableColumns: TableColumnId[] = ['name', 'startDate', 'endDate', 'progress', 'assignee', 'status'];
                   const canSort = colId && (sortableColumns.includes(colId) || colId === 'wbsId');
                   const canHide = colId && colId !== 'name';
                   const isCustom = !!colId && colId.startsWith('custom:');
@@ -3615,7 +3661,9 @@ export function WBSTable({
                     });
                   }
                   // 숨긴 컬럼을 헤더 우클릭으로 바로 다시 표시 (컬럼 설정 모달 없이도)
-                  const hiddenCols = tableColumns.filter((c) => !c.visible && c.id !== 'actions');
+                  const hiddenCols = tableColumns.filter(
+                    (c) => !c.visible && c.id !== 'actions' && c.id !== 'workEffort' && c.id !== 'weight',
+                  );
                   if (hiddenCols.length > 0) {
                     headerActions.push({ divider: true });
                     for (const hc of hiddenCols) {
@@ -3931,7 +3979,7 @@ export function WBSTable({
                             danger: true,
                             onClick: () => {
                               if (selectedTaskIds.size > 1 && contextMenu.taskId && selectedTaskIds.has(contextMenu.taskId)) {
-                                setDeleteConfirm({ isOpen: true, taskIds: Array.from(selectedTaskIds) });
+                                performDeleteTaskIds(Array.from(selectedTaskIds));
                               } else if (contextMenu.taskId) {
                                 handleDeleteClick(contextMenu.taskId);
                               }
@@ -3944,20 +3992,6 @@ export function WBSTable({
           }
         />
       )}
-
-      <ConfirmDialog
-        isOpen={deleteConfirm.isOpen}
-        onClose={() => setDeleteConfirm((prev) => ({ ...prev, isOpen: false }))}
-        onConfirm={executeDelete}
-        title={deleteConfirm.taskIds.length > 1 ? `${deleteConfirm.taskIds.length}개 작업 삭제` : '작업 삭제'}
-        message={
-          deleteConfirm.taskIds.length > 1
-            ? '선택한 작업들을 삭제하시겠습니까? 하위 작업도 함께 삭제됩니다.'
-            : '이 작업을 삭제하시겠습니까? 하위 작업도 함께 삭제됩니다.'
-        }
-        confirmLabel="삭제"
-        isDanger={true}
-      />
 
       {forkTarget && (
         <React.Suspense fallback={null}>

@@ -52,7 +52,7 @@ export interface WbsCellPasteContext {
  * 작업명은 기존 "행(+펼쳐진 하위) 복사" 동작을 유지하고(행 손잡이 역할),
  * 파생·프로젝트 단위(계획율·차이·투입율)와 wbsId는 값 셀이 아니므로 제외.
  */
-const NON_CELL_CLIPBOARD_COLUMNS = new Set<string>(['wbsId', 'name', 'plannedProgress', 'progressVariance', 'allocation']);
+const NON_CELL_CLIPBOARD_COLUMNS = new Set<string>(['wbsId', 'name', 'plannedProgress', 'progressVariance', 'allocation', 'actions']);
 export function isCellClipboardColumn(columnId: TableColumnId): boolean {
   return !NON_CELL_CLIPBOARD_COLUMNS.has(columnId);
 }
@@ -197,6 +197,7 @@ function buildValueUpdate(
   const fail = (error: string) => ({ updates: null, error });
 
   if (targetColumnId === 'wbsId') return fail('번호 셀에는 붙여넣을 수 없습니다.');
+  if (targetColumnId === 'actions') return noChange;
   if (targetColumnId === 'plannedProgress') return fail('계획율은 시작·종료일로 자동 계산됩니다. 날짜 셀에 붙여넣으세요.');
   if (targetColumnId === 'progressVariance') return fail('차이(%p)는 자동 계산됩니다. 진척률 셀에 붙여넣으세요.');
   if (targetColumnId === 'allocation') return fail('투입율 셀에는 붙여넣을 수 없습니다. (프로젝트 투입인원 설정에서 관리)');
@@ -207,13 +208,19 @@ function buildValueUpdate(
     return { updates: { name: text } };
   }
   if (targetColumnId === 'startDate' || targetColumnId === 'endDate') {
+    if (!text) {
+      const prev = (targetColumnId === 'startDate' ? target.startDate : target.endDate) ?? '';
+      if (!(prev ?? '').trim()) return noChange;
+      return { updates: { [targetColumnId]: '' } };
+    }
     const ymd = normalizeYmdInput(text);
-    if (!ymd) return fail(`날짜로 해석할 수 없습니다: "${text || '빈 값'}" (예: 2026-06-15)`);
+    if (!ymd) return fail(`날짜로 해석할 수 없습니다: "${text}" (예: 2026-06-15)`);
     const prev = targetColumnId === 'startDate' ? target.startDate : target.endDate;
     if (ymd === (prev?.slice(0, 10) ?? '')) return noChange;
     return { updates: { [targetColumnId]: ymd + (prev?.slice(10) || '') } };
   }
   if (targetColumnId === 'duration') {
+    if (!text) return noChange;
     const n = parseInt(text, 10);
     if (!Number.isFinite(n) || n < 1) return fail('기간은 1 이상의 일수여야 합니다.');
     if (!target.startDate) return fail('시작일이 없어 기간으로 종료일을 계산할 수 없습니다.');
@@ -224,6 +231,10 @@ function buildValueUpdate(
     return { updates: { endDate: newEnd } };
   }
   if (targetColumnId === 'workEffort') {
+    if (!text) {
+      if (target.workEffort === undefined) return noChange;
+      return { updates: { workEffort: undefined } };
+    }
     const v = Number.parseFloat(text);
     if (!Number.isFinite(v) || v < 0) return fail('공수는 0 이상의 숫자여야 합니다.');
     const rounded = ctx.effortUnit === 'minute' ? Math.round(v) : Math.round(v * 10) / 10;
@@ -231,6 +242,10 @@ function buildValueUpdate(
     return { updates: { workEffort: rounded } };
   }
   if (targetColumnId === 'weight') {
+    if (!text) {
+      if (target.weight == null) return noChange;
+      return { updates: { weight: null } };
+    }
     const v = Number.parseFloat(text);
     if (!Number.isFinite(v) || v < 0) return fail('가중치는 0 이상의 숫자여야 합니다.');
     const rounded = round1(v);
@@ -238,6 +253,10 @@ function buildValueUpdate(
     return { updates: { weight: rounded } };
   }
   if (targetColumnId === 'progress') {
+    if (!text) {
+      if ((target.progress ?? 0) === 0) return noChange;
+      return { updates: { progress: 0 } };
+    }
     const v = Number.parseFloat(text.replace(/[%\s]+$/g, ''));
     if (!Number.isFinite(v) || v < 0 || v > 100) return fail('진척률은 0~100 사이 숫자여야 합니다.');
     const rounded = round2(v);
@@ -249,6 +268,14 @@ function buildValueUpdate(
     return { updates: { assignee: text } };
   }
   if (targetColumnId === 'status') {
+    if (!text) {
+      const defaultCfg = ctx.statusConfigs.find((c) => c.id === 'todo') ?? ctx.statusConfigs[0];
+      if (!defaultCfg) return fail('상태 설정이 없습니다.');
+      if (defaultCfg.id === target.status) return noChange;
+      const updates: Partial<Task> = { status: defaultCfg.id };
+      if (defaultCfg.progress !== undefined) updates.progress = defaultCfg.progress;
+      return { updates };
+    }
     let cfg = cell.statusId ? ctx.statusConfigs.find((c) => c.id === cell.statusId) : undefined;
     if (!cfg && text) {
       cfg = ctx.statusConfigs.find((c) => c.name.trim() === text) ?? ctx.statusConfigs.find((c) => c.id === text);

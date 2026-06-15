@@ -53,12 +53,10 @@ function getTaskDetailTooltip(
   statusConfigs: Array<{ id: string; name: string; progress?: number }> | null | undefined,
   displayWbsMap: Map<string, string> | null | undefined,
   isCritical?: boolean,
-  projectEffortUnitByProjectId?: Map<string, WorkEffortUnit>,
   displayMetaByName?: Map<string, PersonDisplayMeta>,
 ): string {
   if (!task) return '';
   const lines: string[] = [];
-  const effortUnit = normalizeWorkEffortUnit(projectEffortUnitByProjectId?.get(task.projectId));
   const statusName = Array.isArray(statusConfigs) ? (statusConfigs.find((c) => c.id === task.status)?.name ?? task.status) : task.status;
   const assigneeText = formatAssigneeDisplay(task.assignee, displayMetaByName) || '—';
   lines.push(`작업명: ${task.name ?? ''}`);
@@ -67,14 +65,6 @@ function getTaskDetailTooltip(
   if (task.isActionItem) lines.push('액션 항목: 예');
   if (isCritical) lines.push('크리티컬 패스: 예');
   lines.push(`기간: ${formatDate(task.startDate)} ~ ${formatDate(task.endDate)}`);
-  lines.push(
-    `공수: ${
-      task.workEffort != null
-        ? `${formatStoredWorkEffortForDisplay(task.workEffort, effortUnit)} ${workEffortUnitSuffixKo(effortUnit)}`.trim()
-        : '—'
-    }`,
-  );
-  if (task.weight != null) lines.push(`가중치: ${formatNum1(task.weight)}`);
   lines.push(`담당: ${assigneeText}`);
   lines.push(`상태: ${statusName}`);
   lines.push(`진척률: ${typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—'}`);
@@ -140,6 +130,8 @@ export interface SortableTaskRowProps {
   /** 단일 활성 행 (클릭/화살표/표↔간트 동기화) = 노란색(amber) 강조. 체크박스와는 별개. */
   isFocused: boolean;
   hasChildren: boolean;
+  /** 직속 하위 작업 개수(작업명 옆 표시). */
+  directChildTaskCount?: number;
   isTreeView: boolean;
   /** 작업명 들여쓰기에 그릴 트리 가이드 선 문자열(depth 칸별 'I'│ 'T'├ 'L'└ ' '공백). 트리 뷰에서만 채워짐 */
   treeGuide?: string;
@@ -224,6 +216,7 @@ function SortableTaskRowInner({
   isSelected,
   isFocused,
   hasChildren,
+  directChildTaskCount = 0,
   isTreeView,
   treeGuide = '',
   onSelect,
@@ -778,6 +771,7 @@ function SortableTaskRowInner({
             return (
               <div
                 key={colId}
+                {...rangeCellProps}
                 className={cn('data-cell font-mono text-[10px] text-slate-400 cursor-pointer', applyDoneAutoStrike && 'line-through')}
                 onClick={() => {
                   // wbsId 칸 클릭도 행 포커스로 동작 — 편집 가능한 첫 컬럼을 기본 포커스 셀로 지정
@@ -827,14 +821,7 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   beginEditNow('name');
                 }}
-                title={getTaskDetailTooltip(
-                  task,
-                  statusConfigs,
-                  displayWbsMap,
-                  criticalPathSet?.has(task.id),
-                  projectEffortUnitByProjectId,
-                  orgMemberDisplayMetaByName,
-                )}
+                title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id), orgMemberDisplayMetaByName)}
               >
                 {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
                 {isTreeView && hasChildren && (
@@ -965,7 +952,6 @@ function SortableTaskRowInner({
                       statusConfigs,
                       displayWbsMap,
                       criticalPathSet?.has(task.id),
-                      projectEffortUnitByProjectId,
                       orgMemberDisplayMetaByName,
                     )}
                   >
@@ -1011,6 +997,14 @@ function SortableTaskRowInner({
                         </span>
                       )}
                     </span>
+                    {hasChildren && directChildTaskCount > 0 && (
+                      <span
+                        className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0"
+                        title={`직속 하위 작업 ${directChildTaskCount}개`}
+                      >
+                        ({directChildTaskCount})
+                      </span>
+                    )}
                   </span>
                 )}
                 {otherPrimary && (
@@ -2242,7 +2236,16 @@ function SortableTaskRowInner({
       })}
       {showActionsColumn && (
         <div
-          className="data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          {...{
+            'data-wbs-range-cell': true as const,
+            'data-range-task': task.id,
+            'data-range-col': 'actions' as TableColumnId,
+          }}
+          className={cn(
+            'data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity',
+            cellMarqueeKeySet?.has(`${task.id}::actions`) &&
+              'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45',
+          )}
           onDoubleClick={(e) => e.stopPropagation()}
         >
           <button
@@ -2314,6 +2317,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.isSelected === next.isSelected &&
     prev.isFocused === next.isFocused &&
     prev.hasChildren === next.hasChildren &&
+    prev.directChildTaskCount === next.directChildTaskCount &&
     prev.isTreeView === next.isTreeView &&
     prev.treeGuide === next.treeGuide &&
     prev.isInlineEditingName === next.isInlineEditingName &&

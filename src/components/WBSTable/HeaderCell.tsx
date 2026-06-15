@@ -38,6 +38,7 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   progressVariance: PROGRESS_VARIANCE_COLUMN_HELP_TEXT,
   deliverables: '산출물',
   dependencies: '선행작업(의존성)',
+  actions: '작업 수정·삭제 등 관리 버튼',
 };
 
 interface HeaderCellProps {
