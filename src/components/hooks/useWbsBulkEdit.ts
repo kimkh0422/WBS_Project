@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import type { Project, Task, TaskStatus } from '../../types';
-import type { WBSSettings } from '../../lib/wbsSettings';
+import { autoProgressPercentForStatus, type WBSSettings } from '../../lib/wbsSettings';
 import { round1, round2 } from '../../lib/utils';
 import { clampAllocationPercentInt } from '../../lib/personAllocations';
 import { appendAssigneeToProjectIfMissing } from '../../lib/assigneeOptions';
@@ -115,8 +115,7 @@ export function useWbsBulkEdit({
       const updates: Partial<Task> = {};
       if (s.bulkStatus) {
         updates.status = s.bulkStatus;
-        const config = (wbsSettings?.statusConfigs ?? []).find((c) => c.id === s.bulkStatus);
-        if (config && config.progress !== undefined) updates.progress = config.progress;
+        updates.progress = autoProgressPercentForStatus(s.bulkStatus, wbsSettings?.statusConfigs ?? []);
       }
       if (s.bulkAssignee.trim()) updates.assignee = s.bulkAssignee.trim();
       if (s.bulkProgress !== '') {
@@ -290,14 +289,10 @@ export function useWbsBulkEdit({
 
   const executeBulkStatus = useCallback(() => {
     if (!bulkStatus) return;
-    const updates: Partial<Task> = { status: bulkStatus };
-    // 상태-진척도 연동이 켜져 있을 때만 상태 기준으로 진척률을 자동 설정
-    if (wbsSettings.linkStatusAndProgress !== false) {
-      const cfg = (wbsSettings.statusConfigs ?? []).find((c) => c.id === bulkStatus);
-      if (cfg && typeof cfg.progress === 'number' && Number.isFinite(cfg.progress)) {
-        updates.progress = cfg.progress;
-      }
-    }
+    const updates: Partial<Task> = {
+      status: bulkStatus,
+      progress: autoProgressPercentForStatus(bulkStatus, wbsSettings.statusConfigs ?? []),
+    };
     updateTasksBulk(Array.from(selectedTaskIds), updates);
     setBulkStatus('');
   }, [bulkStatus, wbsSettings, selectedTaskIds, updateTasksBulk]);

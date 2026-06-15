@@ -125,7 +125,7 @@ export function ShortcutsSidebar({
             [<ArrowUp size={12} key="cellU" />],
             [<ArrowDown size={12} key="cellD" />],
           ],
-          hint: 'Shift+화살표: 셀 직사각형 범위 확장(엑셀). Shift 없는 화살표: 한 칸 이동·마퀴 해제. Alt+↑↓는 표시 순서 이동(정렬·필터 없을 때만). Ctrl/Meta+↑↓는 이웃 행을 체크에 추가',
+          hint: 'Shift+화살표: 셀 직사각형 다중 선택(마퀴) 확장. Shift+Ctrl/Meta+화살표: 마퀴를 해당 방향 격자 끝까지 확장. Ctrl/Meta+화살표(Shift 없음): 커서만 같은 열·행의 표시 끝으로 점프. 화살표만: 한 칸 이동·마퀴 해제. Alt+↑↓: 표시 순서 이동(정렬·필터 없을 때만)',
         },
         {
           label: '트리 접기 · 펼치기',

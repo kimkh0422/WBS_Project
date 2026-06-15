@@ -5,6 +5,20 @@ export interface StatusConfig {
   color?: string;
 }
 
+/**
+ * 상태 설정에서 「완료」로 간주되는 경우(progress === 100)만 100%, 그 외는 0%.
+ * 표·모달·상태 변경 시 진척률을 완료/미완료로 자동 맞출 때 사용한다.
+ */
+export function autoProgressPercentForStatus(
+  statusId: string | undefined | null,
+  statusConfigs: ReadonlyArray<{ id: string; progress?: number }> | undefined,
+): number {
+  if (!statusId || !Array.isArray(statusConfigs) || statusConfigs.length === 0) return 0;
+  const cfg = statusConfigs.find((c) => c.id === statusId);
+  if (!cfg || typeof cfg.progress !== 'number' || !Number.isFinite(cfg.progress)) return 0;
+  return cfg.progress === 100 ? 100 : 0;
+}
+
 /** 프로젝트 그룹(폴더) 정의. 1단계 평탄, 한 프로젝트는 한 그룹에 속한다. */
 export interface ProjectGroup {
   id: string;
@@ -20,7 +34,11 @@ export interface WBSSettings {
   level3Prefix: string;
   maxLevel: number;
   statusConfigs: StatusConfig[];
-  /** @deprecated 상태↔진척률 자동 연동 기능은 제거됨. 항상 false로 읽히며 상태 변경 시 진척률을 자동 설정하지 않음(진척률은 수동 입력 기준). */
+  /**
+   * @deprecated 예전 UI 토글. 저장값과 무관하게 false로 읽힌다.
+   * 상태 변경 시 진척률은 항상 「완료(progress=100) 상태 → 100%, 그 외 → 0%」로 자동 맞추되,
+   * 진척률 셀/모달에서 사용자가 직접 지정한 값은 그대로 둔다(같은 저장 동작에 progress 키가 포함될 때).
+   */
   linkStatusAndProgress?: boolean;
   tableColumns?: { id: string; visible: boolean }[];
   /** 예전 설정 호환용. 항상 false로 읽히며 UI에서 변경 불가 */
@@ -64,6 +82,8 @@ export interface WBSSettings {
   progressVarianceHiddenMigrated?: boolean;
   /** 투입 공수·업무 구성비(%) 컬럼 기본 표시 1회 마이그레이션 완료 여부 */
   workEffortCompositionDefaultsMigrated?: boolean;
+  /** 상태를 미완료/완료 2단계만 쓰도록 statusConfigs를 1회 정리했는지 */
+  statusBinaryMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -87,9 +107,7 @@ export interface WBSSettings {
 }
 
 export const DEFAULT_STATUS_CONFIGS: StatusConfig[] = [
-  { id: 'todo', name: '할 일', progress: 0, color: 'bg-stone-100 border-stone-200' },
-  { id: 'in-progress', name: '진행 중', progress: 10, color: 'bg-blue-50 border-blue-100' },
-  { id: 'blocked', name: '지연됨', progress: 50, color: 'bg-red-50 border-red-100' },
+  { id: 'todo', name: '미완료', progress: 0, color: 'bg-stone-100 border-stone-200' },
   { id: 'done', name: '완료', progress: 100, color: 'bg-green-50 border-green-100' },
 ];
 
@@ -100,6 +118,7 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   level3Prefix: 'T',
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
+  statusBinaryMigrated: true,
   linkStatusAndProgress: false,
   // 기본 표시 컬럼: 작업명·일정·투입공수·업무구성비·담당·계획·진척(+그립·체크·계층 번호 칸은 항상).
   // 접두어 WBS ID·가중치·투입율·상태·산출물·선행·관리·진척차이는 기본 숨김(가중치는 저장과 무관 비표시).
@@ -131,9 +150,11 @@ export const DEFAULT_SETTINGS: WBSSettings = {
  * 저장된 컬럼 설정의 `visible`이 없을 때(구버전 등): 표준 컬럼은 {@link DEFAULT_SETTINGS}를 따르고,
  * `custom:*` 등 기본 목록에 없는 컬럼은 표시로 간주한다.
  * 가중치(`weight`) 컬럼만 저장값과 무관하게 항상 비표시다.
+ * 상태(`status`) 컬럼은 저장값과 무관하게 항상 표시다.
  */
 export function resolveStoredTableColumnVisible(id: string, storedVisible: unknown): boolean {
   if (id === 'weight') return false;
+  if (id === 'status') return true;
   if (storedVisible === true) return true;
   if (storedVisible === false) return false;
   const def = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === id);
@@ -151,28 +172,11 @@ export function parseSettings(raw: unknown): WBSSettings {
     };
     let statusConfigs = parsed.statusConfigs;
     if (!statusConfigs && (parsed.statusNames || parsed.statusProgress)) {
-      statusConfigs = (['todo', 'in-progress', 'blocked', 'done'] as const).map((id) => ({
+      statusConfigs = (['todo', 'done'] as const).map((id) => ({
         id,
-        name:
-          parsed.statusNames?.[id] || (id === 'todo' ? '할 일' : id === 'in-progress' ? '진행 중' : id === 'blocked' ? '지연됨' : '완료'),
-        progress:
-          parsed.statusProgress?.[id] !== undefined
-            ? parsed.statusProgress[id]
-            : id === 'todo'
-              ? 0
-              : id === 'in-progress'
-                ? 10
-                : id === 'blocked'
-                  ? 50
-                  : 100,
-        color:
-          id === 'todo'
-            ? 'bg-stone-100 border-stone-200'
-            : id === 'in-progress'
-              ? 'bg-blue-50 border-blue-100'
-              : id === 'blocked'
-                ? 'bg-red-50 border-red-100'
-                : 'bg-green-50 border-green-100',
+        name: parsed.statusNames?.[id] || (id === 'todo' ? '미완료' : '완료'),
+        progress: parsed.statusProgress?.[id] !== undefined ? parsed.statusProgress[id] : id === 'todo' ? 0 : 100,
+        color: id === 'todo' ? 'bg-stone-100 border-stone-200' : 'bg-green-50 border-green-100',
       }));
     }
     const base: WBSSettings = {
@@ -373,6 +377,32 @@ export function parseSettings(raw: unknown): WBSSettings {
     } else {
       const cw = base.columnWidths;
       base.skipImplicitTableColumnAutoFit = !!(cw && typeof cw === 'object' && Object.keys(cw).length > 0);
+    }
+
+    // 상태를 미완료(todo)·완료(done) 두 단계로 통일(1회). 예전 in-progress/blocked 등은 작업 로드 시 정규화로 todo로 이행됨.
+    if (!parsed.statusBinaryMigrated) {
+      const prev = Array.isArray(base.statusConfigs) ? base.statusConfigs : [];
+      const oldTodo = prev.find((c) => c.id === 'todo') ?? prev.find((c) => typeof c.progress === 'number' && c.progress === 0);
+      const oldDone = prev.find((c) => c.id === 'done') ?? prev.find((c) => typeof c.progress === 'number' && c.progress === 100);
+      let todoName = '미완료';
+      if (oldTodo?.name && oldTodo.name !== '할 일' && oldTodo.name !== '예정') {
+        todoName = oldTodo.name;
+      }
+      base.statusConfigs = [
+        {
+          id: 'todo',
+          name: todoName,
+          progress: 0,
+          color: oldTodo?.color ?? DEFAULT_STATUS_CONFIGS[0].color,
+        },
+        {
+          id: 'done',
+          name: oldDone?.name?.trim() ? oldDone.name : '완료',
+          progress: 100,
+          color: oldDone?.color ?? DEFAULT_STATUS_CONFIGS[1].color,
+        },
+      ];
+      base.statusBinaryMigrated = true;
     }
 
     return base;

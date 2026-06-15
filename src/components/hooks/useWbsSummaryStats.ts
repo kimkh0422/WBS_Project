@@ -89,12 +89,7 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
         useWeight,
         round1,
       );
-    const avgProgress =
-      level1.length > 0
-        ? computeWeighted(level1)
-        : forAggregate.length > 0
-          ? Math.min(100, Math.max(0, round1(forAggregate.reduce((sum, t) => sum + (t.progress || 0), 0) / forAggregate.length)))
-          : 0;
+    const avgProgress = level1.length > 0 ? computeWeighted(level1) : forAggregate.length > 0 ? computeWeighted(forAggregate) : 0;
 
     // 전체 계획율: 전체 진척율과 동일한 집계 대상(level1 우선)·동일 가중·동일 가중치 ON/OFF 규칙으로 계산
     const plannedOf = (t: Task) => plannedById.get(t.id) ?? 0;
@@ -139,7 +134,9 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
       avgProgressTooltip = parts.join('\n');
     } else {
       avgProgressTooltip = [
-        '최상위 작업이 없어, 단말(리프) 작업들의 진척률 산술평균을 사용합니다.',
+        useWeight
+          ? '최상위 작업이 없어, 단말(리프) 작업들의 진척률을 공수(M/D 환산) 가중 평균으로 집계합니다. 완료(100%) 리프도 형제 대비 공수 비율만큼만 전체 진척에 반영됩니다.'
+          : '최상위 작업이 없어, 단말(리프) 작업들의 진척률 산술평균을 사용합니다.',
         `현재 표시: ${formatPercent1(avgProgress)}%`,
       ].join('\n');
     }

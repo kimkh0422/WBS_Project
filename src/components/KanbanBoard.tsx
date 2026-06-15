@@ -25,7 +25,7 @@ import { Task, TaskStatus, FilterState } from '../types';
 import { cn, formatDate, formatPercent1 } from '../lib/utils';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, defaultEndDateForNewTask } from '../lib/workEffortUnits';
 import { getStatusColorProps } from '../lib/statusColor';
-import { GripVertical, Calendar, User, AlertCircle, CheckCircle2, Circle, Clock, Plus, X, Trash2, Edit2 } from 'lucide-react';
+import { GripVertical, Calendar, User, CheckCircle2, Circle, Plus, X, Trash2, Edit2 } from 'lucide-react';
 import { TaskModal } from './TaskModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { saveJsonWithIdbFallback, loadJsonWithIdbFallback, type PersistKey } from '../lib/persist';
@@ -103,16 +103,6 @@ const COLUMNS: { id: TaskStatus; icon: React.ReactNode; color: string }[] = [
     id: 'todo',
     color: 'bg-slate-100 border-slate-200',
     icon: <Circle className="w-4 h-4 text-slate-500" />,
-  },
-  {
-    id: 'in-progress',
-    color: 'bg-blue-50 border-blue-100',
-    icon: <Clock className="w-4 h-4 text-blue-500" />,
-  },
-  {
-    id: 'blocked',
-    color: 'bg-red-50 border-red-100',
-    icon: <AlertCircle className="w-4 h-4 text-red-500" />,
   },
   {
     id: 'done',

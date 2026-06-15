@@ -66,7 +66,10 @@ export interface WBSTableProps {
   /** 표+간트 split: 부모가 보관하는 계획율 기준일(간트 기준선과 동기화). 없으면 WBSTable 내부 state 사용 */
   plannedRefDateIso?: string;
   onPlannedRefDateIsoChange?: (iso: string) => void;
-  /** 표+간트 split(데스크톱): 표 패널 가로 비율(%) — 간트 너비는 100에서 뺀 값 */
-  splitTablePaneWidthPct?: number;
-  onSplitTablePaneWidthPctChange?: (tablePaneWidthPct: number) => void;
+  /**
+   * 표+간트 split: 간트 타임라인 확대/축소 인덱스. `-1`이면 전체 일정이 보이도록 자동 맞춤.
+   * `TableGanttSplit`에서 `GanttChart`와 동기화해 SummaryBar 슬라이더로 조절한다.
+   */
+  ganttZoomIndex?: number;
+  onGanttZoomIndexChange?: (zoomIndex: number) => void;
 }

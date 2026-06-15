@@ -1,7 +1,6 @@
 import { parseISO, isValid } from 'date-fns';
 import type { Task } from '../types';
 import { differenceInBusinessDaysEx, getHolidaysForTaskDates } from './calendar';
-import { getUseWeightForProgressRollup } from './rollupOptions';
 import { rollupWeightFromEffort } from './progressRollupWeights';
 
 /**
@@ -124,8 +123,8 @@ export function computePlannedProgressMap(tasks: Task[], refDateIso?: string, ho
         // 자식이 모두 일정 미입력이면 부모 자체 일정으로 fallback (부모 일정이라도 잡혀 있으면 계획율은 정상 표시되어야 함)
         val = hasPlannedSchedule(t) ? clamp(computeLeafPlannedProgress(t, refDate, hol)) : undefined;
       } else {
-        const useWeight = getUseWeightForProgressRollup();
-        val = clamp(useWeight && totalWeight > 0 ? weightedSum / totalWeight : simpleSum / countedKids);
+        // 부모 계획율: Σ공수>0이면 항상 직속 자식 공수 가중(실제 진척 부모 롤업과 동일). 토글은 요약·대시보드 집계용.
+        val = clamp(totalWeight > 0 ? weightedSum / totalWeight : simpleSum / countedKids);
       }
     }
 

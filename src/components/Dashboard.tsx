@@ -311,8 +311,8 @@ export function Dashboard({
       const assigneeWorkMd = computeProjectAssigneeWorkEffort(pTasks, project.id);
       const inputManDays = [...assigneeWorkMd.values()].reduce((a, b) => a + b, 0);
 
-      // 전체 진척율: 1레벨 (progress×weight) 가중평균. 가중치 합이 100이 아니어도 Σ(pw)/Σw.
-      // 1레벨이 없으면 폴백으로 리프(단말) 단순 평균.
+      // 전체 진척율: 1레벨 (progress×공수) 가중평균. 가중치 합이 100이 아니어도 Σ(pw)/Σw.
+      // 1레벨이 없으면 리프(단말)에 대해 동일 규칙(공수 가중 ON이면 가중 평균, OFF면 단순 평균).
       const taskById = new Map<string, Task>(pTasks.map((t) => [t.id, t]));
       const getDepth = buildDepthGetter(taskById);
       const level1 = pTasks.filter((t) => getDepth(t.id) === 0);
@@ -321,11 +321,7 @@ export function Dashboard({
       const leafTasks = pTasks.filter((t) => !pParentIdSet.has(t.id));
       const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
       const progress =
-        level1.length > 0
-          ? computeWeightedProgress(level1)
-          : forAggregate.length > 0
-            ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)))
-            : 0;
+        level1.length > 0 ? computeWeightedProgress(level1) : forAggregate.length > 0 ? computeWeightedProgress(forAggregate) : 0;
 
       // 계획율: 진척률과 동일 대상(level1 우선)·동일 가중으로 집계. 차이 = 진척 − 계획.
       const plannedById = computePlannedProgressMap(pTasks);
@@ -333,10 +329,7 @@ export function Dashboard({
         level1.length > 0
           ? computeWeightedPlanned(level1, plannedById)
           : forAggregate.length > 0
-            ? Math.min(
-                100,
-                Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (plannedById.get(t.id) ?? 0), 0) / forAggregate.length)),
-              )
+            ? computeWeightedPlanned(forAggregate, plannedById)
             : 0;
       const variance = Math.round((progress - planned) * 10) / 10;
 

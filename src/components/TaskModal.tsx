@@ -27,6 +27,7 @@ import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { SupabaseYjsProvider } from '../lib/yjsSupabaseProvider';
 import { resolveAssigneeIfUniqueMatch } from '../lib/assigneeOptions';
 import { COLUMN_HEADER_LABELS } from './hooks/useColumnResize';
+import { autoProgressPercentForStatus } from '../lib/wbsSettings';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -177,19 +178,19 @@ function _TaskModalLegacy({
   const { push: pushToast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id ?? '';
-  /** 표 컬럼 표시/숨김 토글 목록 (표 전체에 적용되는 설정). 작업명은 항상 표시. */
+  /** 표 컬럼 표시/숨김 토글 목록 (표 전체에 적용되는 설정). 작업명·상태는 항상 표시. */
   const tableColumnToggles = useMemo(() => {
     const customNameById = new Map((wbsSettings.customColumns ?? []).map((c) => [c.id, c.name] as const));
     return (wbsSettings.tableColumns ?? [])
       .filter((c) => c.id !== 'actions' && c.id !== 'workEffort' && c.id !== 'weight')
       .map((c) => ({
         id: c.id,
-        visible: c.visible !== false,
+        visible: c.id === 'name' || c.id === 'status' ? true : c.visible !== false,
         label: customNameById.get(c.id) || COLUMN_HEADER_LABELS[c.id as keyof typeof COLUMN_HEADER_LABELS] || c.id,
       }));
   }, [wbsSettings.tableColumns, wbsSettings.customColumns]);
   const toggleTableColumn = (id: string) => {
-    if (id === 'name') return; // 작업명은 항상 표시
+    if (id === 'name' || id === 'status') return; // 작업명·상태는 항상 표시
     const cols = (wbsSettings.tableColumns ?? []).map((c) => (c.id === id ? { ...c, visible: !(c.visible !== false) } : c));
     updateWbsSettings({ tableColumns: cols });
   };
@@ -869,18 +870,9 @@ function _TaskModalLegacy({
                 value={formData.status}
                 onChange={(e) => {
                   const newStatus = e.target.value;
-                  const config = wbsSettings.statusConfigs.find((c) => c.id === newStatus);
-                  // 상태별 진척도 연동이 켜져 있고, 완료 상태(progress=100)이거나
-                  // 사용자가 아직 진행률을 직접 수정하지 않은 경우에만
-                  // 상태 변경 시 해당 상태의 기본 진척도로 자동 설정한다.
-                  const isDoneStatus = config?.progress === 100;
-                  if (
-                    wbsSettings.linkStatusAndProgress !== false &&
-                    (isDoneStatus || !progressTouchedRef.current) &&
-                    typeof config?.progress === 'number' &&
-                    Number.isFinite(config.progress)
-                  ) {
-                    const p = Math.min(100, Math.max(0, round2(config.progress)));
+                  // 진척률을 모달에서 직접 만진 적이 없으면: 완료 상태만 100%, 그 외는 0%로 자동 맞춤.
+                  if (!progressTouchedRef.current) {
+                    const p = autoProgressPercentForStatus(newStatus, wbsSettings.statusConfigs);
                     setProgressInput(String(p));
                     setFormData((prev) => ({ ...prev, status: newStatus, progress: p }));
                   } else {

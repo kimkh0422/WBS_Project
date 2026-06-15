@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useWBS } from '../context/WBSContext';
-import { type StatusConfig, resolveStoredTableColumnVisible } from '../lib/wbsSettings';
+import { type StatusConfig, resolveStoredTableColumnVisible, autoProgressPercentForStatus } from '../lib/wbsSettings';
 import { cn, formatPercent1, round2 } from '../lib/utils';
 import { isTaskColumnMissingFromDb } from '../lib/db/tasks';
 import { computeTreeGuideStrings } from '../lib/treeGuides';
@@ -162,8 +162,8 @@ export function WBSTable({
   taskContextMenuHandlerRef,
   plannedRefDateIso: plannedRefDateIsoProp,
   onPlannedRefDateIsoChange,
-  splitTablePaneWidthPct,
-  onSplitTablePaneWidthPctChange,
+  ganttZoomIndex,
+  onGanttZoomIndexChange,
 }: WBSTableProps) {
   const {
     tasks,
@@ -607,7 +607,7 @@ export function WBSTable({
       if (!seen.has(d.id)) cleaned.push(d);
     }
 
-    return cleaned.map((c) => (c.id === 'name' ? { ...c, visible: true } : c));
+    return cleaned.map((c) => (c.id === 'name' || c.id === 'status' ? { ...c, visible: true } : c));
   }, [wbsSettings, customColumnNameById]);
 
   const showActionsColumn = useMemo(() => tableColumns.some((c) => c.id === 'actions' && c.visible), [tableColumns]);
@@ -1976,7 +1976,6 @@ export function WBSTable({
     toggleExpand,
     handleSetRowHeight,
     handleSelectAll,
-    handleSelect,
     pushToast,
     loadClipboardTasks,
     tableScrollRef,
@@ -2599,10 +2598,8 @@ export function WBSTable({
     idsToSync.forEach((id) => {
       const task = tasks.find((t) => t.id === id);
       if (!task) return;
-      const config = configs.find((c: StatusConfig) => c.id === task.status);
-      if (config && config.progress !== undefined) {
-        updateTask(id, { progress: config.progress });
-      }
+      const p = autoProgressPercentForStatus(task.status, configs);
+      updateTask(id, { progress: p });
     });
     setContextMenu(null);
   };
@@ -2904,8 +2901,8 @@ export function WBSTable({
               expandToLevel={expandToLevel}
               rowHeight={rowHeight}
               handleSetRowHeight={handleSetRowHeight}
-              splitTablePaneWidthPct={splitTablePaneWidthPct}
-              onSplitTablePaneWidthPctChange={onSplitTablePaneWidthPctChange}
+              ganttZoomIndex={ganttZoomIndex}
+              onGanttZoomIndexChange={onGanttZoomIndexChange}
             />
           </div>,
         )}
@@ -2919,8 +2916,8 @@ export function WBSTable({
           expandToLevel={expandToLevel}
           rowHeight={rowHeight}
           handleSetRowHeight={handleSetRowHeight}
-          splitTablePaneWidthPct={splitTablePaneWidthPct}
-          onSplitTablePaneWidthPctChange={onSplitTablePaneWidthPctChange}
+          ganttZoomIndex={ganttZoomIndex}
+          onGanttZoomIndexChange={onGanttZoomIndexChange}
         />
       )}
       <div
@@ -3873,7 +3870,7 @@ export function WBSTable({
                   const colId = contextMenu.columnId;
                   const sortableColumns: TableColumnId[] = ['name', 'startDate', 'endDate', 'progress', 'assignee', 'status'];
                   const canSort = colId && (sortableColumns.includes(colId) || colId === 'wbsId');
-                  const canHide = colId && colId !== 'name';
+                  const canHide = colId && colId !== 'name' && colId !== 'status';
                   const isCustom = !!colId && colId.startsWith('custom:');
                   const visibleIds = (wbsSettings?.tableColumns ?? []).filter((c) => c.visible !== false).map((c) => c.id);
                   const visPos = colId ? visibleIds.indexOf(colId) : -1;

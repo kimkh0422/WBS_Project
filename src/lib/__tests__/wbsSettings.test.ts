@@ -15,7 +15,10 @@ describe('resolveStoredTableColumnVisible', () => {
   });
   it('visible 생략 시 작업명 등은 DEFAULT_SETTINGS를 따른다', () => {
     expect(resolveStoredTableColumnVisible('name', undefined)).toBe(true);
-    expect(resolveStoredTableColumnVisible('status', undefined)).toBe(false);
+    expect(resolveStoredTableColumnVisible('status', undefined)).toBe(true);
+  });
+  it('저장이 false여도 상태 컬럼은 항상 표시', () => {
+    expect(resolveStoredTableColumnVisible('status', false)).toBe(true);
   });
   it('custom 컬럼은 visible 생략 시 표시로 간주', () => {
     expect(resolveStoredTableColumnVisible('custom:1', undefined)).toBe(true);

@@ -297,7 +297,7 @@ export interface WbsTableKeyboardDeps {
 
   // State setters
   setLastSelectedId: (id: string | null) => void;
-  /** Ctrl/Meta+↑↓ 체크 추가 시 앵커 동기화 등 — 키보드 포커스와 rangeAnchor 정합 */
+  /** 키보드로 행 포커스가 바뀔 때 rangeAnchor 정합 — Space·Shift 구간 등과 동기 */
   syncRangeAnchorForKeyboardFocus?: (taskId: string | null) => void;
   setFocusedCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void;
   setCellMarqueeRange: (
@@ -328,7 +328,6 @@ export interface WbsTableKeyboardDeps {
   toggleExpand: (id: string) => void;
   handleSetRowHeight: (h: number) => void;
   handleSelectAll: () => void;
-  handleSelect: (taskId: string, multi: boolean, range: boolean) => void;
   pushToast: (msg: string, opts?: { variant?: string; id?: string; durationMs?: number }) => void;
   loadClipboardTasks: () => Task[];
 
@@ -406,7 +405,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     toggleExpand,
     handleSetRowHeight,
     handleSelectAll,
-    handleSelect,
     pushToast,
     loadClipboardTasks,
     tableScrollRef,
@@ -486,7 +484,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     const cursorFocusedCell = cellNavCursorRef.current.focusedCell ?? focusedCell;
     const cursorLastSelectedId = cellNavCursorRef.current.lastSelectedId ?? lastSelectedId;
 
-    /** 키보드로 셀/행 커서만 옮길 때는 체크 다중 선택을 해제해 포커스 행과 어긋나지 않게 한다 (Ctrl/Meta+↑↓ 범위 확장은 제외). */
+    /** 키보드로 셀/행 커서만 옮길 때는 체크 다중 선택을 해제해 포커스 행과 어긋나지 않게 한다. */
     const clearBulkCheckboxSelectionOnKeyboardCursorMove = () => {
       if (selectedTaskIds.size > 0) {
         setSelection(new Set());
@@ -543,11 +541,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
       // 그 외 키는 무시(ghost 포커스 유지)
     }
-    /** 일괄 수정 바 등 표 밖 포커스에서도 Ctrl/Meta+↑↓ 로 체크 범위·다중 선택 확장 (Shift+↑↓는 셀 이동 전용 — SELECT·간트 막대는 제외) */
-    const rangeArrowFromOutsideTable =
-      (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+    /** 표 밖 INPUT/SELECT에 포커스여도 Ctrl/Meta+화살표(Shift 없음)로 격자 끝 이동은 처리(일괄 수정 바 등) */
+    const isCtrlArrowNoShift =
       (e.ctrlKey || e.metaKey) &&
-      (lastSelectedId != null || selectedTaskIds.size > 0) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+    const hasWbsKeyboardCursor =
+      lastSelectedId != null ||
+      focusedCell != null ||
+      cellNavCursorRef.current.lastSelectedId != null ||
+      cellNavCursorRef.current.focusedCell != null;
+    const ctrlArrowCellEdgeFromOutsideInput =
+      isCtrlArrowNoShift &&
+      hasWbsKeyboardCursor &&
       !(target as HTMLElement).closest?.('[data-gantt-task-bar]') &&
       target.tagName !== 'SELECT';
 
@@ -587,8 +594,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return;
     }
 
-    // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (범위 확장용 ↑↓+Shift/Ctrl/Meta 는 예외)
-    if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !rangeArrowFromOutsideTable) return;
+    // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (Ctrl/Meta+화살표 격자 끝 이동만 예외)
+    if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !ctrlArrowCellEdgeFromOutsideInput) return;
 
     // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값 커밋 후 엑셀처럼 같은 열의 한 행 아래로 포커스 이동.
     // 마지막 행에서는 ↓와 동일하게 ghost 행이 있으면 ghost로 진입, 없으면 같은 셀에 머무름.
@@ -809,8 +816,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     // 열은 focusedCell이 유효하면 유지해 같은 열 기준으로 세로 이동한다.
     // target.closest('[data-wbs-table]') 조건은 의도적으로 빼서, Enter 후 focus가 body로
     // 빠진 경우에도 화살표가 동작하도록 한다.
-    // Alt+↑↓(행 순서)·Ctrl/Meta+↑↓(체크)는 아래에서 처리.
-    // Shift+화살표: 엑셀처럼 앵커~활성 셀 직사각형 확장. Shift 없음: 한 칸 이동(마퀴·키보드 앵커 해제).
+    // Alt+↑↓(행 순서)는 아래에서 처리.
+    // Shift+화살표: 엑셀처럼 앵커~활성 셀 직사각형 다중 선택 확장. Ctrl/Meta+화살표(Shift 없음): 같은 열·행의 표시 격자 끝으로 점프. 그 외 화살표: 한 칸 이동(마퀴·키보드 앵커 해제).
     const defaultNavColumn: TableColumnId = editableColumnIds.includes('name')
       ? 'name'
       : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
@@ -826,14 +833,17 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     const effectiveArrowCell = keyboardNavTaskId != null ? { taskId: keyboardNavTaskId, columnId: navColFromFocus } : null;
     const arrowCellNavKey = e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown';
     const ctrlShiftCellMarqueeNav = e.shiftKey && (e.ctrlKey || e.metaKey) && arrowCellNavKey;
+    const ctrlOnlyCellEdgeNav = isCtrlArrowNoShift;
+    // 값 셀 input 포커스 중에는 일반 화살표는 막되, Ctrl/Meta+화살표(Shift 없음) 격자 끝 점프는 허용(엑셀과 유사)
+    const allowCellArrowDespiteTyping = isCtrlArrowNoShift;
     if (
       !editingCell &&
       !inlineEditingNameId &&
-      !isWbsTableCellTypingTarget(target) &&
+      (!isWbsTableCellTypingTarget(target) || allowCellArrowDespiteTyping) &&
       effectiveArrowCell &&
       editableColumnIds.length > 0 &&
       !e.altKey &&
-      ((!e.ctrlKey && !e.metaKey) || ctrlShiftCellMarqueeNav)
+      ((!e.ctrlKey && !e.metaKey) || ctrlShiftCellMarqueeNav || ctrlOnlyCellEdgeNav)
     ) {
       const stepOpts = {
         visibleTasks,
@@ -881,6 +891,35 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         clearBulkCheckboxSelectionOnKeyboardCursorMove();
         setCellMarqueeRange({ anchor: anchorCell, end: next });
         applySingleCellNav(next);
+        return;
+      }
+
+      // Ctrl/Meta+화살표(Shift 없음): 표시 격자에서 해당 방향 끝(첫/마지막 행·열)으로 점프
+      if (ctrlOnlyCellEdgeNav) {
+        if (isWbsTableCellTypingTarget(target)) {
+          (document.activeElement as HTMLElement | null)?.blur?.();
+        }
+        keyboardCellShiftAnchorRef.current = null;
+        setCellMarqueeRange(null);
+        const dir = e.key as 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown';
+        const next = jumpWbsCellArrowToEdge({ taskId: effectiveArrowCell.taskId, columnId: effectiveArrowCell.columnId }, dir, stepOpts);
+        e.preventDefault();
+        if (next) {
+          applySingleCellNav(next);
+        } else if (e.key === 'ArrowDown' && canEditCurrentProject && ghostPlaceholderRowCount > 0) {
+          const rowIdx = visibleTaskRowIndexById.get(effectiveArrowCell.taskId) ?? -1;
+          let colIdx = editableColumnIds.indexOf(effectiveArrowCell.columnId);
+          if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumn));
+          if (rowIdx >= 0 && colIdx >= 0 && rowIdx === visibleTasks.length - 1) {
+            clearBulkCheckboxSelectionOnKeyboardCursorMove();
+            setFocusedCell(null);
+            setGhostFocusIdx(0);
+            cellNavCursorRef.current.focusedCell = null;
+          }
+          focusTableScrollIfNeeded();
+        } else {
+          focusTableScrollIfNeeded();
+        }
         return;
       }
 
@@ -1757,9 +1796,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
 
     // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
     // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
-    // Ctrl/Meta+↑↓ 는 일괄 수정 패널 등으로 포커스가 나가도 체크 선택 범위 확장이 되도록 예외.
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
-      if (!rangeArrowFromOutsideTable) return;
+      return;
     }
 
     // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
@@ -1837,26 +1875,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
         }
         return;
-      } else if (e.ctrlKey || e.metaKey) {
-        // Ctrl/Meta+↑: 한 줄 위 행을 체크 선택에 추가 (일괄 수정 패널 등 표 밖 포커스 포함)
-        const snapR = cellNavCursorRef.current;
-        const idx = snapR.lastSelectedId != null ? (visibleTaskRowIndexById.get(snapR.lastSelectedId) ?? -1) : -1;
-        const nextIdx = idx > 0 ? idx - 1 : idx;
-        if (idx >= 0 && nextIdx !== idx) {
-          e.preventDefault();
-          const nextTask = visibleTasks[nextIdx]!;
-          keyboardShiftPivotIdRef.current = null;
-          handleSelect(nextTask.id, true, true);
-          const navCol: TableColumnId =
-            snapR.focusedCell && editableColumnIds.includes(snapR.focusedCell.columnId) ? snapR.focusedCell.columnId : defaultNavColumn;
-          setFocusedCell({ taskId: nextTask.id, columnId: navCol });
-          cellNavCursorRef.current = {
-            lastSelectedId: nextTask.id,
-            focusedCell: { taskId: nextTask.id, columnId: navCol },
-          };
-          document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-          focusTableScrollIfNeeded();
-        }
       }
       return;
     } else if (e.key === 'ArrowDown') {
@@ -1884,26 +1902,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
         }
         return;
-      } else if (e.ctrlKey || e.metaKey) {
-        // Ctrl/Meta+↓: 한 줄 아래 행을 체크 선택에 추가 (일괄 수정 패널 등 표 밖 포커스 포함)
-        const snapR = cellNavCursorRef.current;
-        const idx = snapR.lastSelectedId != null ? (visibleTaskRowIndexById.get(snapR.lastSelectedId) ?? -1) : -1;
-        const nextIdx = idx >= 0 && idx < visibleTasks.length - 1 ? idx + 1 : idx;
-        if (idx >= 0 && nextIdx !== idx) {
-          e.preventDefault();
-          const nextTask = visibleTasks[nextIdx]!;
-          keyboardShiftPivotIdRef.current = null;
-          handleSelect(nextTask.id, true, true);
-          const navCol: TableColumnId =
-            snapR.focusedCell && editableColumnIds.includes(snapR.focusedCell.columnId) ? snapR.focusedCell.columnId : defaultNavColumn;
-          setFocusedCell({ taskId: nextTask.id, columnId: navCol });
-          cellNavCursorRef.current = {
-            lastSelectedId: nextTask.id,
-            focusedCell: { taskId: nextTask.id, columnId: navCol },
-          };
-          document.getElementById(`task-row-${nextTask.id}`)?.scrollIntoView({ block: 'nearest' });
-          focusTableScrollIfNeeded();
-        }
       }
       return;
     } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.shiftKey && !e.ctrlKey && !e.metaKey) {

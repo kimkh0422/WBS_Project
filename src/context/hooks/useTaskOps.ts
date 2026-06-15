@@ -1,6 +1,6 @@
 import { useCallback, useMemo, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project } from '../../types';
-import { WBSSettings, StatusConfig } from '../../lib/wbsSettings';
+import { WBSSettings, StatusConfig, autoProgressPercentForStatus } from '../../lib/wbsSettings';
 import { v4 as uuidv4 } from 'uuid';
 import { upsertTasks, upsertProject } from '../../lib/db';
 import { round1, round2 } from '../../lib/utils';
@@ -344,15 +344,11 @@ export function useTaskOps(deps: TaskOpsDeps) {
           delete rest.plannedProgressOverride;
           resolvedUpdates = rest as typeof resolvedUpdates;
         }
-        if (
-          typeof resolvedUpdates.status === 'string' &&
-          wSettings.linkStatusAndProgress !== false &&
-          !Object.prototype.hasOwnProperty.call(updates, 'progress')
-        ) {
-          const newStatusCfg = wSettings.statusConfigs?.find((c) => c.id === resolvedUpdates.status);
-          if (newStatusCfg && newStatusCfg.progress === 100) {
-            resolvedUpdates = { ...resolvedUpdates, progress: 100 };
-          }
+        if (typeof resolvedUpdates.status === 'string' && !Object.prototype.hasOwnProperty.call(updates, 'progress')) {
+          resolvedUpdates = {
+            ...resolvedUpdates,
+            progress: autoProgressPercentForStatus(resolvedUpdates.status, (wSettings.statusConfigs ?? []) as StatusConfig[]),
+          };
         }
         let updatedTask = { ...task, ...resolvedUpdates };
 
@@ -390,8 +386,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
           nextTasks = distributeProgressDown(nextTasks, id, resolvedUpdates.progress);
         }
 
-        // 상태 변경 시 모든 하위 작업에 캐스케이드
-        if (typeof resolvedUpdates.status === 'string' && wSettings.linkStatusAndProgress !== false) {
+        // 상태 변경 시 모든 하위 작업에 캐스케이드(상위를 완료로 두면 하위도 완료+100%, 완료 해제 시 미완료 상태로)
+        if (typeof resolvedUpdates.status === 'string') {
           const newStatusCfg = ((wSettings.statusConfigs ?? []) as StatusConfig[]).find((c) => c.id === resolvedUpdates.status);
           const oldStatusCfg = ((wSettings.statusConfigs ?? []) as StatusConfig[]).find((c) => c.id === task.status);
           const getAllDescendantIds = (rootId: string): string[] => {
@@ -416,10 +412,9 @@ export function useTaskOps(deps: TaskOpsDeps) {
               const doneStatusIds = new Set(
                 ((wSettings.statusConfigs ?? []) as StatusConfig[]).filter((c) => c.progress === 100).map((c) => c.id),
               );
+              const downProgress = autoProgressPercentForStatus(newStatusCfg.id, (wSettings.statusConfigs ?? []) as StatusConfig[]);
               nextTasks = nextTasks.map((t) =>
-                descendantIds.has(t.id) && doneStatusIds.has(t.status)
-                  ? { ...t, status: newStatusCfg.id, progress: newStatusCfg.progress ?? 0 }
-                  : t,
+                descendantIds.has(t.id) && doneStatusIds.has(t.status) ? { ...t, status: newStatusCfg.id, progress: downProgress } : t,
               );
             }
           }
@@ -488,8 +483,8 @@ export function useTaskOps(deps: TaskOpsDeps) {
         }
 
         // 자식 단계(status) 변경 시 부모(및 조상)의 단계도 함께 갱신.
-        // 단계 표시는 자식들의 실제 상태를 반영해야 하므로 linkStatusAndProgress와 무관하게 항상 전파.
-        // 단, 상위 단계 변경에 따른 progress 자동 적용은 linkStatusAndProgress 설정으로 제어.
+        // 단계 표시는 자식들의 실제 상태를 반영해야 하므로 항상 전파한다.
+        // 부모 진척률은 완료/미완료(0·100%)만 상태에 맞춰 갱신한다.
         const statusChanged =
           Object.prototype.hasOwnProperty.call(updates, 'status') &&
           typeof resolvedUpdates.status === 'string' &&
@@ -497,14 +492,13 @@ export function useTaskOps(deps: TaskOpsDeps) {
         if (statusChanged && !deferScheduleSync) {
           const cfgs = (wSettings.statusConfigs ?? []) as StatusConfig[];
           if (cfgs.length > 0) {
-            const syncProgress = wSettings.linkStatusAndProgress !== false;
             // 변경된 작업의 부모부터 위로 전파
             if (task.parentId) {
-              result = syncParentStatus(result, task.parentId, cfgs, syncProgress);
+              result = syncParentStatus(result, task.parentId, cfgs, true);
             }
             // 부모가 바뀐 경우 새 부모쪽도 검사
             if (parentIdChanged && updates.parentId) {
-              result = syncParentStatus(result, updates.parentId, cfgs, syncProgress);
+              result = syncParentStatus(result, updates.parentId, cfgs, true);
             }
           }
         }

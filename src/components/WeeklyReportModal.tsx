@@ -289,13 +289,12 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
         nextWeekPlan.push(t);
       }
 
-      // 이슈: 명시적 이슈 또는 지연/Blocked
+      // 이슈: 명시적 이슈 또는 기한 초과 등
       const endBeforeToday = isBefore(end ?? today, today);
       const isDelayed = endBeforeToday && !isDone;
-      const isBlocked = t.status === 'blocked';
       const explicitIssue = !!t.isIssue;
 
-      if (explicitIssue || isDelayed || isBlocked) {
+      if (explicitIssue || isDelayed) {
         issues.push(t);
       }
     }
@@ -354,7 +353,6 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
         const tags: string[] = [];
         if (t.isIssue) tags.push('이슈');
         if (t.isActionItem) tags.push('액션');
-        if (t.status === 'blocked') tags.push('지연됨');
         if (overdue) tags.push('기한 초과');
         const note = tags.join(', ');
         issueRows.push({

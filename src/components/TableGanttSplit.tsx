@@ -67,6 +67,8 @@ export function TableGanttSplit({
   const [tablePaneWidthPct, setTablePaneWidthPct] = useState(readTablePaneWidthPct);
   /** 표·간트 공통 계획율 기준일(간트 수직선과 동일) */
   const [plannedRefDateIso, setPlannedRefDateIso] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  /** 간트 타임라인 줌: -1 = 전체 맞춤(기본). 표 상단 슬라이더·간트 +/-·Ctrl+휠과 동기 */
+  const [ganttZoomIndex, setGanttZoomIndex] = useState(-1);
 
   const handleSplitTablePaneWidthPctChange = useCallback((pct: number) => {
     setTablePaneWidthPct(clampPct(pct));
@@ -186,15 +188,15 @@ export function TableGanttSplit({
             taskContextMenuHandlerRef={taskContextMenuHandlerRef}
             plannedRefDateIso={plannedRefDateIso}
             onPlannedRefDateIsoChange={setPlannedRefDateIso}
-            splitTablePaneWidthPct={tablePaneWidthPct}
-            onSplitTablePaneWidthPctChange={handleSplitTablePaneWidthPctChange}
+            ganttZoomIndex={ganttZoomIndex}
+            onGanttZoomIndexChange={setGanttZoomIndex}
           />
         </div>
 
         <button
           type="button"
           aria-label="표와 간트 영역 너비 조절"
-          title="드래그하여 표·간트 너비 조절"
+          title="드래그하여 표·간트 영역 너비 조절"
           className="hidden md:flex shrink-0 w-3 self-stretch cursor-col-resize touch-none z-[35] flex-col items-center justify-center border-0 p-0 bg-slate-200/90 hover:bg-indigo-400/40 active:bg-indigo-500/50 transition-colors"
           onMouseDown={handleSplitterMouseDown}
         >
@@ -216,6 +218,8 @@ export function TableGanttSplit({
             bottomInsetHeight={ganttBottomInset}
             onOpenTaskContextMenu={(e, taskId) => taskContextMenuHandlerRef.current?.(e, taskId)}
             referenceDateIso={plannedRefDateIso}
+            zoomIndex={ganttZoomIndex}
+            onZoomIndexChange={setGanttZoomIndex}
           />
         </div>
       </div>

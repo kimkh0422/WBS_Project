@@ -1,10 +1,9 @@
 import { Task, Project } from '../types';
 import { applyMilestoneDateInvariant } from './milestoneDates';
 import { formatNum2, formatPercent1, round1, round2 } from './utils';
-import type { StatusConfig } from './wbsSettings';
+import { autoProgressPercentForStatus, type StatusConfig } from './wbsSettings';
 import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
 import { overlayWeightFromLocal } from './weightLocalCache';
-import { getUseWeightForProgressRollup } from './rollupOptions';
 import { rollupWeightFromEffort } from './progressRollupWeights';
 import { computeProjectRollupMetrics } from './projectRollupStats';
 
@@ -103,13 +102,12 @@ export function syncParentRollups(
   if (doneStatusIds && parent.status && doneStatusIds.has(parent.status)) {
     parentProgress = 100;
   } else {
-    // 공수 가중 여부(rollupOptions): true=직속 자식 공수 비율로 가중평균 / false=단순평균
-    const useWeight = getUseWeightForProgressRollup();
-    if (useWeight && totalWeight > 0) {
-      // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
+    // 직속 자식 공수(workEffort) 비율로 가중평균. Σ공수>0이면 항상 이 방식(요약 바「공수 가중」토글과 무관).
+    // 완료(100%) 리프도 형제 대비 자신의 공수 비율만큼만 부모 진척에 반영된다.
+    if (totalWeight > 0) {
       parentProgress = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
     } else if (children.length > 0) {
-      // 가중치 미반영 모드 또는 가중치 합 0 → 자식 progress 단순 평균
+      // 형제 공수가 모두 0이면 가중 불가 → 진척률 단순 평균
       parentProgress = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
     }
   }
@@ -220,8 +218,9 @@ export function getTaskProgressRollupTooltip(task: Task, allTasks: Task[], doneS
  * 자식들의 상태(단계)를 기반으로 부모의 상태를 도출.
  * 규칙(우선순위):
  *  1) 자식이 모두 완료(progress=100) → 완료 상태
- *  2) 자식 중 진행 중(0<progress<100) 또는 일부만 완료 → 진행 중(중간) 상태
- *  3) 자식이 모두 시작 전(progress=0) → 시작 전 상태
+ *  2) 자식 중 중간 단계(0<progress<100)가 있으면 그중 가장 작은 progress의 상태
+ *  3) 그 외(일부만 완료·모두 미완료 등) → progress=0인 첫 상태(통상 미완료)
+ *  4) 자식이 모두 시작 전(progress=0) → 시작 전 상태
  * 반환값: 부모로 설정할 status id, 결정 불가 시 null.
  */
 export function deriveParentStatusFromChildren(childStatuses: string[], statusConfigs: StatusConfig[]): string | null {
@@ -265,8 +264,8 @@ export function deriveParentStatusFromChildren(childStatuses: string[], statusCo
  * 자식의 단계(status) 변경을 부모(및 조상)로 롤업.
  * - 부모의 status를 자식들의 status를 기준으로 재계산하여 갱신
  * - 부모에 자식이 하나도 없으면 변경 없이 다음 조상으로 전파하지 않음
- * - syncProgress=true(기본): status 변경에 따라 status별 preset progress도 함께 적용 (linkStatusAndProgress 모드)
- * - syncProgress=false: status만 동기화하고 progress는 자식 가중평균 등 외부 롤업에 맡김 (단계만 표시 모드)
+ * - syncProgress=true(기본): 부모 status가 바뀔 때 진척률을 완료/미완료 기준으로만 맞춤(완료 상태=100%, 그 외=0%).
+ * - syncProgress=false: status만 동기화하고 progress는 건드리지 않음 (단계만 표시 모드)
  */
 export function syncParentStatus(allTasks: Task[], parentId: string | null, statusConfigs: StatusConfig[], syncProgress = true): Task[] {
   if (!parentId) return allTasks;
@@ -286,15 +285,14 @@ export function syncParentStatus(allTasks: Task[], parentId: string | null, stat
     return syncParentStatus(allTasks, parent.parentId, statusConfigs, syncProgress);
   }
 
-  const newCfg = statusConfigs.find((c) => c.id === derivedStatusId);
-  const newProgress = syncProgress && newCfg && typeof newCfg.progress === 'number' ? newCfg.progress : undefined;
+  const newProgress = syncProgress ? autoProgressPercentForStatus(derivedStatusId, statusConfigs) : undefined;
 
   const nextTasks = allTasks.map((t) =>
     t.id === parentId
       ? {
           ...t,
           status: derivedStatusId,
-          ...(newProgress !== undefined ? { progress: newProgress } : {}),
+          ...(syncProgress ? { progress: newProgress } : {}),
         }
       : t,
   );

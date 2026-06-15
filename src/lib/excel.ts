@@ -127,17 +127,39 @@ const estimateWorkEffortFromDates = (startIso: string, endIso: string): number |
 const parseStatus = (val: unknown): TaskStatus | '' => {
   const s = normalizeHeader(val);
   if (!s) return '';
-  if (['todo', '할일', '할일', '대기', '미착수', 'notstarted', 'open'].includes(s)) return 'todo';
-  if (['in-progress', 'inprogress', '진행', '진행중', '진행중', 'doing', 'wip'].includes(s)) return 'in-progress';
   if (['done', '완료', '종료', 'closed', 'finish', 'finished'].includes(s)) return 'done';
-  if (['blocked', '지연', '지연됨', '중단', '막힘', 'hold'].includes(s)) return 'blocked';
+  if (
+    [
+      'todo',
+      '할일',
+      '대기',
+      '미착수',
+      'notstarted',
+      'open',
+      'in-progress',
+      'inprogress',
+      '진행',
+      '진행중',
+      'doing',
+      'wip',
+      'blocked',
+      '지연',
+      '지연됨',
+      '중단',
+      '막힘',
+      'hold',
+      '미완료',
+    ].includes(s)
+  ) {
+    return 'todo';
+  }
   return '';
 };
 
 const inferStatusFromProgress = (p: number): TaskStatus => {
   if (!Number.isFinite(p) || p <= 0) return 'todo';
   if (p >= 99.5) return 'done';
-  return 'in-progress';
+  return 'todo';
 };
 
 const normalizeWbsKey = (val: unknown): string => {

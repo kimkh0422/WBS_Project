@@ -24,8 +24,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
 }
 
 const STATUS: WbsStatusConfigLite[] = [
-  { id: 'todo', name: '예정', progress: 0 },
-  { id: 'in-progress', name: '진행중' },
+  { id: 'todo', name: '미완료', progress: 0 },
   { id: 'done', name: '완료', progress: 100 },
 ];
 
@@ -77,10 +76,10 @@ describe('getWbsCellClipboardData', () => {
   });
 
   it('상태 셀은 표시명 텍스트 + 정확 복원용 statusId', () => {
-    const t = makeTask({ id: 'a', status: 'in-progress' });
+    const t = makeTask({ id: 'a', status: 'done' });
     const cell = getWbsCellClipboardData(t, 'status', copyCtx([t]));
-    expect(cell?.text).toBe('진행중');
-    expect(cell?.statusId).toBe('in-progress');
+    expect(cell?.text).toBe('완료');
+    expect(cell?.statusId).toBe('done');
   });
 
   it('선행 셀은 표시 순서 행 번호 텍스트(정렬) + 원본 id 목록', () => {
@@ -203,16 +202,20 @@ describe('buildWbsCellPasteUpdate — 컬럼별 파싱(셀 편집기 커밋 규�
     expect(r.error).toBeUndefined();
   });
 
-  it('상태: 표시명으로 매칭하고 상태에 매핑된 진척률을 함께 반영, statusId가 있으면 우선', () => {
+  it('상태: 표시명으로 매칭하고 완료/미완료에 맞춰 진척률(0·100%)을 함께 반영, statusId가 있으면 우선', () => {
     const t = makeTask({ id: 'a', status: 'todo', progress: 0 });
     expect(buildWbsCellPasteUpdate(t, 'status', { text: '완료' }, ctxOf([t])).updates).toEqual({ status: 'done', progress: 100 });
-    expect(buildWbsCellPasteUpdate(t, 'status', { text: '진행중' }, ctxOf([t])).updates).toEqual({ status: 'in-progress' });
+    const wasDone = makeTask({ id: 'b', status: 'done', progress: 100 });
+    expect(buildWbsCellPasteUpdate(wasDone, 'status', { text: '진행중' }, ctxOf([wasDone])).updates).toEqual({
+      status: 'todo',
+      progress: 0,
+    });
     expect(buildWbsCellPasteUpdate(t, 'status', { text: '엉뚱한이름', statusId: 'done' }, ctxOf([t])).updates).toEqual({
       status: 'done',
       progress: 100,
     });
     expect(buildWbsCellPasteUpdate(t, 'status', { text: '없는상태' }, ctxOf([t])).error).toBeTruthy();
-    const same = buildWbsCellPasteUpdate(t, 'status', { text: '예정' }, ctxOf([t]));
+    const same = buildWbsCellPasteUpdate(t, 'status', { text: '미완료' }, ctxOf([t]));
     expect(same.updates).toBeNull();
     expect(same.error).toBeUndefined();
   });

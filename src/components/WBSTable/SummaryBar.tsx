@@ -1,6 +1,7 @@
 import React from 'react';
 import { CalendarDays } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { ZOOM_LEVELS } from '../Gantt/ZOOM_LEVELS';
 
 const Divider = () => (
   <div className="h-5 w-px shrink-0 bg-gradient-to-b from-transparent via-[var(--color-line)] to-transparent opacity-80" aria-hidden />
@@ -16,9 +17,9 @@ interface SummaryBarProps {
   expandToLevel: (n: number) => void;
   rowHeight: number;
   handleSetRowHeight: (h: number) => void;
-  /** 표+간트 split: 표 영역 비율(%). 함께 전달될 때만 간트 너비 슬라이더 표시(데스크톱만). */
-  splitTablePaneWidthPct?: number;
-  onSplitTablePaneWidthPctChange?: (tablePaneWidthPct: number) => void;
+  /** 표+간트 split: 간트 타임라인 줌. 함께 전달될 때만 슬라이더 표시(데스크톱만). `-1` = 전체 맞춤. */
+  ganttZoomIndex?: number;
+  onGanttZoomIndexChange?: (zoomIndex: number) => void;
   /**
    * default: 표 단독 상단 줄(전체 너비·하단 구분선).
    * toolbarRail: 셀 서식 툴바와 한 줄 — 기준일·줄간격 뒤에 레벨 펼치기(맨 오른쪽).
@@ -36,15 +37,22 @@ export function SummaryBar({
   expandToLevel,
   rowHeight,
   handleSetRowHeight,
-  splitTablePaneWidthPct,
-  onSplitTablePaneWidthPctChange,
+  ganttZoomIndex,
+  onGanttZoomIndexChange,
   layout = 'default',
 }: SummaryBarProps) {
   const rail = layout === 'toolbarRail';
-  const showSplitWidthSlider =
-    typeof splitTablePaneWidthPct === 'number' && Number.isFinite(splitTablePaneWidthPct) && onSplitTablePaneWidthPctChange != null;
-  /** 표 25~75% 제약과 동일 → 간트 영역 25~75% */
-  const ganttWidthPct = showSplitWidthSlider ? 100 - splitTablePaneWidthPct : 50;
+  const showGanttZoomSlider =
+    typeof ganttZoomIndex === 'number' &&
+    Number.isFinite(ganttZoomIndex) &&
+    ganttZoomIndex >= -1 &&
+    ganttZoomIndex < ZOOM_LEVELS.length &&
+    onGanttZoomIndexChange != null;
+  const ganttZoomMax = ZOOM_LEVELS.length;
+  /** 0 = 전체 맞춤(-1), 1…N = ZOOM_LEVELS[0…N-1] */
+  const ganttZoomSliderValue = showGanttZoomSlider ? (ganttZoomIndex === -1 ? 0 : ganttZoomIndex + 1) : 0;
+  const ganttZoomLabel =
+    showGanttZoomSlider && ganttZoomIndex === -1 ? '전체' : showGanttZoomSlider ? ZOOM_LEVELS[ganttZoomIndex].label : '';
 
   const plannedDateBlock = (
     <div
@@ -102,20 +110,26 @@ export function SummaryBar({
     </div>
   );
 
-  const splitGanttWidthBlock = showSplitWidthSlider ? (
+  const ganttZoomBlock = showGanttZoomSlider ? (
     <div className="hidden md:flex shrink-0 items-center gap-2">
-      <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">간트 너비</span>
+      <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">간트 길이</span>
       <input
         type="range"
-        min={25}
-        max={75}
+        min={0}
+        max={ganttZoomMax}
         step={1}
-        value={ganttWidthPct}
-        onChange={(e) => onSplitTablePaneWidthPctChange!(100 - Number(e.target.value))}
+        value={ganttZoomSliderValue}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          onGanttZoomIndexChange!(v === 0 ? -1 : v - 1);
+        }}
         className="h-1.5 w-20 cursor-pointer accent-indigo-500"
-        title={`간트 영역 약 ${ganttWidthPct}%(표 ${splitTablePaneWidthPct}%). 화면 중앙 세로 구분선을 드래그해도 같이 조절됩니다.`}
+        aria-label="간트 타임라인 확대·축소"
+        title={
+          '왼쪽: 전체 일정이 한눈에 들어오도록 자동 맞춤. 오른쪽: 날짜축·막대를 고정 단계로 확대합니다. 간트 영역에서 +/- 키·Ctrl+휠로도 같이 조절됩니다.'
+        }
       />
-      <span className="w-8 text-right text-[11px] font-bold tabular-nums text-slate-600">{ganttWidthPct}%</span>
+      <span className="min-w-[2rem] shrink-0 text-right text-[11px] font-bold tabular-nums text-slate-600">{ganttZoomLabel}</span>
     </div>
   ) : null;
 
@@ -161,10 +175,10 @@ export function SummaryBar({
           {plannedDateBlock}
           <Divider />
           {rowHeightBlock}
-          {splitGanttWidthBlock ? (
+          {ganttZoomBlock ? (
             <>
               <Divider />
-              {splitGanttWidthBlock}
+              {ganttZoomBlock}
             </>
           ) : null}
           <Divider />
@@ -177,10 +191,10 @@ export function SummaryBar({
           {levelExpandBlock}
           <Divider />
           {rowHeightBlock}
-          {splitGanttWidthBlock ? (
+          {ganttZoomBlock ? (
             <>
               <Divider />
-              {splitGanttWidthBlock}
+              {ganttZoomBlock}
             </>
           ) : null}
         </>

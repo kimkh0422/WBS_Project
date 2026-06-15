@@ -1893,12 +1893,7 @@ function SortableTaskRowInner({
                     onChange={(e) => {
                       const newStatus = e.target.value;
                       if (newStatus !== task.status) {
-                        const config = statusConfigs.find((c) => c.id === newStatus);
-                        const updates: Partial<Task> = { status: newStatus };
-                        if (config && config.progress !== undefined) {
-                          updates.progress = config.progress;
-                        }
-                        updateTask(task.id, updates);
+                        updateTask(task.id, { status: newStatus });
                       }
                       setEditingCell(null);
                     }}

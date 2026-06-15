@@ -4,12 +4,45 @@ import { normalizeYmdInput } from './ymdInput';
 import { inclusiveCalendarDays, endYmdFromInclusiveDuration } from './durationDays';
 import { round1, round2 } from './utils';
 import { hasDependencyCycle } from './dependencyPicker';
+import { autoProgressPercentForStatus } from './wbsSettings';
 
 /** 셀 복사/붙여넣기에서 쓰는 상태 설정 최소 형태 (wbsSettings.statusConfigs 호환) */
 export interface WbsStatusConfigLite {
   id: string;
   name: string;
   progress?: number;
+}
+
+/** 구버전·엑셀에 쓰이던 표기 → 미완료(todo) / 완료(done) 붙여넣기 호환 */
+function resolveLegacyStatusPasteText(raw: string): 'todo' | 'done' | null {
+  const s = raw.trim().replace(/\s+/g, '').toLowerCase();
+  if (!s) return null;
+  const doneAliases = new Set(['done', '완료', '종료', 'closed', 'finish', 'finished']);
+  if (doneAliases.has(s)) return 'done';
+  const todoAliases = new Set([
+    'todo',
+    '미완료',
+    '할일',
+    '예정',
+    '대기',
+    '미착수',
+    'notstarted',
+    'open',
+    'in-progress',
+    'inprogress',
+    '진행',
+    '진행중',
+    'doing',
+    'wip',
+    'blocked',
+    '지연',
+    '지연됨',
+    '중단',
+    '막힘',
+    'hold',
+  ]);
+  if (todoAliases.has(s)) return 'todo';
+  return null;
 }
 
 /**
@@ -307,20 +340,31 @@ function buildValueUpdate(
       const defaultCfg = ctx.statusConfigs.find((c) => c.id === 'todo') ?? ctx.statusConfigs[0];
       if (!defaultCfg) return fail('상태 설정이 없습니다.');
       if (defaultCfg.id === target.status) return noChange;
-      const updates: Partial<Task> = { status: defaultCfg.id };
-      if (defaultCfg.progress !== undefined) updates.progress = defaultCfg.progress;
-      return { updates };
+      return {
+        updates: {
+          status: defaultCfg.id,
+          progress: autoProgressPercentForStatus(defaultCfg.id, ctx.statusConfigs),
+        },
+      };
     }
     let cfg = cell.statusId ? ctx.statusConfigs.find((c) => c.id === cell.statusId) : undefined;
     if (!cfg && text) {
       cfg = ctx.statusConfigs.find((c) => c.name.trim() === text) ?? ctx.statusConfigs.find((c) => c.id === text);
     }
+    if (!cfg && text) {
+      const leg = resolveLegacyStatusPasteText(text);
+      if (leg === 'todo') cfg = ctx.statusConfigs.find((c) => c.id === 'todo') ?? ctx.statusConfigs.find((c) => (c.progress ?? 0) < 100);
+      else if (leg === 'done') cfg = ctx.statusConfigs.find((c) => c.id === 'done') ?? ctx.statusConfigs.find((c) => c.progress === 100);
+    }
     if (!cfg) return fail(`"${text || '빈 값'}"과 일치하는 상태가 없습니다.`);
     if (cfg.id === target.status) return noChange;
-    // 상태 셀 편집기와 동일: 상태에 진척률이 매핑돼 있으면 함께 반영
-    const updates: Partial<Task> = { status: cfg.id };
-    if (cfg.progress !== undefined) updates.progress = cfg.progress;
-    return { updates };
+    // 완료(progress=100) 상태만 100%, 그 외는 0%로 진척률을 맞춤(표 상태 편집과 동일)
+    return {
+      updates: {
+        status: cfg.id,
+        progress: autoProgressPercentForStatus(cfg.id, ctx.statusConfigs),
+      },
+    };
   }
   if (targetColumnId === 'deliverables') {
     if (text === (target.deliverables ?? '').trim()) return noChange;

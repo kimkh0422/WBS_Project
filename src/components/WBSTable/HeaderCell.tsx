@@ -28,7 +28,8 @@ export const WEIGHT_COLUMN_HELP_TEXT = [
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
 export const PROGRESS_COLUMN_HELP_TEXT = [
   '진척률 0~100%. 리프(하위 없음) 행에는 직접 입력한 값이 저장됩니다.',
-  '요약(하위 있음) 행에는 직접 자식들만 대상으로, **자식 공수 비율(업무 구성비)** 로 가중 평균이 자동 반영됩니다.',
+  '요약(하위 있음) 행에는 직접 자식들만 대상으로, **자식 공수 비율(업무 구성비)** 로 가중 평균이 자동 반영됩니다(Σ공수>0일 때; 요약 바「공수 가중」토글과 무관).',
+  '완료(100%) 리프도 형제 대비 자신의 공수만큼만 상위 진척에 기여합니다.',
   '완료로 정의된 상태이면 하위와 관계없이 100%로 유지될 수 있습니다.',
   '환경설정에서 상태·진척 연동을 켠 경우, 단계 변경 시 해당 단계의 기본 진척%가 덮어쓸 수 있습니다.',
 ].join('\n');
@@ -46,7 +47,7 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   weight: WEIGHT_COLUMN_HELP_TEXT,
   assignee: '담당자',
   allocation: '투입율 (%)',
-  status: '상태',
+  status: '작업 단계(미완료·완료). 단계 이름·색은 환경설정「표」탭의 상태 설정에서 바꿀 수 있습니다.',
   progress: PROGRESS_COLUMN_HELP_TEXT,
   plannedProgress: PLANNED_PROGRESS_COLUMN_HELP_TEXT,
   progressVariance: PROGRESS_VARIANCE_COLUMN_HELP_TEXT,
@@ -54,6 +55,14 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   dependencies: '선행작업(의존성)',
   actions: '작업 수정·삭제 등 관리 버튼',
 };
+
+/** 표 컬럼 표시·순서·너비를 바꾸는 방법 — 데이터 열 헤더 `title`에 공통 덧붙임 */
+export const COLUMN_CONFIGURATION_HELP =
+  '컬럼 표시·순서: 환경설정「표」탭의 표 필드(컬럼)에서 켜고 끄고 순서를 바꿉니다. 이 제목을 우클릭하면 이 열만 숨기기·숨긴 열 표시·좌우 이동·컬럼 추가를 할 수 있습니다. 제목 오른쪽 끝을 드래그하면 너비를 조절합니다. 작업명·상태 열은 항상 표시됩니다.';
+
+function headerTitleWithSettingsHelp(coreTitle: string): string {
+  return `${coreTitle} — ${COLUMN_CONFIGURATION_HELP}`;
+}
 
 interface HeaderCellProps {
   id: TableColumnId;
@@ -120,7 +129,7 @@ export function HeaderCell({
         onClick={onColClick}
         onDoubleClick={onColDoubleClick}
         onContextMenu={onColContextMenu}
-        title={`${label ?? id} · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동`}
+        title={headerTitleWithSettingsHelp(`${label ?? id} · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동`)}
       >
         {label ?? id}
         {resizeGrip}
@@ -135,11 +144,11 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('wbs') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             headerSortClickEnabled
               ? 'WBS 순서 (클릭하여 정렬) · 더블클릭: 너비 자동'
-              : 'WBS 순서 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴 · 더블클릭: 너비 자동'
-          }
+              : 'WBS 순서 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴 · 더블클릭: 너비 자동',
+          )}
         >
           WBS
           {resizeGrip}
@@ -152,10 +161,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('name') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.name : '작업명 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           작업명
           {resizeGrip}
@@ -168,10 +177,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('startDate') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.startDate : '시작일 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           시작일
           {resizeGrip}
@@ -184,10 +193,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('endDate') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.endDate : '종료일 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           종료일
           {resizeGrip}
@@ -200,7 +209,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.duration + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.duration + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           기간
           {resizeGrip}
@@ -213,10 +222,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('workEffort') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.workEffort : '공수 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           {workEffortHeaderTitle ?? '공수'}
           {resizeGrip}
@@ -229,7 +238,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.workComposition + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.workComposition + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           업무구성(%)
           {resizeGrip}
@@ -242,10 +251,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('weight' as keyof Task) : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.weight : '가중치 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           가중치
           {resizeGrip}
@@ -258,10 +267,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('progress') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.progress : '진척률 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           진척(%)
           {resizeGrip}
@@ -274,7 +283,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.plannedProgress + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.plannedProgress + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           계획(%)
           {resizeGrip}
@@ -287,7 +296,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.progressVariance + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.progressVariance + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           차이(%p)
           {resizeGrip}
@@ -300,10 +309,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('assignee') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.assignee : '담당자 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           담당자
           {resizeGrip}
@@ -316,7 +325,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.allocation + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.allocation + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           투입율
           {resizeGrip}
@@ -329,10 +338,10 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? () => onSort('status') : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={
+          title={headerTitleWithSettingsHelp(
             (headerSortClickEnabled ? COLUMN_TOOLTIPS.status : '상태 · 클릭: 이 열 전체 선택 · 우클릭: 정렬·메뉴') +
-            ' · 더블클릭: 너비 자동'
-          }
+              ' · 더블클릭: 너비 자동',
+          )}
         >
           상태
           {resizeGrip}
@@ -345,7 +354,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.deliverables + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.deliverables + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           산출물
           {resizeGrip}
@@ -358,7 +367,7 @@ export function HeaderCell({
           onClick={headerSortClickEnabled ? undefined : onColClick}
           onDoubleClick={onColDoubleClick}
           onContextMenu={onColContextMenu}
-          title={COLUMN_TOOLTIPS.dependencies + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+          title={headerTitleWithSettingsHelp(COLUMN_TOOLTIPS.dependencies + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동')}
         >
           선행작업
           {resizeGrip}

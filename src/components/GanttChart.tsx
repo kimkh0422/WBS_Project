@@ -73,6 +73,9 @@ interface GanttChartProps {
   onOpenTaskContextMenu?: (e: React.MouseEvent, taskId: string) => void;
   /** 계획율 기준일(YYYY-MM-DD). 간트 수직선 위치·뷰포트 앵커. 미전달 시 당일(로컬)로 간주 */
   referenceDateIso?: string;
+  /** 부모 제어 줌: `-1` = 전체 맞춤. `TableGanttSplit`에서 표 상단과 동기 */
+  zoomIndex?: number;
+  onZoomIndexChange?: (zoomIndex: number) => void;
 }
 
 export function GanttChart({
@@ -90,6 +93,8 @@ export function GanttChart({
   bottomInsetHeight = 0,
   onOpenTaskContextMenu,
   referenceDateIso: referenceDateIsoProp,
+  zoomIndex: zoomIndexProp,
+  onZoomIndexChange,
 }: GanttChartProps) {
   const {
     tasks,
@@ -225,8 +230,22 @@ export function GanttChart({
     return memo;
   }, [layoutTasks]);
 
-  // Zoom level index, -1 means auto-fit
-  const [zoomIndex, setZoomIndex] = useState(-1);
+  // Zoom: -1 = 전체 맞춤(자동 dayWidth). 부모가 zoomIndex+onZoomIndexChange를 넘기면 제어 컴포넌트.
+  const isZoomControlled = zoomIndexProp !== undefined && onZoomIndexChange != null;
+  const [zoomIndexUncontrolled, setZoomIndexUncontrolled] = useState(-1);
+  const zoomIndex = isZoomControlled ? zoomIndexProp! : zoomIndexUncontrolled;
+  const setZoomIndex = useCallback(
+    (nextOrUpdater: number | ((prev: number) => number)) => {
+      if (isZoomControlled) {
+        const prev = zoomIndexProp as number;
+        const next = typeof nextOrUpdater === 'function' ? (nextOrUpdater as (p: number) => number)(prev) : nextOrUpdater;
+        onZoomIndexChange!(next);
+      } else {
+        setZoomIndexUncontrolled(nextOrUpdater);
+      }
+    },
+    [isZoomControlled, zoomIndexProp, onZoomIndexChange],
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
@@ -338,7 +357,7 @@ export function GanttChart({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hotkeysEnabled, propRowHeight, onRowHeightChange]);
+  }, [hotkeysEnabled, propRowHeight, onRowHeightChange, setZoomIndex]);
 
   const handleSave = (updates: Partial<Task>) => {
     if (editingTask) {
@@ -503,7 +522,7 @@ export function GanttChart({
         scrollH(e.deltaY);
       }
     },
-    [isSplitView, autoZoomLevel.dayWidth],
+    [isSplitView, autoZoomLevel.dayWidth, setZoomIndex],
   );
 
   useEffect(() => {

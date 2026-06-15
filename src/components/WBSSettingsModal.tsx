@@ -6,7 +6,7 @@ import { useLevelColors, type RgbColor } from '../context/LevelColorsContext';
 import { LEVEL_COLORS } from '../lib/levelColors';
 import { useWbsTableAutoFormatting } from '../hooks/useWbsTableAutoFormatting';
 import { cn } from '../lib/utils';
-import { resolveStoredTableColumnVisible } from '../lib/wbsSettings';
+import { resolveStoredTableColumnVisible, DEFAULT_STATUS_CONFIGS } from '../lib/wbsSettings';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 import {
   DASHBOARD_SECTION_IDS,
@@ -32,7 +32,7 @@ interface WBSSettingsModalProps {
 
 const DEFAULT_LEVEL_COLORS: RgbColor[] = [...LEVEL_COLORS];
 
-/** 상태(할 일/진행 중/완료 등)별 색상 프리셋 - Tailwind 클래스 */
+/** 상태(미완료/완료 등)별 색상 프리셋 - Tailwind 클래스 */
 const STATUS_COLOR_PRESETS: { value: string; label: string }[] = [
   { value: 'bg-stone-100 border-stone-200', label: '회색' },
   { value: 'bg-zinc-100 border-zinc-200', label: '징크' },
@@ -208,10 +208,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       }
     }
 
-    // 정의가 제거된 사용자 컬럼은 목록에서 제거; name은 항상 표시. 접두어 WBS ID 컬럼은 표에 두지 않음(계층 번호 칸만 사용).
+    // 정의가 제거된 사용자 컬럼은 목록에서 제거; name·status는 항상 표시. 접두어 WBS ID 컬럼은 표에 두지 않음(계층 번호 칸만 사용).
     return cleaned
       .filter((c) => !c.id.startsWith('custom:') || customIds.has(c.id))
-      .map((c) => (c.id === 'name' ? { ...c, visible: true } : c))
+      .map((c) => (c.id === 'name' || c.id === 'status' ? { ...c, visible: true } : c))
       .map((c) => (c.id === 'wbsId' ? { ...c, visible: false } : c));
   }, [tableColumns, customColumns, wbsSettings.tableColumns, DEFAULT_TABLE_COLUMNS]);
 
@@ -283,6 +283,28 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       .map((c) => ({ id: c.id, name: c.name.trim(), ...(c.projectId ? { projectId: c.projectId } : {}) }))
       .filter((c) => c.id.startsWith('custom:') && c.name.length > 0);
 
+    // 상태는 미완료·완료 두 단계만 저장(예전 세션에서 3개 이상이 남은 경우 방어).
+    let statusConfigsToSave = statusConfigs;
+    if (canEditGlobal && Array.isArray(statusConfigs) && statusConfigs.length > 2) {
+      const oldTodo =
+        statusConfigs.find((c) => c.id === 'todo') ?? statusConfigs.find((c) => typeof c.progress === 'number' && c.progress === 0);
+      const oldDone =
+        statusConfigs.find((c) => c.id === 'done') ?? statusConfigs.find((c) => typeof c.progress === 'number' && c.progress === 100);
+      let todoName = '미완료';
+      if (oldTodo?.name && oldTodo.name !== '할 일' && oldTodo.name !== '예정') {
+        todoName = oldTodo.name;
+      }
+      statusConfigsToSave = [
+        { id: 'todo', name: todoName, progress: 0, color: oldTodo?.color ?? DEFAULT_STATUS_CONFIGS[0].color },
+        {
+          id: 'done',
+          name: oldDone?.name?.trim() ? oldDone.name : '완료',
+          progress: 100,
+          color: oldDone?.color ?? DEFAULT_STATUS_CONFIGS[1].color,
+        },
+      ];
+    }
+
     // 전역 설정·색상·상태진척도 적용: 관리자만 (UI에서 입력은 disabled 처리되지만 방어적으로 한 번 더 차단)
     if (canEditGlobal) {
       updateWbsSettings({
@@ -293,7 +315,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         level2Prefix: level2.trim(),
         level3Prefix: level3.trim(),
         maxLevel: Number(maxLevel),
-        statusConfigs: statusConfigs,
+        statusConfigs: statusConfigsToSave,
+        statusBinaryMigrated: true,
         // 상태↔진척률 자동 연동 제거: 항상 false로 저장
         linkStatusAndProgress: false,
         tableColumns: normalizedTableColumns,
@@ -637,6 +660,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                       const custom = customColumns.find((c) => c.id === col.id);
                       const label = custom?.name || TABLE_COLUMN_LABELS[col.id] || col.id;
                       const isName = col.id === 'name';
+                      const isStatus = col.id === 'status';
+                      const isAlwaysVisible = isName || isStatus;
                       return (
                         <div
                           key={col.id}
@@ -653,10 +678,10 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                               {col.id}
                             </div>
                           </div>
-                          {isName ? (
+                          {isAlwaysVisible ? (
                             <span
                               className="p-1.5 rounded-md shrink-0 text-[var(--color-ink-subdued)]"
-                              title="작업명은 항상 표시됩니다."
+                              title={isName ? '작업명은 항상 표시됩니다.' : '상태는 항상 표시됩니다.'}
                               aria-hidden
                             >
                               <Eye size={14} />
@@ -720,7 +745,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     })}
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    WBS 계층 번호(1·1.1)는 항상 표 왼쪽에 표시됩니다. 작업명은 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시
+                    WBS 계층 번호(1·1.1)는 항상 표 왼쪽에 표시됩니다. 작업명·상태는 항상 표시됩니다. 숨긴 컬럼은 표/전체 보기에서 즉시
                     반영됩니다.
                   </p>
                 </fieldset>
@@ -791,14 +816,17 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     </div>
                     <button
                       type="button"
+                      disabled={statusConfigs.length >= 2}
                       onClick={() => {
+                        if (statusConfigs.length >= 2) return;
                         const newId = `status-${Date.now()}`;
                         setStatusConfigs([
                           ...statusConfigs,
                           { id: newId, name: '새 상태', progress: 0, color: 'bg-[var(--color-bg)] border-[var(--color-line)]' },
                         ]);
                       }}
-                      className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold"
+                      className="p-1 hover:bg-indigo-50 text-indigo-600 rounded-md transition-colors flex items-center gap-1 text-[10px] font-bold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      title={statusConfigs.length >= 2 ? '상태는 미완료·완료 두 단계만 사용합니다.' : undefined}
                     >
                       <Plus size={14} />
                       상태 추가
@@ -901,7 +929,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                                       <ArrowDown size={14} className="text-[var(--color-ink-subdued)]" />
                                     </button>
                                   </div>
-                                  {statusConfigs.length > 1 && (
+                                  {statusConfigs.length > 2 && (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -938,7 +966,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
                     })()}
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1 italic">
-                    상태는 표시·완료 판정에만 사용하며, 진척률은 각 작업에서 직접 입력한 값만을 기준으로 계산합니다. (상태 변경 시 진척률
+                    상태는 <strong className="font-semibold">미완료</strong>와 <strong className="font-semibold">완료</strong> 두 단계만
+                    둡니다. 표시·완료 판정에만 쓰이며, 진척률은 각 작업에서 직접 입력한 값만을 기준으로 계산합니다. (상태 변경 시 진척률
                     자동 설정 기능은 제거되었습니다.)
                   </p>
                 </div>

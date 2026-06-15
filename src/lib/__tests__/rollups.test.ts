@@ -10,7 +10,15 @@ import {
   distributeProgressDown,
 } from '../rollups';
 import type { Task } from '../../types';
-import { DEFAULT_STATUS_CONFIGS } from '../wbsSettings';
+import { DEFAULT_STATUS_CONFIGS, type StatusConfig } from '../wbsSettings';
+
+/** deriveParentStatus·syncParentStatus 등 다단계 상태 규칙 테스트용(레거시 4단계) */
+const LEGACY_FOUR_STATUS_CONFIGS: StatusConfig[] = [
+  { id: 'todo', name: '할 일', progress: 0 },
+  { id: 'in-progress', name: '진행 중', progress: 10 },
+  { id: 'blocked', name: '지연됨', progress: 50 },
+  { id: 'done', name: '완료', progress: 100 },
+];
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
@@ -35,7 +43,7 @@ describe('normalizeOrphanStatuses', () => {
     const result = normalizeOrphanStatuses(tasks, DEFAULT_STATUS_CONFIGS);
     expect(result.find((t) => t.id === 'a')!.status).toBe('todo');
     expect(result.find((t) => t.id === 'a')!.progress).toBe(40); // 진척률은 건드리지 않음
-    expect(result.find((t) => t.id === 'b')!.status).toBe('in-progress');
+    expect(result.find((t) => t.id === 'b')!.status).toBe('todo');
   });
 
   it('statusConfigs가 비어 있거나 없으면 아무것도 바꾸지 않음(로드 전 오정규화 방지)', () => {
@@ -284,19 +292,18 @@ describe('deriveParentStatusFromChildren', () => {
     expect(id).toBe('todo');
   });
 
-  it('자식 중 진행 중이 있으면 in-progress 반환', () => {
-    const id = deriveParentStatusFromChildren(['todo', 'in-progress'], DEFAULT_STATUS_CONFIGS);
+  it('자식 중 진행 중이 있으면 in-progress 반환(레거시 4단계 설정)', () => {
+    const id = deriveParentStatusFromChildren(['todo', 'in-progress'], LEGACY_FOUR_STATUS_CONFIGS);
     expect(id).toBe('in-progress');
   });
 
-  it('일부만 done이면 in-progress 반환', () => {
+  it('일부만 done이면 미완료(이진 설정에서는 중간 단계 없음)', () => {
     const id = deriveParentStatusFromChildren(['done', 'todo'], DEFAULT_STATUS_CONFIGS);
-    expect(id).toBe('in-progress');
+    expect(id).toBe('todo');
   });
 
-  it('자식 중 blocked가 있으면 in-progress 계열 반환 (중간 progress)', () => {
-    // DEFAULT: in-progress(10) < blocked(50) < done(100), 가장 작은 중간 progress = in-progress
-    const id = deriveParentStatusFromChildren(['blocked', 'todo'], DEFAULT_STATUS_CONFIGS);
+  it('자식 중 blocked가 있으면 in-progress 계열 반환 (레거시 4단계)', () => {
+    const id = deriveParentStatusFromChildren(['blocked', 'todo'], LEGACY_FOUR_STATUS_CONFIGS);
     expect(id).toBe('in-progress');
   });
 
@@ -397,15 +404,17 @@ describe('syncParentStatus', () => {
     expect(parent.progress).toBe(100);
   });
 
-  it('자식 중 진행 중인 작업이 있으면 부모 status는 in-progress', () => {
+  it('자식 중 진행 중인 작업이 있으면 부모 status는 in-progress(레거시 4단계 설정)', () => {
     const tasks: Task[] = [
       makeTask({ id: 'parent', status: 'todo', progress: 0 }),
       makeTask({ id: 'c1', parentId: 'parent', status: 'todo', progress: 0 }),
       makeTask({ id: 'c2', parentId: 'parent', status: 'in-progress', progress: 10 }),
     ];
-    const result = syncParentStatus(tasks, 'parent', DEFAULT_STATUS_CONFIGS);
+    const result = syncParentStatus(tasks, 'parent', LEGACY_FOUR_STATUS_CONFIGS);
     const parent = result.find((t) => t.id === 'parent')!;
     expect(parent.status).toBe('in-progress');
+    // 완료가 아닌 상태로 롤업될 때 자동 진척률은 0%(상태 프리셋 10%가 아님)
+    expect(parent.progress).toBe(0);
   });
 
   it('자식이 모두 todo면 부모도 todo로 회귀', () => {
@@ -453,14 +462,14 @@ describe('syncParentStatus', () => {
 
   it('syncProgress=false면 status만 갱신하고 progress는 유지', () => {
     const tasks: Task[] = [
-      makeTask({ id: 'parent', status: 'todo', progress: 17 }),
-      makeTask({ id: 'c1', parentId: 'parent', status: 'in-progress', progress: 50 }),
+      makeTask({ id: 'parent', status: 'done', progress: 17 }),
+      makeTask({ id: 'c1', parentId: 'parent', status: 'todo', progress: 0 }),
       makeTask({ id: 'c2', parentId: 'parent', status: 'todo', progress: 0 }),
     ];
     const result = syncParentStatus(tasks, 'parent', DEFAULT_STATUS_CONFIGS, false);
     const parent = result.find((t) => t.id === 'parent')!;
-    expect(parent.status).toBe('in-progress');
-    // syncProgress=false: progress는 status preset(10)로 덮어쓰지 않음
+    expect(parent.status).toBe('todo');
+    // syncProgress=false: progress는 autoProgressPercentForStatus로 덮어쓰지 않음
     expect(parent.progress).toBe(17);
   });
 });

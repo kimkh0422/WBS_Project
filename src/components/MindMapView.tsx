@@ -444,7 +444,7 @@ const STATUS_STROKE = new Proxy({} as Record<string, string>, {
   get: (_, k: string) => (_isDark() ? STATUS_STROKE_DARK : STATUS_STROKE_LIGHT)[k],
 });
 const STATUS_LABEL: Record<string, string> = {
-  todo: '예정',
+  todo: '미완료',
   'in-progress': '진행중',
   blocked: '지연',
   done: '완료',

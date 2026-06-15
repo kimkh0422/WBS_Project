@@ -71,7 +71,7 @@ export function computeProjectRollupMetrics(project: Project, pTasks: Task[]): P
     level1.length > 0
       ? computeWeightedProgress(level1, useWeight)
       : forAggregate.length > 0
-        ? Math.min(100, Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (t.progress || 0), 0) / forAggregate.length)))
+        ? computeWeightedProgress(forAggregate, useWeight)
         : 0;
 
   const plannedById = computePlannedProgressMap(pTasks);
@@ -79,10 +79,7 @@ export function computeProjectRollupMetrics(project: Project, pTasks: Task[]): P
     level1.length > 0
       ? computeWeightedPlanned(level1, plannedById, useWeight)
       : forAggregate.length > 0
-        ? Math.min(
-            100,
-            Math.max(0, Math.round(forAggregate.reduce((acc, t) => acc + (plannedById.get(t.id) ?? 0), 0) / forAggregate.length)),
-          )
+        ? computeWeightedPlanned(forAggregate, plannedById, useWeight)
         : 0;
 
   return { taskCount: total, progress, planned, inputManDays };
