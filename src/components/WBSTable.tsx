@@ -162,6 +162,8 @@ export function WBSTable({
   taskContextMenuHandlerRef,
   plannedRefDateIso: plannedRefDateIsoProp,
   onPlannedRefDateIsoChange,
+  splitTablePaneWidthPct,
+  onSplitTablePaneWidthPctChange,
 }: WBSTableProps) {
   const {
     tasks,
@@ -454,6 +456,35 @@ export function WBSTable({
     anchor: { taskId: string; columnId: TableColumnId };
     end: { taskId: string; columnId: TableColumnId };
   } | null>(null);
+  const pastedCellClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 다중 셀 붙여넣기 직후 잠시 표시 — 복사 마퀴(하늘)과 구분되는 색 */
+  const [pastedCellKeySet, setPastedCellKeySet] = useState<ReadonlySet<string> | null>(null);
+  const flashPastedCells = useCallback((keys: readonly string[]) => {
+    if (keys.length <= 1) return;
+    const frozen = [...keys];
+    const apply = () => {
+      if (pastedCellClearTimerRef.current) {
+        clearTimeout(pastedCellClearTimerRef.current);
+        pastedCellClearTimerRef.current = null;
+      }
+      setPastedCellKeySet(new Set(frozen));
+      pastedCellClearTimerRef.current = window.setTimeout(() => {
+        setPastedCellKeySet(null);
+        pastedCellClearTimerRef.current = null;
+      }, 2600);
+    };
+    // updateTask 직후 동기 레이아웃·가상 범위 재계산이 먼저 돌게 한 뒤 강조를 올려 DOM이 빠지며 "즉시 사라짐"처럼 보이는 현상을 줄인다.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(apply);
+    });
+  }, []);
+  const clearPastedCellFlash = useCallback(() => {
+    if (pastedCellClearTimerRef.current) {
+      clearTimeout(pastedCellClearTimerRef.current);
+      pastedCellClearTimerRef.current = null;
+    }
+    setPastedCellKeySet(null);
+  }, []);
 
   // 엑셀 시트(AG Grid) 뷰로 전환할 때 진행 중인 인라인 편집·셀 포커스를 정리한다.
   useEffect(() => {
@@ -466,6 +497,11 @@ export function WBSTable({
       setInlineEditingNameId(null);
       setFocusedCell(null);
       setCellMarqueeRange(null);
+      if (pastedCellClearTimerRef.current) {
+        clearTimeout(pastedCellClearTimerRef.current);
+        pastedCellClearTimerRef.current = null;
+      }
+      setPastedCellKeySet(null);
     }
   }, [excelView, tasks, updateTask, canEditCurrentProject]);
   // ─── Realtime: 표 셀 포커스 공유 — extracted to useRealtimeCellFocus ────
@@ -653,6 +689,22 @@ export function WBSTable({
     return visibleTasks.findIndex((t) => t.id === inlineEditingNameId);
   }, [inlineEditingNameId, visibleTasks]);
 
+  /** 붙여넣기 직후 셀 강조가 걸린 행 — 가상 스크롤에서 언마운트되면 배경이 바로 사라지는 것처럼 보이므로 range에 pin */
+  const pastedFlashRowIndices = useMemo(() => {
+    if (!pastedCellKeySet || pastedCellKeySet.size === 0) return [] as number[];
+    const ids = new Set<string>();
+    for (const key of pastedCellKeySet) {
+      const sep = key.indexOf('::');
+      if (sep > 0) ids.add(key.slice(0, sep));
+    }
+    if (ids.size === 0) return [];
+    const out: number[] = [];
+    for (let i = 0; i < visibleTasks.length; i++) {
+      if (ids.has(visibleTasks[i]!.id)) out.push(i);
+    }
+    return out;
+  }, [pastedCellKeySet, visibleTasks]);
+
   // 드래그 중인 항목의 인덱스를 미리 계산 (virtualRangeExtractor 내 O(n) findIndex 제거)
   const dndActiveIndex = useMemo(
     () => (dndActiveId ? visibleTasks.findIndex((t) => t.id === dndActiveId) : -1),
@@ -682,6 +734,9 @@ export function WBSTable({
       // 인라인 편집 행은 무조건 pin — 언마운트되면 input blur로 편집이 깨진다.
       if (editingCellRowIndex !== -1 && !base.includes(editingCellRowIndex)) mergeExtras.push(editingCellRowIndex);
       if (inlineEditingNameRowIndex !== -1 && !base.includes(inlineEditingNameRowIndex)) mergeExtras.push(inlineEditingNameRowIndex);
+      for (const pi of pastedFlashRowIndices) {
+        if (pi >= 0 && !base.includes(pi) && !mergeExtras.includes(pi)) mergeExtras.push(pi);
+      }
       if (mergeExtras.length === 0) return base;
 
       const lo = Math.min(baseLo, ...mergeExtras);
@@ -696,7 +751,7 @@ export function WBSTable({
 
       return [...base, ...mergeExtras].sort((a, b) => a - b);
     },
-    [dndActiveIndex, focusedTaskRowIndex, editingCellRowIndex, inlineEditingNameRowIndex],
+    [dndActiveIndex, focusedTaskRowIndex, editingCellRowIndex, inlineEditingNameRowIndex, pastedFlashRowIndices],
   );
 
   const isSplitViewForVirtualizer = !!syncScrollRef;
@@ -1284,6 +1339,67 @@ export function WBSTable({
     [tasks, updateTask, canEditCurrentProject, setInlineEditingNameIdCommitted],
   );
 
+  /** 간트·툴바 등 표 밖 클릭 포함 — F2 인라인 편집 커밋·종료(표 안 빈 곳은 포커스를 본문에 되돌림) */
+  const flushWbsInlineEditorsForOutsidePointer = useCallback(
+    (opts?: { focusTableBody?: boolean }) => {
+      const nameId = inlineEditingNameIdRef.current;
+      const ec = editingCellRef.current;
+      if (!nameId && !ec) return;
+      if (nameId && canEditCurrentProject) {
+        commitWbsInlineNameEditFromDom(nameId, tasks, updateTask, canEditCurrentProject);
+      }
+      if (ec) {
+        const editId = `wbs-edit-${ec.taskId}-${ec.columnId}`;
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.id === editId) {
+          active.blur();
+        } else {
+          const el = document.getElementById(editId) as HTMLElement | null;
+          if (el) el.blur();
+          else setEditingCell(null);
+        }
+      }
+      setInlineEditingNameIdCommitted(null);
+      if (opts?.focusTableBody !== false) {
+        requestAnimationFrame(() => {
+          tableScrollRef.current?.focus();
+        });
+      }
+    },
+    [tasks, updateTask, canEditCurrentProject, setInlineEditingNameIdCommitted, setEditingCell],
+  );
+
+  useEffect(() => {
+    if (!inlineEditingNameId && !editingCell) return;
+
+    const onDocPointerDownCapture = (e: PointerEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (!el) return;
+      if (
+        el.closest?.(
+          '[data-radix-popper-content-wrapper], [data-radix-select-content], [data-radix-dropdown-menu-content], [role="listbox"]',
+        )
+      ) {
+        return;
+      }
+      const nameId = inlineEditingNameIdRef.current;
+      const ec = editingCellRef.current;
+      if (nameId) {
+        const input = document.getElementById(`wbs-edit-${nameId}-name`);
+        if (input && (input === el || input.contains(el))) return;
+      }
+      if (ec) {
+        const input = document.getElementById(`wbs-edit-${ec.taskId}-${ec.columnId}`);
+        if (input && (input === el || input.contains(el))) return;
+      }
+      const insideWbsTable = !!el.closest?.('[data-wbs-table]');
+      flushWbsInlineEditorsForOutsidePointer({ focusTableBody: insideWbsTable });
+    };
+
+    document.addEventListener('pointerdown', onDocPointerDownCapture, true);
+    return () => document.removeEventListener('pointerdown', onDocPointerDownCapture, true);
+  }, [inlineEditingNameId, editingCell, flushWbsInlineEditorsForOutsidePointer]);
+
   /** 키보드/탭으로 행 포커스만 옮길 때 Shift 범위 앵커와 동기화 (옛 클릭 앵커가 남아 ↑/↓+Shift가 어긋나는 현상 방지) */
   const syncRangeAnchorForKeyboardFocus = useCallback(
     (taskId: string | null) => {
@@ -1865,6 +1981,9 @@ export function WBSTable({
     loadClipboardTasks,
     tableScrollRef,
     CLIPBOARD_KEY,
+    flashPastedCells,
+    clearPastedCellFlash,
+    pastedFlashActive: pastedCellKeySet != null && pastedCellKeySet.size > 0,
   });
 
   /** 체크박스로 선택된 표시 행들을 작업 단위 클립보드(내부 state + localStorage)에 저장. 복사된 작업 배열 반환 — Ctrl+C·우클릭 복사 공용 */
@@ -1904,6 +2023,7 @@ export function WBSTable({
       let applied = 0;
       let failed = 0;
       let firstError: string | null = null;
+      const okKeys: string[] = [];
       for (const t of targets) {
         const res = buildWbsCellPasteUpdate(
           t,
@@ -1921,6 +2041,7 @@ export function WBSTable({
           if (!firstError) firstError = res.error;
           continue;
         }
+        okKeys.push(`${t.id}::${columnId}`);
         if (res.updates) {
           updateTask(t.id, res.updates);
           applied += 1;
@@ -1935,9 +2056,20 @@ export function WBSTable({
       } else {
         pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
       }
+      flashPastedCells(okKeys);
       return true;
     },
-    [selectedTaskIds, canEditCurrentProject, visibleTasks, tasks, statusConfigsList, projectEffortUnitByProjectId, updateTask, pushToast],
+    [
+      selectedTaskIds,
+      canEditCurrentProject,
+      visibleTasks,
+      tasks,
+      statusConfigsList,
+      projectEffortUnitByProjectId,
+      updateTask,
+      pushToast,
+      flashPastedCells,
+    ],
   );
 
   /** 일괄 복사 버튼·우클릭 메뉴 공용: 체크 선택 행을 작업 단위 복사 + 작업명을 시스템 클립보드에도 넣고 토스트 표시 */
@@ -2772,6 +2904,8 @@ export function WBSTable({
               expandToLevel={expandToLevel}
               rowHeight={rowHeight}
               handleSetRowHeight={handleSetRowHeight}
+              splitTablePaneWidthPct={splitTablePaneWidthPct}
+              onSplitTablePaneWidthPctChange={onSplitTablePaneWidthPctChange}
             />
           </div>,
         )}
@@ -2785,6 +2919,8 @@ export function WBSTable({
           expandToLevel={expandToLevel}
           rowHeight={rowHeight}
           handleSetRowHeight={handleSetRowHeight}
+          splitTablePaneWidthPct={splitTablePaneWidthPct}
+          onSplitTablePaneWidthPctChange={onSplitTablePaneWidthPctChange}
         />
       )}
       <div
@@ -2898,10 +3034,13 @@ export function WBSTable({
                 emptyAreaPressRef.current = isWbsTableEmptyArea(e.target);
               }}
               onClick={(e) => {
-                // 체크박스 다중 선택 상태에서 행·헤더·입력 요소 밖 빈 영역 클릭 → 체크 해제 (행 포커스·셀 링은 유지)
+                // 행·헤더·입력 밖 빈 영역: F2 등 인라인 편집 종료, (선택이 있으면) 체크 다중 선택 해제 — 행 포커스·셀 링은 유지
                 const pressedOnEmpty = emptyAreaPressRef.current;
                 emptyAreaPressRef.current = false;
                 if (!pressedOnEmpty || !isWbsTableEmptyArea(e.target)) return;
+
+                flushWbsInlineEditorsForOutsidePointer();
+
                 if (selectedTaskIds.size === 0) return;
                 if (e.shiftKey || shiftKeyHeldRef.current) return;
                 setSelection(new Set());
@@ -3095,6 +3234,7 @@ export function WBSTable({
                               onOpenForkedChildProject={setCurrentProjectId}
                               onPasteApplyToCheckboxSelection={applyClipboardFirstLineToCheckboxSelection}
                               cellMarqueeKeySet={cellMarqueeKeySet}
+                              pastedCellKeySet={pastedCellKeySet}
                               commitCellMarquee={commitCellMarquee}
                             />
                             {inlineAddingTaskId === task.id && (

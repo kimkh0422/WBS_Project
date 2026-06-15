@@ -68,6 +68,18 @@ export function TableGanttSplit({
   /** 표·간트 공통 계획율 기준일(간트 수직선과 동일) */
   const [plannedRefDateIso, setPlannedRefDateIso] = useState(() => format(new Date(), 'yyyy-MM-dd'));
 
+  const handleSplitTablePaneWidthPctChange = useCallback((pct: number) => {
+    setTablePaneWidthPct(clampPct(pct));
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SPLIT_TABLE_WIDTH_KEY, String(tablePaneWidthPct));
+    } catch {
+      /* ignore */
+    }
+  }, [tablePaneWidthPct]);
+
   tablePaneWidthPctRef.current = tablePaneWidthPct;
 
   // 세로(행) 스크롤만 표↔간트 동기화한다.
@@ -126,11 +138,6 @@ export function TableGanttSplit({
       document.body.style.userSelect = '';
       const pct = tablePaneWidthPctRef.current;
       setTablePaneWidthPct(pct);
-      try {
-        localStorage.setItem(SPLIT_TABLE_WIDTH_KEY, String(pct));
-      } catch {
-        /* ignore */
-      }
     };
 
     window.addEventListener('mousemove', onMove);
@@ -179,6 +186,8 @@ export function TableGanttSplit({
             taskContextMenuHandlerRef={taskContextMenuHandlerRef}
             plannedRefDateIso={plannedRefDateIso}
             onPlannedRefDateIsoChange={setPlannedRefDateIso}
+            splitTablePaneWidthPct={tablePaneWidthPct}
+            onSplitTablePaneWidthPctChange={handleSplitTablePaneWidthPctChange}
           />
         </div>
 

@@ -200,6 +200,8 @@ export interface SortableTaskRowProps {
   onPasteApplyToCheckboxSelection?: (columnId: TableColumnId, clipboardPlainText: string) => boolean;
   /** 마우스 드래그로 선택된 셀 범위( taskId::columnId ). 체크박스 행 선택과 별개 */
   cellMarqueeKeySet?: ReadonlySet<string> | null;
+  /** 다중 셀 붙여넣기 직후 잠시 표시(복사 마퀴와 색 구분) */
+  pastedCellKeySet?: ReadonlySet<string> | null;
   /** 셀 클릭·포커스 직후 한 칸 마퀴로 동기화(onFocusRow가 마퀴를 비운 뒤 같은 핸들러에서 호출) */
   commitCellMarquee?: (taskId: string, columnId: TableColumnId) => void;
 }
@@ -260,6 +262,7 @@ function SortableTaskRowInner({
   onOpenForkedChildProject,
   onPasteApplyToCheckboxSelection,
   cellMarqueeKeySet = null,
+  pastedCellKeySet = null,
   commitCellMarquee,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
@@ -748,8 +751,14 @@ function SortableTaskRowInner({
         const otherPrimary = othersHere[0];
         const otherRingStyle = otherPrimary ? ({ boxShadow: `inset 0 0 0 2px ${otherPrimary.color}` } as React.CSSProperties) : undefined;
         const inMarquee = cellMarqueeKeySet?.has(`${task.id}::${colId}`) ?? false;
+        const inPasteFlash = pastedCellKeySet?.has(`${task.id}::${colId}`) ?? false;
         // 다중 셀 선택(드래그·Shift+화살표): 포커스 링(indigo)과 겹치지 않게 하늘색 톤으로, 배경·테두리 대비를 충분히 둔다.
-        const marqueeClass = inMarquee ? 'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45' : '';
+        // 붙여넣기 직후 플래시는 에메랄드 톤으로 복사 범위와 구분.
+        const skyMarqueeClass = inMarquee ? 'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45' : '';
+        const pasteFlashClass = inPasteFlash
+          ? 'bg-emerald-100/95 dark:bg-emerald-900/45 ring-1 ring-inset ring-emerald-500/55 dark:ring-emerald-400/45'
+          : '';
+        const rangeHighlightClass = inPasteFlash ? pasteFlashClass : skyMarqueeClass;
         const rangeCellProps = {
           'data-wbs-range-cell': true as const,
           'data-range-task': task.id,
@@ -774,7 +783,10 @@ function SortableTaskRowInner({
               </div>
             );
           }
-          const { textStyle: txtStyle, cellSurfaceStyle } = splitCellTextStyleForCellSurface(task.cellTextStyles?.[colId], inMarquee);
+          const { textStyle: txtStyle, cellSurfaceStyle } = splitCellTextStyleForCellSurface(
+            task.cellTextStyles?.[colId],
+            inMarquee || inPasteFlash,
+          );
           const mergeCellOuter = (base?: React.CSSProperties | null) => ({ ...(base ?? {}), ...cellSurfaceStyle });
           if (colId === 'name') {
             const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
@@ -788,7 +800,7 @@ function SortableTaskRowInner({
               <div
                 key={colId}
                 {...rangeCellProps}
-                className={cn('data-cell relative', marqueeClass)}
+                className={cn('data-cell relative', rangeHighlightClass)}
                 style={{
                   ...mergeCellOuter(otherRingStyle),
                   paddingLeft: `${depth * 20 + 22}px`,
@@ -1047,7 +1059,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocused && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1141,7 +1153,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedEnd && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1239,7 +1251,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedDur && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1328,7 +1340,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell relative font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedWE && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1414,7 +1426,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 min-w-0 cursor-help tabular-nums',
                   isFocusedComp && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1448,7 +1460,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 flex items-center gap-1 min-w-0',
                   isFocusedW && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -1522,7 +1534,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 min-w-0',
                   isFocusedProg && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onContextMenu={(e) => {
@@ -1592,7 +1604,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 min-w-0 cursor-help',
                   isFocusedPlanned && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 onClick={(e) => {
@@ -1645,7 +1657,7 @@ function SortableTaskRowInner({
                   'data-cell font-mono text-xs min-w-0 cursor-cell',
                   !txtStyle.color && color,
                   isFocusedVar && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
                 title={[
@@ -1684,7 +1696,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell text-xs text-slate-600 relative overflow-visible group/assignee',
                   isFocusedAssignee && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -1796,7 +1808,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell font-mono text-xs text-slate-600 min-w-0',
                   isFocusedAlloc && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -1857,7 +1869,7 @@ function SortableTaskRowInner({
               <div
                 key={colId}
                 {...rangeCellProps}
-                className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded', marqueeClass)}
+                className={cn('data-cell', isFocusedStatus && 'ring-2 ring-indigo-500 ring-inset rounded', rangeHighlightClass)}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1941,7 +1953,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell text-xs text-slate-600 min-w-0',
                   isFocusedDel && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -2117,7 +2129,7 @@ function SortableTaskRowInner({
                   'data-cell text-xs text-slate-600 font-mono flex items-center gap-1 min-w-0 relative',
                   depsMenuOpen && 'z-20 overflow-visible',
                   isFocusedDep && 'ring-2 ring-indigo-500 ring-inset rounded',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -2229,7 +2241,7 @@ function SortableTaskRowInner({
                 className={cn(
                   'data-cell text-xs text-slate-600 min-w-0',
                   isFocusedCustom && 'ring-2 ring-indigo-500 ring-inset',
-                  marqueeClass,
+                  rangeHighlightClass,
                 )}
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
@@ -2297,8 +2309,10 @@ function SortableTaskRowInner({
           }}
           className={cn(
             'data-cell justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity',
-            cellMarqueeKeySet?.has(`${task.id}::actions`) &&
-              'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45',
+            pastedCellKeySet?.has(`${task.id}::actions`)
+              ? 'bg-emerald-100/95 dark:bg-emerald-900/45 ring-1 ring-inset ring-emerald-500/55 dark:ring-emerald-400/45'
+              : cellMarqueeKeySet?.has(`${task.id}::actions`) &&
+                  'bg-sky-200/95 dark:bg-sky-800/65 ring-1 ring-inset ring-sky-500/55 dark:ring-sky-400/45',
           )}
           onDoubleClick={(e) => e.stopPropagation()}
         >
@@ -2338,6 +2352,24 @@ function SortableTaskRowInner({
 function rowMarqueeEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps): boolean {
   const a = prev.cellMarqueeKeySet;
   const b = next.cellMarqueeKeySet;
+  if (a === b) return true;
+  if (!a && !b) return true;
+  const taskId = next.task.id;
+  const cols = next.visibleColumnIds;
+  for (let i = 0; i < cols.length; i++) {
+    const key = `${taskId}::${cols[i]}`;
+    if ((a?.has(key) ?? false) !== (b?.has(key) ?? false)) return false;
+  }
+  if (next.showActionsColumn) {
+    const ak = `${taskId}::actions`;
+    if ((a?.has(ak) ?? false) !== (b?.has(ak) ?? false)) return false;
+  }
+  return true;
+}
+
+function rowPastedFlashEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps): boolean {
+  const a = prev.pastedCellKeySet;
+  const b = next.pastedCellKeySet;
   if (a === b) return true;
   if (!a && !b) return true;
   const taskId = next.task.id;
@@ -2409,6 +2441,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.allocationDisplayText === next.allocationDisplayText &&
     prev.task.id === next.task.id &&
     rowMarqueeEqual(prev, next) &&
+    rowPastedFlashEqual(prev, next) &&
     prev.task.parentId === next.task.parentId &&
     prev.task.name === next.task.name &&
     prev.task.startDate === next.task.startDate &&

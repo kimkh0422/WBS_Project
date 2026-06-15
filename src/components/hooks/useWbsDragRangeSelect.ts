@@ -8,8 +8,15 @@ const DRAG_ACTIVATE_PX = 3;
 const EDGE_ZONE = 28;
 const EDGE_MAX_SPEED = 16;
 
-/** 버튼·링크는 제외하지 않음 — 셀 전체가 엑셀처럼 드래그 앵커가 되어야 함. 편집 중 입력·그립·선행 입력만 제외. */
-const SKIP_SELECTOR = 'input, textarea, select, option, [role="listbox"], [role="option"], [data-deps-input="true"], [data-row-grip]';
+/**
+ * 드래그 범위 선택 시작을 막을 대상.
+ * - input/그립 등: 기존과 동일.
+ * - button/a: 트리 접기·펼치기, 셀 내 편집/선택 버튼 등 — 캡처 단계에서 포인터 캡처를 걸면
+ *   클릭이 버튼까지 전달되지 않아 토글이 동작하지 않는 문제가 있어 제외한다.
+ *   (빈 셀 면적에서의 드래그 앵커는 그대로 유지)
+ */
+const SKIP_SELECTOR =
+  'input, textarea, select, option, [role="listbox"], [role="option"], [data-deps-input="true"], [data-row-grip], button, a';
 
 export type WbsCellPointer = { taskId: string; columnId: TableColumnId };
 

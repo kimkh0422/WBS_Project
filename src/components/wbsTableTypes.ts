@@ -66,4 +66,7 @@ export interface WBSTableProps {
   /** 표+간트 split: 부모가 보관하는 계획율 기준일(간트 기준선과 동기화). 없으면 WBSTable 내부 state 사용 */
   plannedRefDateIso?: string;
   onPlannedRefDateIsoChange?: (iso: string) => void;
+  /** 표+간트 split(데스크톱): 표 패널 가로 비율(%) — 간트 너비는 100에서 뺀 값 */
+  splitTablePaneWidthPct?: number;
+  onSplitTablePaneWidthPctChange?: (tablePaneWidthPct: number) => void;
 }

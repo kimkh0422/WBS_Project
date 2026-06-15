@@ -16,6 +16,9 @@ interface SummaryBarProps {
   expandToLevel: (n: number) => void;
   rowHeight: number;
   handleSetRowHeight: (h: number) => void;
+  /** 표+간트 split: 표 영역 비율(%). 함께 전달될 때만 간트 너비 슬라이더 표시(데스크톱만). */
+  splitTablePaneWidthPct?: number;
+  onSplitTablePaneWidthPctChange?: (tablePaneWidthPct: number) => void;
   /**
    * default: 표 단독 상단 줄(전체 너비·하단 구분선).
    * toolbarRail: 셀 서식 툴바와 한 줄 — 기준일·줄간격 뒤에 레벨 펼치기(맨 오른쪽).
@@ -33,9 +36,15 @@ export function SummaryBar({
   expandToLevel,
   rowHeight,
   handleSetRowHeight,
+  splitTablePaneWidthPct,
+  onSplitTablePaneWidthPctChange,
   layout = 'default',
 }: SummaryBarProps) {
   const rail = layout === 'toolbarRail';
+  const showSplitWidthSlider =
+    typeof splitTablePaneWidthPct === 'number' && Number.isFinite(splitTablePaneWidthPct) && onSplitTablePaneWidthPctChange != null;
+  /** 표 25~75% 제약과 동일 → 간트 영역 25~75% */
+  const ganttWidthPct = showSplitWidthSlider ? 100 - splitTablePaneWidthPct : 50;
 
   const plannedDateBlock = (
     <div
@@ -93,6 +102,23 @@ export function SummaryBar({
     </div>
   );
 
+  const splitGanttWidthBlock = showSplitWidthSlider ? (
+    <div className="hidden md:flex shrink-0 items-center gap-2">
+      <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">간트 너비</span>
+      <input
+        type="range"
+        min={25}
+        max={75}
+        step={1}
+        value={ganttWidthPct}
+        onChange={(e) => onSplitTablePaneWidthPctChange!(100 - Number(e.target.value))}
+        className="h-1.5 w-20 cursor-pointer accent-indigo-500"
+        title={`간트 영역 약 ${ganttWidthPct}%(표 ${splitTablePaneWidthPct}%). 화면 중앙 세로 구분선을 드래그해도 같이 조절됩니다.`}
+      />
+      <span className="w-8 text-right text-[11px] font-bold tabular-nums text-slate-600">{ganttWidthPct}%</span>
+    </div>
+  ) : null;
+
   const levelExpandBlock = (
     <>
       <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500">레벨 펼치기</span>
@@ -135,6 +161,12 @@ export function SummaryBar({
           {plannedDateBlock}
           <Divider />
           {rowHeightBlock}
+          {splitGanttWidthBlock ? (
+            <>
+              <Divider />
+              {splitGanttWidthBlock}
+            </>
+          ) : null}
           <Divider />
           {levelExpandBlock}
         </>
@@ -145,6 +177,12 @@ export function SummaryBar({
           {levelExpandBlock}
           <Divider />
           {rowHeightBlock}
+          {splitGanttWidthBlock ? (
+            <>
+              <Divider />
+              {splitGanttWidthBlock}
+            </>
+          ) : null}
         </>
       )}
     </div>

@@ -337,6 +337,13 @@ export interface WbsTableKeyboardDeps {
 
   // Constants
   CLIPBOARD_KEY: string;
+
+  /** 다중 셀 붙여넣기 직후 붙여넣은 범위를 잠시 다른 색으로 표시(2셀 이상일 때만). */
+  flashPastedCells: (keys: readonly string[]) => void;
+  /** 복사·Esc 등으로 이전 붙여넣기 하이라이트를 즉시 지울 때 */
+  clearPastedCellFlash?: () => void;
+  /** 붙여넣기 직후 범위 표시가 켜져 있으면 Esc로 함께 해제한다 */
+  pastedFlashActive?: boolean;
 }
 
 export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
@@ -404,6 +411,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     loadClipboardTasks,
     tableScrollRef,
     CLIPBOARD_KEY,
+    flashPastedCells,
+    clearPastedCellFlash,
+    pastedFlashActive = false,
   } = deps;
 
   const visibleTaskRowIndexById = useMemo(() => {
@@ -580,8 +590,9 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (범위 확장용 ↑↓+Shift/Ctrl/Meta 는 예외)
     if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !rangeArrowFromOutsideTable) return;
 
-    // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값만 커밋하고 같은 셀에 머무름.
-    // 이 시점부터 ←/→로 자유 이동 가능. Shift+Enter: 표와 동일하게 현재 행 위에 형제 새 작업 추가 후 작업명 인라인 편집.
+    // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값 커밋 후 엑셀처럼 같은 열의 한 행 아래로 포커스 이동.
+    // 마지막 행에서는 ↓와 동일하게 ghost 행이 있으면 ghost로 진입, 없으면 같은 셀에 머무름.
+    // Shift+Enter: 표와 동일하게 현재 행 위에 형제 새 작업 추가 후 작업명 인라인 편집.
     if (e.key === 'Enter' && editingCell && inWbsTable) {
       e.preventDefault();
       const currentTaskId = editingCell.taskId;
@@ -632,8 +643,49 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
           }
         } else {
-          // 그냥 Enter: 같은 셀 유지 (←/→로 자유 이동)
-          setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
+          // 그냥 Enter: 커밋 후 같은 열의 아래 행(화살표 ↓와 동일 격자 규칙)
+          const defaultNavColumnEnter: TableColumnId = editableColumnIds.includes('name')
+            ? 'name'
+            : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
+          const stepOptsEnter = {
+            visibleTasks,
+            columnIds: editableColumnIds,
+            visibleTaskRowIndexById,
+            defaultNavColumn: defaultNavColumnEnter,
+          } as const;
+          const nextCell = stepWbsCellArrow({ taskId: currentTaskId, columnId: currentColId }, 'ArrowDown', stepOptsEnter);
+          const rowIdx = visibleTaskRowIndexById.get(currentTaskId) ?? -1;
+          let colIdx = editableColumnIds.indexOf(currentColId);
+          if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumnEnter));
+          if (
+            !nextCell &&
+            rowIdx >= 0 &&
+            colIdx >= 0 &&
+            rowIdx === visibleTasks.length - 1 &&
+            canEditCurrentProject &&
+            ghostPlaceholderRowCount > 0
+          ) {
+            keyboardCellShiftAnchorRef.current = null;
+            setCellMarqueeRange(null);
+            clearBulkCheckboxSelectionOnKeyboardCursorMove();
+            setFocusedCell(null);
+            setGhostFocusIdx(0);
+            cellNavCursorRef.current.focusedCell = null;
+          } else if (nextCell) {
+            keyboardCellShiftAnchorRef.current = null;
+            setCellMarqueeRange(null);
+            clearBulkCheckboxSelectionOnKeyboardCursorMove();
+            setLastSelectedId(nextCell.taskId);
+            maybeSyncShiftRangeAnchor(nextCell.taskId);
+            setFocusedCell(nextCell);
+            cellNavCursorRef.current = {
+              lastSelectedId: nextCell.taskId,
+              focusedCell: nextCell,
+            };
+            document.getElementById(`task-row-${nextCell.taskId}`)?.scrollIntoView({ block: 'nearest' });
+          } else {
+            setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
+          }
         }
         requestAnimationFrame(() => {
           tableScrollRef.current?.focus();
@@ -672,7 +724,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     }
 
     // 편집 중 화살표는 input의 기본 동작(텍스트 커서 이동/숫자 값 증감)만 허용.
-    // 셀 이동은 Enter(커밋) 또는 Esc(취소) 또는 Tab/Shift+Tab(연속 편집) 후에만 가능.
+    // 셀 이동은 Enter(커밋·아래 행) 또는 Esc(취소) 또는 Tab/Shift+Tab(연속 편집) 후에만 가능.
     // → 사용자가 편집 중 의도치 않게 다른 셀로 이동되는 것을 방지.
 
     // 다중(체크 ≥2행 또는 셀 마퀴 2칸 이상) + 비편집: Tab/Shift+Tab은 엑셀식 셀 이동보다 들여쓰기·내어쓰기 우선
@@ -886,13 +938,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         selectedTaskIds.size > 0 ||
         cellMarqueeRange != null;
 
-      if (!hadOverlay) return;
+      if (!hadOverlay && !pastedFlashActive) return;
 
       if (editingCell) setEditingCell(null);
       if (inlineEditingNameId) setInlineEditingNameId(null);
       if (focusedCell) setFocusedCell(null);
       if (inlineAddingTaskId) setInlineAddingTaskId(null);
       if (cellMarqueeRange != null) setCellMarqueeRange(null);
+      clearPastedCellFlash?.();
       keyboardShiftPivotIdRef.current = null;
       keyboardCellShiftAnchorRef.current = null;
       if (selectedTaskIds.size > 0) {
@@ -957,6 +1010,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         let firstError: string | null = null;
         const mergedByTaskId = new Map<string, Partial<Task>>();
         const cellCountByTaskId = new Map<string, number>();
+        const pairTracks: { key: string; taskId: string; includedInMerge: boolean }[] = [];
         for (const p of pairs) {
           const t = tasks.find((x) => x.id === p.taskId);
           if (!t) continue;
@@ -971,12 +1025,18 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             if (!firstError) firstError = res.error;
             continue;
           }
+          pairTracks.push({
+            key: `${p.taskId}::${p.columnId}`,
+            taskId: p.taskId,
+            includedInMerge: !!res.updates,
+          });
           if (res.updates) {
             const cur = mergedByTaskId.get(p.taskId) ?? {};
             mergedByTaskId.set(p.taskId, { ...cur, ...res.updates });
             cellCountByTaskId.set(p.taskId, (cellCountByTaskId.get(p.taskId) ?? 0) + 1);
           }
         }
+        const appliedTaskIds = new Set<string>();
         for (const [taskId, merged] of mergedByTaskId) {
           const t = tasks.find((x) => x.id === taskId);
           const nCells = cellCountByTaskId.get(taskId) ?? 0;
@@ -990,6 +1050,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             continue;
           }
           updateTask(taskId, merged);
+          appliedTaskIds.add(taskId);
           applied += nCells;
         }
         if (applied === 0 && failed > 0) {
@@ -1001,6 +1062,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         } else {
           pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
         }
+        const pasteFlashKeys = pairTracks.filter((tr) => !tr.includedInMerge || appliedTaskIds.has(tr.taskId)).map((tr) => tr.key);
+        flashPastedCells(pasteFlashKeys);
       };
 
       if (copiedCellRegion) {
@@ -1141,6 +1204,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           let applied = 0;
           let failed = 0;
           let firstError: string | null = null;
+          const okKeys: string[] = [];
           for (const p of pairs) {
             const t = tasks.find((x) => x.id === p.taskId);
             if (!t) continue;
@@ -1162,6 +1226,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
               if (!firstError) firstError = res.error;
               continue;
             }
+            okKeys.push(`${p.taskId}::${p.columnId}`);
             if (res.updates) {
               updateTask(t.id, res.updates);
               applied += 1;
@@ -1177,6 +1242,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           } else {
             pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
           }
+          flashPastedCells(okKeys);
         };
 
         const marqueeMultiCells = (cellMarqueeKeySet?.size ?? 0) > 1;
@@ -1241,6 +1307,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         let applied = 0;
         let failed = 0;
         let firstError: string | null = null;
+        const firstLineOkKeys: string[] = [];
         for (const pt of pasteTargets) {
           const t = tasks.find((x) => x.id === pt.taskId);
           if (!t) continue;
@@ -1260,6 +1327,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             if (!firstError) firstError = res.error;
             continue;
           }
+          firstLineOkKeys.push(`${pt.taskId}::${pt.columnId}`);
           if (res.updates) {
             updateTask(t.id, res.updates);
             applied += 1;
@@ -1275,6 +1343,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         } else {
           pushToast('값이 같아 변경할 내용이 없습니다.', { variant: 'info' });
         }
+        flashPastedCells(firstLineOkKeys);
       })();
       return;
     }
@@ -1336,6 +1405,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       if (deferCutCopyToBrowser) return;
       e.preventDefault();
+      clearPastedCellFlash?.();
       if (selectedTaskIds.size === 0 && cellMarqueeRange && (cellMarqueeKeySet?.size ?? 0) > 1) {
         const region = buildMarqueeWbsCellClipboardGrid(visibleTasks, visibleColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end, {
           statusConfigs,
