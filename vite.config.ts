@@ -27,7 +27,14 @@ function parseChangelog(changelogPath: string): { version: string; date: string;
   return sections;
 }
 
-/** CHANGELOG 괄호 안 문자열 → APP_COMMIT_DATE용 ISO (날짜만이면 기존과 같이 정오 KST 플레이스홀더) */
+/**
+ * CHANGELOG 괄호 안 문자열 → APP_COMMIT_DATE용 **고정 오프셋** 시각 문자열.
+ * - 날짜만: 정오 KST(구버전과 동일).
+ * - 시·분 포함: `scripts/update-release.mjs`가 **기록 시점의 로컬 시계**로 넣은 숫자이며,
+ *   한국 팀 기준으로는 KST와 동일한 의미로 취급한다.
+ * - `new Date('YYYY-MM-DDTHH:mm:ss')` 후 `toISOString()`을 쓰면 **빌드 머신 타임존**(예: UTC CI)에
+ *   숫자가 묶여 푸터가 하루·수 시간 어긋난다. 그래서 항상 `+09:00`으로 앵커한다.
+ */
 function releaseChangelogDateToIso(parenDate: string): string {
   const trimmed = parenDate.trim();
   const m = /^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}):(\d{2}))?$/.exec(trimmed);
@@ -36,8 +43,7 @@ function releaseChangelogDateToIso(parenDate: string): string {
   const hh = m[2];
   const mm = m[3];
   if (hh != null && mm != null) {
-    const d = new Date(`${ymd}T${hh}:${mm}:00`);
-    return Number.isNaN(d.getTime()) ? `${ymd}T12:00:00+09:00` : d.toISOString();
+    return `${ymd}T${hh}:${mm}:00+09:00`;
   }
   return `${ymd}T12:00:00+09:00`;
 }
