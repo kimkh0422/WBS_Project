@@ -1,8 +1,8 @@
 /**
  * 진척률 부모 롤업(자식 → 부모) 계산 옵션.
  *
- * - `useWeightForProgressRollup = true` (기본): 자식 progress의 가중평균(가중치 또는 공수로 가중)
- * - `useWeightForProgressRollup = false`: 자식 progress의 단순 평균 (가중치 무시)
+ * - `useWeightForProgressRollup = true` (기본): 자식 progress의 **공수(workEffort) 가중** 평균
+ * - `useWeightForProgressRollup = false`: 자식 progress의 단순 평균 (공수 무시)
  *
  * localStorage에 저장돼 이 PC에서 영구 유지되고, 변경 시 'wbs:progressRollupOptionChanged' 이벤트를
  * window에 발행한다. WBSContext가 이를 감지해 setAllTasks([...prev])로 즉시 재계산을 트리거한다.

@@ -108,6 +108,7 @@ const DEFAULT_TABLE_COLUMNS: {
     | 'endDate'
     | 'duration'
     | 'workEffort'
+    | 'workComposition'
     | 'weight'
     | 'assignee'
     | 'allocation'
@@ -125,7 +126,8 @@ const DEFAULT_TABLE_COLUMNS: {
   { id: 'startDate', visible: true },
   { id: 'endDate', visible: true },
   { id: 'duration', visible: true },
-  { id: 'workEffort', visible: false },
+  { id: 'workEffort', visible: true },
+  { id: 'workComposition', visible: true },
   { id: 'weight', visible: false },
   { id: 'assignee', visible: true },
   { id: 'allocation', visible: false },
@@ -570,11 +572,11 @@ export function WBSTable({
   }, [wbsSettings, customColumnNameById]);
 
   const showActionsColumn = useMemo(() => tableColumns.some((c) => c.id === 'actions' && c.visible), [tableColumns]);
-  // 공수·가중치 컬럼은 저장값과 무관하게 표에 두지 않음(resolveStoredTableColumnVisible).
+  // 가중치 컬럼은 저장값과 무관하게 표에 두지 않음(resolveStoredTableColumnVisible).
   const visibleColumnIds = useMemo(
     () =>
       tableColumns
-        .filter((c) => c.visible && c.id !== 'actions' && c.id !== 'wbsId' && c.id !== 'workEffort' && c.id !== 'weight')
+        .filter((c) => c.visible && c.id !== 'actions' && c.id !== 'wbsId' && c.id !== 'weight')
         .map((c) => c.id as TableColumnId),
     [tableColumns],
   );
@@ -3806,9 +3808,7 @@ export function WBSTable({
                     });
                   }
                   // 숨긴 컬럼을 헤더 우클릭으로 바로 다시 표시 (컬럼 설정 모달 없이도)
-                  const hiddenCols = tableColumns.filter(
-                    (c) => !c.visible && c.id !== 'actions' && c.id !== 'workEffort' && c.id !== 'weight',
-                  );
+                  const hiddenCols = tableColumns.filter((c) => !c.visible && c.id !== 'actions' && c.id !== 'weight');
                   if (hiddenCols.length > 0) {
                     headerActions.push({ divider: true });
                     for (const hc of hiddenCols) {

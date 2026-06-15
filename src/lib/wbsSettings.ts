@@ -62,6 +62,8 @@ export interface WBSSettings {
   standardVisibleColumnsMigrated?: boolean;
   /** 진척차이(%p) 컬럼 기본 숨김 마이그레이션 (1회 — 이후 컬럼 설정에서 다시 켤 수 있음) */
   progressVarianceHiddenMigrated?: boolean;
+  /** 투입 공수·업무 구성비(%) 컬럼 기본 표시 1회 마이그레이션 완료 여부 */
+  workEffortCompositionDefaultsMigrated?: boolean;
   /** 관심(즐겨찾기) 프로젝트 ID 목록. DB 동기화되어 다른 기기에서도 유지 */
   favoriteProjectIds?: string[];
   /** 사용자 정의 프로젝트 그룹 목록. 1단계 평탄. 관리자만 CRUD */
@@ -99,15 +101,16 @@ export const DEFAULT_SETTINGS: WBSSettings = {
   maxLevel: 4,
   statusConfigs: DEFAULT_STATUS_CONFIGS,
   linkStatusAndProgress: false,
-  // 기본 표시 컬럼: 작업명·시작일·종료일·기간·담당자·계획율·진척율(+그립·체크·계층 WBS 번호 칸은 항상).
-  // 접두어 ID(W1 등) 데이터 컬럼은 사용하지 않음. 진척차이·공수·가중치·투입율·상태·산출물·선행작업·관리는 기본 숨김(공수·가중치는 UI에서 영구 비표시).
+  // 기본 표시 컬럼: 작업명·일정·투입공수·업무구성비·담당·계획·진척(+그립·체크·계층 번호 칸은 항상).
+  // 접두어 WBS ID·가중치·투입율·상태·산출물·선행·관리·진척차이는 기본 숨김(가중치는 저장과 무관 비표시).
   tableColumns: [
     { id: 'wbsId', visible: false },
     { id: 'name', visible: true },
     { id: 'startDate', visible: true },
     { id: 'endDate', visible: true },
     { id: 'duration', visible: true },
-    { id: 'workEffort', visible: false },
+    { id: 'workEffort', visible: true },
+    { id: 'workComposition', visible: true },
     { id: 'weight', visible: false },
     { id: 'assignee', visible: true },
     { id: 'allocation', visible: false },
@@ -127,11 +130,10 @@ export const DEFAULT_SETTINGS: WBSSettings = {
 /**
  * 저장된 컬럼 설정의 `visible`이 없을 때(구버전 등): 표준 컬럼은 {@link DEFAULT_SETTINGS}를 따르고,
  * `custom:*` 등 기본 목록에 없는 컬럼은 표시로 간주한다.
- * 공수(`workEffort`)·가중치(`weight`) 컬럼은 저장값과 무관하게 항상 비표시다.
+ * 가중치(`weight`) 컬럼만 저장값과 무관하게 항상 비표시다.
  */
 export function resolveStoredTableColumnVisible(id: string, storedVisible: unknown): boolean {
-  /** 공수·가중치 컬럼은 저장값과 무관하게 표에 두지 않는다. */
-  if (id === 'workEffort' || id === 'weight') return false;
+  if (id === 'weight') return false;
   if (storedVisible === true) return true;
   if (storedVisible === false) return false;
   const def = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === id);
@@ -341,6 +343,28 @@ export function parseSettings(raw: unknown): WBSSettings {
         c && c.id === 'progressVariance' ? { ...c, visible: false } : c,
       );
       base.progressVarianceHiddenMigrated = true;
+    }
+
+    // 투입 공수·업무 구성비(%) 기본 표시 (1회): 공수 열 다시 켜기 + 구성비 열 삽입. 이후 사용자가 컬럼 설정에서 숨길 수 있음.
+    if (!parsed.workEffortCompositionDefaultsMigrated) {
+      const cols = Array.isArray(base.tableColumns) ? [...base.tableColumns] : [...(DEFAULT_SETTINGS.tableColumns ?? [])];
+      let idxWe = cols.findIndex((c) => c && c.id === 'workEffort');
+      if (idxWe < 0) {
+        const dIdx = cols.findIndex((c) => c && c.id === 'duration');
+        const insertAt = dIdx >= 0 ? dIdx + 1 : cols.length;
+        cols.splice(insertAt, 0, { id: 'workEffort', visible: true });
+        idxWe = insertAt;
+      } else {
+        cols[idxWe] = { ...cols[idxWe], id: 'workEffort', visible: true };
+      }
+      const idxWc = cols.findIndex((c) => c && c.id === 'workComposition');
+      if (idxWc < 0) {
+        cols.splice(idxWe + 1, 0, { id: 'workComposition', visible: true });
+      } else {
+        cols[idxWc] = { ...cols[idxWc], visible: true };
+      }
+      base.tableColumns = cols;
+      base.workEffortCompositionDefaultsMigrated = true;
     }
 
     // 컬럼 너비 저장은 예전부터 있었으나 암묵적 자동맞춤 플래그는 이번에 추가됨 → 기존 저장이 있으면 덮어쓰지 않도록 기본 잠금

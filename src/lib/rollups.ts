@@ -5,6 +5,7 @@ import type { StatusConfig } from './wbsSettings';
 import { overlayPlannedOverrideFromLocal } from './plannedOverrideLocalCache';
 import { overlayWeightFromLocal } from './weightLocalCache';
 import { getUseWeightForProgressRollup } from './rollupOptions';
+import { rollupWeightFromEffort } from './progressRollupWeights';
 import { computeProjectRollupMetrics } from './projectRollupStats';
 
 /** parentId 바로 아래부터의 모든 하위 작업 id (parentId 자신은 제외). */
@@ -74,10 +75,10 @@ export function syncParentRollups(
   for (const child of children) {
     const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
     sumChildEffort += effort;
-    const weight = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
-    totalWeight += weight;
+    const wRoll = rollupWeightFromEffort(child);
+    totalWeight += wRoll;
     const progress = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
-    weightedProgressSum += progress * weight;
+    weightedProgressSum += progress * wRoll;
     simpleProgressSum += progress;
   }
 
@@ -102,7 +103,7 @@ export function syncParentRollups(
   if (doneStatusIds && parent.status && doneStatusIds.has(parent.status)) {
     parentProgress = 100;
   } else {
-    // 가중치 반영 여부 옵션(rollupOptions): true=가중평균 / false=단순평균(가중치 무시)
+    // 공수 가중 여부(rollupOptions): true=직속 자식 공수 비율로 가중평균 / false=단순평균
     const useWeight = getUseWeightForProgressRollup();
     if (useWeight && totalWeight > 0) {
       // 가중치 합이 100이 아니어도 Σ(p·w)/Σw 로 0~100% 범위의 가중평균
@@ -187,8 +188,7 @@ export function getTaskProgressRollupTooltip(task: Task, allTasks: Task[], doneS
   const detailLines: string[] = [];
   const maxLines = 10;
   for (const child of children) {
-    const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
-    const w = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
+    const w = rollupWeightFromEffort(child);
     const p = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
     totalWeight += w;
     weightedProgressSum += p * w;
@@ -196,18 +196,18 @@ export function getTaskProgressRollupTooltip(task: Task, allTasks: Task[], doneS
     if (detailLines.length < maxLines) {
       const nm = (child.name ?? '').trim() || child.id;
       const short = nm.length > 28 ? `${nm.slice(0, 28)}…` : nm;
-      detailLines.push(`· ${short}: ${formatPercent1(p)}% × 가중 ${formatNum2(w)} → ${formatNum2(p * w)}`);
+      detailLines.push(`· ${short}: ${formatPercent1(p)}% × 공수가중 ${formatNum2(w)} → ${formatNum2(p * w)}`);
     }
   }
-  lines.push('가중 = 진척 가중치(입력)가 있으면 그 값, 없으면 공수(과제 단위 그대로)입니다.');
+  lines.push('가중 = 직속 형제 간 공수(workEffort) 비율(업무 구성비와 동일 기준)입니다.');
   if (totalWeight > 0) {
     const rounded = Math.min(100, Math.max(0, round1(weightedProgressSum / totalWeight)));
     lines.push(
-      `가중평균: Σ(진척×가중) ÷ Σ가중 = ${formatNum2(weightedProgressSum)} ÷ ${formatNum2(totalWeight)} ≈ ${formatPercent1(rounded)}%`,
+      `공수 가중 평균: Σ(진척×공수) ÷ Σ공수 = ${formatNum2(weightedProgressSum)} ÷ ${formatNum2(totalWeight)} ≈ ${formatPercent1(rounded)}%`,
     );
   } else {
     const rounded = Math.min(100, Math.max(0, round1(simpleProgressSum / children.length)));
-    lines.push(`가중 합이 0이면 형제 진척률 단순 평균 → ${formatPercent1(rounded)}%`);
+    lines.push(`형제 공수 합이 0이면 진척률 단순 평균 → ${formatPercent1(rounded)}%`);
   }
   if (children.length > maxLines) {
     detailLines.push(`· … 외 ${children.length - maxLines}개 하위 작업`);
@@ -315,11 +315,10 @@ export function distributeProgressDown(allTasks: Task[], parentId: string, targe
   let totalWeight = 0;
   let weightedSum = 0;
   for (const child of children) {
-    const effort = typeof child.workEffort === 'number' && Number.isFinite(child.workEffort) ? child.workEffort : 0;
-    const weight = typeof child.weight === 'number' && Number.isFinite(child.weight) ? child.weight : effort;
-    totalWeight += weight;
+    const wRoll = rollupWeightFromEffort(child);
+    totalWeight += wRoll;
     const progress = typeof child.progress === 'number' && Number.isFinite(child.progress) ? child.progress : 0;
-    weightedSum += progress * weight;
+    weightedSum += progress * wRoll;
   }
 
   const currentAvg =

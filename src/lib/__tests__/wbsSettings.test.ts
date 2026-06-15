@@ -2,13 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { parseSettings, DEFAULT_SETTINGS, resolveStoredTableColumnVisible } from '../wbsSettings';
 
 describe('resolveStoredTableColumnVisible', () => {
-  it('visible 생략 시 공수·가중치는 기본 숨김', () => {
-    expect(resolveStoredTableColumnVisible('workEffort', undefined)).toBe(false);
+  it('visible 생략 시 가중치는 기본 숨김', () => {
     expect(resolveStoredTableColumnVisible('weight', undefined)).toBe(false);
   });
-  it('저장이 true여도 공수·가중치 컬럼은 항상 숨김', () => {
-    expect(resolveStoredTableColumnVisible('workEffort', true)).toBe(false);
+  it('저장이 true여도 가중치 컬럼은 항상 숨김', () => {
     expect(resolveStoredTableColumnVisible('weight', true)).toBe(false);
+  });
+  it('공수(workEffort)는 저장값·기본값을 따른다', () => {
+    expect(resolveStoredTableColumnVisible('workEffort', undefined)).toBe(true);
+    expect(resolveStoredTableColumnVisible('workEffort', false)).toBe(false);
+    expect(resolveStoredTableColumnVisible('workEffort', true)).toBe(true);
   });
   it('visible 생략 시 작업명 등은 DEFAULT_SETTINGS를 따른다', () => {
     expect(resolveStoredTableColumnVisible('name', undefined)).toBe(true);
@@ -19,10 +22,12 @@ describe('resolveStoredTableColumnVisible', () => {
   });
 });
 
-describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', () => {
-  it('기본 설정에서 공수 컬럼은 숨김이다', () => {
+describe('parseSettings — 기본 컬럼', () => {
+  it('기본 설정에서 투입 공수·업무 구성비 컬럼은 표시', () => {
     const we = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === 'workEffort');
-    expect(we?.visible).toBe(false);
+    const wc = DEFAULT_SETTINGS.tableColumns?.find((c) => c.id === 'workComposition');
+    expect(we?.visible).toBe(true);
+    expect(wc?.visible).toBe(true);
   });
 
   it('기본 설정에서 진척차이(%p) 컬럼은 숨김이다', () => {
@@ -30,30 +35,12 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
     expect(pv?.visible).toBe(false);
   });
 
-  it('공수→기간 마이그레이션이 끝난 뒤 사용자가 다시 켜 둔 공수 컬럼도 재숨김한다', () => {
+  it('공수·구성비 기본 표시 마이그레이션: 공수 켜고 구성비 열이 없으면 삽입', () => {
     const raw = {
       tableColumns: [
         { id: 'name', visible: true },
-        { id: 'endDate', visible: true },
-        { id: 'duration', visible: true },
-        { id: 'workEffort', visible: true }, // 사용자가 켜 둔 상태
+        { id: 'workEffort', visible: false },
       ],
-      // 기존 공수→기간 마이그레이션은 이미 끝남 → 그 블록은 재실행되지 않음.
-      workEffortToDurationMigrated: true,
-      // 새 재숨김 마이그레이션 플래그는 없음 → 새 마이그레이션만 동작해야 한다.
-    };
-    const s = parseSettings(raw);
-    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(false);
-    expect(s.workEffortReHiddenMigrated).toBe(true);
-  });
-
-  it('재숨김 마이그레이션이 1회 적용된 뒤에도 공수 컬럼은 항상 비표시로 해석된다', () => {
-    const raw = {
-      tableColumns: [
-        { id: 'name', visible: true },
-        { id: 'workEffort', visible: true }, // 마이그레이션 후 사용자가 재활성화
-      ],
-      // 모든 컬럼 숨김 계열 마이그레이션이 이미 끝난 상태로 둬서 재실행되지 않게 한다.
       allocationHiddenMigrated: true,
       deliverablesHiddenMigrated: true,
       dependenciesHiddenMigrated: true,
@@ -66,34 +53,13 @@ describe('parseSettings — 공수 컬럼 강제 재숨김 마이그레이션', 
       workEffortReHiddenMigratedV2: true,
       allocationReHiddenMigrated: true,
       standardVisibleColumnsMigrated: true,
+      wbsIdPrefixColumnRetiredMigrated: true,
+      progressVarianceHiddenMigrated: true,
     };
     const s = parseSettings(raw);
-    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(false);
-  });
-
-  it('2차 재숨김: 1차 재숨김 후 다시 켜 둔 공수도 한 번 더 숨김한다', () => {
-    const raw = {
-      tableColumns: [
-        { id: 'name', visible: true },
-        { id: 'workEffort', visible: true }, // 1차 재숨김 후 사용자가 다시 켬
-      ],
-      // 1차 재숨김·표준화 등은 이미 끝난 상태로 둬서 2차 재숨김만 동작하게 한다.
-      allocationHiddenMigrated: true,
-      deliverablesHiddenMigrated: true,
-      dependenciesHiddenMigrated: true,
-      actionsHiddenMigrated: true,
-      statusHiddenMigrated: true,
-      wbsIdHiddenMigrated: true,
-      workEffortToDurationMigrated: true,
-      tableProgressLayoutMigrated: true,
-      workEffortReHiddenMigrated: true,
-      allocationReHiddenMigrated: true,
-      standardVisibleColumnsMigrated: true,
-      // workEffortReHiddenMigratedV2 없음 → 2차 재숨김만 동작해야 한다.
-    };
-    const s = parseSettings(raw);
-    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(false);
-    expect(s.workEffortReHiddenMigratedV2).toBe(true);
+    expect(s.workEffortCompositionDefaultsMigrated).toBe(true);
+    expect(s.tableColumns?.find((c) => c.id === 'workEffort')?.visible).toBe(true);
+    expect(s.tableColumns?.find((c) => c.id === 'workComposition')?.visible).toBe(true);
   });
 });
 
@@ -101,20 +67,19 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
   it('표준 표시 집합으로 1회 정규화한다 (접두어 WBS ID 숨김·가중치 숨김 등)', () => {
     const raw = {
       tableColumns: [
-        { id: 'wbsId', visible: false }, // 사용자가 끔 → 표준화 후에도 접두어 ID 칸은 숨김 유지
+        { id: 'wbsId', visible: false },
         { id: 'name', visible: true },
         { id: 'startDate', visible: true },
         { id: 'endDate', visible: true },
         { id: 'duration', visible: true },
         { id: 'assignee', visible: true },
-        { id: 'weight', visible: true }, // 사용자가 켬 → 표준화로 숨김
-        { id: 'status', visible: true }, // 사용자가 켬 → 표준화로 숨김
+        { id: 'weight', visible: true },
+        { id: 'status', visible: true },
         { id: 'plannedProgress', visible: true },
         { id: 'progress', visible: true },
         { id: 'progressVariance', visible: true },
-        { id: 'custom:abc', visible: true }, // 사용자 정의 컬럼은 유지
+        { id: 'custom:abc', visible: true },
       ],
-      // 표준화 외 다른 마이그레이션은 끝난 상태로 둬 간섭 방지
       allocationHiddenMigrated: true,
       deliverablesHiddenMigrated: true,
       dependenciesHiddenMigrated: true,
@@ -131,8 +96,8 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     expect(vis('wbsId')).toBe(false);
     expect(vis('weight')).toBe(false);
     expect(vis('status')).toBe(false);
-    expect(vis('custom:abc')).toBe(true); // 사용자 정의 컬럼 보존
-    expect(vis('progressVariance')).toBe(false); // 별도 마이그레이션으로 진척차이 열 기본 숨김
+    expect(vis('custom:abc')).toBe(true);
+    expect(vis('progressVariance')).toBe(false);
     expect(s.standardVisibleColumnsMigrated).toBe(true);
     expect(s.progressVarianceHiddenMigrated).toBe(true);
   });
@@ -141,7 +106,7 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
     const raw = {
       tableColumns: [
         { id: 'name', visible: true },
-        { id: 'weight', visible: true }, // 표준화 후 사용자가 재활성화
+        { id: 'weight', visible: true },
       ],
       allocationHiddenMigrated: true,
       deliverablesHiddenMigrated: true,
@@ -152,6 +117,7 @@ describe('parseSettings — 표 기본 표시 컬럼 표준화 마이그레이�
       workEffortToDurationMigrated: true,
       tableProgressLayoutMigrated: true,
       workEffortReHiddenMigrated: true,
+      workEffortReHiddenMigratedV2: true,
       allocationReHiddenMigrated: true,
       standardVisibleColumnsMigrated: true,
     };

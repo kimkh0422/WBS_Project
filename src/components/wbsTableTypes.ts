@@ -8,6 +8,8 @@ export type BuiltInTableColumnId =
   | 'endDate'
   | 'duration'
   | 'workEffort'
+  /** 직속 형제 대비 공수 비율(%), 소수 1자리 — 저장 필드 없음 */
+  | 'workComposition'
   | 'weight'
   | 'assignee'
   | 'allocation'

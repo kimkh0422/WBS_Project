@@ -7,6 +7,7 @@ import { isBefore, parseISO, startOfDay } from 'date-fns';
 import type { Task } from '../types';
 import { aggregatePercentByWeight } from './utils';
 import { getUseWeightForProgressRollup } from './rollupOptions';
+import { rollupWeightFromEffort } from './progressRollupWeights';
 
 /** 대시보드 집계용: 완료 상태·진척 100%면 미완료 아님 */
 export function dashboardTaskDone(t: Task, doneStatusIds: Set<string>): boolean {
@@ -45,11 +46,9 @@ export function buildDepthGetter(taskById: Map<string, Task>): (id: string) => n
   return get;
 }
 
-/** 집계 가중치: 입력 진척 가중치가 있으면 그 값, 없으면 공수(과제 단위 그대로). 가중치 OFF면 helper가 무시. */
+/** 집계 가중치: 공수(workEffort)만 사용. 가중치 OFF면 helper가 무시. */
 export function dashWeightOf(t: Task): number {
-  if (typeof t.weight === 'number' && Number.isFinite(t.weight)) return t.weight;
-  if (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0) return t.workEffort;
-  return 0;
+  return rollupWeightFromEffort(t);
 }
 
 /** 진척률 집계: 가중치 ON이면 (progress×weight) 가중평균, OFF면 단순평균. 결과 0~100% 클램프 — 요약 바와 동일 규칙. */

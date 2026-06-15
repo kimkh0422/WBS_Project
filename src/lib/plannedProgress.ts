@@ -2,6 +2,7 @@ import { parseISO, isValid } from 'date-fns';
 import type { Task } from '../types';
 import { differenceInBusinessDaysEx, getHolidaysForTaskDates } from './calendar';
 import { getUseWeightForProgressRollup } from './rollupOptions';
+import { rollupWeightFromEffort } from './progressRollupWeights';
 
 /**
  * 계획율(계획 진척률)과 계획 대비 진척 차이(일정 변동) 계산.
@@ -113,8 +114,7 @@ export function computePlannedProgressMap(tasks: Task[], refDateIso?: string, ho
       for (const k of kids) {
         const p = compute(k);
         if (typeof p !== 'number' || !Number.isFinite(p)) continue; // 계획율 산정 불가 자식은 평균에서 제외
-        const effort = typeof k.workEffort === 'number' && Number.isFinite(k.workEffort) ? k.workEffort : 0;
-        const w = typeof k.weight === 'number' && Number.isFinite(k.weight) ? k.weight : effort;
+        const w = rollupWeightFromEffort(k);
         totalWeight += w;
         weightedSum += p * w;
         simpleSum += p;
@@ -161,7 +161,7 @@ export interface PlannedActualSummary {
 
 /**
  * 작업 집합의 가중 평균 계획율·실제 진척률·차이를 계산(대시보드·요약용).
- * items는 보통 한 프로젝트의 최상위 작업 집합. 가중치는 weight, 없으면 workEffort(둘 다 없으면 단순 평균).
+ * items는 보통 한 프로젝트의 최상위 작업 집합. 가중은 공수(workEffort)만 사용(합 0이면 단순 평균).
  */
 export function aggregatePlannedActual(items: Task[], plannedById: Map<string, number>): PlannedActualSummary {
   let totalWeight = 0;
@@ -172,8 +172,7 @@ export function aggregatePlannedActual(items: Task[], plannedById: Map<string, n
   for (const t of items) {
     const planned = plannedById.get(t.id) ?? 0;
     const actual = typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0;
-    const effort = typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) ? t.workEffort : 0;
-    const w = typeof t.weight === 'number' && Number.isFinite(t.weight) ? t.weight : effort;
+    const w = rollupWeightFromEffort(t);
     totalWeight += w;
     weightedPlanned += planned * w;
     weightedActual += actual * w;

@@ -17,6 +17,7 @@ export const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   endDate: 85,
   duration: 64,
   workEffort: 56,
+  workComposition: 88,
   weight: 56,
   assignee: 70,
   allocation: 72,
@@ -37,6 +38,7 @@ export const COLUMN_HEADER_LABELS: Record<BuiltInTableColumnId, string> = {
   endDate: '종료일',
   duration: '기간',
   workEffort: '공수(d)',
+  workComposition: '업무구성(%)',
   weight: '가중치',
   assignee: '담당자',
   allocation: '투입율',
@@ -100,6 +102,7 @@ const MIN_COLUMN_WIDTH_BY_ID: Record<string, number> = {
   progress: 78,
   plannedProgress: 78,
   progressVariance: 92,
+  workComposition: 72,
 };
 
 function minColumnWidth(columnId: string): number {
@@ -263,6 +266,7 @@ export function useColumnResize({
           const d = inclusiveCalendarDays(task.startDate, task.endDate);
           cellText = d != null ? String(d) : '-';
         } else if (colId === 'workEffort') cellText = task.workEffort != null ? (Math.round(task.workEffort * 10) / 10).toFixed(1) : '-';
+        else if (colId === 'workComposition') cellText = `${formatPercent1(100)}%`;
         else if (colId === 'weight') cellText = task.weight != null ? formatNum1(task.weight) : '-';
         else if (colId === 'assignee') {
           cellText = formatAssigneeDisplay(task.assignee, assigneeDisplayMetaByName) || '—';

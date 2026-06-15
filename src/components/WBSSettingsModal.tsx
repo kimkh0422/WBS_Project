@@ -123,7 +123,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       startDate: '시작일',
       endDate: '종료일',
       duration: '기간',
-      workEffort: '공수(d)',
+      workEffort: '투입공수',
+      workComposition: '업무 구성비(%)',
       assignee: '담당자',
       allocation: '투입율',
       weight: '가중치',
@@ -145,7 +146,8 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
       { id: 'startDate', visible: true },
       { id: 'endDate', visible: true },
       { id: 'duration', visible: true },
-      { id: 'workEffort', visible: false },
+      { id: 'workEffort', visible: true },
+      { id: 'workComposition', visible: true },
       { id: 'assignee', visible: true },
       { id: 'allocation', visible: false },
       // 투입율 바로 다음에 가중치(기본 숨김 — 컬럼 탭에서 표시 가능)
@@ -194,6 +196,13 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
         } else {
           cleaned.push({ id, visible: defaultVisible });
         }
+      } else if (id === 'workComposition') {
+        const weIdx = cleaned.findIndex((c) => c.id === 'workEffort');
+        if (weIdx >= 0) {
+          cleaned.splice(weIdx + 1, 0, { id, visible: defaultVisible });
+        } else {
+          cleaned.push({ id, visible: defaultVisible });
+        }
       } else {
         cleaned.push({ id, visible: defaultVisible });
       }
@@ -208,7 +217,7 @@ export function WBSSettingsModal({ isOpen, onClose, onRequestReset }: WBSSetting
 
   /** 설정 UI에만 노출 — 접두어 WBS ID 컬럼은 목록에서 제외(순서 화살표 인덱스와 실제 배열 길이 일치). */
   const tableColumnsSettingsList = useMemo(
-    () => normalizedTableColumns.filter((c) => c.id !== 'wbsId' && c.id !== 'workEffort' && c.id !== 'weight'),
+    () => normalizedTableColumns.filter((c) => c.id !== 'wbsId' && c.id !== 'weight'),
     [normalizedTableColumns],
   );
 

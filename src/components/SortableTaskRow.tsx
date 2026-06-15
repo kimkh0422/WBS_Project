@@ -30,7 +30,7 @@ import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
-import { normalizeYmdInput } from '../lib/ymdInput';
+import { computeWorkCompositionPercent } from '../lib/workComposition';
 
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
@@ -375,16 +375,9 @@ function SortableTaskRowInner({
     [statusConfigs],
   );
   const effortSuffix = workEffortUnitSuffixKo(effortUnitForTask);
+  const workCompositionPct = useMemo(() => computeWorkCompositionPercent(task, allProjectTasks), [task, allProjectTasks]);
   const weightColumnTooltip = useMemo(
-    () =>
-      [
-        WEIGHT_COLUMN_HELP_TEXT,
-        '',
-        `이 프로젝트 공수 단위: ${effortSuffix} — 가중이 비어 있을 때 롤업에 쓰입니다.`,
-        '가중이 큰 형제는 진척이 조금만 올라도 상위 평균에 크게 반영되고, 가중이 작은 형제는 덜 반영됩니다.',
-        '',
-        '선택 후 입력 또는 F2로 편집',
-      ].join('\n'),
+    () => [WEIGHT_COLUMN_HELP_TEXT, '', `이 프로젝트 공수 단위: ${effortSuffix}.`, '', '선택 후 입력 또는 F2로 편집'].join('\n'),
     [effortSuffix],
   );
   const progressColumnTooltip = useMemo(
@@ -393,7 +386,6 @@ function SortableTaskRowInner({
         PROGRESS_COLUMN_HELP_TEXT,
         '',
         '선택 후 입력 또는 F2로 편집 · 우클릭: 상태별 진척 갱신 메뉴.',
-        '가중치가 비어 있는 자식은 롤업 시 공수를 가중으로 씁니다. 형제 간 가중 비율에 따라 상위 진척이 달라질 수 있습니다.',
         '',
         '— 아래는 이 행 기준 산식 상세 —',
         '',
@@ -1403,6 +1395,40 @@ function SortableTaskRowInner({
                     {otherPrimary.displayName}
                   </div>
                 )}
+              </div>
+            );
+          }
+          if (colId === 'workComposition') {
+            const isFocusedComp = focusedCell?.taskId === task.id && focusedCell?.columnId === 'workComposition';
+            const text = workCompositionPct == null ? '—' : `${formatPercent1(workCompositionPct)}%`;
+            return (
+              <div
+                key={colId}
+                {...rangeCellProps}
+                className={cn(
+                  'data-cell font-mono text-xs text-slate-600 min-w-0 cursor-help tabular-nums',
+                  isFocusedComp && 'ring-2 ring-indigo-500 ring-inset',
+                  marqueeClass,
+                )}
+                style={mergeCellOuter(otherRingStyle)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFocusRow?.(task.id, { keepSelection: true, columnId: 'workComposition' });
+                  commitCellMarquee?.(task.id, 'workComposition');
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  beginEditNowResolved('workComposition');
+                }}
+                title={
+                  task.parentId == null
+                    ? '최상위 작업에는 상위를 나누는 형제가 없어 업무 구성비를 두지 않습니다.'
+                    : '같은 부모 아래 직속 형제들의 공수 합 대비 이 행 공수 비율(%). 소수 첫째 자리. 상위 진척률 롤업과 동일한 공수 기준입니다.'
+                }
+              >
+                <span className="px-1 inline-block w-full text-right truncate" style={txtStyle}>
+                  {text}
+                </span>
               </div>
             );
           }

@@ -3,13 +3,7 @@ import { computePlannedProgressMap } from './plannedProgress';
 import { computeProjectAssigneeWorkEffort } from './personAllocations';
 import { aggregatePercentByWeight } from './utils';
 import { getUseWeightForProgressRollup } from './rollupOptions';
-
-/** 집계 가중치: 입력한 진척 가중치가 있으면 그 값, 없으면 공수(과제 단위 그대로). 가중치 OFF면 helper가 무시. */
-function weightOf(t: Task): number {
-  if (typeof t.weight === 'number' && Number.isFinite(t.weight)) return t.weight;
-  if (typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0) return t.workEffort;
-  return 0;
-}
+import { rollupWeightFromEffort } from './progressRollupWeights';
 
 /** 주어진 task 목록에서 깊이(depth)를 메모이제이션하여 반환하는 getter 생성 */
 function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
@@ -32,7 +26,10 @@ function buildDepthGetter(taskById: Map<string, Task>): (id: string) => number {
 /** progress 가중평균(가중치 ON) 또는 단순평균(가중치 OFF). 결과 0~100% 클램프 — 요약 바와 동일 규칙. */
 function computeWeightedProgress(items: Task[], useWeight: boolean): number {
   return aggregatePercentByWeight(
-    items.map((t) => ({ value: typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0, weight: weightOf(t) })),
+    items.map((t) => ({
+      value: typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0,
+      weight: rollupWeightFromEffort(t),
+    })),
     useWeight,
     Math.round,
   );
@@ -40,7 +37,7 @@ function computeWeightedProgress(items: Task[], useWeight: boolean): number {
 
 function computeWeightedPlanned(items: Task[], plannedById: Map<string, number>, useWeight: boolean): number {
   return aggregatePercentByWeight(
-    items.map((t) => ({ value: plannedById.get(t.id) ?? 0, weight: weightOf(t) })),
+    items.map((t) => ({ value: plannedById.get(t.id) ?? 0, weight: rollupWeightFromEffort(t) })),
     useWeight,
     Math.round,
   );

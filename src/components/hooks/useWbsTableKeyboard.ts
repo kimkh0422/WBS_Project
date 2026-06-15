@@ -185,6 +185,7 @@ export function canTypeToEditColumn(columnId: TableColumnId, _hasChildren: boole
 /** Enter로 즉시 인라인 편집을 열 수 있는 컬럼(읽기 전용·파생 제외). */
 function canEnterInlineOnFocusedColumn(columnId: TableColumnId, hasChildren: boolean): boolean {
   if (columnId === 'plannedProgress') return false;
+  if (columnId === 'workComposition') return false;
   if (columnId === 'status' || columnId === 'allocation' || columnId === 'dependencies') return true;
   return canTypeToEditColumn(columnId, hasChildren);
 }
@@ -201,6 +202,7 @@ function resolveEnterOpensCellEdit(opts: {
   const t = tasks.find((x) => x.id === taskId);
   if (!t || !visibleTasks.some((vt) => vt.id === taskId) || t.mirroredFromTaskId) return null;
   if (focusCol === 'plannedProgress') return null;
+  if (focusCol === 'workComposition') return null;
   const editCol = delegateInlineEditColumnId(focusCol, editableColumnIds);
   if (isDerivedScheduleColumnId(focusCol) && editCol === focusCol) return null;
   const hasChildren = tasks.some((x) => x.parentId === taskId);
@@ -1521,7 +1523,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       if (selectedTaskIds.size === 0 && cursorFocusedCell && editableColumnIds.includes(cursorFocusedCell.columnId)) {
         const cell = cursorFocusedCell;
         const col = cell.columnId;
-        if (col === 'wbsId' || col === 'actions' || col === 'plannedProgress' || col === 'progressVariance' || col === 'allocation') {
+        if (
+          col === 'wbsId' ||
+          col === 'actions' ||
+          col === 'plannedProgress' ||
+          col === 'workComposition' ||
+          col === 'progressVariance' ||
+          col === 'allocation'
+        ) {
           return;
         }
         const visibleTaskIds = visibleTasks.map((t) => t.id);

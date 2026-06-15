@@ -112,10 +112,10 @@ describe('computePlannedProgressMap (자동 산정 — 시작/종료/기준일 �
     expect(map.get('P')).toBeCloseTo(50);
   });
 
-  it('부모 가중평균: 자식 weight 반영', () => {
+  it('부모 가중평균: 자식 공수(workEffort) 반영', () => {
     const parent = task({ id: 'P' });
-    const heavy = task({ id: 'A', parentId: 'P', startDate: '2026-05-01', endDate: '2026-05-10', weight: 3 }); // 100
-    const light = task({ id: 'B', parentId: 'P', startDate: '2026-06-20', endDate: '2026-06-30', weight: 1 }); // 0
+    const heavy = task({ id: 'A', parentId: 'P', startDate: '2026-05-01', endDate: '2026-05-10', workEffort: 3 }); // 100
+    const light = task({ id: 'B', parentId: 'P', startDate: '2026-06-20', endDate: '2026-06-30', workEffort: 1 }); // 0
     const map = computePlannedProgressMap([parent, heavy, light], '2026-06-15', NO_HOLIDAYS);
     expect(map.get('P')).toBeCloseTo(75); // (100*3 + 0*1)/4
   });
@@ -135,9 +135,9 @@ describe('progressVariance', () => {
 
 describe('aggregatePlannedActual', () => {
   it('가중 평균: 계획(자동)·실제·차이를 계산', () => {
-    // A: 종료된 일정 → 계획 100, 실제 100, weight 3 / B: 시작 전 → 계획 0, 실제 0, weight 1
-    const a = task({ id: 'A', progress: 100, startDate: '2026-05-01', endDate: '2026-05-10', weight: 3 });
-    const b = task({ id: 'B', progress: 0, startDate: '2026-06-20', endDate: '2026-06-30', weight: 1 });
+    // A: 종료된 일정 → 계획 100, 실제 100, 공수 3 / B: 시작 전 → 계획 0, 실제 0, 공수 1
+    const a = task({ id: 'A', progress: 100, startDate: '2026-05-01', endDate: '2026-05-10', workEffort: 3 });
+    const b = task({ id: 'B', progress: 0, startDate: '2026-06-20', endDate: '2026-06-30', workEffort: 1 });
     const planned = computePlannedProgressMap([a, b], '2026-06-15', NO_HOLIDAYS);
     const summary = aggregatePlannedActual([a, b], planned);
     expect(summary.planned).toBeCloseTo(75); // (100*3 + 0*1)/4

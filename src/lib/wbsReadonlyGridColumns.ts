@@ -2,7 +2,7 @@ import type { TableColumnId } from '../components/wbsTableTypes';
 
 /** 키보드·Tab으로 포커스는 받지만 값은 파생인 컬럼 — 인라인 편집은 다른 컬럼으로 위임 */
 export function isDerivedScheduleColumnId(columnId: TableColumnId): boolean {
-  return columnId === 'progressVariance';
+  return columnId === 'progressVariance' || columnId === 'workComposition';
 }
 
 /**
@@ -12,6 +12,11 @@ export function isDerivedScheduleColumnId(columnId: TableColumnId): boolean {
 export function delegateInlineEditColumnId(columnId: TableColumnId, visibleEditableColumnIds: readonly TableColumnId[]): TableColumnId {
   const has = (id: TableColumnId) => visibleEditableColumnIds.includes(id);
   if (columnId === 'progressVariance') {
+    if (has('progress')) return 'progress';
+    return columnId;
+  }
+  if (columnId === 'workComposition') {
+    if (has('workEffort')) return 'workEffort';
     if (has('progress')) return 'progress';
     return columnId;
   }

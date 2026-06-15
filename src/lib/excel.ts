@@ -6,6 +6,7 @@ import { randomUUID, round2, formatPercent1, formatNum1 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
 import { computePlannedProgressMap } from './plannedProgress';
+import { computeWorkCompositionPercent } from './workComposition';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -1084,6 +1085,7 @@ const EXPORT_COLUMNS: ExportColumn[] = [
   { id: 'startDate', header: '시작일', width: 15 },
   { id: 'endDate', header: '종료일', width: 15 },
   { id: 'workEffort', header: '공수(일)', width: 9, align: 'right' },
+  { id: 'workComposition', header: '업무구성(%)', width: 10, align: 'right' },
   { id: 'assignee', header: '담당자', width: 20 },
   { id: 'allocation', header: '투입율', width: 9, align: 'right' },
   { id: 'weight', header: '가중치', width: 8, align: 'right' },
@@ -1173,6 +1175,10 @@ export const exportToExcel = async (
           return koreanDate(t.endDate);
         case 'workEffort':
           return t.workEffort ?? 0;
+        case 'workComposition': {
+          const p = computeWorkCompositionPercent(t, projectTasks);
+          return p == null ? '' : `${formatPercent1(p)}%`;
+        }
         case 'assignee':
           return formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName);
         case 'allocation':

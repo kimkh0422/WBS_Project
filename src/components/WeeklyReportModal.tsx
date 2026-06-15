@@ -260,16 +260,11 @@ export function WeeklyReportModal({ isOpen, onClose, tasks, projects, currentPro
       let totalWeight = 0;
       const forAgg = items.map((t) => {
         const p = typeof t.progress === 'number' ? t.progress : 0;
-        const w =
-          typeof t.weight === 'number' && Number.isFinite(t.weight)
-            ? t.weight
-            : typeof t.workEffort === 'number' && t.workEffort > 0
-              ? t.workEffort
-              : 0;
+        const w = typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0 ? t.workEffort : 0;
         totalWeight += w;
         return { value: p, weight: w };
       });
-      // 가중치 ON: (진척×가중) 가중평균 / OFF: 단순평균. 표 요약 바와 동일 규칙.
+      // 공수 가중 ON: (진척×공수) 가중평균 / OFF: 단순평균. 표 요약 바와 동일 규칙.
       const avgProgress = aggregatePercentByWeight(forAgg, getUseWeightForProgressRollup(), round1);
       return { avgProgress, totalEffort: totalWeight };
     };

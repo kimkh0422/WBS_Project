@@ -19,16 +19,16 @@ function mergeRefs<T>(...refs: (React.Ref<T> | undefined)[]): React.RefCallback<
 
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
 export const WEIGHT_COLUMN_HELP_TEXT = [
-  '가중치 = 같은 부모 아래 형제 작업끼리의 상대적 비중입니다.',
-  '바로 위 부모 행의 자동 진척률을 계산할 때, 각 자식의 (진척률×가중치)를 합한 뒤 가중치 합으로 나눕니다.',
+  '가중치 = 같은 부모 아래 형제 작업끼리의 상대적 비중(선택 입력)입니다.',
+  '상위 진척률·요약 바 집계는 **공수(workEffort) 비율**만 사용합니다(업무 구성비와 동일).',
   '형제 가중치 합이 100일 필요는 없습니다. 비율만 의미합니다.',
-  '비어 두면 가중치 대신 공수(workEffort)가 진척 롤업 가중에 사용됩니다. 요약 행 공수는 직속 하위 공수 합으로 갱신됩니다.',
+  '요약 행 공수는 직속 하위 공수 합으로 갱신됩니다.',
 ].join('\n');
 
 /** 정렬 문구 제외 — 표 셀·일괄 수정 바 등에 공통 사용 */
 export const PROGRESS_COLUMN_HELP_TEXT = [
   '진척률 0~100%. 리프(하위 없음) 행에는 직접 입력한 값이 저장됩니다.',
-  '요약(하위 있음) 행에는 직접 자식들만 대상으로 가중 평균이 자동 반영됩니다(말단 전체가 아님).',
+  '요약(하위 있음) 행에는 직접 자식들만 대상으로, **자식 공수 비율(업무 구성비)** 로 가중 평균이 자동 반영됩니다.',
   '완료로 정의된 상태이면 하위와 관계없이 100%로 유지될 수 있습니다.',
   '환경설정에서 상태·진척 연동을 켠 경우, 단계 변경 시 해당 단계의 기본 진척%가 덮어쓸 수 있습니다.',
 ].join('\n');
@@ -41,6 +41,8 @@ export const COLUMN_TOOLTIPS: Record<BuiltInTableColumnId, string> = {
   endDate: '종료일',
   duration: '기간 = 시작일~종료일(양 끝 포함) 일수. 값을 바꾸면 시작일 기준으로 종료일이 자동 계산됩니다.',
   workEffort: '프로젝트 공수 단위(분·시간·일·주)',
+  workComposition:
+    '같은 부모 아래 직속 형제 작업의 공수 합 대비, 이 행 공수가 차지하는 비율(%). 소수 첫째 자리까지 표시합니다. 최상위 행은 비웁니다. 상위 진척률 롤업과 동일한 공수 기준입니다.',
   weight: WEIGHT_COLUMN_HELP_TEXT,
   assignee: '담당자',
   allocation: '투입율 (%)',
@@ -217,6 +219,19 @@ export function HeaderCell({
           }
         >
           {workEffortHeaderTitle ?? '공수'}
+          {resizeGrip}
+        </H>
+      );
+    case 'workComposition':
+      return (
+        <H
+          className={inactivePointerClass}
+          onClick={headerSortClickEnabled ? undefined : onColClick}
+          onDoubleClick={onColDoubleClick}
+          onContextMenu={onColContextMenu}
+          title={COLUMN_TOOLTIPS.workComposition + ' · 클릭: 이 열 전체 선택 · 더블클릭: 너비 자동'}
+        >
+          업무구성(%)
           {resizeGrip}
         </H>
       );

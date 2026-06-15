@@ -26,8 +26,8 @@ export interface SummaryStats {
 }
 
 /**
- * 전체 진척율: 1레벨 WBS의 (progress×weight) 가중평균(Σw가 100이 아니어도 동일)을 우선 사용.
- * (weight 없으면 공수로 대체) 1레벨이 없으면 폴백으로 단말(리프) 단순 평균. 결과는 0~100%로 클램프.
+ * 전체 진척율: 1레벨 WBS의 (progress×공수) 가중평균(Σ공수가 100이 아니어도 동일)을 우선 사용.
+ * 공수는 프로젝트 단위를 M/D로 환산. 1레벨이 없으면 폴백으로 단말(리프) 단순 평균. 결과는 0~100%로 클램프.
  */
 export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], refDateIso?: string): SummaryStats | null {
   // 가중치 ON/OFF 토글(전역 옵션)을 집계에 반영. 토글 시 WBSTable이 리렌더되어 새 값으로 재계산된다.
@@ -77,13 +77,11 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
       return d;
     };
     const level1 = source.filter((t) => getDepth(t.id) === 0);
-    // 집계 가중치: 입력한 진척 가중치가 있으면 그 값, 없으면 공수를 M/D로 환산. (가중치 OFF면 helper가 무시)
-    const weightForAgg = (t: Task) =>
-      typeof t.weight === 'number' && Number.isFinite(t.weight)
-        ? t.weight
-        : typeof t.workEffort === 'number' && Number.isFinite(t.workEffort) && t.workEffort > 0
-          ? workEffortToManDays(t.workEffort, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit))
-          : 0;
+    const weightForAgg = (t: Task) => {
+      const e = t.workEffort;
+      if (typeof e !== 'number' || !Number.isFinite(e) || e <= 0) return 0;
+      return workEffortToManDays(e, normalizeWorkEffortUnit(projectById.get(t.projectId)?.workEffortUnit));
+    };
     const progressOf = (t: Task) => (typeof t.progress === 'number' && Number.isFinite(t.progress) ? t.progress : 0);
     const computeWeighted = (items: Task[]) =>
       aggregatePercentByWeight(
@@ -114,16 +112,16 @@ export function useWbsSummaryStats(baseTasks: Task[], projects: Project[] = [], 
       const parts: string[] = [
         '요약 바「전체 진척율」은 WBS 레벨 1(최상위) 작업만 집계합니다.',
         useWeight
-          ? '가중치 ON: 각 1레벨 작업의 진척률에 가중치를 곱한 합을, 가중치 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.'
-          : '가중치 OFF: 1레벨 작업 진척률의 단순 산술평균을 0~100% 범위로 소수 첫째 자리까지 반올림합니다(가중치 무시).',
+          ? '공수 가중 ON: 각 1레벨 작업의 진척률에 공수(M/D 환산)를 곱한 합을, 공수 합으로 나눈 뒤 0~100% 범위로 소수 첫째 자리까지 반올림합니다.'
+          : '공수 가중 OFF: 1레벨 작업 진척률의 단순 산술평균을 0~100% 범위로 소수 첫째 자리까지 반올림합니다(공수 무시).',
         ...(useWeight
-          ? ['가중치는 작업에 입력한 진척 가중치가 있으면 그 값을 쓰고, 없으면 공수를 해당 프로젝트 단위에서 M/D로 환산한 값을 씁니다.']
+          ? ['가중치는 각 작업의 공수를 해당 프로젝트 단위에서 M/D로 환산한 값입니다(표의 업무 구성비와 동일한 공수 기준).']
           : []),
         `현재 표시: ${formatPercent1(avgProgress)}%`,
       ];
       const maxShow = 8;
       if (level1.length <= maxShow) {
-        parts.push(useWeight ? '1레벨 작업별 기여(진척×가중):' : '1레벨 작업별 진척률:');
+        parts.push(useWeight ? '1레벨 작업별 기여(진척×공수가중):' : '1레벨 작업별 진척률:');
         for (const t of level1) {
           const p = progressOf(t);
           const nm = (t.name ?? '').trim() || t.id;

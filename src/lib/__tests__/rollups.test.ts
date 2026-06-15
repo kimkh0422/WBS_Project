@@ -52,6 +52,17 @@ describe('normalizeOrphanStatuses', () => {
 });
 
 describe('syncParentRollups', () => {
+  it('진척 롤업은 가중치(weight)를 무시하고 공수(workEffort)만 사용', () => {
+    const tasks: Task[] = [
+      makeTask({ id: 'parent', workEffort: 10, progress: 0 }),
+      makeTask({ id: 'c1', parentId: 'parent', workEffort: 1, weight: 99, progress: 0 }),
+      makeTask({ id: 'c2', parentId: 'parent', workEffort: 9, weight: 1, progress: 100 }),
+    ];
+    const result = syncParentRollups(tasks, 'parent');
+    const parent = result.find((t) => t.id === 'parent')!;
+    expect(parent.progress).toBe(90);
+  });
+
   it('keeps parent progress to one decimal place', () => {
     const tasks: Task[] = [
       makeTask({ id: 'parent', workEffort: 3, progress: 0 }),

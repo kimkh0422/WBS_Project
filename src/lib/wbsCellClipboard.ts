@@ -66,7 +66,15 @@ export function taskDatePairEmptyAfterPatch(task: Task, updates: Partial<Task>):
  * 작업명은 기존 "행(+펼쳐진 하위) 복사" 동작을 유지하고(행 손잡이 역할),
  * 파생·프로젝트 단위(계획율·차이·투입율)와 wbsId는 값 셀이 아니므로 제외.
  */
-const NON_CELL_CLIPBOARD_COLUMNS = new Set<string>(['wbsId', 'name', 'plannedProgress', 'progressVariance', 'allocation', 'actions']);
+const NON_CELL_CLIPBOARD_COLUMNS = new Set<string>([
+  'wbsId',
+  'name',
+  'plannedProgress',
+  'progressVariance',
+  'workComposition',
+  'allocation',
+  'actions',
+]);
 export function isCellClipboardColumn(columnId: TableColumnId): boolean {
   return !NON_CELL_CLIPBOARD_COLUMNS.has(columnId);
 }
@@ -214,6 +222,7 @@ function buildValueUpdate(
   if (targetColumnId === 'actions') return noChange;
   if (targetColumnId === 'plannedProgress') return fail('계획율은 시작·종료일로 자동 계산됩니다. 날짜 셀에 붙여넣으세요.');
   if (targetColumnId === 'progressVariance') return fail('차이(%p)는 자동 계산됩니다. 진척률 셀에 붙여넣으세요.');
+  if (targetColumnId === 'workComposition') return fail('업무 구성비는 공수로 자동 계산됩니다. 투입 공수 셀에 붙여넣으세요.');
   if (targetColumnId === 'allocation') return fail('투입율 셀에는 붙여넣을 수 없습니다. (프로젝트 투입인원 설정에서 관리)');
 
   if (targetColumnId === 'name') {
