@@ -196,10 +196,13 @@ export function useGanttDrag({
   );
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    let moveRafId: number | null = null;
+    let pendingMove: { clientX: number; clientY: number } | null = null;
+
+    const processMove = (clientX: number, clientY: number) => {
       const resize = sidebarResizeRef.current;
       if (resize) {
-        const next = resize.startWidth + (e.clientX - resize.startX);
+        const next = resize.startWidth + (clientX - resize.startX);
         setSidebarWidth(Math.min(520, Math.max(180, Math.round(next))));
         return;
       }
@@ -207,12 +210,12 @@ export function useGanttDrag({
       const drag = dragStateRef.current;
       if (!drag) return;
 
-      if (Math.abs(e.clientX - drag.startX) > 10 || Math.abs(e.clientY - drag.startY) > 10) {
+      if (Math.abs(clientX - drag.startX) > 10 || Math.abs(clientY - drag.startY) > 10) {
         suppressBarPopoverClickRef.current = true;
       }
 
       const dw = drag.lockedDayWidth > 0 ? drag.lockedDayWidth : Math.max(dayWidthRef.current, 1e-6);
-      const deltaX = e.clientX - drag.startX;
+      const deltaX = clientX - drag.startX;
       const deltaDays = Math.round(deltaX / dw);
 
       const nextPreview = new Map<string, { startDate: string; endDate: string }>();
@@ -275,7 +278,34 @@ export function useGanttDrag({
       setDragSession({ primaryTaskId: drag.taskId, type: drag.type });
     };
 
+    // 마우스 이동마다 setState하면 (가상화되지 않은) 막대 전체가 매 픽셀 리렌더되어 끊긴다 → 프레임당 1회로 합친다.
+    const flushPendingMove = () => {
+      if (moveRafId != null) {
+        cancelAnimationFrame(moveRafId);
+        moveRafId = null;
+      }
+      if (pendingMove) {
+        const p = pendingMove;
+        pendingMove = null;
+        processMove(p.clientX, p.clientY);
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      pendingMove = { clientX: e.clientX, clientY: e.clientY };
+      if (moveRafId == null) {
+        moveRafId = requestAnimationFrame(() => {
+          moveRafId = null;
+          const p = pendingMove;
+          pendingMove = null;
+          if (p) processMove(p.clientX, p.clientY);
+        });
+      }
+    };
+
     const handleMouseUp = (e: MouseEvent) => {
+      // 커밋은 mousemove에서 변형해 둔 previewStartDate/EndDate를 읽으므로, 보류된 마지막 이동을 먼저 동기 반영한다.
+      flushPendingMove();
       if (sidebarResizeRef.current) {
         sidebarResizeRef.current = null;
         document.body.style.cursor = '';
@@ -391,6 +421,7 @@ export function useGanttDrag({
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      if (moveRafId != null) cancelAnimationFrame(moveRafId);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };

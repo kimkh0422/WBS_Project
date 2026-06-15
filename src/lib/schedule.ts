@@ -25,12 +25,15 @@ export function getTopologicalOrder(tasks: Task[]): string[] {
   const visited = new Set<string>();
   const visiting = new Set<string>();
   const taskIdsByInputOrder = tasks.map((t) => t.id);
+  // 입력 순서 인덱스를 한 번만 맵으로 만들어 비교자에서 indexOf(O(n)) 호출을 제거 (대규모 의존성에서 O(n²·log n)→O(n·log n)).
+  const inputOrderIndex = new Map<string, number>();
+  taskIdsByInputOrder.forEach((id, i) => inputOrderIndex.set(id, i));
   function visit(id: string) {
     if (visited.has(id)) return;
     if (visiting.has(id)) return;
     visiting.add(id);
     const preds = deps.get(id) ?? [];
-    const predsSorted = [...preds].sort((a, b) => taskIdsByInputOrder.indexOf(a) - taskIdsByInputOrder.indexOf(b));
+    const predsSorted = [...preds].sort((a, b) => (inputOrderIndex.get(a) ?? 0) - (inputOrderIndex.get(b) ?? 0));
     for (const predId of predsSorted) {
       visit(predId);
     }

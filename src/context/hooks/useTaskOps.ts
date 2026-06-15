@@ -528,7 +528,11 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        tasksToPersist = result;
+        // 변경된(참조가 달라진) 행만 추려 저장 — 매 편집마다 전체 작업 배열(모든 프로젝트)을 직렬화·업로드하던 비용 제거.
+        // 모든 변환은 변경 행에 새 객체({...t})를 만들고 미변경 행은 prev의 참조를 그대로 두므로, 참조 비교로 변경분을 빠짐없이·정확히 가려낸다.
+        const prevById = new Map<string, Task>(prev.map((t) => [t.id, t]));
+        const changedRows = result.filter((t) => prevById.get(t.id) !== t);
+        tasksToPersist = changedRows.length > 0 ? changedRows : null;
         return result;
       });
 
@@ -628,7 +632,10 @@ export function useTaskOps(deps: TaskOpsDeps) {
           }
         }
 
-        tasksToPersist = next;
+        // 변경분만 저장(전체 배열 업로드 방지) — updateTask와 동일한 참조 비교 방식.
+        const prevById = new Map<string, Task>(prev.map((t) => [t.id, t]));
+        const changedRows = next.filter((t) => prevById.get(t.id) !== t);
+        tasksToPersist = changedRows.length > 0 ? changedRows : null;
         return next;
       });
       if (tasksToPersist) {
@@ -700,9 +707,13 @@ export function useTaskOps(deps: TaskOpsDeps) {
           return { ...t, assignee: nextAssignee ?? '' };
         });
         if (!useLocalOnlyRef.current) {
-          void upsertTasks(next)
-            .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
-            .catch((err) => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
+          // 이름이 실제로 바뀐 행만 저장(전체 배열 업로드 방지). next는 prev의 위치 보존 map이라 인덱스 비교가 정확.
+          const changedRows = next.filter((t, i) => t !== prev[i]);
+          if (changedRows.length > 0) {
+            void upsertTasks(changedRows)
+              .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
+              .catch((err) => handleDbError(err, '투입인원 이름 변경 저장에 실패했습니다.'));
+          }
         }
         return next;
       });

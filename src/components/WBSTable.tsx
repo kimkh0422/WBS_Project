@@ -40,7 +40,7 @@ import { useWbsBulkEdit, type BulkTaskKind } from './hooks/useWbsBulkEdit';
 import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
 import { useWbsDragRangeSelect } from './hooks/useWbsDragRangeSelect';
-import { buildCellMarqueeKeySet, cellMarqueeKeysToTargets } from '../lib/wbsCellMarquee';
+import { buildCellMarqueeKeySet } from '../lib/wbsCellMarquee';
 import { isShiftCellMarqueeExcludedTarget, resolveWbsShiftClickMarqueeEnd } from '../lib/wbsTableShiftCellPointer';
 import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { WbsColumnHeaderDndGroup, type WbsColumnHeaderDragProps } from './WBSTable/columnHeaderDnd';
@@ -99,6 +99,7 @@ const ForkTaskToProjectModal = lazyWithRetry(() => import('./ForkTaskToProjectMo
 type ForkTaskToProjectInputT = import('./ForkTaskToProjectModal').ForkTaskToProjectInput;
 
 const EMPTY_CRITICAL_PATH_SET = new Set<string>();
+const EMPTY_IMPROVEMENT_GUIDE_STEPS: ReturnType<typeof buildWbsImprovementGuide> = [];
 
 const DEFAULT_TABLE_COLUMNS: {
   id:
@@ -226,18 +227,20 @@ export function WBSTable({
   const projectEffortUnitByProjectId = useMemo(() => buildProjectEffortUnitMap(projects), [projects]);
   /** 셀 복사/붙여넣기 등에서 쓰는 상태 설정 — 매 렌더 새 배열이 되지 않도록 메모 */
   const statusConfigsList = useMemo<StatusConfig[]>(() => wbsSettings?.statusConfigs ?? [], [wbsSettings?.statusConfigs]);
+  const showCriticalPath = wbsSettings?.showCriticalPath === true;
+  // 크리티컬 패스 표시가 꺼져 있으면(기본값) 매 편집마다 그래프 전체를 푸는 비용을 건너뛴다.
   const criticalPathSet = useMemo(() => {
+    if (!showCriticalPath) return EMPTY_CRITICAL_PATH_SET;
     try {
       const set = getCriticalPathTaskIds(tasks);
-      return set instanceof Set ? set : new Set<string>();
+      return set instanceof Set ? set : EMPTY_CRITICAL_PATH_SET;
     } catch {
-      return new Set<string>();
+      return EMPTY_CRITICAL_PATH_SET;
     }
-  }, [tasks]);
-  const showCriticalPath = wbsSettings?.showCriticalPath === true;
+  }, [tasks, showCriticalPath]);
   const wrapTextInCells = wbsSettings?.wrapTextInCells === true;
   const { showTableAutoFormatting, globalAutoFormattingOn, toggleUserHide } = useWbsTableAutoFormatting(wbsSettings);
-  const effectiveCriticalPathSet = showCriticalPath ? criticalPathSet : EMPTY_CRITICAL_PATH_SET;
+  const effectiveCriticalPathSet = criticalPathSet;
 
   /** Shift+F12: 표 헤더 우클릭의 관리자 항목(보완 가이드·컬럼 설정) + 셀 서식 툴바의 MD 표 편집 버튼 표시. 이 브라우저에만 저장. */
   const [showAdvancedTools, setShowAdvancedToolsState] = useState(getShowAdvancedTools());
@@ -992,15 +995,18 @@ export function WBSTable({
     return vars as React.CSSProperties;
   }, [columnWidths, visibleColumnIds]);
 
+  // 보완 가이드 모달이 닫혀 있으면(기본값) 매 편집마다 전체 분석을 재계산하지 않는다.
   const improvementGuideSteps = useMemo(
     () =>
-      buildWbsImprovementGuide(baseTasks, projectsById, wbsSettings.statusConfigs ?? [], {
-        labelForTask: (t) => {
-          const w = displayWbsMap.get(t.id);
-          return w ? `${w} ${t.name}` : t.name;
-        },
-      }),
-    [baseTasks, projectsById, wbsSettings.statusConfigs, displayWbsMap],
+      improvementGuideOpen
+        ? buildWbsImprovementGuide(baseTasks, projectsById, wbsSettings.statusConfigs ?? [], {
+            labelForTask: (t) => {
+              const w = displayWbsMap.get(t.id);
+              return w ? `${w} ${t.name}` : t.name;
+            },
+          })
+        : EMPTY_IMPROVEMENT_GUIDE_STEPS,
+    [improvementGuideOpen, baseTasks, projectsById, wbsSettings.statusConfigs, displayWbsMap],
   );
 
   /** # 칸에 표시할 순수 계층 WBS 번호(접두어 없이 1 · 1.1 · 1.1.1). 설정 접두어가 붙는 wbsMap과 별개. */
@@ -1369,12 +1375,18 @@ export function WBSTable({
       const next = resolveNextFocusedCellForRowClick(taskId, opts);
       flushWbsTableCellEditorsForNextFocus(next);
       // keepSelection(체크 유지)일 때, 포커스만 같은 마퀴 범위 안에서 움직이면 셀 직사각형 선택을 유지한다.
+      // 마퀴는 연속된 행 구간이므로 전체 키셋을 만들지 않고 행 인덱스 구간 포함 여부만 본다(기존 .some도 taskId만 검사).
       const preserveMarquee =
-        opts?.keepSelection &&
-        cellMarqueeRange != null &&
-        cellMarqueeKeysToTargets(
-          buildCellMarqueeKeySet(visibleTasks, marqueeColumnIds, cellMarqueeRange.anchor, cellMarqueeRange.end),
-        ).some((c) => c.taskId === taskId);
+        (opts?.keepSelection &&
+          cellMarqueeRange != null &&
+          (() => {
+            const r1 = visibleTasks.findIndex((t) => t.id === cellMarqueeRange.anchor.taskId);
+            const r2 = visibleTasks.findIndex((t) => t.id === cellMarqueeRange.end.taskId);
+            if (r1 < 0 || r2 < 0) return false;
+            const ri = visibleTasks.findIndex((t) => t.id === taskId);
+            return ri >= Math.min(r1, r2) && ri <= Math.max(r1, r2);
+          })()) ||
+        false;
       if (!preserveMarquee) {
         setCellMarqueeRange(null);
       }
@@ -1696,10 +1708,20 @@ export function WBSTable({
     (taskIds: string[]) => {
       if (taskIds.length === 0) return;
 
+      // 자식 인덱스를 한 번만 만들어 노드마다 tasks.filter(O(n))로 훑던 것을 제거 (큰 하위트리 삭제에서 O(n²)→O(n)).
+      const childrenByParentId = new Map<string, Task[]>();
+      for (const t of tasks) {
+        if (!t.parentId) continue;
+        const arr = childrenByParentId.get(t.parentId);
+        if (arr) arr.push(t);
+        else childrenByParentId.set(t.parentId, [t]);
+      }
       const deleteSet = new Set<string>();
       const getIdsToDelete = (parentId: string) => {
+        if (deleteSet.has(parentId)) return;
         deleteSet.add(parentId);
-        tasks.filter((t) => t.parentId === parentId).forEach((child) => getIdsToDelete(child.id));
+        const children = childrenByParentId.get(parentId);
+        if (children) for (const child of children) getIdsToDelete(child.id);
       };
       taskIds.forEach((id) => getIdsToDelete(id));
 

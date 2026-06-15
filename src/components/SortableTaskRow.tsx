@@ -31,6 +31,7 @@ import { splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
 import { commitWbsInlineNameEditFromDom } from '../lib/wbsInlineNameCommit';
 import { computeWorkCompositionPercent } from '../lib/workComposition';
+import { normalizeYmdInput } from '../lib/ymdInput';
 
 /** taskId → 표에서의 순번(1부터) */
 export type TaskIdToSeqNum = Map<string, number>;
@@ -375,7 +376,12 @@ function SortableTaskRowInner({
     [statusConfigs],
   );
   const effortSuffix = workEffortUnitSuffixKo(effortUnitForTask);
-  const workCompositionPct = useMemo(() => computeWorkCompositionPercent(task, allProjectTasks), [task, allProjectTasks]);
+  // 공수구성 컬럼이 보일 때만 O(N) 형제 합산 — 숨겨진 경우 매 렌더 비용 제거.
+  const showsWorkComposition = visibleColumnIds.includes('workComposition');
+  const workCompositionPct = useMemo(
+    () => (showsWorkComposition ? computeWorkCompositionPercent(task, allProjectTasks) : null),
+    [showsWorkComposition, task, allProjectTasks],
+  );
   const weightColumnTooltip = useMemo(
     () => [WEIGHT_COLUMN_HELP_TEXT, '', `이 프로젝트 공수 단위: ${effortSuffix}.`, '', '선택 후 입력 또는 F2로 편집'].join('\n'),
     [effortSuffix],
@@ -2324,11 +2330,26 @@ function SortableTaskRowInner({
   );
 }
 
-function marqueeSetsEqual(a: ReadonlySet<string> | null | undefined, b: ReadonlySet<string> | null | undefined): boolean {
+/**
+ * 이 행에 실제로 그려지는 셀(자기 task.id의 보이는 컬럼들 + actions)만 마퀴 멤버십을 비교한다.
+ * 전체 키셋(드래그 범위가 크면 수천 개)을 행마다 순회하던 O(행수×범위셀수)를 O(행수×보이는컬럼수)로 낮춰
+ * 마퀴 드래그 중 지연을 제거. 호출 시점엔 visibleColumnIds·showActionsColumn·task.id가 이미 참조동일로 확인됨.
+ */
+function rowMarqueeEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps): boolean {
+  const a = prev.cellMarqueeKeySet;
+  const b = next.cellMarqueeKeySet;
+  if (a === b) return true;
   if (!a && !b) return true;
-  if (!a || !b) return false;
-  if (a.size !== b.size) return false;
-  for (const k of a) if (!b.has(k)) return false;
+  const taskId = next.task.id;
+  const cols = next.visibleColumnIds;
+  for (let i = 0; i < cols.length; i++) {
+    const key = `${taskId}::${cols[i]}`;
+    if ((a?.has(key) ?? false) !== (b?.has(key) ?? false)) return false;
+  }
+  if (next.showActionsColumn) {
+    const ak = `${taskId}::actions`;
+    if ((a?.has(ak) ?? false) !== (b?.has(ak) ?? false)) return false;
+  }
   return true;
 }
 
@@ -2387,7 +2408,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.projectScheduleByProjectId === next.projectScheduleByProjectId &&
     prev.allocationDisplayText === next.allocationDisplayText &&
     prev.task.id === next.task.id &&
-    marqueeSetsEqual(prev.cellMarqueeKeySet, next.cellMarqueeKeySet) &&
+    rowMarqueeEqual(prev, next) &&
     prev.task.parentId === next.task.parentId &&
     prev.task.name === next.task.name &&
     prev.task.startDate === next.task.startDate &&
@@ -2407,6 +2428,10 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.task.isActionItem === next.task.isActionItem &&
     (prev.task.depth ?? 0) === (next.task.depth ?? 0) &&
     prev.task.plannedProgressOverride === next.task.plannedProgressOverride &&
+    // 셀 서식(글꼴·색·취소선)·자식(포크) 배지도 렌더에 쓰이므로 비교에 포함 — 변경 시 즉시 다시 그리도록.
+    prev.task.cellTextStyles === next.task.cellTextStyles &&
+    prev.task.mirroredFromTaskId === next.task.mirroredFromTaskId &&
+    prev.task.mirroredFromProjectId === next.task.mirroredFromProjectId &&
     prev.canEdit === next.canEdit &&
     prev.dropIndicator === next.dropIndicator &&
     prev.customColumnNameById === next.customColumnNameById &&
