@@ -401,6 +401,9 @@ function KanbanColumn({
     }
   }, [isRenaming]);
 
+  const columnTaskIdsKey = useMemo(() => tasks.map((t) => t.id).join(','), [tasks]);
+  const sortableDndItemIds = useMemo(() => tasks.map((t) => t.id), [columnTaskIdsKey]);
+
   const handleRenameSubmit = () => {
     const trimmed = columnName.trim();
     if (trimmed && trimmed !== column.name) {
@@ -523,7 +526,7 @@ function KanbanColumn({
         )}
         style={colorProps.style}
       >
-        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={sortableDndItemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
             <KanbanCard
               key={task.id}

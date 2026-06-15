@@ -802,6 +802,8 @@ export function WBSTable({
   // 줄바꿈 켜짐 + split view: 표 행 높이 측정 후 간트에 전달
   const lastHeightsRef = useRef<number[]>([]);
   const visibleTaskIdsKey = useMemo(() => visibleTasks.map((t) => t.id).join(','), [visibleTasks]);
+  /** @dnd-kit SortableContext: 매 렌더 새 배열이면 내부 비용이 커져 대형 WBS에서 체감됨 */
+  const sortableDndItemIds = useMemo(() => visibleTasks.map((t) => t.id), [visibleTaskIdsKey]);
   useEffect(() => {
     if (!wrapTextInCells || !tableScrollRef.current || !onRowHeightsChange) {
       if (onRowHeightsChange && !wrapTextInCells) onRowHeightsChange([]);
@@ -1038,6 +1040,14 @@ export function WBSTable({
     setSharedSelectedTaskIds: setSharedSelectedTaskIds,
     tableScrollRef,
   });
+
+  const handleSetRowAnchorFromRow = useCallback(
+    (id: string) => {
+      rangeAnchorRef.current = id;
+      setAnchorTaskId(id);
+    },
+    [setAnchorTaskId],
+  );
 
   useEffect(() => {
     if (selectedTaskIds.size > 0) setCellMarqueeRange(null);
@@ -2863,7 +2873,7 @@ export function WBSTable({
                       ? virtualItems.map((v) => ({ task: tasksForRender[v.index], rowIndex: v.index }))
                       : tasksForRender.map((task, rowIndex) => ({ task, rowIndex }));
                     return (
-                      <SortableContext items={tasksForRender.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                      <SortableContext items={sortableDndItemIds} strategy={verticalListSortingStrategy}>
                         {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
                         {itemsToRender.map(({ task, rowIndex }) => (
                           <React.Fragment key={task.id}>
@@ -2885,10 +2895,7 @@ export function WBSTable({
                               treeGuide={treeGuideByTaskId.get(task.id) ?? ''}
                               onSelect={handleSelect}
                               onFocusRow={handleFocusRow}
-                              onSetRowAnchor={(id) => {
-                                rangeAnchorRef.current = id;
-                                setAnchorTaskId(id);
-                              }}
+                              onSetRowAnchor={handleSetRowAnchorFromRow}
                               canEdit={canEditCurrentProject && !task.mirroredFromTaskId}
                               onEdit={setEditingTask}
                               onDeleteClick={handleDeleteClick}

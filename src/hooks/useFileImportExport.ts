@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
+import React, { useCallback, useMemo, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project, FilterState } from '../types';
 import { BackupData } from '../lib/export';
 // xlsx(약 424KB)는 무거우므로 정적 import하지 않는다. 내보내기/가져오기 시점에 동적 로드해
@@ -513,24 +513,46 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     [backupConfirm.data, importTasks, setCurrentProjectId, setBackupConfirm, pushToast],
   );
 
-  return {
-    fileInputRef,
-    backupInputRef,
-    mergeInputRef,
-    handleExportFromModal,
-    handleQuickExport,
-    handleImportClick,
-    handleImportBackupClick,
-    handleMergeImportClick,
-    handleFileChange,
-    handleBackupFileChange,
-    handleMergeFileChange,
-    handleImportMappingChange,
-    handleImportCustomColumnToggle,
-    handleImportCustomColumnsSet,
-    executeMultiMerge,
-    executeImport,
-    executeRestoreBackup,
-    executeRestoreBackupIntoProject,
-  };
+  return useMemo(
+    () => ({
+      fileInputRef,
+      backupInputRef,
+      mergeInputRef,
+      handleExportFromModal,
+      handleQuickExport,
+      handleImportClick,
+      handleImportBackupClick,
+      handleMergeImportClick,
+      handleFileChange,
+      handleBackupFileChange,
+      handleMergeFileChange,
+      handleImportMappingChange,
+      handleImportCustomColumnToggle,
+      handleImportCustomColumnsSet,
+      executeMultiMerge,
+      executeImport,
+      executeRestoreBackup,
+      executeRestoreBackupIntoProject,
+    }),
+    [
+      fileInputRef,
+      backupInputRef,
+      mergeInputRef,
+      handleExportFromModal,
+      handleQuickExport,
+      handleImportClick,
+      handleImportBackupClick,
+      handleMergeImportClick,
+      handleFileChange,
+      handleBackupFileChange,
+      handleMergeFileChange,
+      handleImportMappingChange,
+      handleImportCustomColumnToggle,
+      handleImportCustomColumnsSet,
+      executeMultiMerge,
+      executeImport,
+      executeRestoreBackup,
+      executeRestoreBackupIntoProject,
+    ],
+  );
 }

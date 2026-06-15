@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isDevAuthBypass, DEV_BYPASS_USER_ID } from '../lib/devAuthBypass';
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   });
-  const setIsResettingPassword = (v: boolean) => {
+  const setIsResettingPassword = useCallback((v: boolean) => {
     setIsResettingPasswordState(v);
     try {
       if (v) sessionStorage.setItem('wbs-password-reset-in-progress', '1');
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-  };
+  }, []);
 
   useEffect(() => {
     // 개발 전용 로그인 우회(?devauth=1): 가짜 사용자를 주입해 로그인 화면을 건너뛴다.
@@ -103,15 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithEmail = async (email: string, password: string, rememberMe = true) => {
+  const signInWithEmail = useCallback(async (email: string, password: string, rememberMe = true) => {
     if (!supabase) return { error: 'Supabase not configured' };
     // 토큰 기록 전에 저장 위치를 먼저 결정해야 한다(storage 어댑터가 이 플래그를 읽음).
     setRememberMe(rememberMe);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message };
-  };
+  }, []);
 
-  const signUpWithEmail = async (email: string, password: string, fullName: string) => {
+  const signUpWithEmail = useCallback(async (email: string, password: string, fullName: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     const trimmedName = fullName.trim();
     if (!trimmedName) return { error: '이름을 입력하세요.' };
@@ -121,49 +121,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       options: { data: { full_name: trimmedName } },
     });
     return { error: error?.message };
-  };
+  }, []);
 
-  const verifySignupOtp = async (email: string, token: string) => {
+  const verifySignupOtp = useCallback(async (email: string, token: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'signup' });
     return { error: error?.message };
-  };
+  }, []);
 
-  const resendSignupOtp = async (email: string) => {
+  const resendSignupOtp = useCallback(async (email: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.resend({ email, type: 'signup' });
     return { error: error?.message };
-  };
+  }, []);
 
-  const requestPasswordResetOtp = async (email: string) => {
+  const requestPasswordResetOtp = useCallback(async (email: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     // resetPasswordForEmail는 메일 템플릿이 OTP({{ .Token }})를 사용하도록 설정되어
     // 있으면 6자리 코드를 메일로 발송한다.
     const { error } = await supabase.auth.resetPasswordForEmail(email);
     return { error: error?.message };
-  };
+  }, []);
 
-  const verifyPasswordResetOtp = async (email: string, token: string) => {
+  const verifyPasswordResetOtp = useCallback(async (email: string, token: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'recovery' });
     return { error: error?.message };
-  };
+  }, []);
 
-  const updatePassword = async (newPassword: string) => {
+  const updatePassword = useCallback(async (newPassword: string) => {
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     return { error: error?.message };
-  };
+  }, []);
 
-  const signInWithOAuth = async (provider: 'google' | 'github') => {
+  const signInWithOAuth = useCallback(async (provider: 'google' | 'github') => {
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: window.location.href },
     });
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     // 미리보기(devauth) 모드에서는 실제 세션이 없어 supabase.signOut만으로는 로그아웃되지 않으므로,
     // 우회 플래그(?devauth=0)를 끄고 로그인 화면으로 되돌린다. (운영 빌드에서는 isDevAuthBypass()가 항상 false라 무영향)
     if (isDevAuthBypass()) {
@@ -172,24 +172,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (!supabase) return;
     await supabase.auth.signOut();
-  };
+  }, []);
 
-  const value: AuthContextType = {
-    user,
-    session,
-    loading,
-    signInWithEmail,
-    signUpWithEmail,
-    verifySignupOtp,
-    resendSignupOtp,
-    requestPasswordResetOtp,
-    verifyPasswordResetOtp,
-    updatePassword,
-    signInWithOAuth,
-    signOut,
-    isResettingPassword,
-    setIsResettingPassword,
-  };
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      session,
+      loading,
+      signInWithEmail,
+      signUpWithEmail,
+      verifySignupOtp,
+      resendSignupOtp,
+      requestPasswordResetOtp,
+      verifyPasswordResetOtp,
+      updatePassword,
+      signInWithOAuth,
+      signOut,
+      isResettingPassword,
+      setIsResettingPassword,
+    }),
+    [
+      user,
+      session,
+      loading,
+      signInWithEmail,
+      signUpWithEmail,
+      verifySignupOtp,
+      resendSignupOtp,
+      requestPasswordResetOtp,
+      verifyPasswordResetOtp,
+      updatePassword,
+      signInWithOAuth,
+      signOut,
+      isResettingPassword,
+      setIsResettingPassword,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

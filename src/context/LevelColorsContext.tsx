@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { fetchProfileLevelColors, updateProfileLevelColors } from '../lib/db';
 import { LEVEL_COLORS, LEVEL_DEFAULT, ROW_BG_ALPHA, ROW_BG_ALPHA_DARK } from '../lib/levelColors';
@@ -41,9 +41,11 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (user && isSupabaseConfigured) {
-      fetchProfileLevelColors(user.id).then((colors) => {
-        setLevelColorsState(colors);
-      }).catch(() => setLevelColorsState(null));
+      fetchProfileLevelColors(user.id)
+        .then((colors) => {
+          setLevelColorsState(colors);
+        })
+        .catch(() => setLevelColorsState(null));
     } else {
       try {
         const stored = localStorage.getItem(STORAGE_KEY);
@@ -52,7 +54,11 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
           if (Array.isArray(parsed) && parsed.length > 0) {
             const valid = parsed.filter(
               (c): c is RgbColor =>
-                c && typeof c === 'object' && typeof (c as Record<string, unknown>).r === 'number' && typeof (c as Record<string, unknown>).g === 'number' && typeof (c as Record<string, unknown>).b === 'number'
+                c &&
+                typeof c === 'object' &&
+                typeof (c as Record<string, unknown>).r === 'number' &&
+                typeof (c as Record<string, unknown>).g === 'number' &&
+                typeof (c as Record<string, unknown>).b === 'number',
             );
             if (valid.length > 0) setLevelColorsState(valid);
           }
@@ -63,20 +69,23 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
     }
   }, [user?.id]);
 
-  const setLevelColors = useCallback((colors: RgbColor[]) => {
-    setLevelColorsState(colors.length > 0 ? colors : null);
-    if (user && isSupabaseConfigured) {
-      updateProfileLevelColors(user.id, colors).catch(() => {});
-    } else {
-      try {
-        if (colors.length > 0) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch {}
-    }
-  }, [user?.id]);
+  const setLevelColors = useCallback(
+    (colors: RgbColor[]) => {
+      setLevelColorsState(colors.length > 0 ? colors : null);
+      if (user && isSupabaseConfigured) {
+        updateProfileLevelColors(user.id, colors).catch(() => {});
+      } else {
+        try {
+          if (colors.length > 0) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));
+          } else {
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        } catch {}
+      }
+    },
+    [user?.id],
+  );
 
   const resetToDefault = useCallback(() => {
     setLevelColorsState(null);
@@ -89,61 +98,72 @@ export function LevelColorsProvider({ children }: { children: React.ReactNode })
 
   const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
 
-  const levelBarBg = useCallback((level: number) => {
-    const { r, g, b } = getLevelRgb(level, levelColors);
-    if (isDark()) {
-      // 다크모드: 간트 바를 어둡고 탁하게 (밝기 50%, 채도 낮춤)
-      const dim = (v: number) => Math.round(v * 0.45);
-      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
-    }
-    return `rgb(${r}, ${g}, ${b})`;
-  }, [levelColors]);
+  const levelBarBg = useCallback(
+    (level: number) => {
+      const { r, g, b } = getLevelRgb(level, levelColors);
+      if (isDark()) {
+        // 다크모드: 간트 바를 어둡고 탁하게 (밝기 50%, 채도 낮춤)
+        const dim = (v: number) => Math.round(v * 0.45);
+        return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+      }
+      return `rgb(${r}, ${g}, ${b})`;
+    },
+    [levelColors],
+  );
 
-  const levelRowBg = useCallback((level: number) => {
-    if (isDark()) {
-      // 다크모드: 표 행 배경은 투명 (레벨 구분은 왼쪽 테두리 색으로)
-      return 'transparent';
-    }
-    const { r, g, b } = getLevelRgb(level, levelColors);
-    return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
-  }, [levelColors]);
+  const levelRowBg = useCallback(
+    (level: number) => {
+      if (isDark()) {
+        // 다크모드: 표 행 배경은 투명 (레벨 구분은 왼쪽 테두리 색으로)
+        return 'transparent';
+      }
+      const { r, g, b } = getLevelRgb(level, levelColors);
+      return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
+    },
+    [levelColors],
+  );
 
   /** 간트 바 채움색: 라이트=반투명 파스텔, 다크=어두운 톤 */
-  const levelGanttBarFill = useCallback((level: number) => {
-    const { r, g, b } = getLevelRgb(level, levelColors);
-    if (isDark()) {
-      const dim = (v: number) => Math.round(v * 0.35);
-      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
-    }
-    return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
-  }, [levelColors]);
-
-  const levelBorderColor = useCallback((level: number) => {
-    const { r, g, b } = getLevelRgb(level, levelColors);
-    if (isDark()) {
-      // 다크모드: 테두리 색상은 유지하되 약간 어둡게
-      const dim = (v: number) => Math.round(v * 0.6);
-      return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
-    }
-    const darken = (v: number) => Math.max(0, Math.floor(v * 0.7));
-    return `rgb(${darken(r)}, ${darken(g)}, ${darken(b)})`;
-  }, [levelColors]);
-
-  const value: LevelColorsContextType = {
-    levelColors,
-    setLevelColors,
-    resetToDefault,
-    levelBarBg,
-    levelRowBg,
-    levelGanttBarFill,
-    levelBorderColor,
-  };
-
-  return (
-    <LevelColorsContext.Provider value={value}>
-      {children}
-    </LevelColorsContext.Provider>
+  const levelGanttBarFill = useCallback(
+    (level: number) => {
+      const { r, g, b } = getLevelRgb(level, levelColors);
+      if (isDark()) {
+        const dim = (v: number) => Math.round(v * 0.35);
+        return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+      }
+      return `rgba(${r}, ${g}, ${b}, ${ROW_BG_ALPHA})`;
+    },
+    [levelColors],
   );
+
+  const levelBorderColor = useCallback(
+    (level: number) => {
+      const { r, g, b } = getLevelRgb(level, levelColors);
+      if (isDark()) {
+        // 다크모드: 테두리 색상은 유지하되 약간 어둡게
+        const dim = (v: number) => Math.round(v * 0.6);
+        return `rgb(${dim(r)}, ${dim(g)}, ${dim(b)})`;
+      }
+      const darken = (v: number) => Math.max(0, Math.floor(v * 0.7));
+      return `rgb(${darken(r)}, ${darken(g)}, ${darken(b)})`;
+    },
+    [levelColors],
+  );
+
+  const value = useMemo<LevelColorsContextType>(
+    () => ({
+      levelColors,
+      setLevelColors,
+      resetToDefault,
+      levelBarBg,
+      levelRowBg,
+      levelGanttBarFill,
+      levelBorderColor,
+    }),
+    [levelColors, setLevelColors, resetToDefault, levelBarBg, levelRowBg, levelGanttBarFill, levelBorderColor],
+  );
+
+  return <LevelColorsContext.Provider value={value}>{children}</LevelColorsContext.Provider>;
 }
 
 export function useLevelColors() {

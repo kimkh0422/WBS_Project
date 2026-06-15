@@ -136,11 +136,10 @@ export function WBSProvider({
   const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasLocalChangesSinceSync, setHasLocalChangesSinceSync] = useState(false);
   const dirtyEpochRef = useRef(0);
-  const [collabPushNonce, setCollabPushNonce] = useState(0);
   const bumpDirty = useCallback(() => {
     dirtyEpochRef.current += 1;
-    setCollabPushNonce((n) => n + 1);
-    setHasLocalChangesSinceSync(true);
+    // 이미 미동기화면 동일 true로 setState하지 않아 WBS 컨텍스트 구독 컴포넌트 리렌더를 줄인다.
+    setHasLocalChangesSinceSync((prev) => (prev ? prev : true));
   }, []);
 
   /** 증분 upsert 직후: 그 사이 새 편집이 없을 때만 플로팅 저장(미동기화) 표시를 끈다. */
@@ -152,7 +151,7 @@ export function WBSProvider({
     setHasLocalChangesSinceSync(false);
   }, []);
 
-  /** WBS 최상단 프로젝트 표시명 정규화 후 mirror·롤업 적용. `bumpOnEnsure: false`면 구조만 맞추고 dirty는 올리지 않음(서버 풀·동기화 등). */
+  /** WBS 최상단 프로젝트 표시명 정규화 후 mirror·롤업 적용. `bumpOnEnsure: false`면 구조만 맞추고 dirty는 올리지 않음(서버 풀·동기화·초기 하이드레이션 등). 사용자 편집 경로에서는 생략(기본 true) */
   const ensureTopThenRollups = useCallback(
     (projs: Project[], rawTasks: Task[], statusConfigs: StatusConfig[] | undefined, opts?: { bumpOnEnsure?: boolean }) => {
       const { tasks: ensured, changed } = ensureProjectTopLevelNameInTasks(projs, rawTasks);
@@ -390,7 +389,7 @@ export function WBSProvider({
         const tasksToUse = Array.isArray(fallbackTasks) ? fallbackTasks : [];
         if (projectsToUse.length > 0) {
           setProjects(projectsToUse);
-          setAllTasks(ensureTopThenRollups(projectsToUse, tasksToUse, parsedSettings.statusConfigs));
+          setAllTasks(ensureTopThenRollups(projectsToUse, tasksToUse, parsedSettings.statusConfigs, { bumpOnEnsure: false }));
           setWbsSettings(parsedSettings);
           const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
           const validId = projectsToUse.find((p) => p.id === savedCurrent)?.id ?? projectsToUse[0]?.id ?? '';
@@ -399,13 +398,13 @@ export function WBSProvider({
           // 로그인 우회(미리보기) 모드 + 로컬 데이터 없음 → 검증용 샘플 데이터 시드
           const seed = buildDevSeed(ownerId);
           setProjects(seed.projects);
-          setAllTasks(ensureTopThenRollups(seed.projects, seed.tasks, DEFAULT_SETTINGS.statusConfigs));
+          setAllTasks(ensureTopThenRollups(seed.projects, seed.tasks, DEFAULT_SETTINGS.statusConfigs, { bumpOnEnsure: false }));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(seed.projects[0]!.id);
         } else {
           const p = emptyStarterProject();
           setProjects([p]);
-          setAllTasks(ensureTopThenRollups([p], tasksToUse, DEFAULT_SETTINGS.statusConfigs));
+          setAllTasks(ensureTopThenRollups([p], tasksToUse, DEFAULT_SETTINGS.statusConfigs, { bumpOnEnsure: false }));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
           try {
@@ -448,6 +447,7 @@ export function WBSProvider({
                   filteredDbProjects,
                   (Array.isArray(dbTasks) ? dbTasks : []).filter((t) => !pendingDeletedTaskIdSet.has(t.id)),
                   effectiveSettings.statusConfigs,
+                  { bumpOnEnsure: false },
                 ),
               );
               if (dbSettings) {
@@ -462,7 +462,7 @@ export function WBSProvider({
               const p = emptyStarterProject();
               const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
               setProjects([p]);
-              setAllTasks(ensureTopThenRollups([p], [], effectiveSettings.statusConfigs));
+              setAllTasks(ensureTopThenRollups([p], [], effectiveSettings.statusConfigs, { bumpOnEnsure: false }));
               if (dbSettings) {
                 setWbsSettings((prev) => parseSettings({ ...localSettings, ...prev, ...dbSettings }));
               } else {
@@ -509,12 +509,12 @@ export function WBSProvider({
           const parsedSettings = parseSettings(savedSettings ? JSON.parse(savedSettings) : null);
           if (fallbackProjects.length > 0) {
             setProjects(fallbackProjects);
-            setAllTasks(ensureTopThenRollups(fallbackProjects, fallbackTasks, parsedSettings.statusConfigs));
+            setAllTasks(ensureTopThenRollups(fallbackProjects, fallbackTasks, parsedSettings.statusConfigs, { bumpOnEnsure: false }));
             setWbsSettings(parsedSettings);
             setCurrentProjectId(fallbackProjects[0]!.id);
           } else {
             setProjects([p]);
-            setAllTasks(ensureTopThenRollups([p], fallbackTasks, DEFAULT_SETTINGS.statusConfigs));
+            setAllTasks(ensureTopThenRollups([p], fallbackTasks, DEFAULT_SETTINGS.statusConfigs, { bumpOnEnsure: false }));
             setWbsSettings(DEFAULT_SETTINGS);
             setCurrentProjectId(p.id);
           }
@@ -522,7 +522,7 @@ export function WBSProvider({
           if (import.meta.env.DEV) console.warn('[DB] 폴백 데이터 로딩 실패:', fallbackErr);
           const p = emptyStarterProject();
           setProjects([p]);
-          setAllTasks(ensureTopThenRollups([p], [], DEFAULT_SETTINGS.statusConfigs));
+          setAllTasks(ensureTopThenRollups([p], [], DEFAULT_SETTINGS.statusConfigs, { bumpOnEnsure: false }));
           setWbsSettings(DEFAULT_SETTINGS);
           setCurrentProjectId(p.id);
         }
@@ -781,8 +781,9 @@ export function WBSProvider({
       const tasksOrderChanged = prevTasks.length !== finalMergedTasks.length || prevTasks.some((t, i) => t.id !== finalMergedTasks[i]?.id);
       const { tasks: ensuredPull, changed: pullEnsured } = ensureProjectTopLevelNameInTasks(mergedProjects, finalMergedTasks);
       const rolled = preserveLocalExpanded(applyRollupsToTasks(ensuredPull, effectiveSettings.statusConfigs));
+      // pullEnsured만인 경우(서버 데이터 클라이언트 불변식 보정)은 사용자 편집이 아니므로 bumpDirty 하지 않음.
+      // 그렇지 않으면 주기 풀·탭 복귀 직후 미저장 모달·플로팅 저장이 잘못 켜진다.
       if (tReplaced > 0 || tasksOrderChanged || pullEnsured) {
-        if (pullEnsured) bumpDirty();
         setAllTasks(rolled);
       }
 
@@ -1142,13 +1143,11 @@ export function WBSProvider({
             })();
       const finalDeletedProjects: string[] = effectiveScope === 'all' ? [] : deletedProjectIds;
 
-      let syncEnsuredTop = false;
       if (Array.isArray(dbProjects) && dbProjects.length > 0) {
         snapshotProjects = dbProjects;
         const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
         const rawMapped = (dbTaskRows ?? []).map(fromTaskRow);
         const ensured = ensureProjectTopLevelNameInTasks(snapshotProjects, rawMapped);
-        syncEnsuredTop = ensured.changed;
         snapshotTasks = applyRollupsToTasks(ensured.tasks, effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
@@ -1223,7 +1222,6 @@ export function WBSProvider({
       }
       clearInitBlankSessionFlag();
       if (dirtyEpochRef.current === syncEpochStart) setHasLocalChangesSinceSync(false);
-      if (syncEnsuredTop) bumpDirty();
       return { projects: snapshotProjects!, allTasks: snapshotTasks!, summary };
     } catch (e) {
       throw toUserFacingDbError(e);
@@ -1397,8 +1395,7 @@ export function WBSProvider({
   // 권한 모델: 다음 중 하나면 편집 가능 — (1) 시스템 관리자, (2) 프로젝트 소유자,
   // (3) RPC `get_user_editable_project_ids()`에 포함된 프로젝트(멤버 viewer 포함·사내 승인 시 전사).
   // DB RLS는 `get_user_editable_project_ids`와 `can_browse_all_company_projects()` 등으로 동일하게 시행됨.
-  const currentProjectObj = projects.find((p) => p.id === currentProjectId);
-  const canEditCurrentProject = (() => {
+  const canEditCurrentProject = React.useMemo(() => {
     if (!currentProjectId) return false;
     // 전체 프로젝트 보기: 단일 프로젝트가 아니어도, 편집 가능한 프로젝트가 하나라도 있으면
     // 신규 작업·칸반 카드 추가 등 편집 UI를 켠다(addTask는 이 경우 첫 프로젝트 등으로 배정).
@@ -1409,11 +1406,12 @@ export function WBSProvider({
       return false;
     }
     if (isAdmin) return true;
+    const currentProjectObj = projects.find((p) => p.id === currentProjectId);
     if (currentProjectObj?.ownerId === ownerId) return true;
     // editor 권한으로 공유받은 프로젝트
     if (editableProjectIds?.includes(currentProjectId)) return true;
     return false;
-  })();
+  }, [currentProjectId, isAdmin, editableProjectIds, ownerId, projects]);
 
   // ─── Context Value ─────────────────────────────────────────────────────────
   const contextValue = React.useMemo(
@@ -1482,7 +1480,6 @@ export function WBSProvider({
       syncWithDb: stableSyncWithDb,
       pushChangesToDb,
       discardUnsavedChangesReloadFromServer,
-      collabPushNonce,
       wbsMap,
       displayWbsMap,
       undo,
@@ -1518,7 +1515,6 @@ export function WBSProvider({
       stableSyncWithDb,
       pushChangesToDb,
       discardUnsavedChangesReloadFromServer,
-      collabPushNonce,
       wbsMap,
       displayWbsMap,
       undo,

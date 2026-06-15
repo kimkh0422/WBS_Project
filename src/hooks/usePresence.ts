@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isRealtimeMinimized } from '../lib/realtimePolicy';
 
@@ -121,5 +121,5 @@ export function usePresence(
     });
   }, [currentUserDisplayName, currentUserId]);
 
-  return { others };
+  return useMemo(() => ({ others }), [others]);
 }

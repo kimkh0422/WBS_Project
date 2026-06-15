@@ -1,8 +1,6 @@
-import { v4 as uuidv4 } from 'uuid';
 import type { Project, Task } from '../types';
 import { formatProjectDisplayName } from './projectKind';
 import { getTopologicalOrder } from './schedule';
-import { draftDefaultRootTaskForProject } from './defaultProjectRootTask';
 
 function normalizeParentId(parentId: Task['parentId']): string | null {
   if (parentId == null) return null;
@@ -30,7 +28,7 @@ export function expectedTopLevelTaskName(project: Pick<Project, 'name' | 'projec
   return formatProjectDisplayName(raw, project.projectKind);
 }
 
-/** `ensureProjectTopLevelNameInTasks`가 두는 프로젝트 표시명 전용 루트 행인지(거울·비루트 제외) */
+/** 프로젝트 표시명과 동일한 이름의 루트 행인지(거울·비루트 제외). 마인드맵 등에서 해당 행을 숨길 때 사용 */
 export function isProjectTitleRootTask(
   task: Pick<Task, 'projectId' | 'parentId' | 'name' | 'mirroredFromTaskId'>,
   project: Pick<Project, 'id' | 'name' | 'projectKind'> | undefined,
@@ -63,19 +61,16 @@ export function mapTasksOmittingProjectTitleRootsForTreeLayout(tasks: Task[], pr
 
 /**
  * 각 프로젝트 WBS 최상단 구조를 정규화한다.
- * - 루트가 없으면 기본 루트 1행을 추가한다(이름은 프로젝트 표시명과 동일).
+ * - 루트가 없으면: 작업을 추가하지 않는다.
  * - 루트가 정확히 하나면 **이름이 프로젝트 표시명과 달라도** 그대로 둔다.
- *   (프로젝트 복사 시 이름만 "(복사본)"으로 바뀌고 루트 작업명은 원본 그대로인 경우,
- *   예전에는 표시명 전용 루트를 새로 넣어 전체가 한 단계 들여쓰기되었다.)
  * - 루트가 여러 개이면: 이름이 기대값(`formatProjectDisplayName` 기준)과 일치하는 루트가 있으면
- *   나머지 루트를 그 아래로 묶고, 없으면 새 루트를 만들어 기존 루트들을 모두 그 하위로 옮긴다.
+ *   나머지 루트를 그 아래로 묶는다. 일치하는 루트가 없으면 변경하지 않는다.
  * idempotent: 이미 처리할 일이 없으면 변경 없음.
  */
 export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Task[]): { tasks: Task[]; changed: boolean } {
   if (projects.length === 0) return { tasks, changed: false };
 
   const updates = new Map<string, Task>();
-  const additions: Task[] = [];
 
   for (const project of projects) {
     const pid = project.id;
@@ -85,9 +80,6 @@ export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Tas
     const expected = expectedTopLevelTaskName(project);
 
     if (roots.length === 0) {
-      const id = uuidv4();
-      const draft = draftDefaultRootTaskForProject(project);
-      additions.push({ ...draft, id, projectId: pid, name: expected });
       continue;
     }
 
@@ -104,19 +96,10 @@ export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Tas
         if (normalizeParentId(cur.parentId) !== null) continue;
         updates.set(r.id, { ...cur, parentId: canonical.id });
       }
-      continue;
-    }
-
-    const newRootId = uuidv4();
-    const draft = draftDefaultRootTaskForProject(project);
-    additions.push({ ...draft, id: newRootId, projectId: pid, name: expected });
-    for (const r of roots) {
-      const cur = updates.get(r.id) ?? r;
-      updates.set(r.id, { ...cur, parentId: newRootId });
     }
   }
 
-  if (additions.length === 0 && updates.size === 0) {
+  if (updates.size === 0) {
     return { tasks, changed: false };
   }
 
@@ -125,6 +108,5 @@ export function ensureProjectTopLevelNameInTasks(projects: Project[], tasks: Tas
     const u = updates.get(t.id);
     out.push(u ?? t);
   }
-  out.push(...additions);
   return { tasks: out, changed: true };
 }

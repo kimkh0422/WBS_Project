@@ -4,9 +4,7 @@ import { DEFAULT_NEW_PROJECT_KIND } from '../../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
 import { upsertProject, upsertTasks, deleteProjectFromDB } from '../../lib/db';
 import { recomputeProjectRollups } from '../../lib/rollups';
-import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit, resolveWorkEffortForNewTask } from '../../lib/workEffortUnits';
-import { applyMilestoneDateInvariant } from '../../lib/milestoneDates';
-import { draftDefaultRootTaskForProject } from '../../lib/defaultProjectRootTask';
+import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
 
 export interface ProjectOpsDeps {
   saveHistory: () => void;
@@ -111,18 +109,9 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         poName: extras.poName?.trim() ? extras.poName.trim() : undefined,
       };
       saveHistory();
-      const draft = draftDefaultRootTaskForProject(newProject);
-      const rootTask: Task = applyMilestoneDateInvariant({
-        ...draft,
-        plannedProgressOverride: null,
-        workEffort: resolveWorkEffortForNewTask(draft.workEffort),
-        id: uuidv4(),
-        projectId: newProject.id,
-      } as Task);
 
       setProjects((prev) => [...prev, newProject]);
       setCurrentProjectId(newProject.id);
-      setAllTasks((prev) => recomputeProjectRollups([...prev, rootTask], newProject.id, undefined, undefined, true));
 
       if (useLocalOnlyRef.current) {
         bumpDirty();
@@ -130,11 +119,10 @@ export function useProjectOps(deps: ProjectOpsDeps) {
         bumpDirty();
         const epoch = dirtyEpochRef.current;
         void upsertProject(newProject)
-          .then(() => upsertTasks([rootTask]))
           .then(() => clearUnsyncedIfDirtyEpochIs(epoch))
           .catch((err) => {
             bumpDirty();
-            handleDbError(err, '프로젝트·기본 작업 저장에 실패했습니다.');
+            handleDbError(err, '프로젝트 저장에 실패했습니다.');
           });
       }
       return newProject;
@@ -147,7 +135,6 @@ export function useProjectOps(deps: ProjectOpsDeps) {
       creatorDisplayNameRef,
       useLocalOnlyRef,
       setProjects,
-      setAllTasks,
       setCurrentProjectId,
       dirtyEpochRef,
       clearUnsyncedIfDirtyEpochIs,

@@ -166,8 +166,6 @@ export interface WBSContextType {
    * 프로젝트 전환 확인에서「저장 안 함」처리 등에 사용한다.
    */
   discardUnsavedChangesReloadFromServer: () => Promise<void>;
-  /** 편집 시마다 증가 — 자동 저장 디바운스 리셋용 */
-  collabPushNonce: number;
   deleteAllTasks: () => void;
   /** 모든 프로젝트의 작업을 전체 삭제 (현재 프로젝트 무관) */
   deleteAllTasksInAllProjects: () => void;

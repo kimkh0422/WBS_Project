@@ -88,7 +88,7 @@ snake_case ↔ camelCase 매핑은 [src/lib/db/mappers.ts](src/lib/db/mappers.ts
 |---|---|---|
 | 도메인 | `projects`, `allTasks`, `wbsSettings` | 화면에 보이는 모든 데이터의 source of truth |
 | UI 선택 | `currentProjectId`, `selectedTaskIds`, `treeExpandLevel` | 화면 상태 |
-| 디버그·메타 | `deletedTaskIdsByProject`, `deletedProjectIds`, `hasLocalChangesSinceSync`, `collabPushNonce` | 동기화·자동 저장 트리거용 |
+| 디버그·메타 | `deletedTaskIdsByProject`, `deletedProjectIds`, `hasLocalChangesSinceSync` | 동기화·자동 저장 트리거용 |
 | 권한(주입) | `isAdmin`, `editableProjectIds` | App.tsx에서 계산 후 props로 |
 | Refs | `projectsRef`, `currentProjectIdRef`, `wbsSettingsRef` 등 | 클로저용 latest-value mirror |
 
@@ -219,7 +219,7 @@ list-split-view (flex flex-row h-full)
 | `collectTasksNeedingUpload(...)` | 변경된 작업만 추려 업로드 페이로드 구성. |
 | `serverTaskRowMatchesLocalTask(...)` | 동시 수정 감지(낙관적 잠금) — 서버 `updated_at`이 로컬 기준치보다 새로우면 conflict. |
 
-**디바운스 자동 저장**: 편집 시 `bumpDirty()` → `collabPushNonce` 증가 → App.tsx의 useEffect가 ~1초 디바운스로 `pushChangesToDb('current')` 호출.
+**디바운스 자동 저장**: 편집 시 `bumpDirty()` → `hasLocalChangesSinceSync`가 true가 되며(이미 true면 React가 동일 값으로 리렌더를 생략할 수 있음), `dirtyEpochRef`가 증가한다. 자동 저장은 이 플래그·에폭을 구독하는 경로에서 디바운스되어 `pushChangesToDb('current')` 등으로 이어진다.
 
 ### 8.3 Realtime
 
