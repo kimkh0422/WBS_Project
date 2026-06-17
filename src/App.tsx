@@ -113,6 +113,7 @@ import { lazyWithRetry } from './lib/lazyWithRetry';
 // lazyWithRetry: 배포 직후 옛 청크 해시를 가져오다 실패하면 1회 자동 새로고침으로 새 번들 회수.
 const WBSTable = lazyWithRetry(() => import('./components/WBSTable').then((m) => ({ default: m.WBSTable })));
 const TableGanttSplit = lazyWithRetry(() => import('./components/TableGanttSplit').then((m) => ({ default: m.TableGanttSplit })));
+const TableKanbanSplit = lazyWithRetry(() => import('./components/TableKanbanSplit').then((m) => ({ default: m.TableKanbanSplit })));
 const GanttChart = lazyWithRetry(() => import('./components/GanttChart').then((m) => ({ default: m.GanttChart })));
 const KanbanBoard = lazyWithRetry(() => import('./components/KanbanBoard').then((m) => ({ default: m.KanbanBoard })));
 const MindMapView = lazyWithRetry(() => import('./components/MindMapView').then((m) => ({ default: m.MindMapView })));
@@ -353,6 +354,12 @@ function WBSApp({
     isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
     bypassViewLeaveGuardOnce,
   });
+  const noSplitWorkView = useMemo(() => hiddenViews.has('tablegantt') && hiddenViews.has('tablekanban'), [hiddenViews]);
+  const preferredWorkSplitView = useMemo((): ViewType => {
+    if (!hiddenViews.has('tablegantt')) return 'tablegantt';
+    if (!hiddenViews.has('tablekanban')) return 'tablekanban';
+    return 'dashboard';
+  }, [hiddenViews]);
   const setView = useCallback(
     (v: ViewType) => {
       requestNavigation(() => setViewRaw(v));
@@ -538,6 +545,8 @@ function WBSApp({
       if (nextView === 'gantt') tipOnce('nav.gantt', '간트만: 일정 흐름을 보며 날짜를 드래그로 조정할 수 있어요.');
       if (nextView === 'kanban') tipOnce('nav.kanban', '칸반: 상태별로 작업을 옮기며 진행을 관리합니다.');
       if (nextView === 'tablegantt') tipOnce('nav.tablegantt', '표+간트: 작업표와 간트 차트를 한 화면에서 함께 봅니다.');
+      if (nextView === 'tablekanban')
+        tipOnce('nav.tablekanban', '표+칸반: 작업표와 상태별 칸반을 한 화면에서 보며, 세로 스크롤이 함께 움직입니다.');
       if (nextView === 'mindmap') tipOnce('nav.mindmap', '마인드맵: WBS 계층을 가지로 보고, 노드를 눌러 작업을 편집할 수 있어요.');
     },
     [tipOnce, setView, view],
@@ -594,13 +603,13 @@ function WBSApp({
         setCurrentProjectId(projectId);
         // 이미 작업 보기(표/간트/칸반/마인드맵/전체)에 있으면 그대로 유지.
         // 대시보드·프로젝트·투입현황 등 비-작업 보기에서만 기본 "전체" 보기로 전환.
-        const taskViews: ViewType[] = ['table', 'tablegantt', 'gantt', 'kanban', 'mindmap'];
+        const taskViews: ViewType[] = ['table', 'tablegantt', 'tablekanban', 'gantt', 'kanban', 'mindmap'];
         if (!taskViews.includes(viewRef.current)) {
-          setView(lockMobileToDashboard ? 'dashboard' : 'tablegantt');
+          setView(lockMobileToDashboard ? 'dashboard' : preferredWorkSplitView);
         }
       });
     },
-    [requestProjectSwitch, setCurrentProjectId, setView, lockMobileToDashboard],
+    [requestProjectSwitch, setCurrentProjectId, setView, lockMobileToDashboard, preferredWorkSplitView],
   );
 
   /** 대시보드 마운트 시 등록 — ⋮ 메뉴에서 프로젝트 등록현황 PDF */
@@ -654,7 +663,7 @@ function WBSApp({
   const navigateToTask = useCallback(
     (taskId: string, projectId: string) => {
       requestProjectSwitch(projectId, () => {
-        if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
+        if (lockMobileToDashboard || noSplitWorkView) {
           setCurrentProjectId(projectId);
           setView('dashboard');
           pushToast(
@@ -673,7 +682,7 @@ function WBSApp({
         setSelectedTaskIds([taskId]);
         expandAncestors(taskId);
         setScrollToTaskId(taskId);
-        setView('tablegantt');
+        setView(preferredWorkSplitView);
         // 스크롤 완료 후 scrollToTaskId 해제 + 테이블에 포커스 (키보드 단축키 동작)
         setTimeout(() => {
           setScrollToTaskId(null);
@@ -689,7 +698,8 @@ function WBSApp({
       expandAncestors,
       setView,
       lockMobileToDashboard,
-      hiddenViews,
+      noSplitWorkView,
+      preferredWorkSplitView,
       pushToast,
     ],
   );
@@ -755,7 +765,7 @@ function WBSApp({
       });
       // 신규 프로젝트 생성 직후: addProject 내부에서 currentProjectId가 새 프로젝트로 잡힘 → 표+간트 화면으로 이동.
       // 모바일은 작업 화면 편집이 막혀 있으므로 대시보드 유지.
-      if (!lockMobileToDashboard) setView('tablegantt');
+      if (!lockMobileToDashboard) setView(preferredWorkSplitView);
     }
     setIsProjectModalOpen(false);
   };
@@ -790,7 +800,7 @@ function WBSApp({
       setProjectToCopy(null);
       // 복사 직후: copyProject 내부에서 새 복사본이 currentProjectId로 잡힘 → 표+간트 작업 화면으로 이동.
       // 모바일은 작업 화면 편집이 막혀 있으므로 대시보드 유지.
-      if (!lockMobileToDashboard) setView('tablegantt');
+      if (!lockMobileToDashboard) setView(preferredWorkSplitView);
     }
     setIsCopyProjectConfirmOpen(false);
     setIsProjectDropdownOpen(false);
@@ -814,7 +824,7 @@ function WBSApp({
     setMultiMergeConfirm,
     setErrorAlert,
     setIsExportModalOpen,
-    onImportComplete: () => setView('tablegantt'),
+    onImportComplete: () => setView(preferredWorkSplitView),
     lastExportPrefs,
     setLastExportPrefs,
     importPreview,
@@ -1102,7 +1112,7 @@ function WBSApp({
                     <Dashboard
                       mobileReadabilityMode={lockMobileToDashboard}
                       projectRegistrationPdfRef={projectRegistrationPdfRef}
-                      onNavigate={lockMobileToDashboard || hiddenViews.has('tablegantt') ? undefined : handleDashboardNavigate}
+                      onNavigate={lockMobileToDashboard || noSplitWorkView ? undefined : handleDashboardNavigate}
                       onOpenTaskInTable={navigateToTask}
                       registeredMemberDisplayNames={registeredMemberDisplayNames}
                       accessibleProjectIds={
@@ -1148,7 +1158,12 @@ function WBSApp({
                 currentProject.ownerId !== user?.id &&
                 !myMemberProjectIds.includes(currentProjectId) &&
                 !userApproved &&
-                (view === 'table' || view === 'tablegantt' || view === 'gantt' || view === 'kanban' || view === 'mindmap') ? (
+                (view === 'table' ||
+                  view === 'tablegantt' ||
+                  view === 'tablekanban' ||
+                  view === 'gantt' ||
+                  view === 'kanban' ||
+                  view === 'mindmap') ? (
                   <ProjectAccessRequestBanner
                     projectId={currentProjectId}
                     projectName={formatProjectDisplayName(currentProject.name, currentProject.projectKind)}
@@ -1158,6 +1173,27 @@ function WBSApp({
                         .catch(() => {})
                     }
                   />
+                ) : view === 'tablekanban' ? (
+                  <ErrorBoundary viewName="표+칸반">
+                    <TableKanbanSplit
+                      filters={effectiveFilters}
+                      sortConfig={sortConfig}
+                      onOpenColumnSettings={() => setIsSettingsModalOpen(true)}
+                      scrollToTaskId={scrollToTaskId}
+                      sharedRowHeight={sharedRowHeight}
+                      onRowHeightChange={setSharedRowHeight}
+                      onSort={(key) => {
+                        setSortConfig((current) => {
+                          if (key === 'wbs' && current?.key === 'wbs') return null;
+                          if (current?.key === key) {
+                            if (current.direction === 'asc') return { key, direction: 'desc' };
+                            return null;
+                          }
+                          return { key, direction: 'asc' };
+                        });
+                      }}
+                    />
+                  </ErrorBoundary>
                 ) : view === 'tablegantt' ? (
                   <ErrorBoundary viewName="표+간트">
                     <TableGanttSplit
@@ -1219,7 +1255,7 @@ function WBSApp({
                       onNavigateToWork={(projectId) => {
                         const apply = () => {
                           if (projectId) setCurrentProjectId(projectId);
-                          if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
+                          if (lockMobileToDashboard || noSplitWorkView) {
                             pushToast(
                               lockMobileToDashboard
                                 ? '모바일 화면에서는 대시보드만 제공됩니다. 작업 편집은 PC에서 이용해 주세요.'
@@ -1232,7 +1268,7 @@ function WBSApp({
                             );
                             setView('dashboard');
                           } else {
-                            setView('tablegantt');
+                            setView(preferredWorkSplitView);
                           }
                         };
                         if (projectId) requestProjectSwitch(projectId, apply);
@@ -1256,7 +1292,7 @@ function WBSApp({
                       onNavigateToWork={(projectId) => {
                         requestProjectSwitch(projectId, () => {
                           setCurrentProjectId(projectId);
-                          setView(hiddenViews.has('tablegantt') ? 'dashboard' : 'tablegantt');
+                          setView(noSplitWorkView ? 'dashboard' : preferredWorkSplitView);
                         });
                       }}
                     />
@@ -1292,7 +1328,13 @@ function WBSApp({
             </div>
             {isShortcutsVisible && view !== 'dashboard' && (
               <ShortcutsSidebar
-                view={view === 'outlook' || view === 'weekreport' || view === 'todo' || view === 'worklog' ? 'dashboard' : view}
+                view={
+                  view === 'outlook' || view === 'weekreport' || view === 'todo' || view === 'worklog'
+                    ? 'dashboard'
+                    : view === 'tablekanban'
+                      ? 'tablegantt'
+                      : view
+                }
                 onClose={() => setIsShortcutsVisible(false)}
                 onNeverShow={() => {
                   // 다시 보지 않기: 자동 표시 끔 플래그 기록 후 닫기. 메뉴(단축키)·Shift+? 로는 계속 열 수 있음.
@@ -1321,7 +1363,7 @@ function WBSApp({
           onSelectProject={(projectId) => {
             requestProjectSwitch(projectId, () => {
               setCurrentProjectId(projectId);
-              if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
+              if (lockMobileToDashboard || noSplitWorkView) {
                 setView('dashboard');
                 pushToast(
                   lockMobileToDashboard
@@ -1334,7 +1376,7 @@ function WBSApp({
                   },
                 );
               } else {
-                setView('tablegantt');
+                setView(preferredWorkSplitView);
               }
             });
           }}
@@ -1592,10 +1634,10 @@ function WBSApp({
               requestProjectSwitch(projectId, () => {
                 setCurrentProjectId(projectId);
                 setIsMembersModalOpen(false);
-                if (lockMobileToDashboard || hiddenViews.has('tablegantt')) {
+                if (lockMobileToDashboard || noSplitWorkView) {
                   setView('dashboard');
                 } else {
-                  setView('tablegantt');
+                  setView(preferredWorkSplitView);
                 }
               });
             }}

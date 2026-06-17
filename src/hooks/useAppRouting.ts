@@ -6,6 +6,7 @@ import { isInternalCompanyEmail } from '../lib/emailDomain';
 export type ViewType =
   | 'table'
   | 'tablegantt'
+  | 'tablekanban'
   | 'gantt'
   | 'kanban'
   | 'mindmap'
@@ -20,6 +21,7 @@ export type ViewType =
 const VALID_VIEWS = new Set<string>([
   'table',
   'tablegantt',
+  'tablekanban',
   'gantt',
   'kanban',
   'mindmap',
@@ -41,6 +43,7 @@ const MAIN_NAV_VIEW_ORDER: ViewType[] = [
   'weekreport',
   'table',
   'tablegantt',
+  'tablekanban',
   'gantt',
   'kanban',
   'mindmap',
@@ -48,8 +51,9 @@ const MAIN_NAV_VIEW_ORDER: ViewType[] = [
 ];
 
 function pickFirstVisibleView(hidden: Set<string>): ViewType {
-  // 최초 진입(=URL 세그먼트 없음) 기본 화면: 표+간트(작업 화면). hidden이 아니면 우선 사용.
+  // 기본 작업 화면: 표+간트 우선, 숨김이면 표+칸반, 그다음 순서.
   if (!hidden.has('tablegantt')) return 'tablegantt';
+  if (!hidden.has('tablekanban')) return 'tablekanban';
   for (const v of MAIN_NAV_VIEW_ORDER) {
     if (!hidden.has(v)) return v;
   }
@@ -108,7 +112,7 @@ export function useAppRouting({
       set.add('weekreport');
     }
     if (isProjectStatusOnly) {
-      for (const v of ['table', 'tablegantt', 'gantt', 'kanban', 'projects', 'mindmap'] as const) {
+      for (const v of ['table', 'tablegantt', 'tablekanban', 'gantt', 'kanban', 'projects', 'mindmap'] as const) {
         set.add(v);
       }
     }
@@ -170,11 +174,6 @@ export function useAppRouting({
     if (path === 'list') {
       bypassViewLeaveGuardOnce?.();
       navigate(`/${legacyTableTarget}`, { replace: true });
-    }
-    if (path === 'tablekanban') {
-      const ganttTarget: ViewType = hiddenViews.has('tablegantt') ? pickFirstVisibleView(hiddenViews) : 'tablegantt';
-      bypassViewLeaveGuardOnce?.();
-      navigate(`/${ganttTarget}`, { replace: true });
     }
     if (path === 'guide') {
       bypassViewLeaveGuardOnce?.();

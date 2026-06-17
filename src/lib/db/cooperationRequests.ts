@@ -179,6 +179,8 @@ export type CooperationRequest = {
   completedDate: string;
   delayReason: string;
   note: string;
+  /** 아카이브(보관) 여부 — true면 기본 목록·상태별 카운트·기한 알림에서 제외, '보관함' 필터에서만 표시. 이력은 보존. */
+  archived: boolean;
   sortOrder: number;
   createdBy: string | null;
   createdAt: string;
@@ -217,6 +219,7 @@ type CooperationRequestDbRow = {
   completed_date: string | null;
   delay_reason: string | null;
   note: string | null;
+  archived: boolean | null;
   sort_order: number | null;
   created_by: string | null;
   created_at: string;
@@ -225,7 +228,7 @@ type CooperationRequestDbRow = {
 
 const TABLE = 'cooperation_requests';
 const COLUMNS =
-  'id, mgmt_id, project_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, sort_order, created_by, created_at, updated_at';
+  'id, mgmt_id, project_id, request_date, request_type, title, detail, deliverables, informees, requester, assignee, assignee_kind, assignee_org_id, assignee_org_ids, member_progress, meeting_logs, status_history, priority, due_date, progress, status, result, completed_date, delay_reason, note, archived, sort_order, created_by, created_at, updated_at';
 
 /** 멤버 진행 항목 정규화 — DB/localStorage에서 들어온 값이 어떤 형태든 안전하게 다듬는다.
  *  과거에 sourceOrgIds/direct 없이 저장된 행도 안전하게 호환:
@@ -389,6 +392,7 @@ function mapRow(r: CooperationRequestDbRow): CooperationRequest {
     completedDate: str(r.completed_date),
     delayReason: str(r.delay_reason),
     note: str(r.note),
+    archived: r.archived ?? false,
     sortOrder: num(r.sort_order),
     createdBy: r.created_by ?? null,
     createdAt: r.created_at,
@@ -448,6 +452,7 @@ function loadLocal(): CooperationRequest[] {
         completedDate: str(r.completedDate),
         delayReason: str(r.delayReason),
         note: str(r.note),
+        archived: typeof r.archived === 'boolean' ? r.archived : false,
         sortOrder: num(r.sortOrder),
         createdBy: (r.createdBy as string | null) ?? null,
         createdAt: str(r.createdAt) || nowIso(),
@@ -556,6 +561,7 @@ export async function insertCooperationRequest(userId: string | null, input: Coo
     completed_date: input.completedDate || null,
     delay_reason: input.delayReason,
     note: input.note,
+    archived: input.archived ?? false,
     sort_order: input.sortOrder,
     created_by: userId,
   };
@@ -715,6 +721,7 @@ export async function updateCooperationRequest(id: string, patch: CooperationReq
   if (patch.completedDate !== undefined) payload.completed_date = patch.completedDate || null;
   if (patch.delayReason !== undefined) payload.delay_reason = patch.delayReason;
   if (patch.note !== undefined) payload.note = patch.note;
+  if (patch.archived !== undefined) payload.archived = patch.archived;
   if (patch.sortOrder !== undefined) payload.sort_order = patch.sortOrder;
   const { data, error } = await supabase!.from(TABLE).update(payload).eq('id', id).select(COLUMNS).single();
   if (error) throw error;
@@ -765,6 +772,7 @@ export function makeEmptyCooperationRequest(overrides?: Partial<CooperationReque
     completedDate: '',
     delayReason: '',
     note: '',
+    archived: false,
     sortOrder: 0,
     ...overrides,
   };

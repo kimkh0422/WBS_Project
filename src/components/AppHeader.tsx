@@ -26,6 +26,7 @@ import {
   LayoutDashboard,
   CheckSquare,
   Columns2,
+  LayoutPanelLeft,
   Target,
   MoreHorizontal,
   Sun,
@@ -65,7 +66,17 @@ import type { PresenceUser } from '../hooks/usePresence';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 /** 대시보드가 숨겨진 배포에서만 로고가 대체할 첫 탭 — `MAIN_NAV_VIEW_ORDER`와 동일 우선순위 */
-const LOGO_FALLBACK_VIEW_ORDER = ['dashboard', 'projects', 'allocation', 'tablegantt', 'table', 'gantt', 'kanban', 'mindmap'] as const;
+const LOGO_FALLBACK_VIEW_ORDER = [
+  'dashboard',
+  'projects',
+  'allocation',
+  'tablegantt',
+  'tablekanban',
+  'table',
+  'gantt',
+  'kanban',
+  'mindmap',
+] as const;
 
 export interface AppHeaderProps {
   wbsSettings: WBSSettings;
@@ -534,7 +545,7 @@ export function AppHeader({
     navigateWithTip(logoTargetView);
   }, [view, logoTargetView, requestRefresh, navigateWithTip]);
 
-  type MobileNavKey = 'dashboard' | 'todo' | 'table' | 'tablegantt' | 'gantt' | 'kanban';
+  type MobileNavKey = 'dashboard' | 'todo' | 'table' | 'tablegantt' | 'tablekanban' | 'gantt' | 'kanban';
   const mobileBottomNavItems = useMemo((): { key: MobileNavKey; label: string; title: string; icon: React.ReactNode }[] => {
     const dashboardTitle =
       dashboardNavLabel !== '대시보드'
@@ -559,6 +570,12 @@ export function AppHeader({
         label: '표+간',
         title: '작업표와 간트 차트를 한 화면에서 함께 봅니다. (가로 분할·모바일에서는 위·아래)',
         icon: <Columns2 size={14} />,
+      },
+      {
+        key: 'tablekanban',
+        label: '표+칸',
+        title: '작업 표와 상태별 칸반을 한 화면에서 보며, 세로 스크롤이 함께 움직입니다.',
+        icon: <LayoutPanelLeft size={14} />,
       },
       {
         key: 'gantt',
@@ -1338,6 +1355,16 @@ export function AppHeader({
                 />
               );
             })()}
+            {!hiddenViews.has('tablekanban') && (
+              <NavButton
+                active={view === 'tablekanban'}
+                onClick={() => navigateWithTip('tablekanban')}
+                icon={<LayoutPanelLeft size={14} />}
+                label="표+칸반"
+                title="작업 표와 상태별 칸반을 한 화면에서 보며, 세로 스크롤이 서로 맞춰집니다."
+                tourId="tour-nav-tablekanban"
+              />
+            )}
             {!hiddenViews.has('todo') && (
               <NavButton
                 active={view === 'todo'}

@@ -36,6 +36,8 @@ import {
   LayoutGrid,
   Coins,
   ListChecks,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react';
 import { cn, randomUUID } from '../lib/utils';
 import { useToast } from './Toast';
@@ -246,6 +248,12 @@ function dueRemaining(r: CooperationRequest, todayIso: string): { days: number; 
   return { days: diff, label: diff === 0 ? '오늘 마감' : `${diff}일 남음` };
 }
 
+/** 마감 임박 — 진행 중이고 기한이 오늘 이후 within일 이내(아직 초과 전). 기본 D-3. */
+function isDueSoon(r: CooperationRequest, todayIso: string, within = 3): boolean {
+  const rem = dueRemaining(r, todayIso);
+  return rem !== null && rem.days <= within;
+}
+
 /** 상태가 '종료(완료 계열)' 인지 — 완료일·진척률 100% 자동 채우기에 사용 */
 function isDoneStatus(s: CooperationRequestStatus): boolean {
   return s === '처리완료' || s === '확인완료';
@@ -324,7 +332,7 @@ export function CooperationRequestSection({
   const [loading, setLoading] = useState(true);
   const { error, setError } = useErrorStateWithToast({ toastId: 'wbs-cooperation-list-error' });
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all' | 'overdue'>('all');
+  const [statusFilter, setStatusFilter] = useState<CooperationRequestStatus | 'all' | 'overdue' | 'duesoon' | 'archived'>('all');
   const [typeFilter, setTypeFilter] = useState<CooperationRequestType | 'all'>('all');
   /** "내 것만 보기" — 본인 관련 항목만. localStorage 영구. 사용자 이름이 비면 토글 표시 안 함. */
   const [myOnly, setMyOnly] = useState<boolean>(() => {
@@ -396,11 +404,16 @@ export function CooperationRequestSection({
   /** 필터 + 검색 적용된 결과 */
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const archivedView = statusFilter === 'archived';
     return rows.filter((r) => {
+      // 아카이브: '보관함' 필터에서만 archived=true 노출, 그 외 모든 보기에서는 제외.
+      if (archivedView ? !r.archived : r.archived) return false;
       if (myOnly && !isMine(r)) return false;
       if (statusFilter === 'overdue') {
         if (!isOverdue(r, todayIso)) return false;
-      } else if (statusFilter !== 'all' && r.status !== statusFilter) {
+      } else if (statusFilter === 'duesoon') {
+        if (!isDueSoon(r, todayIso)) return false;
+      } else if (statusFilter !== 'all' && !archivedView && r.status !== statusFilter) {
         return false;
       }
       if (typeFilter !== 'all' && r.requestType !== typeFilter) return false;
@@ -423,13 +436,17 @@ export function CooperationRequestSection({
       취소됨: 0,
     };
     for (const r of rows) {
+      if (r.archived) continue; // 보관 항목은 상태별 카운트에서 제외
       if (myOnly && !isMine(r)) continue;
       c[r.status]++;
     }
     return c;
   }, [rows, myOnly, isMine]);
 
-  const overdueCount = useMemo(() => rows.filter((r) => isOverdue(r, todayIso)).length, [rows, todayIso]);
+  const overdueCount = useMemo(() => rows.filter((r) => !r.archived && isOverdue(r, todayIso)).length, [rows, todayIso]);
+  /** 마감 임박(D-3 이내, 아직 초과 전·진행 중) — 보관 제외. '마감전 알림' 필터 칩에 사용. */
+  const dueSoonCount = useMemo(() => rows.filter((r) => !r.archived && isDueSoon(r, todayIso)).length, [rows, todayIso]);
+  const archivedCount = useMemo(() => rows.filter((r) => r.archived).length, [rows]);
 
   const handleNew = useCallback(() => {
     const draft = makeEmptyCooperationRequest({
@@ -548,6 +565,23 @@ export function CooperationRequestSection({
       }
     },
     [pushToast, todayIso, notifyPointChange],
+  );
+
+  /** 항목 보관(아카이브)/복원 — 기본 목록·카운트·기한 알림에서 숨기되 이력은 보존. 낙관적 업데이트. */
+  const handleArchive = useCallback(
+    async (row: CooperationRequest, archived: boolean) => {
+      const prev = rowsRef.current;
+      setRows((cur) => cur.map((r) => (r.id === row.id ? { ...r, archived } : r)));
+      try {
+        const updated = await updateCooperationRequest(row.id, { archived });
+        setRows((cur) => cur.map((r) => (r.id === updated.id ? updated : r)));
+        pushToast(archived ? '보관함으로 옮겼습니다.' : '보관을 해제했습니다.', { variant: 'success', durationMs: 3000 });
+      } catch (e) {
+        setRows(prev);
+        pushToast(e instanceof Error ? e.message : '보관 처리에 실패했습니다.', { variant: 'error', durationMs: 4000 });
+      }
+    },
+    [pushToast],
   );
 
   /** '담당자별 진행' 패널 대상 행 — rows 변경 시 자동으로 최신 상태 반영(삭제되면 null로 닫힘). */
@@ -697,7 +731,7 @@ export function CooperationRequestSection({
               : 'bg-[var(--color-surface)] text-[var(--color-ink)] ring-[var(--color-line)] hover:bg-[var(--color-surface-2)]',
           )}
         >
-          전체 <span className="opacity-80">{rows.length}</span>
+          전체 <span className="opacity-80">{rows.length - archivedCount}</span>
         </button>
         {COOPERATION_REQUEST_STATUSES.map((s) => {
           const sty = STATUS_STYLE[s];
@@ -717,6 +751,24 @@ export function CooperationRequestSection({
             </button>
           );
         })}
+        {dueSoonCount > 0 &&
+          (() => {
+            const active = statusFilter === 'duesoon';
+            return (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(active ? 'all' : 'duesoon')}
+                className={cn(
+                  'ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition',
+                  'bg-orange-50 text-orange-700 ring-1 ring-orange-200 hover:ring-2',
+                  active && 'ring-2',
+                )}
+                title={active ? '마감 임박 필터 해제 (전체 보기)' : '기한이 3일 이내로 임박한(아직 초과 전) 항목만 보기'}
+              >
+                <AlertCircle size={11} /> 마감 임박 {dueSoonCount}건
+              </button>
+            );
+          })()}
         {overdueCount > 0 &&
           (() => {
             const active = statusFilter === 'overdue';
@@ -732,6 +784,24 @@ export function CooperationRequestSection({
                 title={active ? '기한 초과 필터 해제 (전체 보기)' : '기한이 지났지만 완료/회신불가가 아닌 항목만 보기'}
               >
                 <Clock size={11} /> 기한 초과 {overdueCount}건
+              </button>
+            );
+          })()}
+        {archivedCount > 0 &&
+          (() => {
+            const active = statusFilter === 'archived';
+            return (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(active ? 'all' : 'archived')}
+                className={cn(
+                  'ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition',
+                  'bg-slate-100 text-slate-600 ring-1 ring-slate-300 hover:ring-2',
+                  active && 'bg-slate-200 ring-2',
+                )}
+                title={active ? '보관함 닫기 (전체 보기)' : '보관(아카이브)한 항목 보기'}
+              >
+                <Archive size={11} /> 보관함 {archivedCount}건
               </button>
             );
           })()}
@@ -790,6 +860,7 @@ export function CooperationRequestSection({
           onQuickStatus={(r, next) => void handleQuickStatus(r, next)}
           onBroadcast={(r) => void handleBroadcast(r)}
           onOpenMembers={(r) => setMemberPanelId(r.id)}
+          onArchive={(r, archived) => void handleArchive(r, archived)}
           broadcastingId={broadcastingId}
         />
       ) : (
@@ -993,6 +1064,14 @@ export function CooperationRequestSection({
                               title="편집"
                             >
                               <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleArchive(r, !r.archived)}
+                              className="rounded p-1 text-[var(--color-ink-muted)] hover:bg-slate-200 hover:text-slate-700"
+                              title={r.archived ? '보관 해제(복원)' : '보관함으로 이동'}
+                            >
+                              {r.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
                             </button>
                             <button
                               type="button"
@@ -2456,6 +2535,7 @@ function CooperationKanbanBoard({
   onQuickStatus,
   onBroadcast,
   onOpenMembers,
+  onArchive,
   broadcastingId,
 }: {
   rows: CooperationRequest[];
@@ -2466,6 +2546,7 @@ function CooperationKanbanBoard({
   onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
   onBroadcast: (r: CooperationRequest) => void;
   onOpenMembers: (r: CooperationRequest) => void;
+  onArchive: (r: CooperationRequest, archived: boolean) => void;
   broadcastingId: string | null;
 }) {
   // 컬럼별 그룹핑(요청완료 → 담당자 지정완료 → 진행중 → 처리완료 → 확인완료 → 취소됨)
@@ -2530,6 +2611,7 @@ function CooperationKanbanBoard({
               onQuickStatus={onQuickStatus}
               onBroadcast={onBroadcast}
               onOpenMembers={onOpenMembers}
+              onArchive={onArchive}
               broadcastingId={broadcastingId}
               activeCardId={activeRow?.id ?? null}
             />
@@ -2546,6 +2628,7 @@ function CooperationKanbanBoard({
                 onQuickStatus={() => {}}
                 onBroadcast={() => {}}
                 onOpenMembers={() => {}}
+                onArchive={() => {}}
                 broadcasting={false}
               />
             </div>
@@ -2572,6 +2655,7 @@ function KanbanColumn({
   onQuickStatus,
   onBroadcast,
   onOpenMembers,
+  onArchive,
   broadcastingId,
   activeCardId,
 }: {
@@ -2583,6 +2667,7 @@ function KanbanColumn({
   onQuickStatus: (r: CooperationRequest, next: CooperationRequestStatus) => void;
   onBroadcast: (r: CooperationRequest) => void;
   onOpenMembers: (r: CooperationRequest) => void;
+  onArchive: (r: CooperationRequest, archived: boolean) => void;
   broadcastingId: string | null;
   activeCardId: string | null;
 }) {
@@ -2623,6 +2708,7 @@ function KanbanColumn({
               onQuickStatus={(next) => onQuickStatus(r, next)}
               onBroadcast={() => onBroadcast(r)}
               onOpenMembers={() => onOpenMembers(r)}
+              onArchive={(archived) => onArchive(r, archived)}
               broadcasting={broadcastingId === r.id}
             />
           ))
@@ -2642,6 +2728,7 @@ function DraggableKanbanCard({
   onQuickStatus,
   onBroadcast,
   onOpenMembers,
+  onArchive,
   broadcasting,
 }: {
   row: CooperationRequest;
@@ -2652,6 +2739,7 @@ function DraggableKanbanCard({
   onQuickStatus: (next: CooperationRequestStatus) => void;
   onBroadcast: () => void;
   onOpenMembers: () => void;
+  onArchive: (archived: boolean) => void;
   broadcasting: boolean;
 }) {
   const { setNodeRef, attributes, listeners } = useDraggable({ id: `card:${row.id}` });
@@ -2665,6 +2753,7 @@ function DraggableKanbanCard({
         onQuickStatus={onQuickStatus}
         onBroadcast={onBroadcast}
         onOpenMembers={onOpenMembers}
+        onArchive={onArchive}
         broadcasting={broadcasting}
       />
     </div>
@@ -2678,6 +2767,7 @@ function KanbanCard({
   onDelete,
   onBroadcast,
   onOpenMembers,
+  onArchive,
   broadcasting,
 }: {
   row: CooperationRequest;
@@ -2689,6 +2779,7 @@ function KanbanCard({
   onBroadcast: () => void;
   /** 담당자별 진행 패널 열기 — 멤버 배지 클릭. */
   onOpenMembers: () => void;
+  onArchive: (archived: boolean) => void;
   broadcasting: boolean;
 }) {
   const overdue = isOverdue(row, todayIso);
@@ -2776,6 +2867,14 @@ function KanbanCard({
               title="편집"
             >
               <Pencil size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onArchive(!row.archived)}
+              className="rounded p-0.5 text-[var(--color-ink-muted)] hover:bg-slate-200 hover:text-slate-700"
+              title={row.archived ? '보관 해제(복원)' : '보관함으로 이동'}
+            >
+              {row.archived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
             </button>
             <button
               type="button"

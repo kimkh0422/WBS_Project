@@ -137,6 +137,18 @@ export function useSplitHorizontalScrollSync(
   }, [enabled, ...reattachDeps]);
 }
 
+/** 표·간트 / 표·칸반 split: 휠 라우팅 시 두 번째 패널 루트(`root` 하위) */
+const DEFAULT_SECOND_PANE_SELECTOR = '.list-gantt-pane';
+
+export type ScrollSyncWheelOptions = {
+  secondPaneSelector?: string;
+  /**
+   * true(기본): 간트처럼 두 번째 패널 위에서 세로 휠을 가로(타임라인) 이동으로 처리.
+   * false: 칸반 등 — 세로 휠은 항상 세로 스크롤.
+   */
+  verticalWheelAsHorizontalInSecondPane?: boolean;
+};
+
 /** 표·간트 본문 외부(드롭다운 등)의 세로 스크롤만 제외 */
 function isForeignNestedScrollable(el: HTMLElement, root: HTMLElement, paneEls: HTMLElement[]): boolean {
   let node: HTMLElement | null = el;
@@ -154,13 +166,17 @@ function isForeignNestedScrollable(el: HTMLElement, root: HTMLElement, paneEls: 
   return false;
 }
 
-/** 표·간트 split 본문의 세로 스크롤(scrollTop)을 양방향으로 맞춘다. */
+/** 표·간트 / 표·칸반 split 본문의 세로 스크롤(scrollTop)을 양방향으로 맞춘다. */
 export function useScrollSync(
   aRef: RefObject<HTMLDivElement | null>,
   bRef: RefObject<HTMLDivElement | null>,
   enabled: boolean,
   rootRef?: RefObject<HTMLElement | null>,
+  wheelOptions?: ScrollSyncWheelOptions,
 ) {
+  const secondPaneSelector = wheelOptions?.secondPaneSelector ?? DEFAULT_SECOND_PANE_SELECTOR;
+  const verticalWheelAsHorizontalInSecondPane = wheelOptions?.verticalWheelAsHorizontalInSecondPane ?? true;
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -182,7 +198,7 @@ export function useScrollSync(
         return;
       }
 
-      // 1 = 표→간트 동기화 중, 2 = 간트→표 동기화 중 (scroll 이벤트 루프 방지)
+      // 1 = 표→우측 패널 동기화 중, 2 = 우측→표 (scroll 이벤트 루프 방지)
       let syncing: 1 | 2 | null = null;
 
       const syncFrom = (source: 1 | 2) => {
@@ -200,7 +216,7 @@ export function useScrollSync(
       a.addEventListener('scroll', onA, { passive: true });
       b.addEventListener('scroll', onB, { passive: true });
 
-      const ganttPane = root?.querySelector('.list-gantt-pane');
+      const secondPane = root?.querySelector(secondPaneSelector);
       const paneEls = [a, b];
 
       const onRootWheel = (e: WheelEvent) => {
@@ -210,14 +226,15 @@ export function useScrollSync(
         if (!(target instanceof HTMLElement) || !root?.contains(target)) return;
         if (isForeignNestedScrollable(target, root, paneEls)) return;
 
-        const inGantt = ganttPane?.contains(target) ?? false;
+        const inSecondPane = secondPane?.contains(target) ?? false;
 
         // 가로 이동량: 마우스 가로 틸트/좌우 스크롤 휠(deltaX)이 있으면 그 값을,
-        // 없으면 간트 위에서의 평범한 세로 휠(deltaY, Shift 없음)을 가로 이동으로 사용한다.
-        const horizontalDelta = e.deltaX !== 0 ? e.deltaX : inGantt && !e.shiftKey ? e.deltaY : 0;
+        // 간트(split)에서는 두 번째 패널 위 세로 휠을 타임라인 좌우로 쓴다(옵션 true).
+        const horizontalDelta =
+          e.deltaX !== 0 ? e.deltaX : inSecondPane && verticalWheelAsHorizontalInSecondPane && !e.shiftKey ? e.deltaY : 0;
 
-        // 타임라인 좌우 이동 — 간트 본문(b)은 overflow-x-hidden이지만 scrollLeft는 프로그램적으로 설정 가능하며,
-        // GanttChart 내부 가로 동기 effect가 날짜 헤더·하단 바·표 가로 위치를 함께 맞춘다.
+        // 간트: 타임라인 좌우 — 본문(b)은 overflow-x-hidden이어도 scrollLeft를 바꾸면 내부 effect가 헤더·하단·표 가로를 맞춘다.
+        // 칸반: 보드 전체 가로 스크롤(컬럼이 많을 때).
         if (horizontalDelta !== 0) {
           e.preventDefault();
           const maxLeft = Math.max(0, b.scrollWidth - b.clientWidth);
@@ -228,7 +245,7 @@ export function useScrollSync(
         if (e.deltaY === 0) return;
         e.preventDefault();
 
-        const source: 1 | 2 = inGantt ? 2 : 1;
+        const source: 1 | 2 = inSecondPane ? 2 : 1;
         const primary = source === 1 ? a : b;
 
         syncing = source;
@@ -275,5 +292,5 @@ export function useScrollSync(
       cancelAnimationFrame(raf);
       cleanup?.();
     };
-  }, [aRef, bRef, enabled, rootRef]);
+  }, [aRef, bRef, enabled, rootRef, secondPaneSelector, verticalWheelAsHorizontalInSecondPane]);
 }

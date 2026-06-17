@@ -11,6 +11,7 @@ const VIEW_SEGMENT_LABELS: Record<string, string> = {
   weekreport: '주간업무보고',
   table: '표',
   tablegantt: '표+간트',
+  tablekanban: '표+칸반',
   gantt: '간트',
   kanban: '칸반',
   mindmap: '마인드맵',

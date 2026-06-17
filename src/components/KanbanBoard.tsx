@@ -2,6 +2,7 @@ import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
+  closestCenter,
   closestCorners,
   pointerWithin,
   KeyboardSensor,
@@ -12,7 +13,6 @@ import {
   defaultDropAnimationSideEffects,
   DropAnimation,
   PointerSensor,
-  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -81,20 +81,45 @@ function defaultScreenshotCardTitle(): string {
   return `스크린샷 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** 컬럼 droppable이 카드를 감싼 nested 구조에서 카드(Task) 충돌을 컬럼보다 우선한다. */
+function preferTaskCollisions<
+  T extends { id: string | number; data?: { droppableContainer?: { data?: { current?: { type?: string } } } } },
+>(hits: T[], activeId: string | number): T[] {
+  const noSelf = hits.filter((c) => c.id !== activeId);
+  const cards = noSelf.filter((c) => c.data?.droppableContainer?.data?.current?.type === 'Task');
+  return cards.length > 0 ? cards : noSelf;
+}
+
+function firstTaskCollisionId(
+  collisions: { id: string | number }[] | null | undefined,
+  activeId: string,
+  columnIds: Set<string>,
+): string | null {
+  if (!collisions?.length) return null;
+  for (const c of collisions) {
+    const id = String(c.id);
+    if (id !== activeId && !columnIds.has(id)) return id;
+  }
+  return null;
+}
+
 /**
- * 세로 칸반에서 아래로 드래그할 때 `over`가 자기 자신(active)으로만 잡히면 순서가 안 바뀌는 경우가 있다.
- * 포인터가 실제로 겹치는 대상을 우선하고, active는 충돌 후보에서 제외한 뒤 closestCorners로 보완한다.
+ * 세로 칸반에서 `over`가 자기 자신·컬럼 루트만 잡히면 순서가 안 바뀌는 경우가 있다.
+ * 포인터/중심 거리로 카드를 우선하고, active는 후보에서 제외한 뒤 closestCenter로 보완한다.
  */
 const kanbanCollisionDetection: CollisionDetection = (args) => {
-  const pointer = pointerWithin(args);
-  const pointerNoSelf = pointer.filter((c) => c.id !== args.active.id);
-  if (pointerNoSelf.length > 0) return pointerNoSelf;
+  const activeId = args.active.id;
 
-  const corners = closestCorners(args);
-  const cornersNoSelf = corners.filter((c) => c.id !== args.active.id);
-  if (cornersNoSelf.length > 0) return cornersNoSelf;
+  const pointer = preferTaskCollisions(pointerWithin(args), activeId);
+  if (pointer.length > 0) return pointer;
 
-  return pointer.length > 0 ? pointer : corners;
+  const corners = preferTaskCollisions(closestCorners(args), activeId);
+  if (corners.length > 0) return corners;
+
+  const center = preferTaskCollisions(closestCenter(args), activeId);
+  if (center.length > 0) return center;
+
+  return pointerWithin(args).filter((c) => c.id !== activeId);
 };
 
 // Column configuration
@@ -343,6 +368,8 @@ interface KanbanColumnProps {
   onUpdateTask: (taskId: string, updates: Partial<Task>) => void;
   taskLevels: Map<string, number>;
   onRenameColumn: (columnId: string, newName: string) => void;
+  /** 표+칸반 split: 컬럼별 세로 스크롤 대신 부모 한 줄로 세로 스크롤(표와 scrollTop 동기화) */
+  unifiedPaneScroll?: boolean;
 }
 
 function KanbanColumn({
@@ -358,6 +385,7 @@ function KanbanColumn({
   onUpdateTask,
   taskLevels,
   onRenameColumn,
+  unifiedPaneScroll = false,
 }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({
     id: column.id,
@@ -465,7 +493,7 @@ function KanbanColumn({
   const colorProps = getStatusColorProps(column.color);
 
   return (
-    <div className="flex flex-col h-full min-w-[280px] w-[280px] flex-shrink-0">
+    <div className={cn('flex flex-col min-w-[280px] w-[280px] flex-shrink-0', unifiedPaneScroll ? '' : 'h-full')}>
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2">
           {column.icon}
@@ -510,7 +538,8 @@ function KanbanColumn({
         }}
         onPasteCapture={handlePasteCapture}
         className={cn(
-          'flex-1 rounded-xl p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent transition-colors outline-none',
+          'rounded-xl p-2 flex flex-col gap-2 transition-colors outline-none',
+          unifiedPaneScroll ? '' : 'flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-stone-200 scrollbar-track-transparent',
           !colorProps.style && 'border border-transparent',
           colorProps.className,
         )}
@@ -577,9 +606,11 @@ function KanbanColumn({
 
 interface KanbanBoardProps {
   filters: FilterState;
+  /** 표+칸반 split: 세로 스크롤 컨테이너 ref — 있으면 컬럼 내부 스크롤 없이 부모와 동기화 */
+  syncScrollRef?: React.Ref<HTMLDivElement | null>;
 }
 
-export function KanbanBoard({ filters }: KanbanBoardProps) {
+export function KanbanBoard({ filters, syncScrollRef }: KanbanBoardProps) {
   const {
     tasks,
     updateTask,
@@ -656,6 +687,9 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     });
   }, [wbsSettings.statusConfigs]);
 
+  /** 컬럼 루트 droppable id(= 작업 status) — 카드 위에 있다가 컬럼 빈 영역으로만 겹치면 `over`가 이 값으로만 올라가는 경우가 많음 */
+  const statusColumnIdSet = useMemo(() => new Set(wbsSettings.statusConfigs.map((c) => c.id)), [wbsSettings.statusConfigs]);
+
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -673,7 +707,6 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         distance: 3,
       },
     }),
-    useSensor(MouseSensor),
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 250,
@@ -812,34 +845,72 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
   };
 
   const onDragOver = (event: DragOverEvent) => {
-    if (event.over && event.over.id !== event.active.id) {
-      kanbanLastOverIdRef.current = String(event.over.id);
+    const activeId = String(event.active.id);
+    const taskFromCollisions = firstTaskCollisionId(event.collisions, activeId, statusColumnIdSet);
+    if (taskFromCollisions) {
+      kanbanLastOverIdRef.current = taskFromCollisions;
+      return;
+    }
+    if (!event.over || event.over.id === event.active.id) return;
+    const oid = String(event.over.id);
+    // 컬럼 전체 영역으로 ref를 덮어쓰면, 직전에 가리킨 카드(위·아래 슬롯) 정보가 사라져 드롭 시 무반응이 된다.
+    if (!statusColumnIdSet.has(oid)) {
+      kanbanLastOverIdRef.current = oid;
     }
   };
 
   const onDragEnd = (event: DragEndEvent) => {
     setActiveTask(null);
-    const { active, over } = event;
+    const { active, over, delta } = event;
 
     const activeId = active.id as string;
     const eventOverId = over?.id != null ? String(over.id) : null;
     const refId = kanbanLastOverIdRef.current;
     kanbanLastOverIdRef.current = null;
 
-    /** 드롭 프레임에 `over`가 자기 자신만 오면 ref에 있던 실제 목표(아래 카드 등)를 쓴다. */
+    /** 드롭 프레임에 `over`가 자기 자신만 오면 collisions/ref에 있던 실제 목표를 쓴다. */
     let overId: string | null = null;
     if (eventOverId != null && eventOverId !== activeId) {
       overId = eventOverId;
-    } else if (refId != null) {
-      overId = refId;
-    } else if (eventOverId != null) {
-      overId = eventOverId;
+    } else {
+      const taskFromCollisions = firstTaskCollisionId(event.collisions, activeId, statusColumnIdSet);
+      if (taskFromCollisions) overId = taskFromCollisions;
+      else if (refId != null && refId !== activeId) overId = refId;
+      else if (eventOverId != null) overId = eventOverId;
     }
 
-    if (!overId) return;
+    // 마지막 프레임에 `over`가 컬럼 루트만 잡힌 경우(특히 맨 아래 카드를 위로 올릴 때): "맨 아래"로만 해석하면 oldIndex===newIndex로 스킵된다.
+    if (overId && statusColumnIdSet.has(overId) && refId && !statusColumnIdSet.has(refId)) {
+      const refTask = tasks.find((t) => t.id === refId);
+      if (refTask && refTask.status === overId) {
+        overId = refId;
+      }
+    }
 
     const task = tasks.find((t) => t.id === activeId);
     if (!task) return;
+
+    const getStatusOrder = (statusId: string): string[] => {
+      const existing = (kanbanOrder[statusId] ?? []).filter((id) => filteredTasks.some((t) => t.id === id && t.status === statusId));
+      const missing = (tasksByStatus[statusId] ?? []).map((t) => t.id).filter((id) => !existing.includes(id));
+      return [...existing, ...missing];
+    };
+
+    // `over`가 자기 자신뿐이고 collisions/ref도 없을 때: 드래그 방향으로 한 칸 이동 시도
+    if (!overId || overId === activeId) {
+      const currentOrder = getStatusOrder(task.status);
+      const oldIndex = currentOrder.indexOf(activeId);
+      if (oldIndex === -1) return;
+      const step = delta.y < -8 ? -1 : delta.y > 8 ? 1 : 0;
+      if (step === 0) return;
+      const newIndex = oldIndex + step;
+      if (newIndex < 0 || newIndex >= currentOrder.length || newIndex === oldIndex) return;
+      const nextOrder = arrayMove(currentOrder, oldIndex, newIndex);
+      const updatedOrder = { ...kanbanOrder, [task.status]: nextOrder };
+      setKanbanOrder(updatedOrder);
+      saveKanbanOrder(effectiveProjectId || 'all', updatedOrder);
+      return;
+    }
 
     let newStatus: TaskStatus | undefined;
     let overTask: Task | undefined;
@@ -858,13 +929,6 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     const sourceStatus = task.status;
     const destinationStatus = newStatus;
 
-    // 현재 상태 컬럼에서의 카드 순서 배열을 가져오고, 누락된 카드가 있으면 채워 넣음
-    const getStatusOrder = (statusId: string): string[] => {
-      const existing = (kanbanOrder[statusId] ?? []).filter((id) => filteredTasks.some((t) => t.id === id && t.status === statusId));
-      const missing = (tasksByStatus[statusId] ?? []).map((t) => t.id).filter((id) => !existing.includes(id));
-      return [...existing, ...missing];
-    };
-
     // 같은 컬럼 내 상하 드래그: 순서만 변경, WBS 번호나 상태는 그대로
     if (destinationStatus === sourceStatus) {
       const currentOrder = getStatusOrder(sourceStatus);
@@ -873,8 +937,14 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
 
       let newIndex: number;
       if (wbsSettings.statusConfigs.some((c) => c.id === overId)) {
-        // 컬럼 빈 영역 등: 맨 아래로
-        newIndex = Math.max(0, currentOrder.length - 1);
+        if (refId && !statusColumnIdSet.has(refId)) {
+          const refIdx = currentOrder.indexOf(refId);
+          newIndex = refIdx !== -1 ? refIdx : Math.max(0, currentOrder.length - 1);
+        } else if (Math.abs(delta.y) > 8) {
+          newIndex = Math.max(0, Math.min(currentOrder.length - 1, oldIndex + (delta.y < 0 ? -1 : 1)));
+        } else {
+          newIndex = Math.max(0, currentOrder.length - 1);
+        }
       } else {
         newIndex = currentOrder.indexOf(overId);
         if (newIndex === -1) return;
@@ -1027,8 +1097,24 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
     }),
   };
 
-  return (
-    <div className="h-full w-full overflow-x-auto p-6 bg-[var(--color-bg)]">
+  const isSplitScroll = !!syncScrollRef;
+  const setMainScrollEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      const outer = syncScrollRef;
+      if (typeof outer === 'function') outer(el);
+      else if (outer) (outer as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [syncScrollRef],
+  );
+
+  const boardScroll = (
+    <div
+      ref={isSplitScroll ? setMainScrollEl : undefined}
+      className={cn(
+        'w-full bg-[var(--color-bg)]',
+        isSplitScroll ? 'h-full min-h-0 overflow-y-auto overflow-x-auto p-6' : 'h-full overflow-x-auto p-6',
+      )}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={kanbanCollisionDetection}
@@ -1040,7 +1126,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
           kanbanLastOverIdRef.current = null;
         }}
       >
-        <div className="flex gap-4 h-full min-w-max">
+        <div className={cn('flex gap-4 min-w-max', isSplitScroll ? 'items-start' : 'h-full')}>
           {columns.map((column) => (
             <KanbanColumn
               key={column.id}
@@ -1056,6 +1142,7 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
               onUpdateTask={updateTask}
               taskLevels={taskLevels}
               onRenameColumn={handleRenameColumn}
+              unifiedPaneScroll={isSplitScroll}
             />
           ))}
         </div>
@@ -1071,7 +1158,12 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
           ) : null}
         </DragOverlay>
       </DndContext>
+    </div>
+  );
 
+  return (
+    <>
+      {boardScroll}
       <TaskModal
         isOpen={isModalOpen}
         onClose={() => {
@@ -1094,6 +1186,6 @@ export function KanbanBoard({ filters }: KanbanBoardProps) {
         confirmLabel="삭제"
         isDanger={true}
       />
-    </div>
+    </>
   );
 }

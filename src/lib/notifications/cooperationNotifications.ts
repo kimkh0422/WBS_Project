@@ -58,6 +58,7 @@ export function computeCooperationNotifications(
   const items: CooperationNotification[] = [];
 
   for (const r of requests) {
+    if (r.archived) continue;
     if (DONE_STATUSES.has(r.status)) continue;
     const me = r.memberProgress.find((m) => nameMatches(m.name, currentUserPlainName));
     if (!me) continue;

@@ -2019,17 +2019,14 @@ export function Dashboard({
                         ))}
                       </div>
                       {emptyDivisionCards.length > 0 && (
-                        <details className="mt-2 rounded-lg border border-slate-200/70 bg-slate-50/50 group/empty">
-                          <summary className="cursor-pointer list-none px-3 py-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 select-none [&::-webkit-details-marker]:hidden">
-                            <ChevronDown
-                              size={14}
-                              className="shrink-0 opacity-60 transition-transform group-open/empty:rotate-180"
-                              aria-hidden
-                            />
+                        // 미등록(프로젝트 0) 조직도 한눈에 확인되도록 접지 않고 항상 노출 — 칩으로 압축 표시.
+                        <div className="mt-2 rounded-lg border border-slate-200/70 bg-slate-50/50">
+                          <div className="px-3 py-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-500 border-b border-slate-200/60">
+                            <Building2 size={13} className="shrink-0 opacity-50" aria-hidden />
                             미등록 조직 <span className="tabular-nums">{emptyDivisionCards.length}</span>개
                             <span className="font-normal text-slate-400">· 분류된 프로젝트·작업 없음</span>
-                          </summary>
-                          <div className="px-3 pb-2.5 pt-0.5 flex flex-wrap gap-1.5">
+                          </div>
+                          <div className="px-3 py-2 flex flex-wrap gap-1.5">
                             {emptyDivisionCards.map((d) => (
                               <button
                                 key={d.id}
@@ -2045,10 +2042,11 @@ export function Dashboard({
                               >
                                 <Building2 size={11} className="shrink-0 opacity-50" aria-hidden />
                                 <span className="truncate max-w-[10rem]">{d.name}</span>
+                                <span className="tabular-nums text-[10px] font-bold text-slate-400">0</span>
                               </button>
                             ))}
                           </div>
-                        </details>
+                        </div>
                       )}
                     </>
                   ) : (
