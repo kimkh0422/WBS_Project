@@ -113,6 +113,35 @@ export function jumpWbsCellArrowToEdge(
   return out;
 }
 
+/** PageUp/PageDown: 같은 열을 유지한 채 화면에 보이는 행 수(`pageRows`)만큼 위/아래로 이동. 끝에 도달해 못 움직이면 null */
+export function stepWbsCellPageVertical(
+  cell: WbsMarqueeCell,
+  key: 'PageUp' | 'PageDown',
+  pageRows: number,
+  opts: {
+    visibleTasks: TaskWithDepth[];
+    columnIds: TableColumnId[];
+    visibleTaskRowIndexById: Map<string, number>;
+    defaultNavColumn: TableColumnId;
+  },
+): WbsMarqueeCell | null {
+  const { visibleTasks, columnIds, visibleTaskRowIndexById, defaultNavColumn } = opts;
+  if (visibleTasks.length === 0 || columnIds.length === 0 || pageRows < 1) return null;
+  const rowIdx = visibleTaskRowIndexById.get(cell.taskId) ?? -1;
+  let colIdx = columnIds.indexOf(cell.columnId);
+  if (colIdx < 0) colIdx = Math.max(0, columnIds.indexOf(defaultNavColumn));
+  if (rowIdx < 0 || colIdx < 0) return null;
+
+  const delta = key === 'PageUp' ? -pageRows : pageRows;
+  const nextRowIdx = Math.min(visibleTasks.length - 1, Math.max(0, rowIdx + delta));
+  const nextTask = visibleTasks[nextRowIdx];
+  const nextCol = columnIds[colIdx];
+  if (!nextTask || !nextCol) return null;
+  const out: WbsMarqueeCell = { taskId: nextTask.id, columnId: nextCol };
+  if (out.taskId === cell.taskId && out.columnId === cell.columnId) return null;
+  return out;
+}
+
 /** 표시 순서·표시 컬럼 기준 직사각형 셀 키 집합 (엑셀식 드래그 범위) */
 export function buildCellMarqueeKeySet(
   visibleTasks: TaskWithDepth[],

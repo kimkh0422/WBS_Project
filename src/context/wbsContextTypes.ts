@@ -55,7 +55,7 @@ export interface WBSContextType {
   setCurrentProjectId: (id: string) => void;
   selectedTaskIds: string[];
   setSelectedTaskIds: (ids: string[]) => void;
-  /** 표↔간트 시각 강조 동기화용 단일 활성 행. 체크박스(selectedTaskIds)와는 별도. */
+  /** 간트에서 직접 선택·키보드 이동 시 활성 행(노란 강조). 표 셀 이동은 lastSelectedId만 갱신. */
   activeTaskId: string | null;
   setActiveTaskId: (id: string | null) => void;
   wbsSettings: WBSSettings;

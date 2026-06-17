@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import type { Virtualizer } from '@tanstack/virtual-core';
 import type { TaskWithDepth } from '../../lib/taskView';
 import type { TableColumnId } from '../wbsTableTypes';
+import { isPointerShiftModifierActive } from '../../lib/wbsTableShiftCellPointer';
 
 const RANGE_CELL = '[data-wbs-range-cell]';
 const DRAG_ACTIVATE_PX = 3;
@@ -35,6 +36,8 @@ interface UseWbsDragRangeSelectOptions {
     enabledRef: MutableRefObject<boolean>;
     virtualizerRef: MutableRefObject<Virtualizer<HTMLDivElement, Element> | null>;
   };
+  /** Shift+클릭 연속 범위 확장 중 — pointerup 시 한 칸 마퀴로 덮어쓰지 않게 */
+  shiftModifierActiveRef?: MutableRefObject<boolean>;
 }
 
 interface DragState {
@@ -69,6 +72,7 @@ export function useWbsDragRangeSelect({
   setAnchorTaskId,
   enabled = true,
   virtualRangeFallback,
+  shiftModifierActiveRef,
 }: UseWbsDragRangeSelectOptions) {
   const visibleTasksRef = useRef(visibleTasks);
   visibleTasksRef.current = visibleTasks;
@@ -88,6 +92,25 @@ export function useWbsDragRangeSelect({
   setCellMarqueeRangeRef.current = setCellMarqueeRange;
   const setAnchorTaskIdRef = useRef(setAnchorTaskId);
   setAnchorTaskIdRef.current = setAnchorTaskId;
+  const shiftModifierActiveRefOpt = useRef(shiftModifierActiveRef);
+  shiftModifierActiveRefOpt.current = shiftModifierActiveRef;
+
+  const shiftModActive = (e?: { shiftKey?: boolean; getModifierState?: (key: string) => boolean }) =>
+    isPointerShiftModifierActive(e ?? {}, shiftModifierActiveRefOpt.current);
+
+  const teardownDragState = (st: DragState) => {
+    st.detachWindowListeners();
+    stopEdgeScroll();
+    document.body.style.userSelect = '';
+    try {
+      if (st.scrollEl.hasPointerCapture(st.pointerId)) {
+        st.scrollEl.releasePointerCapture(st.pointerId);
+      }
+    } catch {
+      /* ignore */
+    }
+    stateRef.current = null;
+  };
 
   const stateRef = useRef<DragState | null>(null);
   const rangeDragScrollBoundRef = useRef<HTMLDivElement | null>(null);
@@ -219,7 +242,7 @@ export function useWbsDragRangeSelect({
   const stableNativePointerDown = useCallback(
     (e: PointerEvent) => {
       if (!enabledRef.current || e.button !== 0 || e.pointerType === 'touch') return;
-      if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (shiftModActive(e) || e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       if (!target || target.closest(SKIP_SELECTOR)) return;
       const anchorCell = readCellFromEl(target);
@@ -239,6 +262,11 @@ export function useWbsDragRangeSelect({
         const st = stateRef.current;
         if (!st) return;
         if (ev.pointerId !== st.pointerId) return;
+        // Shift+클릭 범위 확장 중에는 드래그 앵커를 잡지 않는다( pointerup 한 칸 덮어쓰기 방지 ).
+        if (!st.active && shiftModActive(ev)) {
+          teardownDragState(st);
+          return;
+        }
         st.lastX = ev.clientX;
         st.lastY = ev.clientY;
         if (!st.active) {
@@ -262,7 +290,7 @@ export function useWbsDragRangeSelect({
         syncEdgeScrollRef.current();
       };
 
-      const onUp = () => {
+      const onUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', onMove, CAPTURE_MOVE);
         window.removeEventListener('pointerup', onUp, true);
         window.removeEventListener('pointercancel', onUp, true);
@@ -282,15 +310,15 @@ export function useWbsDragRangeSelect({
         const anchorCell = cur?.anchorCell ?? null;
         stateRef.current = null;
         if (wasActive) {
-          const swallow = (ev: Event) => {
-            ev.stopPropagation();
-            ev.preventDefault();
+          const swallow = (clickEv: Event) => {
+            clickEv.stopPropagation();
+            clickEv.preventDefault();
             window.removeEventListener('click', swallow, true);
           };
           window.addEventListener('click', swallow, true);
           window.setTimeout(() => window.removeEventListener('click', swallow, true), 400);
-        } else if (anchorCell) {
-          // 드래그로 범위를 넓히지 않고 뗀 경우(클릭): 한 칸 마퀴·포커스 — 체크 다중 선택은 유지(드래그 범위 시작 시에만 해제).
+        } else if (anchorCell && !shiftModActive(ev)) {
+          // 드래그로 범위를 넓히지 않고 뗀 경우(클릭): 한 칸 마퀴·포커스 — Shift+클릭 연속 범위 확장 시에는 덮어쓰지 않음.
           setCellMarqueeRangeRef.current({ anchor: anchorCell, end: anchorCell });
           setLastSelectedIdRef.current(anchorCell.taskId);
           setFocusedCellRef.current(anchorCell);

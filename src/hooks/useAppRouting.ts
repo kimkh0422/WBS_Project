@@ -96,11 +96,12 @@ export function useAppRouting({
         .map((s) => s.trim())
         .filter(Boolean),
     );
-    // 기본 작업 화면은 '표+간트'. '표만'(간트 숨김)·'간트 단독'은 숨긴다 — 항상 표+간트(밸런스)로 작업한다.
+    // 기본 상단 메뉴: 대시보드·표+간트·칸반(할일)·버그사항만. 나머지 작업 뷰는 숨김.
     set.add('kanban');
     set.add('outlook');
     set.add('gantt');
     set.add('table');
+    set.add('tablekanban');
     if (!effectiveIsAdmin) {
       set.add('mindmap');
     }

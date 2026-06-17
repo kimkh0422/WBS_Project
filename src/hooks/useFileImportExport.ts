@@ -1,10 +1,19 @@
 import React, { useCallback, useMemo, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
 import { Task, Project, FilterState } from '../types';
 import { BackupData } from '../lib/export';
+import type { WBSSettings } from '../lib/wbsSettings';
 // xlsx(약 424KB)는 무거우므로 정적 import하지 않는다. 내보내기/가져오기 시점에 동적 로드해
 // 첫 화면 진입 경로에서 vendor-xlsx 청크가 eager preload 되지 않도록 한다. (타입만 정적 import)
 import type { ExcelImportMeta, ExcelImportFieldId, ExcelImportFieldOverride, ExcelImportCustomColumnInput } from '../lib/excel';
-import { exportBackupToJson, exportToMarkdown, parseBackupJson, parseMultipleBackupJsons } from '../lib/export';
+import {
+  exportBackupToJson,
+  exportToMarkdown,
+  parseBackupJson,
+  parseMultipleBackupJsons,
+  applyMarkdownTableToProject,
+  extractProjectIdFromMarkdown,
+  markdownApplyFeedbackMessage,
+} from '../lib/export';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from '../lib/assigneeOptions';
 import { formatProjectDisplayName } from '../lib/projectKind';
 import { v4 as uuidv4 } from 'uuid';
@@ -50,6 +59,7 @@ interface FileImportExportDeps {
   allTasks: Task[];
   currentProjectId: string;
   wbsMap: Map<string, string>;
+  wbsSettings: Pick<WBSSettings, 'level1Prefix' | 'level2Prefix' | 'level3Prefix'>;
   pushToast: (message: string, opts?: Record<string, unknown>) => void;
   importTasks: (
     tasks: Task[],
@@ -60,6 +70,8 @@ interface FileImportExportDeps {
   restoreBackup: (data: BackupData) => void;
   mergeBackups: (backups: BackupData[]) => { addedProjects: number; addedTasks: number };
   exportFullBackup: () => BackupData;
+  updateTask: (id: string, updates: Partial<Task>, options?: { deferScheduleSync?: boolean }) => void;
+  flushProjectTaskRollups: (projectId: string, options?: { skipDependencySchedule?: boolean }) => void;
   setCurrentProjectId: (id: string) => void;
   setFilters: Dispatch<SetStateAction<FilterState>>;
   setImportPreview: Dispatch<SetStateAction<ImportPreviewState>>;
@@ -86,11 +98,14 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     allTasks,
     currentProjectId,
     wbsMap,
+    wbsSettings,
     pushToast,
     importTasks,
     restoreBackup,
     mergeBackups,
     exportFullBackup,
+    updateTask,
+    flushProjectTaskRollups,
     setCurrentProjectId,
     setFilters,
     setImportPreview,
@@ -423,6 +438,65 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     [setBackupConfirm, setMultiMergeConfirm],
   );
 
+  const resolveMarkdownImportScopeId = useCallback(
+    (md: string): string | null => {
+      const fromMd = extractProjectIdFromMarkdown(md);
+      if (fromMd && projects.some((p) => p.id === fromMd)) return fromMd;
+      if (currentProjectId !== 'all' && projects.some((p) => p.id === currentProjectId)) return currentProjectId;
+      return null;
+    },
+    [projects, currentProjectId],
+  );
+
+  const importFromMarkdownFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length > 1) {
+        alertUser('마크다운(.md) 가져오기는 한 번에 파일 하나만 선택할 수 있습니다.', { variant: 'warning' });
+        return;
+      }
+      const file = files[0];
+      const md = await file.text();
+      const scopeId = resolveMarkdownImportScopeId(md);
+      if (!scopeId) {
+        alertUser(
+          '반영할 프로젝트를 찾지 못했습니다. 앱에서 「MD 편집」으로 보낸 파일(헤더에 projectId 포함)을 사용하거나, 가져오기 전에 프로젝트를 하나 선택하세요.',
+          { variant: 'warning' },
+        );
+        return;
+      }
+      const prefixHints = {
+        level1Prefix: wbsSettings.level1Prefix,
+        level2Prefix: wbsSettings.level2Prefix,
+        level3Prefix: wbsSettings.level3Prefix,
+      };
+      const result = applyMarkdownTableToProject(md, scopeId, allTasks, projects, wbsMap, updateTask, prefixHints, {
+        deferScheduleSync: true,
+      });
+      const { variant, message } = markdownApplyFeedbackMessage(result);
+      if (result.updated > 0) {
+        flushProjectTaskRollups(scopeId, { skipDependencySchedule: true });
+        setCurrentProjectId(scopeId);
+        setFilters((prev) => ({ ...prev, projectIds: [scopeId] }));
+        onImportComplete?.();
+      }
+      pushToast(message, { variant, durationMs: variant === 'warning' ? 9000 : undefined });
+    },
+    [
+      resolveMarkdownImportScopeId,
+      allTasks,
+      projects,
+      wbsMap,
+      wbsSettings,
+      updateTask,
+      flushProjectTaskRollups,
+      setCurrentProjectId,
+      setFilters,
+      onImportComplete,
+      pushToast,
+      alertUser,
+    ],
+  );
+
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []) as File[];
@@ -434,9 +508,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         } else if (firstExt === 'json') {
           await importFromBackupJsonFiles(files);
         } else if (firstExt === 'md') {
-          alertUser('Markdown(.md) 파일 가져오기는 아직 지원되지 않습니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택해주세요.', {
-            variant: 'warning',
-          });
+          await importFromMarkdownFiles(files);
         } else {
           alertUser('지원하지 않는 파일 형식입니다. Excel(.xlsx) 또는 백업 JSON(.json) 파일만 선택할 수 있습니다.', {
             variant: 'warning',
@@ -449,7 +521,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
-    [importFromExcelFiles, importFromBackupJsonFiles, alertUser],
+    [importFromExcelFiles, importFromBackupJsonFiles, importFromMarkdownFiles, alertUser],
   );
 
   const handleBackupFileChange = useCallback(

@@ -27,6 +27,7 @@ import {
   jumpWbsCellArrowToEdge,
   parseClipboardTsvToTextGrid,
   stepWbsCellArrow,
+  stepWbsCellPageVertical,
   type WbsMarqueeCell,
 } from '../../lib/wbsCellMarquee';
 
@@ -55,6 +56,26 @@ function visibleOrderedTaskIdsFromCellMarquee(
   const idSet = new Set(targets.map((t) => t.taskId));
   const ordered = visibleTasks.filter((t) => idSet.has(t.id)).map((t) => t.id);
   return ordered.length > 0 ? ordered : null;
+}
+
+/** Tab/Shift+Tab 다중 레벨 변경: 셀 마퀴(2행 이상) → 체크 행 선택으로 전환 */
+function syncCellMarqueeRowsToCheckboxSelection(
+  rowIds: string[],
+  setCellMarqueeRange: (
+    range: { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null,
+  ) => void,
+  setSelection: (next: Set<string>) => void,
+  syncRangeAnchorForKeyboardFocus: ((id: string) => void) | undefined,
+  setLastSelectedId: (id: string | null) => void,
+  setFocusedCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void,
+): void {
+  if (rowIds.length < 2) return;
+  setCellMarqueeRange(null);
+  setSelection(new Set(rowIds));
+  syncRangeAnchorForKeyboardFocus?.(rowIds[0]!);
+  const lastRow = rowIds[rowIds.length - 1]!;
+  setLastSelectedId(lastRow);
+  setFocusedCell({ taskId: lastRow, columnId: 'name' });
 }
 /** 표시 순서 기준: 한 행과 접혀 있지 않은 한 화면에 보이는 모든 하위 행 */
 function collectVisibleSubtreeRows(visibleTasks: TaskWithDepth[], rootId: string): TaskWithDepth[] {
@@ -182,36 +203,90 @@ export function canTypeToEditColumn(columnId: TableColumnId, _hasChildren: boole
   return true;
 }
 
-/** Enter로 즉시 인라인 편집을 열 수 있는 컬럼(읽기 전용·파생 제외). */
-function canEnterInlineOnFocusedColumn(columnId: TableColumnId, hasChildren: boolean): boolean {
-  if (columnId === 'plannedProgress') return false;
-  if (columnId === 'workComposition') return false;
-  if (columnId === 'status' || columnId === 'allocation' || columnId === 'dependencies') return true;
-  return canTypeToEditColumn(columnId, hasChildren);
-}
-
-function resolveEnterOpensCellEdit(opts: {
-  focusedCell: { taskId: string; columnId: TableColumnId };
-  editableColumnIds: TableColumnId[];
-  tasks: Task[];
+/** 편집 커밋 후·셀 선택만 있을 때 Enter — 같은 열의 아래 행(↓와 동일 격자 규칙). */
+function applyWbsEnterMoveDown(opts: {
+  currentTaskId: string;
+  currentColId: TableColumnId;
   visibleTasks: TaskWithDepth[];
-}): WbsEditingCellPayload | null {
-  const { focusedCell, editableColumnIds, tasks, visibleTasks } = opts;
-  const { taskId, columnId: focusCol } = focusedCell;
-  if (!editableColumnIds.includes(focusCol)) return null;
-  const t = tasks.find((x) => x.id === taskId);
-  if (!t || !visibleTasks.some((vt) => vt.id === taskId) || t.mirroredFromTaskId) return null;
-  if (focusCol === 'plannedProgress') return null;
-  if (focusCol === 'workComposition') return null;
-  const editCol = delegateInlineEditColumnId(focusCol, editableColumnIds);
-  if (isDerivedScheduleColumnId(focusCol) && editCol === focusCol) return null;
-  const hasChildren = tasks.some((x) => x.parentId === taskId);
-  // 작업명: Enter는 형제 작업 추가로만 쓰고, 인라인 편집은 F2·type-to-edit 사용
-  if (focusCol === 'name') {
-    return null;
+  editableColumnIds: TableColumnId[];
+  visibleTaskRowIndexById: Map<string, number>;
+  canEditCurrentProject: boolean;
+  ghostPlaceholderRowCount: number;
+  keyboardCellShiftAnchorRef: { current: WbsMarqueeCell | null };
+  cellNavCursorRef: {
+    current: { lastSelectedId: string | null; focusedCell: { taskId: string; columnId: TableColumnId } | null };
+  };
+  clearBulkCheckboxSelectionOnKeyboardCursorMove: () => void;
+  maybeSyncShiftRangeAnchor: (taskId: string) => void;
+  setCellMarqueeRange: (
+    range: { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null,
+  ) => void;
+  setFocusedCell: (cell: { taskId: string; columnId: TableColumnId } | null) => void;
+  setLastSelectedId: (id: string | null) => void;
+  setGhostFocusIdx: (idx: number | null) => void;
+  focusTableScrollIfNeeded: () => void;
+}): void {
+  const {
+    currentTaskId,
+    currentColId,
+    visibleTasks,
+    editableColumnIds,
+    visibleTaskRowIndexById,
+    canEditCurrentProject,
+    ghostPlaceholderRowCount,
+    keyboardCellShiftAnchorRef,
+    cellNavCursorRef,
+    clearBulkCheckboxSelectionOnKeyboardCursorMove,
+    maybeSyncShiftRangeAnchor,
+    setCellMarqueeRange,
+    setFocusedCell,
+    setLastSelectedId,
+    setGhostFocusIdx,
+    focusTableScrollIfNeeded,
+  } = opts;
+  const defaultNavColumnEnter: TableColumnId = editableColumnIds.includes('name')
+    ? 'name'
+    : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
+  const stepOptsEnter = {
+    visibleTasks,
+    columnIds: editableColumnIds,
+    visibleTaskRowIndexById,
+    defaultNavColumn: defaultNavColumnEnter,
+  } as const;
+  const nextCell = stepWbsCellArrow({ taskId: currentTaskId, columnId: currentColId }, 'ArrowDown', stepOptsEnter);
+  const rowIdx = visibleTaskRowIndexById.get(currentTaskId) ?? -1;
+  let colIdx = editableColumnIds.indexOf(currentColId);
+  if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumnEnter));
+  if (
+    !nextCell &&
+    rowIdx >= 0 &&
+    colIdx >= 0 &&
+    rowIdx === visibleTasks.length - 1 &&
+    canEditCurrentProject &&
+    ghostPlaceholderRowCount > 0
+  ) {
+    keyboardCellShiftAnchorRef.current = null;
+    setCellMarqueeRange(null);
+    clearBulkCheckboxSelectionOnKeyboardCursorMove();
+    setFocusedCell(null);
+    setGhostFocusIdx(0);
+    cellNavCursorRef.current.focusedCell = null;
+  } else if (nextCell) {
+    keyboardCellShiftAnchorRef.current = null;
+    setCellMarqueeRange(null);
+    clearBulkCheckboxSelectionOnKeyboardCursorMove();
+    setLastSelectedId(nextCell.taskId);
+    maybeSyncShiftRangeAnchor(nextCell.taskId);
+    setFocusedCell(nextCell);
+    cellNavCursorRef.current = {
+      lastSelectedId: nextCell.taskId,
+      focusedCell: nextCell,
+    };
+    document.getElementById(`task-row-${nextCell.taskId}`)?.scrollIntoView({ block: 'nearest' });
+  } else {
+    setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
   }
-  if (!canEnterInlineOnFocusedColumn(editCol, hasChildren)) return null;
-  return { taskId, columnId: editCol };
+  focusTableScrollIfNeeded();
 }
 
 /**
@@ -320,6 +395,10 @@ export interface WbsTableKeyboardDeps {
   ) => string[];
   updateTask: (id: string, updates: Partial<Task>) => void;
   moveTask: (id: string, direction: 'up' | 'down') => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   applySiblingMoveSteps: (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => void;
   indentTask: (id: string) => void;
   outdentTask: (id: string) => void;
@@ -396,6 +475,10 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     addTask,
     insertPastedTasksInOrder,
     updateTask,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     moveTask,
     applySiblingMoveSteps,
     indentTask,
@@ -440,6 +523,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
   /** 리스너는 마운트 시 한 번만 붙이고 본문은 ref로 최신화 — Shift+↑↓ 연타 시 effect 재구독 사이에 keydown이 유실되는 것을 방지 */
   const hotkeysEnabledRef = useRef(hotkeysEnabled);
   hotkeysEnabledRef.current = hotkeysEnabled;
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  const redoRef = useRef(redo);
+  redoRef.current = redo;
+  const canUndoRef = useRef(canUndo);
+  canUndoRef.current = canUndo;
+  const canRedoRef = useRef(canRedo);
+  canRedoRef.current = canRedo;
   const excelViewRef = useRef(excelView);
   excelViewRef.current = excelView;
 
@@ -463,11 +554,40 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
 
   handleKeyDownRef.current = (e: KeyboardEvent) => {
-    if (!hotkeysEnabledRef.current) return;
     if (isComposingKeyEvent(e)) return;
     const target = e.target as HTMLElement;
-    if (editingTask) return;
+
+    // Ctrl+Z / Ctrl+Y·Shift+Z — 셀 INPUT 편집 중에도 앱 실행 취소(브라우저 기본 undo는 React 입력에서 동작하지 않음)
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const isUndo = k === 'z' && !e.shiftKey;
+      const isRedo = (k === 'y' && !e.shiftKey) || (k === 'z' && e.shiftKey);
+      if (isUndo || isRedo) {
+        const inWbsTable = target.closest?.('[data-wbs-table]');
+        const tableHasFocus =
+          !!tableScrollRef.current &&
+          (document.activeElement === tableScrollRef.current || tableScrollRef.current.contains(document.activeElement));
+        const inQuickAdd = target.closest?.('[data-quick-add]');
+        if ((inWbsTable || tableHasFocus) && !inQuickAdd && !editingTask) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (inlineEditingNameId) {
+            commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
+            setInlineEditingNameId(null);
+          }
+          setEditingCell(null);
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          tableScrollRef.current?.focus();
+          if (isUndo && canUndoRef.current) undoRef.current();
+          else if (isRedo && canRedoRef.current) redoRef.current();
+          return;
+        }
+      }
+    }
+
+    if (!hotkeysEnabledRef.current) return;
     if (target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+    if (editingTask) return;
 
     // 엑셀 뷰(ag-grid)에서는 기본 키보드 동작(Tab/Enter/Insert 등)을 그대로 사용하도록
     // 전역 단축키를 비활성화한다.
@@ -569,6 +689,16 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
     };
 
+    const marqueeRowIdsForTab = visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
+    // 다중(체크 ≥2행 또는 셀 마퀴 2행·2칸 이상): Tab/Shift+Tab은 엑셀식 셀 이동·표 밖 입력 가드보다 들여쓰기·내어쓰기 우선
+    const tabBulkLevelTargets = selectedTaskIds.size > 1 || (marqueeRowIdsForTab?.length ?? 0) > 1 || (cellMarqueeKeySet?.size ?? 0) > 1;
+    const tabPreferBulkLevel = e.key === 'Tab' && tabBulkLevelTargets;
+    if (tabPreferBulkLevel) {
+      // Shift+Tab은 브라우저 기본(이전 포커스)보다 먼저 막아야 다중 내어쓰기가 동작한다.
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     /** 보라 다중 선택 안에서 ↑↓만으로는 Shift 앵커 유지; 선택 밖 행으로 포커스가 나가면 앵커를 그 행에 맞춘다 */
     const maybeSyncShiftRangeAnchor = (taskId: string) => {
       if (selectedTaskIds.size === 0 || !selectedTaskIds.has(taskId)) {
@@ -594,8 +724,14 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return;
     }
 
-    // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (Ctrl/Meta+화살표 격자 끝 이동만 예외)
-    if (!inWbsTable && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && !ctrlArrowCellEdgeFromOutsideInput) return;
+    // 표 밖의 일반 입력/셀렉트 포커스 중에는 단축키 미동작 (Ctrl/Meta+화살표 격자 끝 이동·다중 Tab 레벨 변경만 예외)
+    if (
+      !inWbsTable &&
+      (target.tagName === 'INPUT' || target.tagName === 'SELECT') &&
+      !ctrlArrowCellEdgeFromOutsideInput &&
+      !tabPreferBulkLevel
+    )
+      return;
 
     // 비-name 셀(assignee/status/progress/등) 편집 중 Enter: 값 커밋 후 엑셀처럼 같은 열의 한 행 아래로 포커스 이동.
     // 마지막 행에서는 ↓와 동일하게 ghost 행이 있으면 ghost로 진입, 없으면 같은 셀에 머무름.
@@ -650,49 +786,24 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
             document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
           }
         } else {
-          // 그냥 Enter: 커밋 후 같은 열의 아래 행(화살표 ↓와 동일 격자 규칙)
-          const defaultNavColumnEnter: TableColumnId = editableColumnIds.includes('name')
-            ? 'name'
-            : ((editableColumnIds[0] as TableColumnId | undefined) ?? 'name');
-          const stepOptsEnter = {
+          applyWbsEnterMoveDown({
+            currentTaskId,
+            currentColId,
             visibleTasks,
-            columnIds: editableColumnIds,
+            editableColumnIds,
             visibleTaskRowIndexById,
-            defaultNavColumn: defaultNavColumnEnter,
-          } as const;
-          const nextCell = stepWbsCellArrow({ taskId: currentTaskId, columnId: currentColId }, 'ArrowDown', stepOptsEnter);
-          const rowIdx = visibleTaskRowIndexById.get(currentTaskId) ?? -1;
-          let colIdx = editableColumnIds.indexOf(currentColId);
-          if (colIdx < 0) colIdx = Math.max(0, editableColumnIds.indexOf(defaultNavColumnEnter));
-          if (
-            !nextCell &&
-            rowIdx >= 0 &&
-            colIdx >= 0 &&
-            rowIdx === visibleTasks.length - 1 &&
-            canEditCurrentProject &&
-            ghostPlaceholderRowCount > 0
-          ) {
-            keyboardCellShiftAnchorRef.current = null;
-            setCellMarqueeRange(null);
-            clearBulkCheckboxSelectionOnKeyboardCursorMove();
-            setFocusedCell(null);
-            setGhostFocusIdx(0);
-            cellNavCursorRef.current.focusedCell = null;
-          } else if (nextCell) {
-            keyboardCellShiftAnchorRef.current = null;
-            setCellMarqueeRange(null);
-            clearBulkCheckboxSelectionOnKeyboardCursorMove();
-            setLastSelectedId(nextCell.taskId);
-            maybeSyncShiftRangeAnchor(nextCell.taskId);
-            setFocusedCell(nextCell);
-            cellNavCursorRef.current = {
-              lastSelectedId: nextCell.taskId,
-              focusedCell: nextCell,
-            };
-            document.getElementById(`task-row-${nextCell.taskId}`)?.scrollIntoView({ block: 'nearest' });
-          } else {
-            setFocusedCell({ taskId: currentTaskId, columnId: currentColId });
-          }
+            canEditCurrentProject,
+            ghostPlaceholderRowCount,
+            keyboardCellShiftAnchorRef,
+            cellNavCursorRef,
+            clearBulkCheckboxSelectionOnKeyboardCursorMove,
+            maybeSyncShiftRangeAnchor,
+            setCellMarqueeRange,
+            setFocusedCell,
+            setLastSelectedId,
+            setGhostFocusIdx,
+            focusTableScrollIfNeeded,
+          });
         }
         requestAnimationFrame(() => {
           tableScrollRef.current?.focus();
@@ -730,14 +841,43 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return;
     }
 
+    // 상태(select) 등 editingCell 없이 항상 보이는 컨트롤 포커스 중 Enter — 아래 행으로 이동(엑셀).
+    if (e.key === 'Enter' && !e.shiftKey && !editingCell && !inlineEditingNameId && inWbsTable) {
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLSelectElement &&
+        tableScrollRef.current?.contains(active) &&
+        active.id.startsWith('wbs-edit-') &&
+        cursorFocusedCell &&
+        editableColumnIds.includes(cursorFocusedCell.columnId)
+      ) {
+        e.preventDefault();
+        active.blur();
+        applyWbsEnterMoveDown({
+          currentTaskId: cursorFocusedCell.taskId,
+          currentColId: cursorFocusedCell.columnId,
+          visibleTasks,
+          editableColumnIds,
+          visibleTaskRowIndexById,
+          canEditCurrentProject,
+          ghostPlaceholderRowCount,
+          keyboardCellShiftAnchorRef,
+          cellNavCursorRef,
+          clearBulkCheckboxSelectionOnKeyboardCursorMove,
+          maybeSyncShiftRangeAnchor,
+          setCellMarqueeRange,
+          setFocusedCell,
+          setLastSelectedId,
+          setGhostFocusIdx,
+          focusTableScrollIfNeeded,
+        });
+        return;
+      }
+    }
+
     // 편집 중 화살표는 input의 기본 동작(텍스트 커서 이동/숫자 값 증감)만 허용.
     // 셀 이동은 Enter(커밋·아래 행) 또는 Esc(취소) 또는 Tab/Shift+Tab(연속 편집) 후에만 가능.
     // → 사용자가 편집 중 의도치 않게 다른 셀로 이동되는 것을 방지.
-
-    // 다중(체크 ≥2행 또는 셀 마퀴 2칸 이상) + 비편집: Tab/Shift+Tab은 엑셀식 셀 이동보다 들여쓰기·내어쓰기 우선
-    // (작업명만 마퀴가 아닌 열 혼합 직사각형일 때도 Shift+Tab이 마지막 셀만 움직이던 문제 방지)
-    const tabBulkLevelTargets = selectedTaskIds.size > 1 || (cellMarqueeKeySet?.size ?? 0) > 1;
-    const tabPreferBulkLevel = e.key === 'Tab' && !editingCell && !inlineEditingNameId && tabBulkLevelTargets;
 
     // Tab / Shift+Tab: 셀 단위 좌우 이동 (Excel 스타일)
     // - 편집 중(셀 편집 또는 작업명 인라인 편집): 현재 입력값 커밋(blur) 후 다음/이전 셀로 이동하여 계속 편집
@@ -807,6 +947,113 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
           return;
         }
+      }
+    }
+
+    // Tab / Shift+Tab: 레벨 들여쓰기·내어쓰기 — Excel 셀 이동 블록 직후 처리(중간 return에 가로채이지 않게).
+    if (e.key === 'Tab') {
+      if (!tabPreferBulkLevel && (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target))) {
+        return;
+      }
+      if (!canEditCurrentProject) {
+        if (tabPreferBulkLevel) e.preventDefault();
+        return;
+      }
+
+      if (tabPreferBulkLevel) {
+        if (inlineEditingNameId) {
+          commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
+          setInlineEditingNameId(null);
+        }
+        if (editingCell) {
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          setEditingCell(null);
+        }
+      }
+
+      const fromNameMarquee = visibleOrderedTaskIdsForNameOnlyCellMarquee(cellMarqueeKeySet, visibleTasks);
+      const fromAnyMarquee = marqueeRowIdsForTab ?? visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
+      const marqueeRangeSnap =
+        cellMarqueeRange && (cellMarqueeKeySet?.size ?? 0) > 1
+          ? ({ anchor: cellMarqueeRange.anchor, end: cellMarqueeRange.end } as const)
+          : null;
+
+      let orderedIds: string[] = [];
+      let nameMarqueeRestore: string[] | null = null;
+      let syncedMarqueeToCheckboxRows = false;
+
+      const checkboxOrdered =
+        selectedTaskIds.size > 0
+          ? (() => {
+              const visibleOrdered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+              const visibleSet = new Set(visibleOrdered);
+              const hiddenSelected = tasks.filter((t) => selectedTaskIds.has(t.id) && !visibleSet.has(t.id)).map((t) => t.id);
+              return [...visibleOrdered, ...hiddenSelected];
+            })()
+          : [];
+
+      const marqueeRows = fromAnyMarquee && fromAnyMarquee.length >= 2 ? fromAnyMarquee : null;
+      const preferMarqueeRows = marqueeRows != null && (selectedTaskIds.size <= 1 || marqueeRows.length > selectedTaskIds.size);
+
+      if (selectedTaskIds.size > 1 && !preferMarqueeRows) {
+        orderedIds = checkboxOrdered;
+      } else if (marqueeRows) {
+        orderedIds = marqueeRows;
+        syncedMarqueeToCheckboxRows = true;
+        syncCellMarqueeRowsToCheckboxSelection(
+          marqueeRows,
+          setCellMarqueeRange,
+          setSelection,
+          syncRangeAnchorForKeyboardFocus,
+          setLastSelectedId,
+          setFocusedCell,
+        );
+      } else if (fromNameMarquee && fromNameMarquee.length >= 2) {
+        orderedIds = fromNameMarquee;
+        syncedMarqueeToCheckboxRows = true;
+        syncCellMarqueeRowsToCheckboxSelection(
+          fromNameMarquee,
+          setCellMarqueeRange,
+          setSelection,
+          syncRangeAnchorForKeyboardFocus,
+          setLastSelectedId,
+          setFocusedCell,
+        );
+      } else if (checkboxOrdered.length > 0) {
+        orderedIds = checkboxOrdered;
+      } else if (fromNameMarquee && fromNameMarquee.length > 0) {
+        orderedIds = fromNameMarquee;
+        nameMarqueeRestore = fromNameMarquee;
+      } else if (fromAnyMarquee && fromAnyMarquee.length > 0) {
+        orderedIds = fromAnyMarquee;
+      } else if (cursorLastSelectedId) {
+        orderedIds = [cursorLastSelectedId];
+      }
+
+      if (orderedIds.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          outdentTasks(orderedIds);
+        } else {
+          indentTasks(orderedIds);
+        }
+        if (nameMarqueeRestore && nameMarqueeRestore.length > 0) {
+          const first = nameMarqueeRestore[0]!;
+          const last = nameMarqueeRestore[nameMarqueeRestore.length - 1]!;
+          requestAnimationFrame(() => {
+            setCellMarqueeRange({
+              anchor: { taskId: first, columnId: 'name' },
+              end: { taskId: last, columnId: 'name' },
+            });
+          });
+        } else if (!syncedMarqueeToCheckboxRows && marqueeRangeSnap) {
+          requestAnimationFrame(() => {
+            setCellMarqueeRange({ anchor: marqueeRangeSnap.anchor, end: marqueeRangeSnap.end });
+          });
+        }
+        tableScrollRef.current?.focus({ preventScroll: true });
+        return;
       }
     }
 
@@ -967,6 +1214,63 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
     }
 
+    // Home/End: 현재 행의 첫/마지막 편집 열. PageUp/PageDown: 스크롤 영역에 보이는 행 수만큼 위/아래(엑셀 PageUp/Down).
+    const homeEndPageKey = e.key === 'Home' || e.key === 'End' || e.key === 'PageUp' || e.key === 'PageDown';
+    if (
+      ghostFocusIdx === null &&
+      !editingCell &&
+      !inlineEditingNameId &&
+      !isWbsTableCellTypingTarget(target) &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      homeEndPageKey &&
+      effectiveArrowCell &&
+      editableColumnIds.length > 0
+    ) {
+      const stepOpts = {
+        visibleTasks,
+        columnIds: editableColumnIds,
+        visibleTaskRowIndexById,
+        defaultNavColumn,
+      } as const;
+
+      keyboardCellShiftAnchorRef.current = null;
+      setCellMarqueeRange(null);
+
+      let next: WbsMarqueeCell | null = null;
+      if (e.key === 'Home') {
+        next = jumpWbsCellArrowToEdge({ taskId: effectiveArrowCell.taskId, columnId: effectiveArrowCell.columnId }, 'ArrowLeft', stepOpts);
+      } else if (e.key === 'End') {
+        next = jumpWbsCellArrowToEdge({ taskId: effectiveArrowCell.taskId, columnId: effectiveArrowCell.columnId }, 'ArrowRight', stepOpts);
+      } else {
+        const scrollEl = tableScrollRef.current;
+        const pageRows = scrollEl && rowHeight > 0 ? Math.max(1, Math.floor(scrollEl.clientHeight / rowHeight)) : 10;
+        next = stepWbsCellPageVertical(
+          { taskId: effectiveArrowCell.taskId, columnId: effectiveArrowCell.columnId },
+          e.key as 'PageUp' | 'PageDown',
+          pageRows,
+          stepOpts,
+        );
+      }
+
+      e.preventDefault();
+      if (next) {
+        keyboardShiftPivotIdRef.current = null;
+        clearBulkCheckboxSelectionOnKeyboardCursorMove();
+        setFocusedCell(next);
+        setLastSelectedId(next.taskId);
+        maybeSyncShiftRangeAnchor(next.taskId);
+        cellNavCursorRef.current = {
+          lastSelectedId: next.taskId,
+          focusedCell: next,
+        };
+        document.getElementById(`task-row-${next.taskId}`)?.scrollIntoView({ block: 'nearest' });
+      }
+      focusTableScrollIfNeeded();
+      return;
+    }
+
     // Esc: 편집·포커스·편집 모드·인라인 추가·선택을 한 번에 해제 (여러 상태가 겹쳐 있어도 1회로 정리)
     if (e.key === 'Escape') {
       const hadOverlay =
@@ -1004,16 +1308,20 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     // `e.target`만 보면 포커스는 텍스트 input인데 target이 행 등으로 잡혀 Space가 체크 토글로 가는 경우가 있어 activeElement도 함께 본다.
     const activeEl = document.activeElement as HTMLElement | null;
     const typingInWbsCell = isWbsTableCellTypingTarget(target) || (!!activeEl && isWbsTableCellTypingTarget(activeEl));
-    if (inlineEditingNameId) return;
+    if (inlineEditingNameId && !tabPreferBulkLevel) return;
     // 시작일 등은 클릭만으로 편집 input에 포커스가 가므로, 내부 격자/행 붙여넣기(Ctrl+V)는 여기서 막지 않는다.
     // (막으면 브라우저 기본 붙여넣기만 시도해 type=date 등에서는 아무 반응이 없는 것처럼 보임)
     const isPasteKey = (e.ctrlKey || e.metaKey) && e.key === 'v';
     const internalPasteShortcut = isPasteKey && (copiedCellRegion != null || copiedTasks.length > 0 || loadClipboardTasks().length > 0);
-    if ((editingCell && !internalPasteShortcut) || (typingInWbsCell && !tabPreferBulkLevel && !internalPasteShortcut)) return;
+    if (
+      (editingCell && !tabPreferBulkLevel && !internalPasteShortcut) ||
+      (typingInWbsCell && !tabPreferBulkLevel && !internalPasteShortcut)
+    )
+      return;
     const inWbsTableFallback = (target as HTMLElement).closest?.('[data-wbs-table]');
     if (!inWbsTableFallback) {
-      // 표 밖의 일반 입력/셀렉트는 기본 동작 유지 (검색창 등)
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
+      // 표 밖의 일반 입력/셀렉트는 기본 동작 유지 (검색창 등). 다중 선택 Tab/Shift+Tab 레벨 변경은 일괄 수정 바 등에서도 허용.
+      if ((target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') && !tabPreferBulkLevel) return;
     }
 
     // Row height: Ctrl+Plus / Ctrl+Minus (표·간트 공통) — e.code로 레이아웃 차이 완화
@@ -1930,101 +2238,35 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           }
         }
       }
-    } else if (e.key === 'Tab') {
-      // 셀 입력 중 Tab은 위 Excel식 이동 블록에서 처리. 그 외에는 들여쓰기/내어쓰기.
-      if (editingCell || inlineEditingNameId || (isWbsTableCellTypingTarget(target) && !tabPreferBulkLevel)) return;
-      if (!canEditCurrentProject) return; // 편집 권한 없으면 레벨 변경 비활성화
-      e.preventDefault();
-      // Tab: 레벨 한 단계 내리기(들여쓰기), Shift+Tab: 레벨 한 단계 올리기(내어쓰기)
-      // 체크 선택 → 작업명 열만 셀 마퀴(Shift+화살표) → 마지막으로 포커스 행(lastSelectedId) 순.
-      const fromNameMarquee = visibleOrderedTaskIdsForNameOnlyCellMarquee(cellMarqueeKeySet, visibleTasks);
-      const fromAnyMarquee = visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
-      const marqueeRangeSnap =
-        cellMarqueeRange && (cellMarqueeKeySet?.size ?? 0) > 1
-          ? ({ anchor: cellMarqueeRange.anchor, end: cellMarqueeRange.end } as const)
-          : null;
-
-      let orderedIds: string[] = [];
-      /** 작업명 열 마퀴 1행만: 들여·내어쓴 뒤 마퀴를 다시 그린다. 2행 이상은 아래에서 행 선택으로 바꿔 체크 다중과 동일 처리. */
-      let nameMarqueeRestore: string[] | null = null;
-      /** 작업명 마퀴 다중 → 체크 다중으로 전환했으므로 마퀴 스냅샷으로 복원하지 않는다. */
-      let syncedNameMarqueeToCheckboxRows = false;
-
-      if (selectedTaskIds.size > 0) {
-        orderedIds = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
-      } else if (fromNameMarquee && fromNameMarquee.length >= 2) {
-        // 작업명 셀만 직사각형 2행 이상: Tab/Shift+Tab은 체크박스로 여러 행을 고른 것과 동일 경로(동일 id·순서).
-        orderedIds = fromNameMarquee;
-        syncedNameMarqueeToCheckboxRows = true;
-        setCellMarqueeRange(null);
-        setSelection(new Set(fromNameMarquee));
-        syncRangeAnchorForKeyboardFocus?.(fromNameMarquee[0]!);
-        const lastRow = fromNameMarquee[fromNameMarquee.length - 1]!;
-        setLastSelectedId(lastRow);
-        setFocusedCell({ taskId: lastRow, columnId: 'name' });
-      } else if (fromNameMarquee && fromNameMarquee.length > 0) {
-        orderedIds = fromNameMarquee;
-        nameMarqueeRestore = fromNameMarquee;
-      } else if (fromAnyMarquee && fromAnyMarquee.length > 0) {
-        orderedIds = fromAnyMarquee;
-      } else if (cursorLastSelectedId) {
-        orderedIds = [cursorLastSelectedId];
-      }
-      if (orderedIds.length === 0) return;
-      if (e.shiftKey) {
-        outdentTasks(orderedIds);
-      } else {
-        indentTasks(orderedIds);
-      }
-      if (nameMarqueeRestore && nameMarqueeRestore.length > 0) {
-        const first = nameMarqueeRestore[0]!;
-        const last = nameMarqueeRestore[nameMarqueeRestore.length - 1]!;
-        requestAnimationFrame(() => {
-          setCellMarqueeRange({
-            anchor: { taskId: first, columnId: 'name' },
-            end: { taskId: last, columnId: 'name' },
-          });
-        });
-      } else if (!syncedNameMarqueeToCheckboxRows && marqueeRangeSnap) {
-        requestAnimationFrame(() => {
-          setCellMarqueeRange({ anchor: marqueeRangeSnap.anchor, end: marqueeRangeSnap.end });
-        });
-      }
     } else if (e.key === 'Enter') {
       // Enter: 동일 레벨(형제) 작업을 현재 행 "아래"에 추가
       // Shift+Enter: 동일 레벨(형제) 작업을 현재 행 "위"에 추가
       // 셀 편집·입력 중에는 비활성화 (작업명 등은 상단 별도 Enter 블록에서 처리)
       if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
 
-      // 셀 포커스만 있을 때 Enter → 작업명 제외 편집 가능 열에서 즉시 편집. Shift+Enter는 위에 행 추가.
-      if (!e.shiftKey && cursorFocusedCell && canEditCurrentProject) {
-        const enterEdit = resolveEnterOpensCellEdit({
-          focusedCell: cursorFocusedCell,
-          editableColumnIds,
-          tasks,
-          visibleTasks,
-        });
-        if (enterEdit) {
+      // 셀 포커스만(미편집) Enter — 작업명 제외 값 열은 엑셀처럼 같은 열 아래 행으로 이동. F2·더블클릭·타이핑으로 편집.
+      if (!e.shiftKey && cursorFocusedCell) {
+        const { taskId, columnId: focusCol } = cursorFocusedCell;
+        if (focusCol !== 'name' && editableColumnIds.includes(focusCol) && visibleTasks.some((vt) => vt.id === taskId)) {
           e.preventDefault();
-          const { taskId, columnId } = enterEdit;
-          setLastSelectedId(taskId);
-          maybeSyncShiftRangeAnchor(taskId);
-          setFocusedCell({ taskId, columnId });
-          setEditingCell(enterEdit);
-          setInlineEditingNameId(null);
-          document.getElementById(`task-row-${taskId}`)?.scrollIntoView({ block: 'nearest' });
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              const el = document.getElementById(`wbs-edit-${taskId}-${columnId}`);
-              el?.focus();
-              if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-                try {
-                  el.select();
-                } catch {
-                  /* number 등에서 select 미지원 */
-                }
-              }
-            });
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          applyWbsEnterMoveDown({
+            currentTaskId: taskId,
+            currentColId: focusCol,
+            visibleTasks,
+            editableColumnIds,
+            visibleTaskRowIndexById,
+            canEditCurrentProject,
+            ghostPlaceholderRowCount,
+            keyboardCellShiftAnchorRef,
+            cellNavCursorRef,
+            clearBulkCheckboxSelectionOnKeyboardCursorMove,
+            maybeSyncShiftRangeAnchor,
+            setCellMarqueeRange,
+            setFocusedCell,
+            setLastSelectedId,
+            setGhostFocusIdx,
+            focusTableScrollIfNeeded,
           });
           return;
         }

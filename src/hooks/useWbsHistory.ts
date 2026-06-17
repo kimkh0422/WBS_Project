@@ -2,6 +2,11 @@ import React, { useRef, useState, useCallback, useMemo, startTransition } from '
 import type { Task } from '../types';
 import { upsertTasks, deleteTasksFromDB } from '../lib/db';
 
+/** undo 스택에 넣을 때 태스크 객체를 깊은 복사해 이후 편집이 스냅샷을 오염시키지 않게 한다. */
+function cloneTasksForHistory(tasks: Task[]): Task[] {
+  return tasks.map((t) => structuredClone(t));
+}
+
 function diffRemovedIds(from: Task[], to: Task[]): string[] {
   const toIds = new Set(to.map((t) => t.id));
   const removed: string[] = [];
@@ -41,7 +46,7 @@ export function useWbsHistory({
   const [canRedo, setCanRedo] = useState(false);
 
   const saveHistory = useCallback(() => {
-    historyRef.current = [...historyRef.current.slice(-49), [...allTasksRef.current]];
+    historyRef.current = [...historyRef.current.slice(-49), cloneTasksForHistory(allTasksRef.current)];
     redoRef.current = [];
     setCanUndo(true);
     setCanRedo(false);
@@ -53,7 +58,7 @@ export function useWbsHistory({
    * `previousTasks`는 React가 넘겨준 이전 `prev` 배열 참조여야 한다(직접 mutate 금지).
    */
   const pushUndoSnapshot = useCallback((previousTasks: Task[]) => {
-    historyRef.current = [...historyRef.current.slice(-49), previousTasks];
+    historyRef.current = [...historyRef.current.slice(-49), cloneTasksForHistory(previousTasks)];
     redoRef.current = [];
     startTransition(() => {
       setCanUndo(true);
@@ -66,7 +71,7 @@ export function useWbsHistory({
     const previous = historyRef.current[historyRef.current.length - 1];
     const current = allTasksRef.current;
     historyRef.current = historyRef.current.slice(0, -1);
-    redoRef.current = [...redoRef.current.slice(-49), [...current]];
+    redoRef.current = [...redoRef.current.slice(-49), cloneTasksForHistory(current)];
     setCanUndo(historyRef.current.length > 0);
     setCanRedo(true);
     setAllTasks(previous);
@@ -89,7 +94,7 @@ export function useWbsHistory({
     const next = redoRef.current[redoRef.current.length - 1];
     const current = allTasksRef.current;
     redoRef.current = redoRef.current.slice(0, -1);
-    historyRef.current = [...historyRef.current.slice(-49), [...current]];
+    historyRef.current = [...historyRef.current.slice(-49), cloneTasksForHistory(current)];
     setCanRedo(redoRef.current.length > 0);
     setCanUndo(true);
     setAllTasks(next);

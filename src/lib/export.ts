@@ -66,8 +66,8 @@ export function buildMarkdownFromTasks(
 
     for (const { task, depth, wbsCode } of ordered) {
       const indent = '  '.repeat(depth);
-      // 편집 후 표 반영 시 매칭을 위해 컨텍스트 wbsMap과 동일한 코드 사용
-      const displayCode = wbsMap.get(task.id) ?? wbsCode;
+      // MD 편집·저장 매칭용: 화면 W/T 접두어(wbsMap)가 아닌 트리 순번(1, 1.1, …)만 표기
+      const displayCode = wbsCode;
       const name = (task.name || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
       const start = (task.startDate || '').slice(0, 10);
       const end = (task.endDate || '').slice(0, 10);
@@ -103,12 +103,14 @@ export function buildMarkdownForProjectTable(
     '이 블록을 **그대로** 편집 모달에 붙여넣고 저장하면, 아래 표의 행이 **이 프로젝트** 작업에 반영됩니다. `| WBS | 작업명 | …` 헤더·구분선(`|-----|`) 두 줄과 열 개수(8열)는 유지하세요.',
   );
   lines.push('');
-  lines.push('**`WBS` 열의 `**1**`, `**1.1**` 형태 코드는 변경하지 마세요.** (행과 작업을 맞추는 키입니다.)');
+  lines.push(
+    '**`WBS` 열은 `**1**`, `**1.1**`처럼 숫자만 쓰고 변경하지 마세요.** (화면의 W1·T1.1.1 접두어와 별개로, 행과 작업을 맞추는 키입니다.)',
+  );
   lines.push('');
   lines.push(`*projectId: \`${project.id}\` · 생성: ${new Date().toLocaleString('ko-KR')}*`);
   lines.push('');
 
-  const projectTasks = tasks.filter((t) => t.projectId === project.id);
+  const projectTasks = tasks.filter((t) => t.projectId === project.id && !t.mirroredFromTaskId);
   if (projectTasks.length === 0) {
     lines.push('*작업이 없습니다.*');
     return lines.join('\n');
@@ -123,7 +125,7 @@ export function buildMarkdownForProjectTable(
 
   for (const { task, depth, wbsCode } of ordered) {
     const indent = '  '.repeat(depth);
-    const displayCode = wbsMap.get(task.id) ?? wbsCode;
+    const displayCode = wbsCode;
     const name = (task.name || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
     const start = (task.startDate || '').slice(0, 10);
     const end = (task.endDate || '').slice(0, 10);
@@ -193,18 +195,50 @@ export function extractWbsCodeFromMarkdownCell(raw: string): string | null {
   return null;
 }
 
+/** WBS 접두어 설정 — `W1`↔`1`, `T1.1.1`↔`1.1.1` 등 표기 차이 흡수용 */
+export type WbsPrefixHints = Pick<WBSSettings, 'level1Prefix' | 'level2Prefix' | 'level3Prefix'>;
+
 /** 붙여넣은 WBS(예: `1.0`)와 저장 코드(`1`)를 맞추기 위해, 끝의 `.0`을 반복 제거한 대체 키(원본 우선) */
-export function wbsAlternatesForPasteLookup(code: string): string[] {
+export function wbsAlternatesForPasteLookup(code: string, prefixHints?: WbsPrefixHints): string[] {
   const list: string[] = [];
   const seen = new Set<string>();
+  const add = (raw: string) => {
+    const k = raw.trim();
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    list.push(k);
+  };
+
   let c = code.trim();
-  while (c.length > 0 && !seen.has(c)) {
-    seen.add(c);
-    list.push(c);
+  while (c.length > 0) {
+    add(c);
     const m = /^(.+)\.0$/.exec(c);
     if (!m) break;
-    c = m[1];
+    c = m[1]!;
   }
+
+  const stripped = code.trim().replace(/^[A-Za-z]+(?=[\d.])/, '');
+  if (stripped && stripped !== code.trim()) {
+    let d = stripped;
+    while (d.length > 0) {
+      add(d);
+      const m = /^(.+)\.0$/.exec(d);
+      if (!m) break;
+      d = m[1]!;
+    }
+  }
+
+  if (prefixHints && /^[\d.]+$/.test(code.trim())) {
+    const k = code.trim();
+    const depth = k.split('.').filter(Boolean).length;
+    const l1 = prefixHints.level1Prefix ?? 'W';
+    const l2 = prefixHints.level2Prefix ?? 'W';
+    const l3 = prefixHints.level3Prefix ?? 'T';
+    if (depth === 1) add(`${l1}${k}`);
+    else if (depth === 2) add(`${l2}${k}`);
+    else if (depth >= 3) add(`${l3}${k}`);
+  }
+
   return list;
 }
 
@@ -219,6 +253,7 @@ export function buildWbsCodeToTaskIdForMarkdownPaste(
   tasks: Task[],
   projects: Project[],
   wbsMap: Map<string, string>,
+  prefixHints?: WbsPrefixHints,
 ): Map<string, string> {
   const project = projects.find((p) => p.id === scopeProjectId);
   const projectTasks = tasks.filter((t) => t.projectId === scopeProjectId && !t.mirroredFromTaskId);
@@ -230,8 +265,7 @@ export function buildWbsCodeToTaskIdForMarkdownPaste(
   const registerKey = (rawKey: string, taskId: string) => {
     const k = rawKey.trim();
     if (!k) return;
-    if (!m.has(k)) m.set(k, taskId);
-    for (const alt of wbsAlternatesForPasteLookup(k)) {
+    for (const alt of wbsAlternatesForPasteLookup(k, prefixHints)) {
       if (!m.has(alt)) m.set(alt, taskId);
     }
     const with0 = `${k}.0`;
@@ -271,7 +305,7 @@ export function parseMarkdownTable(md: string): ParsedMarkdownRow[] {
     const wbsCode = extractWbsCodeFromMarkdownCell(cells[0] ?? '');
     if (!wbsCode) continue;
 
-    const name = (cells[1] || '').replace(/\\\|/g, '|').trim();
+    const name = (cells[1] || '').replace(/\\\|/g, '|').replace(/^\s+/, '').trim();
     const startDate = (cells[2] || '').trim().slice(0, 10);
     const endDate = (cells[3] || '').trim().slice(0, 10);
     const progressStr = (cells[4] || '0').replace(/%/g, '').replace(/,/g, '').trim();
@@ -295,6 +329,81 @@ export function parseMarkdownTable(md: string): ParsedMarkdownRow[] {
   }
 
   return rows;
+}
+
+/** `buildMarkdownForProjectTable` 헤더의 `projectId: \`...\`` 추출 */
+export function extractProjectIdFromMarkdown(md: string): string | null {
+  const m = md.match(/projectId:\s*`([^`]+)`/i);
+  const id = m?.[1]?.trim();
+  return id || null;
+}
+
+export interface ApplyMarkdownTableResult {
+  updated: number;
+  parsedRowCount: number;
+}
+
+export interface ApplyMarkdownTableOptions {
+  /** 여러 행 연속 갱신 시 중간 롤업 생략 — 호출 후 `flushProjectTaskRollups` 권장 */
+  deferScheduleSync?: boolean;
+}
+
+/** 파싱한 마크다운 표 행을 지정 프로젝트 작업에 반영 (WBS 코드로 매칭) */
+export function applyMarkdownTableToProject(
+  editedMarkdown: string,
+  scopeProjectId: string,
+  tasks: Task[],
+  projects: Project[],
+  wbsMap: Map<string, string>,
+  updateTask: (id: string, updates: Partial<Task>, options?: { deferScheduleSync?: boolean }) => void,
+  prefixHints?: WbsPrefixHints,
+  applyOptions?: ApplyMarkdownTableOptions,
+): ApplyMarkdownTableResult {
+  const rows = parseMarkdownTable(editedMarkdown);
+  const wbsCodeToTaskId = buildWbsCodeToTaskIdForMarkdownPaste(scopeProjectId, tasks, projects, wbsMap, prefixHints);
+  const deferScheduleSync = applyOptions?.deferScheduleSync ?? false;
+  let updated = 0;
+  for (const row of rows) {
+    let taskId: string | undefined;
+    for (const key of wbsAlternatesForPasteLookup(row.wbsCode, prefixHints)) {
+      taskId = wbsCodeToTaskId.get(key);
+      if (taskId) break;
+    }
+    if (!taskId) continue;
+    const taskRow = tasks.find((x) => x.id === taskId);
+    if (taskRow?.mirroredFromTaskId) continue;
+    const updates: Partial<Task> = {
+      name: row.name,
+      progress: row.progress,
+      assignee: row.assignee,
+      status: row.status,
+    };
+    if (row.startDate) updates.startDate = row.startDate;
+    if (row.endDate) updates.endDate = row.endDate;
+    if (row.workEffort != null) updates.workEffort = row.workEffort;
+    updateTask(taskId, updates, { deferScheduleSync });
+    updated += 1;
+  }
+  return { updated, parsedRowCount: rows.length };
+}
+
+/** 마크다운 표 반영 결과에 맞는 안내 문구 */
+export function markdownApplyFeedbackMessage(result: ApplyMarkdownTableResult): { variant: 'success' | 'warning'; message: string } {
+  if (result.updated > 0) {
+    return { variant: 'success', message: `표가 마크다운 내용으로 반영되었습니다. (${result.updated}개 작업)` };
+  }
+  if (result.parsedRowCount === 0) {
+    return {
+      variant: 'warning',
+      message:
+        '8열 파이프 표(| WBS | 작업명 | …) 안에서 데이터 행을 찾지 못했습니다. 각 행 첫 칸에 **1.1** 또는 1.1처럼 WBS 코드가 있어야 합니다.',
+    };
+  }
+  return {
+    variant: 'warning',
+    message:
+      '표의 WBS 열과 이 프로젝트 작업 번호가 맞지 않습니다. 앱에서 MD를 열면 나오는 **WBS** 열을 유지하거나, 작업 구조가 붙여넣은 번호와 같아야 반영됩니다.',
+  };
 }
 
 /** WBS 작업을 마크다운 형식으로 내보냄. 프로젝트별 계층 구조 + 테이블 */

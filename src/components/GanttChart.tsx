@@ -626,8 +626,8 @@ export function GanttChart({
     visibleTasksRef.current = visibleTasks;
   }, [visibleTasks]);
 
-  // ↑/↓ 키로 활성 행 이동. 간트 스크롤 영역에 포커스가 있을 때 동작하며, 표의 lastSelectedId↔activeTaskId
-  // 동기화 effect 덕분에 activeTaskId만 set해도 표 쪽 강조가 같이 따라온다.
+  // ↑/↓ 키로 활성 행 이동. 간트 스크롤 영역에 포커스가 있을 때만 동작하며,
+  // activeTaskId는 간트 직접 조작 시에만 갱신된다(표 셀 이동은 lastSelectedId만 바꿈).
   const handleArrowKey = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (!hotkeysEnabled) return;
@@ -904,7 +904,7 @@ export function GanttChart({
                 const index = virtualRow.index;
                 const task = visibleTasks[index];
                 if (!task) return null;
-                // 보라색 강조: 체크박스 체크된 행만. 노란색(amber) 강조: 단일 활성 행(activeTaskId).
+                // 보라색 강조: 체크박스 체크된 행만. 노란색(amber) 강조: 간트에서 직접 선택한 활성 행(activeTaskId).
                 // 둘 다 해당하면 보라색 우선(체크박스가 더 명시적 의도).
                 const isSelected = selectedSet.has(task.id);
                 const isActive = !isSelected && activeTaskId === task.id;
@@ -1363,7 +1363,7 @@ export function GanttChart({
 
                 {/* Task Bars */}
                 {visibleTasks.map((task, index) => {
-                  // 보라색=체크박스, 노란색=단일 활성 (체크박스 우선)
+                  // 보라색=체크박스, 노란색=간트 직접 활성 (체크박스 우선)
                   const isSelected = selectedSet.has(task.id);
                   const isActive = !isSelected && activeTaskId === task.id;
                   const isActiveSubtreeDesc = !isSelected && activeSubtreeDescendantIds.has(task.id);

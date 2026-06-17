@@ -15,11 +15,13 @@ interface MdEditModalProps {
 export function MdEditModal({ isOpen, onClose, initialMarkdown, onSave }: MdEditModalProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setText(initialMarkdown);
     }
+    wasOpenRef.current = isOpen;
   }, [isOpen, initialMarkdown]);
 
   useEffect(() => {

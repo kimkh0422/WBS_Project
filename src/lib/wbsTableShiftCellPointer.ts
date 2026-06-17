@@ -1,5 +1,13 @@
 import type { TableColumnId } from '../components/wbsTableTypes';
 
+/** pointer/click 합성 이벤트에서 Shift 조작 여부 — shiftKey 누락 시 ref·getModifierState로 보완 */
+export function isPointerShiftModifierActive(
+  e: { shiftKey?: boolean; getModifierState?: (key: string) => boolean },
+  heldRef?: { current: boolean },
+): boolean {
+  return !!(e.shiftKey || e.getModifierState?.('Shift') || heldRef?.current);
+}
+
 /**
  * Shift+셀 마퀴 확장에 개입하면 안 되는 타깃(툴바·그립·편집 입력 등).
  * `[data-wbs-range-cell]` 안의 일반 버튼(날짜·담당자 등 셀 클릭 영역)은 제외하지 않는다 —

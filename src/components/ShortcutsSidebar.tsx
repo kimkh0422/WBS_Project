@@ -128,6 +128,11 @@ export function ShortcutsSidebar({
           hint: 'Shift+화살표: 셀 직사각형 다중 선택(마퀴) 확장. Shift+Ctrl/Meta+화살표: 마퀴를 해당 방향 격자 끝까지 확장. Ctrl/Meta+화살표(Shift 없음): 커서만 같은 열·행의 표시 끝으로 점프. 화살표만: 한 칸 이동·마퀴 해제. Alt+↑↓: 표시 순서 이동(정렬·필터 없을 때만)',
         },
         {
+          label: '행 첫/마지막 열 · 페이지 이동',
+          chords: ['Home', 'End', 'PageUp', 'PageDown'],
+          hint: 'Home/End: 현재 행의 첫·마지막 편집 열. PageUp/PageDown: 화면에 보이는 행 수만큼 위/아래',
+        },
+        {
           label: '트리 접기 · 펼치기',
           chords: [['작업명 열', '▾', '/', '▸']],
           hint: 'Shift+←/→는 셀 이동에 사용됩니다. 접기·펼치기는 트리 모드에서 행 왼쪽 버튼으로 하세요',

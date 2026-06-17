@@ -9,11 +9,11 @@ import { cn, formatDate, formatNum1, formatPercent1, round1, round2 } from '../l
 import { useOrganization } from '../context/OrganizationContext';
 import { useLevelColors } from '../context/LevelColorsContext';
 import { filterTasksForDependencyPicker, getActiveDependencyToken, hasDependencyCycle } from '../lib/dependencyPicker';
-import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit, workEffortUnitSuffixKo } from '../lib/workEffortUnits';
+import { formatStoredWorkEffortForDisplay, normalizeWorkEffortUnit } from '../lib/workEffortUnits';
 import { inclusiveCalendarDays, endYmdFromInclusiveDuration } from '../lib/durationDays';
-import { getTaskProgressRollupTooltip } from '../lib/rollups';
 import { progressVariance } from '../lib/plannedProgress';
-import { plannedProgressDataCellTitle, progressVarianceDataCellTitle, PLANNED_NOT_EDITABLE_TOAST } from '../lib/plannedProgressTooltips';
+import { PLANNED_NOT_EDITABLE_TOAST } from '../lib/plannedProgressTooltips';
+import { isPointerShiftModifierActive } from '../lib/wbsTableShiftCellPointer';
 import { useToast } from './Toast';
 import {
   buildOrgMemberLabelMap,
@@ -21,11 +21,9 @@ import {
   formatAssigneeDisplay,
   resolveAssigneeIfUniqueMatch,
   DEFAULT_PROJECT_ASSIGNMENT_PERCENT,
-  type PersonDisplayMeta,
 } from '../lib/assigneeOptions';
 import { type TableColumnId, type WbsEditingCellPayload } from './wbsTableTypes';
 import { delegateInlineEditColumnId } from '../lib/wbsReadonlyGridColumns';
-import { PROGRESS_COLUMN_HELP_TEXT, WEIGHT_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { clampAllocationPercentInt } from '../lib/personAllocations';
 import { splitCellTextStyleForCellSurface } from '../lib/cellTextStyle';
 import { isComposingKeyEvent } from '../lib/ime';
@@ -48,36 +46,8 @@ export type OtherCellFocus = {
   ts: number;
 };
 
-/** 작업명 마우스 오버 시 표시할 상세 툴팁 텍스트 */
-function getTaskDetailTooltip(
-  task: Task | null | undefined,
-  statusConfigs: Array<{ id: string; name: string; progress?: number }> | null | undefined,
-  displayWbsMap: Map<string, string> | null | undefined,
-  isCritical?: boolean,
-  displayMetaByName?: Map<string, PersonDisplayMeta>,
-): string {
-  if (!task) return '';
-  const lines: string[] = [];
-  const statusName = Array.isArray(statusConfigs) ? (statusConfigs.find((c) => c.id === task.status)?.name ?? task.status) : task.status;
-  const assigneeText = formatAssigneeDisplay(task.assignee, displayMetaByName) || '—';
-  lines.push(`작업명: ${task.name ?? ''}`);
-  if (task.isMilestone) lines.push('유형: 마일스톤');
-  if (task.isIssue) lines.push('이슈: 예');
-  if (task.isActionItem) lines.push('액션 항목: 예');
-  if (isCritical) lines.push('크리티컬 패스: 예');
-  lines.push(`기간: ${formatDate(task.startDate)} ~ ${formatDate(task.endDate)}`);
-  lines.push(`담당: ${assigneeText}`);
-  lines.push(`상태: ${statusName}`);
-  lines.push(`진척률: ${typeof task.progress === 'number' ? `${formatPercent1(task.progress)}%` : '—'}`);
-  if (task.description?.trim()) lines.push(`설명: ${task.description.trim()}`);
-  if (task.deliverables?.trim()) lines.push(`산출물: ${task.deliverables.trim()}`);
-  const deps = task.dependencies;
-  if (deps && Array.isArray(deps) && deps.length > 0 && displayWbsMap) {
-    const depLabels = deps.map((id) => (displayWbsMap.get(id) ? `#${displayWbsMap.get(id)}` : id));
-    lines.push(`선행작업: ${depLabels.join(', ')}`);
-  }
-  return lines.join('\n');
-}
+/** 행 border-b(1px) 때문에 인접 행 세로선이 끊겨 보이지 않도록 위쪽으로 겹친다. */
+const TREE_GUIDE_ROW_JOIN_PX = 1;
 
 /**
  * 작업명 셀 왼쪽 들여쓰기 영역에 트리 가이드 선(│ ├ └)을 그린다.
@@ -88,24 +58,40 @@ function TreeGuides({ guide, depth, hasChildren, expanded }: { guide: string; de
   const showChildStub = hasChildren && !!expanded;
   if (!guide && !showChildStub) return null;
   // 체브런을 차분하게 바꾼 뒤 레벨 구분은 이 연결선이 주로 담당하므로 약간 더 또렷하게.
-  const lineColor = 'rgba(100, 116, 139, 0.7)';
+  const lineColor = 'rgba(100, 116, 139, 0.82)';
+  const vLine = (key: string, x: number, top: number | string, bottom?: number | string, height?: number | string) => (
+    <span
+      key={key}
+      style={{
+        position: 'absolute',
+        top,
+        ...(height != null ? { height } : { bottom: bottom ?? 0 }),
+        width: 0,
+        left: x,
+        borderLeft: `1px solid ${lineColor}`,
+      }}
+    />
+  );
   const lines: React.ReactNode[] = [];
   for (let i = 0; i < guide.length; i++) {
     const c = guide[i];
     const x = i * 20 + 9;
     if (c === 'I' || c === 'T') {
-      lines.push(<span key={`v${i}`} style={{ position: 'absolute', top: 0, bottom: 0, width: 1, left: x, background: lineColor }} />);
+      lines.push(vLine(`v${i}`, x, -TREE_GUIDE_ROW_JOIN_PX));
     } else if (c === 'L') {
-      lines.push(<span key={`v${i}`} style={{ position: 'absolute', top: 0, height: '50%', width: 1, left: x, background: lineColor }} />);
+      lines.push(vLine(`v${i}`, x, -TREE_GUIDE_ROW_JOIN_PX, undefined, `calc(50% + ${TREE_GUIDE_ROW_JOIN_PX}px)`));
     }
     if (c === 'T' || c === 'L') {
-      lines.push(<span key={`h${i}`} style={{ position: 'absolute', top: '50%', height: 1, width: 11, left: x, background: lineColor }} />);
+      lines.push(
+        <span
+          key={`h${i}`}
+          style={{ position: 'absolute', top: '50%', height: 0, width: 11, left: x, borderTop: `1px solid ${lineColor}` }}
+        />,
+      );
     }
   }
   if (showChildStub) {
-    lines.push(
-      <span key="stub" style={{ position: 'absolute', top: '50%', bottom: 0, width: 1, left: depth * 20 + 9, background: lineColor }} />,
-    );
+    lines.push(vLine('stub', depth * 20 + 9, '50%'));
   }
   return (
     <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0">
@@ -128,8 +114,6 @@ export interface SortableTaskRowProps {
   seqNumToTaskId: SeqNumToTaskId;
   /** 체크박스 체크 상태 = 보라색 강조. 명시적 다중 선택(스페이스/Ctrl/Shift)만 토글한다. */
   isSelected: boolean;
-  /** 단일 활성 행 (클릭/화살표/표↔간트 동기화) = 노란색(amber) 강조. 체크박스와는 별개. */
-  isFocused: boolean;
   hasChildren: boolean;
   /** 전체 하위 작업 개수(직·간접 자손, 작업명 옆 표시 — 부모 없는 최상위 행에만 노출). */
   totalDescendantTaskCount?: number;
@@ -179,8 +163,6 @@ export interface SortableTaskRowProps {
   projectScheduleByProjectId?: Map<string, Pick<Project, 'startDate' | 'endDate'>>;
   /** true면 작업명 컬럼에 표시용 WBS 접두(예: P1)를 붙여 표시 */
   prependDisplayWbsToTaskName?: boolean;
-  /** 진척률 셀 툴팁(요약 바와 같은 범위의 작업 집합) */
-  rollupTooltipBaseTasks: Task[];
   /** 이 작업의 계획율(0~100). 부모에서 계산해 전달. 계획·진척차이 컬럼 표시에 사용 */
   plannedProgress?: number;
   /** false면 레벨 배경 등 자동 서식 숨김(셀 서식 도구로 넣은 취소선은 유지) */
@@ -204,6 +186,8 @@ export interface SortableTaskRowProps {
   pastedCellKeySet?: ReadonlySet<string> | null;
   /** 셀 클릭·포커스 직후 한 칸 마퀴로 동기화(onFocusRow가 마퀴를 비운 뒤 같은 핸들러에서 호출) */
   commitCellMarquee?: (taskId: string, columnId: TableColumnId) => void;
+  /** click에 shiftKey가 없어도 Shift를 누르고 있으면 true — 연속 Shift+클릭 시 beginEdit이 마퀴를 지우지 않게 */
+  isShiftModifierActive?: () => boolean;
 }
 
 function SortableTaskRowInner({
@@ -217,7 +201,6 @@ function SortableTaskRowInner({
   taskIdToSeqNum,
   seqNumToTaskId,
   isSelected,
-  isFocused,
   hasChildren,
   totalDescendantTaskCount = 0,
   isTreeView,
@@ -253,7 +236,6 @@ function SortableTaskRowInner({
   projectEffortUnitByProjectId,
   projectScheduleByProjectId: _projectScheduleByProjectId,
   prependDisplayWbsToTaskName = false,
-  rollupTooltipBaseTasks,
   plannedProgress,
   showTableAutoFormatting = true,
   onInsertRowAbove,
@@ -264,6 +246,7 @@ function SortableTaskRowInner({
   cellMarqueeKeySet = null,
   pastedCellKeySet = null,
   commitCellMarquee,
+  isShiftModifierActive,
 }: SortableTaskRowProps) {
   const effortUnitForTask = normalizeWorkEffortUnit(projectEffortUnitByProjectId.get(task.projectId));
   // 순서 이동(정렬)은 첫 열 손잡이([data-row-grip])에서만 시작한다 — listeners/attributes는 그립 셀에만 부착.
@@ -299,6 +282,11 @@ function SortableTaskRowInner({
     if (safeToFocus) el.focus({ preventScroll: true });
   }, [focusedCell, isInlineEditingName, canEdit, task.id]);
 
+  /** click 합성 시 shiftKey가 빠져도 ref·getModifierState로 Shift 조작 중임을 판별 */
+  const shiftModifierActive = () => isShiftModifierActive?.() === true;
+  const shiftModifierFromEvent = (e: { shiftKey?: boolean; getModifierState?: (key: string) => boolean }) =>
+    isPointerShiftModifierActive(e, { current: shiftModifierActive() });
+
   /** armed(편집 전) 작업명 input에서 첫 입력/IME 조합 시작 시 실제 편집으로 승격 — 같은 element라 조합이 유지된다. */
   const promoteArmedNameToEditing = () => {
     onFocusRow?.(task.id, { keepSelection: true, columnId: 'name' });
@@ -310,6 +298,7 @@ function SortableTaskRowInner({
 
   /** 행·마퀴 앵커만 맞추고 인라인 편집은 시작하지 않는다(단일 클릭용). */
   const beginFocus = (columnId: TableColumnId) => {
+    if (shiftModifierActive()) return;
     onFocusRow?.(task.id, { keepSelection: true, columnId });
     onSetRowAnchor?.(task.id);
     commitCellMarquee?.(task.id, columnId);
@@ -324,6 +313,7 @@ function SortableTaskRowInner({
 
   /** 더블클릭/F2용: 권한이 있으면 즉시 인라인 편집 진입. 권한 없으면 포커스만. */
   const beginEditNow = (columnId: TableColumnId) => {
+    if (shiftModifierActive()) return;
     onFocusRow?.(task.id, { keepSelection: true, columnId });
     onSetRowAnchor?.(task.id);
     if (!canEdit) {
@@ -374,33 +364,11 @@ function SortableTaskRowInner({
   const orgMemberLabelByName = useMemo(() => buildOrgMemberLabelMap(orgMembers), [orgMembers]);
   const orgMemberDisplayMetaByName = useMemo(() => buildOrgMemberDisplayMetaMap(orgMembers), [orgMembers]);
 
-  const doneStatusIdsForProgressTip = useMemo(
-    () => new Set((statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => c.id)),
-    [statusConfigs],
-  );
-  const effortSuffix = workEffortUnitSuffixKo(effortUnitForTask);
   // 공수구성 컬럼이 보일 때만 O(N) 형제 합산 — 숨겨진 경우 매 렌더 비용 제거.
   const showsWorkComposition = visibleColumnIds.includes('workComposition');
   const workCompositionPct = useMemo(
     () => (showsWorkComposition ? computeWorkCompositionPercent(task, allProjectTasks) : null),
     [showsWorkComposition, task, allProjectTasks],
-  );
-  const weightColumnTooltip = useMemo(
-    () => [WEIGHT_COLUMN_HELP_TEXT, '', `이 프로젝트 공수 단위: ${effortSuffix}.`, '', '선택 후 입력 또는 F2로 편집'].join('\n'),
-    [effortSuffix],
-  );
-  const progressColumnTooltip = useMemo(
-    () =>
-      [
-        PROGRESS_COLUMN_HELP_TEXT,
-        '',
-        '선택 후 입력 또는 F2로 편집 · 우클릭: 상태별 진척 갱신 메뉴.',
-        '',
-        '— 아래는 이 행 기준 산식 상세 —',
-        '',
-        getTaskProgressRollupTooltip(task, rollupTooltipBaseTasks, doneStatusIdsForProgressTip),
-      ].join('\n'),
-    [task, rollupTooltipBaseTasks, doneStatusIdsForProgressTip],
   );
 
   /** 프로젝트 assignments에서 담당자명(트림) 기준으로 비율 합침 — 동일 이름 중복 시 마지막 값, 표시·편집 기본값과 일치 */
@@ -486,24 +454,21 @@ function SortableTaskRowInner({
   // 의존(선행) 작업을 화면에 보이는 행과 보이지 않는(접힘/필터) 작업으로 분류.
   // 보이지 않는 작업은 표 행 번호가 없으므로 별도 표기(WBS 코드)로 노출하며,
   // 편집 시에도 잃어버리지 않도록 ID를 보존한다.
-  const { visibleDepNums, hiddenDepIds, hiddenDepLabels } = useMemo(() => {
+  const { visibleDepNums, hiddenDepIds } = useMemo(() => {
     const depIds = task.dependencies ?? [];
     const visibleNums: number[] = [];
     const hiddenIds: string[] = [];
-    const hiddenLabels: string[] = [];
     for (const id of depIds) {
       const seq = taskIdToSeqNum.get(id);
       if (seq != null) {
         visibleNums.push(seq);
       } else {
         hiddenIds.push(id);
-        const wbs = displayWbsMap?.get(id);
-        hiddenLabels.push(wbs ? `#${wbs}` : `#${id.slice(0, 6)}`);
       }
     }
     visibleNums.sort((a, b) => a - b);
-    return { visibleDepNums: visibleNums, hiddenDepIds: hiddenIds, hiddenDepLabels: hiddenLabels };
-  }, [task.dependencies, taskIdToSeqNum, displayWbsMap]);
+    return { visibleDepNums: visibleNums, hiddenDepIds: hiddenIds };
+  }, [task.dependencies, taskIdToSeqNum]);
 
   const depsDisplayValue = useMemo(() => (visibleDepNums.length > 0 ? visibleDepNums.join(', ') : ''), [visibleDepNums]);
 
@@ -559,16 +524,13 @@ function SortableTaskRowInner({
   // 다크/라이트 모드별 행 상태 색상
   // 선택 행: 표면/줄무늬 대비가 약해지지 않도록 배경을 한 단계 진하게(라이트 indigo-400, 다크 보라 톤 상향)
   const selectedBg = dark ? '#4c3a8a' : '#818cf8';
-  // 단일 활성 행(체크 없이 클릭·키보드 포커스): 표↔간트 split에서 같은 높이의 '한 줄'로 보이도록
-  // 배경·좌측 스트립·2px 외곽선 + 상하 1px 라인을 체크 선택(보라)과 동등한 굵기로 맞춘다.
-  const focusedBg = dark ? '#5c4528' : '#ffedd5';
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    backgroundColor: isSelected ? selectedBg : isFocused ? focusedBg : rowLevelBg(level, hasChildren),
-    backgroundImage: isSelected || isFocused ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
+    backgroundColor: isSelected ? selectedBg : rowLevelBg(level, hasChildren),
+    backgroundImage: isSelected ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     // 좌측 색상 strip은 box-shadow inset으로 그린다. border-left는 grid container의 컨텐츠 영역을 우측으로 밀어
     // 헤더와 본문 컬럼 정렬을 어긋나게 하므로 사용하지 않음.
     ...(isSelected
@@ -578,14 +540,7 @@ function SortableTaskRowInner({
             : 'inset 3px 0 0 0 rgb(126 34 206), inset 0 0 0 2px rgba(91 33 182, 0.55), inset 0 1px 0 0 rgba(91 33 182, 0.38), inset 0 -1px 0 0 rgba(91 33 182, 0.38), 0 2px 8px rgba(91, 33, 182, 0.28)',
         }
       : {}),
-    ...(isFocused && !isSelected
-      ? {
-          boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(251 146 60), inset 0 0 0 2px rgba(251, 191, 36, 0.42), inset 0 1px 0 0 rgba(253, 224, 71, 0.45), inset 0 -1px 0 0 rgba(253, 224, 71, 0.45), 0 1px 5px rgba(0, 0, 0, 0.35)'
-            : 'inset 3px 0 0 0 rgb(234 88 12), inset 0 0 0 2px rgba(234, 88, 12, 0.42), inset 0 1px 0 0 rgba(234, 88, 12, 0.5), inset 0 -1px 0 0 rgba(234, 88, 12, 0.5), 0 1px 5px rgba(234, 88, 12, 0.2)',
-        }
-      : {}),
-    zIndex: isDragging ? 10 : isSelected || isFocused ? 2 : 1,
+    zIndex: isDragging ? 10 : isSelected ? 2 : 1,
     position: isDragging ? 'relative' : undefined,
     ...gridStyle,
   } as React.CSSProperties;
@@ -601,9 +556,8 @@ function SortableTaskRowInner({
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
         isSelected && (dark ? 'font-semibold text-purple-200' : 'font-semibold text-violet-950'),
-        isFocused && !isSelected && (dark ? 'font-semibold text-amber-100' : 'font-semibold text-orange-950'),
-        // 요약(상위)행 타이포 강조: 선택/포커스 상태가 아닐 때만 추가 (해당 상태가 우선)
-        hasChildren && !isSelected && !isFocused && 'font-semibold',
+        // 요약(상위)행 타이포 강조: 체크 선택 상태가 아닐 때만 추가
+        hasChildren && !isSelected && 'font-semibold',
         // 셀에 사용자 지정 글꼴 크기가 있으면 그 행은 높이를 자동 확장(고정 행 높이에 큰 글자가 잘리는 문제 보완)
         !!task.cellTextStyles &&
           Object.values(task.cellTextStyles).some((s) => typeof s?.fontSize === 'number' && (s.fontSize ?? 0) > 0) &&
@@ -613,7 +567,7 @@ function SortableTaskRowInner({
       // Shift+셀 범위는 표 본문(data-wbs-table) 캡처에서 통일 처리(표 단독·분할·sticky 동일).
       onPointerDownCapture={(e) => {
         if (e.button !== 0) return;
-        if (e.shiftKey) return;
+        if (shiftModifierFromEvent(e)) return;
         if (!e.ctrlKey && !e.metaKey) return;
         onSelect(task.id, true, false);
         onFocusRow?.(task.id, { keepSelection: true });
@@ -621,7 +575,7 @@ function SortableTaskRowInner({
         e.stopPropagation();
       }}
       onClick={(e) => {
-        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+        if (shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey) return;
         if (onFocusRow) onFocusRow(task.id);
         onSetRowAnchor?.(task.id);
       }}
@@ -640,7 +594,6 @@ function SortableTaskRowInner({
           'data-cell justify-center select-none touch-none',
           canEdit ? 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-500' : 'text-slate-200',
         )}
-        title={canEdit ? '이 손잡이를 잡고 위·아래로 끌어 작업 순서를 바꿉니다' : undefined}
         aria-label={canEdit ? '드래그하여 순서 변경' : undefined}
         data-row-grip
         {...(canEdit ? attributes : {})}
@@ -655,7 +608,7 @@ function SortableTaskRowInner({
         data-wbs-row-gutter
         onPointerDownCapture={(e) => {
           if (e.pointerType === 'touch' || e.button !== 0) return;
-          if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+          if (!shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey || e.altKey) return;
           suppressNextCheckboxClickRef.current = true;
           onSelect(task.id, false, true);
           setFocusedCell({
@@ -683,7 +636,7 @@ function SortableTaskRowInner({
               e.preventDefault();
               return;
             }
-            if (e.shiftKey) {
+            if (shiftModifierFromEvent(e)) {
               onSelect(task.id, false, true);
               setFocusedCell({
                 taskId: task.id,
@@ -713,10 +666,9 @@ function SortableTaskRowInner({
       <div
         className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
         data-wbs-row-gutter
-        title={wbsSeqLabel ? `WBS ${wbsSeqLabel} · 표시 순번 ${rowIndex + 1}` : undefined}
         onPointerDownCapture={(e) => {
           if (e.pointerType === 'touch' || e.button !== 0) return;
-          if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+          if (!shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey || e.altKey) return;
           e.preventDefault();
           e.stopPropagation();
           onSelect(task.id, false, true);
@@ -730,7 +682,7 @@ function SortableTaskRowInner({
           });
         }}
         onClick={(e) => {
-          if (!e.shiftKey) return;
+          if (!shiftModifierFromEvent(e)) return;
           e.stopPropagation();
           onSelect(task.id, false, true);
           const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
@@ -804,6 +756,7 @@ function SortableTaskRowInner({
                 style={{
                   ...mergeCellOuter(otherRingStyle),
                   paddingLeft: `${depth * 20 + 22}px`,
+                  ...(isTreeView ? { overflow: 'visible' as const } : null),
                   ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
                 }}
                 onClick={(e) => {
@@ -812,7 +765,7 @@ function SortableTaskRowInner({
                   // 트리 접기/펼치기는 전용 ▣/□ 버튼으로만 수행.
                   // 이미 작업명 input이 떠 있으면 중복 진입 방지 (버블링된 클릭 등).
                   e.stopPropagation();
-                  if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                  if (e.ctrlKey || e.metaKey || shiftModifierFromEvent(e)) return;
                   if (isInlineEditingName) return;
                   beginEdit('name');
                 }}
@@ -822,7 +775,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   beginEditNow('name');
                 }}
-                title={getTaskDetailTooltip(task, statusConfigs, displayWbsMap, criticalPathSet?.has(task.id), orgMemberDisplayMetaByName)}
               >
                 {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
                 {isTreeView && hasChildren && (
@@ -839,7 +791,6 @@ function SortableTaskRowInner({
                       'absolute z-[1] flex h-5 w-5 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-800',
                     )}
                     style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
-                    title={task.expanded ? '접기 (하위 작업 숨기기)' : '펼치기 (하위 작업 보기)'}
                     aria-label={task.expanded ? '접기' : '펼치기'}
                     aria-expanded={task.expanded}
                   >
@@ -960,28 +911,18 @@ function SortableTaskRowInner({
                     className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                      if (e.ctrlKey || e.metaKey || shiftModifierFromEvent(e)) return;
                       beginEdit('name');
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       beginEditNow('name');
                     }}
-                    title={getTaskDetailTooltip(
-                      task,
-                      statusConfigs,
-                      displayWbsMap,
-                      criticalPathSet?.has(task.id),
-                      orgMemberDisplayMetaByName,
-                    )}
                   >
-                    {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" title="이슈" />}
-                    {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" title="액션 항목" />}
+                    {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" />}
+                    {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" />}
                     {task.mirroredFromTaskId && task.mirroredFromProjectId && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0"
-                        title="이 행은 분기된 자식 프로젝트의 작업을 읽기 전용으로 보여줍니다. 편집하려면 자식 프로젝트에서 여세요."
-                      >
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0">
                         <GitBranch size={11} aria-hidden />
                         자식
                       </span>
@@ -994,17 +935,13 @@ function SortableTaskRowInner({
                           onOpenForkedChildProject?.(forkedChildProject.id);
                         }}
                         className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors flex-shrink-0"
-                        title={`이 작업은 별도 프로젝트로 분기되어 있습니다 — 클릭하면 자식 프로젝트(${forkedChildProject.name})로 이동합니다.`}
                       >
                         <GitBranch size={11} aria-hidden />
                         분기
                       </button>
                     )}
                     {criticalPathSet?.has(task.id) && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0"
-                        title="크리티컬 패스"
-                      >
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0">
                         크리티컬
                       </span>
                     )}
@@ -1016,12 +953,7 @@ function SortableTaskRowInner({
                       )}
                     </span>
                     {totalDescendantTaskCount > 0 && !task.parentId && (
-                      <span
-                        className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0"
-                        title={`전체 하위 작업 ${totalDescendantTaskCount}개(직속·하위의 하위 포함)`}
-                      >
-                        ({totalDescendantTaskCount})
-                      </span>
+                      <span className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0">({totalDescendantTaskCount})</span>
                     )}
                   </span>
                 )}
@@ -1029,7 +961,6 @@ function SortableTaskRowInner({
                   <div
                     className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                     style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                    title={othersHere.map((o) => o.displayName).join(', ')}
                   >
                     {otherPrimary.displayName}
                     {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
@@ -1075,7 +1006,6 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={task.startDate ? task.startDate.slice(0, 10) : ''}
                     placeholder="YYYY-MM-DD"
-                    title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
                     onPaste={(e) => handleCellBulkPaste('startDate', e)}
@@ -1112,7 +1042,6 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('startDate');
                       }}
-                      title={`${formatDate(task.startDate) || '시작일 없음'} · 선택 후 입력 또는 F2로 날짜 편집`}
                     >
                       <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {formatDate(task.startDate) || '—'}
@@ -1124,7 +1053,6 @@ function SortableTaskRowInner({
                   <div
                     className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                     style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                    title={othersHere.map((o) => o.displayName).join(', ')}
                   >
                     {otherPrimary.displayName}
                   </div>
@@ -1169,7 +1097,6 @@ function SortableTaskRowInner({
                     autoFocus
                     defaultValue={task.endDate ? task.endDate.slice(0, 10) : ''}
                     placeholder="YYYY-MM-DD"
-                    title="키패드로 입력: 2026-07-15 또는 20260715 (Enter 확정)"
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
                     onPaste={(e) => handleCellBulkPaste('endDate', e)}
@@ -1204,7 +1131,6 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('endDate');
                       }}
-                      title={`${formatDate(task.endDate) || '종료일 없음'} · 선택 후 입력 또는 F2로 날짜 편집`}
                     >
                       <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {formatDate(task.endDate) || '—'}
@@ -1216,7 +1142,6 @@ function SortableTaskRowInner({
                   <div
                     className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
                     style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                    title={othersHere.map((o) => o.displayName).join(', ')}
                   >
                     {otherPrimary.displayName}
                   </div>
@@ -1271,7 +1196,6 @@ function SortableTaskRowInner({
                     autoComplete="off"
                     autoFocus
                     defaultValue={durationDays ?? ''}
-                    title="시작일 기준 기간(일). Enter로 확정하면 종료일이 자동 계산됩니다."
                     className="w-full min-w-0 bg-white border border-indigo-400 rounded px-1 py-0.5 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                     onFocus={(e) => e.currentTarget.select()}
                     onPaste={(e) => handleCellBulkPaste('duration', e)}
@@ -1306,11 +1230,6 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('duration');
                       }}
-                      title={
-                        task.startDate
-                          ? '시작일 기준 기간(일) — 선택 후 입력 또는 F2로 수정하면 종료일이 자동 계산됩니다.'
-                          : '시작일을 먼저 입력하면 기간으로 종료일을 계산할 수 있습니다.'
-                      }
                     >
                       <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {durationDays != null ? durationDays : '-'}
@@ -1397,7 +1316,6 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEdit('workEffort');
                       }}
-                      title={`선택 후 입력 또는 F2로 공수 편집 (${workEffortUnitSuffixKo(effortUnitForTask)})`}
                     >
                       <span className="inline-flex items-center gap-0.5 min-w-0" style={txtStyle}>
                         {task.workEffort != null ? formatStoredWorkEffortForDisplay(task.workEffort, effortUnitForTask) : '-'}
@@ -1438,11 +1356,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   beginEditNowResolved('workComposition');
                 }}
-                title={
-                  task.parentId == null
-                    ? '최상위 작업에는 상위를 나누는 형제가 없어 업무 구성비를 두지 않습니다.'
-                    : '같은 부모 아래 직속 형제들의 공수 합 대비 이 행 공수 비율(%). 소수 첫째 자리. 상위 진척률 롤업과 동일한 공수 기준입니다.'
-                }
               >
                 <span className="px-1 inline-block w-full text-right truncate" style={txtStyle}>
                   {text}
@@ -1516,7 +1429,6 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('weight');
                     }}
-                    title={weightColumnTooltip}
                   >
                     <span style={txtStyle}>{task.weight != null ? formatNum1(task.weight) : '-'}</span>
                   </button>
@@ -1550,7 +1462,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   if (!isEditing) beginEditNow('progress');
                 }}
-                title={progressColumnTooltip}
               >
                 {isEditing ? (
                   <input
@@ -1617,11 +1528,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   pushToast(PLANNED_NOT_EDITABLE_TOAST, { variant: 'info' });
                 }}
-                title={
-                  computable
-                    ? plannedProgressDataCellTitle(plannedFmt)
-                    : '계획율을 계산할 수 없습니다. 시작일·종료일을 입력하면 영업일 기준으로 자동 산정됩니다.'
-                }
               >
                 <span className="px-1 inline-block w-full text-left truncate" style={txtStyle}>
                   {computable ? `${plannedFmt}%` : '—'}
@@ -1660,13 +1566,6 @@ function SortableTaskRowInner({
                   rangeHighlightClass,
                 )}
                 style={mergeCellOuter(otherRingStyle)}
-                title={[
-                  computable
-                    ? progressVarianceDataCellTitle(`${sign}${varFmt}`, `${actFmt}%`, `${plFmt}%`, label)
-                    : '계획율이 입력되지 않아 차이를 계산할 수 없습니다. 차이(%p)=실제 진척−계획율(수동 입력).',
-                  '',
-                  '선택 후 입력 또는 F2: 실제 진척률 편집',
-                ].join('\n')}
                 onClick={(e) => {
                   e.stopPropagation();
                   beginEdit('progressVariance');
@@ -1768,7 +1667,6 @@ function SortableTaskRowInner({
                         !txtStyle.color && (task.assignee ? 'text-slate-600' : 'text-slate-400'),
                       )}
                       style={txtStyle}
-                      title={formatAssigneeDisplay(task.assignee, orgMemberDisplayMetaByName) || '배정 안됨'}
                     >
                       {(task.assignee || '').trim() || '배정 ...'}
                     </div>
@@ -1815,7 +1713,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   if (!isEditing) beginEdit('allocation');
                 }}
-                title="선택 후 입력 또는 F2로 투입율 편집"
               >
                 {isEditing ? (
                   <input
@@ -1862,9 +1759,9 @@ function SortableTaskRowInner({
             );
           }
           if (colId === 'status') {
-            const isEditing = editingCell?.taskId === task.id && editingCell?.columnId === 'status';
-            const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status' && !isEditing;
+            const isFocusedStatus = focusedCell?.taskId === task.id && focusedCell?.columnId === 'status';
             const currentStatusName = statusConfigs.find((c) => c.id === task.status)?.name ?? task.status ?? '—';
+            const currentStatusCfg = statusConfigs.find((c) => c.id === task.status);
             return (
               <div
                 key={colId}
@@ -1873,11 +1770,7 @@ function SortableTaskRowInner({
                 style={mergeCellOuter(null)}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!isEditing) beginEdit('status');
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  if (!isEditing) beginEditNow('status');
+                  beginFocus('status');
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -1885,26 +1778,37 @@ function SortableTaskRowInner({
                   onContextMenu(e, task.id, 'status');
                 }}
               >
-                {isEditing ? (
+                {canEdit ? (
                   <select
                     id={`wbs-edit-${task.id}-status`}
                     value={task.status}
-                    autoFocus
                     onChange={(e) => {
                       const newStatus = e.target.value;
                       if (newStatus !== task.status) {
                         updateTask(task.id, { status: newStatus });
                       }
-                      setEditingCell(null);
                     }}
-                    onBlur={() => setEditingCell(null)}
+                    onClick={(e) => e.stopPropagation()}
+                    onFocus={(e) => {
+                      e.stopPropagation();
+                      beginFocus('status');
+                    }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape' || e.key === 'Enter') {
-                        setEditingCell(null);
+                      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
+                        e.stopPropagation();
+                      }
+                      if (e.key === 'Escape') {
                         (e.target as HTMLSelectElement).blur();
+                        requestAnimationFrame(() => {
+                          (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                        });
                       }
                     }}
-                    className="w-full bg-white p-1 ring-1 ring-indigo-500 rounded border border-transparent appearance-none text-xs"
+                    className={cn(
+                      'w-full bg-white px-1 py-0.5 rounded border border-transparent text-xs cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-400',
+                      currentStatusCfg?.id === 'done' && 'text-emerald-700 font-medium',
+                      currentStatusCfg?.id === 'todo' && 'text-slate-600',
+                    )}
                   >
                     {statusConfigs.map((config) => (
                       <option key={config.id} value={config.id}>
@@ -1913,27 +1817,9 @@ function SortableTaskRowInner({
                     ))}
                   </select>
                 ) : (
-                  <button
-                    type="button"
-                    className="w-full text-left rounded px-1 -mx-1 cursor-cell hover:bg-indigo-50/80 truncate"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEdit('status');
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('status');
-                    }}
-                    onFocus={(e) => {
-                      e.stopPropagation();
-                      beginEdit('status');
-                    }}
-                    title="선택 후 입력 또는 F2로 상태 수정"
-                  >
-                    <span className="truncate block" style={txtStyle}>
-                      {currentStatusName}
-                    </span>
-                  </button>
+                  <span className="truncate block px-1" style={txtStyle}>
+                    {currentStatusName}
+                  </span>
                 )}
               </div>
             );
@@ -1993,7 +1879,6 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit('deliverables');
                     }}
-                    title={(task.deliverables || '').trim() || '선택 후 입력 또는 F2로 산출물 편집'}
                   >
                     <span style={txtStyle}>{task.deliverables || '-'}</span>
                   </button>
@@ -2135,11 +2020,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   if (!isEditing) beginEditNow('dependencies');
                 }}
-                title={
-                  hiddenDepLabels.length > 0
-                    ? `행 번호 또는 작업명 검색 후 선택. 접힘/필터로 보이지 않는 선행작업: ${hiddenDepLabels.join(', ')}`
-                    : '선택 후 입력 또는 F2로 선행작업 편집'
-                }
               >
                 {isEditing ? (
                   <div className="relative min-w-0 flex-1">
@@ -2213,7 +2093,6 @@ function SortableTaskRowInner({
                         e.stopPropagation();
                         beginEditNow('dependencies');
                       }}
-                      title="선택 후 입력 또는 F2로 선행작업 편집"
                     >
                       <span className="block truncate" style={txtStyle}>
                         {depsDisplayText}
@@ -2243,7 +2122,6 @@ function SortableTaskRowInner({
                   e.stopPropagation();
                   if (!isEditing) beginEdit(colId);
                 }}
-                title={customLabel}
               >
                 {isEditing ? (
                   <input
@@ -2283,7 +2161,6 @@ function SortableTaskRowInner({
                       e.stopPropagation();
                       beginEdit(colId);
                     }}
-                    title={currentValue || `${customLabel} 입력`}
                   >
                     <span style={txtStyle}>{currentValue || '-'}</span>
                   </button>
@@ -2317,7 +2194,6 @@ function SortableTaskRowInner({
               onEdit(task);
             }}
             className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded transition-colors"
-            title="작업 수정"
           >
             <Edit2 size={13} />
           </button>
@@ -2328,7 +2204,6 @@ function SortableTaskRowInner({
                 onDeleteClick(task.id);
               }}
               className="p-1.5 hover:bg-red-50 text-red-600 rounded transition-colors"
-              title="삭제"
             >
               <Trash2 size={13} />
             </button>
@@ -2404,7 +2279,7 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
       prev.editingCell.columnId === next.editingCell.columnId &&
       prevSeed === nextSeed);
   const focusedCellRelevantSame = rowFocusedCellVisualEqual(prev.focusedCell, next.focusedCell, prev.task.id, next.task.id);
-  // 대량 참조(allProjectTasks·rollupTooltipBaseTasks·displayWbsMap·taskIdToSeqNum·seqNumToTaskId
+  // 대량 참조(allProjectTasks·displayWbsMap·taskIdToSeqNum·seqNumToTaskId
   // ·criticalPathSet·projectAssignmentsByProjectId)는 어떤 작업이든 변경되면 새 참조가 되어
   // 전 행 memo를 무효화한다. 이 행의 실제 표시값(displayWbsId·wbsSeqLabel·allocationDisplayText
   // ·criticalPathSet.has(task.id))만 비교해 불필요한 재렌더를 방지한다.
@@ -2418,7 +2293,6 @@ function areRowPropsEqual(prev: SortableTaskRowProps, next: SortableTaskRowProps
     prev.wbsId === next.wbsId &&
     prev.displayWbsId === next.displayWbsId &&
     prev.isSelected === next.isSelected &&
-    prev.isFocused === next.isFocused &&
     prev.hasChildren === next.hasChildren &&
     prev.totalDescendantTaskCount === next.totalDescendantTaskCount &&
     prev.isTreeView === next.isTreeView &&

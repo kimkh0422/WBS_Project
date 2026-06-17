@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseClipboardTsvToTextGrid, expandWbsMarqueePlainPastePairs, jumpWbsCellArrowToEdge } from '../wbsCellMarquee';
+import {
+  parseClipboardTsvToTextGrid,
+  expandWbsMarqueePlainPastePairs,
+  jumpWbsCellArrowToEdge,
+  stepWbsCellPageVertical,
+} from '../wbsCellMarquee';
 import type { TaskWithDepth } from '../taskView';
 
 describe('parseClipboardTsvToTextGrid', () => {
@@ -91,5 +96,37 @@ describe('jumpWbsCellArrowToEdge', () => {
   it('이미 끝이면 null', () => {
     expect(jumpWbsCellArrowToEdge({ taskId: 'r0', columnId: 'name' }, 'ArrowUp', opts)).toBeNull();
     expect(jumpWbsCellArrowToEdge({ taskId: 'r2', columnId: 'duration' }, 'ArrowDown', opts)).toBeNull();
+  });
+});
+
+describe('stepWbsCellPageVertical', () => {
+  const tasks = Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, depth: 0 })) as TaskWithDepth[];
+  const cols = ['name', 'startDate', 'duration'] as const;
+  const visibleTaskRowIndexById = new Map(tasks.map((t, i) => [t.id, i]));
+
+  const opts = {
+    visibleTasks: tasks,
+    columnIds: [...cols],
+    visibleTaskRowIndexById,
+    defaultNavColumn: 'name' as const,
+  };
+
+  it('같은 열을 유지한 채 pageRows만큼 위/아래로 이동한다', () => {
+    expect(stepWbsCellPageVertical({ taskId: 'r10', columnId: 'startDate' }, 'PageDown', 5, opts)).toEqual({
+      taskId: 'r15',
+      columnId: 'startDate',
+    });
+    expect(stepWbsCellPageVertical({ taskId: 'r10', columnId: 'startDate' }, 'PageUp', 5, opts)).toEqual({
+      taskId: 'r5',
+      columnId: 'startDate',
+    });
+  });
+
+  it('표 끝에서는 더 이상 내려가지 않는다', () => {
+    expect(stepWbsCellPageVertical({ taskId: 'r18', columnId: 'name' }, 'PageDown', 5, opts)).toEqual({
+      taskId: 'r19',
+      columnId: 'name',
+    });
+    expect(stepWbsCellPageVertical({ taskId: 'r19', columnId: 'name' }, 'PageDown', 5, opts)).toBeNull();
   });
 });

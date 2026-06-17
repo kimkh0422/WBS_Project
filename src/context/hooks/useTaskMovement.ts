@@ -195,8 +195,7 @@ export function reorderProjectTasksForStableVisibleOrder(projectTasks: Task[], s
  * 있던 경우 대상이 그 형제들 서브트리 "아래"로 내려가 보일 수 있다(위치는 사용자가 수동 조정).
  * 마지막 자식(뒤 형제 없음)을 내어쓰면 제자리에서 레벨만 내려간다. 자기 하위 트리는 함께 따라온다.
  *
- * 다중 선택 시: 각 대상은 조부모로 올라간다. 부모도 함께 선택된 작업은 부모를 따라 내려가므로
- * 건너뛴다(이중 적용 방지).
+ * 다중 선택 시: 각 대상은 조부모로 한 단계 올라간다(부모도 함께 선택된 경우 각자 한 단계씩).
  *
  * 순수 함수(단위 테스트 대상). recomputeProjectRollups·setAllTasks 등 부수효과는 호출부가 담당.
  * @param projectTasks 한 프로젝트의 작업들(다른 프로젝트는 제외하고 넘길 것)
@@ -204,12 +203,10 @@ export function reorderProjectTasksForStableVisibleOrder(projectTasks: Task[], s
  * @returns changed=false면 내어쓸 대상이 없어 변화 없음
  */
 export function outdentTasksLevelOnly(projectTasks: Task[], ids: string[]): { tasks: Task[]; changed: boolean } {
-  const selectedIds = new Set(ids);
   const parentChange = new Map<string, string | null>();
   for (const taskId of ids) {
     const task = projectTasks.find((t) => t.id === taskId);
     if (!task || !task.parentId) continue; // 루트는 더 못 올림
-    if (selectedIds.has(task.parentId)) continue; // 부모도 함께 선택됨 → 부모 따라 내려감
     const parent = projectTasks.find((t) => t.id === task.parentId);
     if (!parent) continue;
     parentChange.set(taskId, parent.parentId ?? null);

@@ -1,6 +1,25 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { isComposingKeyEvent } from '../lib/ime';
 
+/** WBS 표 안 셀 편집용 텍스트 INPUT인지 (체크박스·버튼 등 제외) */
+function isWbsGridCellTextInput(el: HTMLElement): boolean {
+  if (!el.closest?.('[data-wbs-table]') || el.closest?.('[data-quick-add]')) return false;
+  if (el.hasAttribute?.('data-wbs-armed')) return true;
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+  if (el.tagName !== 'INPUT') return false;
+  const t = ((el as HTMLInputElement).type || 'text').toLowerCase();
+  return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
+}
+
+function isGenericTypingTarget(el: HTMLElement): boolean {
+  const tag = el?.tagName;
+  if (tag === 'TEXTAREA' || el?.isContentEditable) return true;
+  if (tag === 'SELECT') return true;
+  if (tag !== 'INPUT') return false;
+  const t = ((el as HTMLInputElement).type || 'text').toLowerCase();
+  return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
+}
+
 interface KeyboardShortcutsDeps {
   undo: () => void;
   redo: () => void;
@@ -34,10 +53,12 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   useEffect(() => {
     const handleUndo = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      const target = e.target as HTMLElement;
+      // WBS 표 셀 편집 INPUT은 useWbsTableKeyboard(capture)가 처리 — 여기서는 중복 방지
+      if (isWbsGridCellTextInput(target)) return;
+      if (isGenericTypingTarget(target)) return;
       e.preventDefault();
       undo();
     };
@@ -49,8 +70,9 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
   useEffect(() => {
     const handleRedo = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable) return;
+      const target = e.target as HTMLElement;
+      if (isWbsGridCellTextInput(target)) return;
+      if (isGenericTypingTarget(target)) return;
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
       const isCtrlY = k === 'y' && !e.shiftKey;
