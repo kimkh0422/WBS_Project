@@ -52,7 +52,7 @@ import type { OrgNode } from '../data/organization';
 import { buildOrgMemberDisplayMetaMap, buildOrgMemberLabelMap } from '../lib/assigneeOptions';
 import { sortOrgMembersByPosition } from '../lib/orgMemberSort';
 import { inferProjectTopDivisionId } from '../lib/allocationDivisionInfer';
-import { resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
+import { resolveProjectOwnerDisplayName, resolveProjectPmRawDisplayName } from '../lib/projectPmDisplay';
 import { CooperationRequestSection } from './CooperationRequestSection';
 import { hasUndeterminedProjectPeriod } from '../lib/projectPeriod';
 import { DashboardTableHintCell, DashboardHeroBand, ProjectCard } from './dashboardCards';
@@ -680,7 +680,7 @@ export function Dashboard({
     const divisionNameById = new Map<string, string>(topLevelDivisions.map((d) => [String(d.id), String(d.name)] as [string, string]));
     // 프로젝트 → 소속 사업부명: "사업부 현황"과 동일 분류로 프로젝트 카드에 표시
     const projectDivisionNameById = new Map<string, string>();
-    const projectsByDivision = new Map<string, { id: string; label: string }[]>();
+    const projectsByDivision = new Map<string, { id: string; label: string; ownerName: string }[]>();
     const projectIdsByDivision = new Map<string, Set<string>>();
     for (const division of topLevelDivisions) {
       projectsByDivision.set(division.id, []);
@@ -694,7 +694,11 @@ export function Dashboard({
       const idSet = projectIdsByDivision.get(divId);
       if (!list || !idSet) continue;
       idSet.add(p.id);
-      list.push({ id: p.id, label: formatProjectDisplayName(p.name, p.projectKind) });
+      list.push({
+        id: p.id,
+        label: formatProjectDisplayName(p.name, p.projectKind),
+        ownerName: resolveProjectOwnerDisplayName(p, profileMap) || '(미지정)',
+      });
       const dn = divisionNameById.get(divId);
       if (dn) projectDivisionNameById.set(p.id, dn);
     }
@@ -716,6 +720,9 @@ export function Dashboard({
       const planned = computeWeightedPlanned(tasks, plannedById);
       const memberCount = orgMembers.filter((m) => memberToDivisionId.get(m.name) === division.id).length;
       const registeredProjects = projectsByDivision.get(division.id) ?? [];
+      const registeredOwnerNames = [...new Set(registeredProjects.map((rp) => rp.ownerName).filter((n) => n && n !== '(미지정)'))].sort(
+        (a, b) => a.localeCompare(b, 'ko'),
+      );
 
       const assignmentNames = new Set<string>();
       for (const proj of divisionProjects) {
@@ -745,6 +752,7 @@ export function Dashboard({
         inProgressCount,
         projectCount: registeredProjects.length,
         registeredProjects,
+        registeredOwnerNames,
         vicePresidentNames,
       };
     });
@@ -767,6 +775,7 @@ export function Dashboard({
     projectsForDashboard,
     departmentNameToDivisionId,
     divisionInferCtx,
+    profileMap,
   ]);
 
   /** 프로젝트별 현황: 카드 1개 렌더 (목록·부서별 묶기에서 공통 사용) */
@@ -1575,6 +1584,48 @@ export function Dashboard({
               </div>
             )}
           </div>
+        ) : detailKind ? (
+          <div
+            className={cn(
+              'max-w-[min(100%,96rem)] mx-auto p-3 pb-6 sm:p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500',
+              mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
+            )}
+          >
+            <DashboardDetailPage
+              kind={detailKind}
+              projectId={detailKind === 'project' ? (detailProjectId ?? undefined) : undefined}
+              onBack={clearDashboardDetailParams}
+              onOpenProjectTable={onNavigate ? openTableProject : undefined}
+              onOpenTaskInTable={onOpenTaskInTable}
+              onOpenAllTasksTable={onNavigate ? openTableAll : undefined}
+              projectsForDashboard={projectsForDashboard}
+              allTasksForDashboard={allTasksForDashboard}
+              projectMap={projectMap}
+              wbsSettings={wbsSettings}
+              assigneeDisplayMetaByName={assigneeDisplayMetaByName}
+              registeredMemberDisplayNames={registeredMemberDisplayNames}
+              profileMap={profileMap}
+              summary={summary}
+              memberCount={memberCount}
+              visitorStats={visitorStats}
+              issueTasksAll={issueTasksAll}
+              actionTasksAll={actionTasksFiltered}
+              actionDueDateFilter={actionDueDateFilter}
+              onActionDueDateFilterChange={setActionDueDateFilter}
+              actionTasksWithDueDateCount={actionTasksWithDueDate.length}
+              milestonesAll={milestones}
+              projectStatsRows={projectStats}
+              dashboardFiltersActive={dashboardFiltersActive}
+              updateTask={updateTask}
+              doneStatusId={doneStatusId}
+              todoStatusId={todoStatusId}
+              doneStatusIds={doneStatusIds}
+              isActionTaskCompleted={isActionTaskCompleted}
+              dashboardExcludedCount={dashboardExcludedIds.size}
+              totalProjectsInAccount={projects.length}
+              ownerDepartmentByUserId={ownerDepartmentByUserId}
+            />
+          </div>
         ) : (
           <>
             <div
@@ -2051,7 +2102,7 @@ export function Dashboard({
                     </>
                   ) : (
                     <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
-                      <table className="w-full text-sm min-w-[520px]">
+                      <table className="w-full text-sm min-w-[640px]">
                         <thead className="bg-slate-100 border-b-2 border-slate-200">
                           <tr className="text-[11px] text-slate-700">
                             <th className="text-left font-bold px-3 py-2.5">조직</th>
@@ -2061,6 +2112,12 @@ export function Dashboard({
                             >
                               프로젝트
                               <span className="block text-[9px] font-normal text-slate-500 normal-case">(건)</span>
+                            </th>
+                            <th
+                              className="text-left font-bold px-2 py-2.5 min-w-[7rem]"
+                              title="해당 사업부에 분류된 프로젝트를 등록(생성)한 사용자"
+                            >
+                              등록자
                             </th>
                             <th className="text-right font-bold px-2 py-2.5 w-[4.5rem]" title="해당 프로젝트들에 등록된 작업 수">
                               Task
@@ -2089,7 +2146,9 @@ export function Dashboard({
                                       '클릭하여 상세',
                                       d.vicePresidentNames.length > 0 ? `부사장: ${d.vicePresidentNames.join(', ')}` : '',
                                       '프로젝트:',
-                                      ...d.registeredProjects.map((r) => r.label),
+                                      ...d.registeredProjects.map((r) =>
+                                        r.ownerName && r.ownerName !== '(미지정)' ? `${r.label} (${r.ownerName})` : r.label,
+                                      ),
                                     ]
                                       .filter(Boolean)
                                       .join('\n')
@@ -2124,6 +2183,24 @@ export function Dashboard({
                               <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 font-bold text-lg align-middle">
                                 {d.projectCount}
                               </td>
+                              <td
+                                className="px-2 py-2.5 text-left text-slate-700 text-xs align-middle max-w-[12rem]"
+                                title={
+                                  d.registeredProjects.length > 0
+                                    ? d.registeredProjects
+                                        .map((r) => (r.ownerName && r.ownerName !== '(미지정)' ? `${r.label}: ${r.ownerName}` : r.label))
+                                        .join('\n')
+                                    : undefined
+                                }
+                              >
+                                {d.registeredOwnerNames.length > 0 ? (
+                                  <span className="line-clamp-2 leading-snug">{d.registeredOwnerNames.join(' · ')}</span>
+                                ) : d.projectCount > 0 ? (
+                                  <span className="text-slate-500">(미지정)</span>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
                               <td className="px-2 py-2.5 text-right tabular-nums text-slate-900 font-bold text-lg">{d.total}</td>
                               <td className="px-2 py-2.5 text-right tabular-nums text-amber-800 font-bold">{formatPercent1(d.planned)}%</td>
                               <td className="px-3 py-2.5 text-right tabular-nums text-indigo-700 font-bold">
@@ -2138,6 +2215,7 @@ export function Dashboard({
                             <td className="px-2 py-2.5 text-right tabular-nums text-sky-800 text-lg">
                               {divisionAggregatedSummary.projectSum}
                             </td>
+                            <td className="px-2 py-2.5" aria-hidden />
                             <td className="px-2 py-2.5 text-right tabular-nums text-slate-900 text-lg">
                               {divisionAggregatedSummary.taskSum}
                             </td>
@@ -2287,58 +2365,6 @@ export function Dashboard({
           </>
         )}
       </div>
-
-      <BaseModal
-        isOpen={Boolean(detailKind && !divisionDetailId)}
-        onClose={clearDashboardDetailParams}
-        showCloseButton={false}
-        size="full"
-        bodyClassName="p-0"
-      >
-        {detailKind && !divisionDetailId && (
-          <div
-            className={cn(
-              'max-w-[min(100%,96rem)] mx-auto p-3 pb-6 sm:p-4 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500',
-              mobileReadabilityMode ? 'space-y-6' : 'space-y-8',
-            )}
-          >
-            <DashboardDetailPage
-              kind={detailKind}
-              projectId={detailKind === 'project' ? (detailProjectId ?? undefined) : undefined}
-              onBack={clearDashboardDetailParams}
-              onOpenProjectTable={onNavigate ? openTableProject : undefined}
-              onOpenTaskInTable={onOpenTaskInTable}
-              onOpenAllTasksTable={onNavigate ? openTableAll : undefined}
-              projectsForDashboard={projectsForDashboard}
-              allTasksForDashboard={allTasksForDashboard}
-              projectMap={projectMap}
-              wbsSettings={wbsSettings}
-              assigneeDisplayMetaByName={assigneeDisplayMetaByName}
-              registeredMemberDisplayNames={registeredMemberDisplayNames}
-              profileMap={profileMap}
-              summary={summary}
-              memberCount={memberCount}
-              visitorStats={visitorStats}
-              issueTasksAll={issueTasksAll}
-              actionTasksAll={actionTasksFiltered}
-              actionDueDateFilter={actionDueDateFilter}
-              onActionDueDateFilterChange={setActionDueDateFilter}
-              actionTasksWithDueDateCount={actionTasksWithDueDate.length}
-              milestonesAll={milestones}
-              projectStatsRows={projectStats}
-              dashboardFiltersActive={dashboardFiltersActive}
-              updateTask={updateTask}
-              doneStatusId={doneStatusId}
-              todoStatusId={todoStatusId}
-              doneStatusIds={doneStatusIds}
-              isActionTaskCompleted={isActionTaskCompleted}
-              dashboardExcludedCount={dashboardExcludedIds.size}
-              totalProjectsInAccount={projects.length}
-              ownerDepartmentByUserId={ownerDepartmentByUserId}
-            />
-          </div>
-        )}
-      </BaseModal>
 
       <BaseModal
         isOpen={Boolean(selectedProjectCard)}

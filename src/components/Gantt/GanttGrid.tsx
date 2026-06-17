@@ -1,4 +1,4 @@
-import { differenceInDays, endOfMonth, endOfWeek, format, max, min, startOfMonth } from 'date-fns';
+import { differenceInDays, endOfMonth, format, max, min, startOfMonth } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
 import type { ViewMode } from './ZOOM_LEVELS';
@@ -14,7 +14,7 @@ interface GanttGridProps {
 }
 
 export function GanttGrid({ viewMode, dayWidth, minDate, maxDate, days, months, weeks }: GanttGridProps) {
-  if (viewMode === 'day') {
+  if (viewMode === 'day' || viewMode === 'week') {
     return (
       <>
         {days.map((day) => (
@@ -27,21 +27,6 @@ export function GanttGrid({ viewMode, dayWidth, minDate, maxDate, days, months, 
             style={{ width: dayWidth }}
           />
         ))}
-      </>
-    );
-  }
-  if (viewMode === 'week') {
-    return (
-      <>
-        {weeks.map((week) => {
-          const weekStart = max([week, minDate]);
-          const weekEnd = min([endOfWeek(week), maxDate]);
-          const daysInWeek = differenceInDays(weekEnd, weekStart) + 1;
-          const width = daysInWeek * dayWidth;
-          return (
-            <div key={`grid-week-${week.toISOString()}`} className="flex-shrink-0 border-r border-slate-100 h-full" style={{ width }} />
-          );
-        })}
       </>
     );
   }

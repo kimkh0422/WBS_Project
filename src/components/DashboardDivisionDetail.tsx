@@ -16,7 +16,7 @@ export interface DivisionDetailStats {
   issueCount: number;
   projectCount: number;
   /** 대시보드에 포함된 프로젝트(사업부 분류), 표시명 가나다순 */
-  registeredProjects: { id: string; label: string }[];
+  registeredProjects: { id: string; label: string; ownerName?: string }[];
   progress: number;
   /** 일정 기준 기대 진척(0~100). Task 가중과 진척율과 동일 규칙 */
   planned: number;
@@ -155,9 +155,10 @@ export function DashboardDivisionDetail({
                     type="button"
                     onClick={() => onOpenProjectTasks(rp.id)}
                     className="text-left w-full rounded px-1 -mx-1 py-0.5 text-sky-900/90 hover:bg-sky-100/80 hover:text-teal-900 font-medium underline-offset-2 hover:underline"
-                    title="해당 프로젝트 WBS 작업 표로 이동"
+                    title={rp.ownerName ? `${rp.label} · 등록: ${rp.ownerName}` : '해당 프로젝트 WBS 작업 표로 이동'}
                   >
                     {rp.label}
+                    {rp.ownerName ? <span className="text-slate-500 font-normal"> · {rp.ownerName}</span> : null}
                   </button>
                 </li>
               ))}

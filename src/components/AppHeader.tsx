@@ -37,6 +37,7 @@ import {
   Network,
   Keyboard,
   FileDown,
+  FileSpreadsheet,
   TrendingUp,
   FileText,
   ClipboardList,
@@ -142,6 +143,8 @@ export interface AppHeaderProps {
   /** 승인된 사용자 여부. 조직 현황 메뉴 노출 조건. */
   userApproved: boolean;
   handleImportClick: () => void;
+  /** WBS 작성용 샘플 엑셀 양식 다운로드 */
+  handleDownloadSampleTemplate: () => void;
   /** 프로젝트 등록현황 요약 PDF 저장(대시보드 집계 기준) */
   onSaveProjectRegistrationPdf?: () => void | Promise<void>;
   setIsExportModalOpen: (v: boolean) => void;
@@ -165,6 +168,8 @@ export interface AppHeaderProps {
   /** 관리자가 회원 화면을 체험 중인 상태 — 모든 관리자 전용 UI를 숨김 */
   memberPreview?: boolean;
   setMemberPreview?: (v: boolean) => void;
+  /** 일반 사용자 화면에서 관리자 화면으로 복귀 — 비밀번호 확인 후 진행 */
+  onRequestRestoreAdminView?: () => void;
   /** 시스템 관리자가 아니어도 true이면 회원 관리 메뉴 표시 (조직 책임자) */
   canOpenMembersManagement?: boolean;
   /** DB 관리자가 아닌 운영자용: 비밀번호로 관리자 모드(adminOverride) 진입 */
@@ -179,6 +184,8 @@ export interface AppHeaderProps {
   onOpenTutorial?: () => void;
   /** ⋮ 메뉴 「따라하기 투어」 — 신규 프로젝트→첫 작업 흐름을 실제 화면 위에서 안내(데스크톱 전용) */
   onStartTour?: () => void;
+  /** ⋮ 메뉴 「Excel 가져오기 따라하기」 — 샘플 양식 다운로드→작성→가져오기 안내 */
+  onStartExcelImportTour?: () => void;
   /** ⋮ 관리자 메뉴 「작업 로그」 — 회원들의 프로젝트·작업 생성·수정·삭제 변경 이력(전체)을 조회. 운영자(realIsAdmin)에게만 노출 */
   onOpenAuditLog?: () => void;
 }
@@ -238,6 +245,7 @@ export function AppHeader({
   setIsOrganizationOpen,
   userApproved,
   handleImportClick,
+  handleDownloadSampleTemplate,
   onSaveProjectRegistrationPdf,
   setIsExportModalOpen,
   setIsSettingsModalOpen,
@@ -254,6 +262,7 @@ export function AppHeader({
   headerRightSlot,
   memberPreview = false,
   setMemberPreview,
+  onRequestRestoreAdminView,
   canOpenMembersManagement,
   setIsAdminPasswordModalOpen,
   setIsAdminAccessRequestModalOpen,
@@ -261,6 +270,7 @@ export function AppHeader({
   ownerDepartmentByUserId,
   onOpenTutorial,
   onStartTour,
+  onStartExcelImportTour,
   onOpenAuditLog,
 }: AppHeaderProps) {
   /** 관리자로 지정됐거나( DB ) 비밀번호 관리자 모드일 때, 일반 사용자 화면 ↔ 관리자 화면 전환 가능 */
@@ -1515,7 +1525,7 @@ export function AppHeader({
                   aria-hidden
                 />
                 <div className="absolute top-full right-0 mt-2 w-44 max-h-[min(calc(100vh_-_11rem),40rem)] bg-[var(--color-surface)] rounded-xl border border-[var(--color-line)] overflow-y-auto overscroll-contain z-50 shadow-[var(--shadow-xl)] ring-1 ring-slate-900/[0.08] dark:ring-white/12 dropdown-menu flex flex-col py-1">
-                  {(onStartTour || (onOpenTutorial && showHiddenHeaderItems)) && (
+                  {(onStartTour || onStartExcelImportTour || (onOpenTutorial && showHiddenHeaderItems)) && (
                     <>
                       <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">도움말</div>
                       {onOpenTutorial && showHiddenHeaderItems && (
@@ -1544,6 +1554,19 @@ export function AppHeader({
                           <Route size={14} /> 따라하기 투어
                         </button>
                       )}
+                      {onStartExcelImportTour && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreMenuOpen(false);
+                            onStartExcelImportTour();
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] hidden md:flex items-center gap-2"
+                          title="샘플 WBS 엑셀 양식을 받아 작성한 뒤 가져오기로 불러오는 순서를 단계별로 안내합니다."
+                        >
+                          <FileSpreadsheet size={14} /> Excel 가져오기 따라하기
+                        </button>
+                      )}
                       <div className="h-px bg-[var(--color-bg)] my-1 mx-2" />
                     </>
                   )}
@@ -1567,6 +1590,7 @@ export function AppHeader({
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase text-slate-400 tracking-wider">데이터</div>
                   <button
                     type="button"
+                    data-tourid="tour-import"
                     disabled={!canEditCurrentProject}
                     onClick={() => {
                       if (!canEditCurrentProject) return;
@@ -1581,6 +1605,19 @@ export function AppHeader({
                     }
                   >
                     <Upload size={14} /> 가져오기
+                  </button>
+                  <button
+                    type="button"
+                    data-tourid="tour-sample-wbs"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      void Promise.resolve(handleDownloadSampleTemplate()).catch(() => {});
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-[var(--color-ink-subdued)] hover:bg-[var(--color-bg)] flex items-center gap-2"
+                    title="WBS 작성용 샘플 엑셀 양식을 받습니다. 필수·선택 컬럼이 구분되어 있으며, 작성 후 가져오기로 불러올 수 있습니다."
+                  >
+                    <FileSpreadsheet size={14} />
+                    샘플 WBS 양식
                   </button>
                   <button
                     type="button"
@@ -1722,7 +1759,7 @@ export function AppHeader({
                         className="w-full text-left px-3 py-2 text-sm text-amber-900 hover:bg-amber-50 flex items-center gap-2"
                         onClick={() => {
                           setIsUserMenuOpen(false);
-                          setMemberPreview(false);
+                          onRequestRestoreAdminView?.();
                         }}
                         title="Alt+Shift+F12로도 전환할 수 있습니다."
                       >

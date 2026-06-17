@@ -29,6 +29,7 @@ interface ExcelImportPreviewModalProps {
   onCustomColumnToggle?: (fileIndex: number, header: string, columnIndex: number) => void;
   /** "모두 추가/해제"처럼 파일의 사용자 정의 컬럼을 한 번에 set — 연속 토글 시의 stale state 문제 회피 */
   onCustomColumnsSet?: (fileIndex: number, items: Array<{ header: string; columnIndex: number }>) => void;
+  onDownloadSampleTemplate?: () => void;
 }
 
 const colToLetter = (n: number) => {
@@ -93,6 +94,7 @@ export function ExcelImportPreviewModal({
   onMappingChange,
   onCustomColumnToggle,
   onCustomColumnsSet,
+  onDownloadSampleTemplate,
 }: ExcelImportPreviewModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const [openFiles, setOpenFiles] = useState<Record<string, boolean>>({});
@@ -182,6 +184,16 @@ export function ExcelImportPreviewModal({
                 공수(MD) 안내: 미입력 시 기간(근무일수, 주말 제외)로 자동 산정됩니다.
               </span>
             </div>
+            {onDownloadSampleTemplate && (
+              <button
+                type="button"
+                onClick={() => void Promise.resolve(onDownloadSampleTemplate()).catch(() => {})}
+                className="inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+              >
+                <FileSpreadsheet size={14} />
+                샘플 WBS 양식 다운로드
+              </button>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -425,7 +437,7 @@ export function ExcelImportPreviewModal({
           <button type="button" onClick={onClose} className="btn-ghost">
             취소
           </button>
-          <button ref={confirmButtonRef} type="submit" className="btn-primary">
+          <button ref={confirmButtonRef} type="submit" className="btn-primary" data-tourid="tour-import-confirm">
             가져오기
           </button>
         </form>

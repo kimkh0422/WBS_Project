@@ -11,6 +11,8 @@ interface KeyboardShortcutsDeps {
   canToggleAdminMemberView: boolean;
   memberPreview: boolean;
   setMemberPreview: (v: boolean) => void;
+  /** 일반 사용자 화면 → 관리자 화면 복귀 시 비밀번호 확인 모달 열기 */
+  onRequestRestoreAdminView?: () => void;
   pushToast: (message: string, opts?: Record<string, unknown>) => void;
 }
 
@@ -24,6 +26,7 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     canToggleAdminMemberView,
     memberPreview,
     setMemberPreview,
+    onRequestRestoreAdminView,
     pushToast,
   } = deps;
 
@@ -106,15 +109,18 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       e.preventDefault();
-      const next = !memberPreview;
-      setMemberPreview(next);
-      pushToast(next ? '일반 사용자 화면으로 전환했습니다. (Shift+F12로 관리자 화면 복귀)' : '관리자 화면으로 전환했습니다.', {
+      if (memberPreview) {
+        onRequestRestoreAdminView?.();
+        return;
+      }
+      setMemberPreview(true);
+      pushToast('일반 사용자 화면으로 전환했습니다. (Shift+F12로 관리자 화면 복귀)', {
         variant: 'success',
       });
     };
     window.addEventListener('keydown', handleAdminMemberViewHotkey);
     return () => window.removeEventListener('keydown', handleAdminMemberViewHotkey);
-  }, [canToggleAdminMemberView, memberPreview, setMemberPreview, pushToast]);
+  }, [canToggleAdminMemberView, memberPreview, setMemberPreview, onRequestRestoreAdminView, pushToast]);
 
   // Ctrl+S: 즉시 서버 반영 기능 제거 (사용자 요청). 자동 저장만 사용.
   // 단, 브라우저의 '페이지 저장' 다이얼로그가 뜨지 않도록 preventDefault만 수행.

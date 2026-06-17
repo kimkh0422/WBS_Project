@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, BookOpen, ChevronRight, Route } from 'lucide-react';
+import { X, BookOpen, ChevronRight, Route, FileSpreadsheet } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MODAL_BACKDROP_CLASS, MODAL_PANEL_BASE_CLASS } from '../lib/modalChrome';
 
@@ -158,12 +158,21 @@ const TUTORIAL_SECTIONS: TutorialSection[] = [
     id: 'import-export',
     title: '6. 가져오기·내보내기·백업',
     content: [
+      { type: 'subtitle', text: 'Excel 샘플로 WBS 작성하기' },
+      {
+        type: 'list',
+        items: [
+          '⋮(더보기) → 「Excel 가져오기 따라하기」로 샘플 다운로드 → 엑셀 작성 → 가져오기 순서를 화면 위에서 단계별로 안내합니다.',
+          '⋮ → 「샘플 WBS 양식」으로 wbs_sample_template.xlsx를 받을 수 있습니다. 노란 헤더(＊)는 WBS·작업명·시작일·종료일·공수·담당자·상태 등 필수 항목입니다.',
+          '양식을 작성한 뒤 ⋮ → 가져오기에서 .xlsx 파일을 선택하면 새 프로젝트로 작업표가 생성됩니다.',
+        ],
+      },
       { type: 'subtitle', text: '가져오기' },
       {
         type: 'list',
         items: [
           '⋮(더보기) → 가져오기에서 Excel(.xlsx) 또는 백업 JSON(.json) 파일을 선택합니다.',
-          'Excel: 시트 구조에 맞춰 미리보기가 나옵니다. "기존 프로젝트에 합치기" 또는 "새 프로젝트로 만들기"를 선택해 가져옵니다.',
+          'Excel: 시트 구조에 맞춰 미리보기가 나옵니다. 컬럼 매핑을 확인한 뒤 새 프로젝트 이름을 정하고 가져오기를 실행합니다.',
           'JSON: 이 앱에서 내보낸 백업 파일을 그대로 복원하거나, 여러 파일을 선택해 "다중 병합"할 수 있습니다.',
         ],
       },
@@ -291,9 +300,11 @@ interface TutorialModalProps {
   onClose: () => void;
   /** 화면 따라하기 투어 시작(데스크톱 전용). App이 모달을 닫고 투어를 실행한다. */
   onStartTour?: () => void;
+  /** Excel 샘플 → 작성 → 가져오기 따라하기 투어 */
+  onStartExcelImportTour?: () => void;
 }
 
-export function TutorialModal({ isOpen, onClose, onStartTour }: TutorialModalProps) {
+export function TutorialModal({ isOpen, onClose, onStartTour, onStartExcelImportTour }: TutorialModalProps) {
   const [activeId, setActiveId] = useState(TUTORIAL_SECTIONS[0].id);
   const contentRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -387,10 +398,26 @@ export function TutorialModal({ isOpen, onClose, onStartTour }: TutorialModalPro
             </h2>
           </div>
           <div className="flex items-center gap-2">
+            {onStartExcelImportTour && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onStartExcelImportTour();
+                }}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold transition-colors"
+                title="샘플 WBS 엑셀 양식 다운로드 → 작성 → 가져오기 순서를 화면 위에서 따라 해 봅니다."
+              >
+                <FileSpreadsheet size={14} /> Excel 가져오기 따라하기
+              </button>
+            )}
             {onStartTour && (
               <button
                 type="button"
-                onClick={onStartTour}
+                onClick={() => {
+                  onClose();
+                  onStartTour();
+                }}
                 className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-xs font-semibold transition-colors"
                 title="신규 프로젝트 생성 → 첫 작업 입력 순서를 실제 화면 위에서 단계별로 따라 해 봅니다."
               >

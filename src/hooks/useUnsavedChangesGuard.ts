@@ -21,8 +21,9 @@ interface UseUnsavedChangesGuardParams {
 }
 
 /**
- * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 프로젝트 전환 확인 모달, 새로고침/닫기 경고,
+ * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 새로고침/닫기 경고,
  * 뷰(URL 첫 세그먼트) 전환·뒤로 가기 시 저장 여부 확인.
+ * 프로젝트만 바꿀 때는 확인하지 않는다(화면 이탈 시에만).
  *
  * BrowserRouter 환경에서는 `useBlocker`를 쓸 수 없어, URL의 뷰 세그먼트가 바뀌는 시점에
  * `useLayoutEffect`로 한 번 되돌린 뒤 모달을 띄우고(깜빡임 최소화), 사용자가 선택하면 목적지로 다시 이동한다.
@@ -55,6 +56,8 @@ export function useUnsavedChangesGuard({
 
   /** replace:true 라우터 보정·가드 통과 1회용 navigate 직전에 true */
   const allowViewNavigationOnceRef = useRef(false);
+  /** 뷰 이탈 모달에서 저장/폐기 선택 후 이동 완료 전 — 같은 이탈에 재팝업 방지 */
+  const leaveDecisionInFlightRef = useRef(false);
 
   const bypassViewLeaveGuardOnce = useCallback(() => {
     allowViewNavigationOnceRef.current = true;
@@ -140,22 +143,13 @@ export function useUnsavedChangesGuard({
   const projectSwitchBusy = projectSwitchAction !== null;
   const projectSwitchDialogRef = useRef<HTMLDivElement>(null);
 
+  /** 프로젝트만 바꿀 때는 확인하지 않음 — 미저장 확인은 뷰(화면) 이탈 시에만 */
   const requestProjectSwitch = useCallback((targetProjectId: string, run: () => void) => {
     if (targetProjectId === currentProjectIdRef.current) {
       run();
       return;
     }
-    if (viewLeavePromptRef.current) {
-      setViewLeavePrompt(null);
-      pendingViewNavigationRef.current = null;
-      pathLeaveTargetRef.current = null;
-    }
-    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
-      run();
-      return;
-    }
-    pendingProjectSwitchRunRef.current = run;
-    setProjectSwitchPrompt({ targetProjectId });
+    run();
   }, []);
 
   useFocusTrap(projectSwitchDialogRef, !!projectSwitchPrompt);
@@ -237,8 +231,7 @@ export function useUnsavedChangesGuard({
   const prevViewFullPathRef = useRef<string>('');
 
   const requestNavigation = useCallback((run: () => void) => {
-    if (projectSwitchPromptRef.current) {
-      run();
+    if (leaveDecisionInFlightRef.current) {
       return;
     }
     if (viewLeavePromptRef.current) {
@@ -275,12 +268,17 @@ export function useUnsavedChangesGuard({
 
     if (allowViewNavigationOnceRef.current) {
       allowViewNavigationOnceRef.current = false;
+      leaveDecisionInFlightRef.current = false;
       prevViewSegmentRef.current = seg;
       prevViewFullPathRef.current = fullPath;
       return;
     }
 
-    if (!isSupabaseConfigured || !hasLocalChangesSinceSync || viewLeavePromptRef.current) {
+    if (viewLeavePromptRef.current || leaveDecisionInFlightRef.current) {
+      return;
+    }
+
+    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
       prevViewSegmentRef.current = seg;
       prevViewFullPathRef.current = fullPath;
       return;
@@ -294,7 +292,7 @@ export function useUnsavedChangesGuard({
     allowViewNavigationOnceRef.current = true;
     navigateRef.current(restorePath, { replace: true });
     setViewLeavePrompt({ mode: 'path', targetLabel: pathLeaveTargetRef.current?.toLabel });
-  }, [location.pathname, location.search, hasLocalChangesSinceSync]);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     if (!viewLeavePrompt) return;
@@ -304,6 +302,7 @@ export function useUnsavedChangesGuard({
         e.preventDefault();
         pendingViewNavigationRef.current = null;
         pathLeaveTargetRef.current = null;
+        leaveDecisionInFlightRef.current = false;
         setViewLeavePrompt(null);
       }
     };
@@ -326,6 +325,7 @@ export function useUnsavedChangesGuard({
 
   const handleViewLeaveSaveAndProceed = useCallback(async () => {
     if (viewLeaveBusy || !viewLeavePrompt) return;
+    leaveDecisionInFlightRef.current = true;
     setViewLeaveAction('save');
     try {
       await flushInlineCellEditsBeforeSave();
@@ -338,6 +338,7 @@ export function useUnsavedChangesGuard({
         setViewLeavePrompt(null);
         proceedPendingViewNavigation();
       } else {
+        leaveDecisionInFlightRef.current = false;
         pushToast(msg, { variant: 'error', durationMs: 6000 });
       }
     } finally {
@@ -347,6 +348,7 @@ export function useUnsavedChangesGuard({
 
   const handleViewLeaveDiscardProceed = useCallback(() => {
     if (!viewLeavePromptRef.current) return;
+    leaveDecisionInFlightRef.current = true;
     // 확인 창은 즉시 닫고, 미반영 변경은 서버 데이터로 되돌린 뒤 이동
     setViewLeavePrompt(null);
     setViewLeaveAction(null);
@@ -355,6 +357,7 @@ export function useUnsavedChangesGuard({
         await discardUnsavedChangesReloadFromServer();
         proceedPendingViewNavigation();
       } catch {
+        leaveDecisionInFlightRef.current = false;
         /* handleDbError */
       }
     })();
@@ -364,6 +367,7 @@ export function useUnsavedChangesGuard({
     if (viewLeaveBusy) return;
     pendingViewNavigationRef.current = null;
     pathLeaveTargetRef.current = null;
+    leaveDecisionInFlightRef.current = false;
     setViewLeavePrompt(null);
   }, [viewLeaveBusy]);
 

@@ -8,19 +8,7 @@
  *             App.tsx의 투어 상태 머신이 모달 열림·프로젝트 생성·작업 추가를 감지해 자동 진행
  */
 export interface GuidedTourStep {
-  id:
-    | 'intro'
-    | 'newProject'
-    | 'fillName'
-    | 'createProject'
-    | 'addTask'
-    | 'taskTips'
-    | 'schedule'
-    | 'progressDashboard'
-    | 'cooperation'
-    | 'saveDb'
-    | 'excel'
-    | 'finish';
+  id: string;
   target: string;
   title: string;
   body: string;
@@ -102,7 +90,7 @@ export const GUIDED_TOUR_STEPS: GuidedTourStep[] = [
     id: 'excel',
     target: '[data-tourid="tour-more"]',
     title: 'Excel 보내기·가져오기',
-    body: '⋮ 메뉴 → 「보내기」로 작업표를 Excel(.xlsx)이나 JSON(백업)으로 내려받고,\n「가져오기」로 기존 Excel 일정을 불러올 수 있습니다.',
+    body: '⋮ 메뉴 → 「샘플 WBS 양식」으로 작성용 엑셀을 받고, 작성 후 「가져오기」로 불러올 수 있습니다.\n「보내기」로 작업표를 Excel·JSON·Markdown으로 내려받을 수도 있어요.\n⋮ → 「Excel 가져오기 따라하기」로 단계별 안내를 다시 볼 수 있습니다.',
     mode: 'next',
   },
   {

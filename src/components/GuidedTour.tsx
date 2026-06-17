@@ -1,18 +1,21 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MousePointerClick, X } from 'lucide-react';
-import { GUIDED_TOUR_STEPS } from '../lib/guidedTourSteps';
+import type { GuidedTourStep } from '../lib/guidedTourSteps';
 
 interface GuidedTourProps {
+  steps: GuidedTourStep[];
+  /** 툴팁 상단 배지 옆에 표시할 투어 이름(선택) */
+  tourName?: string;
   /** 현재 단계 인덱스(App.tsx의 투어 상태 머신이 관리) */
   stepIndex: number;
   /** 안내형(next) 단계의 「다음」 버튼 */
   onNext: () => void;
-  /** 마지막 단계의 「완료」 — 이후 자동 표시 안 함 */
+  /** 마지막 단계의 「완료」 */
   onFinish: () => void;
-  /** X·Esc — 이번만 닫기(다음 접속 때 다시 자동 시작) */
+  /** X·Esc — 이번만 닫기 */
   onSkip: () => void;
-  /** 「다시 보지 않기」 — 이후 자동 표시 안 함(⋮ 메뉴에서 수동 시작은 가능) */
-  onNeverShow: () => void;
+  /** 「다시 보지 않기」(선택 — Excel 투어 등 수동 전용 투어는 생략 가능) */
+  onNeverShow?: () => void;
 }
 
 /** 스포트라이트가 대상 요소 둘레에 두는 여백(px) */
@@ -26,9 +29,9 @@ const TIP_GAP = 12;
  * 스포트라이트는 pointer-events를 막지 않아 사용자가 강조된 요소를 그대로 조작할 수 있다.
  * 대상 추적은 선택자 기반 주기 재측정이라 모달 전환·표 스크롤에도 대상이 보이면 따라간다.
  */
-export function GuidedTour({ stepIndex, onNext, onFinish, onSkip, onNeverShow }: GuidedTourProps) {
-  const step = GUIDED_TOUR_STEPS[Math.min(stepIndex, GUIDED_TOUR_STEPS.length - 1)];
-  const isLast = stepIndex >= GUIDED_TOUR_STEPS.length - 1;
+export function GuidedTour({ steps, tourName, stepIndex, onNext, onFinish, onSkip, onNeverShow }: GuidedTourProps) {
+  const step = steps[Math.min(stepIndex, steps.length - 1)];
+  const isLast = stepIndex >= steps.length - 1;
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -133,7 +136,8 @@ export function GuidedTour({ stepIndex, onNext, onFinish, onSkip, onNeverShow }:
       >
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-[11px] font-bold text-[var(--color-accent)] bg-indigo-500/10 rounded-full px-2 py-0.5">
-            {Math.min(stepIndex, GUIDED_TOUR_STEPS.length - 1) + 1} / {GUIDED_TOUR_STEPS.length}
+            {tourName ? `${tourName} · ` : ''}
+            {Math.min(stepIndex, steps.length - 1) + 1} / {steps.length}
           </span>
           <button
             type="button"
@@ -153,14 +157,18 @@ export function GuidedTour({ stepIndex, onNext, onFinish, onSkip, onNeverShow }:
           </p>
         )}
         <div className="flex items-center justify-between gap-2 mt-3.5">
-          <button
-            type="button"
-            onClick={onNeverShow}
-            className="text-xs text-slate-400 hover:text-slate-600 hover:underline"
-            title="다음 접속부터 투어를 자동으로 띄우지 않습니다. ⋮ 메뉴 → 「따라하기 투어」로는 언제든 다시 볼 수 있어요."
-          >
-            다시 보지 않기
-          </button>
+          {onNeverShow ? (
+            <button
+              type="button"
+              onClick={onNeverShow}
+              className="text-xs text-slate-400 hover:text-slate-600 hover:underline"
+              title="다음 접속부터 투어를 자동으로 띄우지 않습니다. ⋮ 메뉴 → 「따라하기 투어」로는 언제든 다시 볼 수 있어요."
+            >
+              다시 보지 않기
+            </button>
+          ) : (
+            <span />
+          )}
           {step.mode === 'next' ? (
             <button type="button" onClick={isLast ? onFinish : onNext} className="btn-primary !px-4 !py-1.5 !text-xs">
               {isLast ? '완료' : '다음'}

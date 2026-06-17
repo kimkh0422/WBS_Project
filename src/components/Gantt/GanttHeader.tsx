@@ -1,4 +1,4 @@
-import { differenceInDays, endOfMonth, endOfWeek, format, getWeek, isSameDay, max, min, startOfMonth, startOfWeek } from 'date-fns';
+import { differenceInDays, endOfMonth, format, isSameDay, max, min, startOfMonth } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
 import type { ViewMode } from './ZOOM_LEVELS';
@@ -60,9 +60,18 @@ export function GanttTopHeader({ viewMode, dayWidth, minDate, maxDate, months }:
   );
 }
 
+function formatDayHeaderLabel(day: Date, dayWidth: number): string {
+  if (dayWidth >= 14) return format(day, 'd', { locale: ko });
+  if (dayWidth >= 8) {
+    const isMonday = format(day, 'EEE', { locale: ko }) === '월';
+    if (day.getDate() === 1 || isMonday) return format(day, 'd', { locale: ko });
+  }
+  return '';
+}
+
 /** Render bottom header row (Days/Weeks/Months) */
 export function GanttBottomHeader({ viewMode, dayWidth, minDate, maxDate, days, months, weeks, today }: GanttHeaderProps) {
-  if (viewMode === 'day') {
+  if (viewMode === 'day' || viewMode === 'week') {
     return (
       <>
         {days.map((day) => {
@@ -71,44 +80,13 @@ export function GanttBottomHeader({ viewMode, dayWidth, minDate, maxDate, days, 
             <div
               key={day.toISOString()}
               className={cn(
-                'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono',
+                'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
                 ['토', '일'].includes(format(day, 'EEE', { locale: ko })) ? 'bg-slate-50 text-slate-400' : 'text-slate-600',
                 isToday && 'bg-red-500 text-white font-bold',
               )}
               style={{ width: dayWidth }}
             >
-              {dayWidth >= 20
-                ? format(day, 'd', { locale: ko })
-                : dayWidth >= 10
-                  ? new Date(day).getDate() % 5 === 0
-                    ? format(day, 'd', { locale: ko })
-                    : ''
-                  : ''}
-            </div>
-          );
-        })}
-      </>
-    );
-  }
-  if (viewMode === 'week') {
-    return (
-      <>
-        {weeks.map((week) => {
-          const weekStart = max([week, minDate]);
-          const weekEnd = min([endOfWeek(week), maxDate]);
-          const daysInWeek = differenceInDays(weekEnd, weekStart) + 1;
-          const width = daysInWeek * dayWidth;
-          const isCurrentWeek = isSameDay(startOfWeek(today), week);
-          return (
-            <div
-              key={week.toISOString()}
-              className={cn(
-                'flex-shrink-0 border-r border-slate-200 flex items-center justify-center text-[10px] font-mono overflow-hidden',
-                isCurrentWeek ? 'bg-red-500 text-white font-bold' : '',
-              )}
-              style={{ width }}
-            >
-              {width >= 20 ? `${getWeek(week)}주` : ''}
+              {formatDayHeaderLabel(day, dayWidth)}
             </div>
           );
         })}

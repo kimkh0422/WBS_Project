@@ -36,6 +36,7 @@ export function useModalStates() {
   const [auditLogProjectId, setAuditLogProjectId] = useState<string | null>(null);
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
+  const [isAdminViewRestoreModalOpen, setIsAdminViewRestoreModalOpen] = useState(false);
   const [isAdminAccessRequestModalOpen, setIsAdminAccessRequestModalOpen] = useState(false);
   const [isProjectEditAccessRequestModalOpen, setIsProjectEditAccessRequestModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
@@ -128,6 +129,8 @@ export function useModalStates() {
     setIsMembersModalOpen,
     isAdminPasswordModalOpen,
     setIsAdminPasswordModalOpen,
+    isAdminViewRestoreModalOpen,
+    setIsAdminViewRestoreModalOpen,
     isAdminAccessRequestModalOpen,
     setIsAdminAccessRequestModalOpen,
     isProjectEditAccessRequestModalOpen,

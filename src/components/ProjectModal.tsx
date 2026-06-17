@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Plus, Calendar, Trash2 } from 'lucide-react';
+import { X, Plus, Calendar, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { Project, ProjectAssignment, type ProjectKind } from '../types';
 import { DEFAULT_NEW_PROJECT_KIND, DEFAULT_PROJECT_KIND, PROJECT_KINDS, isPrivateProjectKind } from '../lib/projectKind';
 import { ALLOCATION_OPTIONS } from '../lib/schedule';
@@ -78,6 +78,8 @@ export function ProjectModal({
 
   /** 월별 설정 펼친 인원 인덱스 (한 번에 하나만) */
   const [monthlyExpandedIndex, setMonthlyExpandedIndex] = useState<number | null>(null);
+  /** 신규 프로젝트: 선택 입력 섹션 펼침 여부 (기본 접힘) */
+  const [optionalFieldsExpanded, setOptionalFieldsExpanded] = useState(false);
 
   /** 담당자 입력 DOM 참조 — Enter로 다음 행 자동 추가/포커스 */
   const assigneeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -149,6 +151,7 @@ export function ProjectModal({
         setIncludeInDashboard(true);
       }
       setMonthlyExpandedIndex(null);
+      setOptionalFieldsExpanded(!!project);
     }
   }, [isOpen, project, defaultPmNameForNewProject]);
 
@@ -188,6 +191,8 @@ export function ProjectModal({
   }, [pendingAssigneeFocusIndex, assignments.length]);
 
   if (!isOpen) return null;
+
+  const isNewProject = !project;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -368,60 +373,86 @@ export function ProjectModal({
                 <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">목록·WBS 상단 등에 표시되는 짧은 이름입니다.</p>
               </div>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-formal-name">
-                정식명칭 <span className="font-normal opacity-60">(선택)</span>
-              </label>
-              <textarea
-                id="project-modal-formal-name"
-                value={formalName}
-                onChange={(e) => setFormalName(e.target.value)}
-                className="input-field min-h-[72px] w-full resize-y"
-                placeholder="예: 한국형 위성항법시스템 센티미터급 임무제어국 상세설계 분석 및 도출 연구 용역"
-              />
-              <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
-                계약서·보고서에 쓰는 전체 과제명이 있으면 입력하세요. 비워 두면 가칭만 사용됩니다.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-5 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 sm:gap-x-5">
-              <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-pm">
-                  프로젝트 PM <span className="font-normal text-[var(--color-danger)]">*</span>
-                </label>
-                <input
-                  id="project-modal-pm"
-                  type="text"
-                  list="project-modal-pm-po-assignees"
-                  required
-                  value={pmName}
-                  onChange={(e) => setPmName(e.target.value)}
-                  className="input-field w-full"
-                  placeholder="이름 입력 또는 조직 회원에서 선택"
-                  title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
-                />
-                <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
-                  과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
-                </p>
+            {isNewProject ? (
+              <div className="grid grid-cols-1 gap-5 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 sm:gap-x-5">
+                <div className="min-w-0 flex flex-col gap-1.5 sm:col-span-2">
+                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-pm">
+                    프로젝트 PM <span className="font-normal text-[var(--color-danger)]">*</span>
+                  </label>
+                  <input
+                    id="project-modal-pm"
+                    type="text"
+                    list="project-modal-pm-po-assignees"
+                    required
+                    value={pmName}
+                    onChange={(e) => setPmName(e.target.value)}
+                    className="input-field w-full"
+                    placeholder="이름 입력 또는 조직 회원에서 선택"
+                    title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
+                  />
+                  <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                    과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-po">
-                  프로젝트 PO <span className="font-normal opacity-60">(선택)</span>
-                </label>
-                <input
-                  id="project-modal-po"
-                  type="text"
-                  list="project-modal-pm-po-assignees"
-                  value={poName}
-                  onChange={(e) => setPoName(e.target.value)}
-                  className="input-field w-full"
-                  placeholder="예: 제품 책임자 이름"
-                  title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
-                />
-                <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
-                  요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
-                </p>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-formal-name">
+                    정식명칭 <span className="font-normal opacity-60">(선택)</span>
+                  </label>
+                  <textarea
+                    id="project-modal-formal-name"
+                    value={formalName}
+                    onChange={(e) => setFormalName(e.target.value)}
+                    className="input-field min-h-[72px] w-full resize-y"
+                    placeholder="예: 한국형 위성항법시스템 센티미터급 임무제어국 상세설계 분석 및 도출 연구 용역"
+                  />
+                  <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                    계약서·보고서에 쓰는 전체 과제명이 있으면 입력하세요. 비워 두면 가칭만 사용됩니다.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-5 border-t border-[var(--color-line)] pt-5 sm:grid-cols-2 sm:gap-x-5">
+                  <div className="min-w-0 flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-pm">
+                      프로젝트 PM <span className="font-normal text-[var(--color-danger)]">*</span>
+                    </label>
+                    <input
+                      id="project-modal-pm"
+                      type="text"
+                      list="project-modal-pm-po-assignees"
+                      required
+                      value={pmName}
+                      onChange={(e) => setPmName(e.target.value)}
+                      className="input-field w-full"
+                      placeholder="이름 입력 또는 조직 회원에서 선택"
+                      title="조직도에 등록된 이름과 같으면 대시보드에 직급이 함께 표시됩니다."
+                    />
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                      과제·WBS 책임(PM). 작업「담당자」와는 별개입니다. 신규 프로젝트는 기본으로 생성자 이름이 들어갑니다.
+                    </p>
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-po">
+                      프로젝트 PO <span className="font-normal opacity-60">(선택)</span>
+                    </label>
+                    <input
+                      id="project-modal-po"
+                      type="text"
+                      list="project-modal-pm-po-assignees"
+                      value={poName}
+                      onChange={(e) => setPoName(e.target.value)}
+                      className="input-field w-full"
+                      placeholder="예: 제품 책임자 이름"
+                      title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
+                    />
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                      요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
             <datalist id="project-modal-pm-po-assignees">
               {assigneeCandidates.map((name) => {
                 const label = orgMemberLabelByName.get(name);
@@ -430,213 +461,486 @@ export function ProjectModal({
             </datalist>
           </section>
 
-          {/* 선택: 기본 정보 */}
-          <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
-                선택
-              </span>
-              기본 정보 (선택)
-            </h3>
-            <div className="grid grid-cols-1 gap-5">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-description">
-                  설명
-                </label>
-                <textarea
-                  id="project-modal-description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="input-field min-h-[88px] w-full"
-                  placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-start">
-                    프로젝트 시작일
-                  </label>
-                  <input
-                    id="project-modal-start"
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="input-field w-full"
-                  />
-                </div>
-                <div className="min-w-0 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-end">
-                    프로젝트 종료일
-                  </label>
-                  <input
-                    id="project-modal-end"
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="input-field w-full"
-                  />
-                </div>
-              </div>
-              <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] -mt-1">
-                프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시 기간 제한
-                없음)
-              </p>
-            </div>
-          </section>
-
-          {/* 선택: 투입인원 */}
-          <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-4">
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
-              <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
-                선택
-              </span>
-              프로젝트 투입인원 (투입비율)
-            </h3>
-            <div>
-              <p className="mb-3 text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
-                투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수 있습니다.
-              </p>
-              <div className="space-y-2">
-                {assignments.map((a, i) => (
-                  <div key={i} className="border border-[var(--color-line)] rounded-lg p-2.5 space-y-2 bg-[var(--color-surface)]">
-                    <div className="flex items-center gap-2">
-                      <input
-                        ref={(el) => {
-                          assigneeInputRefs.current[i] = el;
-                        }}
-                        type="text"
-                        list="project-modal-assignees"
-                        value={a.assignee}
-                        onChange={(e) => {
-                          updateAssignment(i, 'assignee', e.target.value);
-                        }}
-                        onKeyDown={(e) => {
-                          // Enter: 다음 인원 입력으로 이동(없으면 새 행 추가). 한글 조합 중에는 무시.
-                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                            e.preventDefault();
-                            if (i < assignments.length - 1) {
-                              assigneeInputRefs.current[i + 1]?.focus();
-                            } else {
-                              addAssignmentAndFocus();
-                            }
-                          }
-                        }}
-                        className="input-field flex-1 py-2 text-sm"
-                        placeholder="담당자 이름 (조직 회원에서 검색 또는 직접 입력)"
-                        title="조직 회원 목록에서 선택하거나 직접 입력. Enter로 다음 인원 추가."
-                      />
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        disabled={!a.assignee.trim()}
-                        className={cn('input-field w-20 py-2 text-sm', !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-slate-50')}
-                        value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
-                        placeholder="%"
-                        onChange={(e) => {
-                          if (!a.assignee.trim()) return;
-                          const next = e.target.value;
-                          if (next !== '' && !/^\d*$/.test(next)) return;
-                          setAllocPctInputs((prev) => {
-                            const nextArr = [...prev];
-                            while (nextArr.length < assignments.length) {
-                              const row = assignments[nextArr.length];
-                              nextArr.push(row?.assignee.trim() ? String(Number(row.allocationPercent ?? 100)) : '');
-                            }
-                            nextArr[i] = next;
-                            return nextArr;
-                          });
-                        }}
-                        onBlur={() => {
-                          if (!a.assignee.trim()) {
-                            setAllocPctInputs((prev) => {
-                              const nextArr = [...prev];
-                              while (nextArr.length < assignments.length) nextArr.push('');
-                              nextArr[i] = '';
-                              return nextArr;
-                            });
-                            return;
-                          }
-                          const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
-                          if (raw === '') return;
-                          const parsed = parseFloat(raw);
-                          const safe = !Number.isFinite(parsed) ? Number(a.allocationPercent ?? 100) : clampAllocationPercentInt(parsed);
-                          updateAssignment(i, 'allocationPercent', safe);
-                          setAllocPctInputs((prev) => {
-                            const nextArr = [...prev];
-                            while (nextArr.length < assignments.length) nextArr.push('');
-                            nextArr[i] = String(safe);
-                            return nextArr;
-                          });
-                        }}
-                        title={
-                          a.assignee.trim()
-                            ? '기본 투입비율 (0~100% 정수. 월별 미설정 시 적용)'
-                            : '담당자를 먼저 입력한 뒤 투입비율을 입력하세요'
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
-                        className={cn(
-                          'p-2 rounded hover:bg-[var(--color-bg)] transition-colors',
-                          monthlyExpandedIndex === i ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-slate-500',
-                        )}
-                        title="기간별 월별 투입비율 설정"
-                      >
-                        <Calendar size={14} />
-                      </button>
-                      <button type="button" onClick={() => removeAssignment(i)} className="p-2 text-slate-400 hover:text-red-500 rounded">
-                        <X size={14} />
-                      </button>
-                    </div>
-                    {monthlyExpandedIndex === i && (
-                      <div className="pt-2 border-t border-slate-100">
-                        <p className="mb-2 text-xs font-medium text-slate-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
-                        <div className="flex flex-wrap gap-2">
-                          {projectMonths.map((ym) => {
-                            const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
-                            const displayNum = clampAllocationPercentInt(
-                              typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100,
-                            );
-                            return (
-                              <div key={ym} className="flex items-center gap-1">
-                                <span className="text-[10px] text-slate-500 w-12">{ym}</span>
-                                <select
-                                  value={displayNum}
-                                  onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
-                                  className="input-field py-1.5 text-xs w-16"
-                                >
-                                  {ALLOCATION_OPTIONS.map((pct) => (
-                                    <option key={pct} value={pct}>
-                                      {pct}%
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          {isNewProject ? (
+            <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] shadow-sm overflow-hidden">
               <button
                 type="button"
-                onClick={addAssignment}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-bg)] transition-colors"
+                onClick={() => setOptionalFieldsExpanded((v) => !v)}
+                className="flex w-full items-center gap-2 p-5 text-left text-sm font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface)]/60 transition-colors"
+                aria-expanded={optionalFieldsExpanded}
               >
-                <Plus size={14} strokeWidth={2.25} aria-hidden /> 인원 추가
+                {optionalFieldsExpanded ? (
+                  <ChevronDown size={16} className="shrink-0 text-slate-500" />
+                ) : (
+                  <ChevronRight size={16} className="shrink-0 text-slate-500" />
+                )}
+                <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
+                  선택
+                </span>
+                선택 입력
+                {!optionalFieldsExpanded && (
+                  <span className="ml-1 text-xs font-normal text-[var(--color-ink-subdued)]">정식명칭, PO, 설명, 기간, 투입인원 등</span>
+                )}
               </button>
-              {/* 모든 인원 입력이 공유하는 자동완성 후보 */}
-              <datalist id="project-modal-assignees">
-                {assigneeCandidates.map((name) => {
-                  const label = orgMemberLabelByName.get(name);
-                  return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
-                })}
-              </datalist>
-            </div>
-          </section>
+              {optionalFieldsExpanded && (
+                <div className="space-y-5 border-t border-[var(--color-line)] p-5 pt-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-formal-name">
+                      정식명칭 <span className="font-normal opacity-60">(선택)</span>
+                    </label>
+                    <textarea
+                      id="project-modal-formal-name"
+                      value={formalName}
+                      onChange={(e) => setFormalName(e.target.value)}
+                      className="input-field min-h-[72px] w-full resize-y"
+                      placeholder="예: 한국형 위성항법시스템 센티미터급 임무제어국 상세설계 분석 및 도출 연구 용역"
+                    />
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)]">
+                      계약서·보고서에 쓰는 전체 과제명이 있으면 입력하세요. 비워 두면 가칭만 사용됩니다.
+                    </p>
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-po">
+                      프로젝트 PO <span className="font-normal opacity-60">(선택)</span>
+                    </label>
+                    <input
+                      id="project-modal-po"
+                      type="text"
+                      list="project-modal-pm-po-assignees"
+                      value={poName}
+                      onChange={(e) => setPoName(e.target.value)}
+                      className="input-field w-full"
+                      placeholder="예: 제품 책임자 이름"
+                      title="PO(예: Product Owner). 비워 두면 대시보드·목록에는 비어 있음으로 표시됩니다."
+                    />
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                      요구·백로그·우선순위 등을 맡는 역할로 쓸 수 있습니다. 비워 두어도 됩니다.
+                    </p>
+                  </div>
+                  <div className="space-y-5 border-t border-[var(--color-line)] pt-5">
+                    <h4 className="text-sm font-semibold text-[var(--color-ink)]">기본 정보</h4>
+                    <div className="grid grid-cols-1 gap-5">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-description">
+                          설명
+                        </label>
+                        <textarea
+                          id="project-modal-description"
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          className="input-field min-h-[88px] w-full"
+                          placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="min-w-0 flex flex-col gap-1.5">
+                          <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-start">
+                            프로젝트 시작일
+                          </label>
+                          <input
+                            id="project-modal-start"
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="input-field w-full"
+                          />
+                        </div>
+                        <div className="min-w-0 flex flex-col gap-1.5">
+                          <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-end">
+                            프로젝트 종료일
+                          </label>
+                          <input
+                            id="project-modal-end"
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="input-field w-full"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] -mt-1">
+                        프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시
+                        기간 제한 없음)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-4 border-t border-[var(--color-line)] pt-5">
+                    <h4 className="text-sm font-semibold text-[var(--color-ink)]">프로젝트 투입인원 (투입비율)</h4>
+                    <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                      투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수
+                      있습니다.
+                    </p>
+                    <div className="space-y-2">
+                      {assignments.map((a, i) => (
+                        <div key={i} className="border border-[var(--color-line)] rounded-lg p-2.5 space-y-2 bg-[var(--color-surface)]">
+                          <div className="flex items-center gap-2">
+                            <input
+                              ref={(el) => {
+                                assigneeInputRefs.current[i] = el;
+                              }}
+                              type="text"
+                              list="project-modal-assignees"
+                              value={a.assignee}
+                              onChange={(e) => {
+                                updateAssignment(i, 'assignee', e.target.value);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                  e.preventDefault();
+                                  if (i < assignments.length - 1) {
+                                    assigneeInputRefs.current[i + 1]?.focus();
+                                  } else {
+                                    addAssignmentAndFocus();
+                                  }
+                                }
+                              }}
+                              className="input-field flex-1 py-2 text-sm"
+                              placeholder="담당자 이름 (조직 회원에서 검색 또는 직접 입력)"
+                              title="조직 회원 목록에서 선택하거나 직접 입력. Enter로 다음 인원 추가."
+                            />
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              disabled={!a.assignee.trim()}
+                              className={cn(
+                                'input-field w-20 py-2 text-sm',
+                                !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-slate-50',
+                              )}
+                              value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
+                              placeholder="%"
+                              onChange={(e) => {
+                                if (!a.assignee.trim()) return;
+                                const next = e.target.value;
+                                if (next !== '' && !/^\d*$/.test(next)) return;
+                                setAllocPctInputs((prev) => {
+                                  const nextArr = [...prev];
+                                  while (nextArr.length < assignments.length) {
+                                    const row = assignments[nextArr.length];
+                                    nextArr.push(row?.assignee.trim() ? String(Number(row.allocationPercent ?? 100)) : '');
+                                  }
+                                  nextArr[i] = next;
+                                  return nextArr;
+                                });
+                              }}
+                              onBlur={() => {
+                                if (!a.assignee.trim()) {
+                                  setAllocPctInputs((prev) => {
+                                    const nextArr = [...prev];
+                                    while (nextArr.length < assignments.length) nextArr.push('');
+                                    nextArr[i] = '';
+                                    return nextArr;
+                                  });
+                                  return;
+                                }
+                                const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
+                                if (raw === '') return;
+                                const parsed = parseFloat(raw);
+                                const safe = !Number.isFinite(parsed)
+                                  ? Number(a.allocationPercent ?? 100)
+                                  : clampAllocationPercentInt(parsed);
+                                updateAssignment(i, 'allocationPercent', safe);
+                                setAllocPctInputs((prev) => {
+                                  const nextArr = [...prev];
+                                  while (nextArr.length < assignments.length) nextArr.push('');
+                                  nextArr[i] = String(safe);
+                                  return nextArr;
+                                });
+                              }}
+                              title={
+                                a.assignee.trim()
+                                  ? '기본 투입비율 (0~100% 정수. 월별 미설정 시 적용)'
+                                  : '담당자를 먼저 입력한 뒤 투입비율을 입력하세요'
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
+                              className={cn(
+                                'p-2 rounded hover:bg-[var(--color-bg)] transition-colors',
+                                monthlyExpandedIndex === i ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-slate-500',
+                              )}
+                              title="기간별 월별 투입비율 설정"
+                            >
+                              <Calendar size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeAssignment(i)}
+                              className="p-2 text-slate-400 hover:text-red-500 rounded"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                          {monthlyExpandedIndex === i && (
+                            <div className="pt-2 border-t border-slate-100">
+                              <p className="mb-2 text-xs font-medium text-slate-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
+                              <div className="flex flex-wrap gap-2">
+                                {projectMonths.map((ym) => {
+                                  const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
+                                  const displayNum = clampAllocationPercentInt(
+                                    typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100,
+                                  );
+                                  return (
+                                    <div key={ym} className="flex items-center gap-1">
+                                      <span className="text-[10px] text-slate-500 w-12">{ym}</span>
+                                      <select
+                                        value={displayNum}
+                                        onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
+                                        className="input-field py-1.5 text-xs w-16"
+                                      >
+                                        {ALLOCATION_OPTIONS.map((pct) => (
+                                          <option key={pct} value={pct}>
+                                            {pct}%
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addAssignment}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-bg)] transition-colors"
+                    >
+                      <Plus size={14} strokeWidth={2.25} aria-hidden /> 인원 추가
+                    </button>
+                    <datalist id="project-modal-assignees">
+                      {assigneeCandidates.map((name) => {
+                        const label = orgMemberLabelByName.get(name);
+                        return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                      })}
+                    </datalist>
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
+              {/* 선택: 기본 정보 */}
+              <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-5">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+                  <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
+                    선택
+                  </span>
+                  기본 정보 (선택)
+                </h3>
+                <div className="grid grid-cols-1 gap-5">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-description">
+                      설명
+                    </label>
+                    <textarea
+                      id="project-modal-description"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="input-field min-h-[88px] w-full"
+                      placeholder="프로젝트 설명을 입력하세요 (선택 사항)..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="min-w-0 flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-start">
+                        프로젝트 시작일
+                      </label>
+                      <input
+                        id="project-modal-start"
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="input-field w-full"
+                      />
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1.5">
+                      <label className="text-xs font-semibold text-[var(--color-ink-subdued)]" htmlFor="project-modal-end">
+                        프로젝트 종료일
+                      </label>
+                      <input
+                        id="project-modal-end"
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="input-field w-full"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs leading-relaxed text-[var(--color-ink-subdued)] -mt-1">
+                    프로젝트 기간은 참고·요약·투입 집계 등에 쓰이며, 작업 일정은 이 범위와 달라도 입력한 대로 저장됩니다. (미입력 시 기간
+                    제한 없음)
+                  </p>
+                </div>
+              </section>
+
+              {/* 선택: 투입인원 */}
+              <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-bg)] p-5 shadow-sm space-y-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink)]">
+                  <span className="inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-md bg-slate-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
+                    선택
+                  </span>
+                  프로젝트 투입인원 (투입비율)
+                </h3>
+                <div>
+                  <p className="mb-3 text-xs leading-relaxed text-[var(--color-ink-subdued)] max-w-prose">
+                    투입 인원과 비율은 작업별 기간·공수 계산에 반영됩니다. 담당자 이름은 이 프로젝트 안에서만 쓰이며 필요 시 바꿀 수
+                    있습니다.
+                  </p>
+                  <div className="space-y-2">
+                    {assignments.map((a, i) => (
+                      <div key={i} className="border border-[var(--color-line)] rounded-lg p-2.5 space-y-2 bg-[var(--color-surface)]">
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={(el) => {
+                              assigneeInputRefs.current[i] = el;
+                            }}
+                            type="text"
+                            list="project-modal-assignees"
+                            value={a.assignee}
+                            onChange={(e) => {
+                              updateAssignment(i, 'assignee', e.target.value);
+                            }}
+                            onKeyDown={(e) => {
+                              // Enter: 다음 인원 입력으로 이동(없으면 새 행 추가). 한글 조합 중에는 무시.
+                              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                e.preventDefault();
+                                if (i < assignments.length - 1) {
+                                  assigneeInputRefs.current[i + 1]?.focus();
+                                } else {
+                                  addAssignmentAndFocus();
+                                }
+                              }
+                            }}
+                            className="input-field flex-1 py-2 text-sm"
+                            placeholder="담당자 이름 (조직 회원에서 검색 또는 직접 입력)"
+                            title="조직 회원 목록에서 선택하거나 직접 입력. Enter로 다음 인원 추가."
+                          />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            disabled={!a.assignee.trim()}
+                            className={cn(
+                              'input-field w-20 py-2 text-sm',
+                              !a.assignee.trim() && 'opacity-50 cursor-not-allowed bg-slate-50',
+                            )}
+                            value={allocPctInputs[i] ?? (a.assignee.trim() ? String(Number(a.allocationPercent ?? 100)) : '')}
+                            placeholder="%"
+                            onChange={(e) => {
+                              if (!a.assignee.trim()) return;
+                              const next = e.target.value;
+                              if (next !== '' && !/^\d*$/.test(next)) return;
+                              setAllocPctInputs((prev) => {
+                                const nextArr = [...prev];
+                                while (nextArr.length < assignments.length) {
+                                  const row = assignments[nextArr.length];
+                                  nextArr.push(row?.assignee.trim() ? String(Number(row.allocationPercent ?? 100)) : '');
+                                }
+                                nextArr[i] = next;
+                                return nextArr;
+                              });
+                            }}
+                            onBlur={() => {
+                              if (!a.assignee.trim()) {
+                                setAllocPctInputs((prev) => {
+                                  const nextArr = [...prev];
+                                  while (nextArr.length < assignments.length) nextArr.push('');
+                                  nextArr[i] = '';
+                                  return nextArr;
+                                });
+                                return;
+                              }
+                              const raw = (allocPctInputs[i] ?? String(a.allocationPercent ?? 100)).trim();
+                              if (raw === '') return;
+                              const parsed = parseFloat(raw);
+                              const safe = !Number.isFinite(parsed)
+                                ? Number(a.allocationPercent ?? 100)
+                                : clampAllocationPercentInt(parsed);
+                              updateAssignment(i, 'allocationPercent', safe);
+                              setAllocPctInputs((prev) => {
+                                const nextArr = [...prev];
+                                while (nextArr.length < assignments.length) nextArr.push('');
+                                nextArr[i] = String(safe);
+                                return nextArr;
+                              });
+                            }}
+                            title={
+                              a.assignee.trim()
+                                ? '기본 투입비율 (0~100% 정수. 월별 미설정 시 적용)'
+                                : '담당자를 먼저 입력한 뒤 투입비율을 입력하세요'
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setMonthlyExpandedIndex(monthlyExpandedIndex === i ? null : i)}
+                            className={cn(
+                              'p-2 rounded hover:bg-[var(--color-bg)] transition-colors',
+                              monthlyExpandedIndex === i ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-slate-500',
+                            )}
+                            title="기간별 월별 투입비율 설정"
+                          >
+                            <Calendar size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeAssignment(i)}
+                            className="p-2 text-slate-400 hover:text-red-500 rounded"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                        {monthlyExpandedIndex === i && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <p className="mb-2 text-xs font-medium text-slate-600">기간별 월별 투입비율 (미설정 시 기본 비율 적용)</p>
+                            <div className="flex flex-wrap gap-2">
+                              {projectMonths.map((ym) => {
+                                const displayVal = a.monthlyAllocations?.[ym] ?? a.allocationPercent;
+                                const displayNum = clampAllocationPercentInt(
+                                  typeof displayVal === 'number' && Number.isFinite(displayVal) ? displayVal : 100,
+                                );
+                                return (
+                                  <div key={ym} className="flex items-center gap-1">
+                                    <span className="text-[10px] text-slate-500 w-12">{ym}</span>
+                                    <select
+                                      value={displayNum}
+                                      onChange={(e) => updateMonthlyAllocation(i, ym, Number(e.target.value))}
+                                      className="input-field py-1.5 text-xs w-16"
+                                    >
+                                      {ALLOCATION_OPTIONS.map((pct) => (
+                                        <option key={pct} value={pct}>
+                                          {pct}%
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addAssignment}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-bg)] transition-colors"
+                  >
+                    <Plus size={14} strokeWidth={2.25} aria-hidden /> 인원 추가
+                  </button>
+                  {/* 모든 인원 입력이 공유하는 자동완성 후보 */}
+                  <datalist id="project-modal-assignees">
+                    {assigneeCandidates.map((name) => {
+                      const label = orgMemberLabelByName.get(name);
+                      return label ? <option key={name} value={name} label={label} /> : <option key={name} value={name} />;
+                    })}
+                  </datalist>
+                </div>
+              </section>
+            </>
+          )}
         </form>
 
         {formError && (

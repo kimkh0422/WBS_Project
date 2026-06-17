@@ -70,6 +70,9 @@ import {
 import { useAppKeyboardShortcuts } from './hooks/useAppKeyboardShortcuts';
 import { useInitialDbSync } from './hooks/useInitialDbSync';
 import { useGuidedTour } from './hooks/useGuidedTour';
+import { useExcelImportTour } from './hooks/useExcelImportTour';
+import { GUIDED_TOUR_STEPS } from './lib/guidedTourSteps';
+import { EXCEL_IMPORT_TOUR_STEPS } from './lib/excelImportTourSteps';
 import { useProjectDerivations } from './hooks/useProjectDerivations';
 import { useViewerDirectory } from './hooks/useViewerDirectory';
 import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard';
@@ -102,6 +105,7 @@ import { ShareModal } from './components/ShareModal';
 import { MembersModal } from './components/MembersModal';
 import { ProjectAccessRequestBanner } from './components/ProjectAccessRequestBanner';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
+import { WBS_ADMIN_VIEW_RESTORE_PASSWORD } from './constants/adminBypass';
 import { AdminAccessRequestModal } from './components/AdminAccessRequestModal';
 import { ProjectEditAccessRequestModal } from './components/ProjectEditAccessRequestModal';
 import type { ExportScope, ExportFormat } from './components/ExportModal';
@@ -239,6 +243,8 @@ function WBSApp({
     setIsMembersModalOpen,
     isAdminPasswordModalOpen,
     setIsAdminPasswordModalOpen,
+    isAdminViewRestoreModalOpen,
+    setIsAdminViewRestoreModalOpen,
     isAdminAccessRequestModalOpen,
     setIsAdminAccessRequestModalOpen,
     isProjectEditAccessRequestModalOpen,
@@ -268,6 +274,10 @@ function WBSApp({
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   const { push: pushToast, tipOnce } = useToast();
+
+  const requestRestoreAdminView = useCallback(() => {
+    setIsAdminViewRestoreModalOpen(true);
+  }, [setIsAdminViewRestoreModalOpen]);
 
   const {
     addTask,
@@ -391,6 +401,14 @@ function WBSApp({
     isProjectModalOpen,
     isProjectStatusOnly: VITE_PROJECT_STATUS_ONLY,
     setIsProjectDropdownOpen,
+    setIsMoreMenuOpen,
+    setIsHeaderCollapsed,
+  });
+
+  const { excelTour, startExcelImportTour, endExcelImportTour, handleExcelTourNext, notifySampleDownloaded } = useExcelImportTour({
+    projects,
+    importPreviewOpen: importPreview.isOpen,
+    isMoreMenuOpen,
     setIsMoreMenuOpen,
     setIsHeaderCollapsed,
   });
@@ -562,6 +580,7 @@ function WBSApp({
     canToggleAdminMemberView: (isAdmin || adminOverride) && !!user?.id,
     memberPreview,
     setMemberPreview,
+    onRequestRestoreAdminView: requestRestoreAdminView,
     pushToast,
   });
 
@@ -832,6 +851,7 @@ function WBSApp({
     multiMergeConfirm,
     assigneeDisplayMetaByName,
     statusConfigs: wbsSettings.statusConfigs ?? [],
+    onSampleTemplateDownloaded: notifySampleDownloaded,
   });
   const {
     fileInputRef,
@@ -839,6 +859,7 @@ function WBSApp({
     mergeInputRef,
     handleExportFromModal,
     handleImportClick,
+    handleDownloadSampleTemplate,
     handleFileChange,
     handleBackupFileChange,
     handleMergeFileChange,
@@ -860,32 +881,30 @@ function WBSApp({
 
   const handleDashboardNavigate = (newView: typeof view, newFilters: Partial<FilterState> & { projectId?: string }) => {
     // 대시보드 카드 클릭 시, 해당 조건으로 필터된 내역을 바로 보여주기 위한 내비게이션
-    setView(newView);
-
     const dashPid = newFilters.projectId;
     const projectIds = dashPid && dashPid !== 'all' ? ([dashPid] as string[]) : ('all' as const);
     const { projectId: _omit, ...rest } = newFilters;
 
-    // 기존 필터를 초기 상태로 리셋한 뒤 대시보드에서 전달된 필터만 적용
-    setFilters(() => ({
-      status: 'all',
-      assignee: '',
-      startDate: '',
-      endDate: '',
-      milestoneOnly: false,
-      issueOnly: false,
-      level: 'all',
-      pastDueOnly: false,
-      completedThisWeekOnly: false,
-      notStartedYetOnly: false,
-      ...rest,
-      projectIds,
-    }));
-
-    // 특정 프로젝트 카드일 경우, 현재 프로젝트도 함께 전환
-    if (dashPid && dashPid !== 'all') {
-      requestProjectSwitch(dashPid, () => setCurrentProjectId(dashPid));
-    }
+    requestNavigation(() => {
+      setViewRaw(newView);
+      setFilters(() => ({
+        status: 'all',
+        assignee: '',
+        startDate: '',
+        endDate: '',
+        milestoneOnly: false,
+        issueOnly: false,
+        level: 'all',
+        pastDueOnly: false,
+        completedThisWeekOnly: false,
+        notStartedYetOnly: false,
+        ...rest,
+        projectIds,
+      }));
+      if (dashPid && dashPid !== 'all') {
+        setCurrentProjectId(dashPid);
+      }
+    });
 
     // 대시보드 진입 시 필터를 자동으로 켜지 않는다(사용자 요청).
     // 필터 값(상태/담당자 등)은 setFilters로 스테이트에는 들어가 있지만,
@@ -1000,6 +1019,7 @@ function WBSApp({
           setIsOrganizationOpen={setIsOrganizationOpen}
           userApproved={userApproved}
           handleImportClick={handleImportClick}
+          handleDownloadSampleTemplate={handleDownloadSampleTemplate}
           onSaveProjectRegistrationPdf={handleSaveProjectRegistrationPdf}
           setIsExportModalOpen={setIsExportModalOpen}
           setIsSettingsModalOpen={setIsSettingsModalOpen}
@@ -1032,6 +1052,7 @@ function WBSApp({
           }
           memberPreview={memberPreview}
           setMemberPreview={setMemberPreview}
+          onRequestRestoreAdminView={requestRestoreAdminView}
           canOpenMembersManagement={canOpenMembersManagement}
           setIsAdminPasswordModalOpen={setIsAdminPasswordModalOpen}
           setIsAdminAccessRequestModalOpen={isSupabaseConfigured ? setIsAdminAccessRequestModalOpen : undefined}
@@ -1039,6 +1060,7 @@ function WBSApp({
           ownerDepartmentByUserId={ownerDepartmentByUserId}
           onOpenTutorial={() => setIsTutorialOpen(true)}
           onStartTour={hiddenViews.has('projects') ? undefined : startGuidedTour}
+          onStartExcelImportTour={hiddenViews.has('projects') ? undefined : startExcelImportTour}
         />
       )}
 
@@ -1424,18 +1446,46 @@ function WBSApp({
           <TutorialModal
             isOpen
             onClose={() => setIsTutorialOpen(false)}
-            onStartTour={hiddenViews.has('projects') ? undefined : startGuidedTour}
+            onStartTour={
+              hiddenViews.has('projects')
+                ? undefined
+                : () => {
+                    setIsTutorialOpen(false);
+                    startGuidedTour();
+                  }
+            }
+            onStartExcelImportTour={
+              hiddenViews.has('projects')
+                ? undefined
+                : () => {
+                    setIsTutorialOpen(false);
+                    startExcelImportTour();
+                  }
+            }
           />
         </Suspense>
       )}
       {tour.run && (
         <Suspense fallback={null}>
           <GuidedTour
+            steps={GUIDED_TOUR_STEPS}
             stepIndex={tour.step}
             onNext={handleTourNext}
             onFinish={() => endGuidedTour('completed')}
             onSkip={() => endGuidedTour('skipped')}
             onNeverShow={() => endGuidedTour('never')}
+          />
+        </Suspense>
+      )}
+      {excelTour.run && (
+        <Suspense fallback={null}>
+          <GuidedTour
+            steps={EXCEL_IMPORT_TOUR_STEPS}
+            tourName="Excel 가져오기"
+            stepIndex={excelTour.step}
+            onNext={handleExcelTourNext}
+            onFinish={() => endExcelImportTour('completed')}
+            onSkip={() => endExcelImportTour('skipped')}
           />
         </Suspense>
       )}
@@ -1552,6 +1602,7 @@ function WBSApp({
           onMappingChange={handleImportMappingChange}
           onCustomColumnToggle={handleImportCustomColumnToggle}
           onCustomColumnsSet={handleImportCustomColumnsSet}
+          onDownloadSampleTemplate={handleDownloadSampleTemplate}
         />
         <BackupRestoreModal
           isOpen={backupConfirm.isOpen}
@@ -1691,6 +1742,20 @@ function WBSApp({
               sessionStorage.setItem('wbs-admin-override', 'true');
               setIsAdminPasswordModalOpen(false);
               pushToast('관리자 모드로 전환되었습니다.', { variant: 'success' });
+            }}
+          />
+        )}
+        {isAdminViewRestoreModalOpen && (
+          <AdminPasswordModal
+            isOpen
+            heading="관리자 화면으로 전환"
+            description="관리자 화면으로 복귀하려면 비밀번호를 입력하세요."
+            expectedPassword={WBS_ADMIN_VIEW_RESTORE_PASSWORD}
+            onClose={() => setIsAdminViewRestoreModalOpen(false)}
+            onSuccess={() => {
+              setMemberPreview(false);
+              setIsAdminViewRestoreModalOpen(false);
+              pushToast('관리자 화면으로 전환했습니다.', { variant: 'success' });
             }}
           />
         )}

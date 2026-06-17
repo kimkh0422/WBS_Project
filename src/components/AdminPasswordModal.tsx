@@ -8,15 +8,25 @@ interface AdminPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  expectedPassword?: string;
+  heading?: string;
+  description?: string;
 }
 
-export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPasswordModalProps) {
+export function AdminPasswordModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  expectedPassword = WBS_ADMIN_PASSWORD,
+  heading = '관리자 모드 전환',
+  description = '비밀번호를 입력하세요.',
+}: AdminPasswordModalProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === WBS_ADMIN_PASSWORD) {
+    if (password === expectedPassword) {
       onSuccess();
       setPassword('');
       setError(false);
@@ -34,13 +44,13 @@ export function AdminPasswordModal({ isOpen, onClose, onSuccess }: AdminPassword
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
             <Lock size={18} />
-            관리자 모드 전환
+            {heading}
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors">
             <X size={18} />
           </button>
         </div>
-        <p className="text-sm text-slate-500 mb-4">비밀번호를 입력하세요.</p>
+        <p className="text-sm text-slate-500 mb-4">{description}</p>
         <form onSubmit={handleSubmit}>
           <input
             type="password"

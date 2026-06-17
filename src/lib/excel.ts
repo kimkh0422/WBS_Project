@@ -46,6 +46,15 @@ const LEVEL_HEADER_ALIASES = ['레벨', 'Level', 'Lvl', '단계', 'LV'];
 ].forEach(([h, k]) => {
   if (!REVERSE_HEADER_MAP[h as string]) REVERSE_HEADER_MAP[h as string] = k as HeaderToKey;
 });
+//보내기·샘플 양식 헤더(가져오기 known 분기에서도 인식)
+[
+  ['공수(일)', 'workEffort'],
+  ['진척(%)', 'progress'],
+  ['가중치', 'weight'],
+  ['비고', 'description'],
+].forEach(([h, k]) => {
+  REVERSE_HEADER_MAP[h as string] = k as HeaderToKey;
+});
 
 const normalizeHeader = (s: unknown) =>
   String(s ?? '')
@@ -631,9 +640,12 @@ export const parseExcelWithMeta = async (
           task[key] = v != null ? String(v).trim() : '';
         } else if (key === 'progress') {
           task[key] = toNumber(v) ?? 0;
-        } else if (key === 'workEffort') {
+        } else if (key === 'workEffort' || key === 'weight') {
           const n = toNumber(v);
           if (n !== undefined) task[key] = n;
+        } else if (key === 'status') {
+          const parsed = parseStatus(v);
+          task[key] = parsed || (String(v ?? '').trim() ? String(v).trim() : 'todo');
         } else if (key === 'startDate' || key === 'endDate') {
           task[key] = toIsoDate(v);
         } else {
@@ -1260,6 +1272,223 @@ export const exportToExcel = async (
         });
       }
     }
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+type SampleTemplateColumn = {
+  id: string;
+  header: string;
+  width: number;
+  align?: 'left' | 'center' | 'right';
+  required?: boolean;
+};
+
+/** 가져오기용 샘플 WBS 엑셀 양식. 필수 컬럼(노란 헤더·*)을 앞에 두고 선택 컬럼은 뒤에 배치한다. */
+const SAMPLE_TEMPLATE_COLUMNS: SampleTemplateColumn[] = [
+  { id: 'wbsId', header: 'WBS', width: 11, required: true },
+  { id: 'name', header: '작업명', width: 40, required: true },
+  { id: 'startDate', header: '시작일', width: 15, required: true },
+  { id: 'endDate', header: '종료일', width: 15, required: true },
+  { id: 'workEffort', header: '공수(일)', width: 10, align: 'right', required: true },
+  { id: 'assignee', header: '담당자', width: 18, required: true },
+  { id: 'status', header: '상태', width: 10, align: 'center', required: true },
+  { id: 'level', header: '레벨', width: 8, align: 'center' },
+  { id: 'weight', header: '가중치', width: 8, align: 'right' },
+  { id: 'progress', header: '진척(%)', width: 10, align: 'right' },
+  { id: 'deliverables', header: '산출물', width: 24 },
+  { id: 'dependencies', header: '선행작업', width: 12 },
+  { id: 'description', header: '비고', width: 28 },
+];
+
+const SAMPLE_TEMPLATE_ROWS: Record<string, string | number>[] = [
+  {
+    wbsId: '1',
+    name: '프로젝트 착수',
+    startDate: '2026-01-06',
+    endDate: '2026-03-31',
+    workEffort: 60,
+    assignee: '홍길동',
+    status: '미완료',
+    level: 1,
+    deliverables: '착수보고서',
+    description: '최상위 단계(예시)',
+  },
+  {
+    wbsId: '1.1',
+    name: '요구사항 분석',
+    startDate: '2026-01-06',
+    endDate: '2026-01-17',
+    workEffort: 10,
+    assignee: '김철수',
+    status: '미완료',
+    level: 2,
+    deliverables: '요구사항 정의서',
+  },
+  {
+    wbsId: '1.2',
+    name: '설계',
+    startDate: '2026-01-20',
+    endDate: '2026-02-14',
+    workEffort: 20,
+    assignee: '이영희',
+    status: '미완료',
+    level: 2,
+  },
+  {
+    wbsId: '1.2.1',
+    name: '상세 설계',
+    startDate: '2026-01-20',
+    endDate: '2026-01-31',
+    workEffort: 10,
+    assignee: '이영희',
+    status: '미완료',
+    level: 3,
+    dependencies: '3',
+  },
+  {
+    wbsId: '2',
+    name: '개발·구현',
+    startDate: '2026-02-17',
+    endDate: '2026-03-31',
+    workEffort: 30,
+    assignee: '박민수',
+    status: '미완료',
+    level: 1,
+    dependencies: '2, 4',
+  },
+];
+
+const colIndexToLetter = (n: number) => {
+  let x = n + 1;
+  let s = '';
+  while (x > 0) {
+    const r = (x - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
+};
+
+/**
+ * WBS 작성용 샘플 엑셀 양식 다운로드.
+ * - 필수: WBS·작업명·시작일·종료일·공수·담당자·상태 (노란 헤더 + *)
+ * - 선택: 레벨·가중치·진척·산출물·선행작업·비고
+ */
+export const exportWbsSampleTemplate = async (
+  fileName: string = 'wbs_sample_template.xlsx',
+  statusConfigs?: Array<{ id: string; name: string }>,
+): Promise<void> => {
+  const ExcelJSMod = await import('exceljs');
+  const ExcelJS = (ExcelJSMod as unknown as { default?: typeof ExcelJSMod }).default ?? ExcelJSMod;
+
+  const todoName = statusConfigs?.find((c) => c.id === 'todo')?.name ?? '미완료';
+  const doneName = statusConfigs?.find((c) => c.id === 'done')?.name ?? '완료';
+  const statusExamples = `${todoName}, ${doneName}`;
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('WBS 샘플', {
+    views: [{ state: 'frozen', xSplit: 2, ySplit: 3 }],
+  });
+  ws.columns = SAMPLE_TEMPLATE_COLUMNS.map((c) => ({ width: c.width }));
+
+  const requiredCount = SAMPLE_TEMPLATE_COLUMNS.filter((c) => c.required).length;
+  const totalCols = SAMPLE_TEMPLATE_COLUMNS.length;
+
+  const guide =
+    '노란색 헤더(＊)는 필수 입력입니다. WBS는 1·1.1·1.1.1 형식으로 계층을 표현합니다. ' +
+    `날짜는 YYYY-MM-DD 또는 ${koreanDate('2026-01-06')} 형식, 공수는 1인 1일(MD) 기준입니다. ` +
+    `상태는 「${statusExamples}」 등으로 입력합니다. 선행작업은 표의 행 순번(예: 2, 3)으로 적습니다. ` +
+    '아래 예시 행을 참고해 작성한 뒤 ⋮ 메뉴 → 가져오기로 불러올 수 있습니다.';
+  const guideRow = ws.addRow([guide]);
+  ws.mergeCells(1, 1, 1, totalCols);
+  guideRow.height = 48;
+  const guideCell = guideRow.getCell(1);
+  guideCell.font = { size: 10, color: { argb: 'FF334155' } };
+  guideCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+  guideCell.alignment = { vertical: 'middle', wrapText: true };
+
+  const groupRow = ws.addRow(
+    SAMPLE_TEMPLATE_COLUMNS.map((c, i) => {
+      if (i === 0) return '필수 입력';
+      if (i === requiredCount) return '선택 입력';
+      return '';
+    }),
+  );
+  ws.mergeCells(2, 1, 2, requiredCount);
+  if (requiredCount < totalCols) ws.mergeCells(2, requiredCount + 1, 2, totalCols);
+  groupRow.height = 20;
+  groupRow.eachCell({ includeEmpty: true }, (cell, ci) => {
+    const required = ci <= requiredCount;
+    cell.font = { bold: true, size: 9, color: { argb: required ? 'FFB45309' : 'FF64748B' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF8FAFC' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+  });
+
+  const headerRow = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map((c) => (c.required ? `${c.header}*` : c.header)));
+  headerRow.height = 22;
+  headerRow.eachCell({ includeEmpty: true }, (cell, ci) => {
+    const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
+    if (!col) return;
+    const required = !!col.required;
+    cell.font = { bold: true, size: 10, color: { argb: required ? 'FFB45309' : 'FF475569' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF1F5F9' } };
+    cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+  });
+
+  const dataStartRow = 4;
+  for (const sample of SAMPLE_TEMPLATE_ROWS) {
+    const row = ws.addRow(
+      SAMPLE_TEMPLATE_COLUMNS.map((c) => {
+        if (c.id === 'status') return todoName;
+        return sample[c.id] ?? '';
+      }),
+    );
+    row.eachCell({ includeEmpty: true }, (cell, ci) => {
+      const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
+      if (!col) return;
+      cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+      if (col.id === 'wbsId') cell.numFmt = '@';
+    });
+  }
+
+  const emptyRowCount = 20;
+  for (let i = 0; i < emptyRowCount; i++) {
+    const row = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map(() => ''));
+    row.eachCell({ includeEmpty: true }, (cell, ci) => {
+      const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
+      if (!col) return;
+      cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+      if (col.id === 'wbsId') cell.numFmt = '@';
+      cell.border = {
+        top: { style: 'hair', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } },
+      };
+    });
+  }
+
+  const statusColIdx = SAMPLE_TEMPLATE_COLUMNS.findIndex((c) => c.id === 'status');
+  if (statusColIdx >= 0) {
+    const colLetter = colIndexToLetter(statusColIdx);
+    const lastRow = dataStartRow + SAMPLE_TEMPLATE_ROWS.length + emptyRowCount - 1;
+    ws.dataValidations.add(`${colLetter}${dataStartRow}:${colLetter}${lastRow}`, {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`"${todoName},${doneName}"`],
+      showErrorMessage: true,
+      errorTitle: '상태',
+      error: `「${todoName}」 또는 「${doneName}」 중에서 선택하세요.`,
+    });
   }
 
   const buf = await wb.xlsx.writeBuffer();

@@ -77,6 +77,7 @@ interface FileImportExportDeps {
   assigneeDisplayMetaByName?: Map<string, PersonDisplayMeta>;
   /** 상태 id→이름 매핑용(엑셀 내보내기에서 화면과 동일하게 상태 이름 표기) */
   statusConfigs?: Array<{ id: string; name: string }>;
+  onSampleTemplateDownloaded?: () => void;
 }
 
 export function useFileImportExport(deps: FileImportExportDeps) {
@@ -105,6 +106,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
     multiMergeConfirm,
     assigneeDisplayMetaByName,
     statusConfigs,
+    onSampleTemplateDownloaded,
   } = deps;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,6 +248,19 @@ export function useFileImportExport(deps: FileImportExportDeps) {
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const handleDownloadSampleTemplate = useCallback(async () => {
+    try {
+      const { exportWbsSampleTemplate } = await import('../lib/excel');
+      await exportWbsSampleTemplate('wbs_sample_template.xlsx', statusConfigs);
+      onSampleTemplateDownloaded?.();
+      pushToast('샘플 WBS 양식을 다운로드했습니다.', { variant: 'success' });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '샘플 양식 다운로드에 실패했습니다.';
+      alertUser(msg);
+    }
+  }, [statusConfigs, onSampleTemplateDownloaded, pushToast, alertUser]);
+
   const handleImportBackupClick = useCallback(() => {
     backupInputRef.current?.click();
   }, []);
@@ -549,6 +564,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
       handleExportFromModal,
       handleQuickExport,
       handleImportClick,
+      handleDownloadSampleTemplate,
       handleImportBackupClick,
       handleMergeImportClick,
       handleFileChange,
@@ -569,6 +585,7 @@ export function useFileImportExport(deps: FileImportExportDeps) {
       handleExportFromModal,
       handleQuickExport,
       handleImportClick,
+      handleDownloadSampleTemplate,
       handleImportBackupClick,
       handleMergeImportClick,
       handleFileChange,
