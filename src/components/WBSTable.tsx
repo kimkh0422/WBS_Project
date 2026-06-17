@@ -41,11 +41,7 @@ import { useWbsSelection } from './hooks/useWbsSelection';
 import { useWbsDragDrop } from './hooks/useWbsDragDrop';
 import { useWbsDragRangeSelect } from './hooks/useWbsDragRangeSelect';
 import { buildCellMarqueeKeySet } from '../lib/wbsCellMarquee';
-import {
-  isShiftCellMarqueeExcludedTarget,
-  isPointerShiftModifierActive,
-  resolveWbsShiftClickMarqueeEnd,
-} from '../lib/wbsTableShiftCellPointer';
+import { isPointerShiftModifierActive } from '../lib/wbsTableShiftCellPointer';
 import { HeaderCell, PROGRESS_COLUMN_HELP_TEXT } from './WBSTable/HeaderCell';
 import { WbsColumnHeaderDndGroup, type WbsColumnHeaderDragProps } from './WBSTable/columnHeaderDnd';
 import { SummaryBar } from './WBSTable/SummaryBar';
@@ -339,7 +335,7 @@ export function WBSTable({
         return;
       }
       const { applied } = distributeChildrenSchedule([taskId]);
-      pushToast(applied > 0 ? '이 작업의 기간을 하위에 균등 분배했습니다. Ctrl+Z로 되돌릴 수 있습니다.' : '분배할 하위 작업이 없습니다.', {
+      pushToast(applied > 0 ? '하위에 균등 분배했습니다.' : '분배할 하위 작업이 없습니다.', {
         variant: applied > 0 ? 'success' : 'info',
       });
     },
@@ -422,6 +418,57 @@ export function WBSTable({
     anchor: { taskId: string; columnId: TableColumnId };
     end: { taskId: string; columnId: TableColumnId };
   } | null>(null);
+  /** Shift+연속 클릭·드래그 훅 등 state 배치 전에도 마퀴 앵커를 동기적으로 읽기 위한 ref */
+  const cellMarqueeRangeRef = useRef(cellMarqueeRange);
+  cellMarqueeRangeRef.current = cellMarqueeRange;
+  /** Shift+클릭 연속 범위 확장 시 고정 앵커(엑셀) — Shift 떼면 해제 */
+  const shiftCellMarqueeAnchorRef = useRef<{ taskId: string; columnId: TableColumnId } | null>(null);
+  /** Shift가 눌린 동안에는 체크·셀 다중 선택을 코드 경로에서 비우지 않는다 */
+  const shiftKeyHeldRef = useRef(false);
+  const applyCellMarqueeRange = useCallback(
+    (
+      range: {
+        anchor: { taskId: string; columnId: TableColumnId };
+        end: { taskId: string; columnId: TableColumnId };
+      } | null,
+    ) => {
+      cellMarqueeRangeRef.current = range;
+      if (!range) {
+        if (!shiftKeyHeldRef.current) shiftCellMarqueeAnchorRef.current = null;
+      } else if (!shiftKeyHeldRef.current) {
+        shiftCellMarqueeAnchorRef.current = range.anchor;
+      }
+      setCellMarqueeRange(range);
+    },
+    [],
+  );
+  useEffect(() => {
+    const syncKey = (e: KeyboardEvent) => {
+      shiftKeyHeldRef.current = e.shiftKey;
+      if (!e.shiftKey) shiftCellMarqueeAnchorRef.current = null;
+    };
+    const syncPointer = (e: PointerEvent) => {
+      if (isPointerShiftModifierActive(e, shiftKeyHeldRef)) shiftKeyHeldRef.current = true;
+    };
+    const onBlur = () => {
+      shiftKeyHeldRef.current = false;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') shiftKeyHeldRef.current = false;
+    };
+    window.addEventListener('keydown', syncKey, true);
+    window.addEventListener('keyup', syncKey, true);
+    window.addEventListener('pointerdown', syncPointer, true);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('keydown', syncKey, true);
+      window.removeEventListener('keyup', syncKey, true);
+      window.removeEventListener('pointerdown', syncPointer, true);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   const pastedCellClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 다중 셀 붙여넣기 직후 잠시 표시 — 복사 마퀴(하늘)과 구분되는 색 */
   const [pastedCellKeySet, setPastedCellKeySet] = useState<ReadonlySet<string> | null>(null);
@@ -462,14 +509,14 @@ export function WBSTable({
       setEditingCell(null);
       setInlineEditingNameId(null);
       setFocusedCell(null);
-      setCellMarqueeRange(null);
+      applyCellMarqueeRange(null);
       if (pastedCellClearTimerRef.current) {
         clearTimeout(pastedCellClearTimerRef.current);
         pastedCellClearTimerRef.current = null;
       }
       setPastedCellKeySet(null);
     }
-  }, [excelView, tasks, updateTask, canEditCurrentProject]);
+  }, [excelView, tasks, updateTask, canEditCurrentProject, applyCellMarqueeRange]);
   // ─── Realtime: 표 셀 포커스 공유 — extracted to useRealtimeCellFocus ────
   const { otherCellFocus, otherFocusByCellKey, colorForUser } = useRealtimeCellFocus({
     currentProjectId,
@@ -1053,6 +1100,13 @@ export function WBSTable({
     tableScrollRef,
   });
 
+  /** 체크 표시·행 강조 — 로컬 Set과 Context 배열을 합쳐 한 틱 어긋남에도 동기화 */
+  const displaySelectedTaskIds = useMemo(() => {
+    const merged = new Set(selectedTaskIds);
+    for (const id of sharedSelectedTaskIds ?? []) merged.add(id);
+    return merged;
+  }, [selectedTaskIds, sharedSelectedTaskIds]);
+
   const handleSetRowAnchorFromRow = useCallback(
     (id: string) => {
       rangeAnchorRef.current = id;
@@ -1061,42 +1115,14 @@ export function WBSTable({
     [setAnchorTaskId],
   );
 
-  useEffect(() => {
-    if (selectedTaskIds.size > 0) setCellMarqueeRange(null);
-  }, [selectedTaskIds]);
-
   // handleFocusRow를 stable하게 유지하면서(메모된 행의 stale 클로저 방지) 클릭 시점의 현재 선택을 읽기 위한 ref.
   const selectedTaskIdsRef = useRef(selectedTaskIds);
   selectedTaskIdsRef.current = selectedTaskIds;
-  /** Shift가 눌린 동안에는 체크 다중 선택을 코드 경로에서 비우지 않는다(click 단계에서 shiftKey가 빠지는 경우 대비 키보드 동기화). */
-  const shiftKeyHeldRef = useRef(false);
+
   useEffect(() => {
-    const syncKey = (e: KeyboardEvent) => {
-      shiftKeyHeldRef.current = e.shiftKey;
-    };
-    /** click 합성 시 shiftKey가 false로만 오는 경우 — pointerdown에서도 동기화 */
-    const syncPointer = (e: PointerEvent) => {
-      if (isPointerShiftModifierActive(e, shiftKeyHeldRef)) shiftKeyHeldRef.current = true;
-    };
-    const onBlur = () => {
-      shiftKeyHeldRef.current = false;
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') shiftKeyHeldRef.current = false;
-    };
-    window.addEventListener('keydown', syncKey, true);
-    window.addEventListener('keyup', syncKey, true);
-    window.addEventListener('pointerdown', syncPointer, true);
-    window.addEventListener('blur', onBlur);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      window.removeEventListener('keydown', syncKey, true);
-      window.removeEventListener('keyup', syncKey, true);
-      window.removeEventListener('pointerdown', syncPointer, true);
-      window.removeEventListener('blur', onBlur);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, []);
+    if (selectedTaskIds.size > 0) applyCellMarqueeRange(null);
+  }, [selectedTaskIds, applyCellMarqueeRange]);
+
   // resetBulkFields는 아래 useWbsBulkEdit에서 정의되므로 ref로 받아 TDZ 없이 호출.
   const resetBulkFieldsRef = useRef<() => void>(() => {});
 
@@ -1226,10 +1252,7 @@ export function WBSTable({
     );
     if (!ok) return;
     const { applied, skipped } = distributeChildrenSchedule(ready);
-    pushToast(
-      `하위일정 균등분할을 적용했습니다. (상위 ${applied}개${skipped > 0 ? `, 건너뜀 ${skipped}개` : ''}) Ctrl+Z로 되돌릴 수 있습니다.`,
-      { variant: 'success' },
-    );
+    pushToast(skipped > 0 ? `균등분할 완료 (${applied}개, 건너뜀 ${skipped}개)` : `균등분할 완료 (${applied}개)`, { variant: 'success' });
   }, [sharedSelectedTaskIds, lastSelectedId, tasks, distributeChildrenSchedule, pushToast]);
 
   const scrollTaskIntoView = useCallback(
@@ -1447,7 +1470,7 @@ export function WBSTable({
       const anchor = { taskId: firstTask.id, columnId };
       flushWbsTableCellEditorsForNextFocus(anchor);
       const end = { taskId: lastTask.id, columnId };
-      setCellMarqueeRange({ anchor, end });
+      applyCellMarqueeRange({ anchor, end });
       setFocusedCell(anchor);
       setLastSelectedId(firstTask.id);
       rangeAnchorRef.current = firstTask.id;
@@ -1461,7 +1484,7 @@ export function WBSTable({
       marqueeColumnIds,
       visibleTasks,
       clearCheckboxSelectionForDrag,
-      setCellMarqueeRange,
+      applyCellMarqueeRange,
       setFocusedCell,
       setLastSelectedId,
       setAnchorTaskId,
@@ -1474,11 +1497,11 @@ export function WBSTable({
     (taskId: string, columnId: TableColumnId) => {
       if (shiftKeyHeldRef.current) return;
       if (!marqueeColumnIds.includes(columnId)) return;
-      setCellMarqueeRange({ anchor: { taskId, columnId }, end: { taskId, columnId } });
+      applyCellMarqueeRange({ anchor: { taskId, columnId }, end: { taskId, columnId } });
       rangeAnchorRef.current = taskId;
       setAnchorTaskId(taskId);
     },
-    [marqueeColumnIds, setCellMarqueeRange, setAnchorTaskId],
+    [marqueeColumnIds, applyCellMarqueeRange, setAnchorTaskId],
   );
 
   // 엑셀식 마우스 드래그: 네이티브 pointerdown(capture) — 아래 스크롤 ref 콜백에서 `bindRangeDragToScrollElement` 호출.
@@ -1489,7 +1512,7 @@ export function WBSTable({
     clearCheckboxSelection: clearCheckboxSelectionForDrag,
     setLastSelectedId,
     setFocusedCell,
-    setCellMarqueeRange,
+    setCellMarqueeRange: applyCellMarqueeRange,
     rangeAnchorRef,
     setAnchorTaskId,
     virtualRangeFallback: {
@@ -1519,7 +1542,7 @@ export function WBSTable({
         false;
       // Shift를 누른 채 연속 클릭할 때 click에 shiftKey가 없어도 마퀴를 유지한다.
       if (!preserveMarquee && !shiftKeyHeldRef.current) {
-        setCellMarqueeRange(null);
+        applyCellMarqueeRange(null);
       }
       setLastSelectedId(taskId);
       setFocusedCell((prev) => {
@@ -1535,14 +1558,7 @@ export function WBSTable({
               : (editableColumnIds[0] ?? 'name');
         return { taskId, columnId: col };
       });
-      // 다중 선택 후 행 배경(패딩)만 (수정키 없이) 클릭하면 체크박스 선택을 자동 해제 — SortableTaskRow 행 onClick.
-      // 셀 클릭·WBS 번호 칸 등은 onFocusRow(..., { keepSelection: true })로 포커스만 옮기고 선택은 유지한다.
-      // Shift/Ctrl 클릭(다중 선택 조작)도 keepSelection으로 보존한다.
-      // Shift 키를 누른 채로 조작할 때는 click에 shiftKey가 없어도(ref) 체크 선택을 비우지 않는다.
-      if (!opts?.keepSelection && selectedTaskIdsRef.current.size > 0 && !shiftKeyHeldRef.current) {
-        setSelection(new Set());
-        resetBulkFieldsRef.current();
-      }
+      // 체크(행) 다중 선택은 Esc로만 해제한다. 셀·행 포커스 이동만으로는 유지한다.
     },
     [
       setLastSelectedId,
@@ -1688,31 +1704,27 @@ export function WBSTable({
     (end: { taskId: string; columnId: TableColumnId }) => {
       if (!marqueeColumnIds.includes(end.columnId)) return;
       flushWbsTableCellEditorsForNextFocus(end);
-      // 체크 다중 선택은 Shift 조작 중에도 유지(이전에는 여기서 비워져 연속 Shift 사용이 깨졌음).
-      const anchor =
-        cellMarqueeRange?.anchor ??
-        (focusedCell && marqueeColumnIds.includes(focusedCell.columnId)
-          ? { taskId: focusedCell.taskId, columnId: focusedCell.columnId }
+      const existing = cellMarqueeRangeRef.current;
+      let anchor =
+        existing?.anchor ??
+        shiftCellMarqueeAnchorRef.current ??
+        (focusedCellRef.current && marqueeColumnIds.includes(focusedCellRef.current.columnId)
+          ? { taskId: focusedCellRef.current.taskId, columnId: focusedCellRef.current.columnId }
           : end);
-      setCellMarqueeRange({ anchor, end });
+      if (!shiftCellMarqueeAnchorRef.current) {
+        shiftCellMarqueeAnchorRef.current = anchor;
+      }
+      anchor = shiftCellMarqueeAnchorRef.current;
+      applyCellMarqueeRange({ anchor, end });
       setFocusedCell(end);
       setLastSelectedId(end.taskId);
-      rangeAnchorRef.current = end.taskId;
-      setAnchorTaskId(end.taskId);
+      rangeAnchorRef.current = anchor.taskId;
+      setAnchorTaskId(anchor.taskId);
       requestAnimationFrame(() => {
         tableScrollRef.current?.focus({ preventScroll: true });
       });
     },
-    [
-      marqueeColumnIds,
-      cellMarqueeRange,
-      focusedCell,
-      setCellMarqueeRange,
-      setFocusedCell,
-      setLastSelectedId,
-      setAnchorTaskId,
-      flushWbsTableCellEditorsForNextFocus,
-    ],
+    [marqueeColumnIds, applyCellMarqueeRange, setFocusedCell, setLastSelectedId, setAnchorTaskId, flushWbsTableCellEditorsForNextFocus],
   );
 
   /**
@@ -1720,17 +1732,10 @@ export function WBSTable({
    * pointerdown에서 stopPropagation 해도 click은 별도로 합성되어 beginEdit→handleFocusRow가 마퀴를 지우므로,
    * 동일 규칙으로 onClickCapture에서도 막는다.
    */
-  const tryShiftExtendCellMarqueeFromTarget = useCallback(
-    (target: HTMLElement | null): boolean => {
-      if (excelView || !target) return false;
-      if (isShiftCellMarqueeExcludedTarget(target)) return false;
-      const end = resolveWbsShiftClickMarqueeEnd(target, marqueeColumnIds, editableColumnIds, focusedCell);
-      if (!end) return false;
-      handleShiftExtendCellRange(end);
-      return true;
-    },
-    [excelView, marqueeColumnIds, editableColumnIds, focusedCell, handleShiftExtendCellRange],
-  );
+  const tryShiftExtendCellMarqueeFromTarget = useCallback((_target: HTMLElement | null): boolean => {
+    // Shift+클릭 셀 범위 확장 — 버그로 임시 비활성화
+    return false;
+  }, []);
 
   /** Shift+클릭: 표 본문 최상단 캡처에서 처리해 표 단독·분할·sticky·가상 스크롤과 무관하게 동일 동작 */
   const handleTableShiftPointerDownCapture = useCallback(
@@ -1748,14 +1753,9 @@ export function WBSTable({
       const target = e.target as HTMLElement | null;
       if (!tryShiftExtendCellMarqueeFromTarget(target)) return;
       absorbPostShiftCellMarqueeClickRef.current = true;
-      // click은 pointerup 뒤에 합성된다 — pointerdown 직후 setTimeout(0)으로 흡수 플래그를 지우면 click이 새어 나가 마퀴가 해제된다.
-      const onPointerUp = () => {
-        window.removeEventListener('pointerup', onPointerUp, true);
-        window.setTimeout(() => {
-          absorbPostShiftCellMarqueeClickRef.current = false;
-        }, 0);
-      };
-      window.addEventListener('pointerup', onPointerUp, true);
+      window.setTimeout(() => {
+        absorbPostShiftCellMarqueeClickRef.current = false;
+      }, 400);
       e.preventDefault();
       e.stopPropagation();
     },
@@ -1974,7 +1974,7 @@ export function WBSTable({
     setLastSelectedId,
     syncRangeAnchorForKeyboardFocus,
     setFocusedCell,
-    setCellMarqueeRange,
+    setCellMarqueeRange: applyCellMarqueeRange,
     setInlineEditingNameId: setInlineEditingNameIdCommitted,
     setEditingCell,
     setSelection,
@@ -3054,23 +3054,19 @@ export function WBSTable({
                 emptyAreaPressRef.current = isWbsTableEmptyArea(e.target);
               }}
               onClick={(e) => {
-                // 행·헤더·입력 밖 빈 영역: F2 등 인라인 편집 종료, (선택이 있으면) 체크 다중 선택 해제 — 행 포커스·셀 링은 유지
+                // 행·헤더·입력 밖 빈 영역: F2 등 인라인 편집 종료 (체크 행 선택은 Esc로만 해제)
                 const pressedOnEmpty = emptyAreaPressRef.current;
                 emptyAreaPressRef.current = false;
                 if (!pressedOnEmpty || !isWbsTableEmptyArea(e.target)) return;
 
                 flushWbsInlineEditorsForOutsidePointer();
-
-                if (selectedTaskIds.size === 0) return;
-                if (e.shiftKey || shiftKeyHeldRef.current) return;
-                setSelection(new Set());
-                resetBulkFields();
               }}
               className={cn(
                 // split: 가로는 상단 헤더 스크롤만 사용 — 본문 가로 스크롤바가 세로 뷰포트를 줄여 간트와 행 단위가 어긋나는 것을 방지
                 isSplitView ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
                 'relative outline-none focus:ring-0',
                 'wbs-view-mode',
+                isTreeView && 'wbs-tree-view',
                 fillHeight ? 'flex-1 min-h-0' : 'min-h-[280px] max-h-[calc(100vh-14rem)]',
                 wrapTextInCells && 'wrap-text-in-cells',
                 // 마지막 행·퀵 추가 입력 아래 여백(셀 서식/일괄 바가 있으면 style로 더 큰 값 사용)
@@ -3208,7 +3204,7 @@ export function WBSTable({
                               displayWbsMap={displayWbsMap}
                               taskIdToSeqNum={taskIdToSeqNum}
                               seqNumToTaskId={seqNumToTaskId}
-                              isSelected={selectedTaskIds.has(task.id)}
+                              isSelected={displaySelectedTaskIds.has(task.id)}
                               hasChildren={hasChildrenSet.has(task.id)}
                               totalDescendantTaskCount={descendantCountByTaskId.get(task.id) ?? 0}
                               isTreeView={isTreeView}

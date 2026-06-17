@@ -7,7 +7,7 @@ import { recomputeProjectRollups } from '../../lib/rollups';
 import { convertStoredEffortBetweenUnits, normalizeWorkEffortUnit } from '../../lib/workEffortUnits';
 
 export interface ProjectOpsDeps {
-  saveHistory: () => void;
+  saveHistory: (label?: string) => void;
   bumpDirty: (...projectIds: string[]) => void;
   handleDbError: (err: unknown, fallback: string) => void;
   ownerIdRef: MutableRefObject<string | undefined>;

@@ -58,6 +58,130 @@ function visibleOrderedTaskIdsFromCellMarquee(
   return ordered.length > 0 ? ordered : null;
 }
 
+/** anchor~end 행 구간의 작업 id(표시 순서). keySet이 비어 있어도 range만으로 다중 행 판별·일괄 레벨 조정에 사용. */
+function visibleOrderedTaskIdsFromMarqueeRange(
+  range: { anchor: { taskId: string }; end: { taskId: string } } | null,
+  visibleTasks: TaskWithDepth[],
+): string[] | null {
+  if (!range) return null;
+  const r1 = visibleTasks.findIndex((t) => t.id === range.anchor.taskId);
+  const r2 = visibleTasks.findIndex((t) => t.id === range.end.taskId);
+  if (r1 < 0 || r2 < 0) return null;
+  const lo = Math.min(r1, r2);
+  const hi = Math.max(r1, r2);
+  const ordered = visibleTasks.slice(lo, hi + 1).map((t) => t.id);
+  return ordered.length > 0 ? ordered : null;
+}
+
+/** Tab/Shift+Tab 일괄 들여쓰기·내어쓰기 대상 행 id(표시 순서)와 마퀴 복원 힌트 */
+export function resolveTabLevelAdjustOrderedIds(opts: {
+  selectedTaskIds: ReadonlySet<string>;
+  visibleTasks: TaskWithDepth[];
+  tasks: Task[];
+  cellMarqueeKeySet: ReadonlySet<string> | null;
+  cellMarqueeRange: { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null;
+  cursorLastSelectedId: string | null;
+}): {
+  orderedIds: string[];
+  syncedMarqueeToCheckboxRows: boolean;
+  nameMarqueeRestore: string[] | null;
+  marqueeRangeSnap: { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null;
+} {
+  const { selectedTaskIds, visibleTasks, tasks, cellMarqueeKeySet, cellMarqueeRange, cursorLastSelectedId } = opts;
+
+  const fromRangeRows = visibleOrderedTaskIdsFromMarqueeRange(cellMarqueeRange, visibleTasks);
+  const fromKeySetRows = visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
+  const fromAnyMarquee = fromKeySetRows ?? fromRangeRows;
+
+  const fromNameMarquee =
+    visibleOrderedTaskIdsForNameOnlyCellMarquee(cellMarqueeKeySet, visibleTasks) ??
+    (cellMarqueeRange && cellMarqueeRange.anchor.columnId === 'name' && cellMarqueeRange.end.columnId === 'name' ? fromRangeRows : null);
+
+  const marqueeRangeSnap =
+    cellMarqueeRange && ((cellMarqueeKeySet?.size ?? 0) > 1 || (fromRangeRows?.length ?? 0) > 1)
+      ? ({ anchor: cellMarqueeRange.anchor, end: cellMarqueeRange.end } as const)
+      : null;
+
+  const checkboxOrdered =
+    selectedTaskIds.size > 0
+      ? (() => {
+          const visibleOrdered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
+          const visibleSet = new Set(visibleOrdered);
+          const hiddenSelected = tasks.filter((t) => selectedTaskIds.has(t.id) && !visibleSet.has(t.id)).map((t) => t.id);
+          return [...visibleOrdered, ...hiddenSelected];
+        })()
+      : [];
+
+  const marqueeRows = fromAnyMarquee && fromAnyMarquee.length >= 2 ? fromAnyMarquee : null;
+  const preferMarqueeRows = marqueeRows != null && (selectedTaskIds.size <= 1 || marqueeRows.length > selectedTaskIds.size);
+
+  let orderedIds: string[] = [];
+  let nameMarqueeRestore: string[] | null = null;
+  let syncedMarqueeToCheckboxRows = false;
+
+  if (selectedTaskIds.size > 1 && !preferMarqueeRows) {
+    orderedIds = checkboxOrdered;
+  } else if (marqueeRows) {
+    orderedIds = marqueeRows;
+    syncedMarqueeToCheckboxRows = true;
+  } else if (fromNameMarquee && fromNameMarquee.length >= 2) {
+    orderedIds = fromNameMarquee;
+    syncedMarqueeToCheckboxRows = true;
+  } else if (checkboxOrdered.length > 0) {
+    orderedIds = checkboxOrdered;
+  } else if (fromNameMarquee && fromNameMarquee.length > 0) {
+    orderedIds = fromNameMarquee;
+    nameMarqueeRestore = fromNameMarquee;
+  } else if (fromAnyMarquee && fromAnyMarquee.length > 0) {
+    orderedIds = fromAnyMarquee;
+  } else if (cursorLastSelectedId) {
+    orderedIds = [cursorLastSelectedId];
+  }
+
+  return { orderedIds, syncedMarqueeToCheckboxRows, nameMarqueeRestore, marqueeRangeSnap };
+}
+
+export function shouldPreferBulkTabLevelChange(opts: {
+  selectedTaskIdsSize: number;
+  cellMarqueeKeySetSize: number;
+  marqueeRangeRowCount: number;
+}): boolean {
+  return opts.selectedTaskIdsSize > 1 || opts.cellMarqueeKeySetSize > 1 || opts.marqueeRangeRowCount > 1;
+}
+
+/** Space 체크 토글: 다중 체크 선택이면 포커스 행이 선택 안에 있을 때 전체 해제, 밖이면 그 행만 추가 */
+export function resolveSpaceCheckboxSelection(opts: { selectedTaskIds: ReadonlySet<string>; focusRowId: string }): Set<string> {
+  const { selectedTaskIds, focusRowId } = opts;
+  if (selectedTaskIds.size > 1) {
+    if (selectedTaskIds.has(focusRowId)) {
+      return new Set();
+    }
+    const next = new Set(selectedTaskIds);
+    next.add(focusRowId);
+    return next;
+  }
+  const next = new Set(selectedTaskIds);
+  if (next.has(focusRowId)) next.delete(focusRowId);
+  else next.add(focusRowId);
+  return next;
+}
+
+/** Space: 셀 마퀴·범위 → 체크할 행 id(표시 순서). 2행 이상일 때만 반환 */
+export function resolveMarqueeRowsForSpaceCheckbox(opts: {
+  cellMarqueeKeySet: ReadonlySet<string> | null;
+  cellMarqueeRange: { anchor: { taskId: string }; end: { taskId: string } } | null;
+  visibleTasks: TaskWithDepth[];
+}): string[] | null {
+  const { cellMarqueeKeySet, cellMarqueeRange, visibleTasks } = opts;
+  if ((cellMarqueeKeySet?.size ?? 0) > 1 && cellMarqueeKeySet) {
+    const idSet = new Set(cellMarqueeKeysToTargets(cellMarqueeKeySet).map((c) => c.taskId));
+    const orderedRowIds = visibleTasks.filter((t) => idSet.has(t.id)).map((t) => t.id);
+    return orderedRowIds.length > 1 ? orderedRowIds : null;
+  }
+  const fromRange = visibleOrderedTaskIdsFromMarqueeRange(cellMarqueeRange, visibleTasks);
+  return fromRange && fromRange.length > 1 ? fromRange : null;
+}
+
 /** Tab/Shift+Tab 다중 레벨 변경: 셀 마퀴(2행 이상) → 체크 행 선택으로 전환 */
 function syncCellMarqueeRowsToCheckboxSelection(
   rowIds: string[],
@@ -604,16 +728,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     const cursorFocusedCell = cellNavCursorRef.current.focusedCell ?? focusedCell;
     const cursorLastSelectedId = cellNavCursorRef.current.lastSelectedId ?? lastSelectedId;
 
-    /** 키보드로 셀/행 커서만 옮길 때는 체크 다중 선택을 해제해 포커스 행과 어긋나지 않게 한다. */
-    const clearBulkCheckboxSelectionOnKeyboardCursorMove = () => {
-      if (selectedTaskIds.size > 0) {
-        setSelection(new Set());
-        setBulkStatus('');
-        setBulkAssignee('');
-        setBulkDurationDays('');
-        setBulkProgress('');
-      }
-    };
+    /** 체크(행) 다중 선택은 Esc로만 해제 — 셀/행 커서 이동 시에는 비우지 않는다. */
+    const clearBulkCheckboxSelectionOnKeyboardCursorMove = () => {};
 
     // ── Ghost (Excel placeholder) 행 포커스 처리 ──
     // ghostFocusIdx 가 설정돼 있으면 ↑/↓ 로 행 이동, Enter/F2/문자 입력은 새 작업 생성+편집, Esc 는 해제.
@@ -689,9 +805,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
     };
 
-    const marqueeRowIdsForTab = visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
+    const marqueeRowIdsFromRange = visibleOrderedTaskIdsFromMarqueeRange(cellMarqueeRange, visibleTasks);
+    const marqueeRowIdsFromKeys = visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
+    const marqueeRowCountForTab = Math.max(marqueeRowIdsFromRange?.length ?? 0, marqueeRowIdsFromKeys?.length ?? 0);
     // 다중(체크 ≥2행 또는 셀 마퀴 2행·2칸 이상): Tab/Shift+Tab은 엑셀식 셀 이동·표 밖 입력 가드보다 들여쓰기·내어쓰기 우선
-    const tabBulkLevelTargets = selectedTaskIds.size > 1 || (marqueeRowIdsForTab?.length ?? 0) > 1 || (cellMarqueeKeySet?.size ?? 0) > 1;
+    const tabBulkLevelTargets = shouldPreferBulkTabLevelChange({
+      selectedTaskIdsSize: selectedTaskIds.size,
+      cellMarqueeKeySetSize: cellMarqueeKeySet?.size ?? 0,
+      marqueeRangeRowCount: marqueeRowCountForTab,
+    });
     const tabPreferBulkLevel = e.key === 'Tab' && tabBulkLevelTargets;
     if (tabPreferBulkLevel) {
       // Shift+Tab은 브라우저 기본(이전 포커스)보다 먼저 막아야 다중 내어쓰기가 동작한다.
@@ -969,65 +1091,30 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           (document.activeElement as HTMLElement | null)?.blur?.();
           setEditingCell(null);
         }
+        // armed 작업명 input 포커스여도 다중 마퀴·체크 선택이면 일괄 레벨 조정(Del 다중 비우기와 동일)
+        if (!inlineEditingNameId && !editingCell) {
+          (document.activeElement as HTMLElement | null)?.blur?.();
+        }
       }
 
-      const fromNameMarquee = visibleOrderedTaskIdsForNameOnlyCellMarquee(cellMarqueeKeySet, visibleTasks);
-      const fromAnyMarquee = marqueeRowIdsForTab ?? visibleOrderedTaskIdsFromCellMarquee(cellMarqueeKeySet, visibleTasks);
-      const marqueeRangeSnap =
-        cellMarqueeRange && (cellMarqueeKeySet?.size ?? 0) > 1
-          ? ({ anchor: cellMarqueeRange.anchor, end: cellMarqueeRange.end } as const)
-          : null;
+      const { orderedIds, syncedMarqueeToCheckboxRows, nameMarqueeRestore, marqueeRangeSnap } = resolveTabLevelAdjustOrderedIds({
+        selectedTaskIds,
+        visibleTasks,
+        tasks,
+        cellMarqueeKeySet,
+        cellMarqueeRange,
+        cursorLastSelectedId,
+      });
 
-      let orderedIds: string[] = [];
-      let nameMarqueeRestore: string[] | null = null;
-      let syncedMarqueeToCheckboxRows = false;
-
-      const checkboxOrdered =
-        selectedTaskIds.size > 0
-          ? (() => {
-              const visibleOrdered = visibleTasks.filter((t) => selectedTaskIds.has(t.id)).map((t) => t.id);
-              const visibleSet = new Set(visibleOrdered);
-              const hiddenSelected = tasks.filter((t) => selectedTaskIds.has(t.id) && !visibleSet.has(t.id)).map((t) => t.id);
-              return [...visibleOrdered, ...hiddenSelected];
-            })()
-          : [];
-
-      const marqueeRows = fromAnyMarquee && fromAnyMarquee.length >= 2 ? fromAnyMarquee : null;
-      const preferMarqueeRows = marqueeRows != null && (selectedTaskIds.size <= 1 || marqueeRows.length > selectedTaskIds.size);
-
-      if (selectedTaskIds.size > 1 && !preferMarqueeRows) {
-        orderedIds = checkboxOrdered;
-      } else if (marqueeRows) {
-        orderedIds = marqueeRows;
-        syncedMarqueeToCheckboxRows = true;
+      if (syncedMarqueeToCheckboxRows && orderedIds.length >= 2) {
         syncCellMarqueeRowsToCheckboxSelection(
-          marqueeRows,
+          orderedIds,
           setCellMarqueeRange,
           setSelection,
           syncRangeAnchorForKeyboardFocus,
           setLastSelectedId,
           setFocusedCell,
         );
-      } else if (fromNameMarquee && fromNameMarquee.length >= 2) {
-        orderedIds = fromNameMarquee;
-        syncedMarqueeToCheckboxRows = true;
-        syncCellMarqueeRowsToCheckboxSelection(
-          fromNameMarquee,
-          setCellMarqueeRange,
-          setSelection,
-          syncRangeAnchorForKeyboardFocus,
-          setLastSelectedId,
-          setFocusedCell,
-        );
-      } else if (checkboxOrdered.length > 0) {
-        orderedIds = checkboxOrdered;
-      } else if (fromNameMarquee && fromNameMarquee.length > 0) {
-        orderedIds = fromNameMarquee;
-        nameMarqueeRestore = fromNameMarquee;
-      } else if (fromAnyMarquee && fromAnyMarquee.length > 0) {
-        orderedIds = fromAnyMarquee;
-      } else if (cursorLastSelectedId) {
-        orderedIds = [cursorLastSelectedId];
       }
 
       if (orderedIds.length > 0) {
@@ -1313,9 +1400,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     // (막으면 브라우저 기본 붙여넣기만 시도해 type=date 등에서는 아무 반응이 없는 것처럼 보임)
     const isPasteKey = (e.ctrlKey || e.metaKey) && e.key === 'v';
     const internalPasteShortcut = isPasteKey && (copiedCellRegion != null || copiedTasks.length > 0 || loadClipboardTasks().length > 0);
+    // Shift+Enter: 현재 셀 행 위에 형제 추가 — status SELECT 등 typingInWbsCell 가드보다 통과해야 함
+    const shiftEnterInsertSiblingAbove = e.key === 'Enter' && e.shiftKey && !!inWbsTable && !editingCell && !inlineEditingNameId;
     if (
       (editingCell && !tabPreferBulkLevel && !internalPasteShortcut) ||
-      (typingInWbsCell && !tabPreferBulkLevel && !internalPasteShortcut)
+      (typingInWbsCell && !tabPreferBulkLevel && !internalPasteShortcut && !shiftEnterInsertSiblingAbove)
     )
       return;
     const inWbsTableFallback = (target as HTMLElement).closest?.('[data-wbs-table]');
@@ -1839,27 +1928,39 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     }
 
     // Delete (Backspace는 브라우저 뒤로가기·입력 필드와 충돌 방지)
-    // - 체크박스(또는 공유 행 선택)가 있으면 Del은 마퀴·포커스 셀보다 우선: 툴바 "삭제"와 동일하게 행 전체 삭제
+    // - 체크박스(또는 공유 행 선택)가 있으면 Del은 마퀴·포커스 셀·armed 작업명 input보다 우선: 툴바 "삭제"와 동일하게 행 전체 삭제
     // - 행 선택이 없을 때만 엑셀식: 셀·다중셀(마퀴) 또는 포커스 한 칸 → 해당 셀 값만 비움(행 삭제 아님)
     if (e.key === 'Delete' || e.key === 'Del') {
+      // 체크·공유 행 선택이 있으면 셀 편집기(armed 작업명 wbs-edit-* 포함)보다 먼저 처리
+      if (effectiveSelectedIds.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!canEditCurrentProject) return;
+        if (inlineEditingNameId) {
+          commitWbsInlineNameEditFromDom(inlineEditingNameId, tasks, updateTask, canEditCurrentProject);
+          setInlineEditingNameId(null);
+        }
+        if (editingCell) setEditingCell(null);
+        performDeleteTaskIds(effectiveSelectedIds);
+        return;
+      }
       // 표 안 값 입력 중이면 문자 삭제 등 기본 동작 유지
       if (isWbsTableCellTypingTarget(target)) return;
       // 작업명 인라인 편집 중(포커스가 잠깐 표로 나간 경우 등): 행 삭제 금지
       if (inlineEditingNameId) return;
-      // 표 안 셀 편집기(input): Del은 전역 "셀 비우기"가 아니라 브라우저 기본(글자·선택 영역 삭제)
-      // — armed 작업명은 typing 대상이 아니므로 wbs-edit- 접두로 통일 처리
+      // 표 안 셀 편집기(input): 편집 중이면 Del은 브라우저 기본(글자·선택 영역 삭제).
+      // 작업명 armed(포커스만)·다중 셀 마퀴는 아래 전역 비우기로 처리한다.
       const delTarget = target as HTMLElement;
+      const marqueeCellCountForDel = cellMarqueeKeySet?.size ?? 0;
+      const marqueeMultiCellsForDel = marqueeCellCountForDel > 1;
       if (delTarget.tagName === 'INPUT' && delTarget.closest?.('[data-wbs-table]') && !(delTarget as HTMLInputElement).disabled) {
         const id = (delTarget as HTMLInputElement).id ?? '';
-        if (id.startsWith('wbs-edit-')) return;
+        const isArmedNameCapture = delTarget.hasAttribute?.('data-wbs-armed');
+        if (id.startsWith('wbs-edit-') && !marqueeMultiCellsForDel && !isArmedNameCapture) return;
       }
       e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.blur?.();
       if (!canEditCurrentProject) return;
-      // 체크·공유로 고른 행이 있으면 셀 마퀴가 남아 있어도 Del은 행 삭제만(글자만 지우기 방지)
-      if (effectiveSelectedIds.length > 0) {
-        performDeleteTaskIds(effectiveSelectedIds);
-        return;
-      }
       // 셀 마퀴(1칸 이상): 엑셀처럼 행 삭제가 아니라 선택 셀 값만 비움
       const marqueeHasCells = (cellMarqueeKeySet?.size ?? 0) >= 1;
       if (marqueeHasCells && cellMarqueeKeySet) {
@@ -2102,52 +2203,6 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       return;
     }
 
-    // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
-    // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
-      return;
-    }
-
-    // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
-    // 예외: Alt+↑↓ + 체크 다중 선택(≥2)은 lastSelectedId 없이도 형제 이동만 처리한다.
-    if (!cursorLastSelectedId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      const allowAltMulti = e.altKey && selectedTaskIds.size > 1 && canEditCurrentProject;
-      if (!allowAltMulti) return;
-    }
-
-    // Space: 체크 토글 — 행 포커스(lastSelectedId) 우선(↑/↓와 동일 기준). 없으면 셀 링 행.
-    // 다중 셀(마퀴) 선택 중이면: 마퀴에 걸친 모든 행을 체크 다중 선택으로 전환(엑셀식).
-    if (e.key === ' ') {
-      e.preventDefault();
-      const marqueeMultiCells = (cellMarqueeKeySet?.size ?? 0) > 1;
-      if (marqueeMultiCells && cellMarqueeKeySet) {
-        const idSet = new Set(cellMarqueeKeysToTargets(cellMarqueeKeySet).map((c) => c.taskId));
-        const orderedRowIds = visibleTasks.filter((t) => idSet.has(t.id)).map((t) => t.id);
-        if (orderedRowIds.length > 0) {
-          setSelection(new Set(orderedRowIds));
-          setBulkStatus('');
-          setBulkAssignee('');
-          setBulkDurationDays('');
-          setBulkProgress('');
-          const primary = orderedRowIds[0]!;
-          setLastSelectedId(primary);
-          syncRangeAnchorForKeyboardFocus?.(primary);
-          cellNavCursorRef.current = {
-            lastSelectedId: primary,
-            focusedCell: cursorFocusedCell ?? { taskId: primary, columnId: 'name' },
-          };
-          return;
-        }
-      }
-      const rowId = cursorLastSelectedId ?? cursorFocusedCell?.taskId;
-      if (!rowId) return;
-      const next = new Set(selectedTaskIds);
-      if (next.has(rowId)) next.delete(rowId);
-      else next.add(rowId);
-      setSelection(next);
-      return;
-    }
-
     // WBS 정렬일 때만 순서/레벨 변경 허용 (다른 정렬·필터 시 표시 순서와 트리 순서가 달라 혼동 방지)
     const isSortedOrFiltered =
       (sortConfig !== null && sortConfig.key !== 'wbs') ||
@@ -2158,29 +2213,95 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       !!filters.milestoneOnly ||
       !!filters.issueOnly;
 
+    /** 표 로컬 Set과 Context(간트 등) 체크 선택 동기 — Alt+↑↓ 다중 이동에 공통 사용 */
+    const checkboxSelectionForSiblingMove =
+      selectedTaskIds.size > 0
+        ? selectedTaskIds
+        : sharedSelectedTaskIds && sharedSelectedTaskIds.length > 0
+          ? new Set(sharedSelectedTaskIds)
+          : selectedTaskIds;
+
+    // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
+    // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
+    // 예외: Alt+↑↓ 형제 순서 이동은 간트 포커스·표 밖에서도 체크 다중 선택과 함께 동작한다.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
+      const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
+      const allowAltSiblingMove =
+        e.altKey && canEditCurrentProject && !isSortedOrFiltered && (checkboxSelectionForSiblingMove.size > 1 || moveTargetId != null);
+      if (!allowAltSiblingMove) return;
+    }
+
+    // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
+    // 예외: Alt+↑↓ + 체크 다중 선택(≥2)은 lastSelectedId 없이도 형제 이동만 처리한다.
+    if (!cursorLastSelectedId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const allowAltMulti = e.altKey && checkboxSelectionForSiblingMove.size > 1 && canEditCurrentProject;
+      if (!allowAltMulti) return;
+    }
+
+    // Space: 체크 토글 — 행 포커스(lastSelectedId) 우선(↑/↓와 동일 기준). 없으면 셀 링 행.
+    // 다중 셀(마퀴)·2행 이상 범위 선택 중이면: 해당 행 전부 체크 선택(엑셀식).
+    // 체크 다중 선택(≥2)이면 포커스 행이 선택 안에 있을 때 전체를 한 번에 해제.
+    if (e.key === ' ') {
+      e.preventDefault();
+      const marqueeRowIds = resolveMarqueeRowsForSpaceCheckbox({
+        cellMarqueeKeySet,
+        cellMarqueeRange,
+        visibleTasks,
+      });
+      if (marqueeRowIds) {
+        setSelection(new Set(marqueeRowIds));
+        setBulkStatus('');
+        setBulkAssignee('');
+        setBulkDurationDays('');
+        setBulkProgress('');
+        const primary = marqueeRowIds[0]!;
+        setLastSelectedId(primary);
+        syncRangeAnchorForKeyboardFocus?.(primary);
+        cellNavCursorRef.current = {
+          lastSelectedId: primary,
+          focusedCell: cursorFocusedCell ?? { taskId: primary, columnId: 'name' },
+        };
+        return;
+      }
+      const rowId = cursorLastSelectedId ?? cursorFocusedCell?.taskId;
+      if (!rowId) return;
+      const next = resolveSpaceCheckboxSelection({ selectedTaskIds, focusRowId: rowId });
+      if (next.size === 0) {
+        setBulkStatus('');
+        setBulkAssignee('');
+        setBulkDurationDays('');
+        setBulkProgress('');
+      }
+      setSelection(next);
+      return;
+    }
+
     if (e.key === 'ArrowUp') {
       keyboardShiftPivotIdRef.current = null;
       if (e.altKey) {
         e.preventDefault();
         if (!canEditCurrentProject) return;
         if (isSortedOrFiltered) return;
-        if (selectedTaskIds.size > 1) {
-          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, selectedTaskIds);
+        const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
+        if (checkboxSelectionForSiblingMove.size > 1) {
+          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, checkboxSelectionForSiblingMove);
           if (pt) {
-            const steps = buildSiblingMoveStepsFromSelection(pt, selectedTaskIds, 'up');
+            const steps = buildSiblingMoveStepsFromSelection(pt, checkboxSelectionForSiblingMove, 'up');
             if (steps.length > 0) {
               applySiblingMoveSteps(steps);
-              const scrollId = lastSelectedId && selectedTaskIds.has(lastSelectedId) ? lastSelectedId : [...selectedTaskIds][0]!;
+              const scrollId =
+                moveTargetId && checkboxSelectionForSiblingMove.has(moveTargetId) ? moveTargetId : [...checkboxSelectionForSiblingMove][0]!;
               requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
             }
           }
           return;
         }
         const canMove =
-          selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && lastSelectedId != null && selectedTaskIds.has(lastSelectedId));
-        if (canMove && lastSelectedId) {
-          moveTask(lastSelectedId, 'up');
-          requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
+          checkboxSelectionForSiblingMove.size === 0 ||
+          (checkboxSelectionForSiblingMove.size === 1 && moveTargetId != null && checkboxSelectionForSiblingMove.has(moveTargetId));
+        if (canMove && moveTargetId) {
+          moveTask(moveTargetId, 'up');
+          requestAnimationFrame(() => document.getElementById(`task-row-${moveTargetId}`)?.scrollIntoView({ block: 'nearest' }));
         }
         return;
       }
@@ -2191,23 +2312,26 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         e.preventDefault();
         if (!canEditCurrentProject) return;
         if (isSortedOrFiltered) return;
-        if (selectedTaskIds.size > 1) {
-          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, selectedTaskIds);
+        const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
+        if (checkboxSelectionForSiblingMove.size > 1) {
+          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, checkboxSelectionForSiblingMove);
           if (pt) {
-            const steps = buildSiblingMoveStepsFromSelection(pt, selectedTaskIds, 'down');
+            const steps = buildSiblingMoveStepsFromSelection(pt, checkboxSelectionForSiblingMove, 'down');
             if (steps.length > 0) {
               applySiblingMoveSteps(steps);
-              const scrollId = lastSelectedId && selectedTaskIds.has(lastSelectedId) ? lastSelectedId : [...selectedTaskIds][0]!;
+              const scrollId =
+                moveTargetId && checkboxSelectionForSiblingMove.has(moveTargetId) ? moveTargetId : [...checkboxSelectionForSiblingMove][0]!;
               requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
             }
           }
           return;
         }
         const canMove =
-          selectedTaskIds.size === 0 || (selectedTaskIds.size === 1 && lastSelectedId != null && selectedTaskIds.has(lastSelectedId));
-        if (canMove && lastSelectedId) {
-          moveTask(lastSelectedId, 'down');
-          requestAnimationFrame(() => document.getElementById(`task-row-${lastSelectedId}`)?.scrollIntoView({ block: 'nearest' }));
+          checkboxSelectionForSiblingMove.size === 0 ||
+          (checkboxSelectionForSiblingMove.size === 1 && moveTargetId != null && checkboxSelectionForSiblingMove.has(moveTargetId));
+        if (canMove && moveTargetId) {
+          moveTask(moveTargetId, 'down');
+          requestAnimationFrame(() => document.getElementById(`task-row-${moveTargetId}`)?.scrollIntoView({ block: 'nearest' }));
         }
         return;
       }
@@ -2242,7 +2366,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       // Enter: 동일 레벨(형제) 작업을 현재 행 "아래"에 추가
       // Shift+Enter: 동일 레벨(형제) 작업을 현재 행 "위"에 추가
       // 셀 편집·입력 중에는 비활성화 (작업명 등은 상단 별도 Enter 블록에서 처리)
-      if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
+      if (editingCell || inlineEditingNameId || (isWbsTableCellTypingTarget(target) && !e.shiftKey)) return;
 
       // 셀 포커스만(미편집) Enter — 작업명 제외 값 열은 엑셀처럼 같은 열 아래 행으로 이동. F2·더블클릭·타이핑으로 편집.
       if (!e.shiftKey && cursorFocusedCell) {
@@ -2279,13 +2403,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       }
       e.preventDefault();
 
-      // 기본 기준 행: lastSelectedId(포커스된 행) 우선, 없으면 마지막 표시 행
-      // ※ selectedTaskIds.size === 1 체크 제거: 화살표 키 이동 시 selectedTaskIds는
-      //    갱신되지 않아 size가 0 또는 다수가 될 수 있지만, lastSelectedId는 항상 올바른
-      //    현재 행을 가리키므로 이를 기준으로 사용한다.
+      if (e.shiftKey) {
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      }
+
+      // 기본 기준 행: 포커스된 셀의 행 우선, 없으면 lastSelectedId, 없으면 마지막 표시 행
+      const baseRowId = cursorFocusedCell?.taskId ?? cursorLastSelectedId;
       const baseTask =
-        (cursorLastSelectedId
-          ? tasks.find((t) => t.id === cursorLastSelectedId)
+        (baseRowId
+          ? tasks.find((t) => t.id === baseRowId)
           : visibleTasks.length > 0
             ? tasks.find((t) => t.id === visibleTasks[visibleTasks.length - 1].id)
             : undefined) || null;
@@ -2326,6 +2452,15 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       setLastSelectedId(newId);
       maybeSyncShiftRangeAnchor(newId);
       setInlineEditingNameId(newId);
+      if (e.shiftKey) {
+        clearBulkCheckboxSelectionOnKeyboardCursorMove();
+        setFocusedCell({ taskId: newId, columnId: 'name' });
+        cellNavCursorRef.current = {
+          lastSelectedId: newId,
+          focusedCell: { taskId: newId, columnId: 'name' },
+        };
+        document.getElementById(`task-row-${newId}`)?.scrollIntoView({ block: 'nearest' });
+      }
     } else if (e.key === 'Insert') {
       if (editingCell || inlineEditingNameId || isWbsTableCellTypingTarget(target)) return;
       if (!canEditCurrentProject) {

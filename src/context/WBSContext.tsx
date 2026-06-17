@@ -94,6 +94,7 @@ export function WBSProvider({
   onConcurrentConflict,
   onDbError,
   onLocalPersistIssue,
+  onUndoRedoToast,
   editableProjectIds,
   isAdmin = false,
   clientProjectAllowlist,
@@ -104,6 +105,8 @@ export function WBSProvider({
   onDbError?: (message: string) => void;
   /** 로컬(IndexedDB·localStorage) 자동 저장 실패·용량 부족 시 1회 알림 */
   onLocalPersistIssue?: (message: string) => void;
+  /** 실행 취소·다시 실행(Ctrl+Z / Ctrl+Y) 시 토스트 알림 */
+  onUndoRedoToast?: (message: string) => void;
   editableProjectIds?: string[];
   isAdmin?: boolean;
   clientProjectAllowlist?: string[];
@@ -293,6 +296,7 @@ export function WBSProvider({
     useLocalOnlyRef,
     handleDbError,
     onAfterUndoRedoPersistedToDb: clearFloatingSaveAfterUndoRedoDb,
+    onUndoRedoToast,
   });
 
   const preserveLocalExpanded = useCallback((incoming: Task[]): Task[] => {

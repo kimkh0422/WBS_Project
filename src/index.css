@@ -599,6 +599,56 @@ input[list] {
   min-height: var(--row-height, 20px);
 }
 
+/* 체크(행) 선택: 행·모든 셀에 동일 배경 — inherit 대신 명시 색(셀 커스텀 배경·줄무늬 덮어쓰기 방지) */
+.data-row.wbs-row-selected,
+.data-row[data-row-selected='true'],
+.data-row.wbs-row-selected > .data-cell,
+.data-row[data-row-selected='true'] > .data-cell {
+  background-color: #818cf8 !important;
+  background-image: none !important;
+}
+[data-theme="dark"] .data-row.wbs-row-selected,
+[data-theme="dark"] .data-row[data-row-selected='true'],
+[data-theme="dark"] .data-row.wbs-row-selected > .data-cell,
+[data-theme="dark"] .data-row[data-row-selected='true'] > .data-cell {
+  background-color: #4c3a8a !important;
+}
+.data-row.wbs-row-selected:hover,
+.data-row[data-row-selected='true']:hover,
+.data-row.wbs-row-selected:hover > .data-cell,
+.data-row[data-row-selected='true']:hover > .data-cell {
+  background-color: #818cf8 !important;
+}
+[data-theme="dark"] .data-row.wbs-row-selected:hover,
+[data-theme="dark"] .data-row[data-row-selected='true']:hover,
+[data-theme="dark"] .data-row.wbs-row-selected:hover > .data-cell,
+[data-theme="dark"] .data-row[data-row-selected='true']:hover > .data-cell {
+  background-color: #4c3a8a !important;
+}
+/* 마퀴·붙여넣기 플래시 셀은 선택 행 색보다 우선 */
+.data-row.wbs-row-selected > .data-cell[class*='bg-sky-'],
+.data-row.wbs-row-selected > .data-cell[class*='bg-emerald-'] {
+  background-image: none;
+}
+
+/* 트리 뷰: 행 경계·셀 높이 때문에 가이드 선이 끊겨 보이지 않도록 */
+.wbs-tree-view .data-row {
+  overflow: visible;
+}
+
+.wbs-tree-view .data-cell.wbs-name-tree-cell {
+  overflow: visible;
+  align-self: stretch;
+}
+
+.wbs-tree-view .wbs-tree-guides {
+  overflow: visible;
+}
+
+.wbs-tree-view .wbs-tree-guide-line {
+  pointer-events: none;
+}
+
 /* ── 좌측 고정열(비분할 표): 앞 4개 컬럼(그립·체크·# + 첫 데이터열=작업명)을
       가로 스크롤해도 좌측에 고정. left 오프셋은 컨테이너의 --frz-l1..4 변수(실제 폭 누적)에서 읽는다.
       배경은 행의 인라인 배경색을 상속(inherit)해 선택/포커스/완료/줄무늬 상태까지 그대로 보이고,

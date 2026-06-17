@@ -52,13 +52,16 @@ export function useGanttViewport({
   }, [dates, referenceAnchorDate]);
   const totalDays = differenceInDays(maxDate, minDate) + 1;
 
-  const availableWidth = containerWidth - effectiveSidebarWidth - 20;
-  const autoDayWidth = Math.max(2, totalDays > 0 ? Math.floor(availableWidth / totalDays) : 40);
+  const availableWidth = Math.max(1, containerWidth - effectiveSidebarWidth - 20);
+  const fitDayWidth = totalDays > 0 ? availableWidth / totalDays : 40;
+  /** 고정 줌 단계와 슬라이더 표시용 — 전체 맞춤의 실제 dayWidth와는 별도 */
+  const snappedDayWidth = Math.max(2, Math.floor(fitDayWidth));
   const autoZoomLevel = ZOOM_LEVELS.reduce((prev, curr) =>
-    Math.abs(curr.dayWidth - autoDayWidth) < Math.abs(prev.dayWidth - autoDayWidth) ? curr : prev,
+    Math.abs(curr.dayWidth - snappedDayWidth) < Math.abs(prev.dayWidth - snappedDayWidth) ? curr : prev,
   );
-  const currentZoomEntry = zoomIndex === -1 ? { ...autoZoomLevel, dayWidth: autoDayWidth } : ZOOM_LEVELS[zoomIndex];
-  const dayWidth = currentZoomEntry.dayWidth;
+  /** zoomIndex === -1: 뷰포트 너비에 전체 일정이 들어가도록 소수 dayWidth 허용 */
+  const dayWidth = zoomIndex === -1 ? Math.max(0.05, fitDayWidth) : ZOOM_LEVELS[zoomIndex].dayWidth;
+  const currentZoomEntry = zoomIndex === -1 ? { ...autoZoomLevel, dayWidth } : ZOOM_LEVELS[zoomIndex];
 
   return { dates, minDate, maxDate, totalDays, autoZoomLevel, currentZoomEntry, dayWidth };
 }

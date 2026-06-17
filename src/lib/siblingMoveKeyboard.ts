@@ -4,8 +4,8 @@ export type SiblingMoveStep = { id: string; direction: 'up' | 'down' };
 
 /**
  * 다중 선택 Alt+↑↓용: 동일 부모 형제 목록에서 선택 인덱스를 연속 구간으로 나눈 뒤,
- * 구간마다 위로는 첫 행·아래로는 마지막 행에 대해 한 번씩 스왑(moveTask와 동일 규칙).
- * 여러 구간은 `direction`에 맞는 순서로 나열된다(한 번의 배치 적용에 그대로 쓰면 됨).
+ * 구간 전체가 한 칸 이동하도록 구간 내 모든 행에 대해 순차 스왑(moveTask와 동일 규칙).
+ * 위로는 구간 첫→끝 순, 아래로는 끝→첫 순으로 나열한다(한 번의 배치 적용에 그대로 쓰면 됨).
  */
 export function buildSiblingMoveStepsFromSelection(
   projectTasks: Task[],
@@ -49,12 +49,14 @@ export function buildSiblingMoveStepsFromSelection(
 
     for (const run of orderedRuns) {
       if (direction === 'up') {
-        if (run.start > 0) {
-          steps.push({ id: siblings[run.start]!.id, direction: 'up' });
+        if (run.start <= 0) continue;
+        for (let i = run.start; i <= run.end; i++) {
+          steps.push({ id: siblings[i]!.id, direction: 'up' });
         }
       } else {
-        if (run.end < siblings.length - 1) {
-          steps.push({ id: siblings[run.end]!.id, direction: 'down' });
+        if (run.end >= siblings.length - 1) continue;
+        for (let i = run.end; i >= run.start; i--) {
+          steps.push({ id: siblings[i]!.id, direction: 'down' });
         }
       }
     }

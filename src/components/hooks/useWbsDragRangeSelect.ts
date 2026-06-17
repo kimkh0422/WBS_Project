@@ -17,7 +17,7 @@ const EDGE_MAX_SPEED = 16;
  *   (빈 셀 면적에서의 드래그 앵커는 그대로 유지)
  */
 const SKIP_SELECTOR =
-  'input, textarea, select, option, [role="listbox"], [role="option"], [data-deps-input="true"], [data-row-grip], button, a';
+  'input, textarea, select, option, [role="listbox"], [role="option"], [data-deps-input="true"], [data-row-grip], [data-wbs-row-gutter], button, a';
 
 export type WbsCellPointer = { taskId: string; columnId: TableColumnId };
 

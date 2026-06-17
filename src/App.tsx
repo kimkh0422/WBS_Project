@@ -1915,6 +1915,7 @@ function AppWithProviders() {
       onConcurrentConflict={handleConcurrentConflict}
       onDbError={handleProviderDbError}
       onLocalPersistIssue={(m) => pushToast(m, { variant: 'warning', durationMs: 12000, id: 'wbs-local-persist' })}
+      onUndoRedoToast={(m) => pushToast(m, { variant: 'info', id: 'wbs-undo-redo', durationMs: 3500 })}
       editableProjectIds={myEditableProjectIds}
       isAdmin={effectiveIsAdminGlobal}
       clientProjectAllowlist={clientProjectAllowlist}

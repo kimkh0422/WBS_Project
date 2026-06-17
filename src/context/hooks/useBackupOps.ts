@@ -8,7 +8,7 @@ import { recomputeProjectRollups, applyRollupsToTasks } from '../../lib/rollups'
 import { ensureProjectTopLevelNameInTasks } from '../../lib/ensureProjectTopLevelName';
 
 export interface BackupOpsDeps {
-  saveHistory: () => void;
+  saveHistory: (label?: string) => void;
   bumpDirty: (...projectIds: string[]) => void;
   recordDeletedTaskIds: (projectId: string, ids: string[]) => void;
   ownerIdRef: MutableRefObject<string | undefined>;

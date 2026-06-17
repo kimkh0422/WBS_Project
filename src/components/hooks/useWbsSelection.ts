@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { flushSync } from 'react-dom';
 import type { TaskWithDepth } from '../../lib/taskView';
 
 interface UseWbsSelectionOptions {
@@ -6,6 +7,10 @@ interface UseWbsSelectionOptions {
   sharedSelectedTaskIds: string[] | undefined;
   setSharedSelectedTaskIds: (ids: string[]) => void;
   tableScrollRef: MutableRefObject<HTMLDivElement | null>;
+}
+
+function selectionSig(ids: Iterable<string>): string {
+  return [...ids].sort().join('|');
 }
 
 export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setSharedSelectedTaskIds, tableScrollRef }: UseWbsSelectionOptions) {
@@ -17,34 +22,59 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
     sharedSelectedTaskIds && sharedSelectedTaskIds.length > 0 ? sharedSelectedTaskIds[0] : null,
   );
   const [anchorTaskId, setAnchorTaskId] = useState<string | null>(null);
+  /** 연속 체크박스 클릭 시 handleSelect가 stale closure 없이 최신 선택을 읽도록 동기 ref 유지 */
+  const selectedTaskIdsRef = useRef(selectedTaskIds);
+  selectedTaskIdsRef.current = selectedTaskIds;
   /** Shift 구간 선택 시작 행 — setState보다 먼저 갱신(행 클릭 직후 Shift 시 state 미반영 버그 방지) */
   const rangeAnchorRef = useRef<string | null>(null);
-  /** 체크 선택 배열의 내용이 바뀐 경우에만 true — `visibleTasks`만 바뀐 effect 재실행에 lastSelectedId가 덮어써지지 않게 함 */
+  /** setSelection 직후 상위 Context 반영 전 effect가 옛 shared로 로컬을 덮어쓰지 않게 한다 */
+  const pendingLocalSigRef = useRef<string | null>(null);
   const prevSharedIdsSigRef = useRef<string | null>(null);
 
   // 외부(검색/알림/간트 등)에서 sharedSelectedTaskIds가 바뀌면 로컬 Set 동기화.
   // 빈 배열([])도 반영 — 간트에서 선택 해제했을 때 표가 그대로 남는 버그 방지.
+  // visibleTasks만 바뀔 때는 선택 Set을 건드리지 않는다.
   useEffect(() => {
     if (!sharedSelectedTaskIds) return;
-    const sig = [...sharedSelectedTaskIds].sort().join('|');
-    const selectionContentChanged = prevSharedIdsSigRef.current !== sig;
-    prevSharedIdsSigRef.current = sig;
+    const sig = selectionSig(sharedSelectedTaskIds);
 
-    const shared = new Set(sharedSelectedTaskIds);
-    setSelectedTaskIds((prev) => {
-      if (prev.size === shared.size && [...shared].every((id) => prev.has(id))) return prev;
-      return shared;
-    });
-    // 단일 체크일 때 매 effect마다 lastSelectedId를 그 행으로 고정하면,
-    // 스페이스로 체크한 뒤 ↑/↓로 옮긴 키보드 포커스가 다음 렌더에서 다시 체크된 행으로 되돌아간다.
-    if (sharedSelectedTaskIds.length === 1) {
-      if (selectionContentChanged) {
+    const pending = pendingLocalSigRef.current;
+    if (pending != null) {
+      if (sig === pending) {
+        pendingLocalSigRef.current = null;
+        prevSharedIdsSigRef.current = sig;
+      } else {
+        // 로컬에서 방금 쓴 선택이 Context에 반영되기 전 — 옛 shared로 덮어쓰지 않음
+        if (sharedSelectedTaskIds.length === 0) {
+          setLastSelectedId((prev) => {
+            if (prev == null) return null;
+            return visibleTasks.some((t) => t.id === prev) ? prev : null;
+          });
+        }
+        return;
+      }
+    }
+
+    const selectionContentChanged = prevSharedIdsSigRef.current !== sig;
+
+    if (selectionContentChanged) {
+      prevSharedIdsSigRef.current = sig;
+      const shared = new Set(sharedSelectedTaskIds);
+      setSelectedTaskIds((prev) => {
+        if (prev.size === shared.size && [...shared].every((id) => prev.has(id))) return prev;
+        // Context 반영이 한 틱 늦을 때 로컬이 shared보다 앞서 있으면 덮어쓰지 않음.
+        if (pendingLocalSigRef.current != null && shared.size < prev.size && [...shared].every((id) => prev.has(id))) {
+          return prev;
+        }
+        selectedTaskIdsRef.current = shared;
+        return shared;
+      });
+      if (sharedSelectedTaskIds.length === 1) {
         setLastSelectedId(sharedSelectedTaskIds[0]);
       }
-    } else if (sharedSelectedTaskIds.length === 0) {
-      // 체크 선택만 해제(Esc·간트 동기 등)할 때 `lastSelectedId`를 무조건 null로 두면
-      // `focusedCell`도 Esc로 지워진 뒤 화살표 기준 셀이 사라져 키보드 이동이 멈춘다.
-      // 현재 표에 없는 이전 행(프로젝트 전환 등)일 때만 포커스를 비운다.
+    }
+
+    if (sharedSelectedTaskIds.length === 0) {
       setLastSelectedId((prev) => {
         if (prev == null) return null;
         return visibleTasks.some((t) => t.id === prev) ? prev : null;
@@ -54,23 +84,26 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
 
   const setSelection = useCallback(
     (next: Set<string>) => {
-      setSelectedTaskIds(next);
-      setSharedSelectedTaskIds(Array.from(next));
+      const sig = selectionSig(next);
+      pendingLocalSigRef.current = sig;
+      selectedTaskIdsRef.current = next;
+      // 체크박스·행 강조가 같은 프레임에 맞춰지도록 동기 커밋(비동기 배치로 체크만 보이는 현상 방지).
+      flushSync(() => {
+        setSelectedTaskIds(next);
+        setSharedSelectedTaskIds(Array.from(next));
+      });
     },
     [setSharedSelectedTaskIds],
   );
 
   const handleSelect = useCallback(
     (taskId: string, multi: boolean, range: boolean) => {
+      const selectedTaskIds = selectedTaskIdsRef.current;
       let newSelected = new Set<string>(multi ? selectedTaskIds : ([] as string[]));
 
-      // 체크박스·클릭은 클릭한 행만 개별 토글한다(하위 작업을 자동으로 함께 선택하지 않음).
-      // 하위 동반 처리가 필요한 동작(삭제 등)은 각 동작에서 별도로 하위를 수집한다.
       const currentIndex = visibleTasks.findIndex((t) => t.id === taskId);
 
       if (range) {
-        // 앵커 후보: ref → state → 포커스 행 순. 표에 없는 ID(필터·접기·간트만 조작 후 옛 ref)는 건너뛰어
-        // anchorIndex === -1일 때 한 줄만 선택되는 간헐적 Shift 범위 실패를 막는다.
         const anchorCandidates = [rangeAnchorRef.current, anchorTaskId, lastSelectedId].filter((id): id is string => Boolean(id));
         let anchorIndex = -1;
         for (const id of anchorCandidates) {
@@ -80,8 +113,6 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
             break;
           }
         }
-        // 앵커가 화면 목록에 없을 때: 이미 체크된 행 중 '클릭한 행'에 가장 가까운 가시 행을 앵커로 쓴다.
-        // (접기/필터로 앵커 행이 숨겨진 뒤 Shift 클릭 시 중간 구간이 통째로 사라지는 현상 완화)
         if (anchorIndex === -1 && currentIndex !== -1 && selectedTaskIds.size > 0) {
           let bestIdx = -1;
           let bestDist = Infinity;
@@ -104,7 +135,6 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
           for (let i = start; i <= end; i++) {
             newSelected.add(visibleTasks[i].id);
           }
-          // 다음 Shift에 숨겨진 id를 앵커로 쥐지 않도록, 실제로 쓴 가시 행 id로 ref·state를 맞춘다.
           const visibleAnchorId = visibleTasks[anchorIndex]?.id;
           if (visibleAnchorId) {
             rangeAnchorRef.current = visibleAnchorId;
@@ -117,11 +147,9 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
         const wasSelected = selectedTaskIds.has(taskId);
 
         if (multi) {
-          // 체크박스·Ctrl 클릭: 클릭한 행만 토글
           if (wasSelected) newSelected.delete(taskId);
           else newSelected.add(taskId);
         } else {
-          // 단일 클릭: 그 행만 선택 (이미 선택돼 있었으면 해제)
           newSelected = wasSelected ? new Set<string>() : new Set<string>([taskId]);
         }
 
@@ -132,18 +160,18 @@ export function useWbsSelection({ visibleTasks, sharedSelectedTaskIds, setShared
       setSelection(newSelected);
       setLastSelectedId(taskId);
     },
-    [selectedTaskIds, visibleTasks, anchorTaskId, lastSelectedId, setSelection],
+    [visibleTasks, anchorTaskId, lastSelectedId, setSelection],
   );
 
   const handleSelectAll = useCallback(() => {
+    const selectedTaskIds = selectedTaskIdsRef.current;
     if (selectedTaskIds.size === visibleTasks.length) {
       setSelection(new Set());
     } else {
       setSelection(new Set(visibleTasks.map((t) => t.id)));
     }
-    // 체크박스에서 테이블로 포커스 이동 (Delete 등 키보드 단축키 즉시 동작)
     requestAnimationFrame(() => tableScrollRef.current?.focus());
-  }, [selectedTaskIds, visibleTasks, setSelection, tableScrollRef]);
+  }, [visibleTasks, setSelection, tableScrollRef]);
 
   return {
     selectedTaskIds,

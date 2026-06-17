@@ -46,55 +46,72 @@ export type OtherCellFocus = {
   ts: number;
 };
 
-/** 행 border-b(1px) 때문에 인접 행 세로선이 끊겨 보이지 않도록 위쪽으로 겹친다. */
-const TREE_GUIDE_ROW_JOIN_PX = 1;
+/** 행 border-b(1px) 때문에 인접 행 세로선이 끊겨 보이지 않도록 위·아래로 겹친다. */
+const TREE_GUIDE_ROW_JOIN_PX = 2;
+const TREE_GUIDE_LEVEL_STEP_PX = 20;
+const TREE_GUIDE_X_OFFSET_PX = 9;
+const TREE_GUIDE_BRANCH_WIDTH_PX = 12;
 
 /**
  * 작업명 셀 왼쪽 들여쓰기 영역에 트리 가이드 선(│ ├ └)을 그린다.
  * 셀 패딩 영역에 absolute로만 그려 본문(작업명) 레이아웃에는 영향을 주지 않는다.
- * 색은 인라인 rgba(반투명 slate)로 라이트·다크 모두에서 보이게 한다.
+ * border 대신 1px 배경 사각형을 써서 코너·행 경계에서 끊김이 덜 보이게 한다.
  */
 function TreeGuides({ guide, depth, hasChildren, expanded }: { guide: string; depth: number; hasChildren: boolean; expanded?: boolean }) {
   const showChildStub = hasChildren && !!expanded;
   if (!guide && !showChildStub) return null;
-  // 체브런을 차분하게 바꾼 뒤 레벨 구분은 이 연결선이 주로 담당하므로 약간 더 또렷하게.
-  const lineColor = 'rgba(100, 116, 139, 0.82)';
-  const vLine = (key: string, x: number, top: number | string, bottom?: number | string, height?: number | string) => (
+  const lineColor = 'rgba(100, 116, 139, 0.88)';
+  const join = TREE_GUIDE_ROW_JOIN_PX;
+  const guideWidth =
+    Math.max(guide.length, showChildStub ? depth + 1 : 0) * TREE_GUIDE_LEVEL_STEP_PX + TREE_GUIDE_X_OFFSET_PX + TREE_GUIDE_BRANCH_WIDTH_PX;
+
+  const vLine = (key: string, x: number, top: number | string, height: number | string) => (
     <span
       key={key}
+      className="wbs-tree-guide-line"
       style={{
         position: 'absolute',
         top,
-        ...(height != null ? { height } : { bottom: bottom ?? 0 }),
-        width: 0,
         left: x,
-        borderLeft: `1px solid ${lineColor}`,
+        width: 1,
+        height,
+        backgroundColor: lineColor,
       }}
     />
   );
+  const hLine = (key: string, x: number, top: number | string, width: number) => (
+    <span
+      key={key}
+      className="wbs-tree-guide-line"
+      style={{
+        position: 'absolute',
+        top,
+        left: x,
+        width,
+        height: 1,
+        backgroundColor: lineColor,
+      }}
+    />
+  );
+
   const lines: React.ReactNode[] = [];
   for (let i = 0; i < guide.length; i++) {
     const c = guide[i];
-    const x = i * 20 + 9;
+    const x = i * TREE_GUIDE_LEVEL_STEP_PX + TREE_GUIDE_X_OFFSET_PX;
     if (c === 'I' || c === 'T') {
-      lines.push(vLine(`v${i}`, x, -TREE_GUIDE_ROW_JOIN_PX));
+      lines.push(vLine(`v${i}`, x, -join, `calc(100% + ${join * 2}px)`));
     } else if (c === 'L') {
-      lines.push(vLine(`v${i}`, x, -TREE_GUIDE_ROW_JOIN_PX, undefined, `calc(50% + ${TREE_GUIDE_ROW_JOIN_PX}px)`));
+      lines.push(vLine(`v${i}`, x, -join, `calc(50% + ${join}px)`));
     }
     if (c === 'T' || c === 'L') {
-      lines.push(
-        <span
-          key={`h${i}`}
-          style={{ position: 'absolute', top: '50%', height: 0, width: 11, left: x, borderTop: `1px solid ${lineColor}` }}
-        />,
-      );
+      lines.push(hLine(`h${i}`, x, `calc(50% - 0.5px)`, TREE_GUIDE_BRANCH_WIDTH_PX));
     }
   }
   if (showChildStub) {
-    lines.push(vLine('stub', depth * 20 + 9, '50%'));
+    lines.push(vLine('stub', depth * TREE_GUIDE_LEVEL_STEP_PX + TREE_GUIDE_X_OFFSET_PX, `calc(50% - 0.5px)`, `calc(50% + ${join}px)`));
   }
   return (
-    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0">
+    <span aria-hidden className="wbs-tree-guides pointer-events-none absolute inset-y-0 left-0" style={{ width: guideWidth, zIndex: 2 }}>
       {lines}
     </span>
   );
@@ -123,7 +140,7 @@ export interface SortableTaskRowProps {
   onSelect: (taskId: string, multi: boolean, range: boolean) => void;
   /** 행 클릭(비-Shift) 시 구간 선택 앵커 — Ctrl+행클릭 등 행 단위 다중 선택용 */
   onSetRowAnchor?: (taskId: string) => void;
-  /** 행 클릭 시 포커스 이동. 수정키 없는 일반 클릭은 체크박스 다중 선택을 자동 해제하고, Shift/Ctrl 클릭은 keepSelection으로 보존한다. */
+  /** 행 클릭 시 포커스 이동. 체크(행) 다중 선택은 Esc로만 해제한다. */
   onFocusRow?: (taskId: string, opts?: { keepSelection?: boolean; columnId?: TableColumnId }) => void;
   canEdit: boolean;
   onEdit: (task: Task) => void;
@@ -263,8 +280,6 @@ function SortableTaskRowInner({
   // 작업명 셀이 '포커스만' 된 상태(armed)에서도 숨은 input을 미리 포커스해 둔다.
   // 같은 input이 그대로 편집기로 전환되므로 한글 IME 조합 첫 자모도 유실되지 않는다(포커스를 옮기지 않음).
   const nameEditRef = useRef<HTMLInputElement | null>(null);
-  /** Shift+구간은 pointerdown에서 처리. click에는 shiftKey가 false로만 찍히는 경우가 있어(누르고 있어도) 토글로 잘못 가지 않게 한다. */
-  const suppressNextCheckboxClickRef = useRef(false);
   const isNameArmed = canEdit && !isInlineEditingName && focusedCell?.taskId === task.id && focusedCell?.columnId === 'name';
 
   // armed가 되면 숨은 작업명 input을 포커스해 둔다(전체 선택은 onFocus에서).
@@ -348,6 +363,20 @@ function SortableTaskRowInner({
   );
 
   const visibleEditableColumnIds = useMemo(() => visibleColumnIds.filter((id) => id !== 'wbsId') as TableColumnId[], [visibleColumnIds]);
+
+  /** 체크박스·순번 gutter 클릭 후에도 다중 체크 선택을 유지하며 행 포커스만 맞춘다. */
+  const focusRowFromCheckbox = () => {
+    const columnId =
+      focusedCell?.columnId && focusedCell.columnId !== 'wbsId' ? focusedCell.columnId : (visibleEditableColumnIds[0] ?? 'name');
+    onFocusRow?.(task.id, { keepSelection: true, columnId });
+    onSetRowAnchor?.(task.id);
+  };
+
+  /** 체크박스·행 순번 클릭 공통 — 행(체크) 선택 토글 + 포커스. Ctrl/Meta는 multi, Shift 구간은 range. */
+  const applyRowCheckSelection = (multi: boolean, range: boolean) => {
+    onSelect(task.id, multi, range);
+    focusRowFromCheckbox();
+  };
 
   /** 계획율·진척차이(파생) 셀: 더블클릭 시 실제 편집 가능한 컬럼으로 진입 */
   const beginEditNowResolved = (columnId: TableColumnId) => {
@@ -525,24 +554,38 @@ function SortableTaskRowInner({
   // 선택 행: 표면/줄무늬 대비가 약해지지 않도록 배경을 한 단계 진하게(라이트 indigo-400, 다크 보라 톤 상향)
   const selectedBg = dark ? '#4c3a8a' : '#818cf8';
 
+  /** 체크박스·순번 gutter — pointerdown에서 행 선택을 먼저 처리(브라우저 기본 체크와 React 상태 경합 방지). */
+  const handleRowCheckPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (shiftModifierFromEvent(e)) {
+      e.preventDefault();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) return;
+    applyRowCheckSelection(true, false);
+    e.preventDefault();
+  };
+
+  /** 체크(행) 선택 시 모든 셀 면에 동일 배경 — 사용자 지정 셀 배경이 행 강조를 덮지 않게 한다. */
+  const selectedCellBgStyle = isSelected ? ({ backgroundColor: selectedBg } as const) : null;
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 1,
+    position: isDragging ? 'relative' : undefined,
+    ...gridStyle,
     backgroundColor: isSelected ? selectedBg : rowLevelBg(level, hasChildren),
     backgroundImage: isSelected ? undefined : `linear-gradient(${zebraOverlay}, ${zebraOverlay})`,
     // 좌측 색상 strip은 box-shadow inset으로 그린다. border-left는 grid container의 컨텐츠 영역을 우측으로 밀어
     // 헤더와 본문 컬럼 정렬을 어긋나게 하므로 사용하지 않음.
     ...(isSelected
       ? {
-          boxShadow: dark
-            ? 'inset 3px 0 0 0 rgb(192 132 252), inset 0 0 0 2px rgba(192 132 252, 0.55), inset 0 1px 0 0 rgba(216 180 254, 0.4), inset 0 -1px 0 0 rgba(216 180 254, 0.4), 0 2px 8px rgba(0 0 0, 0.45)'
-            : 'inset 3px 0 0 0 rgb(126 34 206), inset 0 0 0 2px rgba(91 33 182, 0.55), inset 0 1px 0 0 rgba(91 33 182, 0.38), inset 0 -1px 0 0 rgba(91 33 182, 0.38), 0 2px 8px rgba(91, 33, 182, 0.28)',
+          boxShadow: dark ? 'inset 3px 0 0 0 rgb(192 132 252)' : 'inset 3px 0 0 0 rgb(126 34 206)',
         }
       : {}),
-    zIndex: isDragging ? 10 : isSelected ? 2 : 1,
-    position: isDragging ? 'relative' : undefined,
-    ...gridStyle,
   } as React.CSSProperties;
 
   return (
@@ -550,8 +593,10 @@ function SortableTaskRowInner({
       ref={setNodeRef}
       style={style}
       id={`task-row-${task.id}`}
+      data-row-selected={isSelected ? 'true' : undefined}
       className={cn(
         'data-row group outline-none transition-colors relative',
+        isSelected && 'wbs-row-selected',
         // 본문은 끌어서 다중 선택(엑셀식) — 순서 이동은 첫 열 손잡이 전용이므로 행 전체엔 grab 커서를 주지 않는다.
         // 행 외곽 안쪽에 두꺼운 ring(box-shadow inset)을 두면 layout에는 영향이 없어도 컨텐츠가 안쪽에서 시작하는 듯한
         // 시각 인상이 강해져 헤더와 정렬이 어긋나 보였음. 좌측 strip(box-shadow inset 3px) + 배경색 강조만 남기고 ring 클래스는 제거.
@@ -569,14 +614,15 @@ function SortableTaskRowInner({
         if (e.button !== 0) return;
         if (shiftModifierFromEvent(e)) return;
         if (!e.ctrlKey && !e.metaKey) return;
-        onSelect(task.id, true, false);
-        onFocusRow?.(task.id, { keepSelection: true });
+        applyRowCheckSelection(true, false);
         e.preventDefault();
         e.stopPropagation();
       }}
       onClick={(e) => {
         if (shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey) return;
-        if (onFocusRow) onFocusRow(task.id);
+        const t = e.target as HTMLElement;
+        if (t.closest('[data-wbs-row-gutter], input[type="checkbox"]')) return;
+        if (onFocusRow) onFocusRow(task.id, { keepSelection: true });
         onSetRowAnchor?.(task.id);
       }}
       tabIndex={0}
@@ -594,6 +640,7 @@ function SortableTaskRowInner({
           'data-cell justify-center select-none touch-none',
           canEdit ? 'cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-500' : 'text-slate-200',
         )}
+        style={selectedCellBgStyle ?? undefined}
         aria-label={canEdit ? '드래그하여 순서 변경' : undefined}
         data-row-grip
         {...(canEdit ? attributes : {})}
@@ -605,95 +652,50 @@ function SortableTaskRowInner({
       </div>
       <div
         className="data-cell justify-center"
+        style={selectedCellBgStyle ?? undefined}
         data-wbs-row-gutter
+        role="checkbox"
+        aria-checked={isSelected}
+        aria-label={`행 ${wbsSeqLabel || rowIndex + 1} 선택`}
+        onPointerDown={handleRowCheckPointerDown}
         onPointerDownCapture={(e) => {
-          if (e.pointerType === 'touch' || e.button !== 0) return;
-          if (!shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-          suppressNextCheckboxClickRef.current = true;
-          onSelect(task.id, false, true);
-          setFocusedCell({
-            taskId: task.id,
-            columnId:
-              focusedCell?.columnId && focusedCell.columnId !== 'wbsId' ? focusedCell.columnId : (visibleEditableColumnIds[0] ?? 'name'),
-          });
-          e.preventDefault();
-          e.stopPropagation();
-          window.setTimeout(() => {
-            suppressNextCheckboxClickRef.current = false;
-          }, 0);
+          // Shift+클릭 행 구간 선택 — 버그로 임시 비활성화
+          if (shiftModifierFromEvent(e)) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
         }}
         onClick={(e) => e.stopPropagation()}
+        onClickCapture={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
       >
         <input
           type="checkbox"
-          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 pointer-events-none"
           checked={isSelected}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (suppressNextCheckboxClickRef.current) {
-              suppressNextCheckboxClickRef.current = false;
-              e.preventDefault();
-              return;
-            }
-            if (shiftModifierFromEvent(e)) {
-              onSelect(task.id, false, true);
-              setFocusedCell({
-                taskId: task.id,
-                columnId:
-                  focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
-                    ? focusedCell.columnId
-                    : (visibleEditableColumnIds[0] ?? 'name'),
-              });
-              e.preventDefault();
-              return;
-            }
-            if (e.ctrlKey || e.metaKey) return;
-            e.preventDefault();
-            onSelect(task.id, true, false);
-            // 체크박스만 눌러도 셀 포커스가 남아 있지 않으면 하단 서식 바가 안 뜨는 문제 방지 + 다중 선택 시 같은 열 서식 일괄 적용 기준 행 정렬
-            setFocusedCell({
-              taskId: task.id,
-              columnId:
-                focusedCell?.columnId && focusedCell.columnId !== 'wbsId' ? focusedCell.columnId : (visibleEditableColumnIds[0] ?? 'name'),
-            });
-          }}
-          onChange={() => {
-            // onClick에서 제어하므로 onChange는 비워 둔다.
-          }}
+          readOnly
+          tabIndex={-1}
+          aria-label={`행 ${wbsSeqLabel || rowIndex + 1} 선택`}
         />
       </div>
       <div
-        className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums"
+        className="data-cell justify-center font-mono text-[10px] text-slate-500 tabular-nums cursor-pointer select-none"
+        style={selectedCellBgStyle ?? undefined}
         data-wbs-row-gutter
         onPointerDownCapture={(e) => {
-          if (e.pointerType === 'touch' || e.button !== 0) return;
-          if (!shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-          e.preventDefault();
-          e.stopPropagation();
-          onSelect(task.id, false, true);
-          const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
-          setFocusedCell({
-            taskId: task.id,
-            columnId:
-              focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
-                ? focusedCell.columnId
-                : (visibleEditableColumnIds[0] ?? firstEditable),
-          });
+          // Shift+클릭 행 구간 선택 — 버그로 임시 비활성화
+          if (shiftModifierFromEvent(e)) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
         }}
         onClick={(e) => {
-          if (!shiftModifierFromEvent(e)) return;
           e.stopPropagation();
-          onSelect(task.id, false, true);
-          const firstEditable = visibleColumnIds.find((c) => c !== 'wbsId') ?? 'name';
-          setFocusedCell({
-            taskId: task.id,
-            columnId:
-              focusedCell?.columnId && focusedCell.columnId !== 'wbsId'
-                ? focusedCell.columnId
-                : (visibleEditableColumnIds[0] ?? firstEditable),
-          });
+          if (shiftModifierFromEvent(e) || e.ctrlKey || e.metaKey) return;
+          applyRowCheckSelection(true, false);
         }}
+        onClickCapture={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
       >
         {wbsSeqLabel || rowIndex + 1}
       </div>
@@ -737,9 +739,13 @@ function SortableTaskRowInner({
           }
           const { textStyle: txtStyle, cellSurfaceStyle } = splitCellTextStyleForCellSurface(
             task.cellTextStyles?.[colId],
-            inMarquee || inPasteFlash,
+            inMarquee || inPasteFlash || isSelected,
           );
-          const mergeCellOuter = (base?: React.CSSProperties | null) => ({ ...(base ?? {}), ...cellSurfaceStyle });
+          const mergeCellOuter = (base?: React.CSSProperties | null) => {
+            if (inMarquee || inPasteFlash) return { ...(base ?? {}), ...cellSurfaceStyle };
+            if (isSelected) return { ...(base ?? {}), ...selectedCellBgStyle };
+            return { ...(base ?? {}), ...cellSurfaceStyle };
+          };
           if (colId === 'name') {
             const isFocused = focusedCell?.taskId === task.id && focusedCell?.columnId === 'name' && !isInlineEditingName;
             const displayWbsPrefix = (displayWbsId && String(displayWbsId).trim()) || '';
@@ -748,15 +754,16 @@ function SortableTaskRowInner({
               prependDisplayWbsToTaskName && displayWbsPrefix ? (rawName ? `${displayWbsPrefix} ${rawName}` : displayWbsPrefix) : rawName;
             // 작업명은 좌측 고정(sticky)열이라 자체 box-shadow(고정열 그림자)가 Tailwind ring(box-shadow)을 덮어
             // 포커스 링이 보이지 않는다 → box-shadow와 독립적인 outline으로 포커스를 표시한다.
+            const treeIndentPx = depth * TREE_GUIDE_LEVEL_STEP_PX + 22;
             return (
               <div
                 key={colId}
                 {...rangeCellProps}
-                className={cn('data-cell relative', rangeHighlightClass)}
+                className={cn('data-cell relative', isTreeView && 'wbs-name-tree-cell', rangeHighlightClass)}
                 style={{
                   ...mergeCellOuter(otherRingStyle),
-                  paddingLeft: `${depth * 20 + 22}px`,
-                  ...(isTreeView ? { overflow: 'visible' as const } : null),
+                  paddingLeft: isTreeView ? 0 : `${treeIndentPx}px`,
+                  ...(isTreeView ? { overflow: 'visible' as const, alignSelf: 'stretch' as const } : null),
                   ...(isFocused ? { outline: '2px solid rgb(99, 102, 241)', outlineOffset: '-2px' } : null),
                 }}
                 onClick={(e) => {
@@ -776,196 +783,194 @@ function SortableTaskRowInner({
                   beginEditNow('name');
                 }}
               >
-                {isTreeView && <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />}
-                {isTreeView && hasChildren && (
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleExpand(task.id);
-                    }}
-                    className={cn(
-                      // 레벨 구분이 흐려지지 않도록 차분한 무채색으로 통일.
-                      // 펼침/접힘은 색이 아니라 방향(▾/▸)으로만 구분한다(같은 레벨 형제가 상태에 따라 다른 색으로 보이지 않게).
-                      'absolute z-[1] flex h-5 w-5 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-800',
-                    )}
-                    style={{ left: `${depth * 20}px`, top: '50%', transform: 'translateY(-50%)' }}
-                    aria-label={task.expanded ? '접기' : '펼치기'}
-                    aria-expanded={task.expanded}
-                  >
-                    {task.expanded ? <ChevronDown size={13} strokeWidth={2.5} /> : <ChevronRight size={13} strokeWidth={2.5} />}
-                  </button>
-                )}
-                {(isInlineEditingName || isNameArmed) && (
-                  <input
-                    ref={nameEditRef}
-                    id={`wbs-edit-${task.id}-name`}
-                    autoFocus
-                    defaultValue={task.name}
-                    data-wbs-armed={!isInlineEditingName ? 'true' : undefined}
-                    tabIndex={isInlineEditingName ? undefined : -1}
-                    className={
-                      isInlineEditingName
-                        ? 'w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1'
-                        : // armed: 화면엔 안 보이지만 포커스를 잡아 한글 IME 첫 자모까지 받는 캐처. 클릭은 통과(pointer-events:none).
-                          'absolute inset-0 h-full w-full opacity-0 pointer-events-none'
-                    }
-                    onFocus={(e) => {
-                      // armed(편집 전)면 전체 선택 → 첫 타이핑이 기존 값을 덮어씀(엑셀식). 편집 중엔 커서 보존.
-                      if (isInlineEditingName) return;
-                      try {
-                        e.currentTarget.select();
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
-                    onCompositionStart={() => {
-                      // 한글 등 IME 조합 시작 = 편집 시작(같은 input이라 조합 유지). 전체 선택 상태라 기존 값을 덮어씀.
-                      if (!isInlineEditingName) promoteArmedNameToEditing();
-                    }}
-                    onInput={(e) => {
-                      // armed에서 첫 입력(영문·숫자·기호) = 편집 시작. 조합 중(IME)은 onCompositionStart가 처리.
-                      if (isInlineEditingName) return;
-                      if ((e.nativeEvent as InputEvent).isComposing) return;
-                      promoteArmedNameToEditing();
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onPaste={(e) => {
-                      e.stopPropagation();
-                      // 브라우저 기본 붙여넣기로 input 값이 갱신된 뒤 커밋·편집 종료 (포커스가 표로 나가 ↑/↓가 행 이동으로 가는 문제 방지)
-                      setTimeout(() => {
-                        commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
-                        setInlineEditingNameId(null);
-                        setEditingCell(null);
-                        setFocusedCell({ taskId: task.id, columnId: 'name' });
-                        onFocusRow?.(task.id, { keepSelection: true });
-                        commitCellMarquee?.(task.id, 'name');
-                        requestAnimationFrame(() => {
-                          (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                        });
-                      }, 0);
-                    }}
-                    onKeyUp={(e) => {
-                      // Del/Backspace로 내용이 비면 엑셀처럼 빈 값 확정 + 편집 종료(빈 input에 포커스가 남지 않음)
-                      if (!isInlineEditingName) return;
-                      const ne = e.nativeEvent as KeyboardEvent;
-                      if (ne.isComposing) return;
-                      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-                      if (e.currentTarget.value.trim() !== '') return;
-                      commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
-                      setInlineEditingNameId(null);
-                      setEditingCell(null);
-                      setFocusedCell({ taskId: task.id, columnId: 'name' });
-                      onFocusRow?.(task.id, { keepSelection: true });
-                      commitCellMarquee?.(task.id, 'name');
-                      requestAnimationFrame(() => {
-                        (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                      });
-                    }}
-                    onKeyDown={(e) => {
-                      // armed(편집 전)면 키 입력을 전역 핸들러(셀 이동·단축키)로 위임 — 화살표/Enter/Delete 등이 정상 동작.
-                      if (!isInlineEditingName) return;
-                      if (e.key === 'Enter') {
-                        if (isComposingKeyEvent(e.nativeEvent)) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
-                        if (e.shiftKey && onInsertRowAbove) {
-                          // Shift+Enter — 현재 행 위에 형제 새 작업 추가 + 새 행 인라인 편집.
+                <div className={cn(isTreeView && 'flex h-full min-w-0 w-full items-stretch')}>
+                  {isTreeView && (
+                    <div className="relative h-full shrink-0 overflow-visible" style={{ width: treeIndentPx }}>
+                      <TreeGuides guide={treeGuide} depth={depth} hasChildren={hasChildren} expanded={task.expanded} />
+                      {hasChildren && (
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpand(task.id);
+                          }}
+                          className={cn(
+                            'absolute z-[3] flex h-5 w-5 items-center justify-center rounded text-slate-500 transition-colors hover:bg-slate-200/70 hover:text-slate-800',
+                          )}
+                          style={{ left: `${depth * TREE_GUIDE_LEVEL_STEP_PX}px`, top: '50%', transform: 'translateY(-50%)' }}
+                          aria-label={task.expanded ? '접기' : '펼치기'}
+                          aria-expanded={task.expanded}
+                        >
+                          {task.expanded ? <ChevronDown size={13} strokeWidth={2.5} /> : <ChevronRight size={13} strokeWidth={2.5} />}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className={cn('relative min-w-0', isTreeView ? 'flex min-h-full flex-1 items-center self-stretch' : 'w-full')}>
+                    {(isInlineEditingName || isNameArmed) && (
+                      <input
+                        ref={nameEditRef}
+                        id={`wbs-edit-${task.id}-name`}
+                        autoFocus
+                        defaultValue={task.name}
+                        data-wbs-armed={!isInlineEditingName ? 'true' : undefined}
+                        tabIndex={isInlineEditingName ? undefined : -1}
+                        className={
+                          isInlineEditingName
+                            ? 'w-full min-h-[28px] text-sm font-bold bg-white text-indigo-600 outline-none ring-1 ring-indigo-500 rounded px-1'
+                            : 'absolute inset-0 h-full w-full opacity-0 pointer-events-none'
+                        }
+                        onFocus={(e) => {
+                          if (isInlineEditingName) return;
+                          try {
+                            e.currentTarget.select();
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        onCompositionStart={() => {
+                          if (!isInlineEditingName) promoteArmedNameToEditing();
+                        }}
+                        onInput={(e) => {
+                          if (isInlineEditingName) return;
+                          if ((e.nativeEvent as InputEvent).isComposing) return;
+                          promoteArmedNameToEditing();
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPaste={(e) => {
+                          e.stopPropagation();
+                          setTimeout(() => {
+                            commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
+                            setInlineEditingNameId(null);
+                            setEditingCell(null);
+                            setFocusedCell({ taskId: task.id, columnId: 'name' });
+                            onFocusRow?.(task.id, { keepSelection: true });
+                            commitCellMarquee?.(task.id, 'name');
+                            requestAnimationFrame(() => {
+                              (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                            });
+                          }, 0);
+                        }}
+                        onKeyUp={(e) => {
+                          if (!isInlineEditingName) return;
+                          const ne = e.nativeEvent as KeyboardEvent;
+                          if (ne.isComposing) return;
+                          if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+                          if (e.currentTarget.value.trim() !== '') return;
+                          commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
                           setInlineEditingNameId(null);
                           setEditingCell(null);
-                          onInsertRowAbove(task.id);
-                          return;
-                        }
-                        // Enter — 엑셀처럼 아래(형제)에 빈 행을 추가하고 그 작업명 편집으로 이어감.
-                        if (onAdvanceInlineEditToNextRow && canEdit) {
-                          onAdvanceInlineEditToNextRow(task.id);
-                          return;
-                        }
-                        setInlineEditingNameId(null);
-                        setEditingCell(null);
-                        setFocusedCell({ taskId: task.id, columnId: 'name' });
-                        onFocusRow?.(task.id, { keepSelection: true });
-                        commitCellMarquee?.(task.id, 'name');
-                        requestAnimationFrame(() => {
-                          (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
-                        });
-                      } else if (e.key === 'Escape') {
-                        setInlineEditingNameId(null);
-                      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                        if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }
-                      } else if (e.key === ' ') {
-                        // 전역 표 단축키(Space=체크 토글)가 bubble되면 띄어쓰기가 막힐 수 있음
-                        e.stopPropagation();
-                      }
-                    }}
-                  />
-                )}
-                {!isInlineEditingName && (
-                  <span
-                    className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (e.ctrlKey || e.metaKey || shiftModifierFromEvent(e)) return;
-                      beginEdit('name');
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      beginEditNow('name');
-                    }}
-                  >
-                    {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" />}
-                    {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" />}
-                    {task.mirroredFromTaskId && task.mirroredFromProjectId && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0">
-                        <GitBranch size={11} aria-hidden />
-                        자식
-                      </span>
+                          setFocusedCell({ taskId: task.id, columnId: 'name' });
+                          onFocusRow?.(task.id, { keepSelection: true });
+                          commitCellMarquee?.(task.id, 'name');
+                          requestAnimationFrame(() => {
+                            (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                          });
+                        }}
+                        onKeyDown={(e) => {
+                          if (!isInlineEditingName) return;
+                          if (e.key === 'Enter') {
+                            if (isComposingKeyEvent(e.nativeEvent)) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            commitWbsInlineNameEditFromDom(task.id, allProjectTasks, updateTask, canEdit);
+                            if (e.shiftKey && onInsertRowAbove) {
+                              setInlineEditingNameId(null);
+                              setEditingCell(null);
+                              onInsertRowAbove(task.id);
+                              return;
+                            }
+                            if (onAdvanceInlineEditToNextRow && canEdit) {
+                              onAdvanceInlineEditToNextRow(task.id);
+                              return;
+                            }
+                            setInlineEditingNameId(null);
+                            setEditingCell(null);
+                            setFocusedCell({ taskId: task.id, columnId: 'name' });
+                            onFocusRow?.(task.id, { keepSelection: true });
+                            commitCellMarquee?.(task.id, 'name');
+                            requestAnimationFrame(() => {
+                              (document.querySelector('[data-wbs-table]') as HTMLElement | null)?.focus?.();
+                            });
+                          } else if (e.key === 'Escape') {
+                            setInlineEditingNameId(null);
+                          } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                            if (!e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          } else if (e.key === ' ') {
+                            e.stopPropagation();
+                          }
+                        }}
+                      />
                     )}
-                    {forkedChildProject && (
-                      <button
-                        type="button"
+                    {!isInlineEditingName && (
+                      <span
+                        className="font-medium text-[var(--color-ink)] flex min-w-0 max-w-full items-center gap-1.5 cursor-cell overflow-hidden"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onOpenForkedChildProject?.(forkedChildProject.id);
+                          if (e.ctrlKey || e.metaKey || shiftModifierFromEvent(e)) return;
+                          beginEdit('name');
                         }}
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors flex-shrink-0"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          beginEditNow('name');
+                        }}
                       >
-                        <GitBranch size={11} aria-hidden />
-                        분기
-                      </button>
-                    )}
-                    {criticalPathSet?.has(task.id) && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0">
-                        크리티컬
+                        {task.isIssue && <Bug size={14} className="text-rose-600 flex-shrink-0" />}
+                        {task.isActionItem && <ListChecks size={14} className="text-teal-600 flex-shrink-0" />}
+                        {task.mirroredFromTaskId && task.mirroredFromProjectId && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 flex-shrink-0">
+                            <GitBranch size={11} aria-hidden />
+                            자식
+                          </span>
+                        )}
+                        {forkedChildProject && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenForkedChildProject?.(forkedChildProject.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors flex-shrink-0"
+                          >
+                            <GitBranch size={11} aria-hidden />
+                            분기
+                          </button>
+                        )}
+                        {criticalPathSet?.has(task.id) && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold flex-shrink-0">
+                            크리티컬
+                          </span>
+                        )}
+                        <span className="min-w-0 truncate" style={txtStyle}>
+                          {tableNameLabel ? (
+                            tableNameLabel
+                          ) : (
+                            <span className="italic text-slate-400 font-normal select-none">(입력 또는 F2로 작업명 편집)</span>
+                          )}
+                        </span>
+                        {totalDescendantTaskCount > 0 && !task.parentId && (
+                          <span className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0">
+                            ({totalDescendantTaskCount})
+                          </span>
+                        )}
                       </span>
                     )}
-                    <span className="min-w-0 truncate" style={txtStyle}>
-                      {tableNameLabel ? (
-                        tableNameLabel
-                      ) : (
-                        <span className="italic text-slate-400 font-normal select-none">(입력 또는 F2로 작업명 편집)</span>
-                      )}
-                    </span>
-                    {totalDescendantTaskCount > 0 && !task.parentId && (
-                      <span className="text-slate-400 text-xs font-normal tabular-nums flex-shrink-0">({totalDescendantTaskCount})</span>
+                    {otherPrimary && (
+                      <div
+                        className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
+                        style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
+                      >
+                        {otherPrimary.displayName}
+                        {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
+                      </div>
                     )}
-                  </span>
-                )}
-                {otherPrimary && (
-                  <div
-                    className="absolute -top-1 right-1 text-[10px] px-1 py-0.5 rounded bg-white/90 border border-slate-200 shadow-sm pointer-events-none"
-                    style={{ borderColor: otherPrimary.color, color: otherPrimary.color }}
-                  >
-                    {otherPrimary.displayName}
-                    {othersHere.length > 1 ? ` +${othersHere.length - 1}` : ''}
                   </div>
-                )}
+                </div>
               </div>
             );
           }
@@ -2432,4 +2437,4 @@ function DepsPortalDropdown({
   );
 }
 
-export const SortableTaskRow = React.memo(SortableTaskRowInner, areRowPropsEqual);
+export const SortableTaskRow = SortableTaskRowInner;

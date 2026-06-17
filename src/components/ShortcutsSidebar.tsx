@@ -137,7 +137,11 @@ export function ShortcutsSidebar({
           chords: [['작업명 열', '▾', '/', '▸']],
           hint: 'Shift+←/→는 셀 이동에 사용됩니다. 접기·펼치기는 트리 모드에서 행 왼쪽 버튼으로 하세요',
         },
-        { label: '체크 토글', chords: ['Space'], hint: '다중 셀(마퀴) 선택 중이면 해당 행 전부 체크 선택' },
+        {
+          label: '체크 토글',
+          chords: ['Space'],
+          hint: '다중 셀(마퀴)·2행 이상 범위면 해당 행 전부 체크. 체크 다중 선택 중이면 한 번에 전체 해제',
+        },
         {
           label: '복사 · 붙여넣기',
           chords: [

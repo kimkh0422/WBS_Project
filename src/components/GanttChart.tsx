@@ -247,6 +247,8 @@ export function GanttChart({
     [isZoomControlled, zoomIndexProp, onZoomIndexChange],
   );
   const containerRef = useRef<HTMLDivElement>(null);
+  /** split 뷰: 헤더·본문·하단 바를 감싸는 루트 — 본문 ref 전 너비 측정용 */
+  const splitGanttRootRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const bottomScrollRef = useRef<HTMLDivElement>(null);
   /** 본문(세로 스크롤) element — 표↔간트 동기화의 한쪽 끝. 외부 syncScrollRef와 함께 set한다(callback ref 호환). */
@@ -428,22 +430,30 @@ export function GanttChart({
   /** 간트 타임라인이 실제로 그려지는 스크롤 영역 너비(맞춤 줌·드래그 픽셀 환산에 사용). split 뷰는 containerRef가 없어 별도 측정. */
   const [chartViewportWidth, setChartViewportWidth] = useState(0);
   useLayoutEffect(() => {
-    const pickScrollEl = () => (isSplitView ? mainScrollRef.current : containerRef.current);
+    const pickMeasureEl = () => {
+      if (isSplitView) return mainScrollRef.current ?? splitGanttRootRef.current;
+      return containerRef.current;
+    };
     const measure = () => {
-      const el = pickScrollEl();
-      const w = el?.clientWidth ?? 0;
+      const el = pickMeasureEl();
+      let w = el?.clientWidth ?? 0;
+      if (w <= 0 && el?.parentElement) w = el.parentElement.clientWidth;
       if (w > 0) setChartViewportWidth((prev) => (prev === w ? prev : w));
     };
     measure();
-    const el = pickScrollEl();
+    const el = pickMeasureEl();
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
+    if (isSplitView && splitGanttRootRef.current && splitGanttRootRef.current !== el) {
+      ro.observe(splitGanttRootRef.current);
+    }
     return () => ro.disconnect();
   }, [isSplitView, sidebarWidth, hideSidebar, visibleTasks.length, syncScrollRef]);
 
   const effectiveSidebarWidth = hideSidebar ? 0 : sidebarWidth;
-  const containerWidth = Math.max(120, chartViewportWidth || (typeof window !== 'undefined' ? window.innerWidth : 1200));
+  /** 측정 전 window.innerWidth 폴백은 간트 패널보다 넓어 맞춤 줌이 넘치므로 사용하지 않음 */
+  const containerWidth = Math.max(120, chartViewportWidth);
 
   const resolvedReferenceIso = (referenceDateIsoProp?.trim() || format(new Date(), 'yyyy-MM-dd')) as string;
   const referenceAnchorDate = useMemo(() => {
@@ -458,6 +468,17 @@ export function GanttChart({
     effectiveSidebarWidth,
     referenceAnchorDate,
   });
+
+  /** 전체 맞춤: 뷰포트·일정 범위가 바뀌면 가로 스크롤을 맨 앞으로 — 전체 타임라인이 보이도록 */
+  useEffect(() => {
+    if (zoomIndex !== -1) return;
+    const reset = (el: HTMLDivElement | null) => {
+      if (el && el.scrollLeft !== 0) el.scrollLeft = 0;
+    };
+    reset(isSplitView ? mainScrollRef.current : containerRef.current);
+    reset(headerScrollRef.current);
+    reset(bottomScrollRef.current);
+  }, [zoomIndex, chartViewportWidth, totalDays, dayWidth, isSplitView]);
 
   /** 기본 세로 휠 → 행(세로) 스크롤, Shift+세로·가로 틸트(deltaX) → 타임라인 좌우, Ctrl+휠(핀치) → 확대/축소. split에서 헤더 위 휠은 본문(main) 세로로 연결. 하단 가로 바는 세로 휠을 좌우로만 사용.
    *  React `onWheel`은 passive로 등록되어 preventDefault 시 콘솔 경고가 나므로, 아래 useEffect에서 { passive: false } 네이티브 리스너로 붙인다. */
@@ -820,7 +841,7 @@ export function GanttChart({
   if (isSplitView) {
     return (
       <>
-        <div className="w-full h-full flex flex-col bg-white">
+        <div ref={splitGanttRootRef} className="w-full h-full flex flex-col bg-white">
           {/* 헤더 고정 (스크롤 밖) - 표의 split 헤더처럼 상단 수평 스크롤바 노출하여 본문·하단과 동기화.
               표는 헤더에 위쪽 스크롤바, 본문에 아래 스크롤바를 두는 구조 — 간트도 같은 패턴으로 정렬. */}
           <div

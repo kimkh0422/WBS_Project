@@ -8,7 +8,7 @@ import { isProjectTitleRootTask } from '../../lib/ensureProjectTopLevelName';
 // 부모 시작일·종료일은 자동 변경하지 않음 — 표의 '일정 자동 맞춤' 메뉴로만 정렬.
 
 export interface TaskMovementDeps {
-  saveHistory: () => void;
+  saveHistory: (label?: string) => void;
   setAllTasks: Dispatch<SetStateAction<Task[]>>;
   currentProjectIdRef: MutableRefObject<string>;
   allTasksRef: MutableRefObject<Task[]>;

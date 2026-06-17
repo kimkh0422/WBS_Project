@@ -20,6 +20,19 @@ function isGenericTypingTarget(el: HTMLElement): boolean {
   return !['checkbox', 'radio', 'button', 'submit', 'file', 'hidden', 'reset'].includes(t);
 }
 
+/** WBS 표 안에서는 셀 INPUT 포커스여도 전역 트리 단축키 허용 */
+function allowGlobalTreeShortcutFromTarget(el: HTMLElement): boolean {
+  if (!isGenericTypingTarget(el)) return true;
+  if (el.closest?.('[data-quick-add]')) return false;
+  return !!el.closest?.('[data-wbs-table]');
+}
+
+function resolveExpandLevelDigit(e: KeyboardEvent): number | null {
+  if (/^[1-9]$/.test(e.key)) return parseInt(e.key, 10);
+  const m = e.code.match(/^(?:Digit|Numpad)([1-9])$/);
+  return m ? parseInt(m[1]!, 10) : null;
+}
+
 interface KeyboardShortcutsDeps {
   undo: () => void;
   redo: () => void;
@@ -90,10 +103,10 @@ export function useAppKeyboardShortcuts(deps: KeyboardShortcutsDeps) {
     const handleExpandLevelHotkey = (e: KeyboardEvent) => {
       if (isComposingKeyEvent(e)) return;
       if (!(e.altKey && (e.ctrlKey || e.metaKey))) return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
-      if (!/^[1-9]$/.test(e.key)) return;
-      const level = parseInt(e.key, 10);
+      const target = e.target as HTMLElement;
+      if (!allowGlobalTreeShortcutFromTarget(target)) return;
+      const level = resolveExpandLevelDigit(e);
+      if (level == null) return;
       e.preventDefault();
       setTreeExpandLevel(level);
       expandToLevel(level);

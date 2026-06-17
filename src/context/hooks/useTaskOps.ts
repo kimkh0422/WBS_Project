@@ -39,9 +39,9 @@ function collectDescendantTaskIds(rootIds: Iterable<string>, tasks: Task[]): Set
 }
 
 export interface TaskOpsDeps {
-  saveHistory: () => void;
+  saveHistory: (label?: string) => void;
   /** 삭제 직전 `prev` 스냅샷을 넣을 때 사용(복사 없이 참조만 저장) */
-  pushUndoSnapshot: (previousTasks: Task[]) => void;
+  pushUndoSnapshot: (previousTasks: Task[], label?: string) => void;
   handleDbError: (err: unknown, fallback: string) => void;
   projectsRef: MutableRefObject<Project[]>;
   currentProjectIdRef: MutableRefObject<string>;
@@ -776,7 +776,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       if (ids.length === 0) return { applied: 0, skipped: 0 };
       let applied = 0;
       let skipped = 0;
-      saveHistory();
+      saveHistory('하위일정 균등분할');
       let tasksToPersist: Task[] | null = null;
       setAllTasks((prev) => {
         let result = prev;
@@ -847,7 +847,7 @@ export function useTaskOps(deps: TaskOpsDeps) {
       }
       if (removedEdges === 0) return { removedEdges: 0 };
 
-      saveHistory();
+      saveHistory('하위 간 선행 연결 해제');
       let tasksToPersist: Task[] | null = null;
       setAllTasks((current) => {
         const p = current.find((x) => x.id === parentTaskId);
