@@ -50,7 +50,8 @@ import { isDevAuthBypass } from '../lib/devAuthBypass';
 import { buildDevSeed } from '../lib/devSeed';
 import { type RealtimeChangePayload, type DbSyncSummaryByProject, type DbSyncSummary, type WBSContextType } from './wbsContextTypes';
 import { formatProjectDisplayName, DEFAULT_NEW_PROJECT_KIND } from '../lib/projectKind';
-import { ensureProjectTopLevelNameInTasks, isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
+import { isProjectTitleRootTask } from '../lib/ensureProjectTopLevelName';
+import { normalizeLoadedTasks } from '../lib/taskName';
 
 /** 로컬 설정 위에 DB 설정을 올린 뒤 parseSettings로 마이그레이션·정규화(표 컬럼 등)를 한 번에 적용 */
 function mergeWbsSettingsWithDbPatch(local: WBSSettings, db: Partial<WBSSettings> | null | undefined): WBSSettings {
@@ -189,9 +190,10 @@ export function WBSProvider({
   /** WBS 최상단 프로젝트 표시명 정규화 후 mirror·롤업 적용. `bumpOnEnsure: false`면 구조만 맞추고 dirty는 올리지 않음(서버 풀·동기화·초기 하이드레이션 등). 사용자 편집 경로에서는 생략(기본 true) */
   const ensureTopThenRollups = useCallback(
     (projs: Project[], rawTasks: Task[], statusConfigs: StatusConfig[] | undefined, opts?: { bumpOnEnsure?: boolean }) => {
-      const { tasks: ensured, changed } = ensureProjectTopLevelNameInTasks(projs, rawTasks);
-      if (changed && opts?.bumpOnEnsure !== false) bumpDirty();
-      return applyRollupsToTasks(ensured, statusConfigs);
+      const { tasks: normalized, nameChanged, topChanged } = normalizeLoadedTasks(projs, rawTasks);
+      if (nameChanged) bumpDirty();
+      else if (topChanged && opts?.bumpOnEnsure !== false) bumpDirty();
+      return applyRollupsToTasks(normalized, statusConfigs);
     },
     [bumpDirty],
   );
@@ -921,13 +923,18 @@ export function WBSProvider({
       const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
       const finalMergedTasks = pendingDelIdSet.size > 0 ? mergedTasks.filter((t) => !pendingDelIdSet.has(t.id)) : mergedTasks;
       const tasksOrderChanged = prevTasks.length !== finalMergedTasks.length || prevTasks.some((t, i) => t.id !== finalMergedTasks[i]?.id);
-      const { tasks: ensuredPull, changed: pullEnsured } = ensureProjectTopLevelNameInTasks(mergedProjects, finalMergedTasks);
+      const {
+        tasks: ensuredPull,
+        changed: pullEnsured,
+        nameChanged: pullNameChanged,
+      } = normalizeLoadedTasks(mergedProjects, finalMergedTasks);
       const rolled = preserveLocalExpanded(applyRollupsToTasks(ensuredPull, effectiveSettings.statusConfigs));
       // pullEnsured만인 경우(서버 데이터 클라이언트 불변식 보정)은 사용자 편집이 아니므로 bumpDirty 하지 않음.
       // 그렇지 않으면 주기 풀·탭 복귀 직후 미저장 모달·플로팅 저장이 잘못 켜진다.
-      if (tReplaced > 0 || tasksOrderChanged || pullEnsured) {
+      if (tReplaced > 0 || tasksOrderChanged || pullEnsured || pullNameChanged) {
         setAllTasks(rolled);
       }
+      if (pullNameChanged) bumpDirty();
 
       // Settings: 들어온 부분 키만 비교. 값이 다 같으면 setWbsSettings 스킵.
       if (dbSettings) {
@@ -1316,8 +1323,8 @@ export function WBSProvider({
         snapshotProjects = dbProjects;
         const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettings, dbSettings) : wbsSettings;
         const rawMapped = (dbTaskRows ?? []).map(fromTaskRow);
-        const ensured = ensureProjectTopLevelNameInTasks(snapshotProjects, rawMapped);
-        snapshotTasks = applyRollupsToTasks(ensured.tasks, effectiveSettings.statusConfigs);
+        const { tasks: ensuredTasks } = normalizeLoadedTasks(snapshotProjects, rawMapped);
+        snapshotTasks = applyRollupsToTasks(ensuredTasks, effectiveSettings.statusConfigs);
         appliedP = snapshotProjects.length;
         appliedT = snapshotTasks.length;
         replacedProjectIds = snapshotProjects.map((p) => p.id);
@@ -1428,7 +1435,7 @@ export function WBSProvider({
       }
       const effectiveSettings = dbSettings ? mergeWbsSettingsWithDbPatch(wbsSettingsRef.current, dbSettings) : wbsSettingsRef.current;
       const rawMapped = (Array.isArray(dbTaskRows) ? dbTaskRows : []).map(fromTaskRow);
-      const { tasks: ensuredDiscard } = ensureProjectTopLevelNameInTasks(dbProjects, rawMapped);
+      const { tasks: ensuredDiscard } = normalizeLoadedTasks(dbProjects, rawMapped);
       const snapshotTasks = applyRollupsToTasks(ensuredDiscard, effectiveSettings.statusConfigs);
       const snapshotTasksExpanded = preserveLocalExpanded(snapshotTasks);
       setProjects(dbProjects);

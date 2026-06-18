@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronLeft,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -117,29 +116,17 @@ function defaultSortDirForProjectsColumn(key: DashboardProjectsSortKey): 'asc' |
 
 function DetailBackBar({
   title,
-  onBack,
   subtitle,
   icon,
   accentClass,
 }: {
   title: string;
-  onBack: () => void;
   subtitle?: string;
   icon?: React.ReactNode;
   accentClass?: string;
 }) {
   return (
     <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-200/90 bg-[var(--color-bg)]/95 backdrop-blur-md px-0.5 pb-4 pt-1 -mt-1">
-      <button
-        type="button"
-        onClick={onBack}
-        className="group inline-flex items-center gap-2 self-start rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-300/80 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 hover:text-indigo-900 dark:hover:text-indigo-100 transition-all"
-      >
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 group-hover:bg-white dark:group-hover:bg-slate-700 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
-          <ChevronLeft size={18} className="shrink-0 -ml-0.5" aria-hidden />
-        </span>
-        대시보드로 돌아가기
-      </button>
       <div className="flex items-center gap-3.5 min-w-0">
         {icon && (
           <span
@@ -164,7 +151,6 @@ function DetailBackBar({
 export function DashboardDetailPage({
   kind,
   projectId,
-  onBack,
   onOpenProjectTable,
   onOpenTaskInTable,
   onOpenAllTasksTable,
@@ -197,7 +183,6 @@ export function DashboardDetailPage({
 }: {
   kind: DashboardDetailKind;
   projectId?: string | null;
-  onBack: () => void;
   /** 모바일 등에서 미제공 시 작업 표 이동 버튼이 비활성화됩니다. */
   onOpenProjectTable?: (projectId: string) => void;
   /** 제공 시「열기」가 해당 작업 행으로 스크롤하는 표 이동을 수행합니다. */
@@ -393,8 +378,8 @@ export function DashboardDetailPage({
 
   if (kind === 'project' && projectId && !projectDetailRow) {
     return (
-      <div className={cn('max-w-7xl mx-auto space-y-6')}>
-        <DetailBackBar title="프로젝트 상세" onBack={onBack} subtitle="요청한 프로젝트를 찾을 수 없습니다." />
+      <div className={cn('w-full space-y-6')}>
+        <DetailBackBar title="프로젝트 상세" subtitle="요청한 프로젝트를 찾을 수 없습니다." />
         <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-600">
           표시 범위에 해당하는 프로젝트가 없거나 삭제되었습니다.
         </div>
@@ -546,10 +531,9 @@ export function DashboardDetailPage({
 
   return (
     <>
-      <div className={cn('max-w-7xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300')}>
+      <div className={cn('w-full space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300')}>
         <DetailBackBar
           title={titleForKind()}
-          onBack={onBack}
           icon={kindIcon?.node}
           accentClass={kindIcon?.accent}
           subtitle={

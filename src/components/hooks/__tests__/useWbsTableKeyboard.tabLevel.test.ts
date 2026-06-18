@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { TaskWithDepth } from '../../../lib/taskView';
 import type { Task } from '../../../types';
 import {
+  buildSpaceMarqueeRestoreRange,
+  marqueeRowsMatchCheckboxSelection,
   resolveMarqueeRowsForSpaceCheckbox,
   resolveSpaceCheckboxSelection,
   resolveTabLevelAdjustOrderedIds,
@@ -100,5 +102,43 @@ describe('resolveMarqueeRowsForSpaceCheckbox', () => {
         visibleTasks,
       }),
     ).toBeNull();
+  });
+});
+
+describe('marqueeRowsMatchCheckboxSelection', () => {
+  it('마퀴 행과 체크 집합이 같을 때만 true', () => {
+    expect(marqueeRowsMatchCheckboxSelection(['a', 'b'], new Set(['a', 'b']))).toBe(true);
+    expect(marqueeRowsMatchCheckboxSelection(['a', 'b'], new Set(['a', 'b', 'c']))).toBe(false);
+    expect(marqueeRowsMatchCheckboxSelection(['a', 'b'], new Set(['a']))).toBe(false);
+    expect(marqueeRowsMatchCheckboxSelection(['a'], new Set(['a']))).toBe(false);
+  });
+});
+
+describe('buildSpaceMarqueeRestoreRange', () => {
+  it('기존 마퀴 range가 있으면 그대로 저장한다', () => {
+    const range = {
+      anchor: { taskId: 'b', columnId: 'name' as const },
+      end: { taskId: 'd', columnId: 'name' as const },
+    };
+    expect(
+      buildSpaceMarqueeRestoreRange({
+        marqueeRowIds: ['b', 'c', 'd'],
+        cellMarqueeRange: range,
+        focusColumnId: 'status',
+      }),
+    ).toEqual(range);
+  });
+
+  it('range가 없으면 마퀴 행 id와 포커스 열로 복원 범위를 만든다', () => {
+    expect(
+      buildSpaceMarqueeRestoreRange({
+        marqueeRowIds: ['b', 'c', 'd'],
+        cellMarqueeRange: null,
+        focusColumnId: 'status',
+      }),
+    ).toEqual({
+      anchor: { taskId: 'b', columnId: 'status' },
+      end: { taskId: 'd', columnId: 'status' },
+    });
   });
 });

@@ -5,6 +5,7 @@ import { inclusiveCalendarDays, endYmdFromInclusiveDuration } from './durationDa
 import { round1, round2 } from './utils';
 import { hasDependencyCycle } from './dependencyPicker';
 import { autoProgressPercentForStatus } from './wbsSettings';
+import { stripTaskNameHierarchyMarker } from './taskName';
 
 /** 셀 복사/붙여넣기에서 쓰는 상태 설정 최소 형태 (wbsSettings.statusConfigs 호환) */
 export interface WbsStatusConfigLite {
@@ -259,9 +260,10 @@ function buildValueUpdate(
   if (targetColumnId === 'allocation') return fail('투입율 셀에는 붙여넣을 수 없습니다. (프로젝트 투입인원 설정에서 관리)');
 
   if (targetColumnId === 'name') {
-    if (!text) return fail('작업명에는 빈 값을 붙여넣을 수 없습니다.');
-    if (text === (target.name ?? '').trim()) return noChange;
-    return { updates: { name: text } };
+    const cleaned = stripTaskNameHierarchyMarker(text);
+    if (!cleaned) return fail('작업명에는 빈 값을 붙여넣을 수 없습니다.');
+    if (cleaned === (target.name ?? '').trim()) return noChange;
+    return { updates: { name: cleaned } };
   }
   if (targetColumnId === 'startDate' || targetColumnId === 'endDate') {
     if (!text) {

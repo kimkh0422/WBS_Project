@@ -19,7 +19,6 @@ import {
 } from '../../lib/wbsCellClipboard';
 import { DEFAULT_NEW_TASK_WORK_EFFORT, normalizeWorkEffortUnit, startEndForNewTaskBelowVisibleRow } from '../../lib/workEffortUnits';
 import { delegateInlineEditColumnId, isDerivedScheduleColumnId } from '../../lib/wbsReadonlyGridColumns';
-import { buildSiblingMoveStepsFromSelection, resolveProjectTasksForSiblingMove } from '../../lib/siblingMoveKeyboard';
 import {
   cellMarqueeKeysToTargets,
   expandWbsMarqueeInternalPastePairs,
@@ -180,6 +179,30 @@ export function resolveMarqueeRowsForSpaceCheckbox(opts: {
   }
   const fromRange = visibleOrderedTaskIdsFromMarqueeRange(cellMarqueeRange, visibleTasks);
   return fromRange && fromRange.length > 1 ? fromRange : null;
+}
+
+/** Space: 마퀴 행 id가 체크 선택과 정확히 일치하는지(토글 해제 판별) */
+export function marqueeRowsMatchCheckboxSelection(marqueeRowIds: readonly string[], selectedTaskIds: ReadonlySet<string>): boolean {
+  if (marqueeRowIds.length < 2) return false;
+  return marqueeRowIds.every((id) => selectedTaskIds.has(id)) && selectedTaskIds.size === marqueeRowIds.length;
+}
+
+/** Space로 마퀴→체크 전환 직전에 저장해, 다음 Space 해제 시 셀 마퀴를 복원한다 */
+export function buildSpaceMarqueeRestoreRange(opts: {
+  marqueeRowIds: readonly string[];
+  cellMarqueeRange: { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null;
+  focusColumnId: TableColumnId;
+}): { anchor: { taskId: string; columnId: TableColumnId }; end: { taskId: string; columnId: TableColumnId } } | null {
+  const { marqueeRowIds, cellMarqueeRange, focusColumnId } = opts;
+  if (marqueeRowIds.length < 2) return null;
+  if (cellMarqueeRange) {
+    return { anchor: cellMarqueeRange.anchor, end: cellMarqueeRange.end };
+  }
+  const col = focusColumnId;
+  return {
+    anchor: { taskId: marqueeRowIds[0]!, columnId: col },
+    end: { taskId: marqueeRowIds[marqueeRowIds.length - 1]!, columnId: col },
+  };
 }
 
 /** Tab/Shift+Tab 다중 레벨 변경: 셀 마퀴(2행 이상) → 체크 행 선택으로 전환 */
@@ -662,6 +685,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
   const keyboardShiftPivotIdRef = useRef<string | null>(null);
   /** Shift+화살표로 셀 범위 확장 시 고정 앵커(엑셀). Shift 없는 화살표·Esc에서 해제 */
   const keyboardCellShiftAnchorRef = useRef<WbsMarqueeCell | null>(null);
+  /** Space로 마퀴→체크 전환 시 저장 — 다음 Space 해제 때 셀 마퀴 복원용 */
+  const spaceMarqueeRestoreRef = useRef<{
+    anchor: { taskId: string; columnId: TableColumnId };
+    end: { taskId: string; columnId: TableColumnId };
+  } | null>(null);
 
   useEffect(() => {
     if (!cellMarqueeRange) {
@@ -1170,9 +1198,11 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
     const ctrlOnlyCellEdgeNav = isCtrlArrowNoShift;
     // 값 셀 input 포커스 중에는 일반 화살표는 막되, Ctrl/Meta+화살표(Shift 없음) 격자 끝 점프는 허용(엑셀과 유사)
     const allowCellArrowDespiteTyping = isCtrlArrowNoShift;
+    // Shift 단독(Shift+Tab 준비 등)은 화살표가 아니므로 여기 들어오면 다중 셀 마퀴가 지워진다.
     if (
       !editingCell &&
       !inlineEditingNameId &&
+      arrowCellNavKey &&
       (!isWbsTableCellTypingTarget(target) || allowCellArrowDespiteTyping) &&
       effectiveArrowCell &&
       editableColumnIds.length > 0 &&
@@ -1378,6 +1408,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       clearPastedCellFlash?.();
       keyboardShiftPivotIdRef.current = null;
       keyboardCellShiftAnchorRef.current = null;
+      spaceMarqueeRestoreRef.current = null;
       if (selectedTaskIds.size > 0) {
         setSelection(new Set());
         setBulkStatus('');
@@ -2213,7 +2244,7 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
       !!filters.milestoneOnly ||
       !!filters.issueOnly;
 
-    /** 표 로컬 Set과 Context(간트 등) 체크 선택 동기 — Alt+↑↓ 다중 이동에 공통 사용 */
+    /** 표 로컬 Set과 Context(간트 등) 체크 선택 동기 */
     const checkboxSelectionForSiblingMove =
       selectedTaskIds.size > 0
         ? selectedTaskIds
@@ -2221,58 +2252,89 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
           ? new Set(sharedSelectedTaskIds)
           : selectedTaskIds;
 
+    // 다중 셀(마퀴)·다중 행(체크·2행 이상 마퀴) 선택 중에는 Alt+↑↓ 형제 순서 이동을 막는다.
+    const blockAltSiblingMove = shouldPreferBulkTabLevelChange({
+      selectedTaskIdsSize: checkboxSelectionForSiblingMove.size,
+      cellMarqueeKeySetSize: cellMarqueeKeySet?.size ?? 0,
+      marqueeRangeRowCount: marqueeRowCountForTab,
+    });
+
     // ArrowUp/Down은 표 영역에 포커스가 있을 때만 처리. 그렇지 않으면 간트 등 다른 컴포넌트의
     // 자체 키보드 핸들러가 활성 행을 옮길 수 있도록 양보한다 (전역 window listener라 가드 없으면 가로챔).
-    // 예외: Alt+↑↓ 형제 순서 이동은 간트 포커스·표 밖에서도 체크 다중 선택과 함께 동작한다.
+    // 예외: Alt+↑↓ 형제 순서 이동은 간트 포커스·표 밖에서도 단일 행 선택 시에만 동작한다.
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !target.closest('[data-wbs-table]')) {
       const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
-      const allowAltSiblingMove =
-        e.altKey && canEditCurrentProject && !isSortedOrFiltered && (checkboxSelectionForSiblingMove.size > 1 || moveTargetId != null);
+      const allowAltSiblingMove = e.altKey && canEditCurrentProject && !isSortedOrFiltered && !blockAltSiblingMove && moveTargetId != null;
       if (!allowAltSiblingMove) return;
     }
 
     // 선택 행이 없을 때: 세로 화살표는 처리하지 않음(아래 Alt+↑↓는 lastSelectedId 필요). 그 외 키는 계속 진행.
-    // 예외: Alt+↑↓ + 체크 다중 선택(≥2)은 lastSelectedId 없이도 형제 이동만 처리한다.
     if (!cursorLastSelectedId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      const allowAltMulti = e.altKey && checkboxSelectionForSiblingMove.size > 1 && canEditCurrentProject;
-      if (!allowAltMulti) return;
+      return;
     }
 
     // Space: 체크 토글 — 행 포커스(lastSelectedId) 우선(↑/↓와 동일 기준). 없으면 셀 링 행.
-    // 다중 셀(마퀴)·2행 이상 범위 선택 중이면: 해당 행 전부 체크 선택(엑셀식).
+    // 다중 셀(마퀴)·2행 이상 범위 선택 중이면: 해당 행 전부 체크 선택(엑셀식). 다시 Space면 해제 후 마퀴 복원.
     // 체크 다중 선택(≥2)이면 포커스 행이 선택 안에 있을 때 전체를 한 번에 해제.
     if (e.key === ' ') {
       e.preventDefault();
+      // 키 반복 시 연속 토글되어 선택이 즉시 풀리는 현상 방지
+      if (e.repeat) return;
+
+      const focusColumnId: TableColumnId =
+        cursorFocusedCell && editableColumnIds.includes(cursorFocusedCell.columnId) ? cursorFocusedCell.columnId : 'name';
       const marqueeRowIds = resolveMarqueeRowsForSpaceCheckbox({
         cellMarqueeKeySet,
         cellMarqueeRange,
         visibleTasks,
       });
       if (marqueeRowIds) {
+        if (marqueeRowsMatchCheckboxSelection(marqueeRowIds, selectedTaskIds)) {
+          setSelection(new Set());
+          setBulkStatus('');
+          setBulkAssignee('');
+          setBulkDurationDays('');
+          setBulkProgress('');
+          spaceMarqueeRestoreRef.current = null;
+          return;
+        }
+        const restore = buildSpaceMarqueeRestoreRange({
+          marqueeRowIds,
+          cellMarqueeRange,
+          focusColumnId,
+        });
+        if (restore) spaceMarqueeRestoreRef.current = restore;
+
         setSelection(new Set(marqueeRowIds));
-        setBulkStatus('');
-        setBulkAssignee('');
-        setBulkDurationDays('');
-        setBulkProgress('');
         const primary = marqueeRowIds[0]!;
         setLastSelectedId(primary);
         syncRangeAnchorForKeyboardFocus?.(primary);
         cellNavCursorRef.current = {
           lastSelectedId: primary,
-          focusedCell: cursorFocusedCell ?? { taskId: primary, columnId: 'name' },
+          focusedCell: cursorFocusedCell ?? { taskId: primary, columnId: focusColumnId },
         };
         return;
       }
       const rowId = cursorLastSelectedId ?? cursorFocusedCell?.taskId;
       if (!rowId) return;
       const next = resolveSpaceCheckboxSelection({ selectedTaskIds, focusRowId: rowId });
+      const clearingMultiCheckbox = next.size === 0 && selectedTaskIds.size > 1;
+      const marqueeRestore = clearingMultiCheckbox ? spaceMarqueeRestoreRef.current : null;
       if (next.size === 0) {
         setBulkStatus('');
         setBulkAssignee('');
         setBulkDurationDays('');
         setBulkProgress('');
+      } else {
+        spaceMarqueeRestoreRef.current = null;
       }
       setSelection(next);
+      if (marqueeRestore) {
+        spaceMarqueeRestoreRef.current = null;
+        requestAnimationFrame(() => {
+          setCellMarqueeRange({ anchor: marqueeRestore.anchor, end: marqueeRestore.end });
+        });
+      }
       return;
     }
 
@@ -2282,20 +2344,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         e.preventDefault();
         if (!canEditCurrentProject) return;
         if (isSortedOrFiltered) return;
+        if (blockAltSiblingMove) return;
         const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
-        if (checkboxSelectionForSiblingMove.size > 1) {
-          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, checkboxSelectionForSiblingMove);
-          if (pt) {
-            const steps = buildSiblingMoveStepsFromSelection(pt, checkboxSelectionForSiblingMove, 'up');
-            if (steps.length > 0) {
-              applySiblingMoveSteps(steps);
-              const scrollId =
-                moveTargetId && checkboxSelectionForSiblingMove.has(moveTargetId) ? moveTargetId : [...checkboxSelectionForSiblingMove][0]!;
-              requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
-            }
-          }
-          return;
-        }
         const canMove =
           checkboxSelectionForSiblingMove.size === 0 ||
           (checkboxSelectionForSiblingMove.size === 1 && moveTargetId != null && checkboxSelectionForSiblingMove.has(moveTargetId));
@@ -2312,20 +2362,8 @@ export function useWbsTableKeyboard(deps: WbsTableKeyboardDeps) {
         e.preventDefault();
         if (!canEditCurrentProject) return;
         if (isSortedOrFiltered) return;
+        if (blockAltSiblingMove) return;
         const moveTargetId = cursorLastSelectedId ?? lastSelectedId;
-        if (checkboxSelectionForSiblingMove.size > 1) {
-          const pt = resolveProjectTasksForSiblingMove(tasks, currentProjectId, checkboxSelectionForSiblingMove);
-          if (pt) {
-            const steps = buildSiblingMoveStepsFromSelection(pt, checkboxSelectionForSiblingMove, 'down');
-            if (steps.length > 0) {
-              applySiblingMoveSteps(steps);
-              const scrollId =
-                moveTargetId && checkboxSelectionForSiblingMove.has(moveTargetId) ? moveTargetId : [...checkboxSelectionForSiblingMove][0]!;
-              requestAnimationFrame(() => document.getElementById(`task-row-${scrollId}`)?.scrollIntoView({ block: 'nearest' }));
-            }
-          }
-          return;
-        }
         const canMove =
           checkboxSelectionForSiblingMove.size === 0 ||
           (checkboxSelectionForSiblingMove.size === 1 && moveTargetId != null && checkboxSelectionForSiblingMove.has(moveTargetId));

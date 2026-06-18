@@ -1594,7 +1594,6 @@ export function Dashboard({
             <DashboardDetailPage
               kind={detailKind}
               projectId={detailKind === 'project' ? (detailProjectId ?? undefined) : undefined}
-              onBack={clearDashboardDetailParams}
               onOpenProjectTable={onNavigate ? openTableProject : undefined}
               onOpenTaskInTable={onOpenTaskInTable}
               onOpenAllTasksTable={onNavigate ? openTableAll : undefined}

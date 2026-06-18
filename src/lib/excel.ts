@@ -1,12 +1,11 @@
 import * as XLSX from 'xlsx';
-import type { Cell as ExcelCell, Font as ExcelFont } from 'exceljs';
+import type { Cell as ExcelCell, Font as ExcelFont, Row as ExcelRow, Worksheet as ExcelWorksheet } from 'exceljs';
 import { differenceInBusinessDays, parseISO, isValid } from 'date-fns';
 import { Task, TaskStatus, Project, type CellTextStyle } from '../types';
 import { randomUUID, round2, formatPercent1, formatNum1 } from './utils';
 import { formatAssigneeDisplay, type PersonDisplayMeta } from './assigneeOptions';
 import { formatProjectDisplayName } from './projectKind';
-import { computePlannedProgressMap } from './plannedProgress';
-import { computeWorkCompositionPercent } from './workComposition';
+import { stripTaskNameHierarchyMarker } from './taskName';
 
 // Map internal keys to Korean headers
 const HEADER_MAP: Record<string, string> = {
@@ -55,6 +54,16 @@ const LEVEL_HEADER_ALIASES = ['레벨', 'Level', 'Lvl', '단계', 'LV'];
 ].forEach(([h, k]) => {
   REVERSE_HEADER_MAP[h as string] = k as HeaderToKey;
 });
+
+/** 샘플 양식 헤더(WBS*, 작업명* 등)와 보내기 헤더를 가져오기 필드 키로 해석 */
+const lookupImportHeaderKey = (header: unknown): HeaderToKey | undefined => {
+  const raw = String(header ?? '').trim();
+  if (!raw) return undefined;
+  if (REVERSE_HEADER_MAP[raw]) return REVERSE_HEADER_MAP[raw];
+  const stripped = raw.replace(/\*+$/, '').trim();
+  if (stripped && REVERSE_HEADER_MAP[stripped]) return REVERSE_HEADER_MAP[stripped];
+  return undefined;
+};
 
 const normalizeHeader = (s: unknown) =>
   String(s ?? '')
@@ -466,6 +475,28 @@ const applyLevelHierarchyInOrder = (tasksInOrder: Task[], levelsByTaskId: Map<st
   }
 };
 
+/** 선행작업 셀의 행 순번(1-based)을 실제 task id로 치환 — 샘플·보내기 양식 재가져오기용 */
+const resolveRowNumberDependencies = (tasksInOrder: Task[]) => {
+  for (let i = 0; i < tasksInOrder.length; i++) {
+    const t = tasksInOrder[i];
+    const deps = t.dependencies ?? [];
+    if (deps.length === 0) continue;
+    const resolved: string[] = [];
+    for (const dep of deps) {
+      const s = String(dep ?? '').trim();
+      if (!s) continue;
+      const n = Number(s);
+      if (Number.isFinite(n) && n >= 1 && n <= tasksInOrder.length) {
+        const target = tasksInOrder[n - 1];
+        if (target && target.id !== t.id) resolved.push(target.id);
+        continue;
+      }
+      if (tasksInOrder.some((x) => x.id === s)) resolved.push(s);
+    }
+    t.dependencies = [...new Set(resolved)];
+  }
+};
+
 const FIELD_LABELS: Record<ExcelImportFieldId, string> = {
   wbsKey: 'WBS',
   level: '레벨',
@@ -599,8 +630,8 @@ export const parseExcelWithMeta = async (
   // Detect whether this is our exported format (Korean headers).
   // 우리 내보내기 포맷은 정확히 '작업명' 헤더를 포함하므로 그것을 필수로 요구. 변형 헤더(WBS 활동명/진척률 등)는
   // smart 분기에서 fuzzy 매칭하는 편이 더 정확. 사용자가 매핑 override를 줬으면 강제로 smart 분기로.
-  const hasCoreKnownHeaders =
-    headerRow.includes(HEADER_MAP.name) && (headerRow.includes(HEADER_MAP.startDate) || headerRow.includes(HEADER_MAP.endDate));
+  const headerKeys = headerRow.map(lookupImportHeaderKey);
+  const hasCoreKnownHeaders = headerKeys.includes('name') && (headerKeys.includes('startDate') || headerKeys.includes('endDate'));
   const hasKnownHeader = !hasOverrides && customColumnsOpt.length === 0 && hasCoreKnownHeaders;
   if (hasKnownHeader) {
     const tasks: Task[] = [];
@@ -618,7 +649,7 @@ export const parseExcelWithMeta = async (
       const task: Record<string, unknown> = {};
       let parsedLevel: LevelValue = undefined;
       Object.keys(rowObj).forEach((header) => {
-        const key = REVERSE_HEADER_MAP[header];
+        const key = lookupImportHeaderKey(header);
         if (!key) return;
         if (key === 'level') {
           parsedLevel = clampLevel(rowObj[header]);
@@ -654,6 +685,7 @@ export const parseExcelWithMeta = async (
       });
 
       if (!task.name) continue;
+      task.name = stripTaskNameHierarchyMarker(String(task.name));
       if (!task.id) task.id = randomUUID();
       if (!task.status) task.status = 'todo';
       if (task.progress === undefined || task.progress === null) task.progress = 0;
@@ -698,6 +730,7 @@ export const parseExcelWithMeta = async (
         if (pid) t.parentId = pid;
       }
     }
+    resolveRowNumberDependencies(tasks);
     for (const t of tasks) delete (t as Task & { wbsId?: string }).wbsId;
 
     const findColumnByAliases = (aliases: string[]): { index: number; header: string } => {
@@ -912,7 +945,7 @@ export const parseExcelWithMeta = async (
     const cells = Array.isArray(row) ? row : [];
     const displayCells: unknown[] = Array.isArray(displayBody[rowIdx]) ? (displayBody[rowIdx] as unknown[]) : [];
     const nameFromLevelColumns = effectiveNameCols.length > 1 ? firstNonEmptyInColumns(cells, effectiveNameCols) : '';
-    const name = nameFromLevelColumns || (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : '');
+    const name = stripTaskNameHierarchyMarker(nameFromLevelColumns || (nameCol >= 0 ? String(cells[nameCol] ?? '').trim() : ''));
     const wbsKey = wbsCol >= 0 ? normalizeWbsKey(cells[wbsCol]) : '';
     const explicitLevel = levelCol >= 0 ? clampLevel(cells[levelCol]) : undefined;
     const inferredLevelFromNameCols = (() => {
@@ -1020,18 +1053,6 @@ export const parseExcelWithMeta = async (
   };
 };
 
-/** 작업별 투입율만 반환 (예: "50%"). 프로젝트 설정값 사용 */
-function getAllocationRateString(
-  task: Task,
-  projectAssignmentsByProjectId: Map<string, Array<{ assignee: string; allocationPercent: number }>>,
-): string {
-  const assignments = task.projectId ? (projectAssignmentsByProjectId.get(task.projectId) ?? []) : [];
-  const current = (task.assignee || '').trim();
-  // 미배정(담당자 없음)이면 첫 배분값으로 대체하지 않는다 — 화면과 동일하게 '—' 표시.
-  const match = current ? assignments.find((a) => (a.assignee || '').trim() === current) : undefined;
-  return match ? `${formatPercent1(match.allocationPercent)}%` : '—';
-}
-
 /** Excel 시트명: 31자 제한, \ / ? * [ ] : 문자 불가 */
 function toSheetName(name: string, used: Set<string>): string {
   let s = String(name || 'Sheet')
@@ -1111,31 +1132,112 @@ function applyCellStyle(cell: ExcelCell, style?: CellTextStyle): void {
   if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
 }
 
-type ExportColumn = { id: string; header: string; width: number; align?: 'left' | 'center' | 'right' };
-const EXPORT_COLUMNS: ExportColumn[] = [
-  { id: 'seq', header: '#', width: 5, align: 'center' },
-  { id: 'wbsId', header: 'WBS', width: 11 },
-  { id: 'name', header: '작업명', width: 40 },
-  { id: 'startDate', header: '시작일', width: 15 },
-  { id: 'endDate', header: '종료일', width: 15 },
-  { id: 'workEffort', header: '공수(일)', width: 9, align: 'right' },
-  { id: 'workComposition', header: '업무구성(%)', width: 10, align: 'right' },
-  { id: 'assignee', header: '담당자', width: 20 },
-  { id: 'allocation', header: '투입율', width: 9, align: 'right' },
+type SampleTemplateColumn = {
+  id: string;
+  header: string;
+  width: number;
+  align?: 'left' | 'center' | 'right';
+  required?: boolean;
+};
+
+/** 가져오기·보내기 공통 WBS 엑셀 양식. 필수 컬럼(노란 헤더·*)을 앞에 두고 선택 컬럼은 뒤에 배치한다. */
+const SAMPLE_TEMPLATE_COLUMNS: SampleTemplateColumn[] = [
+  { id: 'wbsId', header: 'WBS', width: 11, required: true },
+  { id: 'name', header: '작업명', width: 40, required: true },
+  { id: 'startDate', header: '시작일', width: 15, required: true },
+  { id: 'endDate', header: '종료일', width: 15, required: true },
+  { id: 'workEffort', header: '공수(일)', width: 10, align: 'right', required: true },
+  { id: 'assignee', header: '담당자', width: 18, required: true },
+  { id: 'status', header: '상태', width: 10, align: 'center', required: true },
+  { id: 'level', header: '레벨', width: 8, align: 'center' },
   { id: 'weight', header: '가중치', width: 8, align: 'right' },
-  { id: 'status', header: '상태', width: 9, align: 'center' },
-  { id: 'progress', header: '진척(%)', width: 9, align: 'right' },
-  { id: 'deliverables', header: '산출물', width: 18 },
+  { id: 'progress', header: '진척(%)', width: 10, align: 'right' },
+  { id: 'deliverables', header: '산출물', width: 24 },
   { id: 'dependencies', header: '선행작업', width: 12 },
-  { id: 'planned', header: '계획(%)', width: 9, align: 'right' },
-  { id: 'variance', header: '차이(%P)', width: 10, align: 'right' },
+  { id: 'description', header: '비고', width: 28 },
 ];
 
+/** "2026-05-15" → "2026-05-15" (샘플 양식·재가져오기용 ISO 날짜) */
+function isoDateOnly(iso?: string): string {
+  if (!iso) return '';
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(iso);
+  return m ? m[1] : iso;
+}
+
+/** 샘플 양식 상단(안내·필수/선택 구분·헤더)을 시트에 추가하고 데이터 시작 행 번호를 반환 */
+function addSampleTemplateLayout(ws: ExcelWorksheet, options?: { guideText?: string }): { dataStartRow: number; requiredCount: number } {
+  const columns = SAMPLE_TEMPLATE_COLUMNS;
+  const requiredCount = columns.filter((c) => c.required).length;
+  const totalCols = columns.length;
+  ws.columns = columns.map((c) => ({ width: c.width }));
+
+  let rowNum = 1;
+  if (options?.guideText) {
+    const guideRow = ws.addRow([options.guideText]);
+    ws.mergeCells(rowNum, 1, rowNum, totalCols);
+    guideRow.height = 48;
+    const guideCell = guideRow.getCell(1);
+    guideCell.font = { size: 10, color: { argb: 'FF334155' } };
+    guideCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+    guideCell.alignment = { vertical: 'middle', wrapText: true };
+    rowNum += 1;
+  }
+
+  const groupRow = ws.addRow(
+    columns.map((c, i) => {
+      if (i === 0) return '필수 입력';
+      if (i === requiredCount) return '선택 입력';
+      return '';
+    }),
+  );
+  ws.mergeCells(rowNum, 1, rowNum, requiredCount);
+  if (requiredCount < totalCols) ws.mergeCells(rowNum, requiredCount + 1, rowNum, totalCols);
+  groupRow.height = 20;
+  groupRow.eachCell({ includeEmpty: true }, (cell, ci) => {
+    const required = ci <= requiredCount;
+    cell.font = { bold: true, size: 9, color: { argb: required ? 'FFB45309' : 'FF64748B' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF8FAFC' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+  });
+  rowNum += 1;
+
+  const headerRow = ws.addRow(columns.map((c) => (c.required ? `${c.header}*` : c.header)));
+  headerRow.height = 22;
+  headerRow.eachCell({ includeEmpty: true }, (cell, ci) => {
+    const col = columns[ci - 1];
+    if (!col) return;
+    const required = !!col.required;
+    cell.font = { bold: true, size: 10, color: { argb: required ? 'FFB45309' : 'FF475569' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF1F5F9' } };
+    cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
+  });
+  rowNum += 1;
+
+  ws.views = [{ state: 'frozen', xSplit: 2, ySplit: options?.guideText ? 3 : 2 }];
+  return { dataStartRow: rowNum, requiredCount };
+}
+
+function styleSampleTemplateDataRow(row: ExcelRow, extra?: (col: SampleTemplateColumn, cell: ExcelCell) => void) {
+  row.eachCell({ includeEmpty: true }, (cell, ci) => {
+    const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
+    if (!col) return;
+    cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+    if (col.id === 'wbsId') cell.numFmt = '@';
+    extra?.(col, cell);
+  });
+}
+
+function taskLevelFromWbs(wbs: string): number | '' {
+  const parts = wbs.split('.').filter(Boolean);
+  return parts.length > 0 ? parts.length : '';
+}
+
 /**
- * 화면(웹)과 동일하게 내보내기.
- * - SheetJS는 셀 서식을 저장하지 못하므로 ExcelJS로 작성(글꼴·색·크기·배경 보존).
- * - 컬럼·값(한국어 날짜, 상태 이름, 선행=순번, 계획%/차이, 가중치, # 순번)을 표 화면과 맞춤.
- * - 프로젝트별 시트(현재 프로젝트만 내보내면 1개 시트).
+ * 샘플 WBS 양식과 동일한 컬럼·헤더 스타일로 보내기.
+ * - 필수/선택 구분 행 + 노란 헤더(＊) · WBS·작업명·일정·공수·담당·상태·레벨·가중치·진척·산출물·선행·비고
+ * - 날짜 YYYY-MM-DD, 선행작업=행 순번, 프로젝트별 시트
  */
 export const exportToExcel = async (
   tasks: Task[],
@@ -1149,7 +1251,6 @@ export const exportToExcel = async (
   const ExcelJSMod = await import('exceljs');
   const ExcelJS = (ExcelJSMod as unknown as { default?: typeof ExcelJSMod }).default ?? ExcelJSMod;
 
-  const projectAssignmentsByProjectId = new Map(projects.map((p) => [p.id, p.assignments ?? []]));
   const nameMap = projectNameMap ?? new Map(projects.map((p) => [p.id, formatProjectDisplayName(p.name, p.projectKind)]));
   const statusName = (id?: string) => statusConfigs?.find((c) => c.id === id)?.name ?? id ?? '';
 
@@ -1166,7 +1267,7 @@ export const exportToExcel = async (
   for (const project of projects) {
     const projectTasks = tasksByProject.get(project.id) ?? [];
 
-    // WBS 코드 + 표시 순서(트리 펼침 순)
+    // WBS 코드 + 트리 순서(전체 작업 — 재가져오기·편집용)
     const exportWbsMap = new Map<string, string>();
     const orderedTasks: Task[] = [];
     const fillWbs = (parentId: string | null) => {
@@ -1179,15 +1280,13 @@ export const exportToExcel = async (
           exportWbsMap.set(child.id, parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`);
         }
         orderedTasks.push(child);
-        // 화면과 동일하게: 접힌(펼치지 않은) 작업의 하위는 내보내지 않는다(task.expanded 반영).
-        if (child.expanded) fillWbs(child.id);
+        fillWbs(child.id);
       });
     };
     fillWbs(null);
 
     const seqOf = new Map<string, number>();
     orderedTasks.forEach((t, i) => seqOf.set(t.id, i + 1));
-    const plannedMap = computePlannedProgressMap(projectTasks);
     const depSeqs = (t: Task) =>
       (t.dependencies ?? [])
         .map((id) => seqOf.get(id))
@@ -1196,78 +1295,51 @@ export const exportToExcel = async (
         .join(', ');
 
     const valueOf = (t: Task, colId: string): string | number => {
+      const wbs = exportWbsMap.get(t.id) || '';
       switch (colId) {
-        case 'seq':
-          return seqOf.get(t.id) ?? '';
         case 'wbsId':
-          return exportWbsMap.get(t.id) || '';
+          return wbs;
         case 'name':
           return t.name ?? '';
         case 'startDate':
-          return koreanDate(t.startDate);
+          return isoDateOnly(t.startDate);
         case 'endDate':
-          return koreanDate(t.endDate);
+          return isoDateOnly(t.endDate);
         case 'workEffort':
           return t.workEffort ?? 0;
-        case 'workComposition': {
-          const p = computeWorkCompositionPercent(t, projectTasks);
-          return p == null ? '' : `${formatPercent1(p)}%`;
-        }
         case 'assignee':
           return formatAssigneeDisplay(t.assignee, assigneeDisplayMetaByName);
-        case 'allocation':
-          return getAllocationRateString(t, projectAssignmentsByProjectId);
-        case 'weight':
-          return t.weight != null ? formatNum1(t.weight) : '-';
         case 'status':
           return statusName(t.status);
+        case 'level':
+          return taskLevelFromWbs(wbs);
+        case 'weight':
+          return t.weight != null ? formatNum1(t.weight) : '';
         case 'progress':
           return `${formatPercent1(Number(t.progress ?? 0))}%`;
         case 'deliverables':
           return t.deliverables || '';
         case 'dependencies':
           return depSeqs(t);
-        case 'planned': {
-          const p = plannedMap.get(t.id);
-          return p == null ? '' : `${formatPercent1(p)}%`;
-        }
-        case 'variance': {
-          const p = plannedMap.get(t.id);
-          if (p == null) return '—';
-          const v = Number(t.progress ?? 0) - p;
-          return `${v > 0 ? '+' : ''}${formatPercent1(v)}%p`;
-        }
+        case 'description':
+          return t.description || '';
         default:
           return '';
       }
     };
 
-    const ws = wb.addWorksheet(toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames), {
-      // 헤더행 + 좌측 #·WBS·작업명 고정(웹 표와 유사)
-      views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }],
-    });
-    ws.columns = EXPORT_COLUMNS.map((c) => ({ width: c.width }));
-
-    // 헤더
-    const headerRow = ws.addRow(EXPORT_COLUMNS.map((c) => c.header));
-    headerRow.height = 22;
-    headerRow.eachCell({ includeEmpty: true }, (cell, ci) => {
-      cell.font = { bold: true, size: 10, color: { argb: 'FF334155' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-      cell.alignment = { vertical: 'middle', horizontal: EXPORT_COLUMNS[ci - 1]?.align ?? 'left' };
-      cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
-    });
+    const ws = wb.addWorksheet(toSheetName(nameMap.get(project.id) ?? project.name, usedSheetNames));
+    addSampleTemplateLayout(ws);
 
     if (orderedTasks.length === 0) {
-      const r = ws.addRow(EXPORT_COLUMNS.map((c) => (c.id === 'name' ? '(작업 없음)' : '')));
-      r.getCell(3).font = { italic: true, color: { argb: 'FF94A3B8' } };
+      const r = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map((c) => (c.id === 'name' ? '(작업 없음)' : '')));
+      styleSampleTemplateDataRow(r, (col, cell) => {
+        if (col.id === 'name') cell.font = { italic: true, color: { argb: 'FF94A3B8' } };
+      });
     } else {
       for (const task of orderedTasks) {
-        const row = ws.addRow(EXPORT_COLUMNS.map((c) => valueOf(task, c.id)));
-        row.eachCell({ includeEmpty: true }, (cell, ci) => {
-          const col = EXPORT_COLUMNS[ci - 1];
-          if (!col) return;
-          cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
+        const row = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map((c) => valueOf(task, c.id)));
+        styleSampleTemplateDataRow(row, (col, cell) => {
           applyCellStyle(cell, task.cellTextStyles?.[col.id]);
         });
       }
@@ -1283,31 +1355,6 @@ export const exportToExcel = async (
   a.click();
   URL.revokeObjectURL(url);
 };
-
-type SampleTemplateColumn = {
-  id: string;
-  header: string;
-  width: number;
-  align?: 'left' | 'center' | 'right';
-  required?: boolean;
-};
-
-/** 가져오기용 샘플 WBS 엑셀 양식. 필수 컬럼(노란 헤더·*)을 앞에 두고 선택 컬럼은 뒤에 배치한다. */
-const SAMPLE_TEMPLATE_COLUMNS: SampleTemplateColumn[] = [
-  { id: 'wbsId', header: 'WBS', width: 11, required: true },
-  { id: 'name', header: '작업명', width: 40, required: true },
-  { id: 'startDate', header: '시작일', width: 15, required: true },
-  { id: 'endDate', header: '종료일', width: 15, required: true },
-  { id: 'workEffort', header: '공수(일)', width: 10, align: 'right', required: true },
-  { id: 'assignee', header: '담당자', width: 18, required: true },
-  { id: 'status', header: '상태', width: 10, align: 'center', required: true },
-  { id: 'level', header: '레벨', width: 8, align: 'center' },
-  { id: 'weight', header: '가중치', width: 8, align: 'right' },
-  { id: 'progress', header: '진척(%)', width: 10, align: 'right' },
-  { id: 'deliverables', header: '산출물', width: 24 },
-  { id: 'dependencies', header: '선행작업', width: 12 },
-  { id: 'description', header: '비고', width: 28 },
-];
 
 const SAMPLE_TEMPLATE_ROWS: Record<string, string | number>[] = [
   {
@@ -1395,58 +1442,15 @@ export const exportWbsSampleTemplate = async (
   const statusExamples = `${todoName}, ${doneName}`;
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('WBS 샘플', {
-    views: [{ state: 'frozen', xSplit: 2, ySplit: 3 }],
-  });
-  ws.columns = SAMPLE_TEMPLATE_COLUMNS.map((c) => ({ width: c.width }));
-
-  const requiredCount = SAMPLE_TEMPLATE_COLUMNS.filter((c) => c.required).length;
-  const totalCols = SAMPLE_TEMPLATE_COLUMNS.length;
+  const ws = wb.addWorksheet('WBS 샘플');
 
   const guide =
     '노란색 헤더(＊)는 필수 입력입니다. WBS는 1·1.1·1.1.1 형식으로 계층을 표현합니다. ' +
     `날짜는 YYYY-MM-DD 또는 ${koreanDate('2026-01-06')} 형식, 공수는 1인 1일(MD) 기준입니다. ` +
     `상태는 「${statusExamples}」 등으로 입력합니다. 선행작업은 표의 행 순번(예: 2, 3)으로 적습니다. ` +
     '아래 예시 행을 참고해 작성한 뒤 ⋮ 메뉴 → 가져오기로 불러올 수 있습니다.';
-  const guideRow = ws.addRow([guide]);
-  ws.mergeCells(1, 1, 1, totalCols);
-  guideRow.height = 48;
-  const guideCell = guideRow.getCell(1);
-  guideCell.font = { size: 10, color: { argb: 'FF334155' } };
-  guideCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
-  guideCell.alignment = { vertical: 'middle', wrapText: true };
+  const { dataStartRow } = addSampleTemplateLayout(ws, { guideText: guide });
 
-  const groupRow = ws.addRow(
-    SAMPLE_TEMPLATE_COLUMNS.map((c, i) => {
-      if (i === 0) return '필수 입력';
-      if (i === requiredCount) return '선택 입력';
-      return '';
-    }),
-  );
-  ws.mergeCells(2, 1, 2, requiredCount);
-  if (requiredCount < totalCols) ws.mergeCells(2, requiredCount + 1, 2, totalCols);
-  groupRow.height = 20;
-  groupRow.eachCell({ includeEmpty: true }, (cell, ci) => {
-    const required = ci <= requiredCount;
-    cell.font = { bold: true, size: 9, color: { argb: required ? 'FFB45309' : 'FF64748B' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF8FAFC' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
-  });
-
-  const headerRow = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map((c) => (c.required ? `${c.header}*` : c.header)));
-  headerRow.height = 22;
-  headerRow.eachCell({ includeEmpty: true }, (cell, ci) => {
-    const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
-    if (!col) return;
-    const required = !!col.required;
-    cell.font = { bold: true, size: 10, color: { argb: required ? 'FFB45309' : 'FF475569' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: required ? 'FFFEF3C7' : 'FFF1F5F9' } };
-    cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
-    cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
-  });
-
-  const dataStartRow = 4;
   for (const sample of SAMPLE_TEMPLATE_ROWS) {
     const row = ws.addRow(
       SAMPLE_TEMPLATE_COLUMNS.map((c) => {
@@ -1454,22 +1458,13 @@ export const exportWbsSampleTemplate = async (
         return sample[c.id] ?? '';
       }),
     );
-    row.eachCell({ includeEmpty: true }, (cell, ci) => {
-      const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
-      if (!col) return;
-      cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
-      if (col.id === 'wbsId') cell.numFmt = '@';
-    });
+    styleSampleTemplateDataRow(row);
   }
 
   const emptyRowCount = 20;
   for (let i = 0; i < emptyRowCount; i++) {
     const row = ws.addRow(SAMPLE_TEMPLATE_COLUMNS.map(() => ''));
-    row.eachCell({ includeEmpty: true }, (cell, ci) => {
-      const col = SAMPLE_TEMPLATE_COLUMNS[ci - 1];
-      if (!col) return;
-      cell.alignment = { vertical: 'middle', horizontal: col.align ?? 'left' };
-      if (col.id === 'wbsId') cell.numFmt = '@';
+    styleSampleTemplateDataRow(row, (_col, cell) => {
       cell.border = {
         top: { style: 'hair', color: { argb: 'FFE2E8F0' } },
         bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } },
@@ -1481,14 +1476,17 @@ export const exportWbsSampleTemplate = async (
   if (statusColIdx >= 0) {
     const colLetter = colIndexToLetter(statusColIdx);
     const lastRow = dataStartRow + SAMPLE_TEMPLATE_ROWS.length + emptyRowCount - 1;
-    ws.dataValidations.add(`${colLetter}${dataStartRow}:${colLetter}${lastRow}`, {
-      type: 'list',
-      allowBlank: true,
-      formulae: [`"${todoName},${doneName}"`],
-      showErrorMessage: true,
-      errorTitle: '상태',
-      error: `「${todoName}」 또는 「${doneName}」 중에서 선택하세요.`,
-    });
+    (ws as ExcelWorksheet & { dataValidations: { add: (range: string, rule: object) => void } }).dataValidations.add(
+      `${colLetter}${dataStartRow}:${colLetter}${lastRow}`,
+      {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${todoName},${doneName}"`],
+        showErrorMessage: true,
+        errorTitle: '상태',
+        error: `「${todoName}」 또는 「${doneName}」 중에서 선택하세요.`,
+      },
+    );
   }
 
   const buf = await wb.xlsx.writeBuffer();
