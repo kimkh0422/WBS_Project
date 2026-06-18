@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
-import { Keyboard, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, X } from 'lucide-react';
+import React from 'react';
+import { Keyboard, ArrowUp, ArrowDown, X, CheckSquare, ArrowUpDown, IndentIncrease, Trash2, Undo2 } from 'lucide-react';
 
-/** App.tsx `view`와 동일 — 단축키 안내 분기용 */
+/** App.tsx `view`와 동일 — 단축키 안내 분기용(호환 유지) */
 export type ShortcutsContextView =
   | 'table'
   | 'tablegantt'
@@ -14,10 +14,56 @@ export type ShortcutsContextView =
   | 'guide';
 
 type KeyPart = string | React.ReactNode;
-/** 동시에 누르는 키 (+ 로 연결) */
 type KeyChord = KeyPart[];
-type Shortcut = { label: string; chords: KeyChord | KeyChord[]; hint?: string };
-type Section = { title: string; items: Shortcut[] };
+
+type CoreShortcut = {
+  label: string;
+  chords: KeyChord | KeyChord[];
+  hint?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  tone: 'accent' | 'neutral' | 'danger';
+};
+
+const CORE_SHORTCUTS: CoreShortcut[] = [
+  {
+    label: '체크 토글',
+    chords: ['Space'],
+    hint: '선택 행·범위의 완료 체크를 켜거나 끕니다',
+    icon: CheckSquare,
+    tone: 'accent',
+  },
+  {
+    label: '순서 변경',
+    chords: [
+      ['Alt', <ArrowUp size={13} key="au" />],
+      ['Alt', <ArrowDown size={13} key="ad" />],
+    ],
+    hint: '정렬·필터가 없을 때 형제 간 위·아래로 이동',
+    icon: ArrowUpDown,
+    tone: 'accent',
+  },
+  {
+    label: '레벨 내리기 · 올리기',
+    chords: ['Tab', ['Shift', 'Tab']],
+    hint: '하위 작업으로 들여쓰기 · 상위로 내어쓰기',
+    icon: IndentIncrease,
+    tone: 'accent',
+  },
+  {
+    label: '삭제',
+    chords: ['Del'],
+    hint: '선택한 작업을 삭제합니다',
+    icon: Trash2,
+    tone: 'danger',
+  },
+  {
+    label: '편집 · 선택 해제',
+    chords: ['Esc'],
+    hint: '인라인 편집을 닫거나 셀·행 선택을 해제합니다',
+    icon: Undo2,
+    tone: 'neutral',
+  },
+];
 
 function normalizeChords(chords: KeyChord | KeyChord[]): KeyChord[] {
   if (chords.length === 0) return [];
@@ -25,247 +71,124 @@ function normalizeChords(chords: KeyChord | KeyChord[]): KeyChord[] {
   return [chords as KeyChord];
 }
 
-function KeyCap({ children }: { children: React.ReactNode }) {
+function KeyCap({ children, emphasized }: { children: React.ReactNode; emphasized?: boolean }) {
   return (
-    <kbd className="min-h-[22px] min-w-[22px] px-1.5 inline-flex items-center justify-center text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 rounded-md shadow-[0_1px_0_rgba(15,23,42,0.08)] leading-none shrink-0">
+    <kbd
+      className={`inline-flex items-center justify-center leading-none shrink-0 font-bold rounded-lg border shadow-sm ${
+        emphasized
+          ? 'min-h-[28px] min-w-[28px] px-2 text-[12px] text-[var(--color-accent)] bg-[var(--color-accent-soft)] border-[var(--color-accent)]/35 shadow-[0_2px_0_rgba(79,70,229,0.12)]'
+          : 'min-h-[22px] min-w-[22px] px-1.5 text-[11px] text-slate-700 bg-white border-slate-200 shadow-[0_1px_0_rgba(15,23,42,0.08)]'
+      }`}
+    >
       {children}
     </kbd>
   );
 }
 
-function KeyChordDisplay({ chord }: { chord: KeyChord }) {
+function KeyChordDisplay({ chord, emphasized }: { chord: KeyChord; emphasized?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1">
       {chord.map((part, i) => (
         <React.Fragment key={i}>
           {i > 0 && (
-            <span className="text-[10px] font-medium text-slate-400 select-none" aria-hidden>
+            <span
+              className={`font-semibold select-none ${emphasized ? 'text-[var(--color-accent)]/60 text-xs' : 'text-[10px] text-slate-400'}`}
+              aria-hidden
+            >
               +
             </span>
           )}
-          <KeyCap>{part}</KeyCap>
+          <KeyCap emphasized={emphasized}>{part}</KeyCap>
         </React.Fragment>
       ))}
     </span>
   );
 }
 
-function KeysDisplay({ chords }: { chords: KeyChord | KeyChord[] }) {
+function KeysDisplay({ chords, emphasized }: { chords: KeyChord | KeyChord[]; emphasized?: boolean }) {
   const list = normalizeChords(chords);
   if (list.length === 1) {
     return (
       <span className="inline-flex justify-end">
-        <KeyChordDisplay chord={list[0]} />
+        <KeyChordDisplay chord={list[0]} emphasized={emphasized} />
       </span>
     );
   }
   return (
-    <span className="inline-flex flex-col items-end gap-1">
+    <span className="inline-flex flex-col items-end gap-1.5">
       {list.map((chord, i) => (
-        <KeyChordDisplay key={i} chord={chord} />
+        <KeyChordDisplay key={i} chord={chord} emphasized={emphasized} />
       ))}
     </span>
   );
 }
 
-function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
+const TONE_STYLES = {
+  accent: {
+    card: 'border-[var(--color-accent)]/25 bg-gradient-to-br from-[var(--color-accent-soft)] to-white shadow-[0_1px_0_rgba(79,70,229,0.06),inset_3px_0_0_var(--color-accent)]',
+    icon: 'bg-[var(--color-accent)] text-white shadow-sm',
+    label: 'text-[var(--color-ink)]',
+  },
+  danger: {
+    card: 'border-[var(--color-danger)]/25 bg-gradient-to-br from-[var(--color-danger-soft)] to-white shadow-[0_1px_0_rgba(239,68,68,0.06),inset_3px_0_0_var(--color-danger)]',
+    icon: 'bg-[var(--color-danger)] text-white shadow-sm',
+    label: 'text-[var(--color-ink)]',
+  },
+  neutral: {
+    card: 'border-slate-200 bg-gradient-to-br from-slate-50 to-white shadow-[0_1px_0_rgba(15,23,42,0.04),inset_3px_0_0_#94A3B8]',
+    icon: 'bg-slate-600 text-white shadow-sm',
+    label: 'text-[var(--color-ink)]',
+  },
+} as const;
+
+function CoreShortcutCard({ shortcut }: { shortcut: CoreShortcut }) {
+  const styles = TONE_STYLES[shortcut.tone];
+  const Icon = shortcut.icon;
   const hasAlternatives = normalizeChords(shortcut.chords).length > 1;
+
   return (
-    <div
-      className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-1.5 border-b border-slate-100 last:border-b-0 ${
-        hasAlternatives ? 'items-start' : 'items-center'
-      }`}
-    >
-      <div className={`min-w-0 ${hasAlternatives ? 'pt-0.5' : ''}`}>
-        <span className="text-[11px] font-medium text-slate-700 leading-snug">{shortcut.label}</span>
-        {shortcut.hint && <span className="block text-[10px] text-slate-400 mt-0.5 leading-tight">{shortcut.hint}</span>}
+    <div className={`rounded-xl border p-3 transition-colors ${styles.card}`}>
+      <div className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 ${hasAlternatives ? 'items-start' : 'items-center'}`}>
+        <div className={`flex gap-2.5 min-w-0 ${hasAlternatives ? 'pt-0.5' : ''}`}>
+          <div className={`shrink-0 w-8 h-8 rounded-lg inline-flex items-center justify-center ${styles.icon}`}>
+            <Icon size={16} />
+          </div>
+          <div className="min-w-0">
+            <div className={`text-[13px] font-bold leading-snug ${styles.label}`}>{shortcut.label}</div>
+            {shortcut.hint && <p className="text-[10px] text-[var(--color-ink-muted)] mt-1 leading-relaxed">{shortcut.hint}</p>}
+          </div>
+        </div>
+        <KeysDisplay chords={shortcut.chords} emphasized />
       </div>
-      <KeysDisplay chords={shortcut.chords} />
     </div>
   );
 }
 
 export function ShortcutsSidebar({
-  view,
   onClose,
   onNeverShow,
 }: {
-  view: ShortcutsContextView;
+  view?: ShortcutsContextView;
   /** 이번만 닫기 — 세션 동안만 닫힘. 새로고침 시 다시 표시 */
   onClose?: () => void;
   /** 다시 보지 않기 — 다음 접속부터 자동 표시 안 함(메뉴·Shift+? 로는 다시 열 수 있음) */
   onNeverShow?: () => void;
 }) {
-  const sections = useMemo((): Section[] => {
-    const commonItems: Shortcut[] = [
-      { label: '되돌리기', chords: ['Ctrl', 'Z'] },
-      { label: '다시 실행', chords: ['Ctrl', 'Y'] },
-      { label: '레벨 펼치기', chords: ['Ctrl', 'Alt', '1~9'] },
-      { label: '관리자 메뉴 표시', chords: ['Shift', 'F12'], hint: '헤더 우클릭: 보완 가이드·컬럼 설정' },
-      { label: '이 패널', chords: ['Shift', '?'] },
-    ];
-
-    const rowHeightItem: Shortcut = {
-      label: '줄높이',
-      chords: [
-        ['Ctrl', '+'],
-        ['Ctrl', '-'],
-      ],
-    };
-    const showRowHeight = view === 'table' || view === 'tablegantt' || view === 'gantt';
-
-    const wbsTableSection: Section = {
-      title: '표 (WBS)',
-      items: [
-        {
-          label: '셀 이동 (← → ↑ ↓)',
-          chords: [
-            [<ArrowLeft size={12} key="cellL" />],
-            [<ArrowRight size={12} key="cellR" />],
-            [<ArrowUp size={12} key="cellU" />],
-            [<ArrowDown size={12} key="cellD" />],
-          ],
-          hint: 'Shift+화살표: 셀 직사각형 다중 선택(마퀴) 확장. Shift+Ctrl/Meta+화살표: 마퀴를 해당 방향 격자 끝까지 확장. Ctrl/Meta+화살표(Shift 없음): 커서만 같은 열·행의 표시 끝으로 점프. 화살표만: 한 칸 이동·마퀴 해제. Alt+↑↓: 표시 순서 이동(정렬·필터 없을 때만)',
-        },
-        {
-          label: '행 첫/마지막 열 · 페이지 이동',
-          chords: ['Home', 'End', 'PageUp', 'PageDown'],
-          hint: 'Home/End: 현재 행의 첫·마지막 편집 열. PageUp/PageDown: 화면에 보이는 행 수만큼 위/아래',
-        },
-        {
-          label: '트리 접기 · 펼치기',
-          chords: [['작업명 열', '▾', '/', '▸']],
-          hint: 'Shift+←/→는 셀 이동에 사용됩니다. 접기·펼치기는 트리 모드에서 행 왼쪽 버튼으로 하세요',
-        },
-        {
-          label: '체크 토글',
-          chords: ['Space'],
-          hint: '다중 셀(마퀴)·2행 이상 범위면 해당 행 전부 체크. 체크 다중 선택 중이면 한 번에 전체 해제',
-        },
-        {
-          label: '복사 · 붙여넣기',
-          chords: [
-            ['Ctrl', 'C'],
-            ['Ctrl', 'V'],
-          ],
-          hint: '값 셀은 셀 값 복사 → 이동 후 그 셀에 붙여넣기(체크한 여러 행엔 일괄). 작업명 셀·체크 선택은 행 단위 복사(하위·선행 유지)',
-        },
-        {
-          label: '순서 변경',
-          chords: [
-            ['Alt', <ArrowUp size={12} key="au" />],
-            ['Alt', <ArrowDown size={12} key="ad" />],
-          ],
-        },
-        {
-          label: '레벨 내리기 · 올리기',
-          chords: ['Tab', ['Shift', 'Tab']],
-        },
-        {
-          label: '형제 아래 · 위 새 작업',
-          chords: ['Enter', ['Shift', 'Enter']],
-          hint: '작업명 인라인 입력 중이 아닐 때',
-        },
-        { label: '작업명 편집 저장·닫기', chords: ['Enter'], hint: 'F2 인라인 편집 중' },
-        { label: '인라인 수정', chords: ['F2'] },
-        {
-          label: '타이핑 즉시 편집',
-          chords: [['A'], ['1']],
-          hint: '셀 선택 후 영문·숫자를 치면 바로 입력(날짜·공수·진척 등 대체). 한글 텍스트는 클릭 또는 F2 후 입력',
-        },
-        { label: '삭제', chords: ['Del'] },
-        { label: '편집 · 선택 해제', chords: ['Esc'] },
-      ],
-    };
-
-    const ganttItems: Shortcut[] =
-      view === 'gantt'
-        ? [
-            {
-              label: '활성 행',
-              chords: [[<ArrowUp size={12} key="gu" />], [<ArrowDown size={12} key="gd" />]],
-              hint: '간트에 포커스할 때',
-            },
-            {
-              label: '확대 · 축소',
-              chords: [['+'], ['-']],
-            },
-          ]
-        : [
-            {
-              label: '확대 · 축소',
-              chords: [['+'], ['-']],
-            },
-          ];
-
-    const ganttSection: Section = {
-      title: '간트',
-      items: ganttItems,
-    };
-
-    const mindmapSection: Section = {
-      title: '마인드맵',
-      items: [
-        {
-          label: '부모 · 자식',
-          chords: [[<ArrowUp size={12} key="mu" />], [<ArrowDown size={12} key="md" />]],
-        },
-        {
-          label: '이전 · 다음 형제',
-          chords: [[<ArrowLeft size={12} key="ml" />], [<ArrowRight size={12} key="mr" />]],
-        },
-        {
-          label: '자식 추가 · 상위로',
-          chords: ['Tab', ['Shift', 'Tab']],
-        },
-        { label: '가지 접기 · 펼치기', chords: ['Space'], hint: '자식이 있을 때' },
-        {
-          label: '첫 노드 · 끝 노드',
-          chords: ['Home', 'End'],
-        },
-        { label: '인라인 이름', chords: ['F2'] },
-        { label: '상세 편집', chords: ['Enter'] },
-        { label: '자식 작업 추가', chords: ['Ctrl', 'Enter'] },
-        { label: '삭제 확인', chords: ['Del'] },
-        { label: '선택 해제', chords: ['Esc'] },
-      ],
-    };
-
-    const out: Section[] = [
-      {
-        title: '공통',
-        items: showRowHeight ? [...commonItems.slice(0, 2), rowHeightItem, ...commonItems.slice(2)] : commonItems,
-      },
-    ];
-
-    if (view === 'table' || view === 'tablegantt') {
-      out.push(wbsTableSection);
-    }
-    if (view === 'gantt') {
-      out.push(ganttSection);
-    }
-    if (view === 'mindmap') {
-      out.push(mindmapSection);
-    }
-
-    return out;
-  }, [view]);
-
-  const footerHint =
-    view === 'dashboard' || view === 'projects' || view === 'allocation' || view === 'guide'
-      ? '※ 이 화면은 주로 마우스·터치로 조작합니다. 전역 단축키(되돌리기 등)는 입력 포커스에 따라 다릅니다.'
-      : '※ 입력 포커스 없을 때 · 트리/정렬 등 일부는 조건부 동작';
-
   return (
-    <div className="w-80 max-w-[min(20rem,100vw)] shrink-0 border-l border-slate-200 bg-slate-50/60 flex flex-col h-full overflow-hidden">
-      <div className="px-3 py-2.5 border-b border-slate-200 bg-white flex items-center gap-2 shrink-0">
-        <Keyboard size={15} className="text-slate-500 shrink-0" />
-        <h2 className="text-sm font-bold text-slate-800 flex-1">키보드 단축키</h2>
+    <div className="w-80 max-w-[min(20rem,100vw)] shrink-0 border-l border-[var(--color-line)] bg-[var(--color-bg)] flex flex-col h-full overflow-hidden">
+      <div className="px-3 py-3 border-b border-[var(--color-line)] bg-[var(--color-surface)] flex items-center gap-2 shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)] inline-flex items-center justify-center shrink-0">
+          <Keyboard size={16} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-bold text-[var(--color-ink)] leading-tight">핵심 단축키</h2>
+          <p className="text-[10px] text-[var(--color-ink-muted)] mt-0.5">WBS 표에서 자주 쓰는 조작</p>
+        </div>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+            className="p-1.5 hover:bg-[var(--color-line-soft)] rounded-lg text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] transition-colors shrink-0"
             title="이번만 닫기 — 새로고침 시 다시 표시합니다"
             aria-label="단축키 패널 이번만 닫기"
           >
@@ -274,28 +197,21 @@ export function ShortcutsSidebar({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-2.5">
-        {sections.map((section) => (
-          <div key={section.title} className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-            <div className="px-2.5 py-1.5 bg-slate-50 border-b border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500 tracking-wide">{section.title}</div>
-            </div>
-            <div className="px-2.5 py-0.5">
-              {section.items.map((shortcut) => (
-                <ShortcutRow key={shortcut.label} shortcut={shortcut} />
-              ))}
-            </div>
-          </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5">
+        {CORE_SHORTCUTS.map((shortcut) => (
+          <CoreShortcutCard key={shortcut.label} shortcut={shortcut} />
         ))}
       </div>
 
-      <div className="px-3 py-2.5 bg-slate-100/50 border-t border-slate-200 shrink-0 space-y-2">
-        <p className="text-[10px] text-slate-500 leading-relaxed">{footerHint}</p>
+      <div className="px-3 py-2.5 bg-[var(--color-line-soft)]/80 border-t border-[var(--color-line)] shrink-0 space-y-2">
+        <p className="text-[10px] text-[var(--color-ink-muted)] leading-relaxed">
+          ※ 셀·행이 선택된 상태에서 동작합니다. 입력란에 포커스가 있으면 일부 단축키가 비활성화됩니다.
+        </p>
         {onNeverShow && (
           <button
             type="button"
             onClick={onNeverShow}
-            className="text-[11px] text-slate-400 hover:text-slate-600 hover:underline"
+            className="text-[11px] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] hover:underline"
             title="다음 접속부터 이 패널을 자동으로 띄우지 않습니다. 메뉴 → 「단축키」 또는 Shift+? 로 언제든 다시 열 수 있어요."
           >
             다시 보지 않기
