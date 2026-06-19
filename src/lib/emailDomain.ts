@@ -8,14 +8,6 @@
 
 export const INTERNAL_COMPANY_EMAIL_DOMAIN = 'gmtc.kr';
 
-/**
- * 전사 프로젝트·작업 목록 조회(RLS `can_browse_all_company_projects`)와 동일한 클라이언트 판별.
- * @gmtc.kr 사내 메일 또는 승인된 비외주 회원이면 대시보드 등에서 전체 프로젝트를 본다.
- */
-export function canBrowseAllCompanyProjects(email: string, userApproved: boolean): boolean {
-  return isInternalCompanyEmail(email) || userApproved;
-}
-
 /** @gmtc.kr 사내 메일 여부(로그인·프로필 분류와 동일 규칙) */
 export function isInternalCompanyEmail(email: string): boolean {
   const trimmed = (email ?? '').trim().toLowerCase();

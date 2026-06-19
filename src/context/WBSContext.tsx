@@ -1105,12 +1105,13 @@ export function WBSProvider({
   }, [isLoading]);
 
   // 주기적 서버 풀: Realtime이 변경사항을 실시간 전파하므로 폴링은 백업용으로만 사용
-  // egress 절약: 25초 → 5분, 탭 복귀 시에만 추가 풀
+  // egress·DB IO 절약: 25초 → 10분, 탭이 숨겨져 있으면 주기 풀 스킵(복귀 시 onVis가 처리)
   useEffect(() => {
     if (isLoading || useLocalOnly || !isSupabaseConfigured || !user?.id) return;
     const MIN_GAP_MS = 60000; // 최소 풀 간격 60초 (기존 12초)
-    const INTERVAL_MS = 300000; // 주기적 풀 5분 (기존 25초)
+    const INTERVAL_MS = 600000; // 주기적 풀 10분 (기존 5분) — IO 민감 DB 부담 완화
     const run = () => {
+      if (document.visibilityState !== 'visible') return; // 숨김 탭은 풀 안 함(복귀 시 onVis가 처리)
       if (hasLocalChangesSinceSyncRef.current) return;
       const now = Date.now();
       if (now - lastServerPullAtRef.current < MIN_GAP_MS) return;
