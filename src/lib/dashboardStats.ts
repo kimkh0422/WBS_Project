@@ -4,10 +4,14 @@
  * (Dashboard.tsx에서 분리 — 동작 동일, 단위 테스트 용이)
  */
 import { isBefore, parseISO, startOfDay } from 'date-fns';
-import type { Task } from '../types';
+import type { Project, Task, WBSSettings } from '../types';
 import { aggregatePercentByWeight } from './utils';
 import { getUseWeightForProgressRollup } from './rollupOptions';
 import { rollupWeightFromEffort } from './progressRollupWeights';
+import { computeProjectAssigneeWorkEffort } from './personAllocations';
+import { computePlannedProgressMap } from './plannedProgress';
+import { computeWbsQualityScore } from './wbsQualityScore';
+import type { ProjectStats } from './dashboardTypes';
 
 /** 대시보드 집계용: 완료 상태·진척 100%면 미완료 아님 */
 export function dashboardTaskDone(t: Task, doneStatusIds: Set<string>): boolean {
@@ -67,4 +71,82 @@ export function computeWeightedPlanned(items: Task[], plannedById: Map<string, n
     getUseWeightForProgressRollup(),
     Math.round,
   );
+}
+
+export type DashboardProjectStatRow = Project & { stats: ProjectStats };
+
+/** 프로젝트별 작업 수·진척·담당자 등 대시보드 표/카드용 통계 행 생성 */
+export function buildDashboardProjectStatRows(
+  projects: Project[],
+  tasksPool: Task[],
+  statusConfigs: WBSSettings['statusConfigs'],
+): DashboardProjectStatRow[] {
+  const doneIds = new Set<string>((statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => String(c.id)));
+  // 프로젝트별 작업을 한 번만 그룹화 → 프로젝트마다 tasksPool 전체를 filter 하던 O(P×T)를 O(P+T)로.
+  const tasksByProject = new Map<string, Task[]>();
+  for (const t of tasksPool) {
+    if (!t.projectId) continue;
+    const arr = tasksByProject.get(t.projectId);
+    if (arr) arr.push(t);
+    else tasksByProject.set(t.projectId, [t]);
+  }
+  return projects.map((project) => {
+    const pTasks = tasksByProject.get(project.id) ?? [];
+    const total = pTasks.length;
+
+    let issueCount = 0;
+    let actionCount = 0;
+    let overdueCount = 0;
+    for (const t of pTasks) {
+      if (t.isIssue) issueCount++;
+      if (t.isActionItem) actionCount++;
+      if (dashboardTaskOverdue(t, doneIds)) overdueCount++;
+    }
+
+    const statusCounts: Record<string, number> = {};
+    (statusConfigs ?? []).forEach((c) => (statusCounts[c.id] = 0));
+    pTasks.forEach((t) => {
+      if (statusCounts[t.status] !== undefined) statusCounts[t.status]++;
+    });
+
+    const assignees = Array.from(new Set(pTasks.map((t) => t.assignee).filter(Boolean)));
+    const assigneeWorkMd = computeProjectAssigneeWorkEffort(pTasks, project.id);
+    const inputManDays = [...assigneeWorkMd.values()].reduce((a, b) => a + b, 0);
+
+    const taskById = new Map<string, Task>(pTasks.map((t) => [t.id, t]));
+    const getDepth = buildDepthGetter(taskById);
+    const level1 = pTasks.filter((t) => getDepth(t.id) === 0);
+    const pParentIdSet = new Set(pTasks.map((t) => t.parentId).filter(Boolean));
+    const leafTasks = pTasks.filter((t) => !pParentIdSet.has(t.id));
+    const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
+    const progress =
+      level1.length > 0 ? computeWeightedProgress(level1) : forAggregate.length > 0 ? computeWeightedProgress(forAggregate) : 0;
+
+    const plannedById = computePlannedProgressMap(pTasks);
+    const planned =
+      level1.length > 0
+        ? computeWeightedPlanned(level1, plannedById)
+        : forAggregate.length > 0
+          ? computeWeightedPlanned(forAggregate, plannedById)
+          : 0;
+    const variance = Math.round((progress - planned) * 10) / 10;
+    const quality = computeWbsQualityScore(pTasks, project, statusConfigs ?? [], { plannedById });
+
+    return {
+      ...project,
+      stats: {
+        total,
+        statusCounts,
+        progress,
+        planned,
+        variance,
+        assigneeCount: assignees.length,
+        inputManDays,
+        issueCount,
+        actionCount,
+        overdueCount,
+        quality,
+      },
+    };
+  });
 }

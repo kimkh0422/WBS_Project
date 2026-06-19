@@ -21,7 +21,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { cn, randomUUID, formatPercent1 } from '../lib/utils';
-import { dashboardTaskOverdue, buildDepthGetter, computeWeightedProgress, computeWeightedPlanned } from '../lib/dashboardStats';
+import { computeWeightedProgress, computeWeightedPlanned, buildDashboardProjectStatRows } from '../lib/dashboardStats';
 import {
   PROJECT_KINDS,
   formatProjectDisplayName,
@@ -29,9 +29,7 @@ import {
   isPrivateProjectHiddenFromViewer,
   type ProjectKind,
 } from '../lib/projectKind';
-import { computeProjectAssigneeWorkEffort } from '../lib/personAllocations';
 import { computePlannedProgressMap } from '../lib/plannedProgress';
-import { computeWbsQualityScore } from '../lib/wbsQualityScore';
 import type { Task, Project } from '../types';
 import type { ProjectStats } from '../lib/dashboardTypes';
 import type { WBSSettings } from '../lib/wbsSettings';
@@ -102,7 +100,6 @@ export function Dashboard({
   onNavigate,
   onOpenTaskInTable,
   registeredMemberDisplayNames,
-  accessibleProjectIds,
   myInvolvedProjectIds,
   currentUserDisplay,
   currentUserPlainName,
@@ -116,8 +113,6 @@ export function Dashboard({
   /** 이슈 작업 행 선택 시 해당 작업이 있는 프로젝트 WBS 표로 이동·스크롤(PC). 미제공 시 기존처럼 이슈 상세만 엽니다. */
   onOpenTaskInTable?: (taskId: string, projectId: string) => void;
   registeredMemberDisplayNames?: Set<string>;
-  /** undefined: 전체(관리자). Set이면 그 ID 집합에 속한 프로젝트만 노출 (본인 참여 프로젝트). */
-  accessibleProjectIds?: Set<string>;
   /** "내가 포함된 프로젝트" 빠른 필터 대상 ID. owner/멤버/작업 담당자 매칭. undefined면 토글 비활성. */
   myInvolvedProjectIds?: Set<string>;
   /** 현재 사용자 표시 이름. 부서 매칭("내가 포함된 부서") 등에 사용. */
@@ -145,15 +140,12 @@ export function Dashboard({
     return m;
   }, [allProjects]);
   const { push: pushToast } = useToast();
-  // 권한 필터: accessibleProjectIds가 주어지면 그 집합으로 프로젝트와 작업을 좁힘.
-  const projects = useMemo(() => {
-    const base = accessibleProjectIds ? allProjects.filter((p) => accessibleProjectIds.has(p.id)) : allProjects;
-    return base.filter((p) => !isPrivateProjectHiddenFromViewer(p, currentUserId));
-  }, [allProjects, accessibleProjectIds, currentUserId]);
-  const allTasks = useMemo(
-    () => (accessibleProjectIds ? allTasksRaw.filter((t) => accessibleProjectIds.has(t.projectId)) : allTasksRaw),
-    [allTasksRaw, accessibleProjectIds],
+  // DB(RLS)에서 내려온 프로젝트 전체. 비공개 프로젝트만 시청자 기준으로 제외(클라이언트 재필터 없음).
+  const projects = useMemo(
+    () => allProjects.filter((p) => !isPrivateProjectHiddenFromViewer(p, currentUserId)),
+    [allProjects, currentUserId],
   );
+  const allTasks = allTasksRaw;
 
   // ─── 대시보드에 집계할 프로젝트 구분(이 브라우저에만 저장). 체크 해제한 구분은 표시·계산에서 제외 ─────────
   const DASHBOARD_INCLUDED_KINDS_KEY = 'wbs-dashboard-included-project-kinds';
@@ -284,76 +276,17 @@ export function Dashboard({
   // 공유 파생 데이터 — 여러 useMemo에서 재사용 (집계 제외 반영)
   const projectMap = useMemo(() => new Map(projectsForDashboard.map((p) => [p.id, p])), [projectsForDashboard]);
 
-  // Calculate stats for each project
-  const projectStats = useMemo(() => {
-    const doneIds = new Set<string>((wbsSettings.statusConfigs ?? []).filter((c) => c.progress === 100).map((c) => String(c.id)));
-    return projectsForDashboard.map((project) => {
-      const pTasks = allTasksForDashboard.filter((t) => t.projectId === project.id);
-      const total = pTasks.length;
+  // Calculate stats for each project (대시보드 집계 범위)
+  const projectStats = useMemo(
+    () => buildDashboardProjectStatRows(projectsForDashboard, allTasksForDashboard, wbsSettings.statusConfigs),
+    [projectsForDashboard, allTasksForDashboard, wbsSettings.statusConfigs],
+  );
 
-      let issueCount = 0;
-      let actionCount = 0;
-      let overdueCount = 0;
-      for (const t of pTasks) {
-        if (t.isIssue) issueCount++;
-        if (t.isActionItem) actionCount++;
-        if (dashboardTaskOverdue(t, doneIds)) overdueCount++;
-      }
-
-      // Dynamic status counts
-      const statusCounts: Record<string, number> = {};
-      wbsSettings.statusConfigs.forEach((c) => (statusCounts[c.id] = 0));
-      pTasks.forEach((t) => {
-        if (statusCounts[t.status] !== undefined) statusCounts[t.status]++;
-      });
-
-      const assignees = Array.from(new Set(pTasks.map((t) => t.assignee).filter(Boolean)));
-      const assigneeWorkMd = computeProjectAssigneeWorkEffort(pTasks, project.id);
-      const inputManDays = [...assigneeWorkMd.values()].reduce((a, b) => a + b, 0);
-
-      // 전체 진척율: 1레벨 (progress×공수) 가중평균. 가중치 합이 100이 아니어도 Σ(pw)/Σw.
-      // 1레벨이 없으면 리프(단말)에 대해 동일 규칙(공수 가중 ON이면 가중 평균, OFF면 단순 평균).
-      const taskById = new Map<string, Task>(pTasks.map((t) => [t.id, t]));
-      const getDepth = buildDepthGetter(taskById);
-      const level1 = pTasks.filter((t) => getDepth(t.id) === 0);
-      // 프로젝트 내 부모 ID 세트로 leaf 판별 O(n)화
-      const pParentIdSet = new Set(pTasks.map((t) => t.parentId).filter(Boolean));
-      const leafTasks = pTasks.filter((t) => !pParentIdSet.has(t.id));
-      const forAggregate = leafTasks.length > 0 ? leafTasks : pTasks;
-      const progress =
-        level1.length > 0 ? computeWeightedProgress(level1) : forAggregate.length > 0 ? computeWeightedProgress(forAggregate) : 0;
-
-      // 계획율: 진척률과 동일 대상(level1 우선)·동일 가중으로 집계. 차이 = 진척 − 계획.
-      const plannedById = computePlannedProgressMap(pTasks);
-      const planned =
-        level1.length > 0
-          ? computeWeightedPlanned(level1, plannedById)
-          : forAggregate.length > 0
-            ? computeWeightedPlanned(forAggregate, plannedById)
-            : 0;
-      const variance = Math.round((progress - planned) * 10) / 10;
-
-      // WBS 작성 충실도(체크리스트 기반). 이미 계산한 plannedById 재사용.
-      const quality = computeWbsQualityScore(pTasks, project, wbsSettings.statusConfigs ?? [], { plannedById });
-
-      return {
-        ...project,
-        stats: {
-          total,
-          statusCounts,
-          progress,
-          planned,
-          variance,
-          assigneeCount: assignees.length,
-          inputManDays,
-          issueCount,
-          actionCount,
-          overdueCount,
-          quality,
-        },
-      };
-    });
-  }, [projectsForDashboard, allTasksForDashboard, wbsSettings.statusConfigs]);
+  /** 등록된 프로젝트 상세·PDF: 집계 필터와 무관하게 계정에서 조회 가능한 전체 프로젝트 */
+  const registeredProjectStats = useMemo(
+    () => buildDashboardProjectStatRows(projects, allTasks, wbsSettings.statusConfigs),
+    [projects, allTasks, wbsSettings.statusConfigs],
+  );
 
   // 작업(WBS) 0개인 프로젝트는 대시보드에서 숨김
   const visibleProjectStats = useMemo(() => projectStats.filter((p) => (p?.stats?.total ?? 0) > 0), [projectStats]);
@@ -412,11 +345,11 @@ export function Dashboard({
   // ─── 빠른 필터: 내가 포함된 프로젝트만 ──────────────────────────────────
   const MY_ONLY_KEY = 'wbs-dashboard-my-only';
   const [showMyOnly, setShowMyOnly] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
+    if (typeof window === 'undefined') return false;
     try {
-      return window.localStorage.getItem(MY_ONLY_KEY) !== '0';
+      return window.localStorage.getItem(MY_ONLY_KEY) === '1';
     } catch {
-      return true;
+      return false;
     }
   });
   const toggleShowMyOnly = () => {
@@ -706,10 +639,22 @@ export function Dashboard({
       list.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
     }
 
+    // 작업을 프로젝트별로 한 번만 그룹화 → 사업부마다 allTasksForDashboard 전체를 filter 하던 부담 제거.
+    const tasksByProjectId = new Map<string, typeof allTasksForDashboard>();
+    for (const t of allTasksForDashboard) {
+      if (!t.projectId) continue;
+      const arr = tasksByProjectId.get(t.projectId);
+      if (arr) arr.push(t);
+      else tasksByProjectId.set(t.projectId, [t]);
+    }
     const stats = topLevelDivisions.map((division) => {
       const projectIds = projectIdsByDivision.get(division.id) ?? new Set<string>();
       const divisionProjects = projectsForDashboard.filter((p) => projectIds.has(p.id));
-      const tasks = allTasksForDashboard.filter((t) => projectIds.has(t.projectId));
+      const tasks: typeof allTasksForDashboard = [];
+      for (const pid of projectIds) {
+        const arr = tasksByProjectId.get(pid);
+        if (arr) tasks.push(...arr);
+      }
       const total = tasks.length;
       const doneCount = tasks.filter((t) => doneStatusIdsSet.has(t.status) || (typeof t.progress === 'number' && t.progress >= 100)).length;
       const issueCount = tasks.filter((t) => t.isIssue).length;
@@ -1613,7 +1558,7 @@ export function Dashboard({
               onActionDueDateFilterChange={setActionDueDateFilter}
               actionTasksWithDueDateCount={actionTasksWithDueDate.length}
               milestonesAll={milestones}
-              projectStatsRows={projectStats}
+              projectStatsRows={registeredProjectStats}
               dashboardFiltersActive={dashboardFiltersActive}
               updateTask={updateTask}
               doneStatusId={doneStatusId}

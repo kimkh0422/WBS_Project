@@ -838,7 +838,10 @@ export function DashboardDetailPage({
               </table>
             </div>
             <p className="text-xs text-slate-500">
-              요약 카드의 숫자와 동일하게, 대시보드 집계 범위(제외·필터)에 맞춘 프로젝트만 표시합니다.
+              계정에서 조회 가능한 전체 프로젝트({totalProjectsInAccount}개)를 표시합니다. 작업 0개 프로젝트도 포함합니다.
+              {dashboardFiltersActive || dashboardExcludedCount > 0
+                ? ' 요약 카드 숫자는 대시보드 집계 필터·제외 설정이 적용된 범위일 수 있습니다.'
+                : null}
               {orgLayoutAvailable ? ' 조직도 보기에서는 PM(또는 소유자)의 부서를 조직 트리 부서명과 맞춰 하위 조직별로 묶습니다.' : null}
             </p>
           </div>

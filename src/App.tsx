@@ -1144,14 +1144,6 @@ function WBSApp({
                       onNavigate={lockMobileToDashboard || noSplitWorkView ? undefined : handleDashboardNavigate}
                       onOpenTaskInTable={navigateToTask}
                       registeredMemberDisplayNames={registeredMemberDisplayNames}
-                      accessibleProjectIds={
-                        effectiveIsAdmin
-                          ? undefined
-                          : new Set([
-                              ...projects.filter((p) => !!user?.id && p.ownerId === user.id).map((p) => p.id),
-                              ...myMemberProjectIds,
-                            ])
-                      }
                       myInvolvedProjectIds={
                         user?.id
                           ? (() => {
@@ -1860,6 +1852,12 @@ function AppWithProviders() {
 
   // 로그인 사용자 권한 상태(관리자·승인·외주·조직 책임자) — useViewerStatus로 분리(동작 동일)
   const { isAdmin, userApproved, isExternalPartner, isOrgScopedManager, currentUserManagedOrgNodeId } = useViewerStatus(user?.id);
+
+  // 관리자 회원 체험 모드(memberPreview)는 sessionStorage에 남을 수 있어, 비관리자 로그인 시 해제한다.
+  useEffect(() => {
+    if (!user?.id || isAdmin || adminOverride) return;
+    setMemberPreview(false);
+  }, [user?.id, isAdmin, adminOverride, setMemberPreview]);
 
   // WBSProvider 콜백은 useCallback으로 안정화 — 인라인 함수면 매 렌더마다 새 참조가 되어
   // Provider 내부의 데이터 로딩 effect가 재실행되고 스켈레톤이 깜빡임.
