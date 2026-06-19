@@ -1,5 +1,46 @@
 export type PersistKey = 'wbs-projects' | 'wbs-tasks' | 'wbs-settings' | 'wbs-deleted-task-ids' | 'wbs-deleted-project-ids';
 
+/** 로컬 캐시가 어떤 사용자·시점 데이터인지 기록(재방문 시 서버 전체 fetch 생략 판단용). */
+export const WBS_CACHE_META_KEY = 'wbs-cache-meta';
+
+export type WbsCacheMeta = {
+  userId: string;
+  savedAt: number;
+  projectCount: number;
+  taskCount: number;
+};
+
+export function readWbsCacheMeta(): WbsCacheMeta | null {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(WBS_CACHE_META_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<WbsCacheMeta>;
+    if (typeof parsed.userId !== 'string' || !parsed.userId) return null;
+    if (typeof parsed.savedAt !== 'number' || !Number.isFinite(parsed.savedAt)) return null;
+    return {
+      userId: parsed.userId,
+      savedAt: parsed.savedAt,
+      projectCount: typeof parsed.projectCount === 'number' ? parsed.projectCount : 0,
+      taskCount: typeof parsed.taskCount === 'number' ? parsed.taskCount : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeWbsCacheMeta(meta: WbsCacheMeta): void {
+  try {
+    localStorage.setItem(WBS_CACHE_META_KEY, JSON.stringify(meta));
+  } catch {
+    /* ignore quota */
+  }
+}
+
 const DB_NAME = 'wbs_mg';
 const DB_VERSION = 1;
 const STORE = 'kv';
@@ -136,6 +177,7 @@ export async function clearAllLocalData(): Promise<void> {
   }
 
   const localKeys = [
+    WBS_CACHE_META_KEY,
     'wbs.lastExportPrefs',
     'wbs.split.wbsTableWidth',
     'wbs:gantt:sidebarWidth',
