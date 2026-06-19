@@ -166,12 +166,27 @@ const PROJECT_OPTIONAL_SELECT_COLUMNS = new Set(
   ].map((c) => c.toLowerCase()),
 );
 
+/**
+ * 이번 세션에서 PGRST204로 "DB에 없다"고 확인된 projects optional 컬럼.
+ * 한 번 감지하면 이후 fetchProjects 호출은 처음부터 제외 → 초기로드+5분 폴링마다
+ * 같은 폴백 루프(최대 수십 회 왕복)를 반복하지 않는다(마이그레이션 미적용 환경 대비).
+ */
+const detectedMissingProjectColumns = new Set<string>();
+
+/** 캐시된 누락 컬럼을 처음부터 제외한 select 목록 */
+function projectSelectColumnsForSession(): string {
+  if (detectedMissingProjectColumns.size === 0) return PROJECT_SELECT_COLUMNS;
+  let cols = PROJECT_SELECT_COLUMNS;
+  for (const c of detectedMissingProjectColumns) cols = stripSelectListColumn(cols, c);
+  return cols;
+}
+
 export async function fetchProjects(): Promise<Project[]> {
   requireSupabase();
-  let selectCols = PROJECT_SELECT_COLUMNS;
+  let selectCols = projectSelectColumnsForSession();
   let data: ProjectRow[] | null = null;
   let error: { message?: string; code?: string } | null = null;
-  for (let attempt = 0; attempt < 48; attempt++) {
+  for (let attempt = 0; attempt < PROJECT_OPTIONAL_SELECT_COLUMNS.size + 2; attempt++) {
     const res = await supabase!.from('projects').select(selectCols).order('created_at', { ascending: true });
     data = (res.data ?? null) as unknown as ProjectRow[] | null;
     error = res.error;
@@ -180,6 +195,7 @@ export async function fetchProjects(): Promise<Project[]> {
     if (!missing || !PROJECT_OPTIONAL_SELECT_COLUMNS.has(missing.toLowerCase())) break;
     const next = stripSelectListColumn(selectCols, missing);
     if (next === selectCols) break;
+    detectedMissingProjectColumns.add(missing.toLowerCase()); // 세션 캐시 → 다음 호출부터 처음에 제외
     selectCols = next;
   }
   if (error) throw error;

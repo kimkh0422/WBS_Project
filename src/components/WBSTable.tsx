@@ -282,10 +282,12 @@ export function WBSTable({
     [tasks, filters, sortConfig, projectsById],
   );
 
-  const baseTasks = useMemo(
-    () => (filters.projectIds === 'all' ? tasks : tasks.filter((task) => task.projectId && filters.projectIds.includes(task.projectId))),
-    [tasks, filters.projectIds],
-  );
+  const baseTasks = useMemo(() => {
+    if (filters.projectIds === 'all') return tasks;
+    // 배열 .includes(O(K))를 Set 조회(O(1))로 → 선택 프로젝트가 많아도 O(T)
+    const allowed = new Set(filters.projectIds);
+    return tasks.filter((task) => task.projectId && allowed.has(task.projectId));
+  }, [tasks, filters.projectIds]);
 
   const hasChildrenSet = useMemo(() => buildParentSet(baseTasks), [baseTasks]);
   const descendantCountByTaskId = useMemo(() => buildTotalDescendantCountByTaskId(baseTasks), [baseTasks]);
@@ -1523,6 +1525,9 @@ export function WBSTable({
   });
 
   /** 행 클릭·Shift 범위 등으로 행만 포커스될 때도 셀 링이 이전 행에 남지 않게 lastSelectedId와 맞춘다 */
+  // 행 memo가 매 렌더 새 closure 때문에 깨지지 않도록 안정 참조로 고정(ref 값은 호출 시점에 읽음).
+  const isShiftModifierActive = useCallback(() => shiftKeyHeldRef.current, []);
+
   const handleFocusRow = useCallback(
     (taskId: string, opts?: { keepSelection?: boolean; columnId?: TableColumnId }) => {
       const next = resolveNextFocusedCellForRowClick(taskId, opts);
@@ -3250,7 +3255,7 @@ export function WBSTable({
                               cellMarqueeKeySet={cellMarqueeKeySet}
                               pastedCellKeySet={pastedCellKeySet}
                               commitCellMarquee={commitCellMarquee}
-                              isShiftModifierActive={() => shiftKeyHeldRef.current}
+                              isShiftModifierActive={isShiftModifierActive}
                             />
                             {inlineAddingTaskId === task.id && (
                               <div className="data-row bg-indigo-50/60 border-dashed" style={gridStyle}>

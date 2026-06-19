@@ -32,24 +32,46 @@ export const TASK_OPTIONAL_DB_COLUMNS = new Set<string>([
   'planned_progress_override',
 ]);
 
-async function fetchAllTaskRowsPages(projectId: string | null): Promise<TaskRow[]> {
+/** tasks 목록 SELECT 필터: 전체(null) / 단일 프로젝트 / 다중 프로젝트(IN 배치) */
+type TaskProjectFilter = string | string[] | null;
+
+/** 세션에서 누락 확인된 컬럼을 처음부터 제외한 목록 SELECT (조회마다 같은 폴백 반복 방지) */
+function taskListColumnsForSession(): string {
+  if (detectedMissingTaskColumns.size === 0) return TASK_LIST_COLUMNS;
+  let cols = TASK_LIST_COLUMNS;
+  for (const c of detectedMissingTaskColumns) cols = stripSelectListColumn(cols, c);
+  return cols;
+}
+
+/** tasks 한 페이지 쿼리 빌드 — 필터(전체/단일/IN 배치) 적용. Supabase 빌더 타입을 그대로 흘려보낸다. */
+function buildTaskRowsPageQuery(columns: string, filter: TaskProjectFilter, offset: number) {
+  let qb = supabase!.from('tasks').select(columns);
+  if (filter != null) {
+    if (Array.isArray(filter)) {
+      if (filter.length > 0) qb = qb.in('project_id', filter);
+    } else {
+      qb = qb.eq('project_id', filter);
+    }
+  }
+  return qb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+}
+
+async function fetchAllTaskRowsPages(filter: TaskProjectFilter): Promise<TaskRow[]> {
   requireSupabase();
   const all: TaskRow[] = [];
   let offset = 0;
-  let taskListColumns = TASK_LIST_COLUMNS;
+  // 세션 캐시 기준으로 시작 → 마이그레이션 미적용 환경에서도 매 페이지 재탐지 왕복을 줄인다.
+  let taskListColumns = taskListColumnsForSession();
   while (true) {
-    let qb = supabase!.from('tasks').select(taskListColumns);
-    if (projectId) qb = qb.eq('project_id', projectId);
-    let { data, error } = await qb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+    let { data, error } = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
     for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
       const missing = getMissingColumnNameFromPgrst204(error);
       if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
       const nextCols = stripSelectListColumn(taskListColumns, missing);
       if (nextCols === taskListColumns) break;
       taskListColumns = nextCols;
-      let retryQb = supabase!.from('tasks').select(taskListColumns);
-      if (projectId) retryQb = retryQb.eq('project_id', projectId);
-      const retry = await retryQb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+      detectedMissingTaskColumns.add(missing.toLowerCase()); // 세션 캐시 → 이후 조회·업서트 모두 처음부터 제외
+      const retry = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
       data = retry.data as unknown as typeof data;
       error = retry.error;
     }
@@ -191,15 +213,12 @@ export async function fetchTaskRows(): Promise<TaskRow[]> {
   return fetchAllTaskRowsPages(null);
 }
 
-/** 지정 프로젝트들의 작업만 서버에서 가져옴(수동 저장·current 동기화 시 egress·지연 절감). */
+/** 지정 프로젝트들의 작업만 서버에서 가져옴(수동 저장·current 동기화 시 egress·지연 절감).
+ *  프로젝트마다 개별 쿼리(N+1) 대신 project_id IN (...) 단일 페이지네이션으로 왕복을 줄인다. */
 export async function fetchTaskRowsForProjectIds(projectIds: string[]): Promise<TaskRow[]> {
   const ids = Array.from(new Set(projectIds.filter(Boolean)));
   if (ids.length === 0) return [];
-  const combined: TaskRow[] = [];
-  for (const projectId of ids) {
-    combined.push(...(await fetchAllTaskRowsPages(projectId)));
-  }
-  return combined;
+  return fetchAllTaskRowsPages(ids);
 }
 
 /** 단일 작업 저장. 동시 수정 시 conflict: true 반환(낙관적 잠금). */

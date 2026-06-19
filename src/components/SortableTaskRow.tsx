@@ -2437,4 +2437,7 @@ function DepsPortalDropdown({
   );
 }
 
-export const SortableTaskRow = SortableTaskRowInner;
+// 기본 얕은 비교 memo: 부모(WBSTable)가 무관한 상태로 리렌더될 때(스크롤·가상화 갱신 등)
+// props가 모두 참조 동일이면 이 행은 리렌더를 건너뛴다. 기본 비교라 stale 위험 없음
+// (props가 바뀌면 그대로 리렌더). WBSTable은 행 핸들러를 useCallback/useMemo로 안정화함.
+export const SortableTaskRow = React.memo(SortableTaskRowInner);
