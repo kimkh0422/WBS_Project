@@ -8,7 +8,16 @@ export type WbsCacheMeta = {
   savedAt: number;
   projectCount: number;
   taskCount: number;
+  /** 마지막 서버 풀(전체·증분) 시각 — 재방문 시 불필요한 전체 fetch 생략 판단용 */
+  lastServerPullAt?: number;
 };
+
+/** 로컬 캐시가 최근에 저장됐고 작업 데이터가 있으면 true (서버 전체 작업 fetch 생략 후보) */
+export function isWbsLocalCacheFresh(meta: WbsCacheMeta | null, userId: string, maxAgeMs = 3 * 60 * 1000): boolean {
+  if (!meta || meta.userId !== userId) return false;
+  if (meta.taskCount <= 0) return false;
+  return Date.now() - meta.savedAt < maxAgeMs;
+}
 
 export function readWbsCacheMeta(): WbsCacheMeta | null {
   let raw: string | null = null;
@@ -27,6 +36,8 @@ export function readWbsCacheMeta(): WbsCacheMeta | null {
       savedAt: parsed.savedAt,
       projectCount: typeof parsed.projectCount === 'number' ? parsed.projectCount : 0,
       taskCount: typeof parsed.taskCount === 'number' ? parsed.taskCount : 0,
+      lastServerPullAt:
+        typeof parsed.lastServerPullAt === 'number' && Number.isFinite(parsed.lastServerPullAt) ? parsed.lastServerPullAt : undefined,
     };
   } catch {
     return null;

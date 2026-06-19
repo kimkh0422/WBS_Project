@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from '../components/Toast';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { readWbsCacheMeta } from '../lib/persist';
 
 const WBS_INITIAL_DB_SYNC_ONCE_KEY = 'wbs.initial-db-sync.once.done';
 
@@ -56,6 +57,13 @@ export function useInitialDbSync({ isLoading, syncWithDb }: UseInitialDbSyncPara
     }
     if (!isSupabaseConfigured) return;
     if (isLoading) return;
+    const cacheMeta = readWbsCacheMeta();
+    // 유효한 로컬 캐시가 있으면 초기 풀동기화 생략 — WBSContext 백그라운드 갱신이 처리
+    if (cacheMeta && cacheMeta.taskCount > 0 && Date.now() - cacheMeta.savedAt < 24 * 60 * 60 * 1000) {
+      initialDbSyncDoneRef.current = true;
+      window.localStorage.setItem(WBS_INITIAL_DB_SYNC_ONCE_KEY, '1');
+      return;
+    }
     initialDbSyncDoneRef.current = true;
     void (async () => {
       const ok = await executeDbSync('all');

@@ -3,8 +3,7 @@ import { Task, Project, ProjectAssignment } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { BackupData } from '../lib/export';
 import { format, isValid, parseISO } from 'date-fns';
-import { buildChildrenByParent } from '../lib/taskView';
-import { getTopologicalOrder } from '../lib/schedule';
+import { buildChildrenByParent, compareTasksForWbsSiblingOrder } from '../lib/taskView';
 import { getHolidaysForTaskDates } from '../lib/calendar';
 import {
   upsertProject,
@@ -14,6 +13,7 @@ import {
   fetchProjects,
   fetchTaskRows,
   fetchTaskRowsForProjectIds,
+  fetchTaskRowsUpdatedSince,
   fetchSettings,
   fetchSettingsRow,
   fromTaskRow,
@@ -26,6 +26,7 @@ import {
   mergeProjectsDelta,
   mergeTasksDelta,
   mergeInitialDbPayloadWithLocalPreview,
+  applyIncrementalTaskRowChanges,
   deleteProjectFromDB,
   deleteTasksFromDB,
   restoreBackupToDB,
@@ -39,6 +40,7 @@ import {
   clearInitBlankSessionFlag,
   readWbsCacheMeta,
   writeWbsCacheMeta,
+  isWbsLocalCacheFresh,
 } from '../lib/persist';
 import { supabase, isSupabaseConfigured, type TaskRow, type ProjectRow, type SettingsRow } from '../lib/supabase';
 import { isRealtimeMinimized } from '../lib/realtimePolicy';
@@ -77,6 +79,12 @@ const WBSContext = createContext<WBSContextType | undefined>(undefined);
 const INITIAL_DB_PROJECTS_SETTINGS_TIMEOUT_MS = 30000;
 /** 전체 작업 페이지네이션은 수십 초 걸릴 수 있음 — 목록만 별도 한도 */
 const INITIAL_DB_TASKS_TIMEOUT_MS = 120000;
+/** 로컬 캐시가 이 시간 이내면 재방문 시 서버 전체 작업 fetch 생략(프로젝트·설정만 경량 갱신) */
+const LOCAL_CACHE_FRESH_MS = 3 * 60 * 1000;
+/** 이 시간 이내 풀이 있었으면 작업은 updated_at 증분 조회만 */
+const INCREMENTAL_PULL_MAX_AGE_MS = 20 * 60 * 1000;
+/** 증분 풀만 쓴 뒤 이 시간이 지나면 전체 fetch로 삭제·순서까지 재동기화 */
+const FULL_PULL_INTERVAL_MS = 30 * 60 * 1000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -223,6 +231,8 @@ export function WBSProvider({
   onLocalPersistIssueRef.current = onLocalPersistIssue;
   const localPersistIssueWarnedRef = useRef(false);
   const serverPullFromDbRef = useRef<() => Promise<void>>(async () => {});
+  const lastServerPullAtRef = useRef(0);
+  const recordServerPullAtRef = useRef(() => {});
   const allTasksRef = useRef<Task[]>([]);
   const deletedTaskIdsByProjectRef = useRef<Record<string, string[]>>({});
   deletedTaskIdsByProjectRef.current = deletedTaskIdsByProject;
@@ -233,6 +243,21 @@ export function WBSProvider({
   const lastConflictRef = useRef<number>(0);
   const CONFLICT_DEBOUNCE_MS = 2000;
   const initNewProjectPromiseRef = useRef<Promise<Project | null> | null>(null);
+
+  recordServerPullAtRef.current = () => {
+    const now = Date.now();
+    lastServerPullAtRef.current = now;
+    const meta = readWbsCacheMeta();
+    if (user?.id) {
+      writeWbsCacheMeta({
+        userId: user.id,
+        savedAt: meta?.savedAt ?? now,
+        projectCount: projectsRef.current.length,
+        taskCount: allTasksRef.current.length,
+        lastServerPullAt: now,
+      });
+    }
+  };
 
   const ownerId = user?.id ?? undefined;
   const ownerIdRef = useRef<string | undefined>(undefined);
@@ -504,6 +529,12 @@ export function WBSProvider({
               'Initial DB projects/settings',
             );
             const dbTasksPromise = withTimeout(fetchTaskRows(), INITIAL_DB_TASKS_TIMEOUT_MS, 'Initial DB tasks');
+            const savedCurrentEarly = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
+            const priorityProjectId = savedCurrentEarly && savedCurrentEarly !== 'all' ? savedCurrentEarly : null;
+            const priorityTasksPromise = priorityProjectId
+              ? withTimeout(fetchTaskRowsForProjectIds([priorityProjectId]), INITIAL_DB_TASKS_TIMEOUT_MS, 'Initial DB priority tasks')
+              : null;
+            const cacheFreshForUser = isWbsLocalCacheFresh(cacheMeta, user.id, LOCAL_CACHE_FRESH_MS);
 
             let localSettings = DEFAULT_SETTINGS;
             let pendingDeletedTasks: Record<string, string[]> = {};
@@ -672,10 +703,40 @@ export function WBSProvider({
               void (async () => {
                 try {
                   const [dbProjects, dbSettings] = await dbProjectsSettingsPromise;
+                  if (!ownsLoad()) return;
+                  if (hasLocalChangesSinceSyncRef.current) return;
+                  if (cacheFreshForUser) {
+                    const filteredDbProjects = dbProjects.filter((p) => !pendingDeletedProjIdSet.has(p.id));
+                    if (Array.isArray(dbProjects) && filteredDbProjects.length > 0) {
+                      const { merged: mergedProjects, replacedFromServer: pReplaced } = mergeProjectsDelta(
+                        projectsRef.current,
+                        filteredDbProjects,
+                      );
+                      if (pReplaced > 0) setProjects(mergedProjects);
+                      if (dbSettings) {
+                        const partial = dbSettings as Partial<WBSSettings>;
+                        let settingsChanged = false;
+                        for (const k of Object.keys(partial) as Array<keyof WBSSettings>) {
+                          const a = (wbsSettingsRef.current as Record<string, unknown>)[k as string];
+                          const b = (partial as Record<string, unknown>)[k as string];
+                          if (a === b) continue;
+                          if (JSON.stringify(a) !== JSON.stringify(b)) {
+                            settingsChanged = true;
+                            break;
+                          }
+                        }
+                        if (settingsChanged) {
+                          setWbsSettings((prev) => parseSettings({ ...localSettings, ...prev, ...dbSettings }));
+                        }
+                      }
+                    }
+                    return;
+                  }
                   const dbTaskRows = await dbTasksPromise;
                   if (!ownsLoad()) return;
                   if (hasLocalChangesSinceSyncRef.current) return;
                   applyServerPayload(dbProjects, dbTaskRows, dbSettings, true);
+                  recordServerPullAtRef.current();
                 } catch (e) {
                   if (!ownsLoad()) return;
                   if (import.meta.env.DEV) console.warn('[DB] background cache refresh failed', e);
@@ -685,22 +746,47 @@ export function WBSProvider({
             }
 
             void dbProjectsSettingsPromise
-              .then(([dbProjects, dbSettings]) => {
+              .then(async ([dbProjects, dbSettings]) => {
                 if (!ownsLoad() || earlyUiShown) return;
                 if (!Array.isArray(dbProjects)) return;
                 const filteredDbProjects = dbProjects.filter((p) => !pendingDeletedProjIdSet.has(p.id));
                 if (filteredDbProjects.length === 0) return;
                 earlyUiShown = true;
                 const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
-                hydrateFromCache(filteredDbProjects, effectiveSettings, []);
+                let priorityTasks: Task[] = [];
+                if (priorityTasksPromise) {
+                  try {
+                    const rows = await priorityTasksPromise;
+                    priorityTasks = rows.map(fromTaskRow);
+                  } catch {
+                    /* 전체 작업 fetch가 이어짐 */
+                  }
+                }
+                hydrateFromCache(filteredDbProjects, effectiveSettings, priorityTasks);
                 setIsLoading(false);
               })
               .catch(() => {});
 
             const [dbProjects, dbSettings] = await dbProjectsSettingsPromise;
-            const dbTaskRows = await dbTasksPromise;
             if (!ownsLoad()) return;
-            applyServerPayload(dbProjects, dbTaskRows, dbSettings, earlyUiShown);
+            if (earlyUiShown) {
+              void (async () => {
+                try {
+                  const dbTaskRows = await dbTasksPromise;
+                  if (!ownsLoad() || hasLocalChangesSinceSyncRef.current) return;
+                  applyServerPayload(dbProjects, dbTaskRows, dbSettings, true);
+                  recordServerPullAtRef.current();
+                } catch (e) {
+                  if (!ownsLoad()) return;
+                  if (import.meta.env.DEV) console.warn('[DB] background full tasks refresh failed', e);
+                }
+              })();
+            } else {
+              const dbTaskRows = await dbTasksPromise;
+              if (!ownsLoad()) return;
+              applyServerPayload(dbProjects, dbTaskRows, dbSettings, false);
+              recordServerPullAtRef.current();
+            }
           } catch (e) {
             if (!ownsLoad()) return;
             handleDbErrorRef.current(e, 'DB에서 불러오지 못했습니다. 이 기기에 저장된 데이터를 표시합니다.');
@@ -776,6 +862,13 @@ export function WBSProvider({
     };
   }, [useLocalOnly, user?.id]);
 
+  useEffect(() => {
+    const meta = readWbsCacheMeta();
+    if (meta?.lastServerPullAt && meta.userId === user?.id) {
+      lastServerPullAtRef.current = meta.lastServerPullAt;
+    }
+  }, [user?.id]);
+
   // ─── 로컬 저장 (IndexedDB/localStorage) ────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
@@ -807,6 +900,7 @@ export function WBSProvider({
             savedAt: Date.now(),
             projectCount: projects.length,
             taskCount: allTasks.length,
+            lastServerPullAt: lastServerPullAtRef.current > 0 ? lastServerPullAtRef.current : undefined,
           });
         }
         const keys: PersistKey[] = ['wbs-projects', 'wbs-tasks', 'wbs-settings', 'wbs-deleted-task-ids', 'wbs-deleted-project-ids'];
@@ -1021,9 +1115,23 @@ export function WBSProvider({
       return;
     }
     try {
-      const [dbProjects, dbTaskRows, dbSettings] = await Promise.all([fetchProjects(), fetchTaskRows(), fetchSettings()]);
+      const meta = readWbsCacheMeta();
+      const lastPull = Math.max(lastServerPullAtRef.current, meta?.lastServerPullAt ?? 0);
+      const useIncremental = lastPull > 0 && Date.now() - lastPull < INCREMENTAL_PULL_MAX_AGE_MS;
+      const useFullTasks = !useIncremental || Date.now() - lastPull >= FULL_PULL_INTERVAL_MS;
+
+      const [dbProjects, dbSettings] = await Promise.all([fetchProjects(), fetchSettings()]);
       if (hasLocalChangesSinceSyncRef.current) return;
       if (!Array.isArray(dbProjects)) return;
+
+      let dbTaskRows: TaskRow[] | null = null;
+      if (useFullTasks) {
+        dbTaskRows = await fetchTaskRows();
+      } else {
+        const sinceIso = new Date(lastPull - 3000).toISOString();
+        dbTaskRows = await fetchTaskRowsUpdatedSince(sinceIso);
+      }
+      if (hasLocalChangesSinceSyncRef.current) return;
 
       // 로컬에서 삭제했는데 DB DELETE가 아직 반영되기 전인 프로젝트는 풀 결과에서 제외한다.
       // (deleteProject는 bumpDirty를 하지 않아 hasLocalChangesSinceSync가 false인 채 주기 풀이 돌 수 있음)
@@ -1047,7 +1155,18 @@ export function WBSProvider({
       const rows = (Array.isArray(dbTaskRows) ? dbTaskRows : []).filter(
         (r: TaskRow) => !omitProjectIdsForPull.has(String(r.project_id ?? '')),
       );
-      const { merged: mergedTasks, replacedFromServer: tReplaced } = mergeTasksDelta(prevTasks, rows, serverPidSet);
+      let mergedTasks: Task[];
+      let tReplaced = 0;
+      if (useFullTasks) {
+        const delta = mergeTasksDelta(prevTasks, rows, serverPidSet);
+        mergedTasks = delta.merged;
+        tReplaced = delta.replacedFromServer;
+      } else if (rows.length === 0) {
+        mergedTasks = prevTasks;
+      } else {
+        mergedTasks = applyIncrementalTaskRowChanges(prevTasks, rows);
+        tReplaced = rows.length;
+      }
       // 아직 DB에 반영 안 된 삭제 목록을 풀 결과에서도 제외 (미완료 삭제가 풀로 되살아나지 않도록)
       const pendingDelIdSet = new Set(Object.values(deletedTaskIdsByProjectRef.current).flat());
       const finalMergedTasks = pendingDelIdSet.size > 0 ? mergedTasks.filter((t) => !pendingDelIdSet.has(t.id)) : mergedTasks;
@@ -1093,12 +1212,12 @@ export function WBSProvider({
           '';
         if (valid) setCurrentProjectId(valid);
       }
+      recordServerPullAtRef.current();
     } catch {
       /* 다음 주기 재시도 */
     }
   };
 
-  const lastServerPullAtRef = useRef(0);
   const appReadyAtRef = useRef(0);
   useEffect(() => {
     if (!isLoading) appReadyAtRef.current = Date.now();
@@ -1421,7 +1540,7 @@ export function WBSProvider({
         };
         window.setTimeout(() => {
           if (hasLocalChangesSinceSyncRef.current) return;
-          lastServerPullAtRef.current = Date.now();
+          recordServerPullAtRef.current();
           void serverPullFromDbRef.current();
         }, 500);
         return { projects: workingProjects, allTasks: workingTasks, summary };
@@ -1587,7 +1706,7 @@ export function WBSProvider({
       setHasLocalChangesSinceSync(false);
       // 폐기 직후 `ensureProjectTopLevelNameInTasks` 보정만으로 bumpDirty 하면
       // hasLocalChangesSinceSync가 다시 true가 되어 뷰 전환 모달이 연속으로 뜬다.
-      lastServerPullAtRef.current = Date.now();
+      recordServerPullAtRef.current();
     } catch (e) {
       handleDbError(e, '서버에서 최신 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
       throw e;
@@ -1646,18 +1765,12 @@ export function WBSProvider({
     const childrenByParent = buildChildrenByParent(tasks);
     const projectById = new Map<string, Project>(projects.map((p) => [p.id, p]));
 
-    const topoOrder = getTopologicalOrder(tasks);
-    const topoIndex = new Map<string, number>();
-    topoOrder.forEach((id, i) => topoIndex.set(id, i));
     const childrenByParentSorted = new Map<string | null, Task[]>();
     childrenByParent.forEach((children, parentId) => {
-      const sorted = [...children].sort((a, b) => {
-        const tiA = topoIndex.get(a.id) ?? 1e9;
-        const tiB = topoIndex.get(b.id) ?? 1e9;
-        if (tiA !== tiB) return tiA - tiB;
-        return (a.startDate || '').localeCompare(b.startDate || '');
-      });
-      childrenByParentSorted.set(parentId, sorted);
+      childrenByParentSorted.set(
+        parentId,
+        [...children].sort((a, b) => compareTasksForWbsSiblingOrder(a, b, tasks)),
+      );
     });
 
     const buildWbs = (parentId: string | null, parentPrefixStr: string, depth: number) => {

@@ -247,7 +247,8 @@ export function mergeTasksDelta(
   const lm = new Map(local.map((t) => [t.id, t]));
   const replacedByProject: Record<string, number> = {};
   const out: Task[] = [];
-  for (const row of serverRows) {
+  const orderedRows = [...serverRows].sort((a, b) => a.sort_order - b.sort_order);
+  for (const row of orderedRows) {
     const st = fromTaskRow(row);
     const lt = lm.get(st.id);
     const contentMatch = lt && taskContentFingerprint(toTaskRow(lt, row.sort_order)) === taskContentFingerprint(row);
@@ -265,4 +266,39 @@ export function mergeTasksDelta(
     out.push(lt);
   }
   return { merged: out, replacedFromServer: Object.values(replacedByProject).reduce((a, b) => a + b, 0), replacedByProject };
+}
+
+/**
+ * 증분 서버 풀용: 변경된 작업 행만 로컬 목록에 반영(추가·수정).
+ * 삭제 동기화는 주기적 전체 fetch로 보완한다.
+ */
+export function applyIncrementalTaskRowChanges(local: Task[], changedRows: TaskRow[]): Task[] {
+  if (changedRows.length === 0) return local;
+  const changedIdSet = new Set(changedRows.map((r) => r.id));
+  const localIdSet = new Set(local.map((t) => t.id));
+  const byId = new Map(local.map((t) => [t.id, t] as const));
+
+  for (const row of changedRows) {
+    const st = fromTaskRow(row);
+    const lt = byId.get(st.id);
+    byId.set(st.id, lt ? { ...st, expanded: lt.expanded } : st);
+  }
+
+  const out: Task[] = [];
+  const seen = new Set<string>();
+  for (const t of local) {
+    if (changedIdSet.has(t.id)) {
+      out.push(byId.get(t.id)!);
+      seen.add(t.id);
+    } else {
+      out.push(t);
+    }
+  }
+  const newRows = [...changedRows].filter((r) => !localIdSet.has(r.id)).sort((a, b) => a.sort_order - b.sort_order);
+  for (const row of newRows) {
+    if (seen.has(row.id)) continue;
+    out.push(byId.get(row.id)!);
+    seen.add(row.id);
+  }
+  return out;
 }

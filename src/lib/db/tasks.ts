@@ -8,6 +8,8 @@ import type { AuditAction } from './audit';
 
 /** Supabase/PostgREST 기본 행 제한(1000). 이 이상은 페이지네이션으로 가져옴. */
 const TASKS_PAGE_SIZE = 1000;
+/** 첫 페이지 이후 병렬로 가져올 페이지 수 — 왕복 지연 절감 */
+const TASKS_PARALLEL_PAGES = 4;
 
 /** 목록·동기화 비교용 tasks SELECT (fetchTaskRows / fetchTaskRowsForProjectIds 공통) */
 const TASK_LIST_COLUMNS =
@@ -56,26 +58,86 @@ function buildTaskRowsPageQuery(columns: string, filter: TaskProjectFilter, offs
   return qb.order('sort_order', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
 }
 
+/** 단일 페이지 조회 + optional 컬럼 PGRST204 폴백. 반환 columns는 이후 페이지에 재사용. */
+async function fetchTaskRowsSinglePage(
+  filter: TaskProjectFilter,
+  offset: number,
+  columns: string,
+): Promise<{ rows: TaskRow[]; columns: string }> {
+  let taskListColumns = columns;
+  let { data, error } = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
+  for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
+    const missing = getMissingColumnNameFromPgrst204(error);
+    if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
+    const nextCols = stripSelectListColumn(taskListColumns, missing);
+    if (nextCols === taskListColumns) break;
+    taskListColumns = nextCols;
+    detectedMissingTaskColumns.add(missing.toLowerCase());
+    const retry = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
+    data = retry.data as unknown as typeof data;
+    error = retry.error;
+  }
+  if (error) throw error;
+  return { rows: (data ?? []) as unknown as TaskRow[], columns: taskListColumns };
+}
+
 async function fetchAllTaskRowsPages(filter: TaskProjectFilter): Promise<TaskRow[]> {
   requireSupabase();
+  let columns = taskListColumnsForSession();
+  const first = await fetchTaskRowsSinglePage(filter, 0, columns);
+  columns = first.columns;
+  const all = [...first.rows];
+  if (first.rows.length < TASKS_PAGE_SIZE) return all;
+
+  let offset = TASKS_PAGE_SIZE;
+  while (true) {
+    const offsets = Array.from({ length: TASKS_PARALLEL_PAGES }, (_, i) => offset + i * TASKS_PAGE_SIZE);
+    const pages = await Promise.all(offsets.map((o) => fetchTaskRowsSinglePage(filter, o, columns)));
+    let gotPartial = false;
+    for (const page of pages) {
+      all.push(...page.rows);
+      if (page.rows.length < TASKS_PAGE_SIZE) gotPartial = true;
+    }
+    if (gotPartial) break;
+    offset += TASKS_PARALLEL_PAGES * TASKS_PAGE_SIZE;
+  }
+  return all;
+}
+
+function buildTaskRowsUpdatedSinceQuery(columns: string, filter: TaskProjectFilter, sinceIso: string, offset: number) {
+  let qb = supabase!.from('tasks').select(columns).gt('updated_at', sinceIso);
+  if (filter != null) {
+    if (Array.isArray(filter)) {
+      if (filter.length > 0) qb = qb.in('project_id', filter);
+    } else {
+      qb = qb.eq('project_id', filter);
+    }
+  }
+  return qb.order('updated_at', { ascending: true }).range(offset, offset + TASKS_PAGE_SIZE - 1);
+}
+
+/** updated_at이 sinceIso 이후인 작업만 조회 — 주기 풀·백그라운드 갱신 시 전체 fetch 대체 */
+export async function fetchTaskRowsUpdatedSince(sinceIso: string, filter: TaskProjectFilter = null): Promise<TaskRow[]> {
+  requireSupabase();
+  let columns = taskListColumnsForSession();
   const all: TaskRow[] = [];
   let offset = 0;
-  // 세션 캐시 기준으로 시작 → 마이그레이션 미적용 환경에서도 매 페이지 재탐지 왕복을 줄인다.
-  let taskListColumns = taskListColumnsForSession();
   while (true) {
-    let { data, error } = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
+    let taskListColumns = columns;
+    let { data, error } = await buildTaskRowsUpdatedSinceQuery(taskListColumns, filter, sinceIso, offset);
     for (let fix = 0; fix < TASK_OPTIONAL_DB_COLUMNS.size + 2 && error; fix++) {
       const missing = getMissingColumnNameFromPgrst204(error);
       if (!missing || !TASK_OPTIONAL_DB_COLUMNS.has(missing.toLowerCase())) break;
       const nextCols = stripSelectListColumn(taskListColumns, missing);
       if (nextCols === taskListColumns) break;
       taskListColumns = nextCols;
-      detectedMissingTaskColumns.add(missing.toLowerCase()); // 세션 캐시 → 이후 조회·업서트 모두 처음부터 제외
-      const retry = await buildTaskRowsPageQuery(taskListColumns, filter, offset);
+      detectedMissingTaskColumns.add(missing.toLowerCase());
+      const retry = await buildTaskRowsUpdatedSinceQuery(taskListColumns, filter, sinceIso, offset);
       data = retry.data as unknown as typeof data;
       error = retry.error;
     }
     if (error) throw error;
+    columns = taskListColumns;
     const page = (data ?? []) as unknown as TaskRow[];
     all.push(...page);
     if (page.length < TASKS_PAGE_SIZE) break;

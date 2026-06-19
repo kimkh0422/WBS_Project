@@ -54,6 +54,43 @@ function normalizeParentIdForReorder(parentId: Task['parentId']): string | null 
 
 const parentKey = (t: Task) => normalizeParentIdForReorder(t.parentId);
 
+/** Alt+↑↓: 표시 순서 기준 형제와 평탄 배열에서 스왑할 인덱스 쌍 */
+export function findSiblingSwapIndicesInFlatList(
+  flatTasks: Task[],
+  projectId: string,
+  taskId: string,
+  direction: 'up' | 'down',
+  projects: Project[],
+): { iA: number; iB: number } | null {
+  const projectTasks = flatTasks.filter((t) => t.projectId === projectId);
+  const task = projectTasks.find((t) => t.id === taskId);
+  if (!task) return null;
+
+  const stableIds = stableVisibleIdsForMovement(projectTasks, projects);
+  const visIdx = (tid: string) => {
+    const i = stableIds.indexOf(tid);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const pKey = parentKey(task);
+  const siblings = projectTasks.filter((t) => parentKey(t) === pKey);
+  siblings.sort((a, b) => visIdx(a.id) - visIdx(b.id));
+  const idx = siblings.findIndex((t) => t.id === taskId);
+  if (idx === -1) return null;
+  const swapWith = direction === 'up' ? siblings[idx - 1] : siblings[idx + 1];
+  if (!swapWith) return null;
+
+  const iA = flatTasks.findIndex((t) => t.id === taskId);
+  const iB = flatTasks.findIndex((t) => t.id === swapWith.id);
+  if (iA === -1 || iB === -1 || iA === iB) return null;
+  return { iA, iB };
+}
+
+export function swapTasksAtIndices(flatTasks: Task[], iA: number, iB: number): Task[] {
+  const next = [...flatTasks];
+  [next[iA], next[iB]] = [next[iB]!, next[iA]!];
+  return next;
+}
+
 /**
  * Tab 다중 들여쓰기: 같은 부모·형제 목록에서 표시 순으로 붙어 있는 선택 행은 한 구간으로 묶고,
  * 구간 전체의 parentId를 "구간 첫 행의 바로 위 형제"로 맞춘다. 역순으로 한 행씩 들이면
@@ -225,31 +262,16 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       const changedRef = { current: false };
       setAllTasks((prev) => {
         const cpi = currentProjectIdRef.current;
-        const projectTasks = prev.filter((t) => t.projectId === cpi);
-        const otherTasks = prev.filter((t) => t.projectId !== cpi);
-        const task = projectTasks.find((t) => t.id === id);
-        if (!task) return prev;
-        const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
-        const idx = siblings.findIndex((t) => t.id === id);
-        const newProjectTasks = [...projectTasks];
-        if (direction === 'up' && idx > 0) {
-          const iA = projectTasks.findIndex((t) => t.id === task.id);
-          const iB = projectTasks.findIndex((t) => t.id === siblings[idx - 1].id);
-          [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB], newProjectTasks[iA]];
-        } else if (direction === 'down' && idx < siblings.length - 1) {
-          const iA = projectTasks.findIndex((t) => t.id === task.id);
-          const iB = projectTasks.findIndex((t) => t.id === siblings[idx + 1].id);
-          [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB], newProjectTasks[iA]];
-        } else return prev;
+        const swap = findSiblingSwapIndicesInFlatList(prev, cpi, id, direction, projectsRef.current);
+        if (!swap) return prev;
         changedRef.current = true;
-        return [...otherTasks, ...newProjectTasks];
+        return swapTasksAtIndices(prev, swap.iA, swap.iB);
       });
       if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
-  /** Alt+↑↓ 다중 선택: 형제 스왑을 여러 번 하더라도 히스토리·setState는 1회(순서대로 누적 적용). */
   const applySiblingMoveSteps = useCallback(
     (steps: ReadonlyArray<{ id: string; direction: 'up' | 'down' }>) => {
       if (steps.length === 0) return;
@@ -257,37 +279,18 @@ export function useTaskMovement(deps: TaskMovementDeps) {
       const changedRef = { current: false };
       setAllTasks((prev) => {
         let work = prev;
+        const cpi = currentProjectIdRef.current;
         for (const step of steps) {
-          const cpi = currentProjectIdRef.current;
-          const projectTasks = work.filter((t) => t.projectId === cpi);
-          const otherTasks = work.filter((t) => t.projectId !== cpi);
-          const task = projectTasks.find((t) => t.id === step.id);
-          if (!task) continue;
-          const siblings = projectTasks.filter((t) => t.parentId === task.parentId);
-          const idx = siblings.findIndex((t) => t.id === step.id);
-          const newProjectTasks = [...projectTasks];
-          let swapped = false;
-          if (step.direction === 'up' && idx > 0) {
-            const iA = projectTasks.findIndex((t) => t.id === task.id);
-            const iB = projectTasks.findIndex((t) => t.id === siblings[idx - 1]!.id);
-            [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB]!, newProjectTasks[iA]!];
-            swapped = true;
-          } else if (step.direction === 'down' && idx >= 0 && idx < siblings.length - 1) {
-            const iA = projectTasks.findIndex((t) => t.id === task.id);
-            const iB = projectTasks.findIndex((t) => t.id === siblings[idx + 1]!.id);
-            [newProjectTasks[iA], newProjectTasks[iB]] = [newProjectTasks[iB]!, newProjectTasks[iA]!];
-            swapped = true;
-          }
-          if (swapped) {
-            changedRef.current = true;
-            work = [...otherTasks, ...newProjectTasks];
-          }
+          const swap = findSiblingSwapIndicesInFlatList(work, cpi, step.id, step.direction, projectsRef.current);
+          if (!swap) continue;
+          changedRef.current = true;
+          work = swapTasksAtIndices(work, swap.iA, swap.iB);
         }
         return work;
       });
       if (changedRef.current) bumpDirty();
     },
-    [saveHistory, setAllTasks, currentProjectIdRef, bumpDirty],
+    [saveHistory, setAllTasks, currentProjectIdRef, projectsRef, bumpDirty],
   );
 
   const reorderTask = useCallback(

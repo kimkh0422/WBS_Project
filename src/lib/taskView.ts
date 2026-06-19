@@ -8,13 +8,28 @@ export type TaskWithDepth = Task & { depth: number };
 export type TaskWithWbs = { task: Task; depth: number; wbsCode: string };
 
 /** `tasks` 배열에서 각 id가 처음 나타나는 인덱스 — 형제 표시 순·Alt+행 이동과 동기 */
-function buildFirstFlatIndexMap(tasks: Task[]): Map<string, number> {
+export function buildFirstFlatIndexMap(tasks: Task[]): Map<string, number> {
   const m = new Map<string, number>();
   for (let i = 0; i < tasks.length; i++) {
     const id = tasks[i]!.id;
     if (!m.has(id)) m.set(id, i);
   }
   return m;
+}
+
+/** 형제 작업 정렬 — 표·간트·WBS 번호·Alt+↑↓ 이동 공통(평탄 저장 순 우선) */
+export function compareTasksForWbsSiblingOrder(a: Task, b: Task, baseTasks: Task[]): number {
+  const flatIndex = buildFirstFlatIndexMap(baseTasks);
+  const topoOrder = getTopologicalOrder(baseTasks);
+  const topoIndex = new Map<string, number>();
+  topoOrder.forEach((id, i) => topoIndex.set(id, i));
+  const fiA = flatIndex.get(a.id) ?? 1e9;
+  const fiB = flatIndex.get(b.id) ?? 1e9;
+  if (fiA !== fiB) return fiA - fiB;
+  const tiA = topoIndex.get(a.id) ?? 1e9;
+  const tiB = topoIndex.get(b.id) ?? 1e9;
+  if (tiA !== tiB) return tiA - tiB;
+  return (a.startDate || '').localeCompare(b.startDate || '');
 }
 
 export type BuildTasksInTreeOrderOptions = {
@@ -24,20 +39,8 @@ export type BuildTasksInTreeOrderOptions = {
 
 export function buildTasksInTreeOrderWithWbs(tasks: Task[], options?: BuildTasksInTreeOrderOptions): TaskWithWbs[] {
   const childrenByParent = buildChildrenByParent(tasks);
-  const flatIndex = buildFirstFlatIndexMap(tasks);
-  const topoOrder = getTopologicalOrder(tasks);
-  const topoIndex = new Map<string, number>();
-  topoOrder.forEach((id, i) => topoIndex.set(id, i));
   for (const siblings of childrenByParent.values()) {
-    siblings.sort((a, b) => {
-      const fiA = flatIndex.get(a.id) ?? 1e9;
-      const fiB = flatIndex.get(b.id) ?? 1e9;
-      if (fiA !== fiB) return fiA - fiB;
-      const tiA = topoIndex.get(a.id) ?? 1e9;
-      const tiB = topoIndex.get(b.id) ?? 1e9;
-      if (tiA !== tiB) return tiA - tiB;
-      return (a.startDate || '').localeCompare(b.startDate || '');
-    });
+    siblings.sort((a, b) => compareTasksForWbsSiblingOrder(a, b, tasks));
   }
   const result: TaskWithWbs[] = [];
   const skipRoot = options?.isWbsTreeRootSkip;
@@ -273,20 +276,10 @@ function orderSiblingsForTree(
       siblings.sort(compare);
     }
   } else {
-    const flatIndex = buildFirstFlatIndexMap(baseTasks);
-    const topoOrder = getTopologicalOrder(baseTasks);
-    const topoIndex = new Map<string, number>();
-    topoOrder.forEach((id, i) => topoIndex.set(id, i));
     for (const siblings of childrenByParent.values()) {
       siblings.sort((a, b) => {
-        const fiA = flatIndex.get(a.id) ?? 1e9;
-        const fiB = flatIndex.get(b.id) ?? 1e9;
-        if (fiA !== fiB) return fiA - fiB;
-        const tiA = topoIndex.get(a.id) ?? 1e9;
-        const tiB = topoIndex.get(b.id) ?? 1e9;
-        if (tiA !== tiB) return tiA - tiB;
-        const sd = (a.startDate || '').localeCompare(b.startDate || '');
-        if (sd !== 0) return sd;
+        const base = compareTasksForWbsSiblingOrder(a, b, baseTasks);
+        if (base !== 0) return base;
         if (siblingTieBreak) {
           const ra = siblingTieBreak.get(a.id);
           const rb = siblingTieBreak.get(b.id);
