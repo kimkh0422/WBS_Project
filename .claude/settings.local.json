@@ -35,7 +35,8 @@
       "Bash(python -c \"import pptx; print\\('python-pptx version:', pptx.__version__\\)\")",
       "Bash(python scripts/build-company-intro-pptx.py)",
       "mcp__Claude_Preview__preview_start",
-      "PowerShell(npx vitest run src/lib/__tests__/cooperationPoints.test.ts 2>$null)"
+      "PowerShell(npx vitest run src/lib/__tests__/cooperationPoints.test.ts 2>$null)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")"
     ]
   }
 }

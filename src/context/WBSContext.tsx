@@ -485,29 +485,28 @@ export function WBSProvider({
 
       try {
         if (!skipDbUntilSync && !useLocalOnly && isSupabaseConfigured && supabase && user?.id) {
-          let earlyIdbHydration = false;
+          let earlyUiShown = false;
           try {
-            // IDB 읽기와 DB 조회를 동시에 시작한다. IDB가 먼저 끝나면(재방문) 캐시로 즉시 화면을 올려 스켈레톤을 건너뛴다.
-            const idbPromise = Promise.all([
+            // 로컬: 프로젝트·설정(가벼움)과 작업(대용량)을 분리해, 작업 파싱/IDB 읽기가 프로젝트 표시를 막지 않게 한다.
+            const idbTasksPromise = loadJsonWithIdbFallback<Task[]>('wbs-tasks');
+            const idbFastPromise = Promise.all([
               loadJsonWithIdbFallback<unknown>('wbs-settings'),
               loadJsonWithIdbFallback<Record<string, string[]>>('wbs-deleted-task-ids'),
               loadJsonWithIdbFallback<string[]>('wbs-deleted-project-ids'),
               loadJsonWithIdbFallback<Project[]>('wbs-projects'),
-              loadJsonWithIdbFallback<Task[]>('wbs-tasks'),
             ]);
-            const dbPromise = (async () => {
-              const [dbProjects, dbSettings] = await withTimeout(
-                Promise.all([fetchProjects(), fetchSettings()]),
-                INITIAL_DB_PROJECTS_SETTINGS_TIMEOUT_MS,
-                'Initial DB projects/settings',
-              );
-              const dbTaskRows = await withTimeout(fetchTaskRows(), INITIAL_DB_TASKS_TIMEOUT_MS, 'Initial DB tasks');
-              return [dbProjects, dbTaskRows, dbSettings] as const;
-            })();
+            // DB: 프로젝트·설정·작업을 동시에 시작(기존에는 작업 fetch가 프로젝트/설정 완료 후에만 시작됨).
+            const dbProjectsSettingsPromise = withTimeout(
+              Promise.all([fetchProjects(), fetchSettings()]),
+              INITIAL_DB_PROJECTS_SETTINGS_TIMEOUT_MS,
+              'Initial DB projects/settings',
+            );
+            const dbTasksPromise = withTimeout(fetchTaskRows(), INITIAL_DB_TASKS_TIMEOUT_MS, 'Initial DB tasks');
 
-            const [localSettingsRaw, savedDeleted, savedDeletedProjIds, idbProjectsRaw, idbTasksRaw] = await idbPromise;
+            const [localSettingsRaw, savedDeleted, savedDeletedProjIds, idbProjectsRaw] = await idbFastPromise;
             if (!ownsLoad()) {
-              void dbPromise.catch(() => {});
+              void dbProjectsSettingsPromise.catch(() => {});
+              void dbTasksPromise.catch(() => {});
               return;
             }
             const localSettings = parseSettings(localSettingsRaw);
@@ -515,28 +514,56 @@ export function WBSProvider({
             const pendingDeletedProjIdSet = new Set(Array.isArray(savedDeletedProjIds) ? savedDeletedProjIds : []);
             const pendingDeletedTaskIdSet = new Set(Object.values(pendingDeletedTasks).flat());
 
+            const applyProjectsSettingsShell = (projs: Project[], settings: WBSSettings) => {
+              setDeletedTaskIdsByProject(pendingDeletedTasks);
+              setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
+              setProjects(projs);
+              setAllTasks(
+                ensureTopThenRollupsRef.current(projs, [], settings.statusConfigs, {
+                  bumpOnEnsure: false,
+                }),
+              );
+              setWbsSettings(settings);
+              const savedCurrent = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
+              const validId = projs.find((p) => p.id === savedCurrent)?.id ?? projs[0]?.id ?? '';
+              if (validId) setCurrentProjectId(validId);
+            };
+
             if (isInitialLoad) {
               const cachedProjects = Array.isArray(idbProjectsRaw) ? idbProjectsRaw : [];
-              const cachedTasks = Array.isArray(idbTasksRaw) ? idbTasksRaw : [];
               if (cachedProjects.length > 0) {
-                earlyIdbHydration = true;
-                setDeletedTaskIdsByProject(pendingDeletedTasks);
-                setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
-                setProjects(cachedProjects);
-                setAllTasks(
-                  ensureTopThenRollupsRef.current(cachedProjects, cachedTasks, localSettings.statusConfigs, {
-                    bumpOnEnsure: false,
-                  }),
-                );
-                setWbsSettings(localSettings);
-                const savedCurrentEarly = localStorage.getItem('wbs-current-project') ?? sessionStorage.getItem('wbs-current-project');
-                const validIdEarly = cachedProjects.find((p) => p.id === savedCurrentEarly)?.id ?? cachedProjects[0]?.id ?? '';
-                if (validIdEarly) setCurrentProjectId(validIdEarly);
+                earlyUiShown = true;
+                applyProjectsSettingsShell(cachedProjects, localSettings);
                 setIsLoading(false);
+                void idbTasksPromise.then((idbTasksRaw) => {
+                  if (!ownsLoad()) return;
+                  const cachedTasks = Array.isArray(idbTasksRaw) ? idbTasksRaw : [];
+                  if (cachedTasks.length === 0) return;
+                  const projs = projectsRef.current;
+                  if (projs.length === 0) return;
+                  setAllTasks(
+                    ensureTopThenRollupsRef.current(projs, cachedTasks, wbsSettingsRef.current.statusConfigs, {
+                      bumpOnEnsure: false,
+                    }),
+                  );
+                });
               }
             }
 
-            const [dbProjects, dbTaskRows, dbSettings] = await dbPromise;
+            void dbProjectsSettingsPromise
+              .then(([dbProjects, dbSettings]) => {
+                if (!ownsLoad() || earlyUiShown) return;
+                if (!Array.isArray(dbProjects)) return;
+                const filteredDbProjects = dbProjects.filter((p) => !pendingDeletedProjIdSet.has(p.id));
+                if (filteredDbProjects.length === 0) return;
+                earlyUiShown = true;
+                applyProjectsSettingsShell(filteredDbProjects, mergeWbsSettingsWithDbPatch(localSettings, dbSettings));
+                setIsLoading(false);
+              })
+              .catch(() => {});
+
+            const [dbProjects, dbSettings] = await dbProjectsSettingsPromise;
+            const dbTaskRows = await dbTasksPromise;
             if (!ownsLoad()) return;
             setDeletedTaskIdsByProject(pendingDeletedTasks);
             setDeletedProjectIds(Array.from(pendingDeletedProjIdSet));
@@ -547,7 +574,7 @@ export function WBSProvider({
               const effectiveSettings = mergeWbsSettingsWithDbPatch(localSettings, dbSettings);
               const filteredDbTaskRows = (Array.isArray(dbTaskRows) ? dbTaskRows : []).filter((r) => !pendingDeletedTaskIdSet.has(r.id));
               const authoritativeProjectIds = new Set(filteredDbProjects.map((p) => p.id));
-              const tasksForRollup = earlyIdbHydration
+              const tasksForRollup = earlyUiShown
                 ? mergeInitialDbPayloadWithLocalPreview(allTasksRef.current, filteredDbTaskRows, authoritativeProjectIds)
                 : filteredDbTaskRows.map(fromTaskRow);
               setAllTasks(
@@ -583,7 +610,7 @@ export function WBSProvider({
           } catch (e) {
             if (!ownsLoad()) return;
             handleDbErrorRef.current(e, 'DB에서 불러오지 못했습니다. 이 기기에 저장된 데이터를 표시합니다.');
-            if (!earlyIdbHydration) {
+            if (!earlyUiShown) {
               await loadFromLocalOnly();
             }
           }

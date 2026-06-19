@@ -4,7 +4,7 @@ import { useToast } from '../components/Toast';
 import { useFocusTrap } from './useFocusTrap';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { formatProjectDisplayName } from '../lib/projectKind';
-import { labelForViewPath, viewSegmentFromPathname, type UnsavedViewLeaveMode } from '../lib/viewPathLabels';
+import { viewSegmentFromPathname, type UnsavedViewLeaveMode } from '../lib/viewPathLabels';
 import type { Project } from '../types';
 
 type PushChangesToDb = (scope: 'current' | 'all') => Promise<unknown>;
@@ -21,12 +21,9 @@ interface UseUnsavedChangesGuardParams {
 }
 
 /**
- * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 새로고침/닫기 경고,
- * 뷰(URL 첫 세그먼트) 전환·뒤로 가기 시 저장 여부 확인.
- * 프로젝트만 바꿀 때는 확인하지 않는다(화면 이탈 시에만).
- *
- * BrowserRouter 환경에서는 `useBlocker`를 쓸 수 없어, URL의 뷰 세그먼트가 바뀌는 시점에
- * `useLayoutEffect`로 한 번 되돌린 뒤 모달을 띄우고(깜빡임 최소화), 사용자가 선택하면 목적지로 다시 이동한다.
+ * 미저장 변경 가드 — 수동 저장(Ctrl+S/버튼), 새로고침/닫기 경고.
+ * 뷰(URL) 전환 시 확인 모달은 표시하지 않는다(미저장 편집은 로컬에 유지).
+ * 프로젝트만 바꿀 때도 확인하지 않는다.
  */
 export function useUnsavedChangesGuard({
   currentProjectId,
@@ -231,21 +228,7 @@ export function useUnsavedChangesGuard({
   const prevViewFullPathRef = useRef<string>('');
 
   const requestNavigation = useCallback((run: () => void) => {
-    if (leaveDecisionInFlightRef.current) {
-      return;
-    }
-    if (viewLeavePromptRef.current) {
-      if (viewLeavePromptRef.current.mode === 'programmatic') {
-        pendingViewNavigationRef.current = run;
-      }
-      return;
-    }
-    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
-      run();
-      return;
-    }
-    pendingViewNavigationRef.current = run;
-    setViewLeavePrompt({ mode: 'programmatic' });
+    run();
   }, []);
 
   useFocusTrap(viewLeaveDialogRef, !!viewLeavePrompt);
@@ -269,29 +252,10 @@ export function useUnsavedChangesGuard({
     if (allowViewNavigationOnceRef.current) {
       allowViewNavigationOnceRef.current = false;
       leaveDecisionInFlightRef.current = false;
-      prevViewSegmentRef.current = seg;
-      prevViewFullPathRef.current = fullPath;
-      return;
     }
 
-    if (viewLeavePromptRef.current || leaveDecisionInFlightRef.current) {
-      return;
-    }
-
-    if (!isSupabaseConfigured || !hasLocalChangesRef.current) {
-      prevViewSegmentRef.current = seg;
-      prevViewFullPathRef.current = fullPath;
-      return;
-    }
-
-    const restorePath = prevViewFullPathRef.current || fullPath;
-    pathLeaveTargetRef.current = {
-      toFullPath: fullPath.startsWith('/') ? fullPath : `/${fullPath}`,
-      toLabel: labelForViewPath(fullPath),
-    };
-    allowViewNavigationOnceRef.current = true;
-    navigateRef.current(restorePath, { replace: true });
-    setViewLeavePrompt({ mode: 'path', targetLabel: pathLeaveTargetRef.current?.toLabel });
+    prevViewSegmentRef.current = seg;
+    prevViewFullPathRef.current = fullPath;
   }, [location.pathname, location.search]);
 
   useEffect(() => {
