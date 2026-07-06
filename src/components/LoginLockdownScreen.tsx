@@ -1,9 +1,14 @@
 import React from 'react';
-import { Clock, Info } from 'lucide-react';
+import { Clock, Download, Info } from 'lucide-react';
 import logo from '../assets/logo.png';
 import { APP_VERSION, APP_COMMIT_DATE } from '../appRelease';
 import { formatReleaseDateDotKo } from '../lib/utils';
-import { LOGIN_LOCKDOWN_DURATION_HINT, LOGIN_LOCKDOWN_MESSAGE } from '../constants/loginLockdown';
+import {
+  LOGIN_LOCKDOWN_DURATION_HINT,
+  LOGIN_LOCKDOWN_EXPORT,
+  LOGIN_LOCKDOWN_EXPORT_HINT,
+  LOGIN_LOCKDOWN_MESSAGE,
+} from '../constants/loginLockdown';
 
 /** 로그인 차단 기간 안내 — 로그인 폼 없이 공지만 표시 */
 export function LoginLockdownScreen() {
@@ -45,6 +50,19 @@ export function LoginLockdownScreen() {
                   <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
                     <Clock className="w-4 h-4 mt-0.5 text-amber-300 shrink-0" aria-hidden />
                     <p className="text-sm text-amber-100/90 leading-relaxed">{LOGIN_LOCKDOWN_DURATION_HINT}</p>
+                  </div>
+                  <div className="px-4 py-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-3">
+                    <p className="text-sm text-emerald-100/95 leading-relaxed">{LOGIN_LOCKDOWN_EXPORT_HINT}</p>
+                    <p className="text-xs text-emerald-200/70">스냅샷 기준: {LOGIN_LOCKDOWN_EXPORT.snapshotLabel}</p>
+                    <a
+                      href={LOGIN_LOCKDOWN_EXPORT.href}
+                      download={LOGIN_LOCKDOWN_EXPORT.fileName}
+                      className="w-full inline-flex items-center justify-center gap-2 bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-slate-50 active:scale-[0.98] transition-all"
+                      style={{ boxShadow: '0 4px 15px rgba(255,255,255,0.1)' }}
+                    >
+                      <Download className="w-4 h-4" aria-hidden />
+                      프로젝트 엑셀 다운로드
+                    </a>
                   </div>
                 </div>
 
