@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isDevAuthBypass, DEV_BYPASS_USER_ID } from '../lib/devAuthBypass';
 import { setRememberMe } from '../lib/authPersistence';
+import { isLoginLockdownActive, LOGIN_LOCKDOWN_MESSAGE } from '../constants/loginLockdown';
 
 interface AuthContextType {
   user: User | null;
@@ -87,15 +88,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (isLoginLockdownActive() && session) {
+        await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+      } else {
+        setSession(session);
+        setUser(session?.user ?? null);
+      }
       setLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (isLoginLockdownActive() && session) {
+        void supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        return;
+      }
       setSession(session);
       setUser(session?.user ?? null);
     });
@@ -104,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string, rememberMe = true) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     // 토큰 기록 전에 저장 위치를 먼저 결정해야 한다(storage 어댑터가 이 플래그를 읽음).
     setRememberMe(rememberMe);
@@ -112,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUpWithEmail = useCallback(async (email: string, password: string, fullName: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     const trimmedName = fullName.trim();
     if (!trimmedName) return { error: '이름을 입력하세요.' };
@@ -124,18 +139,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const verifySignupOtp = useCallback(async (email: string, token: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'signup' });
     return { error: error?.message };
   }, []);
 
   const resendSignupOtp = useCallback(async (email: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.resend({ email, type: 'signup' });
     return { error: error?.message };
   }, []);
 
   const requestPasswordResetOtp = useCallback(async (email: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     // resetPasswordForEmail는 메일 템플릿이 OTP({{ .Token }})를 사용하도록 설정되어
     // 있으면 6자리 코드를 메일로 발송한다.
@@ -144,18 +162,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const verifyPasswordResetOtp = useCallback(async (email: string, token: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.verifyOtp({ email, token, type: 'recovery' });
     return { error: error?.message };
   }, []);
 
   const updatePassword = useCallback(async (newPassword: string) => {
+    if (isLoginLockdownActive()) return { error: LOGIN_LOCKDOWN_MESSAGE };
     if (!supabase) return { error: 'Supabase not configured' };
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     return { error: error?.message };
   }, []);
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'github') => {
+    if (isLoginLockdownActive()) return;
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider,

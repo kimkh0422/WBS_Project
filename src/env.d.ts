@@ -23,6 +23,8 @@ interface ImportMetaEnv {
   readonly VITE_REALTIME_ENABLED?: string;
   /** billing: paid(기본) | free — free면 Realtime 부가기능 최소화 */
   readonly VITE_BILLING_PLAN?: string;
+  /** false면 로그인 차단(시범운영 안내) 해제 — 미설정 시 코드 상수(LOGIN_LOCKDOWN_ENABLED) 따름 */
+  readonly VITE_LOGIN_LOCKDOWN?: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
   readonly MODE: string;

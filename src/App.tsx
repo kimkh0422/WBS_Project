@@ -96,7 +96,9 @@ import { fetchCooperationRequests } from './lib/db/cooperationRequests';
 import { isSupabaseConfigured } from './lib/supabase';
 import { isDevAuthBypass } from './lib/devAuthBypass';
 import { LoginScreen } from './components/LoginScreen';
+import { LoginLockdownScreen } from './components/LoginLockdownScreen';
 import { SupabaseSetupScreen } from './components/SupabaseSetupScreen';
+import { isLoginLockdownActive } from './constants/loginLockdown';
 import { useAuth } from './context/AuthContext';
 import { ToastProvider, useToast } from './components/Toast';
 import { ExcelImportPreviewModal } from './components/ExcelImportPreviewModal';
@@ -1902,6 +1904,9 @@ function AppWithProviders() {
         </div>
       </div>
     );
+  }
+  if (isLoginLockdownActive() && !isDevAuthBypass()) {
+    return <LoginLockdownScreen />;
   }
   if (!user || isResettingPassword) {
     return <LoginScreen />;
